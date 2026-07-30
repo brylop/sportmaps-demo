@@ -345,6 +345,15 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
       .select(`id, school_id, coach_id, day_of_week, start_time, end_time, available_for_group_classes, available_for_personal_classes, max_group_capacity, coach:school_staff!coach_availability_coach_id_fkey(id, full_name, specialty)`)
       .in('school_id', allSchoolIds);
 
+    // ── Fetch facility availability (agendamiento principal sin coach) ───────
+    // A diferencia del coach: NO se filtra por offering/plan asignado.
+    // Cualquier enrollment activo con credito primario puede reservar aqui.
+    const { data: facilityAvailData } = await supabase
+      .from('facility_availability')
+      .select(`id, school_id, facility_id, day_of_week, start_time, end_time, max_group_capacity,
+               facility:facilities(id, name, type, min_booking_advance_hours, min_cancellation_hours)`)
+      .in('school_id', allSchoolIds);
+
     const coachIds = [...new Set((availData || []).map(a => a.coach_id))];
     const availIds = (availData || []).map(a => a.id);
 
@@ -353,7 +362,7 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
     // (b) obtener current_bookings POR FECHA (no acumulado entre semanas)
     const { data: existingSessions } = await supabase
       .from('attendance_sessions')
-      .select('id, coach_id, session_date, start_time, coach_availability_id, current_bookings, max_capacity')
+      .select('id, coach_id, facility_id, session_date, start_time, coach_availability_id, facility_availability_id, current_bookings, max_capacity')
       .in('school_id', allSchoolIds)
       .gte('session_date', today);
 
@@ -370,6 +379,17 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
       if (!s.coach_availability_id) return;
       const key = `${s.coach_availability_id}_${s.session_date}`;
       sessionCapacityMap[key] = {
+        current: s.current_bookings ?? 0,
+        max: s.max_capacity,
+      };
+    });
+
+    // Mapa equivalente para instalaciones
+    const facilityCapacityMap: Record<string, { current: number; max: number | null }> = {};
+    (existingSessions || []).forEach((s: any) => {
+      if (!s.facility_availability_id) return;
+      const key = `${s.facility_availability_id}_${s.session_date}`;
+      facilityCapacityMap[key] = {
         current: s.current_bookings ?? 0,
         max: s.max_capacity,
       };
@@ -469,6 +489,90 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
               available_for_group_classes: true,
             });
           }
+      }
+    }
+  }
+
+    // ── Generación de pseudo-sesiones de INSTALACIÓN (agendamiento principal sin coach) ──
+    // Regla clave: NO se filtra por offering. Cualquier plan activo con crédito
+    // primario del atleta puede reservar. Siempre modo grupal (sin variante personal).
+    const facilityGeneratedSessions: any[] = [];
+    const nowMs = Date.now();
+
+    if (facilityAvailData && facilityAvailData.length && planEnrollments.length) {
+      const [year, month, day] = today.split('-').map(Number);
+      const DAYS_AHEAD = 14;
+
+      for (let i = 0; i < DAYS_AHEAD; i++) {
+        const d = new Date(Date.UTC(year, month - 1, day + i));
+        const dateStr = d.toISOString().split('T')[0];
+        const dbDay = d.getUTCDay();
+        if (dateStr < today) continue;
+
+        const slotsForDay = facilityAvailData.filter((a: any) => a.day_of_week === dbDay);
+
+        for (const avail of slotsForDay) {
+          const facility = (avail as any).facility;
+          if (!facility) continue;
+
+          // Ventana de anticipación mínima de la instalación
+          const slotStart = avail.start_time.substring(0, 5);
+          const slotDateTimeCO = new Date(`${dateStr}T${avail.start_time.substring(0, 8)}`);
+          const slotUTC = new Date(slotDateTimeCO.getTime() + 5 * 60 * 60 * 1000); // Colombia UTC-5
+          const advanceMs = (facility.min_booking_advance_hours ?? 0) * 60 * 60 * 1000;
+          if (slotUTC.getTime() - nowMs < advanceMs) continue;
+
+          // Elegir el mejor enrollment del atleta para esta escuela con crédito disponible
+          const candidateEnrollments = planEnrollments.filter((e: any) => e.school_id === avail.school_id);
+          if (!candidateEnrollments.length) continue;
+
+          let bestEnrollment: any = null;
+          let bestSessLeft: number | null = null;
+          for (const e of candidateEnrollments) {
+            const plan = (e as any).offering_plans;
+            const maxSess = plan?.max_sessions ?? null;
+            const used = e.sessions_used ?? 0;
+            const sessLeft = maxSess !== null ? Math.max(0, maxSess - used) : null; // null = ilimitado
+            const hasCredit = sessLeft === null || sessLeft > 0;
+            if (hasCredit && (bestEnrollment === null || (sessLeft ?? Infinity) > (bestSessLeft ?? -1))) {
+              bestEnrollment = e; bestSessLeft = sessLeft;
+            }
+          }
+          // Si ninguno tiene crédito, igual mostramos el slot con no_credits usando el primero
+          const chosenEnrollment = bestEnrollment ?? candidateEnrollments[0];
+          const chosenPlan = (chosenEnrollment as any).offering_plans;
+          const chosenMaxSess = chosenPlan?.max_sessions ?? null;
+          const chosenUsed = chosenEnrollment.sessions_used ?? 0;
+          const chosenSessLeft = chosenMaxSess !== null ? Math.max(0, chosenMaxSess - chosenUsed) : null;
+          const noCredits = chosenSessLeft !== null && chosenSessLeft <= 0;
+
+          const capacityKey = `${avail.id}_${dateStr}`;
+          const existingCap = facilityCapacityMap[capacityKey];
+          const currentBookings = existingCap?.current ?? 0;
+          const maxCapacity = existingCap?.max ?? avail.max_group_capacity ?? 10;
+          const isFull = currentBookings >= maxCapacity;
+
+          facilityGeneratedSessions.push({
+            id: `favail_${avail.id}_${dateStr}`,
+            session_type: 'facility',
+            session_date: dateStr,
+            start_time: `${slotStart}:00`,
+            end_time: avail.end_time.length === 5 ? `${avail.end_time}:00` : avail.end_time,
+            max_capacity: maxCapacity,
+            current_bookings: currentBookings,
+            available_spots: Math.max(0, maxCapacity - currentBookings),
+            already_booked: false, // se resuelve mas abajo igual que el resto
+            team: null, team_id: null, offering_id: null,
+            facility: { id: facility.id, name: facility.name, type: facility.type },
+            coach: null,
+            sessions_left: chosenSessLeft,
+            enrollment_id: chosenEnrollment.id,
+            booking_status: isFull ? 'full' : noCredits ? 'no_credits' : 'open',
+            is_pseudo: true,
+            min_cancellation_hours: facility.min_cancellation_hours ?? 0,
+            available_for_personal_classes: false,
+            available_for_group_classes: true,
+          });
         }
       }
     }
@@ -513,7 +617,7 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
       }
     }
 
-    const baseSessions = [...teamSessions, ...offeringSessions, ...dedupedGenerated];
+    const baseSessions = [...teamSessions, ...offeringSessions, ...dedupedGenerated, ...facilityGeneratedSessions];
     const allSessions: any[] = [];
 
     baseSessions.forEach((s: any) => {
@@ -521,7 +625,7 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
       const isDual = s.available_for_personal_classes && s.available_for_group_classes;
       const isEmpty = (s.current_bookings ?? 0) === 0;
 
-      if (isDual && isEmpty) {
+      if (s.session_type !== 'facility' && isDual && isEmpty) {
         // Opción Personal
         allSessions.push({
           ...s,
@@ -600,6 +704,27 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
         };
       }
 
+      if (s.session_type === 'facility') {
+        return {
+          id: s.id,
+          session_type: 'facility',
+          session_date: s.session_date,
+          start_time: s.start_time,
+          end_time: s.end_time,
+          max_capacity: s.max_capacity,
+          current_bookings: s.current_bookings,
+          available_spots: availableSpots,
+          already_booked: alreadyBooked,
+          team: null, team_id: null, offering_id: null,
+          facility: s.facility ?? null,
+          coach: null,
+          sessions_left: s.sessions_left,
+          enrollment_id: s.enrollment_id,
+          booking_status: alreadyBooked ? 'already_booked' : isFull ? 'full' : s.booking_status,
+          min_cancellation_hours: s.min_cancellation_hours ?? 0,
+        };
+      }
+
       // session_type === 'offering'
       const enrollment = planEnrollments.find(
         e => (e.offering_plans as any)?.offering_id === s.offering_id
@@ -665,7 +790,80 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
     let actualSessionId = session_id;
     let s: any = null;
 
-    if (session_id.startsWith('avail_')) {
+    if (session_id.startsWith('favail_')) {
+      // Formato: favail_{availId}_{YYYY-MM-DD}
+      const dateStr = session_id.slice(-10);
+      const availId = session_id.slice('favail_'.length, -11);
+
+      if (!availId || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr))
+        return res.status(400).json({ error: 'invalid_favail_format' });
+
+      const { data: avail } = await supabase
+        .from('facility_availability')
+        .select('facility_id, start_time, end_time, max_group_capacity, facility:facilities(min_booking_advance_hours)')
+        .eq('id', availId)
+        .single();
+
+      if (!avail) return res.status(404).json({ error: 'facility_avail_not_found' });
+
+      // Revalidar ventana de anticipación en servidor (nunca confiar en el cliente)
+      const advanceHours = (avail as any).facility?.min_booking_advance_hours ?? 0;
+      const slotDateTimeCO = new Date(`${dateStr}T${avail.start_time.substring(0, 8)}`);
+      const slotUTC = new Date(slotDateTimeCO.getTime() + 5 * 60 * 60 * 1000);
+      const hoursUntil = (slotUTC.getTime() - Date.now()) / 3_600_000;
+      if (hoursUntil < advanceHours) {
+        return res.status(400).json({
+          error: `Este horario requiere al menos ${advanceHours}h de anticipación para reservarse.`,
+          reason: 'outside_booking_advance_window',
+        });
+      }
+
+      const start_time = avail.start_time.length === 5 ? `${avail.start_time}:00` : avail.start_time;
+      const end_time = avail.end_time.length === 5 ? `${avail.end_time}:00` : avail.end_time;
+
+      const { data: existS } = await supabase
+        .from('attendance_sessions')
+        .select('id, school_id, max_capacity, current_bookings')
+        .eq('facility_availability_id', availId)
+        .eq('session_date', dateStr)
+        .maybeSingle();
+
+      if (existS) {
+        s = existS;
+        actualSessionId = s.id;
+      } else {
+        const { data: newS, error: newErr } = await supabase.from('attendance_sessions')
+          .insert({
+            school_id: enrollmentSchoolId,
+            facility_id: avail.facility_id,
+            facility_availability_id: availId,
+            coach_id: null,
+            offering_id: null, // clave: instalacion no pertenece a un solo plan
+            session_date: dateStr,
+            start_time, end_time,
+            max_capacity: avail.max_group_capacity ?? 10,
+            current_bookings: 0,
+            is_bookable: true,
+            finalized: false,
+          }).select('id, school_id, max_capacity, current_bookings').single();
+
+        if (newErr && newErr.code === '23505') {
+          const { data: retryS, error: retryErr } = await supabase
+            .from('attendance_sessions')
+            .select('id, school_id, max_capacity, current_bookings')
+            .eq('facility_availability_id', availId)
+            .eq('session_date', dateStr)
+            .single();
+          if (retryErr || !retryS) return res.status(500).json({ error: 'No se pudo resolver el bloque.' });
+          s = retryS;
+        } else if (newErr) {
+          return res.status(500).json({ error: 'failed_creating_session' });
+        } else {
+          s = newS;
+        }
+        actualSessionId = s.id;
+      }
+    } else if (session_id.startsWith('avail_')) {
       // Formato: avail_p_{availId}_{YYYY-MM-DD} o avail_g_{availId}_{YYYY-MM-DD}
       const isPersonal = session_id.includes('_p_');
       const isGroup = session_id.includes('_g_');
@@ -727,8 +925,20 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
             coach_availability_id: availId,   // ← vínculo clave para conteo por fecha
           }).select('id, school_id, max_capacity, current_bookings').single();
 
-        if (newErr) return res.status(500).json({ error: 'failed_creating_session' });
-        s = newS;
+        if (newErr && newErr.code === '23505') {
+          const { data: retryS, error: retryErr } = await supabase
+            .from('attendance_sessions')
+            .select('id, school_id, max_capacity, current_bookings')
+            .eq('coach_availability_id', availId)
+            .eq('session_date', dateStr)
+            .single();
+          if (retryErr || !retryS) return res.status(500).json({ error: 'No se pudo resolver el bloque.' });
+          s = retryS;
+        } else if (newErr) {
+          return res.status(500).json({ error: 'failed_creating_session' });
+        } else {
+          s = newS;
+        }
         actualSessionId = s.id;
       }
     } else {
@@ -991,7 +1201,8 @@ router.delete('/athlete/cancel-booking', requireAuth, async (req: Request, res: 
     // ── 1. Intentar en session_bookings (Regular/Grupales) ────────────────
     const { data: booking } = await supabase
       .from('session_bookings')
-      .select('id, status, user_id, child_id')
+      .select(`id, status, user_id, child_id, enrollment_id, is_secondary,
+        attendance_sessions ( session_date, start_time, facility_id, facilities ( min_cancellation_hours ) )`)
       .eq('id', booking_id)
       .maybeSingle();
 
@@ -1001,6 +1212,30 @@ router.delete('/athlete/cancel-booking', requireAuth, async (req: Request, res: 
 
       if (!isOwner && !isChild) return res.status(403).json({ error: 'unauthorized' });
       if (booking.status === 'cancelled') return res.status(400).json({ error: 'Ya cancelada' });
+      if (booking.status !== 'confirmed') {
+        return res.status(400).json({
+          error: 'Esta clase ya fue registrada y no se puede cancelar.',
+          reason: 'not_cancellable',
+        });
+      }
+
+      const sessInfo: any = Array.isArray((booking as any).attendance_sessions)
+        ? (booking as any).attendance_sessions[0]
+        : (booking as any).attendance_sessions;
+      if (sessInfo?.facility_id) {
+        const cancelHours = sessInfo.facilities?.min_cancellation_hours ?? 0;
+        if (cancelHours > 0 && sessInfo.session_date && sessInfo.start_time) {
+          const sessionCO = new Date(`${sessInfo.session_date}T${sessInfo.start_time.substring(0, 8)}`);
+          const sessionUTC = new Date(sessionCO.getTime() + 5 * 60 * 60 * 1000);
+          const hoursUntil = (sessionUTC.getTime() - Date.now()) / 3_600_000;
+          if (hoursUntil < cancelHours) {
+            return res.status(400).json({
+              error: `Faltan menos de ${cancelHours}h para tu reserva. No se puede cancelar.`,
+              reason: 'outside_cancellation_window',
+            });
+          }
+        }
+      }
 
       const { error: updateError } = await supabase
         .from('session_bookings')
@@ -1008,6 +1243,16 @@ router.delete('/athlete/cancel-booking', requireAuth, async (req: Request, res: 
         .eq('id', booking_id);
 
       if (updateError) throw updateError;
+
+      // Reembolso de crédito
+      const f = booking.is_secondary ? 'secondary_sessions_used' : 'sessions_used';
+      const { data: enr } = await supabase.from('enrollments').select(f).eq('id', booking.enrollment_id).single();
+      if (enr) {
+        await supabase.from('enrollments')
+          .update({ [f]: Math.max(0, ((enr as any)[f] || 0) - 1) })
+          .eq('id', booking.enrollment_id);
+      }
+
       return res.json({ success: true });
     }
 
@@ -1064,12 +1309,40 @@ router.delete('/athlete/:id/cancel', requireAuth, async (req: Request, res: Resp
     // ── 2. Fetch booking ──────────────────────────────────────────────────
     const { data: b } = await supabase
       .from('session_bookings')
-      .select('id, user_id, child_id, session_id, enrollment_id, is_secondary, status')
+      .select(`id, user_id, child_id, session_id, enrollment_id, is_secondary, status,
+        attendance_sessions ( session_date, start_time, facility_id, facilities ( min_cancellation_hours ) )`)
       .eq('id', id)
       .maybeSingle();
 
     if (!b) return res.status(404).json({ error: 'not_found' });
     if (b.status === 'cancelled') return res.status(400).json({ error: 'already_cancelled' });
+    if (b.status !== 'confirmed') {
+      // 'attended' / 'no_show' -> la sesion ya paso, no se puede cancelar ni devolver credito
+      return res.status(400).json({
+        error: 'Esta clase ya fue registrada y no se puede cancelar.',
+        reason: 'not_cancellable',
+      });
+    }
+
+    // Ventana de cancelación de la instalación (bloqueo duro — sin excepción,
+    // a diferencia del PT donde el entrenador decide si faltan menos de 4h)
+    const sessInfo: any = Array.isArray((b as any).attendance_sessions)
+      ? (b as any).attendance_sessions[0]
+      : (b as any).attendance_sessions;
+    if (sessInfo?.facility_id) {
+      const cancelHours = sessInfo.facilities?.min_cancellation_hours ?? 0;
+      if (cancelHours > 0 && sessInfo.session_date && sessInfo.start_time) {
+        const sessionCO = new Date(`${sessInfo.session_date}T${sessInfo.start_time.substring(0, 8)}`);
+        const sessionUTC = new Date(sessionCO.getTime() + 5 * 60 * 60 * 1000);
+        const hoursUntil = (sessionUTC.getTime() - Date.now()) / 3_600_000;
+        if (hoursUntil < cancelHours) {
+          return res.status(400).json({
+            error: `Faltan menos de ${cancelHours}h para tu reserva. No se puede cancelar para no quitarle el cupo a otra persona.`,
+            reason: 'outside_cancellation_window',
+          });
+        }
+      }
+    }
 
     // ── 3. Verificar que el booking pertenece al usuario autenticado ───────
     const bookingBelongsToUser = child_id
@@ -1239,7 +1512,16 @@ router.post('/athlete/book-secondary', requireAuth, async (req: Request, res: Re
       resv_type: 'secondary_class',
     }).select().single();
 
-    if (error) throw error;
+    if (error) {
+      // Trigger fn_check_facility_reservation_overlap (DB) rechaza choques de horario
+      if (error.message?.includes('facility_slot_conflict')) {
+        return res.status(409).json({
+          error: 'Ese horario ya fue reservado por otra persona. Elige otro horario.',
+          reason: 'facility_slot_conflict',
+        });
+      }
+      throw error;
+    }
 
     // ── 4. Incrementar secundarias usadas ─────────────────────────────────
     const { data: enr } = await supabase

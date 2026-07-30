@@ -58,6 +58,7 @@ const RecepcionPage = lazy(() => import("./pages/recepcion/RecepcionPage"));
 // ─── Events (public, lazy) ────────────────────────────────────────────────────
 const EventsMapPage = lazy(() => import("./pages/events/EventsMapPage"));
 const EventPublicPage = lazy(() => import("./pages/events/EventPublicPage"));
+const PublicFacilityBookingPage = lazy(() => import("./pages/booking/PublicFacilityBookingPage"));
 const EventIndividualRegisterPage = lazy(() => import("./pages/events/EventIndividualRegisterPage"));
 const MyEventRegistrationsPage = lazy(() => import("./pages/events/MyEventRegistrationsPage"));
 
@@ -297,6 +298,7 @@ const App = () => (
                     <Route path="/c/:qrToken" element={<AthleteCardPublicPage />} />
                     <Route path="/cert/:folio" element={<CertificateVerifyPublicPage />} />
                     <Route path="/join/:slug" element={<JoinSchoolPublicPage />} />
+                    <Route path="/agendar/:slug" element={<PublicFacilityBookingPage />} />
                     <Route path="/terminos-y-condiciones" element={<TermsPage />} />
                     <Route path="/terms" element={<Navigate to="/terminos-y-condiciones" replace />} />
                     <Route path="/politica-de-privacidad" element={<PrivacyPage />} />

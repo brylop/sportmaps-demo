@@ -18,7 +18,7 @@ import {
   CheckCircle2, XCircle, Clock, AlertCircle, Users, Lock,
   Flag, Search, UserX, CalendarCheck, Layers, Dumbbell,
   CreditCard, AlertTriangle, ChevronRight, Trophy, Zap, Target, Star,
-  Calendar as CalendarIcon, TrendingUp,
+  Calendar as CalendarIcon, TrendingUp, Building2, Plus,
 } from 'lucide-react';
 import { getSportVisual } from '@/lib/sportVisuals';
 import { cn } from '@/lib/utils';
@@ -71,7 +71,7 @@ interface BookingRow {
   attendance?: AttendanceStatus | null;
 }
 
-interface ModalContext { type: 'team' | 'offering'; id: string; name: string }
+interface ModalContext { type: 'team' | 'offering' | 'facility' | 'facility_session'; id: string; name: string; sessionId?: string }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 const fmt = (d: Date) => d.toISOString().split('T')[0];
@@ -205,6 +205,33 @@ export default function AttendanceSupervisionPage() {
   const [isSecondary, setIsSecondary]         = useState(false);
   const [savingBooking, setSavingBooking]     = useState<string | null>(null);
 
+  // States for facility walk-in search and guest creation
+  const [globalSearch, setGlobalSearch] = useState('');
+  const [guestDialogOpen, setGuestDialogOpen] = useState(false);
+  const [guestName, setGuestName] = useState('');
+  const [guestPhone, setGuestPhone] = useState('');
+  const [guestDoc, setGuestDoc] = useState('');
+
+  const [offeringPicker, setOfferingPicker] = useState<{ offering: OfferingCard; sessions: any[] } | null>(null);
+
+  const handleOpenOffering = async (off: OfferingCard) => {
+    const { data: sessions } = await supabase
+      .from('attendance_sessions')
+      .select('id, start_time, end_time, current_bookings, max_capacity')
+      .eq('school_id', schoolId)
+      .eq('offering_id', off.id)
+      .eq('session_date', selectedDate)
+      .eq('finalized', false)
+      .order('start_time');
+
+    if ((sessions?.length ?? 0) > 1) {
+      setOfferingPicker({ offering: off, sessions: sessions! });
+      return;
+    }
+    // 0 o 1 sesión: exactamente el comportamiento actual, sin fricción nueva
+    openModal({ type: 'offering', id: off.id, name: off.name });
+  };
+
   const selectedDate = fmt(date);
 
   // ── 1. Equipos ───────────────────────────────────────────────────────────
@@ -240,24 +267,44 @@ export default function AttendanceSupervisionPage() {
     queryKey: ['supervision-bookings', schoolId, selectedDate],
     queryFn: async () => {
       if (!schoolId) return [];
+
       const { data: sessions } = await (supabase as any)
         .from('attendance_sessions')
         .select(`id, start_time, end_time, current_bookings,
           offerings!attendance_sessions_offering_id_fkey(name),
-          teams!attendance_sessions_team_id_fkey(name)`)
+          teams!attendance_sessions_team_id_fkey(name),
+          facilities!attendance_sessions_facility_id_fkey(name)`)
         .eq('school_id', schoolId).eq('session_date', selectedDate).gt('current_bookings', 0);
 
-      if (!sessions?.length) return [];
-      const sessionIds = sessions.map((s: any) => s.id);
+      const sessionIds = (sessions || []).map((s: any) => s.id);
+      const { data: bks } = sessionIds.length
+        ? await supabase.from('session_bookings')
+            .select('id, session_id, user_id, child_id, booking_type, enrollment_id')
+            .in('session_id', sessionIds).neq('status', 'cancelled')
+        : { data: [] };
 
-      const { data: bks } = await supabase.from('session_bookings')
-        .select('id, session_id, user_id, child_id, booking_type, enrollment_id')
-        .in('session_id', sessionIds).neq('status', 'cancelled');
+      const { data: facRes } = await supabase
+        .from('facility_reservations')
+        .select('id, facility_id, user_id, child_id, start_time, end_time, enrollment_id, status, facilities(name)')
+        .eq('school_id', schoolId)
+        .eq('reservation_date', selectedDate)
+        .eq('status', 'confirmed');
 
-      if (!bks?.length) return [];
+      const allBks = bks || [];
+      const allFacRes = facRes || [];
 
-      const uIds = [...new Set(bks.map((b: any) => b.user_id).filter(Boolean))] as string[];
-      const cIds = [...new Set(bks.map((b: any) => b.child_id).filter(Boolean))] as string[];
+      if (!allBks.length && !allFacRes.length) return [];
+
+      const uIds = [...new Set([
+        ...allBks.map((b: any) => b.user_id),
+        ...allFacRes.map((r: any) => r.user_id)
+      ].filter(Boolean))] as string[];
+
+      const cIds = [...new Set([
+        ...allBks.map((b: any) => b.child_id),
+        ...allFacRes.map((r: any) => r.child_id)
+      ].filter(Boolean))] as string[];
+
       const [pRes, cRes] = await Promise.all([
         uIds.length ? supabase.from('profiles').select('id, full_name').in('id', uIds) : Promise.resolve({ data: [] }),
         cIds.length ? supabase.from('children').select('id, full_name').in('id', cIds) : Promise.resolve({ data: [] }),
@@ -274,13 +321,13 @@ export default function AttendanceSupervisionPage() {
         if (key !== '_') existingMap[key] = r.status;
       });
 
-      const sMap = Object.fromEntries(sessions.map((s: any) => [s.id, {
+      const sMap = Object.fromEntries((sessions || []).map((s: any) => [s.id, {
         start_time: s.start_time?.slice(0, 5) ?? '',
         end_time:   s.end_time?.slice(0, 5)   ?? '',
-        name:       (s.offerings as any)?.name ?? (s.teams as any)?.name ?? 'Sesión',
+        name:       (s.offerings as any)?.name ?? (s.teams as any)?.name ?? (s.facilities as any)?.name ?? 'Sesión',
       }]));
 
-      const rows = (bks || []).map((b: any): BookingRow => {
+      const regularRows = allBks.map((b: any): BookingRow => {
         return {
           id: b.id, session_id: b.session_id,
           start_time: sMap[b.session_id]?.start_time ?? '',
@@ -294,6 +341,27 @@ export default function AttendanceSupervisionPage() {
         };
       });
 
+      const facilityRows = allFacRes.map((r: any): BookingRow => {
+        const matchingSession = (sessions || []).find((s: any) => s.facility_id === r.facility_id && s.start_time?.slice(0, 5) === r.start_time?.slice(0, 5));
+        const attStatus = matchingSession ? (existingMap[`${matchingSession.id}_${r.child_id ?? r.user_id}`] ?? null) : null;
+
+        return {
+          id: r.id,
+          session_id: matchingSession?.id ?? `new_${r.id}`,
+          start_time: r.start_time?.slice(0, 5) ?? '',
+          end_time: r.end_time?.slice(0, 5) ?? '',
+          person_name: r.user_id ? (pMap[r.user_id] ?? 'Atleta') : (cMap[r.child_id] ?? 'Deportista'),
+          context_name: r.facilities?.name ?? 'Instalación',
+          child_id: r.child_id ?? null,
+          user_id: r.user_id ?? null,
+          enrollment_id: r.enrollment_id ?? null,
+          booking_type: 'secondary_class',
+          attendance: attStatus,
+        };
+      });
+
+      const rows = [...regularRows, ...facilityRows];
+
       const preloaded: Record<string, AttendanceStatus> = {};
       rows.forEach((r) => { if (r.attendance) preloaded[r.id] = r.attendance; });
       setBookingAttendance(preloaded);
@@ -302,20 +370,102 @@ export default function AttendanceSupervisionPage() {
     enabled: !!schoolId,
   });
 
+  // ── 3b. Instalaciones de la escuela ───────────────────────────────────────
+  const { data: supervisionFacilities = [], isLoading: loadingSupervisionFacilities } = useQuery<any[]>({
+    queryKey: ['supervision-facilities', schoolId],
+    queryFn: async () => {
+      if (!schoolId) return [];
+      const { data, error } = await (supabase as any)
+        .from('facilities').select('id, name, type, capacity')
+        .eq('school_id', schoolId).eq('status', 'available').order('name');
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!schoolId,
+  });
+
+  // ── 3c. Bloques de disponibilidad de la instalación seleccionada ─────────
+  const { data: facilityBlocks = [], isLoading: loadingBlocks } = useQuery<any[]>({
+    queryKey: ['facility-blocks', modalCtx?.id, selectedDate],
+    queryFn: async () => {
+      if (!modalCtx || modalCtx.type !== 'facility') return [];
+      const dbDay = date.getDay();
+      const { data, error } = await (supabase as any)
+        .from('facility_availability')
+        .select('id, start_time, end_time, max_group_capacity')
+        .eq('facility_id', modalCtx.id)
+        .eq('day_of_week', dbDay)
+        .order('start_time', { ascending: true });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!modalCtx && modalCtx.type === 'facility',
+  });
+
+  // ── 3d. Sesiones ya creadas de la instalación seleccionada hoy ───────────
+  const { data: facilitySessions = [] } = useQuery<any[]>({
+    queryKey: ['facility-sessions', modalCtx?.id, selectedDate],
+    queryFn: async () => {
+      if (!modalCtx || modalCtx.type !== 'facility') return [];
+      const { data, error } = await (supabase as any)
+        .from('attendance_sessions')
+        .select('id, facility_availability_id, finalized, finalized_at, current_bookings, max_capacity')
+        .eq('facility_id', modalCtx.id)
+        .eq('session_date', selectedDate);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!modalCtx && modalCtx.type === 'facility',
+  });
+
+  // ── 3f. Reservaciones de instalaciones de hoy (clases secundarias) ────────
+  const { data: facilityReservations = [] } = useQuery<any[]>({
+    queryKey: ['supervision-facility-reservations', schoolId, selectedDate],
+    queryFn: async () => {
+      if (!schoolId) return [];
+      const { data, error } = await supabase
+        .from('facility_reservations')
+        .select('id, facility_id, start_time, end_time, status')
+        .eq('school_id', schoolId)
+        .eq('reservation_date', selectedDate)
+        .eq('status', 'confirmed');
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!schoolId,
+  });
+
+  // ── 3e. Búsqueda global de estudiantes (Walk-in de instalaciones) ────────
+  const { data: globalRoster = [], isLoading: loadingGlobalRoster } = useQuery<any[]>({
+    queryKey: ['supervision-global-roster', globalSearch, schoolId],
+    queryFn: async () => {
+      if (globalSearch.trim().length < 2) return [];
+      const token = await getBearerToken();
+      const res = await fetch(
+        `${BFF_URL}/api/v1/attendance/school-roster?search=${encodeURIComponent(globalSearch)}`,
+        { headers: { Authorization: `Bearer ${token}`, 'x-school-id': schoolId ?? '' } }
+      );
+      if (!res.ok) throw new Error('Error buscando estudiantes');
+      const data = await res.json();
+      return data.athletes || [];
+    },
+    enabled: !!globalSearch.trim() && globalSearch.trim().length >= 2 && !!schoolId && modalCtx?.type === 'facility_session',
+  });
+
   // ── 4. Roster del modal (BFF) ─────────────────────────────────────────────
   const { data: rosterData, isLoading: loadingRoster } = useQuery<{ athletes: RosterItem[] }>({
-    queryKey: ['supervision-roster', modalCtx?.type, modalCtx?.id, schoolId],
+    queryKey: ['supervision-roster', modalCtx?.type, modalCtx?.id, schoolId, selectedDate],
     queryFn: async () => {
       if (!modalCtx) return { athletes: [] };
       const token = await getBearerToken();
       const res = await fetch(
-        `${BFF_URL}/api/v1/attendance/roster/${modalCtx.type}/${modalCtx.id}`,
+        `${BFF_URL}/api/v1/attendance/roster/${modalCtx.type}/${modalCtx.id}?date=${selectedDate}`,
         { headers: { Authorization: `Bearer ${token}`, 'x-school-id': schoolId ?? '' } }
       );
       if (!res.ok) throw new Error('Error cargando roster');
       return res.json();
     },
-    enabled: !!modalCtx && !!schoolId,
+    enabled: !!modalCtx && !!schoolId && modalCtx.type !== 'facility',
   });
 
   // ── 5. Sesión activa ──────────────────────────────────────────────────────
@@ -346,12 +496,15 @@ export default function AttendanceSupervisionPage() {
         const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
         
         // Buscar sesiones de hoy para este offering
-        const { data: sessions } = await (supabase as any)
+        let sessQuery = supabase
           .from('attendance_sessions')
           .select('id')
           .eq('school_id', schoolId)
-          .eq('offering_id', modalCtx.id)
           .eq('session_date', today);
+        sessQuery = modalCtx.sessionId
+          ? sessQuery.eq('id', modalCtx.sessionId)
+          : sessQuery.eq('offering_id', modalCtx.id);
+        const { data: sessions } = await sessQuery;
 
         if (!sessions?.length) return { session: null, records: [] };
 
@@ -375,9 +528,44 @@ export default function AttendanceSupervisionPage() {
         return { session: null, records: records || [] };
       }
 
+      if (modalCtx.type === 'facility_session') {
+        if (modalCtx.id.startsWith('new_')) {
+          return { session: null, records: [] };
+        }
+        
+        const [sessionRes, recordsRes] = await Promise.all([
+          (supabase as any)
+            .from('attendance_sessions')
+            .select('id, session_date, finalized, finalized_at, created_by, created_at')
+            .eq('id', modalCtx.id)
+            .maybeSingle(),
+          (supabase as any)
+            .from('attendance_records')
+            .select('child_id, user_id, unregistered_athlete_id, status')
+            .eq('session_id', modalCtx.id)
+        ]);
+
+        if (sessionRes.error) throw sessionRes.error;
+        if (recordsRes.error) throw recordsRes.error;
+
+        const session = sessionRes.data;
+        const records = recordsRes.data || [];
+
+        if (records.length) {
+          const preloaded: Record<string, AttendanceStatus> = {};
+          records.forEach((r: any) => {
+            const id = r.child_id ?? r.user_id ?? r.unregistered_athlete_id;
+            if (id) preloaded[id] = r.status;
+          });
+          setAttendanceState(preloaded);
+        }
+
+        return { session, records };
+      }
+
       return { session: null, records: [] };
     },
-    enabled: !!modalCtx,
+    enabled: !!modalCtx && modalCtx.type !== 'facility',
   });
 
   // ── Roster filtrado por búsqueda ──────────────────────────────────────────
@@ -410,7 +598,17 @@ export default function AttendanceSupervisionPage() {
         if (!a || !a.enrollment_id) continue;
         const payload: any = { enrollmentId: a.enrollment_id, is_secondary: isSecondary, status: 'present' };
         if (modalCtx.type === 'team')     payload.teamId     = modalCtx.id;
-        if (modalCtx.type === 'offering') payload.offeringId = modalCtx.id;
+        if (modalCtx.type === 'offering') {
+          if (modalCtx.sessionId) payload.sessionId = modalCtx.sessionId;
+          else payload.offeringId = modalCtx.id;
+        }
+        if (modalCtx.type === 'facility_session') {
+          if (modalCtx.id.startsWith('new_')) {
+            payload.facilityAvailabilityId = modalCtx.id.replace('new_', '');
+          } else {
+            payload.sessionId = modalCtx.id;
+          }
+        }
         if (a.athlete_type === 'child')        payload.childId               = id;
         else if (a.athlete_type === 'adult')   payload.userId                = id;
         else                                    payload.unregisteredAthleteId = id;
@@ -429,6 +627,12 @@ export default function AttendanceSupervisionPage() {
             not_found:            `${a.full_name}: sin plan activo`,
           };
           walkInErrors.push(msgs[body.reason] || `${a.full_name}: ${body.error}`);
+        } else {
+          // Si era una sesión nueva y se creó con éxito, actualizamos la url de la sesión en el modal
+          const body = await res.json();
+          if (body.sessionId && modalCtx.id.startsWith('new_')) {
+            modalCtx.id = body.sessionId;
+          }
         }
       }
 
@@ -453,16 +657,25 @@ export default function AttendanceSupervisionPage() {
           if (!res.ok) { const b = await res.json(); throw new Error(b.error); }
 
         } else {
-          // Offering → walk-in por cada atleta (sin descuento porque status != present)
+          // Offering o Facility_session → walk-in por cada atleta (sin descuento porque status != present)
           for (const [id, status] of otherEntries) {
             const a = athletes.find((x) => x.id === id);
             if (!a?.enrollment_id) continue;
             const payload: any = {
               enrollmentId: a.enrollment_id,
-              offeringId:   modalCtx.id,
               status,
               is_secondary: false,
             };
+            if (modalCtx.type === 'facility_session') {
+              if (modalCtx.id.startsWith('new_')) {
+                payload.facilityAvailabilityId = modalCtx.id.replace('new_', '');
+              } else {
+                payload.sessionId = modalCtx.id;
+              }
+            } else {
+              if (modalCtx.sessionId) payload.sessionId = modalCtx.sessionId;
+              else payload.offeringId = modalCtx.id;
+            }
             if (a.athlete_type === 'child')        payload.childId               = id;
             else if (a.athlete_type === 'adult')   payload.userId                = id;
             else                                    payload.unregisteredAthleteId = id;
@@ -478,6 +691,11 @@ export default function AttendanceSupervisionPage() {
               if (!['expired', 'no_credits', 'no_session'].includes(b.reason)) {
                 throw new Error(b.error);
               }
+            } else {
+              const body = await res.json();
+              if (body.sessionId && modalCtx.id.startsWith('new_')) {
+                modalCtx.id = body.sessionId;
+              }
             }
           }
         }
@@ -488,6 +706,7 @@ export default function AttendanceSupervisionPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['supervision-session'] });
       queryClient.invalidateQueries({ queryKey: ['supervision-roster'] });
+      queryClient.invalidateQueries({ queryKey: ['supervision-bookings', schoolId, selectedDate] });
       toast({ title: '✅ Asistencia guardada' });
     },
     onError: (e: any) => toast({ title: 'Algunos registros no se guardaron', description: e.message, variant: 'destructive' }),
@@ -535,11 +754,17 @@ export default function AttendanceSupervisionPage() {
         userId:  booking.user_id  ?? undefined,
         status:  newStatus,
       }];
-      await fetch(`${BFF_URL}/api/v1/attendance/session`, {
+      const res = await fetch(`${BFF_URL}/api/v1/attendance/session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'x-school-id': schoolId ?? '' },
         body: JSON.stringify({ sessionId: booking.session_id, records }),
       });
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error || 'Error al guardar');
+      }
+      queryClient.invalidateQueries({ queryKey: ['supervision-session'] });
+      queryClient.invalidateQueries({ queryKey: ['supervision-roster'] });
     } catch {
       setBookingAttendance((prev) => { const n = { ...prev }; delete n[booking.id]; return n; });
       toast({ title: 'Error al marcar reserva', variant: 'destructive' });
@@ -555,7 +780,95 @@ export default function AttendanceSupervisionPage() {
   const closeModal = () => {
     setModalCtx(null);
     setSearch('');
+    setGlobalSearch('');
     setAttendanceState({});
+  };
+
+  // Mutation to create guest athlete
+  const createGuestMutation = useMutation({
+    mutationFn: async () => {
+      const token = await getBearerToken();
+      const res = await fetch(`${BFF_URL}/api/v1/attendance/quick-guest`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'x-school-id': schoolId ?? '',
+        },
+        body: JSON.stringify({
+          fullName: guestName,
+          phone: guestPhone,
+          docNumber: guestDoc,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Error creando invitado');
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: '✅ Invitado creado', description: data.message });
+      setGuestDialogOpen(false);
+      setGuestName('');
+      setGuestPhone('');
+      setGuestDoc('');
+      setGlobalSearch(data.athlete.full_name);
+    },
+    onError: (err: any) => {
+      toast({ title: 'Error al crear invitado', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  const handleWalkIn = async (athlete: any) => {
+    try {
+      const token = await getBearerToken();
+      const payload: any = {
+        enrollmentId: athlete.enrollment_id,
+        status: 'present',
+        is_secondary: false,
+      };
+      if (modalCtx?.type === 'offering') {
+        if (modalCtx.sessionId) payload.sessionId = modalCtx.sessionId;
+        else payload.offeringId = modalCtx.id;
+      } else if (modalCtx?.id.startsWith('new_')) {
+        payload.facilityAvailabilityId = modalCtx.id.replace('new_', '');
+      } else {
+        payload.sessionId = modalCtx?.id;
+      }
+      if (athlete.athlete_type === 'child') payload.childId = athlete.id;
+      else if (athlete.athlete_type === 'adult') payload.userId = athlete.id;
+      else payload.unregisteredAthleteId = athlete.id;
+
+      const res = await fetch(`${BFF_URL}/api/v1/attendance/walk-in`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'x-school-id': schoolId ?? '',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const body = await res.json();
+      if (!res.ok) {
+        throw new Error(body.error || 'Error al registrar asistencia');
+      }
+
+      toast({ title: '✅ Estudiante agregado', description: 'Se registró su asistencia correctamente.' });
+      setGlobalSearch('');
+      
+      // Si se creó la sesión, cambiamos el ID del modal a la sesión creada
+      if (body.sessionId && modalCtx) {
+        modalCtx.id = body.sessionId;
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['supervision-roster', modalCtx?.type, modalCtx?.id, schoolId] });
+      queryClient.invalidateQueries({ queryKey: ['supervision-session', modalCtx?.type, modalCtx?.id, selectedDate] });
+      queryClient.invalidateQueries({ queryKey: ['supervision-bookings', schoolId, selectedDate] });
+    } catch (err: any) {
+      toast({ title: 'Error al agregar', description: err.message, variant: 'destructive' });
+    }
   };
 
   const isBusy = saveMutation.isPending || finalizeMutation.isPending;
@@ -698,11 +1011,11 @@ export default function AttendanceSupervisionPage() {
                           </div>
                         </div>
 
-                        <div className="flex gap-2 mt-3 pt-3 border-t border-muted/40">
-                          {(['present', 'absent'] as AttendanceStatus[]).map((s) => (
+                        <div className="flex gap-1.5 mt-3 pt-3 border-t border-muted/40">
+                          {(Object.keys(STATUS_CFG) as AttendanceStatus[]).map((s) => (
                             <button key={s} disabled={isSaving}
                               onClick={() => handleBookingAttendance(b, s)}
-                              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all ${
+                              className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
                                 current === s ? STATUS_CFG[s].active : STATUS_CFG[s].inactive
                               } ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
@@ -711,7 +1024,6 @@ export default function AttendanceSupervisionPage() {
                               ) : (
                                 STATUS_CFG[s].icon
                               )}
-                              {s === 'present' ? 'Asistió' : 'Faltó'}
                             </button>
                           ))}
                         </div>
@@ -793,7 +1105,7 @@ export default function AttendanceSupervisionPage() {
                       return (
                         <Card
                           key={off.id}
-                          onClick={() => openModal({ type: 'offering', id: off.id, name: off.name })}
+                          onClick={() => handleOpenOffering(off)}
                           className={`group relative overflow-hidden border-none bg-gradient-to-br ${visual.gradient} text-white shadow-lg transition-all hover:scale-[1.02] ${visual.glow} cursor-pointer`}
                         >
                           <CardContent className="p-5">
@@ -826,11 +1138,56 @@ export default function AttendanceSupervisionPage() {
                 </div>
               )}
 
-              {teams.length === 0 && offerings.length === 0 && (
+              {/* Instalaciones */}
+              {supervisionFacilities.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3 mt-6">
+                    <Building2 className="w-4 h-4 text-muted-foreground" />
+                    <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+                      Instalaciones (Alquiler / Uso Libre)
+                    </h2>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {supervisionFacilities.map((fac) => {
+                      return (
+                        <Card
+                          key={fac.id}
+                          onClick={() => openModal({ type: 'facility', id: fac.id, name: fac.name })}
+                          className="group relative overflow-hidden border-none bg-gradient-to-br from-cyan-600 via-teal-700 to-emerald-800 text-white shadow-lg transition-all hover:scale-[1.02] shadow-cyan-900/20 cursor-pointer animate-in fade-in-50 duration-200"
+                        >
+                          <CardContent className="p-5">
+                            <div className="flex items-start gap-4">
+                              <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center text-2xl border border-white/20 shrink-0">
+                                <Building2 className="h-7 w-7 text-white" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 mb-1">Instalación</p>
+                                <h4 className="text-lg font-black leading-tight truncate uppercase tracking-tighter">{fac.name}</h4>
+                                <div className="flex items-center gap-2 mt-3 flex-wrap">
+                                  <Badge variant="outline" className="border-white/30 text-white bg-white/10 text-[10px] font-bold py-0 px-2 h-5">
+                                    {fac.type || 'Sede'}
+                                  </Badge>
+                                  <div className="flex items-center gap-1.5 px-2 py-0 h-5 bg-white/10 rounded-full border border-white/20 text-[10px] font-bold">
+                                    <Users className="w-3 h-3" />
+                                    Capacidad: {fac.capacity}
+                                  </div>
+                                </div>
+                              </div>
+                              <ChevronRight className="h-5 w-5 opacity-40 self-center shrink-0" />
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {teams.length === 0 && offerings.length === 0 && supervisionFacilities.length === 0 && (
                 <div className="text-center py-16 text-muted-foreground">
                   <Layers className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                  <p className="font-medium">Sin equipos ni planes configurados</p>
-                  <p className="text-sm mt-1">Crea un equipo o un plan para comenzar</p>
+                  <p className="font-medium">Sin equipos, planes ni instalaciones configuradas</p>
+                  <p className="text-sm mt-1">Crea un equipo, plan o instalación para comenzar</p>
                 </div>
               )}
             </>
@@ -839,7 +1196,7 @@ export default function AttendanceSupervisionPage() {
       </div>
 
       {/* ══ MODAL DE ASISTENCIA ════════════════════════════════════════════════ */}
-      <Dialog open={!!modalCtx} onOpenChange={(open) => !open && closeModal()}>
+      <Dialog open={!!modalCtx && (modalCtx.type === 'team' || modalCtx.type === 'offering' || modalCtx.type === 'facility_session')} onOpenChange={(open) => !open && closeModal()}>
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
 
           {/* Header */}
@@ -899,6 +1256,63 @@ export default function AttendanceSupervisionPage() {
                 </span>
               </div>
             )}
+
+            {!isFinalized && modalCtx?.type === 'facility_session' && (
+              <div className="space-y-2 mt-3 pt-3 border-t relative">
+                <div className="flex items-center justify-between">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 flex items-center gap-1.5">
+                    <Plus className="w-3.5 h-3.5 text-primary" />
+                    Registrar Walk-in (deportista de la escuela)
+                  </Label>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 px-1.5 text-[9px] font-black uppercase tracking-widest text-primary hover:bg-primary/10"
+                    onClick={() => setGuestDialogOpen(true)}
+                  >
+                    Crear Invitado Rápido
+                  </Button>
+                </div>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Escribe nombre para buscar en toda la escuela..."
+                    value={globalSearch}
+                    onChange={(e) => setGlobalSearch(e.target.value)}
+                    className="pl-9 h-9 text-xs"
+                  />
+                </div>
+
+                {globalSearch.trim().length >= 2 && (
+                  <Card className="absolute left-0 right-0 z-50 border border-border/80 shadow-2xl max-h-60 overflow-y-auto mt-1 p-1 bg-card/95 backdrop-blur-md">
+                    {loadingGlobalRoster ? (
+                      <div className="p-3 text-center text-xs text-muted-foreground">Buscando...</div>
+                    ) : globalRoster.length === 0 ? (
+                      <div className="p-3 text-center text-xs text-muted-foreground">Sin resultados</div>
+                    ) : (
+                      globalRoster.map((athlete) => (
+                        <div
+                          key={athlete.id}
+                          onClick={() => handleWalkIn(athlete)}
+                          className="flex items-center justify-between p-2 hover:bg-primary/10 rounded-lg cursor-pointer transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-bold text-primary">
+                              {athlete.full_name.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="text-left">
+                              <p className="text-xs font-bold">{athlete.full_name}</p>
+                              <p className="text-[9px] text-muted-foreground">{athlete.plan?.name || 'Sin plan'}</p>
+                            </div>
+                          </div>
+                          <Badge variant="outline" className="text-[9px] capitalize">{athlete.athlete_type}</Badge>
+                        </div>
+                      ))
+                    )}
+                  </Card>
+                )}
+              </div>
+            )}
           </DialogHeader>
 
           {/* Roster */}
@@ -909,7 +1323,12 @@ export default function AttendanceSupervisionPage() {
               <div className="text-center py-10 text-muted-foreground">
                 <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
                 <p className="text-sm">
-                  {search ? 'Sin resultados para esa búsqueda' : 'No hay deportistas en este grupo'}
+                  {search 
+                    ? 'Sin resultados para esa búsqueda' 
+                    : modalCtx?.type === 'facility_session'
+                      ? 'No hay reservas en este bloque hoy. Agrega estudiantes usando el buscador global.'
+                      : 'No hay deportistas en este grupo'
+                  }
                 </p>
               </div>
             ) : (
@@ -1035,6 +1454,190 @@ export default function AttendanceSupervisionPage() {
               <Button variant="outline" size="sm" onClick={() => setModalCtx(null)}>Cerrar</Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── MODAL DE SELECCIÓN DE BLOQUE DE INSTALACIÓN ────────────────────── */}
+      <Dialog open={!!modalCtx && modalCtx.type === 'facility'} onOpenChange={(open) => !open && closeModal()}>
+        <DialogContent className="max-w-md bg-card text-card-foreground border-border/40 backdrop-blur-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+              <Building2 className="h-5 w-5 text-primary" />
+              Bloques de {modalCtx?.name}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Selecciona un bloque para gestionar la asistencia del {date.toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })}.
+            </DialogDescription>
+          </DialogHeader>
+
+          {loadingBlocks ? (
+            <div className="py-8"><LoadingSpinner text="Cargando bloques..." /></div>
+          ) : facilityBlocks.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground bg-muted/10 rounded-xl border border-dashed border-border/50">
+              <Clock className="w-8 h-8 mx-auto mb-2 opacity-20" />
+              <p className="text-sm font-bold">Sin disponibilidad configurada</p>
+              <p className="text-xs">No hay bloques de horario para este día de la semana.</p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+              {facilityBlocks.map((block) => {
+                const session = facilitySessions.find(s => s.facility_availability_id === block.id);
+                const blockTimes = `${block.start_time.substring(0, 5)} - ${block.end_time.substring(0, 5)}`;
+                
+                const blockStart = block.start_time.substring(0, 5);
+                const resCount = facilityReservations.filter(
+                  (r: any) => r.facility_id === block.facility_id && r.start_time.substring(0, 5) === blockStart
+                ).length;
+
+                const totalBookings = (session?.current_bookings ?? 0) + (session ? 0 : resCount);
+                const hasBookings = (session && session.current_bookings > 0) || resCount > 0;
+
+                return (
+                  <div
+                    key={block.id}
+                    onClick={() => {
+                      if (session) {
+                        openModal({
+                          type: 'facility_session',
+                          id: session.id,
+                          name: `${modalCtx?.name} (${blockTimes})`,
+                        });
+                      } else {
+                        openModal({
+                          type: 'facility_session',
+                          id: `new_${block.id}`,
+                          name: `${modalCtx?.name} (${blockTimes})`,
+                        });
+                      }
+                    }}
+                    className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer flex items-center justify-between hover:scale-[1.01] ${
+                      session?.finalized
+                        ? 'border-green-500/20 bg-green-500/[0.02] hover:bg-green-500/[0.04]'
+                        : (session || hasBookings)
+                          ? 'border-yellow-500/30 bg-yellow-500/[0.02] hover:bg-yellow-500/[0.04]'
+                          : 'border-border bg-card hover:border-primary/40 hover:shadow-sm'
+                    }`}
+                  >
+                    <div className="space-y-1">
+                      <p className="font-bold text-sm flex items-center gap-2 text-foreground">
+                        <Clock className="h-4 w-4 text-primary" />
+                        {blockTimes}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {(session || hasBookings)
+                          ? `${totalBookings} / ${session?.max_capacity || block.max_group_capacity || 10} personas`
+                          : `Aforo máx: ${block.max_group_capacity || 10} personas`
+                        }
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {session?.finalized ? (
+                        <Badge className="bg-green-500 text-[10px]">Finalizada</Badge>
+                      ) : (session || hasBookings) ? (
+                        <Badge className="bg-yellow-500 text-[10px]">Abierta</Badge>
+                      ) : (
+                        <Badge variant="secondary" className="text-[10px] text-muted-foreground bg-muted">Sin iniciar</Badge>
+                      )}
+                      <ChevronRight className="h-4 w-4 opacity-40" />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" className="w-full h-11 font-bold border-border/50" onClick={closeModal}>
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── DIALOG CREAR INVITADO RÁPIDO ─────────────────────────────────────── */}
+      <Dialog open={guestDialogOpen} onOpenChange={setGuestDialogOpen}>
+        <DialogContent className="max-w-sm bg-card text-card-foreground border-border/40 backdrop-blur-sm">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold">Crear Invitado Rápido</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Registra una persona externa a la escuela para poder marcarle asistencia.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="guestName" className="text-xs">Nombre Completo *</Label>
+              <Input
+                id="guestName"
+                placeholder="Ej: Juan Pérez"
+                value={guestName}
+                onChange={(e) => setGuestName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="guestPhone" className="text-xs">Teléfono (opcional)</Label>
+              <Input
+                id="guestPhone"
+                placeholder="Ej: +57 300 1234567"
+                value={guestPhone}
+                onChange={(e) => setGuestPhone(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="guestDoc" className="text-xs">Documento (opcional)</Label>
+              <Input
+                id="guestDoc"
+                placeholder="CC, TI, etc."
+                value={guestDoc}
+                onChange={(e) => setGuestDoc(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setGuestDialogOpen(false)}>Cancelar</Button>
+            <Button
+              onClick={() => createGuestMutation.mutate()}
+              disabled={!guestName.trim() || createGuestMutation.isPending}
+            >
+              {createGuestMutation.isPending ? 'Creando...' : 'Crear'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!offeringPicker} onOpenChange={(open) => !open && setOfferingPicker(null)}>
+        <DialogContent className="max-w-md bg-card text-card-foreground border-border/40 backdrop-blur-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+              <Clock className="h-5 w-5 text-primary" />
+              Horarios de {offeringPicker?.offering.name}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Este plan tiene varios bloques hoy. Elige uno para marcar asistencia.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+            {offeringPicker?.sessions.map((s) => (
+              <div key={s.id}
+                onClick={() => {
+                  openModal({
+                    type: 'offering', id: offeringPicker.offering.id,
+                    name: `${offeringPicker.offering.name} (${s.start_time.slice(0,5)})`,
+                    sessionId: s.id,
+                  });
+                  setOfferingPicker(null);
+                }}
+                className="p-4 rounded-xl border border-border bg-card hover:border-primary/40 hover:shadow-sm cursor-pointer flex items-center justify-between transition-all duration-200 hover:scale-[1.01]">
+                <span className="font-bold text-sm text-foreground">{s.start_time.slice(0,5)} - {s.end_time.slice(0,5)}</span>
+                <span className="text-xs text-muted-foreground">{s.current_bookings} / {s.max_capacity ?? '—'} personas</span>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="w-full h-11 font-bold border-border/50" onClick={() => setOfferingPicker(null)}>
+              Cancelar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -25,6 +25,8 @@ interface Facility {
   type: string;
   capacity: number;
   description: string | null;
+  min_booking_advance_hours: number | null;
+  min_cancellation_hours: number | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -43,6 +45,8 @@ interface FacilityInput {
   type: string;
   capacity: number;
   description?: string;
+  min_booking_advance_hours?: number;
+  min_cancellation_hours?: number;
 }
 
 export function useSchoolStaff() {
@@ -129,7 +133,7 @@ export function useSchoolFacilities() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return data as Facility[];
+      return data as unknown as Facility[];
     },
     enabled: !!schoolId,
   });
@@ -145,6 +149,8 @@ export function useSchoolFacilities() {
           type: input.type,
           capacity: input.capacity,
           description: input.description || null,
+          min_booking_advance_hours: input.min_booking_advance_hours ?? 0,
+          min_cancellation_hours: input.min_cancellation_hours ?? 0,
         })
         .select()
         .single();
@@ -200,6 +206,8 @@ export function useSchoolFacilities() {
           type: input.type,
           capacity: input.capacity,
           description: input.description || null,
+          min_booking_advance_hours: input.min_booking_advance_hours ?? 0,
+          min_cancellation_hours: input.min_cancellation_hours ?? 0,
         })
         .eq('id', id)
         .select()

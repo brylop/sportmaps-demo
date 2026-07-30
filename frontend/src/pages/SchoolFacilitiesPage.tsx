@@ -1,17 +1,21 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 import {
   Building2, MapPin, Trash2, Users, Calendar, Clock,
-  CheckCircle2, XCircle, Eye, Pencil, Ban, MoreHorizontal, CalendarCheck, RefreshCw,
+  CheckCircle2, XCircle, Eye, Pencil, Ban, MoreHorizontal, CalendarCheck, RefreshCw, Link2, Check
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useSchoolFacilities } from '@/hooks/useSchoolData';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useFacilityReservations } from '@/hooks/useFacilityReservations';
 import type { FacilityReservation } from '@/hooks/useFacilityReservations';
 import { FacilityFormDialog } from '@/components/school/FacilityFormDialog';
 import { OwnerReservationModal } from '@/components/school/OwnerReservationModal';
+import { FacilityAvailabilityModal } from '@/components/school/FacilityAvailabilityModal';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { StatFilterBar } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
@@ -168,6 +172,7 @@ function ReservationDetailModal({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function SchoolFacilitiesPage() {
+  const { schoolId } = useSchoolContext();
   const {
     facilities: supaFacilities,
     isLoading: facilitiesLoading,
@@ -207,6 +212,7 @@ export default function SchoolFacilitiesPage() {
   const [viewingReservation, setViewingReservation] = useState<FacilityReservation | null>(null);
   const [deleteReservationId, setDeleteReservationId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [availabilityFacility, setAvailabilityFacility] = useState<any | null>(null);
 
   // Derived filtered reservations
   const filteredReservations = statusFilter 
@@ -215,6 +221,32 @@ export default function SchoolFacilitiesPage() {
 
   // Stable callback for getBookedSlots
   const stableGetBookedSlots = useCallback(getBookedSlots, []);
+
+  const { toast } = useToast();
+  const [schoolSlug, setSchoolSlug] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!schoolId) return;
+    (supabase.from('schools') as any)
+      .select('slug')
+      .eq('id', schoolId)
+      .maybeSingle()
+      .then(({ data }: any) => {
+        if (data?.slug) {
+          setSchoolSlug(data.slug);
+        }
+      });
+  }, [schoolId]);
+
+  const handleCopyLink = () => {
+    if (!schoolSlug) return;
+    const url = `${window.location.origin}/agendar/${schoolSlug}`;
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    toast({ title: '📋 Link copiado', description: 'El enlace de agendamiento público se copió al portapapeles.' });
+  };
 
   // Handlers
   const handleFacilitySubmit = (data: any) => {
@@ -323,9 +355,17 @@ export default function SchoolFacilitiesPage() {
                 {facilities.length} espacio{facilities.length !== 1 ? 's' : ''} deportivo{facilities.length !== 1 ? 's' : ''} gestionado{facilities.length !== 1 ? 's' : ''}
               </p>
             </div>
-            <Button className="font-bold h-11 shadow-lg shadow-primary/20" onClick={handleOpenNewFacility}>
-              <Building2 className="w-4 h-4 mr-2" /> Agregar Instalación
-            </Button>
+            <div className="flex gap-2">
+              {schoolSlug && (
+                <Button variant="outline" className="font-bold h-11 border-2 border-border/80" onClick={handleCopyLink}>
+                  {copied ? <Check className="w-4 h-4 mr-2 text-emerald-600 dark:text-emerald-500" /> : <Link2 className="w-4 h-4 mr-2" />}
+                  {copied ? '¡Copiado!' : 'Copiar Link Público'}
+                </Button>
+              )}
+              <Button className="font-bold h-11 shadow-lg shadow-primary/20" onClick={handleOpenNewFacility}>
+                <Building2 className="w-4 h-4 mr-2" /> Agregar Instalación
+              </Button>
+            </div>
           </div>
 
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
@@ -340,6 +380,15 @@ export default function SchoolFacilitiesPage() {
                       <h3 className="font-bold text-lg leading-tight">{facility.name}</h3>
                     </div>
                     <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground/40 hover:text-primary hover:bg-primary/10"
+                        onClick={() => setAvailabilityFacility(facility)}
+                        title="Configurar disponibilidad"
+                      >
+                        <Clock className="h-4 w-4" />
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground/40 hover:text-primary hover:bg-primary/10" onClick={() => handleEditFacility(facility)}>
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -635,6 +684,20 @@ export default function SchoolFacilitiesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Facility availability modal ── */}
+      {availabilityFacility && (
+        <FacilityAvailabilityModal
+          open={!!availabilityFacility}
+          onOpenChange={(open) => {
+            if (!open) setAvailabilityFacility(null);
+          }}
+          facilityId={availabilityFacility.id}
+          facilityName={availabilityFacility.name}
+          facilityCapacity={availabilityFacility.capacity}
+          schoolId={schoolId!}
+        />
+      )}
     </div>
   );
 }

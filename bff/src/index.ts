@@ -28,6 +28,7 @@ import billingEventsRouter from './routes/billing-events';
 import explorarRoutes from './routes/explorar.routes';
 import favoritosRoutes from './routes/favoritos.routes';
 import schoolStaffRouter from './routes/school-staff';
+import facilitiesRouter from './routes/facilities';
 import paymentsRouter from './routes/payments.routes';
 import glosasRouter from './routes/glosas.routes';
 import adminPaymentsRouter from './routes/admin-payments.routes';
@@ -40,6 +41,7 @@ import { requireTrainerAuth, requireAthleteAuth, requireAuth } from './middlewar
 import { requireCsrfHeader } from './middlewares/csrfHeader';
 import systemRouter from './routes/system';
 import whatsappWebhookRouter from './routes/whatsapp';
+import publicBookingRouter from './routes/public-booking.routes';
 import { initMaintenanceJobs } from './jobs/maintenance.job';
 import organizerRouter from './routes/organizers.route';
 import eventsRouter from './routes/events.route';
@@ -249,6 +251,14 @@ app.use('/api/v1/webhooks/wompi', wompiRouter);
 // Webhook único multi-tenant de WhatsApp Cloud API (Bloque 6). Sin generalLimiter:
 // Meta puede ráfagar; el control real es la firma HMAC + idempotencia por wa_message_id.
 app.use('/api/v1/webhooks/whatsapp', whatsappWebhookRouter);
+
+// Link público de agendamiento de instalaciones — sin requireAuth, rate-limit propio
+const publicBookingLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false,
+    message: { error: 'Demasiadas peticiones. Intenta de nuevo en unos minutos.' },
+});
+app.use('/api/v1/public/booking', publicBookingLimiter, publicBookingRouter);
+
 app.use('/api/v1/webhooks/mercadopago', mpWebhookRouter);
 app.use('/api/v1/payments/mp', paymentLimiter, mpPaymentsRouter);
 app.use('/api/v1/payment-providers', generalLimiter, paymentProvidersRouter);
@@ -279,6 +289,7 @@ app.use('/api/v1/billing-events', generalLimiter, billingEventsRouter);
 app.use('/api/explorar',  generalLimiter, explorarRoutes);
 app.use('/api/favoritos', generalLimiter, favoritosRoutes);
 app.use('/api/v1/school-staff', generalLimiter, schoolStaffRouter);
+app.use('/api/v1/facilities', generalLimiter, facilitiesRouter);
 // Glosas: montado ANTES de /api/v1/payments para que la ruta más específica gane.
 app.use('/api/v1/payments/glosas', paymentLimiter, glosasRouter);
 app.use('/api/v1/payments/reconciliation', paymentLimiter, reconciliationRouter);
