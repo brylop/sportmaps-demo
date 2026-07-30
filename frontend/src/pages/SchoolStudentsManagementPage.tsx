@@ -317,7 +317,7 @@ export default function SchoolStudentsManagementPage() {
   });
 
   const form = useForm<StudentFormData>({
-    resolver: zodResolver(studentSchema),
+    resolver: zodResolver(studentSchema) as any,
     defaultValues: {
       full_name: '',
       date_of_birth: '',
