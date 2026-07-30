@@ -16,6 +16,8 @@ const facilitySchema = z.object({
   type: z.string().min(1, 'Tipo es requerido'),
   capacity: z.string().min(1, 'Capacidad es requerida'),
   description: z.string().optional(),
+  min_booking_advance_hours: z.string().optional(),
+  min_cancellation_hours: z.string().optional(),
 });
 
 type FacilityFormData = z.infer<typeof facilitySchema>;
@@ -23,7 +25,14 @@ type FacilityFormData = z.infer<typeof facilitySchema>;
 interface FacilityFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (data: { name: string; type: string; capacity: number; description?: string }) => void;
+  onSubmit: (data: {
+    name: string;
+    type: string;
+    capacity: number;
+    description?: string;
+    min_booking_advance_hours?: number;
+    min_cancellation_hours?: number;
+  }) => void;
   isLoading?: boolean;
   facility?: {
     id: string;
@@ -31,6 +40,8 @@ interface FacilityFormDialogProps {
     type: string;
     capacity: number;
     description: string | null;
+    min_booking_advance_hours: number | null;
+    min_cancellation_hours: number | null;
   } | null;
 }
 
@@ -55,6 +66,8 @@ export function FacilityFormDialog({ open, onOpenChange, onSubmit, isLoading, fa
       type: '',
       capacity: '',
       description: '',
+      min_booking_advance_hours: '0',
+      min_cancellation_hours: '0',
     },
   });
 
@@ -67,6 +80,8 @@ export function FacilityFormDialog({ open, onOpenChange, onSubmit, isLoading, fa
           type: facility.type,
           capacity: String(facility.capacity),
           description: facility.description || '',
+          min_booking_advance_hours: String(facility.min_booking_advance_hours ?? 0),
+          min_cancellation_hours: String(facility.min_cancellation_hours ?? 0),
         });
       } else {
         form.reset({
@@ -74,6 +89,8 @@ export function FacilityFormDialog({ open, onOpenChange, onSubmit, isLoading, fa
           type: '',
           capacity: '',
           description: '',
+          min_booking_advance_hours: '0',
+          min_cancellation_hours: '0',
         });
       }
     }
@@ -85,6 +102,8 @@ export function FacilityFormDialog({ open, onOpenChange, onSubmit, isLoading, fa
       type: data.type,
       capacity: parseInt(data.capacity),
       description: data.description || undefined,
+      min_booking_advance_hours: data.min_booking_advance_hours ? parseInt(data.min_booking_advance_hours) : 0,
+      min_cancellation_hours: data.min_cancellation_hours ? parseInt(data.min_cancellation_hours) : 0,
     });
     form.reset();
     onOpenChange(false);
@@ -151,6 +170,28 @@ export function FacilityFormDialog({ open, onOpenChange, onSubmit, isLoading, fa
             <p className="text-xs text-muted-foreground">
               Número máximo de personas
             </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="min_booking_advance_hours">Anticipación Reserva (horas)</Label>
+              <NumberStepper
+                value={form.watch('min_booking_advance_hours') === '' ? 0 : parseInt(form.watch('min_booking_advance_hours') || '0')}
+                onChange={(val) => form.setValue('min_booking_advance_hours', String(val))}
+                min={0}
+              />
+              <p className="text-[10px] text-muted-foreground">Mínimo horas previas para reservar</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="min_cancellation_hours">Ventana Cancelación (horas)</Label>
+              <NumberStepper
+                value={form.watch('min_cancellation_hours') === '' ? 0 : parseInt(form.watch('min_cancellation_hours') || '0')}
+                onChange={(val) => form.setValue('min_cancellation_hours', String(val))}
+                min={0}
+              />
+              <p className="text-[10px] text-muted-foreground">Límite de horas para cancelar</p>
+            </div>
           </div>
 
           <div className="space-y-2">

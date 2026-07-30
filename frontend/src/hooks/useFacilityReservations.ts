@@ -28,6 +28,7 @@ export interface FacilityReservation {
   // joined
   facility: { name: string; type: string; capacity: number } | null;
   requester: { full_name: string | null; email: string } | null;
+  isSessionBooking?: boolean;
 }
 
 export interface CreateReservationPayload {
@@ -79,20 +80,104 @@ export function useFacilityReservations() {
 
       const ids = facilityIds.map(f => f.id);
 
-      // 2. Fetch reservations for those facilities
-      const { data, error } = await supabase
-        .from('facility_reservations')
-        .select(`
-          *,
-          facility:facilities ( name, type, capacity ),
-          requester:profiles!facility_reservations_user_id_fkey ( full_name, email )
-        `)
-        .in('facility_id', ids)
-        .order('reservation_date', { ascending: false })
-        .order('start_time', { ascending: true });
+      // 2. Fetch reservations from facility_reservations and session_bookings
+      const [resvResult, sbResult] = await Promise.all([
+        supabase
+          .from('facility_reservations')
+          .select(`
+            *,
+            facility:facilities ( name, type, capacity ),
+            requester:profiles!facility_reservations_user_id_fkey ( full_name, email )
+          `)
+          .in('facility_id', ids),
+        supabase
+          .from('session_bookings')
+          .select(`
+            id,
+            status,
+            created_at,
+            user_id,
+            child_id,
+            unregistered_athlete_id,
+            unregistered_athlete:unregistered_athletes ( full_name, email, phone ),
+            profile:profiles ( full_name, email ),
+            child:children ( full_name ),
+            session:attendance_sessions!inner (
+              id,
+              session_date,
+              start_time,
+              end_time,
+              facility_id,
+              facility:facilities ( id, name, type, capacity )
+            )
+          `)
+          .eq('school_id', schoolId)
+      ]);
 
-      if (error) throw error;
-      return (data as any) as FacilityReservation[];
+      if (resvResult.error) throw resvResult.error;
+      if (sbResult.error) {
+        console.error('Error fetching session bookings in useFacilityReservations:', sbResult.error);
+        throw sbResult.error;
+      }
+
+      // 3. Map session_bookings to the same FacilityReservation format
+      const mappedSessionBookings: FacilityReservation[] = (sbResult.data || [])
+        .filter((sb: any) => sb.session && sb.session.facility)
+        .map((sb: any) => {
+          let requesterName = 'Invitado';
+          let requesterEmail = '—';
+          
+          if (sb.unregistered_athlete) {
+            requesterName = sb.unregistered_athlete.full_name || 'Invitado';
+            requesterEmail = sb.unregistered_athlete.email || '—';
+          } else if (sb.child) {
+            requesterName = sb.child.full_name;
+            requesterEmail = sb.profile?.email || '—';
+          } else if (sb.profile) {
+            requesterName = sb.profile.full_name;
+            requesterEmail = sb.profile.email || '—';
+          }
+
+          return {
+            id: sb.id,
+            facility_id: sb.session.facility.id,
+            user_id: sb.user_id || sb.unregistered_athlete_id || '',
+            team_id: null,
+            reservation_date: sb.session.session_date,
+            start_time: sb.session.start_time,
+            end_time: sb.session.end_time,
+            status: sb.status as ResvStatus,
+            price: 0,
+            participants: 1,
+            notes: sb.unregistered_athlete ? 'Clase de cortesía (Invitado)' : 'Reserva de socio / plan',
+            approved_by: null,
+            approved_at: null,
+            created_at: sb.created_at,
+            updated_at: sb.created_at,
+            facility: {
+              name: sb.session.facility.name,
+              type: sb.session.facility.type,
+              capacity: sb.session.facility.capacity
+            },
+            requester: {
+              full_name: requesterName,
+              email: requesterEmail
+            },
+            isSessionBooking: true
+          };
+        });
+
+      const merged = [
+        ...((resvResult.data || []) as any[]),
+        ...mappedSessionBookings
+      ];
+
+      // Sort by reservation_date desc, then start_time asc
+      return merged.sort((a, b) => {
+        const dateCompare = b.reservation_date.localeCompare(a.reservation_date);
+        if (dateCompare !== 0) return dateCompare;
+        return a.start_time.localeCompare(b.start_time);
+      });
     },
     enabled: !!schoolId,
   });
@@ -113,12 +198,20 @@ export function useFacilityReservations() {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        if (error.message?.includes('facility_slot_conflict')) {
+          throw new Error('Ese horario ya está ocupado por otra reserva. Elige otro horario.');
+        }
+        throw error;
+      }
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ['calendar-events'] });
+      queryClient.invalidateQueries({ queryKey: ['supervision-bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['supervision-roster'] });
+      queryClient.invalidateQueries({ queryKey: ['supervision-session'] });
       toast({ title: '✅ Reserva creada', description: 'La reserva fue registrada exitosamente.' });
     },
     onError: (error: any) => {
@@ -129,7 +222,21 @@ export function useFacilityReservations() {
   // ── UPDATE ────────────────────────────────────────────────────────────────
 
   const { mutateAsync: updateReservation, isPending: isUpdating } = useMutation({
-    mutationFn: async ({ id, payload }: { id: string; payload: UpdateReservationPayload }) => {
+    mutationFn: async ({ id, payload, isSessionBooking }: { id: string; payload: UpdateReservationPayload; isSessionBooking?: boolean }) => {
+      if (isSessionBooking) {
+        const { data, error } = await supabase
+          .from('session_bookings')
+          .update({
+            status: payload.status,
+            updated_at: new Date().toISOString()
+          } as any)
+          .eq('id', id)
+          .select()
+          .single();
+        if (error) throw error;
+        return data;
+      }
+
       const { data, error } = await supabase
         .from('facility_reservations')
         .update({ ...payload, updated_at: new Date().toISOString() })
@@ -137,11 +244,20 @@ export function useFacilityReservations() {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        if (error.message?.includes('facility_slot_conflict')) {
+          throw new Error('Ese horario ya está ocupado por otra reserva. Elige otro horario.');
+        }
+        throw error;
+      }
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ['calendar-events'] });
+      queryClient.invalidateQueries({ queryKey: ['supervision-bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['supervision-roster'] });
+      queryClient.invalidateQueries({ queryKey: ['supervision-session'] });
       toast({ title: '✅ Reserva actualizada' });
     },
     onError: (error: any) => {
@@ -153,6 +269,7 @@ export function useFacilityReservations() {
 
   const approveReservation = async (id: string) => {
     if (!user) return;
+    const isSessionBooking = reservations.find(r => r.id === id)?.isSessionBooking;
     await updateReservation({
       id,
       payload: {
@@ -160,23 +277,34 @@ export function useFacilityReservations() {
         approved_by: user.id,
         approved_at: new Date().toISOString(),
       },
+      isSessionBooking
     });
-    toast({ title: '✅ Reserva confirmada' });
   };
 
   const cancelReservation = async (id: string) => {
-    await updateReservation({ id, payload: { status: 'cancelled' } });
-    toast({ title: 'Reserva cancelada' });
+    const isSessionBooking = reservations.find(r => r.id === id)?.isSessionBooking;
+    await updateReservation({ id, payload: { status: 'cancelled' }, isSessionBooking });
   };
 
   const completeReservation = async (id: string) => {
-    await updateReservation({ id, payload: { status: 'completed' } });
+    const isSessionBooking = reservations.find(r => r.id === id)?.isSessionBooking;
+    await updateReservation({ id, payload: { status: 'completed' }, isSessionBooking });
   };
 
   // ── DELETE (hard) — sólo aplica a registros propios o via admin ───────────
 
   const { mutateAsync: deleteReservation, isPending: isDeleting } = useMutation({
     mutationFn: async (id: string) => {
+      const isSessionBooking = reservations.find(r => r.id === id)?.isSessionBooking;
+      if (isSessionBooking) {
+        const { error } = await supabase
+          .from('session_bookings')
+          .delete()
+          .eq('id', id);
+        if (error) throw error;
+        return;
+      }
+
       const { error } = await supabase
         .from('facility_reservations')
         .delete()
@@ -186,10 +314,13 @@ export function useFacilityReservations() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ['calendar-events'] });
+      queryClient.invalidateQueries({ queryKey: ['supervision-bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['supervision-roster'] });
+      queryClient.invalidateQueries({ queryKey: ['supervision-session'] });
       toast({ title: 'Reserva eliminada', description: 'El registro fue removido permanentemente.' });
     },
     onError: (error: any) => {
-      // Si RLS bloquea el DELETE directo, intentamos cancelar como fallback
       toast({ title: 'Error al eliminar', description: error.message, variant: 'destructive' });
     },
   });
@@ -238,3 +369,4 @@ export function useFacilityReservations() {
     getBookedSlots,
   };
 }
+

@@ -1070,9 +1070,11 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
                   <p className="text-muted-foreground text-xs">
                     {fmtTime(confirming?.start_time ?? '')} — {fmtTime(confirming?.end_time ?? '')}
                   </p>
-                  {confirming?.coach && (confirming.coach.full_name || confirming.coach.name) && (
+                  {confirming?.coach && (confirming.coach.full_name || confirming.coach.name) ? (
                     <p className="text-muted-foreground text-xs">Coach: {confirming.coach.full_name || confirming.coach.name}</p>
-                  )}
+                  ) : (confirming as any)?.facility?.name ? (
+                    <p className="text-muted-foreground text-xs">Instalación: {(confirming as any).facility.name}</p>
+                  ) : null}
                 </div>
                 <div className={`rounded-lg px-3 py-2 text-xs font-medium border ${isUnlimited ? 'bg-green-500/10 text-green-700 border-green-200' : 'bg-amber-500/10 text-amber-700 border-amber-200'
                   }`}>
@@ -1989,7 +1991,12 @@ function CompactSessionSlot({ sessions, noCredits, isBooking, onBook }: {
             ) : (
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
-                  <p className="text-[11px] font-black uppercase tracking-tight truncate">{selectedSession.coach?.full_name || 'Entrenador'}</p>
+                  <p className="text-[11px] font-black uppercase tracking-tight truncate">
+                    {(selectedSession as any).session_type === 'facility' || (selectedSession as any).facility
+                      ? ((selectedSession as any).facility?.name || 'Instalación')
+                      : (selectedSession.coach?.full_name || 'Entrenador')
+                    }
+                  </p>
                   {(selectedSession as any).available_for_personal_classes === true &&
                     !(selectedSession as any).available_for_group_classes && (
                       <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-indigo-400 text-indigo-500 bg-indigo-500/5">

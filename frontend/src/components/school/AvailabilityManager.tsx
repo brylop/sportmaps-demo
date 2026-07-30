@@ -9,7 +9,11 @@ import {
   Clock, X, Plus, Trash2, Users, User,
   Check, Loader2, Info, ChevronDown, ChevronRight,
 } from 'lucide-react';
-import { useCoachAvailability, CoachAvailability, CoachAvailabilityInput } from '@/hooks/useCoachAvailability';
+import {
+  useResourceAvailability,
+  ResourceAvailability,
+  ResourceAvailabilityInput,
+} from '@/hooks/useResourceAvailability';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { NumberStepper } from '@/components/ui/number-stepper';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -17,8 +21,11 @@ import { generateTimeOptions, DURATION_OPTIONS, generateSlots, type DurationMinu
 import { useToast } from '@/hooks/use-toast';
 
 interface AvailabilityManagerProps {
-  coachId:  string;
-  schoolId: string;
+  resourceType?: 'coach' | 'facility'; // default 'coach' — retrocompatible
+  coachId?:      string; // usado cuando resourceType='coach' (default)
+  facilityId?:   string; // usado cuando resourceType='facility'
+  schoolId:      string;
+  defaultCapacity?: number; // aforo inicial sugerido (ej. facilities.capacity)
 }
 
 const DAYS_OF_WEEK = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -37,13 +44,13 @@ function formatTime(time: string): string {
 interface SlotGroup {
   start:      string;
   end:        string;
-  slots:      CoachAvailability[];
+  slots:      ResourceAvailability[];
   hasGroup:   boolean;
   hasPersonal:boolean;
 }
 
 /** Groups consecutive slots into ranges (end_time of one = start_time of next) */
-function groupConsecutiveSlots(slots: CoachAvailability[]): SlotGroup[] {
+function groupConsecutiveSlots(slots: ResourceAvailability[]): SlotGroup[] {
   if (slots.length === 0) return [];
 
   const sorted = [...slots].sort((a, b) => a.start_time.localeCompare(b.start_time));
@@ -53,8 +60,8 @@ function groupConsecutiveSlots(slots: CoachAvailability[]): SlotGroup[] {
     start:       sorted[0].start_time,
     end:         sorted[0].end_time,
     slots:       [sorted[0]],
-    hasGroup:    sorted[0].available_for_group_classes,
-    hasPersonal: sorted[0].available_for_personal_classes,
+    hasGroup:    (sorted[0].available_for_group_classes ?? false) || !sorted[0].coach_id,
+    hasPersonal: sorted[0].available_for_personal_classes ?? false,
   };
 
   for (let i = 1; i < sorted.length; i++) {
@@ -66,16 +73,16 @@ function groupConsecutiveSlots(slots: CoachAvailability[]): SlotGroup[] {
     if (slotStart === curEnd) {
       current.end        = slot.end_time;
       current.slots.push(slot);
-      current.hasGroup    = current.hasGroup    || slot.available_for_group_classes;
-      current.hasPersonal = current.hasPersonal || slot.available_for_personal_classes;
+      current.hasGroup    = current.hasGroup    || (slot.available_for_group_classes ?? false) || !slot.coach_id;
+      current.hasPersonal = current.hasPersonal || (slot.available_for_personal_classes ?? false);
     } else {
       groups.push(current);
       current = {
         start:       slot.start_time,
         end:         slot.end_time,
         slots:       [slot],
-        hasGroup:    slot.available_for_group_classes,
-        hasPersonal: slot.available_for_personal_classes,
+        hasGroup:    (slot.available_for_group_classes ?? false) || !slot.coach_id,
+        hasPersonal: slot.available_for_personal_classes ?? false,
       };
     }
   }
@@ -85,20 +92,26 @@ function groupConsecutiveSlots(slots: CoachAvailability[]): SlotGroup[] {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function AvailabilityManager({ coachId, schoolId }: AvailabilityManagerProps) {
+export function AvailabilityManager({
+  resourceType = 'coach', coachId, facilityId, schoolId, defaultCapacity,
+}: AvailabilityManagerProps) {
+  const resourceId = resourceType === 'coach' ? coachId! : facilityId!;
+  const isFacility = resourceType === 'facility';
+
   const {
     availability, isLoading,
     createAvailability, deleteAvailability,
     isCreating, isDeleting,
-  } = useCoachAvailability(coachId, schoolId);
+  } = useResourceAvailability(resourceType, resourceId, schoolId);
   const { toast } = useToast();
 
   // ── Config tab state ──────────────────────────────────────────────────────
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
   const [pendingWindows, setPendingWindows] = useState<{ start: string; end: string; duration: number }[]>([]);
   const [currentWindow, setCurrentWindow] = useState({ start: '', end: '', duration: 60 as DurationMinutes });
-  const [config, setConfig] = useState({ group_classes: false, personal_classes: false });
-  const [groupClassSize, setGroupClassSize] = useState<number>(5);
+  // Instalación: siempre grupal, sin variante "personal" (no aplica sin coach 1:1)
+  const [config, setConfig] = useState({ group_classes: isFacility, personal_classes: false });
+  const [groupClassSize, setGroupClassSize] = useState<number>(defaultCapacity ?? 5);
 
   // ── Scheduled tab state ───────────────────────────────────────────────────
   const [openDays, setOpenDays] = useState<Set<number>>(new Set());
@@ -146,7 +159,7 @@ export function AvailabilityManager({ coachId, schoolId }: AvailabilityManagerPr
       toast({ title: 'Selecciona días y añade al menos un rango horario', variant: 'destructive' });
       return;
     }
-    if (!config.group_classes && !config.personal_classes) {
+    if (!isFacility && !config.group_classes && !config.personal_classes) {
       toast({ title: 'Selecciona al menos un tipo de clase', variant: 'destructive' });
       return;
     }
@@ -154,14 +167,20 @@ export function AvailabilityManager({ coachId, schoolId }: AvailabilityManagerPr
     selectedDays.forEach(day => {
       pendingWindows.forEach(window => {
         generateSlots(window.start, window.end, window.duration).forEach(slot => {
-          createAvailability({
+          const payload: ResourceAvailabilityInput = isFacility ? {
+            day_of_week: day,
+            start_time: slot.start_time,
+            end_time: slot.end_time,
+            max_group_capacity: groupClassSize,
+          } : {
             day_of_week:                   day,
             start_time:                    slot.start_time,
             end_time:                      slot.end_time,
             available_for_group_classes:   config.group_classes,
             available_for_personal_classes:config.personal_classes,
             max_group_capacity:            config.group_classes ? groupClassSize : null,
-          } as CoachAvailabilityInput);
+          };
+          createAvailability(payload);
         });
       });
     });
@@ -169,20 +188,20 @@ export function AvailabilityManager({ coachId, schoolId }: AvailabilityManagerPr
     setSelectedDays([]);
     setPendingWindows([]);
     setCurrentWindow({ start: '', end: '', duration: 60 as DurationMinutes });
-    setConfig({ group_classes: false, personal_classes: false });
-    setGroupClassSize(5);
+    setConfig({ group_classes: isFacility, personal_classes: false });
+    setGroupClassSize(defaultCapacity ?? 5);
   };
 
   const handleDeleteDay = (dayIndex: number) => {
     availability
-      .filter((a: CoachAvailability) => a.day_of_week === dayIndex)
-      .forEach((slot: CoachAvailability) => deleteAvailability(slot.id));
+      .filter((a: ResourceAvailability) => a.day_of_week === dayIndex)
+      .forEach((slot: ResourceAvailability) => deleteAvailability(slot.id));
   };
 
   const canSave =
     selectedDays.length > 0 &&
     pendingWindows.length > 0 &&
-    (config.group_classes || config.personal_classes);
+    (isFacility || config.group_classes || config.personal_classes);
 
   if (isLoading) {
     return (
@@ -253,7 +272,9 @@ export function AvailabilityManager({ coachId, schoolId }: AvailabilityManagerPr
                   2. Rango de disponibilidad
                 </Label>
                 <p className="text-[10px] text-muted-foreground mt-1 ml-6">
-                  Define el horario en el que el coach puede dar clases.
+                  {isFacility
+                    ? 'Define el horario en el que se puede reservar la instalación.'
+                    : 'Define el horario en el que el coach puede dar clases.'}
                 </p>
               </div>
 
@@ -400,62 +421,83 @@ export function AvailabilityManager({ coachId, schoolId }: AvailabilityManagerPr
             </Card>
           )}
 
-          {/* Step 3: Class types */}
+          {/* Step 3: Class types / Capacity */}
           {selectedDays.length > 0 && pendingWindows.length > 0 && (
             <Card className="p-4 border-l-4 border-l-accent bg-accent/5 dark:bg-accent/10 border-primary/10 shadow-sm">
               <Label className="text-sm font-bold mb-4 block text-accent flex items-center gap-2">
                 <Check className="h-4 w-4" />
-                3. Tipos de clase disponibles
+                3. Aforo y tipo de reserva
               </Label>
               <div className="space-y-2">
-                <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-card/50 transition-colors border border-transparent hover:border-primary/20">
-                  <Checkbox
-                    id="group-classes"
-                    checked={config.group_classes}
-                    onCheckedChange={checked => setConfig(prev => ({ ...prev, group_classes: checked as boolean }))}
-                    className="h-4 w-4 mt-0.5"
-                  />
-                  <div className="flex-1 min-w-0">
+                {!isFacility ? (
+                  <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-card/50 transition-colors border border-transparent hover:border-primary/20">
+                    <Checkbox
+                      id="group-classes"
+                      checked={config.group_classes}
+                      onCheckedChange={checked => setConfig(prev => ({ ...prev, group_classes: checked as boolean }))}
+                      className="h-4 w-4 mt-0.5"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1 bg-primary/10 rounded">
+                          <Users className="h-4 w-4 text-primary" />
+                        </div>
+                        <Label htmlFor="group-classes" className="cursor-pointer font-medium text-sm mb-0">
+                          Clases Grupales
+                        </Label>
+                      </div>
+                      {config.group_classes && (
+                        <div className="ml-6 mt-3 flex items-center gap-4">
+                          <Label className="text-xs text-muted-foreground font-medium">Máximo de personas:</Label>
+                          <NumberStepper
+                            value={groupClassSize}
+                            onChange={val => setGroupClassSize(val === '' ? 1 : val)}
+                            min={1} max={99} className="h-9 w-28"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-2 rounded-lg border border-transparent">
                     <div className="flex items-center gap-2">
                       <div className="p-1 bg-primary/10 rounded">
                         <Users className="h-4 w-4 text-primary" />
                       </div>
-                      <Label htmlFor="group-classes" className="cursor-pointer font-medium text-sm mb-0">
-                        Clases Grupales
+                      <span className="font-medium text-sm">Capacidad del Bloque (Aforo)</span>
+                    </div>
+                    <div className="ml-6 mt-3 flex items-center gap-4">
+                      <Label className="text-xs text-muted-foreground font-medium">Máximo de personas:</Label>
+                      <NumberStepper
+                        value={groupClassSize}
+                        onChange={val => setGroupClassSize(val === '' ? 1 : val)}
+                        min={1} max={99} className="h-9 w-28"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {!isFacility && (
+                  <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-card/50 transition-colors border border-transparent hover:border-primary/20">
+                    <Checkbox
+                      id="personal-classes"
+                      checked={config.personal_classes}
+                      onCheckedChange={checked => setConfig(prev => ({ ...prev, personal_classes: checked as boolean }))}
+                      className="h-4 w-4 mt-0.5"
+                    />
+                    <div className="flex items-center gap-2 flex-1">
+                      <div className="p-1 bg-accent/10 rounded">
+                        <User className="h-4 w-4 text-accent" />
+                      </div>
+                      <Label htmlFor="personal-classes" className="cursor-pointer font-medium text-sm mb-0">
+                        Clases Personalizadas
                       </Label>
                     </div>
-                    {config.group_classes && (
-                      <div className="ml-6 mt-3 flex items-center gap-4">
-                        <Label className="text-xs text-muted-foreground font-medium">Máximo de personas:</Label>
-                        <NumberStepper
-                          value={groupClassSize}
-                          onChange={val => setGroupClassSize(val === '' ? 1 : val)}
-                          min={1} max={99} className="h-9 w-28"
-                        />
-                      </div>
-                    )}
                   </div>
-                </div>
-
-                <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-card/50 transition-colors border border-transparent hover:border-primary/20">
-                  <Checkbox
-                    id="personal-classes"
-                    checked={config.personal_classes}
-                    onCheckedChange={checked => setConfig(prev => ({ ...prev, personal_classes: checked as boolean }))}
-                    className="h-4 w-4 mt-0.5"
-                  />
-                  <div className="flex items-center gap-2 flex-1">
-                    <div className="p-1 bg-accent/10 rounded">
-                      <User className="h-4 w-4 text-accent" />
-                    </div>
-                    <Label htmlFor="personal-classes" className="cursor-pointer font-medium text-sm mb-0">
-                      Clases Personalizadas
-                    </Label>
-                  </div>
-                </div>
+                )}
               </div>
 
-              {!config.group_classes && !config.personal_classes && (
+              {!isFacility && !config.group_classes && !config.personal_classes && (
                 <div className="mt-3 p-2 bg-yellow-500/10 border border-yellow-500/30 rounded text-xs text-yellow-600 dark:text-yellow-400">
                   ⚠️ Selecciona al menos un tipo de clase
                 </div>
@@ -494,7 +536,7 @@ export function AvailabilityManager({ coachId, schoolId }: AvailabilityManagerPr
             <div className="space-y-2">
               {DAYS_OF_WEEK.map((day, dayIndex) => {
                 const daySlots = availability.filter(
-                  (a: CoachAvailability) => a.day_of_week === dayIndex
+                  (a: ResourceAvailability) => a.day_of_week === dayIndex
                 );
                 if (daySlots.length === 0) return null;
 
@@ -565,7 +607,7 @@ export function AvailabilityManager({ coachId, schoolId }: AvailabilityManagerPr
                               )}
                               {group.hasGroup && (
                                 <Badge variant="outline" className="text-[10px] gap-1 border-primary/40 text-primary">
-                                  <Users className="h-3 w-3" /> Grupal
+                                  <Users className="h-3 w-3" /> Reservable
                                 </Badge>
                               )}
                               <button
