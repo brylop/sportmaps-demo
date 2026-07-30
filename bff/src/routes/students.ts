@@ -3,6 +3,11 @@ import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { normalizeSchoolName } from '../utils/brandingUtils';
+import {
+    createPendingPayment as createPendingPaymentShared,
+    cancelPendingPlanPayments,
+    INACTIVE_ATHLETE_ERROR,
+} from '../services/enrollmentBilling';
 
 const router = Router();
 
@@ -617,7 +622,12 @@ router.put(
   requireRole('owner', 'admin', 'school_admin', 'coach', 'staff'),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { id } = req.params;
+      // req.params.id llega tipado como string | string[] (Express 5): se
+      // normaliza una vez para poder pasarlo a los helpers tipados.
+      // El `as string` es necesario: req.params tiene index signature, así que TS no
+      // estrecha el tipo con Array.isArray sobre ese acceso y el ternario sigue siendo
+      // string | string[] aguas abajo.
+      const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id) as string;
       const { schoolId } = req;
       const { athlete_type, profile, enrollment } = req.body;
 
@@ -627,36 +637,55 @@ router.put(
 
       // ── PASO 1: Verificar ownership según tipo ────────────────────────────
       // Nunca confiar en el body — siempre cruzar contra req.schoolId (del JWT)
+      //
+      // El estado (activo/inactivo) se lee aquí pero NO decide el ownership: un
+      // atleta inactivo sigue siendo de la escuela y sus datos se pueden
+      // corregir. Antes el chequeo del adulto exigía status='active' y devolvía
+      // un 403 "Acceso denegado" opaco al editar a un inactivo.
+      let athleteIsActive = true;
+
       if (athlete_type === 'child') {
         const { data: owned } = await supabase
           .from('children')
-          .select('id')
+          .select('id, is_active')
           .eq('id', id)
           .eq('school_id', schoolId)
           .maybeSingle();
         if (!owned) return res.status(403).json({ error: 'Acceso denegado.' });
+        athleteIsActive = (owned as any).is_active !== false;
 
       } else if (athlete_type === 'adult') {
         const { data: membership } = await supabase
           .from('school_members')
-          .select('id')
+          .select('id, status')
           .eq('profile_id', id)
           .eq('school_id', schoolId)
-          .eq('status', 'active')
+          .eq('role', 'athlete')
           .maybeSingle();
         if (!membership) return res.status(403).json({ error: 'Acceso denegado.' });
+        athleteIsActive = (membership as any).status === 'active';
 
       } else if (athlete_type === 'unregistered') {
         const { data: owned } = await supabase
           .from('unregistered_athletes')
-          .select('id')
+          .select('id, is_active')
           .eq('id', id)
           .eq('school_id', schoolId)
           .maybeSingle();
         if (!owned) return res.status(403).json({ error: 'Acceso denegado.' });
+        athleteIsActive = (owned as any).is_active !== false;
 
       } else {
         return res.status(400).json({ error: 'athlete_type inválido.' });
+      }
+
+      // ── PASO 1.b: Atleta inactivo → no se le asigna equipo ni plan ────────
+      // El plan es lo que genera los cobros: asignárselo a un inactivo lo mete
+      // de vuelta a la facturación (open_month solo mira enrollments.status).
+      // Se rechaza ANTES de cualquier escritura para no dejar el perfil
+      // guardado a medias. Quitarlos (null) sí se permite.
+      if (enrollment && !athleteIsActive && (enrollment.team_id || enrollment.offering_plan_id)) {
+        return res.status(409).json({ error: INACTIVE_ATHLETE_ERROR });
       }
 
       // ── PASO 2: Actualizar tabla base ─────────────────────────────────────
@@ -720,83 +749,54 @@ router.put(
 
         const applyAthleteFilter = (q: any) => q.eq(athleteCol, id);
 
-        // Día de corte de la escuela: la MISMA fuente que usa open_month() para
-        // fijar el vencimiento. Se lee una vez por request.
-        let cutoffDayCache: number | null = null;
-        const getCutoffDay = async (): Promise<number> => {
-          if (cutoffDayCache === null) {
-            const { data } = await supabase.from('school_settings')
-              .select('payment_cutoff_day').eq('school_id', schoolId).maybeSingle();
-            cutoffDayCache = Number((data as any)?.payment_cutoff_day) || 10;
-          }
-          return cutoffDayCache;
-        };
-
-        // Vencimiento canónico del cobro: día de corte de la escuela, en el mes
-        // SIGUIENTE al de la fecha de inicio (se conserva la semántica previa de
-        // "el alta no cobra el mes en curso"), acotado al último día de ese mes.
-        //
-        // Antes cada rama inventaba su propia fecha: start_date + 1 mes para
-        // equipo y plan_start + 30 días para plan. Resultado: cobros del MISMO
-        // mes con vencimientos distintos (28, 29, 30...) y, peor, cada edición de
-        // atleta le movía el vencimiento al alumno. Con día de corte 10, todos
-        // caen el 10 y editar un atleta ya no corre la fecha.
-        const billingDue = async (startDate: string) => {
-          const cutoff = await getCutoffDay();
-          const [y, m] = startDate.split('-').map(Number);
-          const year = m === 12 ? y + 1 : y;
-          const month = m === 12 ? 1 : m + 1;
-          // Día 0 del mes siguiente = último día del mes objetivo.
-          const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-          const day = Math.min(cutoff, lastDay);
-          const pad = (n: number) => String(n).padStart(2, '0');
-          return {
-            due_date: `${year}-${pad(month)}-${pad(day)}`,
-            period_year: year,
-            period_month: month,
-          };
-        };
-
-        // Helper: crear pago pendiente
-        const createPendingPayment = async (
+        // Vencimiento y alta de cobro salen del servicio compartido
+        // (enrollmentBilling): mismo criterio aquí y en POST /enrollments.
+        const createPendingPayment = (
           teamId: string | null,
           planId: string | null,
           amount: number,
           concept: string,
           startDate: string
-        ) => {
-          // El constraint payments_amount_positive exige amount > 0: si no hay
-          // cuota configurada no se genera cobro (evita INSERT fallido silencioso).
-          if (!amount || amount <= 0) return;
-          const due = await billingDue(startDate);
-          const row: any = {
-            school_id: schoolId,
-            amount,
-            concept,
-            // Vencimiento + período poblados: sin period_year/period_month los
-            // índices uniq_payment_active_period_* son parciales y no aplican,
-            // así que el cobro se escapaba del dedup y duplicaba el mes.
-            due_date: due.due_date,
-            period_year: due.period_year,
-            period_month: due.period_month,
-            status: 'pending',
-            // payment_type solo admite 'one_time' | 'subscription' (constraint
-            // payments_payment_type_check). 'monthly' rompía el INSERT.
-            payment_type: 'one_time',
-          };
-          if (teamId) row.team_id = teamId;
-          if (planId) row.offering_plan_id = planId;
-          row[athleteCol] = id;
-          const { error } = await supabase.from('payments').insert(row);
-          if (error) {
-            // 23505: ya existe un cobro activo para este atleta+período
-            // (uniq_payment_active_period_*). NO es un error: el cobro ya está
-            // creado, así que la edición del atleta continúa sin duplicar ni
-            // abortar el guardado (antes reventaba con "Error creando cobro
-            // pendiente" al editar un atleta que ya tenía su mensualidad).
-            if ((error as any).code === '23505') return;
-            throw new Error(`Error creando cobro pendiente: ${error.message}`);
-          }
+        ) => createPendingPaymentShared({
+          schoolId, athleteCol, athleteId: id, teamId, planId, amount, concept, startDate,
+        });
+
+        /**
+         * Lee las inscripciones activas de un tipo (equipo o plan) y devuelve la
+         * más antigua + las sobrantes.
+         *
+         * Antes esto era un `.maybeSingle()` cuyo `error` se descartaba: con DOS
+         * filas activas PostgREST responde 406, `data` llega null y el código
+         * concluía "no tiene inscripción" → INSERT → 23505 contra
+         * idx_enrollments_user_offering_plan_active. El editor de ese atleta
+         * quedaba muerto: hasta cambiarle el nombre fallaba.
+         */
+        const readActiveEnrollments = async (kind: 'team' | 'plan') => {
+          const col = kind === 'team' ? 'team_id' : 'offering_plan_id';
+          const { data, error } = await applyAthleteFilter(
+            supabase.from('enrollments')
+              .select('id, team_id, offering_plan_id, monthly_fee')
+              .eq('school_id', schoolId).eq('status', 'active').not(col, 'is', null)
+              .order('created_at', { ascending: true })
+          );
+          if (error) throw new Error(`Error leyendo inscripciones: ${error.message}`);
+          const rows = (data as any[]) ?? [];
+          return { survivor: rows[0] ?? null, extras: rows.slice(1) };
+        };
+
+        /**
+         * Cancela las inscripciones activas duplicadas. Va SIEMPRE antes de
+         * actualizar la que sobrevive: los índices únicos son parciales
+         * (WHERE status='active'), así que mover el plan a la fila que queda con
+         * la duplicada todavía activa revienta con 23505.
+         */
+        const cancelExtraEnrollments = async (extras: any[]) => {
+          if (!extras.length) return;
+          const today = new Date().toISOString().split('T')[0];
+          await supabase.from('enrollments')
+            .update({ status: 'cancelled', end_date: today, updated_at: new Date().toISOString() })
+            .in('id', extras.map(r => r.id))
+            .eq('school_id', schoolId);
         };
 
         // ── Enrollment de EQUIPO ────────────────────────────────────────────────
@@ -811,10 +811,8 @@ router.put(
           // "equipo sin cobro" y se respeta tal cual.
           const teamFee: number | null = hasPlan ? 0 : (enrollment.team_monthly_fee ?? null);
 
-          const { data: existingTeam } = await applyAthleteFilter(
-            supabase.from('enrollments').select('id, team_id, monthly_fee')
-              .eq('school_id', schoolId).eq('status', 'active').not('team_id', 'is', null)
-          ).maybeSingle();
+          const { survivor: existingTeam, extras: extraTeams } = await readActiveEnrollments('team');
+          await cancelExtraEnrollments(extraTeams);
 
           const oldTeamId: string | null = existingTeam?.team_id || null;
 
@@ -887,10 +885,18 @@ router.put(
           expiresAt.setDate(expiresAt.getDate() + 30);
           const expiresAtStr = expiresAt.toISOString().split('T')[0];
 
-          const { data: existingPlan } = await applyAthleteFilter(
-            supabase.from('enrollments').select('id, offering_plan_id, monthly_fee')
-              .eq('school_id', schoolId).eq('status', 'active').not('offering_plan_id', 'is', null)
-          ).maybeSingle();
+          const { survivor: existingPlan, extras: extraPlans } = await readActiveEnrollments('plan');
+          await cancelExtraEnrollments(extraPlans);
+
+          // Los planes de las filas descartadas que NO son el plan final dejan
+          // de cobrar: sus cobros pendientes se anulan (si no, el atleta queda
+          // con dos mensualidades vivas de planes distintos).
+          await cancelPendingPlanPayments({
+            schoolId, athleteCol, athleteId: id,
+            planIds: extraPlans
+              .map(r => r.offering_plan_id)
+              .filter((pid: string | null): pid is string => !!pid && pid !== enrollment.offering_plan_id),
+          });
 
           const oldPlanId: string | null = existingPlan?.offering_plan_id || null;
 

@@ -2,6 +2,15 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import {
+    AthleteType,
+    athleteColFor,
+    createPendingPayment,
+    cancelPendingPlanPayments,
+    emitPlanCharge,
+    isAthleteActive,
+    INACTIVE_ATHLETE_ERROR,
+} from '../services/enrollmentBilling';
 
 const router = Router();
 
@@ -55,6 +64,15 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
             return res.status(404).json({
                 error: 'Deportista no encontrado'
             });
+        }
+
+        // ── Atleta inactivo: no se inscribe ──────────────────────────────────
+        // El plan es lo que genera cobros; inscribir a un inactivo lo devuelve a
+        // la facturación (open_month solo mira enrollments.status, no el estado
+        // del atleta). Vale para los tres tipos.
+        const athleteType: AthleteType = data.user_id ? 'adult' : data.child_id ? 'child' : 'unregistered';
+        if (!(await isAthleteActive(schoolId!, athleteType, studentId!))) {
+            return res.status(409).json({ error: INACTIVE_ATHLETE_ERROR });
         }
 
         // ✅ Si es inscripción a equipo, validar que no exista ya activa
@@ -115,19 +133,100 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
         //    plan sin equipo), se completa esa fila en vez de abrir una segunda.
         //    Sin esto, asignar un plan a un atleta ya inscrito en su equipo dejaba
         //    dos inscripciones activas: roster inflado y riesgo de doble cobro.
-        const { data: activeEnrollments } = await supabase
+        const { data: activeEnrollments, error: activeError } = await supabase
             .from('enrollments')
-            .select('id, team_id, offering_plan_id')
+            .select('id, team_id, offering_plan_id, monthly_fee')
             .eq(studentField, studentId)
             .eq('school_id', schoolId)
             .eq('status', 'active')
             .order('created_at', { ascending: true });
+
+        if (activeError) throw activeError;
+
+        const athleteCol = athleteColFor(athleteType);
+        const startDate = data.start_date || new Date().toISOString().split('T')[0];
 
         const mergeTarget = (activeEnrollments || []).find((row: any) =>
             (!data.team_id || !row.team_id || row.team_id === data.team_id) &&
             (!data.offering_plan_id || !row.offering_plan_id || row.offering_plan_id === data.offering_plan_id) &&
             ((data.team_id && !row.team_id) || (data.offering_plan_id && !row.offering_plan_id))
         );
+
+        // ── Cambio de plan ───────────────────────────────────────────────────
+        // Si el atleta YA tiene un plan activo distinto, el merge de arriba no
+        // aplica (esa fila no "le falta" el plan, tiene otro) y antes se
+        // insertaba una SEGUNDA inscripción activa: la vista mostraba uno de los
+        // dos planes al azar (LIMIT 1 sin ORDER BY) y el editor de atletas
+        // quedaba roto con 23505. Ahora se reemplaza sobre la misma fila, igual
+        // que hace el editor: se anula el cobro del plan viejo y se emite el del
+        // nuevo. Una sola inscripción activa por atleta, siempre.
+        const planHolders = (activeEnrollments || []).filter(
+            (row: any) => row.offering_plan_id && row.offering_plan_id !== data.offering_plan_id,
+        );
+        const replaceTarget = data.offering_plan_id && data.status === 'active' && !mergeTarget && planHolders.length
+            ? planHolders[0]
+            : null;
+
+        if (replaceTarget) {
+            const { data: planInfo } = await supabase
+                .from('offering_plans')
+                .select('name, price')
+                .eq('id', data.offering_plan_id!)
+                .maybeSingle();
+
+            // Las filas sobrantes (drift histórico) se cancelan ANTES de mover el
+            // plan: los índices únicos son parciales WHERE status='active'.
+            const extras = planHolders.slice(1).map((r: any) => r.id);
+            if (extras.length) {
+                await supabase
+                    .from('enrollments')
+                    .update({ status: 'cancelled', end_date: startDate })
+                    .in('id', extras)
+                    .eq('school_id', schoolId);
+            }
+
+            await cancelPendingPlanPayments({
+                schoolId: schoolId!,
+                athleteCol,
+                athleteId: studentId!,
+                planIds: planHolders.map((r: any) => r.offering_plan_id),
+            });
+
+            const { data: replaced, error: replaceError } = await supabase
+                .from('enrollments')
+                .update({
+                    offering_plan_id: data.offering_plan_id,
+                    team_id: replaceTarget.team_id || data.team_id || null,
+                    // La cuota del atleta pasa a ser la del plan nuevo: si se
+                    // dejara el override viejo seguiría cobrando el monto anterior.
+                    monthly_fee: planInfo?.price ?? null,
+                    sessions_used: 0,
+                    secondary_sessions_used: 0,
+                    ...(expiresAt ? { expires_at: expiresAt } : {}),
+                })
+                .eq('id', replaceTarget.id)
+                .eq('school_id', schoolId)
+                .select()
+                .single();
+
+            if (replaceError) throw replaceError;
+
+            await createPendingPayment({
+                schoolId: schoolId!,
+                athleteCol,
+                athleteId: studentId!,
+                planId: data.offering_plan_id!,
+                amount: Number(planInfo?.price ?? 0),
+                concept: `Plan ${planInfo?.name || 'Plan'}`,
+                startDate,
+            });
+
+            return res.status(200).json({
+                message: 'Plan reemplazado exitosamente',
+                data: replaced,
+                replaced: true,
+            });
+        }
 
         if (mergeTarget) {
             const { data: merged, error: mergeError } = await supabase
@@ -142,6 +241,13 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
                 .single();
 
             if (mergeError) throw mergeError;
+
+            // El plan recién asignado tiene que traer su mensualidad: antes esta
+            // rama dejaba al atleta con plan y sin cobro (se leía como "el plan
+            // no se agregó").
+            if (data.offering_plan_id && !mergeTarget.offering_plan_id && data.status === 'active') {
+                await emitPlanCharge(schoolId!, athleteCol, studentId!, data.offering_plan_id, startDate);
+            }
 
             return res.status(200).json({
                 message: 'Inscripción actualizada exitosamente',
@@ -162,7 +268,7 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
                 offering_plan_id: data.offering_plan_id || null,
                 school_id: schoolId,
                 status: data.status,
-                start_date: data.start_date || new Date().toISOString().split('T')[0],
+                start_date: startDate,
                 end_date: data.end_date || null,
                 expires_at: expiresAt,
                 sessions_used: 0,
@@ -172,6 +278,13 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
             .single();
 
         if (enrollError) throw enrollError;
+
+        // Mensualidad del plan nuevo. Solo para planes: la inscripción a equipo
+        // se sigue cobrando por su propia vía (open_month / editor de atletas) y
+        // emitirla aquí cambiaría el comportamiento del modal de equipos.
+        if (data.offering_plan_id && data.status === 'active') {
+            await emitPlanCharge(schoolId!, athleteCol, studentId!, data.offering_plan_id, startDate);
+        }
 
         res.status(201).json({
             message: 'Inscripción creada exitosamente',

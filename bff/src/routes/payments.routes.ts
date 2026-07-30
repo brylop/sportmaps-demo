@@ -94,7 +94,29 @@ router.post(
             if (!isStaff) {
                 const callerId = req.user.id;
                 const payerIds = [(payment as any).parent_id, (payment as any).user_id].filter(Boolean);
-                if (!payerIds.includes(callerId)) {
+                let allowed = payerIds.includes(callerId);
+
+                // Fallback por tutela: el cobro puede haber nacido sin parent_id (bug del
+                // generador, ver enrollmentBilling.createPendingPayment) y entonces
+                // payerIds queda vacío y ni el propio acudiente puede pagar. Se acepta si
+                // el menor del cobro es hijo del caller — es la MISMA noción de propiedad,
+                // verificada contra children, no un relajo del control.
+                if (!allowed && (payment as any).child_id) {
+                    const { data: child } = await supabase
+                        .from('children')
+                        .select('parent_id')
+                        .eq('id', (payment as any).child_id)
+                        .maybeSingle();
+                    if ((child as any)?.parent_id === callerId) {
+                        allowed = true;
+                        req.log?.warn(
+                            { paymentId, callerId, childId: (payment as any).child_id },
+                            'create-session: pago sin parent_id, autorizado por tutela del menor',
+                        );
+                    }
+                }
+
+                if (!allowed) {
                     req.log?.warn(
                         { paymentId, callerId, payerIds },
                         'create-session: caller no es payer del pago',

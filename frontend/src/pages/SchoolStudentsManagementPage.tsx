@@ -420,6 +420,10 @@ export default function SchoolStudentsManagementPage() {
     },
   });
 
+  // El atleta que se está editando está inactivo: se le corrigen los datos, pero
+  // no se le asigna equipo ni plan (el plan es lo que genera los cobros).
+  const editingIsInactive = !!editingStudent && (editingStudent as any).is_active === false;
+
   const onSubmit = (data: StudentFormData) => {
     if (editingStudent) updateStudentMutation.mutate(data);
     else createStudentMutation.mutate(data);
@@ -545,11 +549,40 @@ export default function SchoolStudentsManagementPage() {
     setSelectedStudentIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
   };
 
+  // Inactivar/reactivar pasa por el RPC set_school_athlete_status: además del
+  // estado, al inactivar CANCELA la inscripción activa y ANULA los cobros
+  // pendientes. Antes esto se hacía client-side tocando solo la tabla base, así
+  // que el atleta dado de baja conservaba su plan `active` y el generador mensual
+  // (open_month, que solo mira enrollments.status) le seguía emitiendo cuotas.
   const toggleStatusMutation = useMutation({
     mutationFn: async ({ id, status, athlete_type, school_id }: { id: string, status: 'active' | 'inactive', athlete_type: 'child' | 'adult' | 'unregistered', school_id: string }) => {
-      await studentsAPI.updateStudent(id, { status, athlete_type, school_id });
+      const { data, error } = await (supabase.rpc as any)('set_school_athlete_status', {
+        p_school_id:    school_id,
+        p_athlete_type: athlete_type,
+        p_athlete_id:   id,
+        p_active:       status === 'active',
+      });
+      if (error) throw error;
+      return data as { enrollments_cancelled: number; payments_cancelled: number } | null;
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); toast({ title: '✅ Estado actualizado' }); }
+    onSuccess: (result, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['school-students'] });
+      queryClient.invalidateQueries({ queryKey: ['school-payments'] });
+      const cancelled = Number(result?.payments_cancelled ?? 0);
+      toast({
+        title: vars.status === 'inactive' ? '✅ Atleta inactivado' : '✅ Atleta reactivado',
+        description: vars.status === 'inactive'
+          ? `Se canceló su plan${cancelled ? ` y se anularon ${cancelled} cobro(s) pendiente(s)` : ''}.`
+          : 'Vuelve a asignarle equipo y plan para que genere cobros.',
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: '❌ No se pudo cambiar el estado',
+        description: error?.message || 'Ocurrió un error inesperado',
+        variant: 'destructive',
+      });
+    },
   });
 
   const handleToggleStatus = (student: any) => {
@@ -557,7 +590,10 @@ export default function SchoolStudentsManagementPage() {
       id: student.id,
       status: student.status === 'inactive' ? 'active' : 'inactive',
       athlete_type: getAthleteType(student),
-      school_id: student.school_id
+      // El RPC autoriza contra p_school_id (is_school_admin), así que manda la
+      // escuela del contexto: la del atleta puede apuntar a otra en el caso
+      // multi-escuela de menores.
+      school_id: schoolId || student.school_id,
     });
   };
 
@@ -730,9 +766,13 @@ export default function SchoolStudentsManagementPage() {
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => setViewingStudent(student)}>Ver Perfil</DropdownMenuItem>
         <DropdownMenuItem onClick={() => handleEditStudent(student)}>Editar</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleToggleStatus(student)}>
-          {student.status === 'inactive' ? 'Reactivar' : 'Inactivar'}
-        </DropdownMenuItem>
+        {/* Inactivar cancela el plan y anula la cartera pendiente: es acción de
+            owner/admin (el RPC exige is_school_admin), no del coach. */}
+        {canManageStudents && (
+          <DropdownMenuItem onClick={() => handleToggleStatus(student)}>
+            {student.status === 'inactive' ? 'Reactivar' : 'Inactivar'}
+          </DropdownMenuItem>
+        )}
         {/* PATCH: label y params según tipo de atleta */}
         <DropdownMenuItem onClick={() => navigate(`/invitations?${buildInviteParams(student)}`)}>
           {getAthleteType(student) === 'unregistered' ? 'Invitar Atleta' : 'Invitar Acudiente'}
@@ -948,9 +988,18 @@ export default function SchoolStudentsManagementPage() {
                           <div className="flex gap-1">
                             <Button variant="ghost" size="sm" onClick={() => setViewingStudent(student)}>Ver</Button>
                             <Button variant="ghost" size="sm" onClick={() => handleEditStudent(student)}><Edit className="h-4 w-4 text-primary" /></Button>
-                            <Button variant="ghost" size="sm" onClick={() => handleToggleStatus(student)}>
-                              {student.status === 'inactive' ? <UserCheck className="h-4 w-4 text-green-500" /> : <UserMinus className="h-4 w-4 text-orange-500" />}
-                            </Button>
+                            {canManageStudents && (
+                              <Button
+                                variant="ghost" size="sm"
+                                disabled={toggleStatusMutation.isPending}
+                                title={student.status === 'inactive'
+                                  ? 'Reactivar atleta'
+                                  : 'Inactivar: cancela su plan y anula sus cobros pendientes'}
+                                onClick={() => handleToggleStatus(student)}
+                              >
+                                {student.status === 'inactive' ? <UserCheck className="h-4 w-4 text-green-500" /> : <UserMinus className="h-4 w-4 text-orange-500" />}
+                              </Button>
+                            )}
                             {/* PATCH: usa buildInviteParams para pasar el unregisteredId cuando aplica */}
                             <Button
                               variant="outline" size="sm"
@@ -1074,12 +1123,21 @@ export default function SchoolStudentsManagementPage() {
             {/* ── Inscripción ── */}
             <div className="space-y-4">
               <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Inscripción</h3>
+              {/* Atleta inactivo: sus datos se pueden corregir, pero no se le
+                  asigna equipo ni plan — el plan es lo que dispara los cobros.
+                  El BFF lo rechaza igual (409); esto evita el viaje en vano. */}
+              {editingIsInactive && (
+                <p className="text-xs rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-orange-700 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300">
+                  Este atleta está inactivo: no se le puede asignar equipo ni plan. Reactívalo primero.
+                </p>
+              )}
               <div className="grid gap-6 sm:grid-cols-2">
                 {/* Columna Equipo */}
                 <div className="space-y-3">
                   <div className="space-y-2">
                     <Label>Equipo</Label>
                     <Select
+                      disabled={editingIsInactive}
                       value={form.watch('team_id') || '__none__'}
                       onValueChange={(val) => {
                         const v = val === '__none__' ? '' : val;
@@ -1137,7 +1195,7 @@ export default function SchoolStudentsManagementPage() {
                   <div className="space-y-1">
                     <Label htmlFor="team_monthly_fee" className="text-xs text-muted-foreground">Mensualidad equipo (COP)</Label>
                     <Input id="team_monthly_fee" type="number" step={1000}
-                      disabled={!!form.watch('offering_plan_id')}
+                      disabled={editingIsInactive || !!form.watch('offering_plan_id')}
                       {...form.register('team_monthly_fee', { valueAsNumber: true })} />
                     {form.watch('offering_plan_id') ? (
                       <p className="text-[11px] text-muted-foreground">El plan define el cobro; el equipo no cobra (queda en 0).</p>
@@ -1149,6 +1207,7 @@ export default function SchoolStudentsManagementPage() {
                   <div className="space-y-2">
                     <Label>Plan</Label>
                     <Select
+                      disabled={editingIsInactive}
                       value={form.watch('offering_plan_id') || '__none__'}
                       onValueChange={(val) => {
                         const v = val === '__none__' ? '' : val;
@@ -1216,6 +1275,7 @@ export default function SchoolStudentsManagementPage() {
                   <div className="space-y-1">
                     <Label htmlFor="plan_monthly_fee" className="text-xs text-muted-foreground">Mensualidad plan (COP)</Label>
                     <Input id="plan_monthly_fee" type="number" step={1000}
+                      disabled={editingIsInactive}
                       {...form.register('plan_monthly_fee', { valueAsNumber: true })} />
                   </div>
                 </div>
