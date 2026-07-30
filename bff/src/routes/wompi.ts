@@ -1,7 +1,11 @@
 /**
  * wompi — Webhook unificado de Wompi (Colombia).
  *
- * Endpoint: POST /api/v1/webhooks/wompi
+ * Endpoint: POST /api/v1/webhooks/wompi/webhook
+ *   (montado en /api/v1/webhooks/wompi + router.post('/webhook'). El sufijo /webhook NO
+ *   es opcional: sin él, el catch-all de auth responde 401 "Token de autorización
+ *   requerido" — no 404 —, así que una URL mal configurada en el dashboard de Wompi falla
+ *   de forma silenciosa y los eventos nunca se reconcilian.)
  *
  * Wompi envia evento `transaction.updated` cuando una transaccion cambia de estado.
  * Este webhook reconcilia segun el prefijo de la `reference`:
@@ -13,7 +17,9 @@
  *   CART-*  → orden del shop     (descuenta stock atomico + cambia status)
  *
  * Seguridad:
- *  - Valida checksum SHA256 con WOMPI_EVENTS_SECRET (validateWebhookChecksum).
+ *  - Valida checksum SHA256 con el events_secret del comercio dueño de la referencia
+ *    (multi-tenant): se resuelve la escuela por payment_links y se usan SUS credenciales.
+ *    Si la referencia no es de una escuela, cae a WOMPI_EVENTS_SECRET (legacy).
  *  - Idempotencia por wompi_transaction_id (insercion unica).
  *  - Re-consulta el estado a Wompi para evitar webhook spoofing.
  */
@@ -26,7 +32,10 @@ import {
     mapWompiStatus,
     centsToCop,
     createPaymentSource,
+    wompiCredsFrom,
+    type WompiCreds,
 } from '../services/wompi.service';
+import { resolveProvider } from '../services/payment-provider.resolver';
 import {
     recordWebhookEvent,
     markWebhookProcessed,
@@ -37,6 +46,43 @@ import {
 
 const router = Router();
 
+/** Formato de las referencias que emitimos: PREFIJO-BASE36-HEX. Nada más entra a la query. */
+const SAFE_REFERENCE = /^[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+$/;
+
+/**
+ * Resuelve las credenciales Wompi del comercio dueño de una referencia.
+ *
+ * Necesario para escuelas con cuenta propia (payment_mode='direct'): cada una tiene su
+ * events_secret, así que el checksum del webhook debe validarse con el de ESA escuela.
+ * Para la escuela en 'aggregator' el resolver devuelve las llaves de ENV, o sea el mismo
+ * comportamiento de antes sin ramas especiales.
+ *
+ * Devuelve null si la referencia no es de una escuela (marketplace) o no se encuentra;
+ * el caller cae entonces a las llaves globales, que es el comportamiento legacy.
+ */
+async function credsForReference(reference: string): Promise<WompiCreds | null> {
+    // La referencia viene del body sin validar todavía, así que se filtra por formato
+    // antes de usarla en una query (PostgREST interpola los filtros como texto).
+    if (!reference || !SAFE_REFERENCE.test(reference)) return null;
+
+    let schoolId: string | null = null;
+    for (const col of ['provider_reference', 'wompi_reference'] as const) {
+        const { data } = await supabase
+            .from('payment_links')
+            .select('school_id')
+            .eq(col, reference)
+            .maybeSingle();
+        if ((data as any)?.school_id) {
+            schoolId = (data as any).school_id;
+            break;
+        }
+    }
+    if (!schoolId) return null;
+
+    const resolved = await resolveProvider({ schoolId, preferredProvider: 'wompi' });
+    return wompiCredsFrom(resolved);
+}
+
 router.post('/webhook', async (req: Request, res: Response) => {
     try {
         const body = req.body;
@@ -44,9 +90,21 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
         req.log?.info({ event }, 'Wompi webhook received');
 
-        // 1. Validar checksum
-        if (!validateWebhookChecksum(body)) {
-            req.log?.warn('Wompi webhook checksum mismatch');
+        // 1. Validar checksum con el events_secret del comercio dueño de la referencia.
+        //
+        //    La referencia se lee del body ANTES de validar la firma, para saber con qué
+        //    secreto validar. Es seguro: elegir el secreto no concede nada — quien manda el
+        //    evento igual tiene que producir un checksum válido para ESE secreto, y más
+        //    abajo la referencia se vuelve a atar a su escuela y se re-consulta la
+        //    transacción contra la API de Wompi.
+        const refFromBody: string = body?.data?.transaction?.reference || '';
+        const creds = await credsForReference(refFromBody);
+
+        if (!validateWebhookChecksum(body, creds ?? undefined)) {
+            req.log?.warn(
+                { reference: refFromBody, perSchoolCreds: !!creds },
+                'Wompi webhook checksum mismatch',
+            );
             return res.status(401).json({ error: 'Invalid checksum' });
         }
 
@@ -65,8 +123,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Invalid payload' });
         }
 
-        // 2. Re-consultar a Wompi (defensa anti-spoofing)
-        const realTx = await fetchTransaction(txId);
+        // 2. Re-consultar a Wompi (defensa anti-spoofing). Con las credenciales del mismo
+        //    comercio: define sandbox vs producción, que puede diferir por escuela.
+        const realTx = await fetchTransaction(txId, creds ?? undefined);
         if (!realTx) {
             req.log?.warn({ txId }, 'Wompi webhook: cannot fetch transaction from Wompi');
             return res.status(400).json({ error: 'Cannot verify transaction' });
@@ -128,7 +187,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         // Captura de token: si la tx fue APPROVED y Wompi devolvio un token reusable,
         // intentar persistirlo si el user existe.
         if (internalStatus === 'paid') {
-            await maybeCaptureToken(req, realTx, txReference);
+            await maybeCaptureToken(req, realTx, txReference, creds ?? undefined);
         }
 
         return res.status(routed.status).json(routed.body);
@@ -593,7 +652,12 @@ async function handleSessionBooking({
 // Si hay consent y la tarjeta es CARD, convertimos el token efimero del
 // Widget (~15 min TTL) en un payment_source permanente via POST /v1/
 // payment_sources y lo guardamos como provider_payment_source_id.
-async function maybeCaptureToken(req: Request, realTx: any, txReference: string): Promise<void> {
+async function maybeCaptureToken(
+    req: Request,
+    realTx: any,
+    txReference: string,
+    creds?: WompiCreds,
+): Promise<void> {
     try {
         const pm = realTx?.payment_method;
         const ephemeralToken: string | undefined = pm?.token || pm?.extra?.token;
@@ -622,13 +686,14 @@ async function maybeCaptureToken(req: Request, realTx: any, txReference: string)
 
         // 2. Crear payment_source permanente en Wompi.
         const paymentMethodType = (pm?.type || 'CARD') as 'CARD' | 'NEQUI' | 'DAVIPLATA' | 'BANCOLOMBIA_TRANSFER';
+        // Mismo comercio que cobró: el payment_source queda ligado a esa cuenta Wompi.
         const psRes = await createPaymentSource({
             cardToken: ephemeralToken,
             customerEmail,
             acceptanceToken: consent.acceptance_token,
             personalDataAuthToken: consent.personal_data_auth_token,
             type: paymentMethodType,
-        });
+        }, creds);
 
         if (!psRes.ok) {
             req.log?.warn({ err: psRes.error, txReference, userId: consent.user_id }, 'createPaymentSource failed');

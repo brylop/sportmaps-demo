@@ -16,7 +16,10 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
-import { generateReference, copToCents, assertUserNotBlocked, UserPaymentBlockedError } from '../services/wompi.service';
+import {
+    generateReference, copToCents, assertUserNotBlocked, UserPaymentBlockedError,
+    signIntegrity, wompiCredsFrom,
+} from '../services/wompi.service';
 import { generateMpReference } from '../services/mercadopago.service';
 import { resolveProvider, type PaymentProvider } from '../services/payment-provider.resolver';
 import { extractReceipt } from '../services/ocr.service';
@@ -118,25 +121,33 @@ router.post(
             }
 
             // 3. Resolver provider de pago para esta escuela.
-            //    Estrategia:
-            //     a) school_payment_providers tiene config explicita → usa esa.
-            //     b) Sino, fallback legacy: school_settings.wompi_enabled.
+            //    El resolver es la ÚNICA autoridad: decide según schools.payment_mode
+            //    ('direct' = cuenta propia, 'aggregator' = llaves de ENV, 'unset' = bloqueada).
+            //
+            //    Se eliminó el fallback legacy a school_settings.wompi_enabled: ese flag
+            //    hacía que una escuela BLOQUEADA igual eligiera 'wompi', y la firma la
+            //    emite la Edge Function con las llaves de ENV — que son de una escuela
+            //    real. O sea el flag salteaba el fail-closed y le ruteaba el dinero a la
+            //    cuenta comercial de otra escuela. wompi_enabled queda solo como control
+            //    de UI. Ref: docs/payments-connected-accounts-fase0-cierre.md §2 ter.
             const resolved = await resolveProvider({ schoolId, preferredProvider });
 
             const { data: settings } = await supabase
                 .from('school_settings')
-                .select('wompi_enabled, online_fee_pct, fee_payer')
+                .select('online_fee_pct, fee_payer')
                 .eq('school_id', schoolId)
                 .single();
 
-            const provider: PaymentProvider = resolved?.provider
-                ?? (settings?.wompi_enabled ? 'wompi' : (null as any));
-
-            if (!provider) {
+            if (!resolved) {
                 return res.status(400).json({
-                    error: 'Los pagos online no estan habilitados para esta escuela.',
+                    error: 'Esta escuela todavía no tiene su cuenta de pagos conectada, '
+                        + 'así que no puede recibir pagos online. Comunícate con la escuela '
+                        + 'para pagar por otro medio.',
+                    code: 'payment_account_not_connected',
                 });
             }
+
+            const provider: PaymentProvider = resolved.provider;
 
             const feePct = Number(settings?.online_fee_pct ?? 3);
 
@@ -154,11 +165,35 @@ router.post(
                 .gte('expires_at', new Date().toISOString())
                 .maybeSingle();
 
+            // Firma de integridad del Widget, calculada en el BFF con el integrity secret
+            // de ESTA escuela. Antes la pedía el frontend a la Edge Function `wompi-sign`,
+            // que tiene un único secret global y por tanto no puede firmar por escuela
+            // (los secretos por escuela están cifrados y solo el BFF los descifra).
+            // Devolver null es tolerado: el frontend cae a la Edge Function (camino legacy).
+            const signFor = (reference: string, amountInCents: number): string | null => {
+                if (provider !== 'wompi') return null;
+                const creds = wompiCredsFrom(resolved);
+                if (!creds) return null;
+                try {
+                    return signIntegrity({ reference, amountInCents }, creds);
+                } catch (e: any) {
+                    req.log?.warn(
+                        { err: e?.message, schoolId },
+                        'create-session: no se pudo firmar en el BFF (falta integrity secret)',
+                    );
+                    return null;
+                }
+            };
+
             const reuseResponse = (link: any) => res.status(200).json({
                 provider: (link.payment_provider as PaymentProvider) ?? 'wompi',
                 publicKey: resolved?.publicKey ?? null,
                 sandbox: resolved?.sandbox ?? true,
                 reference: link.provider_reference || link.wompi_reference,
+                signature: signFor(
+                    link.provider_reference || link.wompi_reference,
+                    copToCents(Number(link.gross_amount)),
+                ),
                 amountInCents: copToCents(Number(link.gross_amount)),
                 transactionAmount: Number(link.gross_amount),
                 grossAmount: Number(link.gross_amount),
@@ -236,6 +271,7 @@ router.post(
                 publicKey: resolved?.publicKey ?? null,
                 sandbox: resolved?.sandbox ?? true,
                 reference,
+                signature: signFor(reference, copToCents(grossAmount)),
                 amountInCents: copToCents(grossAmount),
                 transactionAmount: grossAmount,
                 grossAmount,

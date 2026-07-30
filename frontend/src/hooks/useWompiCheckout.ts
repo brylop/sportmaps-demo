@@ -117,6 +117,9 @@ export function useWompiCheckout({ onSuccess, onError, onClosed }: UseWompiCheck
         schoolName?: string;
         studentName?: string;
         teamName?: string;
+        /** Firma y public key que devuelve create-session (comercio de ESTA escuela). */
+        signature?: string | null;
+        publicKey?: string | null;
     }): Promise<WompiTransactionResult | null> => {
         const tx = await openWompiCheckout({
             reference: params.reference,
@@ -128,6 +131,8 @@ export function useWompiCheckout({ onSuccess, onError, onClosed }: UseWompiCheck
             schoolName: params.schoolName,
             studentName: params.studentName,
             teamName: params.teamName,
+            signature: params.signature,
+            publicKey: params.publicKey,
         });
 
         if (tx?.status === 'APPROVED') {
@@ -153,6 +158,11 @@ export function useWompiCheckout({ onSuccess, onError, onClosed }: UseWompiCheck
                 baseAmount: number;
                 sportmapsFee: number;
                 feePct: number;
+                // Firma y public key del comercio que cobra, resueltas por el BFF según el
+                // payment_mode de la escuela. Si son null, openWompiCheckout cae al camino
+                // legacy (Edge Function + llave de build).
+                signature?: string | null;
+                publicKey?: string | null;
             }>('/api/v1/payments/create-session', {
                 paymentId: payload.paymentId,
                 // Este flujo abre el Widget de Wompi → el link DEBE ser wompi, si no
@@ -168,6 +178,8 @@ export function useWompiCheckout({ onSuccess, onError, onClosed }: UseWompiCheck
                 schoolName: payload.schoolName,
                 studentName: payload.studentName,
                 teamName: payload.teamName,
+                signature: data.signature,
+                publicKey: data.publicKey,
             });
         } catch (err: any) {
             const msg = err?.message || 'Error iniciando el pago.';

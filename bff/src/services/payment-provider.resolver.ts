@@ -155,30 +155,19 @@ export async function listProvidersForVendor(
     }));
 }
 
+/**
+ * Providers para un checkout SIN dueño identificable (ni escuela ni vendor).
+ *
+ * Devuelve [] a propósito: exponer la public key de ENV aquí hacía que cualquier
+ * checkout de marketplace abriera el widget contra la cuenta comercial de ENV — que es
+ * la de una escuela real. Un checkout sin dueño no debe poder cobrar.
+ * Ref: docs/payments-connected-accounts-fase0-cierre.md §2 ter.
+ */
 export function listProvidersForMarketplace(): PublicProviderInfo[] {
-    const out: PublicProviderInfo[] = [];
-
-    const wompiPub = process.env.WOMPI_PUBLIC_KEY;
-    if (wompiPub) {
-        out.push({
-            provider: 'wompi',
-            publicKey: wompiPub,
-            sandbox: (process.env.WOMPI_ENV ?? 'sandbox').toLowerCase() !== 'production',
-            isDefault: (process.env.MARKETPLACE_DEFAULT_PROVIDER ?? 'mercadopago') === 'wompi',
-        });
-    }
-
-    const mpPub = process.env.MP_PUBLIC_KEY_DEFAULT;
-    if (mpPub) {
-        out.push({
-            provider: 'mercadopago',
-            publicKey: mpPub,
-            sandbox: (process.env.MP_ENV ?? 'sandbox').toLowerCase() !== 'production',
-            isDefault: (process.env.MARKETPLACE_DEFAULT_PROVIDER ?? 'mercadopago') === 'mercadopago',
-        });
-    }
-
-    return out;
+    console.warn(
+        '[payment-provider.resolver] listProvidersForMarketplace: checkout sin schoolId ni vendorId → sin providers (fail-closed).',
+    );
+    return [];
 }
 
 // ─── Resolver con secretos (uso solo BFF interno) ──────────────────────────
@@ -199,14 +188,47 @@ export async function resolveProvider(
 ): Promise<ResolvedProvider | null> {
     const { schoolId, vendorId, preferredProvider } = ctx;
 
+    // Las llaves de ENV son de UNA escuela real (ver §2 ter del doc), así que solo son
+    // legítimas para ESA escuela — la que está en payment_mode='aggregator'. Ningún vendor,
+    // organizer ni checkout de marketplace debe poder usarlas: su dinero terminaría en la
+    // cuenta comercial de un cliente ajeno. Este flag habilita el fallback a ENV del final
+    // únicamente en ese caso.
+    let envFallbackAllowed = false;
+
     if (schoolId) {
         // Modo de pago de la escuela — regla fail-closed [M1].
-        const { data: schoolRow } = await supabase
+        const { data: schoolRow, error: schoolErr } = await supabase
             .from('schools')
             .select('payment_mode')
             .eq('id', schoolId)
             .maybeSingle();
-        const paymentMode = (schoolRow as any)?.payment_mode ?? 'unset';
+
+        // Si la lectura FALLA (p.ej. el código subió antes de aplicar la migración que
+        // crea schools.payment_mode) no se puede decidir el modo. Se degrada al camino
+        // legacy en vez de bloquear: bloquear aquí apagaría el checkout de todas las
+        // escuelas por un desfase de despliegue. El log es la señal de alarma.
+        if (schoolErr) {
+            console.error(
+                `[payment-provider.resolver] no se pudo leer schools.payment_mode (school ${schoolId}): ${schoolErr.message}. ` +
+                'Se degrada al camino legacy (ENV). ¿Falta aplicar la migración de payment_mode?',
+            );
+        }
+
+        const paymentMode: string | null = schoolErr
+            ? null
+            : ((schoolRow as any)?.payment_mode ?? null);
+
+        // 'unset' = escuela sin decisión de cobro → BLOQUEADA. No cae a ENV.
+        // Crítico: las llaves WOMPI_* del ENV son de una escuela real (ver
+        // docs/payments-connected-accounts-fase0-cierre.md §2 ter), así que caer a ENV
+        // le rutearía el dinero de esta escuela a la cuenta comercial de otra.
+        if (paymentMode === 'unset') {
+            console.warn(
+                `[payment-provider.resolver] school ${schoolId} en 'unset' → checkout BLOQUEADO (fail-closed). ` +
+                'Debe conectar su propia cuenta (direct) antes de cobrar online.',
+            );
+            return null;
+        }
 
         if (paymentMode === 'direct') {
             // SOLO cuenta propia conectada. NUNCA cae a las llaves globales (ENV).
@@ -228,7 +250,12 @@ export async function resolveProvider(
                 console.warn(`[payment-provider.resolver] school ${schoolId} en 'direct' sin provider habilitado → checkout BLOQUEADO (fail-closed).`);
                 return null;
             }
-            if (chosen.connect_status !== 'connected') {
+            // 'connected_pending_webhook' SÍ habilita el cobro: el events_secret de Wompi
+            // solo se puede verificar cuando llega el primer webhook, y el primer webhook
+            // solo llega si hubo un cobro. Exigir 'connected' aquí sería un deadlock.
+            // Lo que bloquea es 'expired' / 'error' / 'disconnected'.
+            if (chosen.connect_status !== 'connected'
+                && chosen.connect_status !== 'connected_pending_webhook') {
                 console.warn(`[payment-provider.resolver] school ${schoolId} provider ${chosen.provider} en estado '${chosen.connect_status}' → checkout BLOQUEADO (fail-closed).`);
                 return null;
             }
@@ -241,9 +268,11 @@ export async function resolveProvider(
             return resolved;
         }
 
-        // 'aggregator' | 'unset' → comportamiento legacy: llaves globales (ENV) más abajo.
-        // Prod-hardening (Fase 4): 'unset' debería BLOQUEAR en prod; hoy se trata como
-        // agregador para no romper el flujo actual ni las escuelas/demos existentes.
+        // 'aggregator' → camino legacy: llaves de ENV, más abajo. Transitorio: esas llaves
+        // pertenecen a UNA escuela real, no a SportMaps. Solo debería quedar esa escuela en
+        // 'aggregator' (ver migración 20260730000003) hasta migrarla a 'direct'.
+        // null (lectura fallida) → también legacy, por el desfase de despliegue de arriba.
+        envFallbackAllowed = true;
     }
 
     if (vendorId) {
@@ -274,9 +303,27 @@ export async function resolveProvider(
                 isDefault: chosen.is_default,
             };
         }
+
+        // Vendor sin credenciales propias → BLOQUEADO. No hay fallback a ENV: esas llaves
+        // son de una escuela, y cobrarle a un cliente de este vendor con ellas le mandaría
+        // la plata a esa escuela.
+        console.warn(
+            `[payment-provider.resolver] vendor ${vendorId} sin provider habilitado → checkout BLOQUEADO (fail-closed).`,
+        );
+        return null;
     }
 
-    // Marketplace global (sin escuela ni vendor)
+    if (!envFallbackAllowed) {
+        // Sin escuela ni vendor: checkout de marketplace sin dueño identificable. Antes caía
+        // a ENV, o sea a la cuenta comercial de una escuela real.
+        console.warn(
+            '[payment-provider.resolver] resolveProvider sin schoolId ni vendorId → BLOQUEADO (fail-closed). ' +
+            'El checkout debe identificar al dueño del cobro.',
+        );
+        return null;
+    }
+
+    // Llaves de ENV — solo alcanzable por la escuela en 'aggregator' (ver flag arriba).
     const marketplaceDefault = (process.env.MARKETPLACE_DEFAULT_PROVIDER ?? 'mercadopago') as PaymentProvider;
     const effective = preferredProvider ?? marketplaceDefault;
 
