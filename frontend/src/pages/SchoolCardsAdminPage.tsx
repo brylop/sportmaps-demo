@@ -14,6 +14,8 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { AthleteIdCard, type CardData } from '@/components/cards/AthleteIdCard';
 import { CardTemplatesManager } from '@/components/cards/CardTemplatesManager';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 
 type Athlete = {
   kind: 'child' | 'profile';
@@ -182,6 +184,14 @@ export default function SchoolCardsAdminPage() {
     total: athletes.length,
     withCard: athletes.filter((a) => a.has_active_card).length,
   }), [athletes]);
+  // Con un estado ya filtrado en el servidor solo se puede contar ese estado.
+  const cardStatusCounts = useMemo(() => {
+    const count = (st: string) =>
+      statusFilter === 'all' || statusFilter === st
+        ? cards.filter((c) => c.status === st).length
+        : ('—' as const);
+    return { active: count('active'), revoked: count('revoked'), expired: count('expired') };
+  }, [cards, statusFilter]);
   const selectableWithout = filteredAthletes.filter((a) => !a.has_active_card);
   const selectedCount = filteredAthletes.filter((a) => selected.has(a.athlete_id)).length;
 
@@ -459,15 +469,19 @@ export default function SchoolCardsAdminPage() {
                     {branchOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
                   </SelectContent>
                 </Select>
-                <Select value={cardFilter} onValueChange={(v) => setCardFilter(v as any)}>
-                  <SelectTrigger className="w-auto min-w-[140px]"><SelectValue placeholder="Estado" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos</SelectItem>
-                    <SelectItem value="without">Sin carnet</SelectItem>
-                    <SelectItem value="with">Con carnet</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
+
+              <StatFilterBar
+                className="mb-4"
+                columns={3}
+                value={cardFilter === 'all' ? null : cardFilter}
+                onChange={(v) => setCardFilter((v as 'with' | 'without') ?? 'all')}
+                items={[
+                  { key: null, label: 'Todos', value: coverage.total, tone: 'neutral' },
+                  { key: 'with', label: 'Con carnet', value: coverage.withCard, tone: 'emerald' },
+                  { key: 'without', label: 'Sin carnet', value: coverage.total - coverage.withCard, tone: 'yellow' },
+                ]}
+              />
 
               {/* Barra de selección masiva */}
               {selectableWithout.length > 0 && (
@@ -561,6 +575,12 @@ export default function SchoolCardsAdminPage() {
                 </Table>
                 </div>
               )}
+              <TableRefreshBar
+                className="-mx-6 -mb-6 mt-2 rounded-b-lg"
+                onRefresh={loadAthletes}
+                loading={loadingAthletes}
+                summary={`${filteredAthletes.length} de ${athletes.length} atleta(s)`}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -581,15 +601,6 @@ export default function SchoolCardsAdminPage() {
                     onChange={(e) => setSearch(e.target.value)}
                   />
                 </div>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-auto min-w-[130px]"><SelectValue placeholder="Estado" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos</SelectItem>
-                    <SelectItem value="active">Activos</SelectItem>
-                    <SelectItem value="revoked">Revocados</SelectItem>
-                    <SelectItem value="expired">Vencidos</SelectItem>
-                  </SelectContent>
-                </Select>
 
                 {/* Descarga por equipo (encarpetado) */}
                 <div className="flex items-center gap-2 ml-auto">
@@ -606,6 +617,22 @@ export default function SchoolCardsAdminPage() {
                   </Button>
                 </div>
               </div>
+
+              {/* El estado se filtra en el servidor, así que los contadores solo
+                  se pueden calcular cuando está seleccionado "Todos"; en un
+                  filtro activo el resto va en '—' en vez de un número falso. */}
+              <StatFilterBar
+                className="mb-4"
+                columns={4}
+                value={statusFilter === 'all' ? null : statusFilter}
+                onChange={(v) => setStatusFilter(v ?? 'all')}
+                items={[
+                  { key: null, label: 'Todos', value: statusFilter === 'all' ? cards.length : '—', tone: 'neutral' },
+                  { key: 'active', label: 'Activos', value: cardStatusCounts.active, tone: 'emerald' },
+                  { key: 'revoked', label: 'Revocados', value: cardStatusCounts.revoked, tone: 'rose' },
+                  { key: 'expired', label: 'Vencidos', value: cardStatusCounts.expired, tone: 'yellow' },
+                ]}
+              />
 
               {loadingCards ? (
                 <div className="py-12 flex justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div>
@@ -658,6 +685,12 @@ export default function SchoolCardsAdminPage() {
                   </TableBody>
                 </Table>
               )}
+              <TableRefreshBar
+                className="-mx-6 -mb-6 mt-2 rounded-b-lg"
+                onRefresh={loadCards}
+                loading={loadingCards}
+                summary={`${cards.length} carnet(s)`}
+              />
             </CardContent>
           </Card>
         </TabsContent>

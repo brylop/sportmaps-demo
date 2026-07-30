@@ -30,6 +30,8 @@ import {
   Trash2,
   RotateCcw
 } from 'lucide-react';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { PermissionGate } from '@/components/PermissionGate';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -103,7 +105,7 @@ export default function TeamsPage() {
   const [actionLoading, setActionLoading] = useState(false);
 
   // Fetch teams with relations
-  const { data: teams = [], isLoading, refetch } = useQuery({
+  const { data: teams = [], isLoading, isFetching, refetch } = useQuery({
     queryKey: ['teams', schoolId, activeBranchId, currentUserRole],
     queryFn: async () => {
       if (!schoolId) return [];
@@ -429,76 +431,18 @@ export default function TeamsPage() {
         </div>
       </div>
 
-      {/* Stats Cards - Replicating screenshot */}
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
-        <Card
-          className={`transition-all border-l-4 border-l-primary cursor-pointer hover:shadow-md ${statusFilter === 'all' ? 'ring-2 ring-primary ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
-          onClick={() => setStatusFilter(statusFilter === 'all' ? 'all' : 'all')}
-        >
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Total Equipos
-              </CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
-          </CardContent>
-        </Card>
-
-        <Card
-          className={`transition-all border-l-4 border-l-orange-500 cursor-pointer hover:shadow-md ${statusFilter === 'with_students' ? 'ring-2 ring-orange-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
-          onClick={() => setStatusFilter(statusFilter === 'with_students' ? 'all' : 'with_students')}
-        >
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Deportistas
-              </CardTitle>
-              <Star className="h-4 w-4 text-orange-500" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.athletes}</div>
-          </CardContent>
-        </Card>
-
-        <Card
-          className={`transition-all border-l-4 border-l-green-500 cursor-pointer hover:shadow-md ${statusFilter === 'with_wins' ? 'ring-2 ring-green-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
-          onClick={() => setStatusFilter(statusFilter === 'with_wins' ? 'all' : 'with_wins')}
-        >
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Victorias
-              </CardTitle>
-              <Trophy className="h-4 w-4 text-green-500" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.victories}</div>
-          </CardContent>
-        </Card>
-
-        <Card
-          className={`transition-all border-l-4 border-l-blue-500 cursor-pointer hover:shadow-md ${statusFilter === 'top_rate' ? 'ring-2 ring-blue-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
-          onClick={() => setStatusFilter(statusFilter === 'top_rate' ? 'all' : 'top_rate')}
-        >
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                % Victoria
-              </CardTitle>
-              <TrendingUp className="h-4 w-4 text-blue-500" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{stats.winRate}%</div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Stats Cards — tarjetas que filtran el listado al hacer clic */}
+      <StatFilterBar
+        columns={4}
+        value={statusFilter === 'all' ? null : statusFilter}
+        onChange={(v) => setStatusFilter(v ?? 'all')}
+        items={[
+          { key: null, label: 'Total Equipos', value: stats.total, tone: 'neutral' },
+          { key: 'with_students', label: 'Deportistas', value: stats.athletes, tone: 'orange' },
+          { key: 'with_wins', label: 'Victorias', value: stats.victories, tone: 'emerald' },
+          { key: 'top_rate', label: '% Victoria', value: `${stats.winRate}%`, tone: 'blue' },
+        ]}
+      />
 
       {/* Filters & Search Like Invitations */}
       <Card className="bg-card/50 border-dashed shadow-none">
@@ -842,6 +786,16 @@ export default function TeamsPage() {
                 ))}
               </TableBody>
             </Table>
+            <TableRefreshBar
+              className="-mx-6 -mb-6 mt-2 rounded-b-lg"
+              onRefresh={handleRefresh}
+              loading={isFetching}
+              summary={
+                filteredTeams.length === teams.length
+                  ? `${teams.length} equipo(s)`
+                  : `${filteredTeams.length} de ${teams.length} equipo(s)`
+              }
+            />
           </CardContent>
         </Card>
       ) : (
@@ -998,6 +952,20 @@ export default function TeamsPage() {
               </CardContent>
             </Card>
           ))}
+          <div className="md:col-span-2 lg:col-span-3">
+            <Card className="overflow-hidden">
+              <TableRefreshBar
+                onRefresh={handleRefresh}
+                loading={isFetching}
+                summary={
+                  filteredTeams.length === teams.length
+                    ? `${teams.length} equipo(s)`
+                    : `${filteredTeams.length} de ${teams.length} equipo(s)`
+                }
+                className="border-t-0"
+              />
+            </Card>
+          </div>
         </div>
       )}
 

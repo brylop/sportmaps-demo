@@ -5,13 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
-import {
     Table,
     TableBody,
     TableCell,
@@ -21,6 +14,8 @@ import {
 } from '@/components/ui/table';
 import { Building, Search, Loader2, ChevronLeft, ChevronRight, School } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 
 interface GlobalSchool {
     id: string;
@@ -106,28 +101,18 @@ export default function AdminSchoolsGlobalPage() {
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <Card>
-                    <CardContent className="p-4 text-center">
-                        <p className="text-3xl font-bold text-blue-600">{total}</p>
-                        <p className="text-sm text-muted-foreground mt-1">Total escuelas</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardContent className="p-4 text-center">
-                        <p className="text-3xl font-bold text-emerald-600">{verifiedCount}</p>
-                        <p className="text-sm text-muted-foreground mt-1">Verificadas (página)</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardContent className="p-4 text-center">
-                        <p className="text-3xl font-bold text-amber-600">
-                            {schools.length - verifiedCount}
-                        </p>
-                        <p className="text-sm text-muted-foreground mt-1">Pendientes (página)</p>
-                    </CardContent>
-                </Card>
-            </div>
+            {/* Los conteos de verificadas/pendientes son de la página actual: el
+                RPC solo devuelve el total global, no el desglose. */}
+            <StatFilterBar
+                columns={3}
+                value={verifiedFilter === 'all' ? null : verifiedFilter}
+                onChange={(v) => setVerifiedFilter((v as 'verified' | 'pending') ?? 'all')}
+                items={[
+                    { key: null, label: 'Total escuelas', value: total, tone: 'blue' },
+                    { key: 'verified', label: 'Verificadas (página)', value: verifiedCount, tone: 'emerald' },
+                    { key: 'pending', label: 'Pendientes (página)', value: schools.length - verifiedCount, tone: 'yellow' },
+                ]}
+            />
 
             <div className="flex gap-3 flex-wrap">
                 <div className="relative max-w-xs flex-1">
@@ -139,19 +124,6 @@ export default function AdminSchoolsGlobalPage() {
                         onChange={e => setSearch(e.target.value)}
                     />
                 </div>
-                <Select
-                    value={verifiedFilter}
-                    onValueChange={v => setVerifiedFilter(v as typeof verifiedFilter)}
-                >
-                    <SelectTrigger className="w-48">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all">Todas</SelectItem>
-                        <SelectItem value="verified">Solo verificadas</SelectItem>
-                        <SelectItem value="pending">Solo pendientes</SelectItem>
-                    </SelectContent>
-                </Select>
             </div>
 
             <Card>
@@ -219,36 +191,40 @@ export default function AdminSchoolsGlobalPage() {
                             </TableBody>
                         </Table>
                     )}
+                    <TableRefreshBar
+                        onRefresh={fetchSchools}
+                        loading={loading}
+                        summary={
+                            total > PAGE_SIZE
+                                ? `Página ${page + 1} de ${totalPages} · ${total} escuela(s)`
+                                : `${total} escuela(s)`
+                        }
+                    >
+                        {total > PAGE_SIZE && (
+                            <>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={page === 0 || loading}
+                                    onClick={() => setPage(p => Math.max(0, p - 1))}
+                                >
+                                    <ChevronLeft className="h-4 w-4" />
+                                    Anterior
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={page >= totalPages - 1 || loading}
+                                    onClick={() => setPage(p => p + 1)}
+                                >
+                                    Siguiente
+                                    <ChevronRight className="h-4 w-4" />
+                                </Button>
+                            </>
+                        )}
+                    </TableRefreshBar>
                 </CardContent>
             </Card>
-
-            {total > PAGE_SIZE && (
-                <div className="flex items-center justify-between">
-                    <p className="text-sm text-muted-foreground">
-                        Página {page + 1} de {totalPages}
-                    </p>
-                    <div className="flex gap-2">
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={page === 0 || loading}
-                            onClick={() => setPage(p => Math.max(0, p - 1))}
-                        >
-                            <ChevronLeft className="h-4 w-4" />
-                            Anterior
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={page >= totalPages - 1 || loading}
-                            onClick={() => setPage(p => p + 1)}
-                        >
-                            Siguiente
-                            <ChevronRight className="h-4 w-4" />
-                        </Button>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

@@ -3,7 +3,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
   Building2, MapPin, Trash2, Users, Calendar, Clock,
-  CheckCircle2, XCircle, Eye, Pencil, Ban, MoreHorizontal, CalendarCheck,
+  CheckCircle2, XCircle, Eye, Pencil, Ban, MoreHorizontal, CalendarCheck, RefreshCw,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -13,6 +13,8 @@ import type { FacilityReservation } from '@/hooks/useFacilityReservations';
 import { FacilityFormDialog } from '@/components/school/FacilityFormDialog';
 import { OwnerReservationModal } from '@/components/school/OwnerReservationModal';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -179,6 +181,8 @@ export default function SchoolFacilitiesPage() {
   const {
     reservations,
     isLoading: reservationsLoading,
+    isFetching: reservationsFetching,
+    refetch: refetchReservations,
     stats,
     createReservation,
     isCreating: isCreatingRes,
@@ -379,34 +383,34 @@ export default function SchoolFacilitiesPage() {
                 {stats.total} reservas en historial · <span className="text-foreground font-bold">{stats.pending}</span> por confirmar
               </p>
             </div>
-            <Button className="font-bold h-11 shadow-lg shadow-primary/20" onClick={handleOpenNew}>
-              <Users className="mr-2 h-4 w-4" /> Nueva Reserva
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                className="font-bold h-11"
+                onClick={() => void refetchReservations()}
+                disabled={reservationsFetching}
+              >
+                <RefreshCw className={`mr-2 h-4 w-4 ${reservationsFetching ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Actualizar</span>
+              </Button>
+              <Button className="font-bold h-11 shadow-lg shadow-primary/20" onClick={handleOpenNew}>
+                <Users className="mr-2 h-4 w-4" /> Nueva Reserva
+              </Button>
+            </div>
           </div>
 
           {/* Stats Bar */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            {[
-              { label: 'Total Historial', value: stats.total, color: 'text-foreground', bg: 'bg-muted/20', filter: null },
-              { label: 'Confirmadas', value: stats.confirmed, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/5', filter: 'confirmed' },
-              { label: 'Pendientes', value: stats.pending, color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-500/5', filter: 'pending' },
-              { label: 'Canceladas', value: stats.cancelled, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-500/5', filter: 'cancelled' },
-              { label: 'Completadas', value: stats.completed, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-500/5', filter: 'completed' },
-            ].map((s) => (
-              <Card 
-                key={s.label} 
-                className={`p-4 text-center border-2 transition-all cursor-pointer select-none active:scale-95 shadow-sm 
-                  ${statusFilter === s.filter 
-                    ? 'border-primary shadow-lg shadow-primary/10 ring-2 ring-primary/10' 
-                    : 'border-transparent opacity-70 hover:opacity-100 hover:border-border'} 
-                  ${s.bg}`}
-                onClick={() => setStatusFilter(s.filter)}
-              >
-                <p className={`text-3xl font-black tracking-tight ${s.color}`}>{s.value}</p>
-                <p className="text-[10px] uppercase font-black tracking-widest text-muted-foreground mt-1">{s.label}</p>
-              </Card>
-            ))}
-          </div>
+          <StatFilterBar
+            value={statusFilter}
+            onChange={setStatusFilter}
+            items={[
+              { key: null, label: 'Total Historial', value: stats.total, tone: 'neutral' },
+              { key: 'confirmed', label: 'Confirmadas', value: stats.confirmed, tone: 'emerald' },
+              { key: 'pending', label: 'Pendientes', value: stats.pending, tone: 'yellow' },
+              { key: 'cancelled', label: 'Canceladas', value: stats.cancelled, tone: 'rose' },
+              { key: 'completed', label: 'Completadas', value: stats.completed, tone: 'blue' },
+            ]}
+          />
 
           {/* Table Container */}
           <Card className="border-border/40 overflow-hidden shadow-xl shadow-foreground/5 mb-10">
@@ -543,6 +547,11 @@ export default function SchoolFacilitiesPage() {
                 </div>
               )}
             </div>
+            <TableRefreshBar
+              onRefresh={refetchReservations}
+              loading={reservationsFetching}
+              summary={`${filteredReservations.length} de ${stats.total} reservas`}
+            />
           </Card>
         </TabsContent>
       </Tabs>

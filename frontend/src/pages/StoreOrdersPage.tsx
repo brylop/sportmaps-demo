@@ -3,9 +3,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ShoppingCart, Eye, Package, Truck, CheckCircle, Clock, Loader2 } from 'lucide-react';
+import { ShoppingCart, Eye, Package, Truck, CheckCircle, Clock, Loader2, RefreshCw } from 'lucide-react';
 import { useStoreOrders } from '@/hooks/useStoreData';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 
 
 const statusConfig: Record<string, { label: string; variant: 'secondary' | 'default' | 'outline' | 'destructive'; icon: any }> = {
@@ -17,7 +18,7 @@ const statusConfig: Record<string, { label: string; variant: 'secondary' | 'defa
 
 export default function StoreOrdersPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const { data: orders, isLoading } = useStoreOrders();
+  const { data: orders, isLoading, isFetching, refetch } = useStoreOrders();
 
   // Clean MVP: Only real data
   const displayOrders = (orders || []).map(o => ({
@@ -32,6 +33,13 @@ export default function StoreOrdersPage() {
   const filteredOrders = statusFilter === 'all'
     ? displayOrders
     : displayOrders.filter(o => o.status === statusFilter);
+
+  const statusCounts = {
+    pending: displayOrders.filter(o => o.status === 'pending').length,
+    processing: displayOrders.filter(o => o.status === 'processing').length,
+    shipped: displayOrders.filter(o => o.status === 'shipped').length,
+    delivered: displayOrders.filter(o => o.status === 'delivered').length,
+  };
 
   if (isLoading) {
     return (
@@ -48,60 +56,18 @@ export default function StoreOrdersPage() {
         <p className="text-muted-foreground">Gestiona los pedidos de tu tienda</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card className="border-border/50 hover:border-yellow-500/50 transition-all cursor-pointer hover:shadow-md hover:-translate-y-0.5" onClick={() => setStatusFilter('pending')}>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-lg bg-yellow-50 dark:bg-yellow-500/10 flex items-center justify-center">
-                <Clock className="h-4 w-4 text-yellow-500" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Pendientes</p>
-                <p className="text-2xl font-bold">{displayOrders.filter(o => o.status === 'pending').length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-border/50 hover:border-blue-500/50 transition-all cursor-pointer hover:shadow-md hover:-translate-y-0.5" onClick={() => setStatusFilter('processing')}>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
-                <Package className="h-4 w-4 text-blue-500" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">En Proceso</p>
-                <p className="text-2xl font-bold">{displayOrders.filter(o => o.status === 'processing').length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-border/50 hover:border-purple-500/50 transition-all cursor-pointer hover:shadow-md hover:-translate-y-0.5" onClick={() => setStatusFilter('shipped')}>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-lg bg-purple-50 dark:bg-purple-500/10 flex items-center justify-center">
-                <Truck className="h-4 w-4 text-purple-500" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Enviados</p>
-                <p className="text-2xl font-bold">{displayOrders.filter(o => o.status === 'shipped').length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-border/50 hover:border-green-500/50 transition-all cursor-pointer hover:shadow-md hover:-translate-y-0.5" onClick={() => setStatusFilter('delivered')}>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-lg bg-green-50 dark:bg-green-500/10 flex items-center justify-center">
-                <CheckCircle className="h-4 w-4 text-green-500" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Entregados</p>
-                <p className="text-2xl font-bold">{displayOrders.filter(o => o.status === 'delivered').length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <StatFilterBar
+        columns={5}
+        value={statusFilter === 'all' ? null : statusFilter}
+        onChange={(v) => setStatusFilter(v ?? 'all')}
+        items={[
+          { key: null, label: 'Todos', value: displayOrders.length, tone: 'neutral' },
+          { key: 'pending', label: 'Pendientes', value: statusCounts.pending, tone: 'yellow' },
+          { key: 'processing', label: 'En Proceso', value: statusCounts.processing, tone: 'blue' },
+          { key: 'shipped', label: 'Enviados', value: statusCounts.shipped, tone: 'violet' },
+          { key: 'delivered', label: 'Entregados', value: statusCounts.delivered, tone: 'emerald' },
+        ]}
+      />
 
       <Card>
         <CardHeader>
@@ -110,18 +76,10 @@ export default function StoreOrdersPage() {
               <ShoppingCart className="h-5 w-5 text-primary" />
               Listado de Pedidos
             </CardTitle>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Filtrar por estado" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="pending">Pendientes</SelectItem>
-                <SelectItem value="processing">En Proceso</SelectItem>
-                <SelectItem value="shipped">Enviados</SelectItem>
-                <SelectItem value="delivered">Entregados</SelectItem>
-              </SelectContent>
-            </Select>
+            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
+              Actualizar
+            </Button>
           </div>
         </CardHeader>
         <CardContent>
@@ -179,6 +137,16 @@ export default function StoreOrdersPage() {
               </p>
             </div>
           )}
+          <TableRefreshBar
+            className="-mx-6 -mb-6 mt-2 rounded-b-lg"
+            onRefresh={refetch}
+            loading={isFetching}
+            summary={
+              filteredOrders.length === displayOrders.length
+                ? `${displayOrders.length} pedido(s)`
+                : `${filteredOrders.length} de ${displayOrders.length} pedido(s)`
+            }
+          />
         </CardContent>
       </Card>
     </div>

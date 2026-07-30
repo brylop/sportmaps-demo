@@ -20,6 +20,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { FileUpload } from '@/components/common/FileUpload';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { emailClient } from '@/lib/email-client';
 import { ReviewInstallmentModal } from '@/components/payment/ReviewInstallmentModal';
 import { InstallmentsConfigCard } from '@/components/payment/InstallmentsConfigCard';
@@ -830,17 +832,28 @@ export default function PaymentsAutomationPage() {
     if (p.status === 'awaiting_approval') return isGatewayManaged(p);
     return p.status === historyStatusFilter;
   });
-  const historyPayments = rawHistoryPayments.filter(p => {
+  // Base = todo menos el filtro de estado. De acá salen los contadores de las
+  // tarjetas, para que muestren cuánto hay en cada estado con la búsqueda y el
+  // equipo ya aplicados (si contaran sobre el total, el número no cuadraría con
+  // la tabla al buscar).
+  const historyBase = rawHistoryPayments.filter(p => {
     const searchMatch = !historySearch ||
       p.child?.full_name?.toLowerCase().includes(historySearch.toLowerCase()) ||
       p.parent?.full_name?.toLowerCase().includes(historySearch.toLowerCase()) ||
       p.concept?.toLowerCase().includes(historySearch.toLowerCase()) ||
       p.program?.name?.toLowerCase().includes(historySearch.toLowerCase()) ||
       p.team?.name?.toLowerCase().includes(historySearch.toLowerCase());
-    const statusMatch = historyStatusFilter === 'all' || p.status === historyStatusFilter;
     const teamMatch = historyTeamFilter === 'all' || p.team?.name === historyTeamFilter || p.team_id === historyTeamFilter;
-    return searchMatch && statusMatch && teamMatch;
+    return searchMatch && teamMatch;
   });
+  const historyPayments = historyBase.filter(
+    p => historyStatusFilter === 'all' || p.status === historyStatusFilter,
+  );
+
+  const historyCounts = historyBase.reduce<Record<string, number>>((acc, p) => {
+    acc[p.status] = (acc[p.status] ?? 0) + 1;
+    return acc;
+  }, {});
 
   const historyTotalPages = Math.max(1, Math.ceil(historyPayments.length / HISTORY_PAGE_SIZE));
   const pagedHistory = historyPayments.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE);
@@ -1143,6 +1156,12 @@ export default function PaymentsAutomationPage() {
                   </div>
                 </>
               )}
+              <TableRefreshBar
+                className="-mx-0 sm:-mx-6 sm:-mb-6 mt-2 sm:rounded-b-lg"
+                onRefresh={fetchPayments}
+                loading={loading}
+                summary={`${pendingPayments.length} cobro(s) por aprobar`}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -1412,24 +1431,33 @@ export default function PaymentsAutomationPage() {
                     <option key={team.id} value={team.name}>{team.name}</option>
                   ))}
                 </select>
-                <select
-                  className="flex h-9 w-full sm:w-[150px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  value={historyStatusFilter}
-                  onChange={(e) => setHistoryStatusFilter(e.target.value)}
-                >
-                  {/* Solo estados que existen en la base. 'Cancelado' es opt-in:
-                      no viene en la carga base (son ~2.4k cobros anulados) y al
-                      elegirlo se vuelve a consultar al servidor. */}
-                  <option value="all">Todos los estados</option>
-                  <option value="paid">Pagado</option>
-                  <option value="partial">Abono parcial</option>
-                  <option value="glosado">En aclaración</option>
-                  <option value="rejected">Rechazado</option>
-                  <option value="cancelled">Cancelado (anulados)</option>
-                </select>
               </div>
             </CardHeader>
             <CardContent className="p-0 sm:p-6">
+              {/* Filtro por estado en tarjetas. 'Cancelado' es opt-in: no viene
+                  en la carga base (son ~2.4k cobros anulados), por eso su
+                  contador va en '—' hasta que se selecciona y se vuelve a
+                  consultar al servidor. */}
+              <div className="px-4 sm:px-0 pt-4 sm:pt-0 pb-4">
+                <StatFilterBar
+                  columns={6}
+                  value={historyStatusFilter === 'all' ? null : historyStatusFilter}
+                  onChange={(v) => setHistoryStatusFilter(v ?? 'all')}
+                  items={[
+                    { key: null, label: 'Total', value: historyBase.length, tone: 'neutral' },
+                    { key: 'paid', label: 'Pagado', value: historyCounts.paid ?? 0, tone: 'emerald' },
+                    { key: 'partial', label: 'Abono parcial', value: historyCounts.partial ?? 0, tone: 'blue' },
+                    { key: 'glosado', label: 'En aclaración', value: historyCounts.glosado ?? 0, tone: 'orange' },
+                    { key: 'rejected', label: 'Rechazado', value: historyCounts.rejected ?? 0, tone: 'rose' },
+                    {
+                      key: 'cancelled',
+                      label: 'Cancelado',
+                      value: historyStatusFilter === 'cancelled' ? (historyCounts.cancelled ?? 0) : '—',
+                      tone: 'violet',
+                    },
+                  ]}
+                />
+              </div>
               {/* Si la consulta llegó al tope, el usuario tiene que saberlo: una
                   tabla truncada en silencio se lee como "esto es todo". */}
               {payments.length >= HISTORY_FETCH_CAP && (
@@ -1556,19 +1584,25 @@ export default function PaymentsAutomationPage() {
                   </TableBody>
                 </Table>
               </div>
-              {historyTotalPages > 1 && (
-                <div className="flex items-center justify-between px-2 py-3 mt-2 border-t text-sm">
-                  <span className="text-muted-foreground">
-                    Página {historyPage} de {historyTotalPages} · {historyPayments.length} transacciones
-                  </span>
-                  <div className="flex gap-2">
+              <TableRefreshBar
+                className="-mx-0 sm:-mx-6 sm:-mb-6 mt-2 sm:rounded-b-lg"
+                onRefresh={fetchPayments}
+                loading={loading}
+                summary={
+                  historyTotalPages > 1
+                    ? `Página ${historyPage} de ${historyTotalPages} · ${historyPayments.length} transacciones`
+                    : `${historyPayments.length} transacciones`
+                }
+              >
+                {historyTotalPages > 1 && (
+                  <>
                     <Button variant="outline" size="sm" disabled={historyPage <= 1}
                       onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}>Anterior</Button>
                     <Button variant="outline" size="sm" disabled={historyPage >= historyTotalPages}
                       onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}>Siguiente</Button>
-                  </div>
-                </div>
-              )}
+                  </>
+                )}
+              </TableRefreshBar>
             </CardContent>
           </Card>
         </TabsContent>

@@ -17,7 +17,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin, X } from 'lucide-react';
+import { StatFilterBar, type StatFilterTone } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
+import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin, X, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
@@ -72,6 +74,14 @@ const PAYMENT_STATE_LABELS: Record<PaymentState, string> = {
   pending: 'Pendiente',
   none:    'Sin cobro',
   other:   'Otros',
+};
+
+const PAYMENT_STATE_TONES: Record<PaymentState, StatFilterTone> = {
+  paid:    'emerald',
+  overdue: 'rose',
+  pending: 'yellow',
+  none:    'neutral',
+  other:   'blue',
 };
 
 /** Misma lógica que el badge de la tabla, para que filtro y badge nunca difieran. */
@@ -278,7 +288,7 @@ export default function SchoolStudentsManagementPage() {
       .finally(() => setLoadingPlanInfo(false));
   }, [viewingStudent]);
 
-  const { data: students = [], isLoading } = useQuery({
+  const { data: students = [], isLoading, isFetching, refetch } = useQuery({
     queryKey: ['school-students', schoolId, activeBranchId, coachId],
     queryFn: async () => {
       if (!schoolId) return [];
@@ -795,6 +805,10 @@ export default function SchoolStudentsManagementPage() {
         </div>
         {canManageStudents && (
           <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Actualizar</span>
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)}>
               <FileUp className="mr-2 h-4 w-4" />
               <span className="hidden sm:inline">Importar CSV</span>
@@ -859,18 +873,6 @@ export default function SchoolStudentsManagementPage() {
               </SelectContent>
             </Select>
 
-            <Select value={paymentFilter} onValueChange={setPaymentFilter}>
-              <SelectTrigger className="sm:w-[200px]">
-                <SelectValue placeholder="Estado de pago" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Cualquier estado de pago</SelectItem>
-                {filterOptions.payments.map(p => (
-                  <SelectItem key={p.id} value={p.id}>{PAYMENT_STATE_LABELS[p.id]} ({p.count})</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
             {activeFilterCount > 0 && (
               <Button variant="ghost" size="sm" onClick={clearFilters} className="sm:self-center text-muted-foreground">
                 <X className="h-4 w-4 mr-1" />
@@ -878,6 +880,25 @@ export default function SchoolStudentsManagementPage() {
               </Button>
             )}
           </div>
+
+          {/* Estado de pago en tarjetas: es el filtro que más se usa acá y en
+              un selector quedaba escondido detrás de equipo y plan. */}
+          <StatFilterBar
+            className="mt-4"
+            columns={5}
+            value={paymentFilter === 'all' ? null : paymentFilter}
+            onChange={(v) => setPaymentFilter(v ?? 'all')}
+            items={[
+              { key: null, label: 'Todos', value: tabStudents.length, tone: 'neutral' },
+              ...filterOptions.payments.map(p => ({
+                key: p.id,
+                label: PAYMENT_STATE_LABELS[p.id],
+                value: p.count,
+                tone: PAYMENT_STATE_TONES[p.id],
+              })),
+            ]}
+          />
+
           {selectedStudentIds.length > 0 && (
             <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-primary/5 border border-primary/20 rounded-lg animate-in fade-in slide-in-from-top-1">
               <div className="flex items-center gap-2 text-sm font-medium text-primary">
@@ -1018,6 +1039,16 @@ export default function SchoolStudentsManagementPage() {
               </div>
             </>
           )}
+          <TableRefreshBar
+            className="sm:-mx-6 sm:-mb-6 mt-2 sm:rounded-b-lg"
+            onRefresh={refetch}
+            loading={isFetching}
+            summary={
+              filteredStudents.length === tabStudents.length
+                ? `${filteredStudents.length} atleta(s)`
+                : `${filteredStudents.length} de ${tabStudents.length} atleta(s)`
+            }
+          />
         </CardContent>
       </Card>
 
