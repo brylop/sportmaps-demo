@@ -641,11 +641,19 @@ export default function PaymentsAutomationPage() {
   const rawPendingPayments = payments.filter(p => {
     const provider = (p as any).payment_provider;
     const isGateway = provider === 'mercadopago' || provider === 'wompi';
-    // Aprobables a mano: transferencia reportada (awaiting_approval) o
-    // inscripción por QR "por cobrar" (pending sin pasarela). Los de pasarela
-    // NO se aprueban a mano — los confirma el webhook automáticamente.
-    // 'partial' = abono en curso: sigue en el panel para completar el saldo.
-    return !isGateway && (p.status === 'awaiting_approval' || p.status === 'pending' || p.status === 'partial');
+    // "Por aprobar" = cobros con un PAGO REPORTADO que la escuela debe validar:
+    //  - awaiting_approval: transferencia/comprobante reportado.
+    //  - partial: abono en curso (completar saldo).
+    //  - pending SOLO si trae comprobante (reportaron algo).
+    // Las inscripciones por QR sin pagar (pending sin comprobante) NO entran
+    // aquí — aprobarlas marcaría "pagado" sin que haya entrado plata. Quedan
+    // como "Pendiente" en el historial y se saldan al registrar el pago.
+    // Los de pasarela los confirma el webhook, no la escuela.
+    return !isGateway && (
+      p.status === 'awaiting_approval' ||
+      p.status === 'partial' ||
+      (p.status === 'pending' && !!p.receipt_url)
+    );
   });
   const pendingPayments = rawPendingPayments.filter(p => {
     if (!pendingSearch) return true;
@@ -666,10 +674,11 @@ export default function PaymentsAutomationPage() {
   const rawHistoryPayments = payments.filter(p => {
     const provider = (p as any).payment_provider;
     const isGatewayPayment = provider === 'mercadopago' || provider === 'wompi';
-    // pending/awaiting_approval SIN pasarela → ya están en "Validación de Cobros"
-    // (la escuela los aprueba). En historial solo los de pasarela (read-only,
-    // gateway-managed). Evita que el mismo cobro aparezca en dos listas.
-    if (p.status === 'pending') return isGatewayPayment;
+    // pending CON comprobante o awaiting_approval SIN pasarela → están en
+    // "Validación de Cobros" (la escuela los aprueba), no en historial.
+    // pending SIN comprobante (inscripción por cobrar) → SÍ va al historial como
+    // "Pendiente": es visible pero no está en cola de aprobación hasta que paguen.
+    if (p.status === 'pending') return isGatewayPayment || !p.receipt_url;
     if (p.status === 'awaiting_approval') return isGatewayPayment;
     return true;
   });
@@ -795,7 +804,7 @@ export default function PaymentsAutomationPage() {
                   <Clock className="h-5 w-5 text-amber-600 shrink-0" />
                   Cobros por Aprobar
                 </CardTitle>
-                <CardDescription>Confirma los cobros pendientes: inscripciones por QR y transferencias reportadas.</CardDescription>
+                <CardDescription>Confirma los cobros con pago reportado (comprobantes y abonos). Las inscripciones sin pagar aparecen como “Pendiente” en el historial.</CardDescription>
               </div>
               <div className="w-full sm:w-auto">
                 <Input
