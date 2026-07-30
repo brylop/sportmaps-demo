@@ -8,6 +8,7 @@ Roles: athlete, parent, coach, school (owner/admin), wellness_professional, stor
 ## Convenciones de base de datos (OBLIGATORIAS)
 
 - **Migraciones inmutables:** nunca editar ni borrar archivos en `supabase/migrations/`, aunque estén corruptos. Todo fix va en una migración **nueva** con timestamp posterior (`YYYYMMDDHHMMSS`).
+- **Ledger de migraciones:** crear siempre con `npm run migrations:new -- <slug>` (reserva versión única y posterior al head) y commitear el `.sql` junto a `supabase/migrations_ledger.json`. Inventario: `npm run migrations:list`. El gate `npm run migrations:check` corre en pre-commit y CI. Flujo completo en `docs/migrations-workflow.md`.
 - **`search_path`:** toda `CREATE FUNCTION` nueva debe incluir `SET search_path = pg_catalog, public, pg_temp` (evita warnings del linter).
 - **`GRANT EXECUTE`:** explícito por RPC (`GRANT EXECUTE ON FUNCTION … TO authenticated`). `SECURITY DEFINER` NO exime al caller de tener `EXECUTE`.
 - **Helpers de RLS:** nunca revocar `is_school_admin()`, `is_super_admin()`, etc. al rol que las invoca desde policies, o rompe con 403 todas las queries.

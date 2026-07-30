@@ -37,6 +37,19 @@ export interface ResolvedProvider extends PublicProviderInfo {
     webhookSecret?: string | null;
     /** Wompi only */
     integritySecret?: string | null;
+    /**
+     * De dónde salieron las credenciales:
+     *  - 'school_direct' → cuenta propia de la escuela (payment_mode='direct'), secretos
+     *    descifrados de payment_provider_secrets.
+     *  - 'vendor'        → vendor_payment_providers.
+     *  - 'env'           → llaves globales del BFF. Transitorio: hoy pertenecen a UNA
+     *    escuela real, así que solo la escuela en 'aggregator' llega acá.
+     *
+     * Los callers lo usan para no cambiarle el comportamiento al camino legacy: p.ej.
+     * `create-session` solo firma el Widget en el BFF cuando es 'school_direct', y deja
+     * que 'env' siga pidiendo la firma a la Edge Function como hasta ahora.
+     */
+    source?: 'school_direct' | 'vendor' | 'env';
 }
 
 export interface ResolveContext {
@@ -104,6 +117,7 @@ function toResolved(
         integritySecret: isWompi ? secrets.integritySecret : null,
         sandbox: row.sandbox,
         isDefault: row.is_default,
+        source: 'school_direct',
     };
 }
 
@@ -301,6 +315,7 @@ export async function resolveProvider(
                 integritySecret: chosen.integrity_secret,
                 sandbox: chosen.sandbox,
                 isDefault: chosen.is_default,
+                source: 'vendor',
             };
         }
 
@@ -339,6 +354,7 @@ export async function resolveProvider(
             integritySecret: null,
             sandbox: (process.env.MP_ENV ?? 'sandbox').toLowerCase() !== 'production',
             isDefault: true,
+            source: 'env',
         };
     }
 
@@ -354,6 +370,7 @@ export async function resolveProvider(
         integritySecret: process.env.WOMPI_INTEGRITY_SECRET ?? null,
         sandbox: (process.env.WOMPI_ENV ?? 'sandbox').toLowerCase() !== 'production',
         isDefault: true,
+        source: 'env',
     };
 }
 
@@ -421,6 +438,7 @@ export async function loadProviderConfig(params: {
             integritySecret: null,
             sandbox: (process.env.MP_ENV ?? 'sandbox').toLowerCase() !== 'production',
             isDefault: true,
+            source: 'env',
         };
     }
 
@@ -435,5 +453,6 @@ export async function loadProviderConfig(params: {
         integritySecret: process.env.WOMPI_INTEGRITY_SECRET ?? null,
         sandbox: (process.env.WOMPI_ENV ?? 'sandbox').toLowerCase() !== 'production',
         isDefault: true,
+        source: 'env',
     };
 }
