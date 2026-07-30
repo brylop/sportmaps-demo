@@ -193,6 +193,21 @@ interface PaymentTransaction {
   reconciliation_status?: string | null;
 }
 
+// Devuelto por el RPC school_payment_kpis: agregados sobre TODO el histórico de
+// la escuela. tx_count son transacciones reales (paid|partial), no cobros
+// emitidos; approval_rate se calcula sobre intentos de pago y es null si no hubo.
+interface PaymentKpis {
+  revenue_total: number;
+  tx_count: number;
+  charges_total: number;
+  awaiting_count: number;
+  awaiting_amount: number;
+  debt_count: number;
+  debt_amount: number;
+  attempts: number;
+  approval_rate: number | null;
+}
+
 interface TeamSubscription {
   id: string;
   full_name: string;
@@ -218,6 +233,10 @@ export default function PaymentsAutomationPage() {
   const { schoolId, activeBranchId, currentUserRole } = useSchoolContext();
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState<PaymentTransaction[]>([]);
+  // KPIs agregados en DB (school_payment_kpis). NO se derivan de `payments`:
+  // esa lista está paginada a 100 filas y calcular las tarjetas sobre ella
+  // mostraba "Histórico acumulado" de solo las últimas horas.
+  const [kpis, setKpis] = useState<PaymentKpis | null>(null);
   const [teamSubscriptions, setTeamSubscriptions] = useState<TeamSubscription[]>([]);
   const [viewingProof, setViewingProof] = useState<{ open: boolean; url: string; student: string; amount: number }>({
     open: false, url: '', student: '', amount: 0,
@@ -431,7 +450,27 @@ export default function PaymentsAutomationPage() {
       toast({ title: 'Error al cargar pagos', description: getUserFriendlyError(error), variant: 'destructive' });
     } finally {
       setLoading(false);
+      // Se refrescan junto con la lista para que aprobar/rechazar un cobro
+      // actualice las tarjetas sin tocar los 5 call sites de fetchPayments.
+      void fetchKpis();
     }
+  };
+
+  // KPIs del histórico completo. Va por RPC y no por la lista paginada: la lista
+  // trae 100 filas y las tarjetas tienen que hablar de TODO el histórico.
+  const fetchKpis = async () => {
+    if (!schoolId) return;
+    const { data, error } = await (supabase as any).rpc('school_payment_kpis', {
+      p_school_id: schoolId,
+      p_branch_id: activeBranchId || null,
+    });
+    if (error) {
+      // No reventamos la pantalla por las tarjetas: la lista de cobros es lo
+      // operativo. kpis en null hace que se muestre '—' en vez de un dato falso.
+      setKpis(null);
+      return;
+    }
+    setKpis(data as PaymentKpis);
   };
 
   const loadTeamSubscriptions = async () => {
@@ -697,16 +736,10 @@ export default function PaymentsAutomationPage() {
   const historyTotalPages = Math.max(1, Math.ceil(historyPayments.length / HISTORY_PAGE_SIZE));
   const pagedHistory = historyPayments.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE);
 
-  // Ingresos = dinero realmente recibido: total de pagos saldados + los abonos
-  // (amount_paid) de los parciales. Antes solo contaba 'paid' y dejaba fuera los abonos.
-  const totalRevenue = payments.reduce((acc, p) => {
-    const paid = Number(p.amount_paid) || 0;
-    if (p.status === 'paid' || p.status === 'approved') return acc + (paid > 0 ? paid : p.amount);
-    if (p.status === 'partial') return acc + paid;
-    return acc;
-  }, 0);
-  // Pendiente = saldo por cobrar (para parciales, total - abonado; no el total).
-  const pendingAmount = pendingPayments.reduce((acc, p) => acc + Math.max(p.amount - (Number(p.amount_paid) || 0), 0), 0);
+  // Los agregados de dinero (ingresos históricos, saldo por validar, tasa de
+  // aprobación) ya NO se calculan acá: se pedían sobre `payments`, que es la
+  // página de 100 filas más recientes, y las tarjetas mostraban el total de esa
+  // ventana como si fuera el histórico. Ahora vienen de school_payment_kpis.
 
   const getPreferredMethod = (athleteId?: string) => {
     if (!athleteId) return { label: 'Pendiente', icon: Clock };
@@ -764,10 +797,16 @@ export default function PaymentsAutomationPage() {
       {/* ── Stats: 2 cols en mobile, 4 en lg ─────────────────────────────── */}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
         {[
-          { title: 'Ingresos Totales', value: formatCurrency(totalRevenue), sub: 'Histórico acumulado', icon: TrendingUp, color: 'text-emerald-500' },
-          { title: 'Por Validar', value: pendingPayments.length, sub: `${formatCurrency(pendingAmount)} pendientes`, icon: Clock, color: 'text-amber-500' },
-          { title: 'Transacciones', value: payments.length, sub: 'Total registradas', icon: CreditCard, color: 'text-blue-500' },
-          { title: 'Tasa Aprobación', value: `${payments.length > 0 ? Math.round((payments.filter(p => p.status === 'paid').length / payments.length) * 100) : 0}%`, sub: 'Pagos exitosos', icon: CheckCircle2, color: 'text-primary' },
+          // Las 4 tarjetas salen del RPC (histórico completo), no del array de
+          // 100 filas: así calculadas mostraban $150.000 de $1.250.000 reales.
+          // Sin datos del RPC se muestra '—', nunca un número inventado.
+          { title: 'Ingresos Totales', value: kpis ? formatCurrency(kpis.revenue_total) : '—', sub: 'Histórico acumulado', icon: TrendingUp, color: 'text-emerald-500' },
+          { title: 'Por Validar', value: kpis ? kpis.awaiting_count : '—', sub: kpis ? `${formatCurrency(kpis.awaiting_amount)} pendientes` : 'Sin datos', icon: Clock, color: 'text-amber-500' },
+          // Transacciones = pagos con plata movida (paid|partial). Un cobro
+          // emitido y no pagado NO es una transacción; contarlos daba 100.
+          { title: 'Transacciones', value: kpis ? kpis.tx_count : '—', sub: kpis ? `${kpis.charges_total} cobros emitidos` : 'Sin datos', icon: CreditCard, color: 'text-blue-500' },
+          // Tasa sobre INTENTOS de pago, no sobre cobros emitidos (daba 1%).
+          { title: 'Tasa Aprobación', value: kpis?.approval_rate != null ? `${kpis.approval_rate}%` : '—', sub: kpis ? `${kpis.attempts} intento(s) de pago` : 'Sin datos', icon: CheckCircle2, color: 'text-primary' },
         ].map(({ title, value, sub, icon: Icon, color }) => (
           <Card key={title}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">

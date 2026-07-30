@@ -720,6 +720,43 @@ router.put(
 
         const applyAthleteFilter = (q: any) => q.eq(athleteCol, id);
 
+        // Día de corte de la escuela: la MISMA fuente que usa open_month() para
+        // fijar el vencimiento. Se lee una vez por request.
+        let cutoffDayCache: number | null = null;
+        const getCutoffDay = async (): Promise<number> => {
+          if (cutoffDayCache === null) {
+            const { data } = await supabase.from('school_settings')
+              .select('payment_cutoff_day').eq('school_id', schoolId).maybeSingle();
+            cutoffDayCache = Number((data as any)?.payment_cutoff_day) || 10;
+          }
+          return cutoffDayCache;
+        };
+
+        // Vencimiento canónico del cobro: día de corte de la escuela, en el mes
+        // SIGUIENTE al de la fecha de inicio (se conserva la semántica previa de
+        // "el alta no cobra el mes en curso"), acotado al último día de ese mes.
+        //
+        // Antes cada rama inventaba su propia fecha: start_date + 1 mes para
+        // equipo y plan_start + 30 días para plan. Resultado: cobros del MISMO
+        // mes con vencimientos distintos (28, 29, 30...) y, peor, cada edición de
+        // atleta le movía el vencimiento al alumno. Con día de corte 10, todos
+        // caen el 10 y editar un atleta ya no corre la fecha.
+        const billingDue = async (startDate: string) => {
+          const cutoff = await getCutoffDay();
+          const [y, m] = startDate.split('-').map(Number);
+          const year = m === 12 ? y + 1 : y;
+          const month = m === 12 ? 1 : m + 1;
+          // Día 0 del mes siguiente = último día del mes objetivo.
+          const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+          const day = Math.min(cutoff, lastDay);
+          const pad = (n: number) => String(n).padStart(2, '0');
+          return {
+            due_date: `${year}-${pad(month)}-${pad(day)}`,
+            period_year: year,
+            period_month: month,
+          };
+        };
+
         // Helper: crear pago pendiente
         const createPendingPayment = async (
           teamId: string | null,
@@ -731,13 +768,17 @@ router.put(
           // El constraint payments_amount_positive exige amount > 0: si no hay
           // cuota configurada no se genera cobro (evita INSERT fallido silencioso).
           if (!amount || amount <= 0) return;
-          const dueDate = new Date(startDate);
-          dueDate.setMonth(dueDate.getMonth() + 1);
+          const due = await billingDue(startDate);
           const row: any = {
             school_id: schoolId,
             amount,
             concept,
-            due_date: dueDate.toISOString().split('T')[0],
+            // Vencimiento + período poblados: sin period_year/period_month los
+            // índices uniq_payment_active_period_* son parciales y no aplican,
+            // así que el cobro se escapaba del dedup y duplicaba el mes.
+            due_date: due.due_date,
+            period_year: due.period_year,
+            period_month: due.period_month,
             status: 'pending',
             // payment_type solo admite 'one_time' | 'subscription' (constraint
             // payments_payment_type_check). 'monthly' rompía el INSERT.
@@ -809,15 +850,20 @@ router.put(
                   .eq('school_id', schoolId).eq('team_id', oldTeamId || enrollment.team_id).eq('status', 'pending')
               );
             } else {
-              // Mismo equipo: actualizar pagos pending (monto y/o fecha)
-              const dueDate = new Date(teamStartDate);
-              dueDate.setMonth(dueDate.getMonth() + 1);
-              const paymentUpdates: any = { due_date: dueDate.toISOString().split('T')[0], updated_at: new Date().toISOString() };
-              if (teamFee !== null) paymentUpdates.amount = teamFee;
-              await applyAthleteFilter(
-                supabase.from('payments').update(paymentUpdates)
-                  .eq('school_id', schoolId).eq('team_id', oldTeamId || enrollment.team_id).eq('status', 'pending')
-              );
+              // Mismo equipo: actualizar SOLO el monto de los cobros pendientes.
+              //
+              // Ya NO se reescribe due_date. Antes se ponía teamStartDate + 1 mes,
+              // así que cada guardado del atleta le corría el vencimiento (editar
+              // hoy 30/07 lo mandaba al 30/08) y rompía la fecha única del mes.
+              // Cuándo vence el cobro lo define el generador del mes (open_month
+              // con payment_cutoff_day); cambiar una cuota no es motivo para
+              // mover la fecha de pago de una familia.
+              if (teamFee !== null) {
+                await applyAthleteFilter(
+                  supabase.from('payments').update({ amount: teamFee, updated_at: new Date().toISOString() })
+                    .eq('school_id', schoolId).eq('team_id', oldTeamId || enrollment.team_id).eq('status', 'pending')
+                );
+              }
             }
           } else if (enrollment.team_id) {
             const row: any = { school_id: schoolId, status: 'active', team_id: enrollment.team_id, start_date: teamStartDate, monthly_fee: teamFee };
@@ -872,13 +918,19 @@ router.put(
                   .eq('school_id', schoolId).eq('offering_plan_id', oldPlanId || enrollment.offering_plan_id).eq('status', 'pending')
               );
             } else {
-              // Mismo plan: actualizar pagos pending
-              const paymentUpdates: any = { due_date: expiresAtStr, updated_at: new Date().toISOString() };
-              if (planFee !== null) paymentUpdates.amount = planFee;
-              await applyAthleteFilter(
-                supabase.from('payments').update(paymentUpdates)
-                  .eq('school_id', schoolId).eq('offering_plan_id', oldPlanId || enrollment.offering_plan_id).eq('status', 'pending')
-              );
+              // Mismo plan: actualizar SOLO el monto de los cobros pendientes.
+              //
+              // Ya NO se reescribe due_date. Antes se le metía `expiresAtStr`,
+              // que es plan_start_date + 30 días — o sea el vencimiento del PLAN
+              // usado como fecha de pago del cobro. Son cosas distintas, y el
+              // efecto era que cada edición movía el vencimiento del alumno
+              // (por eso convivían cobros del mismo agosto venciendo 29 y 30).
+              if (planFee !== null) {
+                await applyAthleteFilter(
+                  supabase.from('payments').update({ amount: planFee, updated_at: new Date().toISOString() })
+                    .eq('school_id', schoolId).eq('offering_plan_id', oldPlanId || enrollment.offering_plan_id).eq('status', 'pending')
+                );
+              }
             }
           } else if (enrollment.offering_plan_id) {
             const row: any = { school_id: schoolId, status: 'active', offering_plan_id: enrollment.offering_plan_id, start_date: planStartDate, expires_at: expiresAtStr, monthly_fee: planFee };
