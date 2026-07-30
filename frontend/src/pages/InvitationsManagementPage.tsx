@@ -736,6 +736,49 @@ export default function InvitationsManagementPage() {
     expired: invitations.filter(i => i.status === 'expired').length,
   };
 
+  // ── Envío masivo de invitaciones ─────────────────────────────────────────────
+  // El envío uno por uno choca con el rate limit de Resend y no deja rastro de
+  // quién recibió qué. El BFF agrupa en lotes de 100 y registra cada destinatario
+  // en email_sends, para poder reintentar SOLO los que fallaron.
+  const { data: sendStatus, refetch: refetchSendStatus } = useQuery({
+    queryKey: ['invitations-send-status', schoolId],
+    queryFn: async () => {
+      const { bffClient } = await import('@/lib/api/bffClient');
+      return bffClient.get<{ pendientes: number; enviadas: number; fallidas: number; sin_intentar: number }>(
+        '/api/v1/invitations/send-status'
+      );
+    },
+    enabled: !!schoolId,
+  });
+
+  const bulkSendMutation = useMutation({
+    mutationFn: async (filter: 'unsent' | 'pending') => {
+      const { bffClient } = await import('@/lib/api/bffClient');
+      return bffClient.post<{ message: string; total: number; sent: number; failed: number; aborted: boolean }>(
+        '/api/v1/invitations/bulk-send',
+        { filter }
+      );
+    },
+    onSuccess: (result) => {
+      refetchSendStatus();
+      queryClient.invalidateQueries({ queryKey: ['invitations'] });
+      toast({
+        title: result.aborted ? '⚠️ Envío detenido' : '📧 Envío completado',
+        description: result.aborted
+          ? `${result.message} Enviados: ${result.sent}.`
+          : `Enviados: ${result.sent} · Fallidos: ${result.failed} de ${result.total}.`,
+        variant: result.aborted || result.failed > 0 ? 'destructive' : undefined,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Error en el envío masivo',
+        description: error?.message || 'No se pudo completar el envío',
+        variant: 'destructive',
+      });
+    },
+  });
+
   // ── Etiqueta de asignación para la tabla ─────────────────────────────────────
   const getAssignmentLabel = (inv: Invitation) => {
     const teamName = teams.find(p => p.id === inv.team_id)?.name;
@@ -753,6 +796,43 @@ export default function InvitationsManagementPage() {
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div className="container mx-auto p-6 space-y-6">
+
+      {/* ── Envío masivo ──────────────────────────────────────────────────── */}
+      {!!sendStatus && sendStatus.pendientes > 0 && (
+        <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-card p-4 rounded-lg border shadow-sm">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+            <span className="font-medium">
+              {sendStatus.pendientes} invitación{sendStatus.pendientes === 1 ? '' : 'es'} pendiente{sendStatus.pendientes === 1 ? '' : 's'}
+            </span>
+            <span className="text-muted-foreground">Correo enviado: <strong>{sendStatus.enviadas}</strong></span>
+            {sendStatus.fallidas > 0 && (
+              <span className="text-destructive">Fallidos: <strong>{sendStatus.fallidas}</strong></span>
+            )}
+            {sendStatus.sin_intentar > 0 && (
+              <span className="text-muted-foreground">Sin intentar: <strong>{sendStatus.sin_intentar}</strong></span>
+            )}
+          </div>
+
+          <div className="flex gap-2 w-full md:w-auto">
+            <Button
+              variant="outline"
+              disabled={bulkSendMutation.isPending || (sendStatus.fallidas + sendStatus.sin_intentar) === 0}
+              onClick={() => bulkSendMutation.mutate('unsent')}
+            >
+              <Send className="w-4 h-4 mr-2" />
+              Enviar a los que faltan ({sendStatus.fallidas + sendStatus.sin_intentar})
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={bulkSendMutation.isPending}
+              onClick={() => bulkSendMutation.mutate('pending')}
+              title="Reenvía a TODAS las pendientes, incluso a las que ya recibieron el correo"
+            >
+              Reenviar a todas
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* ── Barra superior ────────────────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-card p-4 rounded-lg border shadow-sm">

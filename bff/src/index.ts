@@ -12,6 +12,7 @@ dotenv.config();
 import studentsRouter from './routes/students';
 import createOneRouter from './routes/students-create-one.route';
 import enrollmentsRouter from './routes/enrollments';
+import invitationsRouter from './routes/invitations.routes';
 import reportsRouter from './routes/reports';
 import wompiRouter from './routes/wompi';
 import { webhookRouter as mpWebhookRouter, paymentsRouter as mpPaymentsRouter } from './routes/mercadopago';
@@ -242,6 +243,7 @@ app.get('/health', (_req: Request, res: Response) => {
 app.use('/api/v1/students', generalLimiter, studentsRouter);
 app.use('/api/v1/students', generalLimiter, createOneRouter);
 app.use('/api/v1/enrollments', generalLimiter, enrollmentsRouter);
+app.use('/api/v1/invitations', generalLimiter, invitationsRouter);
 app.use('/api/v1/reports', generalLimiter, reportsRouter);
 app.use('/api/v1/webhooks/wompi', wompiRouter);
 // Webhook único multi-tenant de WhatsApp Cloud API (Bloque 6). Sin generalLimiter:

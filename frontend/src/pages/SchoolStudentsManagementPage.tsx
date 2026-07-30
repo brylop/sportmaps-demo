@@ -470,7 +470,10 @@ export default function SchoolStudentsManagementPage() {
   const bulkInviteMutation = useMutation({
     mutationFn: async (studentIds: string[]) => {
       const selectedStudents = students.filter(s => studentIds.includes(s.id));
-      const results = { success: 0, failed: 0, skipped: 0 };
+      const results = { created: 0, failed: 0, skipped: 0, sent: 0, sendFailed: 0, aborted: false, message: '' };
+      const inviteIds: string[] = [];
+
+      // 1. Crear/refrescar las invitaciones (sin mandar correo todavía)
       for (const student of selectedStudents) {
         if (!student.parent_email) { results.skipped++; continue; }
         try {
@@ -482,31 +485,47 @@ export default function SchoolStudentsManagementPage() {
             p_branch_id: student.branch_id || activeBranchId || null
           });
           if (error) throw error;
-          const registration_link = `${window.location.origin}/register?email=${encodeURIComponent(student.parent_email)}&role=parent&invite=${inviteId}`;
-          const selectedTeam = teams.find(p => p.id === student.team_id);
-          const { data: { session: edgeSession } } = await supabase.auth.getSession();
-          fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-invitation-email`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${edgeSession?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}` },
-            body: JSON.stringify({
-              to: student.parent_email, parentName: student.parent_name || student.parent_email.split('@')[0],
-              childName: student.full_name, schoolName, teamName: selectedTeam?.name || 'Equipo',
-              monthlyFee: student.price_monthly || Number(defaultMonthlyFee) || 0, invitationLink: registration_link,
-            })
-          }).catch(e => console.error('Error sending bulk email:', e));
-          results.success++;
+          if (inviteId) inviteIds.push(inviteId as string);
+          results.created++;
         } catch (err) {
           console.error(`Error inviting ${student.full_name}:`, err);
           results.failed++;
         }
       }
+
+      // 2. Enviar los correos en UNA sola pasada por el BFF.
+      //    Antes se disparaba un fetch por atleta sin await: Resend devolvía 429
+      //    a la mayoría (rate limit) y el contador los daba por enviados igual.
+      //    Ahora el BFF agrupa de a 100, reintenta y deja registro en email_sends.
+      if (inviteIds.length > 0) {
+        const { bffClient } = await import('@/lib/api/bffClient');
+        const sendResult = await bffClient.post<{ sent: number; failed: number; aborted: boolean; message: string }>(
+          '/api/v1/invitations/bulk-send',
+          { invitation_ids: inviteIds }
+        );
+        results.sent = sendResult.sent;
+        results.sendFailed = sendResult.failed;
+        results.aborted = sendResult.aborted;
+        results.message = sendResult.message;
+      }
+
       return results;
     },
     onSuccess: (results) => {
       queryClient.invalidateQueries({ queryKey: ['school-students'] });
       queryClient.invalidateQueries({ queryKey: ['invitations'] });
       setSelectedStudentIds([]);
-      toast({ title: '✅ Proceso de invitación completado', description: `Enviadas: ${results.success}, Fallidas: ${results.failed}, Saltadas (sin email): ${results.skipped}` });
+      const problemas = results.failed + results.sendFailed > 0 || results.aborted;
+      toast({
+        title: problemas ? '⚠️ Invitaciones con incidencias' : '✅ Invitaciones enviadas',
+        description: results.aborted
+          ? results.message
+          : `Correos enviados: ${results.sent}` +
+            (results.sendFailed ? ` · Fallidos: ${results.sendFailed}` : '') +
+            (results.failed ? ` · Invitaciones con error: ${results.failed}` : '') +
+            (results.skipped ? ` · Saltadas sin email: ${results.skipped}` : ''),
+        variant: problemas ? 'destructive' : undefined,
+      });
     },
     onError: (error) => {
       toast({ title: '❌ Error en envío masivo', description: error instanceof Error ? error.message : 'Ocurrió un error inesperado', variant: 'destructive' });
