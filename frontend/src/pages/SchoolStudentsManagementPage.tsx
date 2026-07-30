@@ -316,8 +316,8 @@ export default function SchoolStudentsManagementPage() {
     enabled: !!schoolId && coachIdResolved,
   });
 
-  const form = useForm<StudentFormData>({
-    resolver: zodResolver(studentSchema) as any,
+  const form = useForm<z.input<typeof studentSchema>>({
+    resolver: zodResolver(studentSchema),
     defaultValues: {
       full_name: '',
       date_of_birth: '',
@@ -434,7 +434,8 @@ export default function SchoolStudentsManagementPage() {
   // no se le asigna equipo ni plan (el plan es lo que genera los cobros).
   const editingIsInactive = !!editingStudent && (editingStudent as any).is_active === false;
 
-  const onSubmit = (data: StudentFormData) => {
+  const onSubmit = (input: z.input<typeof studentSchema>) => {
+    const data = studentSchema.parse(input);
     if (editingStudent) updateStudentMutation.mutate(data);
     else createStudentMutation.mutate(data);
   };
