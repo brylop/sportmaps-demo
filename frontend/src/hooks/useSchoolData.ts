@@ -88,11 +88,20 @@ export function useSchoolStaff() {
         // cliente y no desde el BFF (que usa service key). Reutiliza la pendiente
         // si ya existía. `p_child_name` es el campo que la plantilla de correo
         // usa como nombre del entrenador.
+        // Hay que pasar las 9 claves: create_invitation tiene dos overloads (8 y 9
+        // parámetros) y con un subconjunto PostgREST no sabe cuál elegir
+        // ("Could not choose the best candidate function"). p_unregistered_athlete_id
+        // es la que desambigua, porque la firma de 8 no la acepta.
         const { data: inviteId, error } = await (supabase.rpc as any)('create_invitation', {
           p_email: staffInput.email,
           p_role: 'coach',
           p_child_name: staffInput.full_name,
+          p_team_id: null,
+          p_monthly_fee: null,
+          p_parent_phone: staffInput.phone || null,
           p_branch_id: staffInput.branch_id || null,
+          p_offering_plan_id: null,
+          p_unregistered_athlete_id: null,
         });
         if (error) throw error;
         if (!inviteId) throw new Error('No se pudo crear la invitación');
