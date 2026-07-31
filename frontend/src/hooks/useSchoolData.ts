@@ -13,6 +13,8 @@ interface Staff {
   email: string;
   phone: string | null;
   specialty: string | null;
+  branch_id: string | null;
+  certifications: string[] | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -37,7 +39,11 @@ interface StaffInput {
   email: string;
   phone?: string;
   specialty?: string;
+  branch_id?: string | null;
+  certifications?: string[];
   status?: string;
+  /** Solo en creación: dispara la invitación de acceso (no se manda al BFF). */
+  send_invitation?: boolean;
 }
 
 interface FacilityInput {
@@ -65,12 +71,62 @@ export function useSchoolStaff() {
   });
   
   // Create staff
+  //
+  // Contratar son dos cosas distintas: la fila en school_staff (registro interno)
+  // y la invitación de acceso. Si la invitación falla, el entrenador YA quedó
+  // contratado, así que el error no puede tumbar la mutación — se reporta en el
+  // toast y la invitación se puede reenviar desde Invitaciones. Si rechazáramos,
+  // el modal seguiría abierto y el usuario crearía un duplicado.
   const createMutation = useMutation({
-    mutationFn: (input: StaffInput) =>
-      bffClient.post<Staff>('/api/v1/school-staff', input),
-    onSuccess: () => {
+    mutationFn: async ({ send_invitation, ...staffInput }: StaffInput & { send_invitation?: boolean }) => {
+      const staff = await bffClient.post<Staff>('/api/v1/school-staff', staffInput);
+
+      if (!send_invitation) return { staff, invitation: null as null | { sent: boolean; message?: string } };
+
+      try {
+        // El RPC resuelve la escuela con auth.uid(), por eso se llama desde el
+        // cliente y no desde el BFF (que usa service key). Reutiliza la pendiente
+        // si ya existía. `p_child_name` es el campo que la plantilla de correo
+        // usa como nombre del entrenador.
+        const { data: inviteId, error } = await (supabase.rpc as any)('create_invitation', {
+          p_email: staffInput.email,
+          p_role: 'coach',
+          p_child_name: staffInput.full_name,
+          p_branch_id: staffInput.branch_id || null,
+        });
+        if (error) throw error;
+        if (!inviteId) throw new Error('No se pudo crear la invitación');
+
+        // Un solo destinatario, pero por el BFF: trae reintentos ante 429 y deja
+        // registro en email_sends.
+        const send = await bffClient.post<{ sent: number; failed: number; message: string }>(
+          '/api/v1/invitations/bulk-send',
+          { invitation_ids: [inviteId] }
+        );
+        return { staff, invitation: { sent: send.sent > 0, message: send.message } };
+      } catch (err: any) {
+        return { staff, invitation: { sent: false, message: err?.message || 'Error enviando la invitación' } };
+      }
+    },
+    onSuccess: ({ staff, invitation }) => {
       queryClient.invalidateQueries({ queryKey: ['school-staff', schoolId] });
-      toast({ title: '✅ Entrenador agregado', description: 'El entrenador se ha registrado correctamente' });
+      queryClient.invalidateQueries({ queryKey: ['invitations'] });
+
+      if (invitation && !invitation.sent) {
+        toast({
+          title: '⚠️ Contratado, pero sin invitación',
+          description: `${staff.full_name} quedó en tu staff. El correo no salió (${invitation.message}). Reenvíalo desde Invitaciones.`,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      toast({
+        title: '✅ Entrenador contratado',
+        description: invitation
+          ? `Le enviamos la invitación a ${staff.email} para activar su cuenta`
+          : 'Registro interno: aún no tiene acceso a la plataforma',
+      });
     },
     onError: (error: any) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -79,7 +135,8 @@ export function useSchoolStaff() {
   
   // Update staff
   const updateMutation = useMutation({
-    mutationFn: ({ id, ...input }: StaffInput & { id: string }) =>
+    // send_invitation es una bandera de UI: no existe como columna.
+    mutationFn: ({ id, send_invitation: _ignored, ...input }: StaffInput & { id: string }) =>
       bffClient.patch<Staff>(`/api/v1/school-staff/${id}`, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['school-staff', schoolId] });
@@ -113,7 +170,12 @@ export function useSchoolStaff() {
     createStaff: createMutation.mutate,
     updateStaff: updateMutation.mutate,
     deleteStaff: deleteMutation.mutate,
+    // Variantes await-ables: el formulario necesita saber si el guardado falló
+    // para no cerrarse y perder lo que el usuario escribió.
+    createStaffAsync: createMutation.mutateAsync,
+    updateStaffAsync: updateMutation.mutateAsync,
     isCreating: createMutation.isPending,
+    isSaving: createMutation.isPending || updateMutation.isPending,
   };
 }
 

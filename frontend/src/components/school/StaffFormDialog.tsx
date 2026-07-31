@@ -1,14 +1,16 @@
-import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { z } from 'zod';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { UserPlus, Pencil } from 'lucide-react';
-import { useEffect } from 'react';
+import { AlertCircle, Loader2, Pencil, UserPlus } from 'lucide-react';
+import { PhoneInput, LATAM_COUNTRIES } from '@/components/ui/phone-input';
+import { SportCombobox } from '@/components/common/SportCombobox';
+import { TagInput } from '@/components/common/TagInput';
 import {
   Dialog,
   DialogContent,
@@ -18,140 +20,363 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
+/** Centinela del Select: Radix no acepta value="" en un SelectItem. */
+const NO_BRANCH = '__none__';
+
+/**
+ * El PhoneInput siempre deja el indicativo puesto, así que un campo "vacío" llega
+ * como "+57". Se cuentan solo los dígitos nacionales para saber si hay número.
+ */
+function nationalDigits(value?: string | null): string {
+  if (!value) return '';
+  const country = LATAM_COUNTRIES.find((c) => value.startsWith(c.value));
+  const rest = country ? value.slice(country.value.length) : value;
+  return rest.replace(/\D/g, '');
+}
+
+function getInitials(fullName: string): string {
+  return fullName
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
 const staffSchema = z.object({
-  full_name: z.string().min(2, 'Nombre es requerido'),
-  email: z.string().email('Email inválido'),
-  phone: z.string().optional(),
+  full_name: z.string().trim().min(2, 'Nombre es requerido'),
+  email: z.string().trim().email('Email inválido'),
+  phone: z
+    .string()
+    .optional()
+    .refine((v) => {
+      const digits = nationalDigits(v);
+      return digits.length === 0 || digits.length >= 7;
+    }, 'Número incompleto'),
   specialty: z.string().min(1, 'Especialidad es requerida'),
+  branch_id: z.string().optional().nullable(),
+  // Sin .default([]): con zodResolver los tipos de input/output divergen y el
+  // undefined ya se maneja al leer (field.value || []) y al enviar (?? []).
+  certifications: z.array(z.string()).optional(),
+  send_invitation: z.boolean().optional(),
 });
 
 type StaffFormData = z.infer<typeof staffSchema>;
 
+export interface StaffFormValues {
+  full_name: string;
+  email: string;
+  phone?: string;
+  specialty?: string;
+  branch_id?: string | null;
+  certifications?: string[];
+  /** Solo al contratar: dispara la invitación de acceso. */
+  send_invitation?: boolean;
+}
+
 interface StaffFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (data: { full_name: string; email: string; phone?: string; specialty?: string }) => void;
+  /**
+   * Puede devolver una promesa: el modal espera a que resuelva para cerrarse.
+   * Si rechaza, se queda abierto con los datos escritos.
+   */
+  onSubmit: (data: StaffFormValues) => void | Promise<unknown>;
   isLoading?: boolean;
-  initialData?: { full_name: string; email: string; phone?: string; specialty?: string } | null;
+  initialData?: StaffFormValues | null;
+  /** Sedes de la escuela. Si viene vacío, la sección de sede no se muestra. */
+  branches?: { id: string; name: string; is_main?: boolean }[];
 }
 
-import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
+export function StaffFormDialog({
+  open,
+  onOpenChange,
+  onSubmit,
+  isLoading,
+  initialData,
+  branches = [],
+}: StaffFormDialogProps) {
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-const specialties = SPORTS_LIST;
+  const emptyValues = useMemo<StaffFormData>(
+    () => ({
+      full_name: '',
+      email: '',
+      phone: '',
+      specialty: '',
+      branch_id: NO_BRANCH,
+      certifications: [],
+      send_invitation: true,
+    }),
+    [],
+  );
 
-export function StaffFormDialog({ open, onOpenChange, onSubmit, isLoading, initialData }: StaffFormDialogProps) {
   const form = useForm<StaffFormData>({
     resolver: zodResolver(staffSchema),
-    defaultValues: {
-      full_name: initialData?.full_name || '',
-      email: initialData?.email || '',
-      phone: initialData?.phone || '',
-      specialty: initialData?.specialty || '',
-    },
+    defaultValues: emptyValues,
   });
 
   // Update form when initialData changes or dialog opens
   useEffect(() => {
     if (open) {
+      setSubmitError(null);
       form.reset({
         full_name: initialData?.full_name || '',
         email: initialData?.email || '',
         phone: initialData?.phone || '',
         specialty: initialData?.specialty || '',
+        branch_id: initialData?.branch_id || NO_BRANCH,
+        certifications: initialData?.certifications || [],
+        // Al editar no aplica: la invitación se manda solo al contratar.
+        send_invitation: !initialData,
       });
     }
   }, [open, initialData, form]);
 
-  const handleSubmit = (data: StaffFormData) => {
-    onSubmit({
-      full_name: data.full_name,
-      email: data.email,
-      phone: data.phone || undefined,
-      specialty: data.specialty || undefined,
-    });
-    form.reset();
-    onOpenChange(false);
+  const isEditing = !!initialData;
+  const busy = isLoading || form.formState.isSubmitting;
+  const hasBranches = branches.length > 0;
+  const initials = getInitials(form.watch('full_name') || '');
+
+  const handleSubmit = async (data: StaffFormData) => {
+    setSubmitError(null);
+    try {
+      // Antes se cerraba el modal sin esperar la respuesta: si el POST fallaba,
+      // el usuario perdía lo escrito y solo veía un toast rojo.
+      await onSubmit({
+        full_name: data.full_name,
+        email: data.email,
+        phone: nationalDigits(data.phone) ? data.phone : undefined,
+        specialty: data.specialty || undefined,
+        branch_id: data.branch_id && data.branch_id !== NO_BRANCH ? data.branch_id : null,
+        certifications: data.certifications ?? [],
+        ...(isEditing ? {} : { send_invitation: data.send_invitation ?? true }),
+      });
+      form.reset(emptyValues);
+      onOpenChange(false);
+    } catch (err: any) {
+      setSubmitError(err?.message || 'No se pudo guardar. Revisa los datos e intenta de nuevo.');
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+    <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next); }}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
-              <UserPlus className="h-5 w-5 text-primary" />
+            <div className="h-11 w-11 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center">
+              {initials ? (
+                <span className="text-sm font-bold text-primary tracking-wide">{initials}</span>
+              ) : isEditing ? (
+                <Pencil className="h-5 w-5 text-primary" />
+              ) : (
+                <UserPlus className="h-5 w-5 text-primary" />
+              )}
             </div>
-            <div>
-              <DialogTitle>{initialData ? 'Editar Entrenador' : 'Agregar Entrenador'}</DialogTitle>
-              <DialogDescription>Agrega un nuevo miembro al equipo.</DialogDescription>
+            <div className="min-w-0">
+              <DialogTitle>{isEditing ? 'Editar Entrenador' : 'Contratar Entrenador'}</DialogTitle>
+              <DialogDescription>
+                {isEditing
+                  ? 'Actualiza los datos del entrenador.'
+                  : 'Suma un entrenador al staff técnico de tu academia.'}
+              </DialogDescription>
             </div>
           </div>
         </DialogHeader>
 
-        <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="full_name">Nombre Completo *</Label>
-            <Input
-              id="full_name"
-              placeholder="Ej: Juan Carlos Pérez"
-              {...form.register('full_name')}
-            />
-            {form.formState.errors.full_name && (
-              <p className="text-sm text-destructive">{form.formState.errors.full_name.message}</p>
-            )}
-          </div>
+        <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-5">
+          {/* ── Datos de contacto ───────────────────────────────────────────── */}
+          <section className="space-y-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Datos de contacto
+            </h3>
 
-          <div className="space-y-2">
-            <Label htmlFor="email">Correo Electrónico *</Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="email@ejemplo.com"
-              {...form.register('email')}
-            />
-            {form.formState.errors.email && (
-              <p className="text-sm text-destructive">{form.formState.errors.email.message}</p>
-            )}
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="full_name">Nombre Completo *</Label>
+              <Input
+                id="full_name"
+                autoComplete="name"
+                placeholder="Ej: Juan Carlos Pérez"
+                {...form.register('full_name')}
+              />
+              {form.formState.errors.full_name && (
+                <p className="text-sm text-destructive">{form.formState.errors.full_name.message}</p>
+              )}
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="phone">Teléfono</Label>
-            <Input
-              id="phone"
-              placeholder="+57 300 123 4567"
-              {...form.register('phone')}
-            />
-          </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="email">Correo Electrónico *</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="email@ejemplo.com"
+                  {...form.register('email')}
+                />
+                {form.formState.errors.email && (
+                  <p className="text-sm text-destructive">{form.formState.errors.email.message}</p>
+                )}
+              </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="specialty">Especialidad *</Label>
-            <Select 
-              onValueChange={(value) => form.setValue('specialty', value)}
-              defaultValue={form.getValues('specialty')}
-              value={form.watch('specialty')}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Selecciona especialidad" />
-              </SelectTrigger>
-              <SelectContent>
-                {specialties.map((spec) => (
-                  <SelectItem key={spec} value={spec}>
-                    {spec}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {form.formState.errors.specialty && (
-              <p className="text-sm text-destructive">{form.formState.errors.specialty.message}</p>
-            )}
-          </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone">
+                  Teléfono <span className="font-normal text-muted-foreground">(opcional)</span>
+                </Label>
+                <Controller
+                  name="phone"
+                  control={form.control}
+                  render={({ field }) => (
+                    <PhoneInput
+                      id="phone"
+                      value={field.value || ''}
+                      onChange={field.onChange}
+                      placeholder="300 123 4567"
+                      disabled={busy}
+                      className="h-10 rounded-md border-input bg-background"
+                    />
+                  )}
+                />
+                {form.formState.errors.phone && (
+                  <p className="text-sm text-destructive">{form.formState.errors.phone.message}</p>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* ── Rol en la academia ──────────────────────────────────────────── */}
+          <section className="space-y-4 border-t pt-5">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Rol en la academia
+            </h3>
+
+            <div className={hasBranches ? 'grid gap-4 sm:grid-cols-2' : 'space-y-4'}>
+              <div className="space-y-2">
+                <Label htmlFor="specialty">Especialidad *</Label>
+                <Controller
+                  name="specialty"
+                  control={form.control}
+                  render={({ field }) => (
+                    <SportCombobox
+                      id="specialty"
+                      value={field.value}
+                      onChange={field.onChange}
+                      disabled={busy}
+                      invalid={!!form.formState.errors.specialty}
+                      placeholder="Selecciona especialidad"
+                    />
+                  )}
+                />
+                {form.formState.errors.specialty && (
+                  <p className="text-sm text-destructive">{form.formState.errors.specialty.message}</p>
+                )}
+              </div>
+
+              {hasBranches && (
+                <div className="space-y-2">
+                  <Label htmlFor="branch_id">
+                    Sede <span className="font-normal text-muted-foreground">(opcional)</span>
+                  </Label>
+                  <Controller
+                    name="branch_id"
+                    control={form.control}
+                    render={({ field }) => (
+                      <Select
+                        value={field.value || NO_BRANCH}
+                        onValueChange={field.onChange}
+                        disabled={busy}
+                      >
+                        <SelectTrigger id="branch_id">
+                          <SelectValue placeholder="Sin sede asignada" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NO_BRANCH}>Sin sede asignada</SelectItem>
+                          {branches.map((branch) => (
+                            <SelectItem key={branch.id} value={branch.id}>
+                              {branch.name}
+                              {branch.is_main ? ' · principal' : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="certifications">
+                Certificaciones <span className="font-normal text-muted-foreground">(opcional)</span>
+              </Label>
+              <Controller
+                name="certifications"
+                control={form.control}
+                render={({ field }) => (
+                  <TagInput
+                    id="certifications"
+                    value={field.value || []}
+                    onChange={field.onChange}
+                    disabled={busy}
+                    placeholder="Ej: Licencia B UEFA, RCP"
+                  />
+                )}
+              />
+            </div>
+          </section>
+
+          {/* ── Acceso a la plataforma ──────────────────────────────────────
+              Sin esto el registro es invisible para el entrenador: el POST solo
+              escribe en school_staff y nadie le avisa. */}
+          {!isEditing && (
+            <section className="space-y-3 border-t pt-5">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Acceso a la plataforma
+              </h3>
+              <Controller
+                name="send_invitation"
+                control={form.control}
+                render={({ field }) => (
+                  <div className="rounded-lg border p-3">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="space-y-1">
+                        <Label htmlFor="send_invitation" className="cursor-pointer">
+                          Enviar invitación por correo
+                        </Label>
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                          {field.value
+                            ? 'Recibirá un correo para crear su cuenta y quedar vinculado a la academia. Si ya tiene cuenta SportMaps, se vincula automáticamente.'
+                            : 'Registro interno: quedará en tu staff pero sin acceso a la plataforma. Puedes invitarlo después desde Invitaciones.'}
+                        </p>
+                      </div>
+                      <Switch
+                        id="send_invitation"
+                        checked={field.value ?? true}
+                        onCheckedChange={field.onChange}
+                        disabled={busy}
+                      />
+                    </div>
+                  </div>
+                )}
+              />
+            </section>
+          )}
+
+          {submitError && (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+              <p className="text-sm text-destructive">{submitError}</p>
+            </div>
+          )}
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={isLoading}>
-              {isLoading ? 'Guardando...' : (initialData ? 'Guardar Cambios' : 'Agregar Entrenador')}
+            <Button type="submit" disabled={busy}>
+              {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {busy ? 'Guardando...' : isEditing ? 'Guardar Cambios' : 'Contratar Entrenador'}
             </Button>
           </DialogFooter>
         </form>

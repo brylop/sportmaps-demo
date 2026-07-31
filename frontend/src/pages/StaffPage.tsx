@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { branchesAPI } from '@/lib/api/branches';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -24,8 +26,20 @@ import {
 } from '@/components/ui/alert-dialog';
 
 export default function StaffPage() {
-  const { staff, isLoading, isFetching, refetch, createStaff, updateStaff, deleteStaff, isCreating } = useSchoolStaff();
+  const { staff, isLoading, isFetching, refetch, createStaffAsync, updateStaff, updateStaffAsync, deleteStaff, isSaving } = useSchoolStaff();
   const { schoolId } = useSchoolContext();
+
+  // Sedes para asignar al contratar. Si la escuela no tiene sedes, el modal
+  // oculta el campo y la tabla no muestra la columna.
+  const { data: branches = [] } = useQuery({
+    queryKey: ['school-branches', schoolId],
+    queryFn: () => branchesAPI.getBranches(schoolId!),
+    enabled: !!schoolId,
+  });
+  const branchName = (id: string | null | undefined) =>
+    branches.find((b) => b.id === id)?.name;
+  const hasBranches = branches.length > 0;
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string | null>('active');
@@ -72,13 +86,11 @@ export default function StaffPage() {
     setDialogOpen(true);
   };
 
-  const handleFormSubmit = (data: any) => {
-    if (editingStaff) {
-      updateStaff({ id: editingStaff.id, ...data });
-    } else {
-      createStaff(data);
-    }
-  };
+  // Devuelve la promesa para que el modal solo se cierre si el guardado funcionó.
+  const handleFormSubmit = (data: any) =>
+    editingStaff
+      ? updateStaffAsync({ id: editingStaff.id, ...data })
+      : createStaffAsync(data);
 
   if (isLoading) {
     return <LoadingSpinner text="Cargando personal..." />;
@@ -98,15 +110,16 @@ export default function StaffPage() {
           icon={Users}
           title="Tu academia necesita entrenadores"
           description="Agrega a los entrenadores y staff técnico de tu academia para gestionar sus asignaciones y programas."
-          actionLabel="+ Agregar Entrenador"
+          actionLabel="+ Contratar Entrenador"
           onAction={() => setDialogOpen(true)}
         />
 
         <StaffFormDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
-          onSubmit={createStaff}
-          isLoading={isCreating}
+          onSubmit={handleFormSubmit}
+          isLoading={isSaving}
+          branches={branches}
         />
       </div>
     );
@@ -160,6 +173,7 @@ export default function StaffPage() {
                 <TableHead>Email</TableHead>
                 <TableHead>Teléfono</TableHead>
                 <TableHead>Especialidad</TableHead>
+                {hasBranches && <TableHead>Sede</TableHead>}
                 <TableHead>Estado</TableHead>
                 <TableHead>Acciones</TableHead>
               </TableRow>
@@ -167,7 +181,7 @@ export default function StaffPage() {
             <TableBody>
               {filteredStaff.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={hasBranches ? 7 : 6} className="text-center py-8 text-muted-foreground">
                     No hay entrenadores en esta categoría.
                   </TableCell>
                 </TableRow>
@@ -178,8 +192,25 @@ export default function StaffPage() {
                     <TableCell>{member.email}</TableCell>
                     <TableCell>{member.phone || '-'}</TableCell>
                     <TableCell>
-                      <Badge variant="secondary">{member.specialty || 'Sin asignar'}</Badge>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <Badge variant="secondary">{member.specialty || 'Sin asignar'}</Badge>
+                        {/* Las certificaciones se pueden capturar al contratar; sin esto
+                            quedarían escritas y nunca visibles. */}
+                        {member.certifications?.slice(0, 2).map((cert) => (
+                          <Badge key={cert} variant="outline" className="font-normal">{cert}</Badge>
+                        ))}
+                        {(member.certifications?.length || 0) > 2 && (
+                          <span className="text-xs text-muted-foreground">
+                            +{(member.certifications?.length || 0) - 2}
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
+                    {hasBranches && (
+                      <TableCell className="text-muted-foreground">
+                        {branchName(member.branch_id) || 'Sin sede'}
+                      </TableCell>
+                    )}
                     <TableCell>
                       <Badge className="bg-primary">{member.status === 'active' ? 'Activo' : 'Inactivo'}</Badge>
                     </TableCell>
@@ -246,8 +277,9 @@ export default function StaffPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onSubmit={handleFormSubmit}
-        isLoading={isCreating}
+        isLoading={isSaving}
         initialData={editingStaff}
+        branches={branches}
       />
 
       {selectedCoach && (
