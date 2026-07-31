@@ -428,9 +428,9 @@ export default function InvitationsManagementPage() {
     }
 
     const messages: Record<string, string> = {
-      parent: `¡Hola! Te invitamos a inscribir a ${invitation.child_name || formData.childName} en ${schoolName}. Completa el registro aquí: ${link}`,
+      parent: `¡Hola! Te invitamos a inscribir a ${invitation.child_name || formData.childName} en ${schoolName}. Crea tu cuenta como acudiente y completa el registro del menor aquí: ${link}`,
       coach: `¡Hola! Te invitamos a unirte como entrenador en ${schoolName}. Completa tu registro aquí: ${link}`,
-      athlete: `¡Hola! Te invitamos a unirte como atleta en ${schoolName}. Completa tu registro aquí: ${link}`,
+      athlete: `¡Hola! Te invitamos a unirte como atleta a ${schoolName}. Este registro es para ti (atleta mayor de edad), no para un acudiente: ${link}`,
       school_admin: `¡Hola! Te invitamos a administrar una sede en ${schoolName}. Completa tu registro aquí: ${link}`,
       reporter: `¡Hola! Te invitamos a acceder como súper usuario en ${schoolName}. Completa tu registro aquí: ${link}`,
       guest: `¡Hola! Te invitamos a conocer ${schoolName}. Completa tu registro aquí: ${link}`,
@@ -527,9 +527,9 @@ export default function InvitationsManagementPage() {
         // Si hay teléfono, abrir WhatsApp automáticamente con el link real
         if (phone.length >= 8) {
           const messages: Record<string, string> = {
-            parent: `¡Hola! Te invitamos a inscribir a ${formData.childName} en ${schoolName}. Regístrate aquí: ${result.registration_link}`,
+            parent: `¡Hola! Te invitamos a inscribir a ${formData.childName} en ${schoolName}. Regístrate como su acudiente aquí: ${result.registration_link}`,
             coach: `¡Hola! Te invitamos como entrenador en ${schoolName}: ${result.registration_link}`,
-            athlete: `¡Hola! Te invitamos como atleta en ${schoolName}: ${result.registration_link}`,
+            athlete: `¡Hola! Te invitamos como atleta (mayor de edad) a ${schoolName}. Regístrate tú mismo aquí: ${result.registration_link}`,
             school_admin: `¡Hola! Te invitamos a administrar una sede en ${schoolName}: ${result.registration_link}`,
             reporter: `¡Hola! Te invitamos como súper usuario en ${schoolName}: ${result.registration_link}`,
           };
@@ -917,7 +917,7 @@ export default function InvitationsManagementPage() {
               <TableRow>
                 <TableHead>Email / Rol</TableHead>
                 <TableHead>Sede</TableHead>
-                <TableHead>Hijo / Equipo / Plan</TableHead>
+                <TableHead>Atleta / Equipo / Plan</TableHead>
                 <TableHead>Mensualidad</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead>Fecha</TableHead>
@@ -936,9 +936,9 @@ export default function InvitationsManagementPage() {
                           <span className="text-sm">{inv.invited_email}</span>
                         </div>
                         <Badge variant="secondary" className="w-fit text-[10px] capitalize font-normal">
-                          {inv.role_to_assign === 'parent' ? 'Padre' :
+                          {inv.role_to_assign === 'parent' ? 'Acudiente' :
                             inv.role_to_assign === 'coach' ? 'Entrenador' :
-                              inv.role_to_assign === 'athlete' ? 'Atleta' :
+                              inv.role_to_assign === 'athlete' ? 'Atleta 18+' :
                                 inv.role_to_assign === 'school_admin' ? 'Admin Sede' :
                                   inv.role_to_assign === 'reporter' ? 'Súper Usuario' : 'Invitado'}
                         </Badge>
@@ -1066,7 +1066,9 @@ export default function InvitationsManagementPage() {
               </DialogTitle>
               <DialogDescription className="text-sm">
                 {formData.role === 'parent'
-                  ? 'Invita a un padre para inscribir a su hijo en un equipo o plan.'
+                  ? 'Invita al acudiente de un atleta menor de edad: él crea la cuenta, inscribe al menor y paga.'
+                  : formData.role === 'athlete'
+                    ? 'Invita a un atleta mayor de edad: se registra él mismo, sin acudiente, y paga su propio plan.'
                   : formData.role === 'coach'
                     ? 'Invita un entrenador a unirse a tu academia.'
                     : formData.role === 'school_admin'
@@ -1089,9 +1091,9 @@ export default function InvitationsManagementPage() {
               </Label>
               <div className="grid grid-cols-3 gap-1.5">
                 {[
-                  { id: 'parent', label: '👨‍👩‍👧 Padre/Madre' },
+                  { id: 'parent', label: '👨‍👩‍👧 Acudiente' },
                   { id: 'coach', label: '🏋️ Entrenador' },
-                  { id: 'athlete', label: '⚽ Atleta' },
+                  { id: 'athlete', label: '⚽ Atleta 18+' },
                   { id: 'school_admin', label: '🔑 Administrador' },
                   { id: 'reporter', label: '📊 Súper Usuario' },
                   { id: 'referral', label: '🏫 Referencia' },
@@ -1209,7 +1211,7 @@ export default function InvitationsManagementPage() {
 
                 {formData.role === 'parent' && (
                   <div className="space-y-1.5">
-                    <Label htmlFor="childName" className="text-sm font-medium">Nombre del hijo/a *</Label>
+                    <Label htmlFor="childName" className="text-sm font-medium">Nombre del menor a inscribir *</Label>
 
                     {/* Si el equipo tiene atletas registrados, mostrar dropdown para elegir */}
                     {formData.teamId && teamChildren.length > 0 && (

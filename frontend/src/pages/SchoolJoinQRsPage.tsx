@@ -55,7 +55,7 @@ const FORM_DEFAULT = {
   target_id: '',
   branch_id: '',
   intro_text: '',
-  cta_text: 'Inscribirme',
+  cta_text: 'Inscribir a mi hijo/a',
   accept_payments: true,
   require_first_payment: true,
   expires_at: '',
@@ -168,7 +168,7 @@ export default function SchoolJoinQRsPage() {
       p_target_id:   form.target_id || null,
       p_branch_id:   form.branch_id || null,
       p_intro_text:  form.intro_text || null,
-      p_cta_text:    form.cta_text?.trim() || 'Inscribirme',
+      p_cta_text:    form.cta_text?.trim() || 'Inscribir a mi hijo/a',
       p_accept_payments: form.accept_payments,
       p_require_first_payment: form.require_first_payment,
       p_expires_at:  form.expires_at ? new Date(form.expires_at).toISOString() : null,
@@ -288,11 +288,12 @@ export default function SchoolJoinQRsPage() {
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-2">
             <QrCode className="h-7 w-7 text-primary" />
-            Códigos QR de inscripción
+            Códigos QR de inscripción (menores)
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Genera códigos para imprimir en flyers/posters. Cada escaneo lleva al usuario
-            a tu landing branded para inscribirse y pagar el primer mes.
+            Genera códigos para imprimir en flyers/posters. Cada escaneo lleva al <strong>acudiente</strong> a
+            tu landing branded para registrar a un <strong>menor de edad</strong> y pagar el primer mes.
+            Para atletas mayores de edad usa Invitaciones → Atleta.
           </p>
         </div>
         <Button onClick={startNew} className="gap-2">
@@ -383,6 +384,11 @@ export default function SchoolJoinQRsPage() {
             <DialogDescription>Crea un código para una campaña, equipo o sede específica.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-900">
+              Quien escanea queda registrado como <strong>acudiente</strong> y el atleta como <strong>menor a su cargo</strong>.
+              Si el atleta es mayor de edad y se registra solo, invítalo desde <strong>Invitaciones → Atleta</strong>;
+              por el QR quedaría como hijo de sí mismo.
+            </div>
             <div>
               <Label>Nombre interno *</Label>
               <Input
@@ -474,7 +480,11 @@ export default function SchoolJoinQRsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Texto del botón</Label>
-                <Input value={form.cta_text} onChange={(e) => setForm({ ...form, cta_text: e.target.value })} />
+                <Input
+                  value={form.cta_text}
+                  onChange={(e) => setForm({ ...form, cta_text: e.target.value })}
+                  placeholder="Ej: Inscribir a mi hijo/a"
+                />
               </div>
               <div>
                 <Label>Slug personalizado</Label>
