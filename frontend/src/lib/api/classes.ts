@@ -278,8 +278,11 @@ class ClassesAPI {
       .eq('child_id', studentId)
       .eq('status', 'active');
 
+    // Antes esto era un console.warn y la baja fallida pasaba por exitosa.
+    // RLS solo deja escribir enrollments a owner/admin: a un entrenador le falla
+    // siempre, y el llamador tiene que poder decírselo.
     if (error) {
-      console.warn('Error unenrolling student:', error.message);
+      throw new Error(error.message || 'No se pudo dar de baja la inscripción');
     }
   }
 

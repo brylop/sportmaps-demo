@@ -49,21 +49,74 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
         const { schoolId } = req;
         const data = parsed.data;
 
+        // ── El entrenador arma el roster, no el cobro ────────────────────────
+        // `offering_plan_id` emite la mensualidad (emitPlanCharge más abajo) y,
+        // si el atleta ya tenía otro plan activo, anula sus cobros pendientes
+        // para emitir los del nuevo. Es la misma plata que motivó sacar al coach
+        // de PUT /students/:id — solo que por otra puerta. Se le deja `team_id`
+        // (el roster es su trabajo) y se le niega el plan. `staff` (secretaría)
+        // sí lo maneja, igual que en el editor de atletas.
+        if (req.role === 'coach' && data.offering_plan_id) {
+            return res.status(403).json({
+                error: 'Un entrenador no puede asignar planes de pago. Pídelo a la escuela.',
+            });
+        }
+
         // ✅ Validar que user_id o child_id o unregistered_athlete_id existe
         const studentId = data.user_id || data.child_id || data.unregistered_athlete_id;
         const studentField = data.user_id ? 'user_id' : data.child_id ? 'child_id' : 'unregistered_athlete_id';
 
+        // El atleta tiene que ser de ESTA escuela. Antes solo se validaba que la
+        // fila existiera, así que con un UUID conocido se podía inscribir al
+        // atleta de otra escuela y emitirle un cobro acá (el insert estampa
+        // school_id = req.schoolId). `profiles` no tiene school_id: para el
+        // adulto el scope lo pone isAthleteActive() vía school_members.
         const targetTable = data.user_id ? 'profiles' : data.child_id ? 'children' : 'unregistered_athletes';
-        const { data: student, error: studentError } = await supabase
+        let studentQuery = supabase
             .from(targetTable)
             .select('id')
-            .eq('id', studentId)
-            .maybeSingle();
+            .eq('id', studentId);
+        if (targetTable !== 'profiles') {
+            studentQuery = studentQuery.eq('school_id', schoolId);
+        }
+        const { data: student, error: studentError } = await studentQuery.maybeSingle();
 
         if (studentError || !student) {
             return res.status(404).json({
                 error: 'Deportista no encontrado'
             });
+        }
+
+        // Mismo razonamiento para equipo y plan: sin esto la inscripción podía
+        // quedar colgada de un team_id o un offering_plan_id de otra escuela.
+        if (data.team_id) {
+            const { data: team } = await supabase
+                .from('teams')
+                .select('id')
+                .eq('id', data.team_id)
+                .eq('school_id', schoolId)
+                .maybeSingle();
+
+            if (!team) {
+                return res.status(404).json({ error: 'Equipo no encontrado en esta escuela' });
+            }
+        }
+
+        // El plan se valida y se lee la duración en una sola consulta: antes la
+        // duración se leía después, sin filtro de escuela.
+        let planDurationDays: number | null = null;
+        if (data.offering_plan_id) {
+            const { data: plan } = await supabase
+                .from('offering_plans')
+                .select('duration_days')
+                .eq('id', data.offering_plan_id)
+                .eq('school_id', schoolId)
+                .maybeSingle();
+
+            if (!plan) {
+                return res.status(404).json({ error: 'Plan no encontrado en esta escuela' });
+            }
+            planDurationDays = (plan as any).duration_days ?? null;
         }
 
         // ── Atleta inactivo: no se inscribe ──────────────────────────────────
@@ -111,20 +164,12 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
             }
         }
 
-        // ✅ Calcular fecha de expiración si hay plan
+        // ✅ Calcular fecha de expiración si hay plan (duración ya validada arriba)
         let expiresAt = null;
-        if (data.offering_plan_id) {
-            const { data: plan } = await supabase
-                .from('offering_plans')
-                .select('duration_days')
-                .eq('id', data.offering_plan_id)
-                .single();
-            
-            if (plan?.duration_days) {
-                const date = new Date();
-                date.setDate(date.getDate() + plan.duration_days);
-                expiresAt = date.toISOString().split('T')[0];
-            }
+        if (planDurationDays) {
+            const date = new Date();
+            date.setDate(date.getDate() + planDurationDays);
+            expiresAt = date.toISOString().split('T')[0];
         }
 
         // ✅ Anti-duplicado: el atleta lleva UNA inscripción activa por escuela —
