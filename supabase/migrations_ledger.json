@@ -1,2074 +1,301 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 291,
-  "head": "20260730183000",
+  "count": 293,
+  "head": "20260730195021",
   "migrations": [
-    {
-      "v": "20260217000001",
-      "file": "20260217000001_schema_refactored.sql",
-      "sha256": "efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260218000002",
-      "file": "20260218000002_rls_policies_and_indexes.sql",
-      "sha256": "592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260219000003",
-      "file": "20260219000003_business_analytics.sql",
-      "sha256": "e60d5d1c6d0ccc4991519bf85dc03de2c7515b7e0173fecbd264bedcaad679bf",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260219000004",
-      "file": "20260219000004_fix_misclassified_parents.sql",
-      "sha256": "bf52a9aada911d0f522f53e808daff6af7d561a91a728ec4deb54f6c0b0385f7",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260219000005",
-      "file": "20260219000005_fix_recursion_and_force_rls.sql",
-      "sha256": "f462fffd5d099a4d370e06bfde88087c49725d605a6b07973326027a299135df",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260219000006",
-      "file": "20260219000006_fix_school_recursion.sql",
-      "sha256": "fbbc6433bb8e993cba17a648cdab5cd0e9121ff125e6c106af195b9b8b66c377",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260219000007",
-      "file": "20260219000007_fix_school_recursion_complete.sql",
-      "sha256": "3e2148405ce2bbd6b8dc79d589ad79859def8ec586b778f295e3d384b0b8c37f",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260219000008",
-      "file": "20260219000008_fix_signup_trigger.sql",
-      "sha256": "2823165c9e7afe3a73ddadcb60bea056d88e5ea803ddd77a50ea32552e091954",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260219000009",
-      "file": "20260219000009_migrate_roles_simple.sql",
-      "sha256": "7518258f2a22da29c9384ec775b21dc6cd914efe68411be30dab652679715ef9",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260219000010",
-      "file": "20260219000010_separate_athlete_parent.sql",
-      "sha256": "85a6a8850898b47b8539b34004f17a3122be9fda13f9f78cd50e26d0d1bd224e",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260220000011",
-      "file": "20260220000011_add_id_document_to_children.sql",
-      "sha256": "28f58153220bbfb392ea149041c62e6ce739b26cab474a479fa0f199a511f3ee",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260220000012",
-      "file": "20260220000012_add_onboarding_started.sql",
-      "sha256": "ad53be9b97596e1675ea0310d3c2ca991b5cf32ba5f03015ee688810b6cfd2d2",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260220000013",
-      "file": "20260220000013_dashboard_consolidation.sql",
-      "sha256": "aec03a6185a061c635ee14972766f0a3eeb2192ccea9f41b49e04925d8ee3a2a",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260220000014",
-      "file": "20260220000014_definitive_rls_fix.sql",
-      "sha256": "50179aec97a845898d68b50bc2d93c18de61b57b3707e6e8031f437bd17b7d32",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260220000015",
-      "file": "20260220000015_fix_invitations_rls.sql",
-      "sha256": "714cffbbbafd6fb7dac8a1f008ef29c8609d5c229e6e6258d5825eb0384c8b10",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260220000016",
-      "file": "20260220000016_fix_sm_recursion_final.sql",
-      "sha256": "8b32cf2d25a09c3e5d7d22f28b953fb145b534652f2d6eaa940615d9c732e7d1",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260220000017",
-      "file": "20260220000017_invite_parent_rpc.sql",
-      "sha256": "5c5d123d5f3b2c1828c2cc46e59352f8043221e177b401d5608b2b9b1c706599",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260220000018",
-      "file": "20260220000018_master_consolidation.sql",
-      "sha256": "f6f576003c623c15540d20af338f4913c88a9e775a4ee3631c5a264679a324a1",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260220000019",
-      "file": "20260220000019_nuclear_rls_fix.sql",
-      "sha256": "41be5c74f10f7bde23bd63f97a1e4a8ae857383e6ecdf5f0fa5545c4ff724f22",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260220000020",
-      "file": "20260220000020_rls_final_polish.sql",
-      "sha256": "78cd664ae5cbe06ad718682a28389f6b55c8e727feba3ddc6497c2583e3ee8cc",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260220000021",
-      "file": "20260220000021_sql_reconciliation.sql",
-      "sha256": "4b15ebdd69ce9cc92ab57b596dd16e0bfcd0245acb3f567986f0b5e9f20f2bbc",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260220000022",
-      "file": "20260220000022_unified_invitation_system.sql",
-      "sha256": "348dd137b6d5ee918f217eb1b0e16544b846343ddf0e5d1377d50c5a0278c6ba",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260221000023",
-      "file": "20260221000023_completion_signup_trigger.sql",
-      "sha256": "11a5f70a33277a98830ba6ad0585676cee997b901ca189fad89087fe064d33aa",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260221000024",
-      "file": "20260221000024_fix_children_insert_rls.sql",
-      "sha256": "ff8f2e63d6780af2b0e69cd7e244180a68732a489a260177f5a75e55052164d1",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260221000025",
-      "file": "20260221000025_fix_identity_documents_rls.sql",
-      "sha256": "9f92c13c323365ccdc782d2f84497aa144d3e5beb092eea4f8c7d078fdfe166b",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260221000026",
-      "file": "20260221000026_fix_invitation_rpc_roles.sql",
-      "sha256": "2e1b5f2d4df4de04f423f4779702af07e16f4bcdbe3cb85488d7d45dfdcc7079",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260221000027",
-      "file": "20260221000027_rollback_signup_trigger.sql",
-      "sha256": "3ad3f5225c5294d709921a1b6dc6e9dfb401f5f96367920587d3d5cedaaaed83",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260224000028",
-      "file": "20260224000028_cleanup_invitations_aggressive.sql",
-      "sha256": "912409456f3386188a579a22ce67302d720740dfb385dec6fba8fb5e69188c42",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260224000029",
-      "file": "20260224000029_fix_accept_invitation_rpc.sql",
-      "sha256": "aefe098e56cb5986a0f594c942bafe028670ca6bd4d3ef8a3bf247bf09fa69f3",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260224000030",
-      "file": "20260224000030_fix_participants_sync_and_linking.sql",
-      "sha256": "5f8f5e6056aeb4ef576ef936d1ddd249d86d39b04518f96e5ce568c327f67d48",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260224000031",
-      "file": "20260224000031_invitations_branch_support.sql",
-      "sha256": "a56539b084f83934497f2ac877176b92c964f14e40fc6193b847f09d64d601a0",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260224000032",
-      "file": "20260224000032_multi_coach_support.sql",
-      "sha256": "1b2d653d395e31fa2fc3d6586c549ec3dfdef15d2cc0100a64f276f9a5b44869",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260224000033",
-      "file": "20260224000033_prevent_duplicate_invitations.sql",
-      "sha256": "6afadfc6023e4f16d508661232ee56a1345fda603463dabeaff3bce6eb909357",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260224000034",
-      "file": "20260224000034_sync_program_prices.sql",
-      "sha256": "8407455e81d5ee2e02a1e5ebc3215059cdbc84b5c41f082825b010d5f7a3a771",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260225000035",
-      "file": "20260225000035_fix_coach_certifications_rls.sql",
-      "sha256": "06c1152d4e00d2a106c182bdfcf94c4f8d14fb33c6cef2452f489117c9103a46",
-      "added": "2026-03-01",
-      "by": "brylop"
-    },
-    {
-      "v": "20260225000036",
-      "file": "20260225000036_fix_coach_rls_policies.sql",
-      "sha256": "5c7960fd9db4c17f80155a6569e33e18b47b9cb48c93e2864f79b8efe331362b",
-      "added": "2026-03-01",
-      "by": "brylop"
-    },
-    {
-      "v": "20260225000037",
-      "file": "20260225000037_extended_rls_policies.sql",
-      "sha256": "ffb71da3fbbb0fd19c9832e03f216c2da24dc0ceb50b80ac3d5cd2a5fcb6b4e2",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260225000038",
-      "file": "20260225000038_fix_team_coaches_rls.sql",
-      "sha256": "f96a944e436f14b300b5948b08f643f076855a595a4e090f8ec037644c2e5e97",
-      "added": "2026-03-01",
-      "by": "brylop"
-    },
-    {
-      "v": "20260225000039",
-      "file": "20260225000039_harden_invitation_rpcs.sql",
-      "sha256": "ca182dfdb076933a5dd292ebe683e002af51ee38fd6c66b5bfa785d2e4136df2",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260225000040",
-      "file": "20260225000040_restore_triggers_and_rls.sql",
-      "sha256": "1fc70a85e4b6121f57642875244f4766dde32fa67c498d6ec8dc9b4e51f658af",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260225000041",
-      "file": "20260225000041_rls_crud_fix.sql",
-      "sha256": "aa01dd8d1b45ccef4360d6ce2bc00532942980e34297c90e6b58dff51cb17917",
-      "added": "2026-03-01",
-      "by": "brylop"
-    },
-    {
-      "v": "20260225000042",
-      "file": "20260225000042_system_hard_reset.sql",
-      "sha256": "d86b9bf69943b808322060b4bb2ccc20f1ae5462f0ba46d743c6af16bfb1e74b",
-      "added": "2026-03-01",
-      "by": "brylop"
-    },
-    {
-      "v": "20260225000043",
-      "file": "20260225000043_unified_integrity_fix.sql",
-      "sha256": "9119df9bfb178b72468d8bb365389e77ec40715ad5fba562aecae6ecde8247a4",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260225000044",
-      "file": "20260225000044_validate_existing_members_on_invite.sql",
-      "sha256": "c4b2d9829fea7c41e459f97bbd7bdeb9c1f3a8e76efe0dc77ae95b5cbd01a8ff",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260226000045",
-      "file": "20260226000045_add_notification_rpcs.sql",
-      "sha256": "4dd3fe4c16b4b4a20bfd504115f782f91855dc2f17da9de5c663c326cb7d463b",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260226000046",
-      "file": "20260226000046_atomic_checkout_rpc.sql",
-      "sha256": "c1f71844b0c6ebf5f44c4edfb956e7b07e95860a8ea599024b40303d6611604c",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260226000047",
-      "file": "20260226000047_comprehensive_rls_v2.sql",
-      "sha256": "272e33edf162d57fc297847e1e650d8e1461a7a659eed1bc9393807c6d18df55",
-      "added": "2026-03-01",
-      "by": "brylop"
-    },
-    {
-      "v": "20260226000048",
-      "file": "20260226000048_consolidated_rls_v3_final.sql",
-      "sha256": "a10524f88b22987c4752a313434ea0357be481ca6074acd95910f08e7629e05c",
-      "added": "2026-03-01",
-      "by": "brylop"
-    },
-    {
-      "v": "20260226000049",
-      "file": "20260226000049_fix_missing_rls_policies.sql",
-      "sha256": "b81c97c76b9d132b98cfbfb0ebcae47fe69d2dacd1f98e5c51c210f7174538e8",
-      "added": "2026-03-01",
-      "by": "brylop"
-    },
-    {
-      "v": "20260226000050",
-      "file": "20260226000050_fix_rls_and_view_final.sql",
-      "sha256": "b0eba2a191eeccc95b2efef9135d29aef963c38fbeefdde421507a4cc91bcd4d",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260226000051",
-      "file": "20260226000051_notify_user_rpc.sql",
-      "sha256": "f1ef525555b0a9251fdcc948e0881a7d0be489b893edbf46391abb3edfbaf94a",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260226000052",
-      "file": "20260226000052_rls_block_3_verified.sql",
-      "sha256": "48667dea3f0aa051d0cc8930083d0a5a1e7d104624f523ff21e4baac3fe6d9f4",
-      "added": "2026-03-01",
-      "by": "brylop"
-    },
-    {
-      "v": "20260226000053",
-      "file": "20260226000053_rollback_shift_to_teams.sql",
-      "sha256": "5e4fa3be517cf8f59fa52a8bae5fd21224541b781f9b333a9cbab7e5c9fadc6c",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260226000054",
-      "file": "20260226000054_school_dashboard_rpc.sql",
-      "sha256": "d7840aca75fbe56bdd38c065b6651b60dc3e54b3fb7ed7af4d57709f515f5407",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260226000055",
-      "file": "20260226000055_shift_to_teams.sql",
-      "sha256": "26a16b9461d591feb33166ba0348ac0be63c1f5661566e8cfee4dc55bde6a259",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260226000056",
-      "file": "20260226000056_sync_coach_invitations.sql",
-      "sha256": "f1caf9b4cf9460402fbdee67308ebe8324593921da7022a98a41c747c32f403b",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260226000057",
-      "file": "20260226000057_sync_school_settings.sql",
-      "sha256": "6c253afd6daf40c229a963f9e2d6df3f475fbffc842db43cf74d78fcf69cdb92",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260227000058",
-      "file": "20260227000058_notifications_realtime.sql",
-      "sha256": "7373784716b14de43a66652f2c28621422ac3b4e07743b26d9ba9d0b728d2947",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260227000059",
-      "file": "20260227000059_push_subscriptions.sql",
-      "sha256": "2d4fdd36414a8f45979a8424e4fb7029fee2d913aed1718bc8b5e82eee615c50",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260228000060",
-      "file": "20260228000060_add_preferences_to_profiles.sql",
-      "sha256": "cbf70ed19936dd41aab3e7a41104a98f639cee7baa230ebc7b2dc29917b6bcef",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260301000000",
-      "file": "20260301000000_fix_coach_children_rls.sql",
-      "sha256": "3775128bfa4282a769a9df00b803194dc3214319956a906f0f021dc3fcaab9dc",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260302000000",
-      "file": "20260302000000_add_children_status.sql",
-      "sha256": "4561bb5a729559d5cbf80ad557276e40052552cb0742c3ddc6c3ba93c1f4dbd6",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260303000000",
-      "file": "20260303000000_mvp_attendance_fix.sql",
-      "sha256": "58e18e4ab6a4a6baaac727db58ac63d71fc472c78f720bf6c1fb87a69f5fcbdf",
-      "added": "2026-03-03",
-      "by": "brylop"
-    },
-    {
-      "v": "20260304000000",
-      "file": "20260304000000_fix_pending_invitations.sql",
-      "sha256": "a28ef7e7a5e1c2d6501f7b5f13b5341a6699a7c166b46b09f3c177ba2ce163c7",
-      "added": "2026-03-04",
-      "by": "brylop"
-    },
-    {
-      "v": "20260304000001",
-      "file": "20260304000001_fix_accept_invitation_dob.sql",
-      "sha256": "a80d1b5bd0e991e6627ec5902203f9243f6a6796482322fcf34708226ac9241c",
-      "added": "2026-03-04",
-      "by": "brylop"
-    },
-    {
-      "v": "20260304000002",
-      "file": "20260304000002_fix_accept_invitation_create_child.sql",
-      "sha256": "a1ff6c08b7a43a5f83f561b45556e5046d90a33833c4de16c1c5c6a9b1adb947",
-      "added": "2026-03-04",
-      "by": "brylop"
-    },
-    {
-      "v": "20260305000001",
-      "file": "20260305000001_fix_children_parent_update_rls.sql",
-      "sha256": "9048b1ac1a859910ecb27de4538450cae6f637e7728dfaae4a8661f03ae029e8",
-      "added": "2026-03-05",
-      "by": "brylop"
-    },
-    {
-      "v": "20260305000002",
-      "file": "20260305000002_fix_students_view_price_monthly.sql",
-      "sha256": "1526dbc29aa46d00d5502906da61360ddc3a47f79e93b7255e9d65bd33ff229b",
-      "added": "2026-03-05",
-      "by": "brylop"
-    },
-    {
-      "v": "20260305000003",
-      "file": "20260305000003_fix_auto_parent_school_member_security.sql",
-      "sha256": "cc901e7e602ba0826c8ad9d11e6924f1c7ad6a4671c46e9a789ff07514ad19b2",
-      "added": "2026-03-05",
-      "by": "brylop"
-    },
-    {
-      "v": "20260305000004",
-      "file": "20260305000004_security_hardening_phase1.sql",
-      "sha256": "5c25d5ac0a38fbc6dcd4bbce5645128d3ef8ec4336de747adb6f29b65462d820",
-      "added": "2026-03-05",
-      "by": "brylop"
-    },
-    {
-      "v": "20260306000001",
-      "file": "20260306000001_fix_parent_flow_data.sql",
-      "sha256": "03792bb1c05617bef1761522547e85be4fbaea62a3f77acdfe66e344b4500d90",
-      "added": "2026-03-06",
-      "by": "brylop"
-    },
-    {
-      "v": "20260307000001",
-      "file": "20260307000001_branding_settings.sql",
-      "sha256": "6106e4533ec24791d7834b06e0584434df3138f925e3b14d3822c9ee8915b0f5",
-      "added": "2026-03-07",
-      "by": "brylop"
-    },
-    {
-      "v": "20260310000001",
-      "file": "20260310000001_universal_architecture_v2_1.sql",
-      "sha256": "596b79ceaf5d41a738e694103b9138efff8bd3114e457cc918848067634ee59b",
-      "added": "2026-03-09",
-      "by": "judegor99"
-    },
-    {
-      "v": "20260311000001",
-      "file": "20260311000001_athlete_module_v2.sql",
-      "sha256": "6a0d230d5ea34f2206603c86ea4c68f7240fe67a742c2ecf4b52e2d795227693",
-      "added": "2026-03-10",
-      "by": "Antigravity Assistant"
-    },
-    {
-      "v": "20260311000002",
-      "file": "20260311000002_athlete_goals.sql",
-      "sha256": "e030ff83da229498f17b7302ed2a14e3b9c6c6025e36d2e1c935c1a10bdd54bc",
-      "added": "2026-03-10",
-      "by": "Antigravity Assistant"
-    },
-    {
-      "v": "20260311220000",
-      "file": "20260311220000_relax_enrollment_program_unique.sql",
-      "sha256": "665423e9ac00d0ad520f221038480a7d0058d11c1ce3b82f71fea6a3dd61169e",
-      "added": "2026-03-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260312000000",
-      "file": "20260312000000_explore_rpcs.sql",
-      "sha256": "3547f09da0d7e4267c992d282309bfbd65353503a2e0e6b4c536c767c356cc84",
-      "added": "2026-03-12",
-      "by": "brylop"
-    },
-    {
-      "v": "20260312000001",
-      "file": "20260312000001_user_favorites.sql",
-      "sha256": "e2e4f3e838a50f385b418aeb046ac4fcbbe3a14348ebd408ed3531a6c65f7291",
-      "added": "2026-03-12",
-      "by": "brylop"
-    },
-    {
-      "v": "20260312000002",
-      "file": "20260312000002_role_protection.sql",
-      "sha256": "2a19229830bc6411960cf9cbcf073c58edf5ee77939f7535e6f303d9fe713405",
-      "added": "2026-03-12",
-      "by": "brylop"
-    },
-    {
-      "v": "20260312000004",
-      "file": "20260312000004_settings_rpcs.sql",
-      "sha256": "5f32fe3be71cb18bb1a4c38d7cc763c5f6cfef8347696746985db9b5a0d86f47",
-      "added": "2026-03-12",
-      "by": "brylop"
-    },
-    {
-      "v": "20260312000005",
-      "file": "20260312000005_expand_settings_rpcs.sql",
-      "sha256": "439f01540ed8ceec2952207b2a0ab62303b36a6835b03d7c169aae8659e5a4cd",
-      "added": "2026-03-12",
-      "by": "brylop"
-    },
-    {
-      "v": "20260312000006",
-      "file": "20260312000006_fix_athlete_enrollments_source.sql",
-      "sha256": "46205ad3edd1857bef91f4b73317f54abb9f9d9b22dc5010bc02da5832de3f74",
-      "added": "2026-03-12",
-      "by": "brylop"
-    },
-    {
-      "v": "20260317000001",
-      "file": "20260317000001_update_onboarding_status_logic.sql",
-      "sha256": "0b53fead2823cbc186f3cc705433afb2d44884479dfda27311002b5e1b574154",
-      "added": "2026-03-17",
-      "by": "judegor99"
-    },
-    {
-      "v": "20260317000002",
-      "file": "20260317000002_fix_onboarding_rpc_columns.sql",
-      "sha256": "c0d2790f4d02249a7078a048f41c35c9285ed0471554ff9a076ed45946ac1099",
-      "added": "2026-03-17",
-      "by": "judegor99"
-    },
-    {
-      "v": "20260318000000",
-      "file": "20260318000000_prd_iam_alignment.sql",
-      "sha256": "ce5ee7c4d8889e0c977a856345d90d008a78e24cfca47cdabc0a787104b838d3",
-      "added": "2026-03-18",
-      "by": "brylop"
-    },
-    {
-      "v": "20260324000001",
-      "file": "20260324000001_onboarding_wizard_flags.sql",
-      "sha256": "ae6ee80dca5111342e61783d61bb3a93b58f874b9ebd97aed016bb273081777b",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260324000002",
-      "file": "20260324000002_payment_reminder_tracking.sql",
-      "sha256": "62db3c13207f441b986d389b593cf8cd1db4f302486e279ae94888a865c62c4c",
-      "added": "2026-03-24",
-      "by": "brylop"
-    },
-    {
-      "v": "20260411",
-      "file": "20260411_sportmaps_pay_epayco.sql",
-      "sha256": "4c67fa9d0f9ac0a0606577cceda39bdc8282b11a5f4496e49d3a14e3622a5a8d",
-      "added": "2026-04-11",
-      "by": "brylop",
-      "legacy": true
-    },
-    {
-      "v": "20260414000001",
-      "file": "20260414000001_payment_message_templates.sql",
-      "sha256": "3afb50c3f3a70d7149a1ea5f51ecfdc1f672bfe168bc29d8bad972cd1194c853",
-      "added": "2026-04-14",
-      "by": "brylop"
-    },
-    {
-      "v": "20260415000001",
-      "file": "20260415000001_security_hardening_phase2.sql",
-      "sha256": "0132bd67d3e4a22b6e8b9bd89f8024909c1ea10f6691b3220a5d8c9d8da3a041",
-      "added": "2026-04-15",
-      "by": "brylop"
-    },
-    {
-      "v": "20260416000001",
-      "file": "20260416000001_marketplace_core_tables.sql",
-      "sha256": "7168b20b7795b360f9de11b2554725027a1ee15a80b9edda48c89634fce05946",
-      "added": "2026-04-16",
-      "by": "brylop"
-    },
-    {
-      "v": "20260416000002",
-      "file": "20260416000002_marketplace_rls.sql",
-      "sha256": "b83466acbfb036a16c2a38ecc69d403f6972687d762b6529e543b5f6acd64e0f",
-      "added": "2026-04-16",
-      "by": "brylop"
-    },
-    {
-      "v": "20260417000001",
-      "file": "20260417000001_inventory_engine.sql",
-      "sha256": "be96498d52fab0ac1a5232ba9893d6af4a7a1fd544f17d920372f50b31b3128a",
-      "added": "2026-04-16",
-      "by": "brylop"
-    },
-    {
-      "v": "20260417000002",
-      "file": "20260417000002_financial_engine.sql",
-      "sha256": "fdb651e60dcf60eb8de48f536714cff963106595a86306f0caf9c33a18ba82f8",
-      "added": "2026-04-16",
-      "by": "brylop"
-    },
-    {
-      "v": "20260417000003",
-      "file": "20260417000003_unified_marketplace_payments.sql",
-      "sha256": "df16a30a23fbac0d9cfd564a4d53d6c6cc0984a19b4e85ecbf70e2ecccf36750",
-      "added": "2026-04-16",
-      "by": "brylop"
-    },
-    {
-      "v": "20260417000004",
-      "file": "20260417000004_vendor_geolocation.sql",
-      "sha256": "43c5191e0d745138c3ccd9779f607fd86ebc7afc80861dd67eab408c7c38c329",
-      "added": "2026-04-16",
-      "by": "brylop"
-    },
-    {
-      "v": "20260418000001",
-      "file": "20260418000001_advanced_commerce.sql",
-      "sha256": "3dcc4925bdd04d9f3670eeb44b9b2976f0cbb601125831116aa556bdd8de8e6e",
-      "added": "2026-04-16",
-      "by": "brylop"
-    },
-    {
-      "v": "20260418000002",
-      "file": "20260418000002_logistics_integrations.sql",
-      "sha256": "c0714704de9834d93d55656af090665fed1069214396643b5a641dc2539b5f35",
-      "added": "2026-04-16",
-      "by": "brylop"
-    },
-    {
-      "v": "20260418000003",
-      "file": "20260418000003_school_vendor_integration.sql",
-      "sha256": "20a0b05114c3a35282b074fa9b888264b1610e9bdceefbc1ba9ec461e77a5a42",
-      "added": "2026-04-16",
-      "by": "brylop"
-    },
-    {
-      "v": "20260420000001",
-      "file": "20260420000001_tighten_public_rls_insert_policies.sql",
-      "sha256": "445c507e076113728e45b6417efbfc5f96dd05b355d04a3dc18c22ad64ec28b3",
-      "added": "2026-04-21",
-      "by": "brylop"
-    },
-    {
-      "v": "20260421000000",
-      "file": "20260421000000_explorar_require_public_profile_opt_in.sql",
-      "sha256": "a37d656ab7af7e145b32ebb0ea42695f84ae110f61a5ac068f3ed77a1f30f12d",
-      "added": "2026-04-21",
-      "by": "brylop"
-    },
-    {
-      "v": "20260421000001",
-      "file": "20260421000001_explore_map_trainers_and_opt_in.sql",
-      "sha256": "0563c745780e6880c5bbd154285aade4e9372e981b4cbe15225f6135fb46ce20",
-      "added": "2026-04-21",
-      "by": "brylop"
-    },
-    {
-      "v": "20260421000002",
-      "file": "20260421000002_schools_slug.sql",
-      "sha256": "51eafe9bd4d1684d2ae6fbaee4911aa11274528eeba9a3a6f9d7cbbe796bb76d",
-      "added": "2026-04-22",
-      "by": "brylop"
-    },
-    {
-      "v": "20260422000001",
-      "file": "20260422000001_enrollment_checkout_v2_1.sql",
-      "sha256": "6486a376c2ac81d3a6af656444d0b2b5b824247dfb6139568ce74a560dd2a9f5",
-      "added": "2026-04-22",
-      "by": "brylop"
-    },
-    {
-      "v": "20260422000002",
-      "file": "20260422000002_facility_reservations_public_insert.sql",
-      "sha256": "e6fca35ce0222769ccc1e7826a8d8605f7c05438fb1ec0c13ef81e8bd625fa6f",
-      "added": "2026-04-22",
-      "by": "brylop"
-    },
-    {
-      "v": "20260422000003",
-      "file": "20260422000003_vendor_profiles_public_on_active.sql",
-      "sha256": "3be999596ef3a40d6909d5aa379108995934ed51150fe7f31c96c777f8e9595f",
-      "added": "2026-04-22",
-      "by": "brylop"
-    },
-    {
-      "v": "20260422000004",
-      "file": "20260422000004_payment_receipts_parent_access.sql",
-      "sha256": "e60c8a4f922b51d2aa54b09dacd2896db23d07f6cea6c637458dda672ca1bab6",
-      "added": "2026-04-27",
-      "by": "brylop"
-    },
-    {
-      "v": "20260422000005",
-      "file": "20260422000005_school_payment_info_rpc.sql",
-      "sha256": "185eef16642240c9ab95797f21f1d7b4d9002836450b6979da5e25fe6ddd4482",
-      "added": "2026-04-22",
-      "by": "brylop"
-    },
-    {
-      "v": "20260424000000",
-      "file": "20260424000000_polls_anti_dup_capacity.sql",
-      "sha256": "a3a5df2a5eb2e7515097e73e2a846c3e62d96c75b6b0dbd07521af13f6f84bc7",
-      "added": "2026-04-24",
-      "by": "brylop"
-    },
-    {
-      "v": "20260424000001",
-      "file": "20260424000001_admin_activity_logs_rpcs.sql",
-      "sha256": "686bbaa32a1252ada097f88bf3a42095ed47014c746dd45bce2cf38e2f6c8530",
-      "added": "2026-04-27",
-      "by": "brylop"
-    },
-    {
-      "v": "20260424000002",
-      "file": "20260424000002_athlete_id_cards.sql",
-      "sha256": "aa49bde40aa1a2703d7e68cd800e88d09b1dc1d62b8a5c6ecc7b1f9bb41c0647",
-      "added": "2026-04-27",
-      "by": "brylop"
-    },
-    {
-      "v": "20260424000003",
-      "file": "20260424000003_athlete_id_cards_security_fixes.sql",
-      "sha256": "43736e837f91b990660849af44475e8376eafd18d9a6529cfd14b424cbd249a3",
-      "added": "2026-04-27",
-      "by": "brylop"
-    },
-    {
-      "v": "20260424000004",
-      "file": "20260424000004_athlete_certificates.sql",
-      "sha256": "bc309622132062f7d01dfcf572ebc4666e5883087e0b8f12a5f10c4eec218bd9",
-      "added": "2026-04-27",
-      "by": "brylop"
-    },
-    {
-      "v": "20260424000005",
-      "file": "20260424000005_school_join_qr.sql",
-      "sha256": "5b2fe67dcff5244ac50e1b5738ec0ef3a2ef907b81a4efbefc5c4a621fc914e7",
-      "added": "2026-04-27",
-      "by": "brylop"
-    },
-    {
-      "v": "20260424000006",
-      "file": "20260424000006_admin_global_counts.sql",
-      "sha256": "316e26fcd90304d5cfd9665245c801af5505dd3e31a803446e155968e4cab49b",
-      "added": "2026-04-27",
-      "by": "brylop"
-    },
-    {
-      "v": "20260427000001",
-      "file": "20260427000001_my_athlete_id_cards.sql",
-      "sha256": "66a9cb58fc95d0da60d70d2b6a78e12913d109bf4191d2b73aeedd1ba2567f51",
-      "added": "2026-04-27",
-      "by": "brylop"
-    },
-    {
-      "v": "20260428000001",
-      "file": "20260428000001_plan_join_rpcs.sql",
-      "sha256": "2f8e3965571712af0e094b218675ea4193388b6e0f70489367c844e763fd17dc",
-      "added": "2026-04-28",
-      "by": "brylop"
-    },
-    {
-      "v": "20260503000001",
-      "file": "20260503000001_wompi_migration.sql",
-      "sha256": "ebd233d18bff6fcd641372e5a9ca488363e589af73b76b4008375f7ad85fe0d4",
-      "added": "2026-05-03",
-      "by": "brylop"
-    },
-    {
-      "v": "20260503000002",
-      "file": "20260503000002_payment_ocr_fields.sql",
-      "sha256": "4f8a27e32043cac65bca1437539e58fab867f936bd2f6f1573a3120753aa91fd",
-      "added": "2026-05-03",
-      "by": "brylop"
-    },
-    {
-      "v": "20260503000004",
-      "file": "20260503000004_payment_period.sql",
-      "sha256": "83153fb100ac5355ad1cdcfaf1d54919c4d72a549fb9350eac7ddc12bcfabfa0",
-      "added": "2026-05-03",
-      "by": "brylop"
-    },
-    {
-      "v": "20260503000005",
-      "file": "20260503000005_payment_review_lock.sql",
-      "sha256": "c69b2c0b2676be3063d095ec53bbc464f53b71b76d59e46473edd973a2ad551a",
-      "added": "2026-05-03",
-      "by": "brylop"
-    },
-    {
-      "v": "20260503000006",
-      "file": "20260503000006_wompi_phases_a_b_c_d.sql",
-      "sha256": "b9b534ec1567ec0520e8b67a550e080b36f8cd8823776009cb231444a325882e",
-      "added": "2026-05-03",
-      "by": "brylop"
-    },
-    {
-      "v": "20260503000007",
-      "file": "20260503000007_security_invoker_views.sql",
-      "sha256": "6d68a96e1201b51032a610496c8149258fc0777761f96ff60ce257e6f4d8d735",
-      "added": "2026-05-06",
-      "by": "brylop"
-    },
-    {
-      "v": "20260504000001",
-      "file": "20260504000001_payment_provider_generic.sql",
-      "sha256": "1f4dcb6daac1127e1f88359058181649268680499cf3eca8020a1b16154f4d70",
-      "added": "2026-05-06",
-      "by": "brylop"
-    },
-    {
-      "v": "20260504000002",
-      "file": "20260504000002_payment_provider_rpcs.sql",
-      "sha256": "1abd198b05fc3d71589090f3a14c5fe9a43f533e0b40c6c2fc0e68fa11b80abe",
-      "added": "2026-05-06",
-      "by": "brylop"
-    },
-    {
-      "v": "20260511000001",
-      "file": "20260511000001_marketplace_role_capabilities_enums.sql",
-      "sha256": "1dd58c7e0033c13c2e44282b845e06eb6bb5735c31cc6287df31e83454771111",
-      "added": "2026-05-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260511000002",
-      "file": "20260511000002_marketplace_role_capabilities_logic.sql",
-      "sha256": "aebfd10194ae477c90e67591e737331cfbe8d3877a943dc29fac6a1717481810",
-      "added": "2026-05-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260511000003",
-      "file": "20260511000003_product_taxonomy_and_quality.sql",
-      "sha256": "211a59607cb075b85c476749044988e0579ace60421081a548a42ad19059844e",
-      "added": "2026-05-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260511000004",
-      "file": "20260511000004_ocr_dedup_index.sql",
-      "sha256": "8972b96f9263bcfc928350b4f6dbe9755938c5e229b28b898c0eb1fd15b50a95",
-      "added": "2026-05-11",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260511000004",
-      "file": "20260511000004_reviews_and_qa.sql",
-      "sha256": "0072fdad704a099a1a66baaaccf6eac325de02f9867c0054424b4373dfd65cdc",
-      "added": "2026-05-11",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260511000005",
-      "file": "20260511000005_ocr_raw_response.sql",
-      "sha256": "992b0da6f837da293a913357b8a58d0c13527a7d157ccb108ec16b1c83dbec68",
-      "added": "2026-05-11",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260511000005",
-      "file": "20260511000005_vendor_payouts_pipeline.sql",
-      "sha256": "1d8621315407fe9b34055ac3c5dc62c7ae360bb6ba651d005383d1cdc83afbd6",
-      "added": "2026-05-11",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260511000006",
-      "file": "20260511000006_lock_down_identity_documents_bucket.sql",
-      "sha256": "4c19f7d595a989a50c89e1e5781185b44f3bef148e59daffe6046d901fc68542",
-      "added": "2026-05-11",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260511000006",
-      "file": "20260511000006_payouts_functions_unconditional.sql",
-      "sha256": "92cae1b4c651e0d504e7ef5cdc679166305ab14a6fb5b6075f1233276cbe32ae",
-      "added": "2026-05-11",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260511000007",
-      "file": "20260511000007_financial_engine_minimal.sql",
-      "sha256": "93d7364007fd63ae11b554f8eeaf981aa07bdab69991a73eda8a666bfb2e4066",
-      "added": "2026-05-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260511000008",
-      "file": "20260511000008_payouts_functions_unconditional.sql",
-      "sha256": "2e1c62aeb04723f8cc112cf11615e872d90af82802fa98c8599aef53b9087e76",
-      "added": "2026-05-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260511000009",
-      "file": "20260511000009_drop_request_payout_for_jsonb_recreate.sql",
-      "sha256": "754881c5ef6bbaea30cf24179485f26e1f0098b893ea7b73d9571c6a953577e2",
-      "added": "2026-05-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260511000010",
-      "file": "20260511000010_security_search_path_and_mv_revokes.sql",
-      "sha256": "aaeca4ff672e0e33df3ce5ba1fd3b95cfb3f244b11d757a32a225c6f49e69356",
-      "added": "2026-05-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260511000011",
-      "file": "20260511000011_security_search_path_round2.sql",
-      "sha256": "b146050d58d3c254d956ee030510b17a84142fb1364f20cfab51e068b32ad0b6",
-      "added": "2026-05-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260511000012",
-      "file": "20260511000012_school_athletes_security_invoker.sql",
-      "sha256": "d607260837653b3da4570edb1257b7cf0b5bef8ec4c834fe6b7c8f051fd477e6",
-      "added": "2026-05-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260511000013",
-      "file": "20260511000013_security_search_path_round3.sql",
-      "sha256": "a62843d187e6f5498b06550fcbae45248f4183565fde1b8685b5e3c38c7523c6",
-      "added": "2026-05-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260511000014",
-      "file": "20260511000014_lock_down_public_buckets.sql",
-      "sha256": "724a7592983d464bba6433b1d8dbd207af5aa7ee373b1ff59a2c29c9c5817810",
-      "added": "2026-05-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260511000020",
-      "file": "20260511000020_shipping_provider_pipeline.sql",
-      "sha256": "6133fd2a274a42c912f8d161cdf17f8477c28c573c0355c4c82315a5981809c8",
-      "added": "2026-05-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260511000021",
-      "file": "20260511000021_shipping_pipeline_fix_missing_deps.sql",
-      "sha256": "eed54c324175f3064cbb881698fe3a9d8b58df4fe37b820b46dfb9eea39b0c4e",
-      "added": "2026-05-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260511000022",
-      "file": "20260511000022_shipping_tables_columns_fix.sql",
-      "sha256": "52eb7320330a0fda708d3d224c8de44213972e27169d49238e541c6b8af1d246",
-      "added": "2026-05-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260511000023",
-      "file": "20260511000023_marketplace_shipping_namespace.sql",
-      "sha256": "72e5cbdd10eb33f4b227b12cd680de3ff9b799b5139126736365b1549406c171",
-      "added": "2026-05-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260512000001",
-      "file": "20260512000001_recurring_subscriptions.sql",
-      "sha256": "41f278f9d760f85bd4017d414ade9e11f32e0fc3630e734543a8856c9b1cbd8d",
-      "added": "2026-05-12",
-      "by": "brylop"
-    },
-    {
-      "v": "20260512000002",
-      "file": "20260512000002_recurring_subscriptions_cron.sql",
-      "sha256": "77a5ee8a609bce1f818658af1389cd6bd1b06f6e83f49a1c421d617e911f2af5",
-      "added": "2026-05-12",
-      "by": "brylop"
-    },
-    {
-      "v": "20260512000003",
-      "file": "20260512000003_recurring_subscriptions_wompi_guard_and_search_path.sql",
-      "sha256": "854621ee86e71ad4cb262583c1bb5e291a99e75bff914d8d6fc2d2a33546069b",
-      "added": "2026-05-12",
-      "by": "brylop"
-    },
-    {
-      "v": "20260512000004",
-      "file": "20260512000004_vendor_docs_bucket.sql",
-      "sha256": "af981825e2e858b4f5eb5687fac109d33037b702b47e9bf4703404ebef49951c",
-      "added": "2026-05-12",
-      "by": "brylop"
-    },
-    {
-      "v": "20260512000005",
-      "file": "20260512000005_athlete_card_fee_status_match_fix.sql",
-      "sha256": "fd04f1f69a05d76643d4b5dbb9ba1cda9131ea31972b2763158dbb6ac7688bb4",
-      "added": "2026-05-12",
-      "by": "brylop"
-    },
-    {
-      "v": "20260512000006",
-      "file": "20260512000006_vendor_profiles_admin_read.sql",
-      "sha256": "f18a7626fc21bbdabb770aeaddddd3f8772ecf086fb17d0b830c3cfa111252e5",
-      "added": "2026-05-12",
-      "by": "brylop"
-    },
-    {
-      "v": "20260512000007",
-      "file": "20260512000007_profiles_admin_read.sql",
-      "sha256": "775fb8effded86b7a8aa7de47259e48deb24b8411d6eb1c9de2f40a1d4901f26",
-      "added": "2026-05-12",
-      "by": "brylop"
-    },
-    {
-      "v": "20260512000008",
-      "file": "20260512000008_profiles_admin_read_fix.sql",
-      "sha256": "0b6cfa04e2357ba8a20a5abf4fd4ed7ea0497fc3f5ad7cf12f29b56c57f2cf26",
-      "added": "2026-05-12",
-      "by": "brylop"
-    },
-    {
-      "v": "20260512000009",
-      "file": "20260512000009_product_images_bucket.sql",
-      "sha256": "29678f6e19210979695b64b58e4a0f2a6dc957202af1e3e4e9cf2b80dc6fad50",
-      "added": "2026-05-13",
-      "by": "brylop"
-    },
-    {
-      "v": "20260513000001",
-      "file": "20260513000001_brand_category_mapping.sql",
-      "sha256": "3af25ca0f6a14dfaa84aeb0538da6f340e3a0142b35a6424d70350c95ba615a4",
-      "added": "2026-05-13",
-      "by": "brylop"
-    },
-    {
-      "v": "20260513000002",
-      "file": "20260513000002_security_view_invoker_and_search_path_round4.sql",
-      "sha256": "cf9c24a396a02d998de07f2ea43266202c8468298c9ba44d6dba86266a10a855",
-      "added": "2026-05-14",
-      "by": "brylop"
-    },
-    {
-      "v": "20260513000003",
-      "file": "20260513000003_linter_fase3a_revoke_helpers.sql",
-      "sha256": "c199940c50d04f04490d84f9600cb64ed9f9a68698e6e926a331d445caf8a507",
-      "added": "2026-05-14",
-      "by": "brylop"
-    },
-    {
-      "v": "20260513000004",
-      "file": "20260513000004_lock_down_product_images_bucket.sql",
-      "sha256": "f9e3dc3040a5a348b227ebc7b7f90bd39341bed951703891170dd1683bbafeb1",
-      "added": "2026-05-14",
-      "by": "brylop"
-    },
-    {
-      "v": "20260513000005",
-      "file": "20260513000005_linter_fase3bcd_revoke_rpcs.sql",
-      "sha256": "643bd6d83564931599d06d855ede2c3971cf00dfcc621aecbe490a2866ea2f62",
-      "added": "2026-05-14",
-      "by": "brylop"
-    },
-    {
-      "v": "20260513000006",
-      "file": "20260513000006_linter_fase3a_hotfix_rls_helpers.sql",
-      "sha256": "667a639a62b61c5c47f94800c3aa4e11ff42cab84bf019f47bc2e0cf8596323e",
-      "added": "2026-05-14",
-      "by": "brylop"
-    },
-    {
-      "v": "20260513000007",
-      "file": "20260513000007_school_subscriptions_addons.sql",
-      "sha256": "e2d0b0f190923da3a3677308f43b0e92f27b4c83254734d63fd27b87b3ba7d43",
-      "added": "2026-05-14",
-      "by": "brylop"
-    },
-    {
-      "v": "20260514000001",
-      "file": "20260514000001_plan_upgrade_requests.sql",
-      "sha256": "c8b1eea866d52b3490f9a9b486ec2520a4a651d4af8822ac4e04bb58731db79c",
-      "added": "2026-05-14",
-      "by": "brylop"
-    },
-    {
-      "v": "20260514000002",
-      "file": "20260514000002_school_store_addon.sql",
-      "sha256": "88ffb9f566a90ef65b121671fdf417b2b2169cc64108d3adee5432909af37fdc",
-      "added": "2026-05-19",
-      "by": "brylop"
-    },
-    {
-      "v": "20260519000001",
-      "file": "20260519000001_school_business_model.sql",
-      "sha256": "be94ab0463b93b3d673fb29ab0b46ef836cbca3fb274113bd7c83a0f07d4abb6",
-      "added": "2026-05-19",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260519000001",
-      "file": "20260519000001_school_subscriptions_signup_trigger.sql",
-      "sha256": "dfe1577f98614ea66984ec611c2191340a55e07c5aea77a726e83e8c9d9ddc77",
-      "added": "2026-05-19",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260519000002",
-      "file": "20260519000002_vendor_profiles_inactive_on_signup.sql",
-      "sha256": "b2a0894178322a5b9568f02bee11c00684c14fb3862761444944a3b276dc7b63",
-      "added": "2026-05-19",
-      "by": "brylop"
-    },
-    {
-      "v": "20260519000010",
-      "file": "20260519000010_get_onboarding_status_hotfix.sql",
-      "sha256": "50d6ccff5eaf0109e49736264e3b1ff61ac0aa0f4b936a7fa01f1b473b99c93b",
-      "added": "2026-05-19",
-      "by": "brylop"
-    },
-    {
-      "v": "20260519000020",
-      "file": "20260519000020_school_settings_payment_fields.sql",
-      "sha256": "15c2a7c77dde1d4ed4ac441372b9062445dc29357c7630c9c4277d5429c3229f",
-      "added": "2026-05-19",
-      "by": "brylop"
-    },
-    {
-      "v": "20260519000030",
-      "file": "20260519000030_clarify_plans_tables_comments.sql",
-      "sha256": "2d3287a2809ffa9984968054f5a3cc1ac455b107d50b326c41c9e6a8976c22d2",
-      "added": "2026-05-19",
-      "by": "brylop"
-    },
-    {
-      "v": "20260520000001",
-      "file": "20260520000001_service_listings_professional_fields.sql",
-      "sha256": "1b8cdf0d5a7f196667739a03d96716b59b50c599850a16ed65f0ff4b0d93e6f9",
-      "added": "2026-05-21",
-      "by": "brylop"
-    },
-    {
-      "v": "20260522000001",
-      "file": "20260522000001_athlete_cards_adult_details_fix.sql",
-      "sha256": "5a5703b96a3b5ca15c62eb69f1eaa3a928b2d0e4104bd93b71e20fc505a8317c",
-      "added": "2026-05-23",
-      "by": "judegor99"
-    },
-    {
-      "v": "20260522120000",
-      "file": "20260522120000_security_payments_p0.sql",
-      "sha256": "6e99c744fe500baf079fb2c9d2d36be15d5f96b9ab8826c8e66ff3bdf93c188c",
-      "added": "2026-05-22",
-      "by": "brylop"
-    },
-    {
-      "v": "20260522130000",
-      "file": "20260522130000_wompi_autopay_unblock.sql",
-      "sha256": "f572f040addbd5745995478a61a5445e88936bee1a98e7c9d892fbace3199305",
-      "added": "2026-05-22",
-      "by": "brylop"
-    },
-    {
-      "v": "20260522140000",
-      "file": "20260522140000_recurring_subscriptions_multi_vendor.sql",
-      "sha256": "665ea7f6c62b56bc132587263650c0fcb80a6bbd07a788905695e8a86a95c376",
-      "added": "2026-06-09",
-      "by": "brylop"
-    },
-    {
-      "v": "20260522141000",
-      "file": "20260522141000_security_hardening_p1.sql",
-      "sha256": "0030240b4213c60a09f5452e11ded540e537c4633f739d63a18e8133d19bc338",
-      "added": "2026-05-22",
-      "by": "brylop"
-    },
-    {
-      "v": "20260528000001",
-      "file": "20260528000001_branding_security_phase1.sql",
-      "sha256": "2c0f90790bf1a1915a6aa394aba43bfadb361b06863111da365ae0efdd79c97b",
-      "added": "2026-06-09",
-      "by": "brylop"
-    },
-    {
-      "v": "20260528000002",
-      "file": "20260528000002_branding_security_phase1_trigger_fix.sql",
-      "sha256": "ed5f2f0f0937a07edcecf807e2dbe0291e461e4e090e6c47ac7f61bf9b0f2c2c",
-      "added": "2026-06-09",
-      "by": "brylop"
-    },
-    {
-      "v": "20260529000001",
-      "file": "20260529000001_subdomain_tenant_resolver.sql",
-      "sha256": "de55e47bd553d3e7807b081267fa97223523f68aac1bb54f4ad752ffb7e556f1",
-      "added": "2026-06-09",
-      "by": "brylop"
-    },
-    {
-      "v": "20260529000002",
-      "file": "20260529000002_custom_domains_elite.sql",
-      "sha256": "18359c7091a6a460ad93fe676b63a6f6e85819ed2c453fa301e97bd736c2228d",
-      "added": "2026-06-09",
-      "by": "brylop"
-    },
-    {
-      "v": "20260529000003",
-      "file": "20260529000003_user_devices.sql",
-      "sha256": "f714a5978f8c9fde2cdfbf4edcadb8746ec0db53b806e7877125e203d126c865",
-      "added": "2026-06-09",
-      "by": "brylop"
-    },
-    {
-      "v": "20260617000001",
-      "file": "20260617000001_google_oauth_role_selection.sql",
-      "sha256": "6bee397e8d3c7177bc913c8d1d729988ceca2f838b7532f010286eaa91d5e198",
-      "added": "2026-06-17",
-      "by": "brylop"
-    },
-    {
-      "v": "20260617000002",
-      "file": "20260617000002_handle_new_user_resilient.sql",
-      "sha256": "6641c8075da7dca51c9a152f37c48863dd23f64a049b2e6763c307b07ac44469",
-      "added": "2026-06-17",
-      "by": "brylop"
-    },
-    {
-      "v": "20260617000003",
-      "file": "20260617000003_person_role_onboarding.sql",
-      "sha256": "5bc2c4a7101cebd3f18d502d711747e1edcfd1c18e73fc23c41bf4a7b97e5f6a",
-      "added": "2026-06-18",
-      "by": "brylop"
-    },
-    {
-      "v": "20260618000001",
-      "file": "20260618000001_fix_role_mapping_school_admin.sql",
-      "sha256": "d8ce4d769bf411c4020112824143fe1916354ebe35c0662fe5fb11e4135ecb69",
-      "added": "2026-06-18",
-      "by": "brylop"
-    },
-    {
-      "v": "20260618100000",
-      "file": "20260618100000_whatsapp_ai_channel_wa1.sql",
-      "sha256": "a35ff80d75b6c8670b1f07a4f8ad754633b0b90c4613d7a0008c08f2dd97d484",
-      "added": "2026-06-25",
-      "by": "brylop"
-    },
-    {
-      "v": "20260618110000",
-      "file": "20260618110000_whatsapp_ai_channel_wa2.sql",
-      "sha256": "f3d6ad715ff834f7b587986a5f2bb652425156c3514ce07988961c3b39a0c60a",
-      "added": "2026-07-14",
-      "by": "brylop"
-    },
-    {
-      "v": "20260620000001",
-      "file": "20260620000001_restore_qr_rpc_grants.sql",
-      "sha256": "9dfb9ead4294692cdf55a94f2b832bc3a5e49e93be0a1a7919535f20eff39f8f",
-      "added": "2026-06-20",
-      "by": "brylop"
-    },
-    {
-      "v": "20260620000002",
-      "file": "20260620000002_fix_list_qr_drop_programs_ref.sql",
-      "sha256": "50846f22f82658fa63b54dc528c80971e767e8d696f907f41e4861579009cfa3",
-      "added": "2026-06-20",
-      "by": "brylop"
-    },
-    {
-      "v": "20260620000003",
-      "file": "20260620000003_fix_get_join_qr_volatile.sql",
-      "sha256": "cfb1f6dfb6f37f49383368499d5a39e5a23c818681c92f7796f3cdb7260fa7e1",
-      "added": "2026-06-20",
-      "by": "brylop"
-    },
-    {
-      "v": "20260620000004",
-      "file": "20260620000004_fix_submit_qr_enrollment_subject.sql",
-      "sha256": "a3689e5341ac5314198912c3186b78bff016d53b4cce59caa01f4b7ac6141499",
-      "added": "2026-06-20",
-      "by": "brylop"
-    },
-    {
-      "v": "20260622000001",
-      "file": "20260622000001_submit_qr_existing_child.sql",
-      "sha256": "49a33dfb844a5445e1ccab196fea276fb925bc848acb8834abb871128ffedb58",
-      "added": "2026-06-24",
-      "by": "brylop"
-    },
-    {
-      "v": "20260622000002",
-      "file": "20260622000002_fix_qr_notification_link.sql",
-      "sha256": "8d18c9d4e91592284a05a9becdb7aa68d01f6f183cb945a2184018f104a85e35",
-      "added": "2026-06-24",
-      "by": "brylop"
-    },
-    {
-      "v": "20260624000000",
-      "file": "20260624000000_fix_school_public_profile_assets.sql",
-      "sha256": "5229c6791ca7fc24de0b41b6a49a1241e1fab0447aa06d31dcf18fc0b8c20a93",
-      "added": "2026-06-25",
-      "by": "brylop"
-    },
-    {
-      "v": "20260624000001",
-      "file": "20260624000001_payments_ocr_raw_response.sql",
-      "sha256": "b6785079aa99e9e77eab14fc6230be8f2264af5089493a6dfd14292776ca6364",
-      "added": "2026-06-24",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260624000001",
-      "file": "20260624000001_qr_landing_show_cover.sql",
-      "sha256": "bf4fabfd8e72f518d0f68dd66297a001f44bc1524b60f9189629077eeccab1ca",
-      "added": "2026-06-25",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260624000002",
-      "file": "20260624000002_qr_price_from_team.sql",
-      "sha256": "4594401629ebf888e24d8912d99131d6279d8b68db8c6c3f265bc5a51a3accc6",
-      "added": "2026-06-24",
-      "by": "brylop"
-    },
-    {
-      "v": "20260625000001",
-      "file": "20260625000001_qr_universal_price_sources.sql",
-      "sha256": "d1b734abeb0fe18561d5452d115562a3b5579ba1c876dffd21cce91af04f279f",
-      "added": "2026-06-25",
-      "by": "brylop"
-    },
-    {
-      "v": "20260625000002",
-      "file": "20260625000002_qr_plans_from_offerings.sql",
-      "sha256": "b5f94da9811bbf4b0b848280533bf8ba132e9b42036cc2019bef9f406aac46ad",
-      "added": "2026-06-25",
-      "by": "brylop"
-    },
-    {
-      "v": "20260625000003",
-      "file": "20260625000003_qr_paid_count_trigger.sql",
-      "sha256": "3b1c5e9b3925a20882735a5831746f40021f54ca8e26a2481f93db45e7f94a4b",
-      "added": "2026-06-25",
-      "by": "brylop"
-    },
-    {
-      "v": "20260625000004",
-      "file": "20260625000004_qr_pay_monthly.sql",
-      "sha256": "235418ecda5ab78921fade4536d95dcb76e6dcf19fec5a9df9b23ecb65c23ced",
-      "added": "2026-06-25",
-      "by": "brylop"
-    },
-    {
-      "v": "20260627000001",
-      "file": "20260627000001_access_control_versioned_schema.sql",
-      "sha256": "bcec62f09feb9b67f8c7151e4f5c0ea0b0c7fbdb51c3e8e5789a76211cf2b75d",
-      "added": "2026-06-27",
-      "by": "brylop"
-    },
-    {
-      "v": "20260627000002",
-      "file": "20260627000002_adms_device_log.sql",
-      "sha256": "cd00b6985b38410cb2eff6dc819de74c1ffd4f5c9b739a42a39f339b74b2c8f6",
-      "added": "2026-06-27",
-      "by": "brylop"
-    },
-    {
-      "v": "20260627000003",
-      "file": "20260627000003_device_commands_reboot_type.sql",
-      "sha256": "9572689fe00e0f9851bafef86fc1ef465918eb9147e379edc66dbbe0ad97930b",
-      "added": "2026-06-30",
-      "by": "brylop"
-    },
-    {
-      "v": "20260701000001",
-      "file": "20260701000001_fix_recurring_attempt_idempotent_advance.sql",
-      "sha256": "4a564939149fb1e7cc08e3e682b7567b5455040eb109cefea6e1082fc0f31e19",
-      "added": "2026-07-01",
-      "by": "brylop"
-    },
-    {
-      "v": "20260701000002",
-      "file": "20260701000002_payment_links_one_active_per_payment.sql",
-      "sha256": "81d6db72aaeb951fd02ae8f2cbe24b167475256bb8e7a8e65a979f4432576c0b",
-      "added": "2026-07-01",
-      "by": "brylop"
-    },
-    {
-      "v": "20260701000003",
-      "file": "20260701000003_webhook_events.sql",
-      "sha256": "25f8191b6d178653241d33274cbddd5da0abea5bce96a8688230b2946f0c9a25",
-      "added": "2026-07-01",
-      "by": "brylop"
-    },
-    {
-      "v": "20260701000004",
-      "file": "20260701000004_payment_reconciliation.sql",
-      "sha256": "86c9bcf964ade8d45b54d041f7c73e3c3a0cd948570969b8180ab7e64087e1c1",
-      "added": "2026-07-01",
-      "by": "brylop"
-    },
-    {
-      "v": "20260701000005",
-      "file": "20260701000005_detect_anomalies_resilient.sql",
-      "sha256": "a6291e7b20b9e869505e42560b04a365eefb85ce504673bf139a134188ba0181",
-      "added": "2026-07-01",
-      "by": "brylop"
-    },
-    {
-      "v": "20260702000001",
-      "file": "20260702000001_accounting_phase0.sql",
-      "sha256": "e8bd625118f394d2c953e6138c4595021f1026a9f08edf8729ea52c77240affc",
-      "added": "2026-07-02",
-      "by": "brylop"
-    },
-    {
-      "v": "20260703000001",
-      "file": "20260703000001_add_brand_to_turnstile_devices.sql",
-      "sha256": "ec133239d14977f34e6ebbce6fd88831a4e7f338a3b317d106d046c888ede1e9",
-      "added": "2026-07-02",
-      "by": "judegor99"
-    },
-    {
-      "v": "20260703000002",
-      "file": "20260703000002_backfill_brand_and_enforce_not_null.sql",
-      "sha256": "a799e8f1460ea0bb689728166d4d31ecd6776e1c72affcaccd12fa011ccd681d",
-      "added": "2026-07-03",
-      "by": "judegor99"
-    },
-    {
-      "v": "20260706000001",
-      "file": "20260706000001_accounting_multi_owner.sql",
-      "sha256": "b7a1e065a962dcda0d193ef42017d262a6ef8f09006b0a17826b27678c5d5468",
-      "added": "2026-07-06",
-      "by": "brylop"
-    },
-    {
-      "v": "20260706000002",
-      "file": "20260706000002_payments_partial_status.sql",
-      "sha256": "a6fce3e42816632f2862e27715ec03afe554ebfe760f9fa5709e0867d22007f7",
-      "added": "2026-07-06",
-      "by": "brylop"
-    },
-    {
-      "v": "20260706120000",
-      "file": "20260706120000_late_fee_engine.sql",
-      "sha256": "efe560159e3c1a23c5b90f71a3d407234ef59a9efd63ed913b05d7cb8e33369e",
-      "added": "2026-07-06",
-      "by": "brylop"
-    },
-    {
-      "v": "20260706130000",
-      "file": "20260706130000_late_fee_engine_fix_status_type.sql",
-      "sha256": "6fd80c7c0293efc6ccad1e2058bf83e713feef2c73a9d13775c72b42e1006c1b",
-      "added": "2026-07-06",
-      "by": "brylop"
-    },
-    {
-      "v": "20260707000001",
-      "file": "20260707000001_cash_ledger_real_amounts.sql",
-      "sha256": "c91ac5115efe9efed62a6303b536e79518ffcb337b51b84fe9d432134cfbf8f9",
-      "added": "2026-07-06",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260707000001",
-      "file": "20260707000001_fix_school_athletes_view_all_statuses.sql",
-      "sha256": "5c1c36f7b4e373c0cf84372a49b92b68681168e9fc6afb9de5b29a51c62a6656",
-      "added": "2026-07-06",
-      "by": "judegor99",
-      "dup": true
-    },
-    {
-      "v": "20260708000001",
-      "file": "20260708000001_electronic_invoicing_phase1.sql",
-      "sha256": "52e8e680e466c527dd5dff2715668158ca82a9cc06f51ea15387f37dd552c0ca",
-      "added": "2026-07-08",
-      "by": "brylop"
-    },
-    {
-      "v": "20260708000002",
-      "file": "20260708000002_one_main_branch_per_school.sql",
-      "sha256": "2817a06ebb82017e3b347b263451eb8e1d1560e79715842f1b147d8e58c428f0",
-      "added": "2026-07-08",
-      "by": "brylop"
-    },
-    {
-      "v": "20260708000003",
-      "file": "20260708000003_fix_duplicate_sede_principal.sql",
-      "sha256": "817ced154d6579589b3ac118a4b716e767a3ff4b062b719428e72abd2a8c97fd",
-      "added": "",
-      "by": ""
-    },
-    {
-      "v": "20260710000001",
-      "file": "20260710000001_accounting_phase1_receipts.sql",
-      "sha256": "d6d41ce48aa5a716f2597cdcf27caebcab0a2a4120ad82cf31e6c93a4a9df2fa",
-      "added": "2026-07-10",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260710000001",
-      "file": "20260710000001_electronic_invoicing_marketplace_source.sql",
-      "sha256": "61d698c8222ac95235547b68371b32209bf0f91f23f8923a66ba8e83ed0df7b8",
-      "added": "2026-07-10",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260710000002",
-      "file": "20260710000002_accounting_phase2_suppliers.sql",
-      "sha256": "4b3b80807ae1f3442a9d06b4d4c9c379ff5e9bee232a96e928138883c92a0962",
-      "added": "2026-07-10",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260710000002",
-      "file": "20260710000002_electronic_invoicing_order_source.sql",
-      "sha256": "e496c09ce52d5d4fd9e8ea7b01d116b2419b42df2f9da6b5d7fb0a0a6039681e",
-      "added": "2026-07-10",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260711000001",
-      "file": "20260711000001_accounting_phase3_payroll_foundation.sql",
-      "sha256": "687951ed6c68df476863077e5a7ef32d8dafeb3c6f674111e81e9fec37b9df92",
-      "added": "2026-07-10",
-      "by": "brylop"
-    },
-    {
-      "v": "20260711000002",
-      "file": "20260711000002_accounting_phase3_payroll_engine.sql",
-      "sha256": "0db58e9511b97d5e616eb218579c805bb86c757cc46eb1987fadf546ddb38254",
-      "added": "2026-07-10",
-      "by": "brylop"
-    },
-    {
-      "v": "20260711000003",
-      "file": "20260711000003_accounting_phase4_budgets.sql",
-      "sha256": "45f43498a06e744159007479d3072807809ad5e7fddf34c79a29ee6e9fb9bb65",
-      "added": "2026-07-10",
-      "by": "brylop"
-    },
-    {
-      "v": "20260711000004",
-      "file": "20260711000004_accounting_fee_to_expense.sql",
-      "sha256": "e4be8796acfa4e6b502dde31afe05a34717247bf15c1fd2f1ee0ce9ec5b3d8b4",
-      "added": "2026-07-10",
-      "by": "brylop"
-    },
-    {
-      "v": "20260711120000",
-      "file": "20260711120000_store_messaging.sql",
-      "sha256": "66ac8ecbf1344230567f80d62ba7faaeb6021552a4d66ca2a3b96ad18ec6dd56",
-      "added": "2026-07-10",
-      "by": "brylop"
-    },
-    {
-      "v": "20260711130000",
-      "file": "20260711130000_qr_pay_prefer_enrollment_fee.sql",
-      "sha256": "647d06bda08477bf17218ed38aed245c88656a3e0262f39df3da6d6662c1b69b",
-      "added": "2026-07-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260711130001",
-      "file": "20260711130001_athlete_enrollments_prefer_fee.sql",
-      "sha256": "14dee68a90f864db8f5d3aeed9865e53308dfaa1f244e740aa05220b2cad3e4f",
-      "added": "2026-07-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260711130002",
-      "file": "20260711130002_payments_status_check_add_partial.sql",
-      "sha256": "52b8036fdba10d7d577d6c7560e8de8fccd43ab9d766cd2dfcd2b7f81c30df3f",
-      "added": "2026-07-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260711130003",
-      "file": "20260711130003_next_period_complete_partial.sql",
-      "sha256": "6381664aea30225d996f7a32d0bad2afca237a7bd53736e32edec30bfae1ee77",
-      "added": "2026-07-11",
-      "by": "brylop"
-    },
-    {
-      "v": "20260713000001",
-      "file": "20260713000001_fix_card_rpcs_drop_programs.sql",
-      "sha256": "afd1acbe609af8d7c3c0c3751d66832842f433309fedb9c2fca08d9e9d65eca9",
-      "added": "2026-07-13",
-      "by": "brylop"
-    },
-    {
-      "v": "20260713000002",
-      "file": "20260713000002_school_settings_installments_fields.sql",
-      "sha256": "b367967b4865ab6e6b1c2ec9bbdd8fcb68dd52004a5418f3a37fef7ccddfc0e0",
-      "added": "2026-07-13",
-      "by": "brylop"
-    },
-    {
-      "v": "20260713000003",
-      "file": "20260713000003_auto_generate_monthly_charges.sql",
-      "sha256": "4b916f35e0f4763472361f0da595dbc70992c67ec755764a850879195d80db66",
-      "added": "2026-07-13",
-      "by": "brylop"
-    },
-    {
-      "v": "20260713000004",
-      "file": "20260713000004_payment_reminders_engine.sql",
-      "sha256": "680af58439ba1d4d4723c8fc3e2261183a919c2a8f1a8d111e4c49cbe4720a07",
-      "added": "2026-07-13",
-      "by": "brylop"
-    },
-    {
-      "v": "20260713000005",
-      "file": "20260713000005_coach_messaging_gate.sql",
-      "sha256": "d4a7cf5226dc06bef1abab6479d50c5ceb6c680024e755950a234154cc42adcc",
-      "added": "2026-07-13",
-      "by": "brylop"
-    },
-    {
-      "v": "20260713000006",
-      "file": "20260713000006_school_addons_admin_toggle.sql",
-      "sha256": "c27ce8aebcae0f8db3763d81e51bd4ae29c2ca96e34297aa27a9796eb71b98c1",
-      "added": "2026-07-13",
-      "by": "brylop"
-    },
-    {
-      "v": "20260713000007",
-      "file": "20260713000007_add_start_plan_code.sql",
-      "sha256": "167fada8fc2ad7e7a70689e96cbb2c2eafded74fdc458e2c800f9287efbeb21e",
-      "added": "2026-07-13",
-      "by": "brylop"
-    },
-    {
-      "v": "20260714000001",
-      "file": "20260714000001_tournaments_school_ownership.sql",
-      "sha256": "b4c1b47543801c3a8446cb16cba6ab860e55c0dd85ca4164363fdfe044b24a03",
-      "added": "2026-07-14",
-      "by": "brylop"
-    },
-    {
-      "v": "20260714000002",
-      "file": "20260714000002_tournaments_rls_host_access.sql",
-      "sha256": "859a90757f8f9d365e1a216520452a5428595bfec25c5bc682b1efdcc9976a59",
-      "added": "2026-07-14",
-      "by": "brylop"
-    },
-    {
-      "v": "20260714000003",
-      "file": "20260714000003_fix_school_addons_enabled_at_nullable.sql",
-      "sha256": "bee7116d856979d22bc7b3870c824594ddd825601eaf5320bdd502bc36e95832",
-      "added": "2026-07-14",
-      "by": "brylop"
-    },
-    {
-      "v": "20260714000004",
-      "file": "20260714000004_school_payment_providers_connect.sql",
-      "sha256": "8177a17b6d9f7f035439b8360634d119b26dfcd1ef12e68df0100d72ec529122",
-      "added": "2026-07-21",
-      "by": "brylop"
-    },
-    {
-      "v": "20260714120000",
-      "file": "20260714120000_events_public_read_active.sql",
-      "sha256": "90a439ed8ffbd3207f08d39fd4613a74945078f67919237764184ea815ba03f0",
-      "added": "2026-07-15",
-      "by": "brylop"
-    },
-    {
-      "v": "20260715000001",
-      "file": "20260715000001_equipment_module.sql",
-      "sha256": "80c35a985c542317969a382d3fe741b46c57dbb8b71c9204e8217785c6201131",
-      "added": "2026-07-15",
-      "by": "brylop"
-    },
-    {
-      "v": "20260715000002",
-      "file": "20260715000002_equipment_rpcs.sql",
-      "sha256": "e728a71f5ffea4ba51c530e6ca3cab6ef039200e5de85d4f54e2d53b411709c7",
-      "added": "2026-07-15",
-      "by": "brylop"
-    },
-    {
-      "v": "20260715000003",
-      "file": "20260715000003_equipment_buckets.sql",
-      "sha256": "770a520a68ff7e94e93882294533983477c4354a1ae352f3316d850a75dcc941",
-      "added": "2026-07-15",
-      "by": "brylop"
-    },
-    {
-      "v": "20260715000004",
-      "file": "20260715000004_equipment_list_coaches.sql",
-      "sha256": "af4032504e9c2c2586f0c067ab2bd941b270e38b660d6b2f9598412603c6e0c1",
-      "added": "2026-07-16",
-      "by": "brylop"
-    },
-    {
-      "v": "20260716000001",
-      "file": "20260716000001_equipment_self_checkout_list.sql",
-      "sha256": "d7f1b431989c437755ac4d00075e55a3c64e9cd2f2b9fd8a5c28beaa774315b9",
-      "added": "2026-07-16",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260716000001",
-      "file": "20260716000001_sport_category_templates.sql",
-      "sha256": "d5362781b4bd892a7b1179d082b34a827526d4ebf736d3023837e66c95bf5e1a",
-      "added": "2026-07-17",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260716000002",
-      "file": "20260716000002_tournament_matches.sql",
-      "sha256": "488f01da2de87d0cf70ac0117f39fcc00583e53d745f6fdb0b0295fd4f931084",
-      "added": "2026-07-17",
-      "by": "brylop"
-    },
-    {
-      "v": "20260717000001",
-      "file": "20260717000001_receipt_verdict_shadow.sql",
-      "sha256": "ed1ebcacdcafb2e73b5a63f357cde42b219f1ab40be98619ea623e4d497ce04f",
-      "added": "2026-07-21",
-      "by": "brylop"
-    },
-    {
-      "v": "20260717000002",
-      "file": "20260717000002_payment_glosas.sql",
-      "sha256": "6f6d9fef73769bc0963be67be14f80b15344b998a289de7198509696cfe8c196",
-      "added": "2026-07-21",
-      "by": "brylop"
-    },
-    {
-      "v": "20260717000003",
-      "file": "20260717000003_payment_glosas_rpcs_and_cron.sql",
-      "sha256": "d5a7f3de1513bd161d3a2ccfd1433f47f4405a267d816d0d8af40da59e410461",
-      "added": "2026-07-21",
-      "by": "brylop"
-    },
-    {
-      "v": "20260717171018",
-      "file": "20260717171018_extend_enrollment_on_payment_paid.sql",
-      "sha256": "72044e4a9a1c6cfa64f0efd047358dfb03e5ff19cc05d3c71f0f12c5e7ec0481",
-      "added": "2026-07-21",
-      "by": "judegor99"
-    },
-    {
-      "v": "20260717171019",
-      "file": "20260717171019_sync_generate_monthly_charges.sql",
-      "sha256": "c0859c4d10bc98fd1b5439a14f6b664b50875ee31061f0a316b111f38b57176d",
-      "added": "2026-07-21",
-      "by": "judegor99"
-    },
-    {
-      "v": "20260717171020",
-      "file": "20260717171020_include_unregistered_athletes_in_monthly_charges.sql",
-      "sha256": "ef07eea97fe2739c043b5ddbc17e681d53a7b1409f748771412992335b8cf9c0",
-      "added": "2026-07-21",
-      "by": "judegor99"
-    },
-    {
-      "v": "20260718000001",
-      "file": "20260718000001_glosa_notification_markers.sql",
-      "sha256": "7f34c316ae31c22bb9213fe8ffef818b76085d961fb0d268dd58085f0ccbed2a",
-      "added": "2026-07-21",
-      "by": "brylop"
-    },
-    {
-      "v": "20260721000001",
-      "file": "20260721000001_receipt_auto_approve.sql",
-      "sha256": "598ef32ff4c9e90e749a7a972687cdbe164ef46eab45ee27491e9335a2e42555",
-      "added": "2026-07-21",
-      "by": "brylop"
-    },
-    {
-      "v": "20260721000002",
-      "file": "20260721000002_fix_notify_self_initiated_payment.sql",
-      "sha256": "12eb39ee874006b1041d75c7ecb76232e150fb060073b4801ecb299f63eda96d",
-      "added": "2026-07-21",
-      "by": "brylop"
-    },
-    {
-      "v": "20260722000001",
-      "file": "20260722000001_notifications_category_data.sql",
-      "sha256": "89fd2c46e939c458d58a35787eec42292dbea723dd308d8b7cd72f26132d76f2",
-      "added": "2026-07-23",
-      "by": "brylop"
-    },
-    {
-      "v": "20260722000002",
-      "file": "20260722000002_notification_deliveries_outbox.sql",
-      "sha256": "afaf4798dcfaecbf606e5dee399031c1c33b7495dcf9c0cc4c0258dd91111aa7",
-      "added": "2026-07-23",
-      "by": "brylop"
-    },
-    {
-      "v": "20260722000003",
-      "file": "20260722000003_notifications_dispatch_trigger.sql",
-      "sha256": "7304ba99f2b03597ffac5a4f318d4b6bf5b0f73ef7c08b0009a8dfd53aaabb45",
-      "added": "2026-07-23",
-      "by": "brylop"
-    },
-    {
-      "v": "20260722000004",
-      "file": "20260722000004_auto_approve_notify_school.sql",
-      "sha256": "3bef9b407d7dc4eabe12959dd6dcc1b3d5f20500498e7c2f66861161102b0c7d",
-      "added": "2026-07-23",
-      "by": "brylop"
-    },
-    {
-      "v": "20260722000005",
-      "file": "20260722000005_disable_legacy_push_trigger.sql",
-      "sha256": "ef769a5283df72b4a1a9b04c31acafdcd6bda4f95239bce8ac8ef7897f19c1c3",
-      "added": "2026-07-23",
-      "by": "brylop"
-    },
-    {
-      "v": "20260723000001",
-      "file": "20260723000001_bank_reconciliation.sql",
-      "sha256": "c5d9668c1c43a17021246aeaba0e6b00ad5570c141a0e7fced557de79347e9d5",
-      "added": "2026-07-23",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260723000001",
-      "file": "20260723000001_notify_school_payment_paid.sql",
-      "sha256": "2bf0430edd2a0473015d62abe28958f86d94de61f06b70c2ad27a1f4b1ced9a8",
-      "added": "2026-07-23",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260724000001",
-      "file": "20260724000001_payment_period_dedup_indexes.sql",
-      "sha256": "25854dd675bf0515ac005bf16ee2d94411135b951650012c415e2fe4d1ed2f44",
-      "added": "2026-07-28",
-      "by": "brylop"
-    },
-    {
-      "v": "20260724000002",
-      "file": "20260724000002_open_month_rpc.sql",
-      "sha256": "18f353c76c04623f5f7102aced6d63fd648a87fab9bf0e3dd20c63ebf6dd106b",
-      "added": "2026-07-28",
-      "by": "brylop"
-    },
-    {
-      "v": "20260724000003",
-      "file": "20260724000003_generate_monthly_charges_delegates.sql",
-      "sha256": "8e7d0f573d4ff4a8befb6ae4f401331cdc6aa638c7515e117f572fbddd4e989d",
-      "added": "2026-07-28",
-      "by": "brylop"
-    },
-    {
-      "v": "20260728000001",
-      "file": "20260728000001_payment_receipts_school_access.sql",
-      "sha256": "5f4252ff1ec9ec643da557a5c227fb123c9b6577d6af3644f3476945f44d0fa9",
-      "added": "2026-07-28",
-      "by": "brylop"
-    },
-    {
-      "v": "20260728000002",
-      "file": "20260728000002_fix_qr_duplicate_charges.sql",
-      "sha256": "cb8166cd1fe726256d03b9617b6eb06ad6bbe3e236fabcc3e7c06fa4ea03bf12",
-      "added": "2026-07-28",
-      "by": "brylop"
-    },
-    {
-      "v": "20260729000001",
-      "file": "20260729000001_cleanup_duplicate_active_charges.sql",
-      "sha256": "4f266ca0b4611ed52717aebf5ec4ae57e8e5f47e7521af1d27d127216445a57e",
-      "added": "2026-07-29",
-      "by": "brylop"
-    },
-    {
-      "v": "20260729000002",
-      "file": "20260729000002_claim_orphan_children_by_email.sql",
-      "sha256": "6d2c9553f6083a9177289f6d896140957009a1240e0a980dd1c15f2971356400",
-      "added": "2026-07-29",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260729000002",
-      "file": "20260729000002_school_athletes_fee_plan_wins.sql",
-      "sha256": "5c22cae7b751607b4a9e0f4117453a9225f02824d124184596ff8317659fce5f",
-      "added": "2026-07-29",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260730000000",
-      "file": "20260730000000_enrollment_no_split_rows.sql",
-      "sha256": "a37af8ac779cf828cea0cd560bb5d83b8e684d36b83337f351e678c734757a84",
-      "added": "2026-07-29",
-      "by": "brylop"
-    },
-    {
-      "v": "20260730000001",
-      "file": "20260730000001_email_sends_log.sql",
-      "sha256": "2dd3e3fe2d70f158aa3e1313b3aefb84e6494cfe60134f9562a201a9d80532a2",
-      "added": "2026-07-29",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260730000001",
-      "file": "20260730000001_school_athletes_team_fee_zero_with_plan.sql",
-      "sha256": "66fdb7e78c56ef8382759dafc20e27d1fdefa8f81feb433073aa24f3f8e0100a",
-      "added": "2026-07-30",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260730000002",
-      "file": "20260730000002_payment_mode_fail_closed_unset.sql",
-      "sha256": "eeaff1ff048af269d66fb0118e6551495f50c0e71ce286c6119960b2eee6375b",
-      "added": "2026-07-30",
-      "by": "brylop"
-    },
-    {
-      "v": "20260730000003",
-      "file": "20260730000003_create_invitation_reuse_pending.sql",
-      "sha256": "4b55853ecbcf86fd1c0446cf91aaaae03fbf85ee7cb55c7cb1ec1732fca03183",
-      "added": "2026-07-30",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260730000003",
-      "file": "20260730000003_payment_mode_solo_dynasty_aggregator.sql",
-      "sha256": "7eefdac4353794087b5664cc1be7f31af22a660961d77b52cd38a909f3464c82",
-      "added": "2026-07-30",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260730000004",
-      "file": "20260730000004_upsert_school_provider_rpc.sql",
-      "sha256": "7569c9aa7bb3d214fdad09d0399796dd8f444c6e217660bf369b1d286cc88a7f",
-      "added": "2026-07-30",
-      "by": "brylop"
-    },
-    {
-      "v": "20260730000005",
-      "file": "20260730000005_backfill_payments_parent_id.sql",
-      "sha256": "f073209b74d773b3b1e34568f1a3e98d348abeaf1a4b7295c42b211c3702afea",
-      "added": "2026-07-30",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260730000005",
-      "file": "20260730000005_school_payment_kpis.sql",
-      "sha256": "f8a988a15e7584fded38d6362fd90c882d8e0b10a7f29b9b443dc39f302fafc8",
-      "added": "2026-07-30",
-      "by": "brylop",
-      "dup": true
-    },
-    {
-      "v": "20260730160000",
-      "file": "20260730160000_profiles_admin_see_inactive_members.sql",
-      "sha256": "d21b651177680470aa623f31d2f65a77c8202a9aea3d8fcfd4d4e4082111f1c1",
-      "added": "2026-07-30",
-      "by": "brylop"
-    },
-    {
-      "v": "20260730170000",
-      "file": "20260730170000_deactivate_athlete_cancels_plan.sql",
-      "sha256": "41b86799b0f03b8ac7a0e7528720df568b65a058b58a05b39ab94d853b0defe4",
-      "added": "2026-07-30",
-      "by": "brylop"
-    },
-    {
-      "v": "20260730170001",
-      "file": "20260730170001_school_athletes_deterministic_plan.sql",
-      "sha256": "6a3906c3536a4196d7ae2473d4aa1b5b81b861d3bedc13d7becdd7753f49f689",
-      "added": "2026-07-30",
-      "by": "brylop"
-    },
-    {
-      "v": "20260730180000",
-      "file": "20260730180000_cleanup_duplicate_plans_and_inactive_charges.sql",
-      "sha256": "f745ae2e5b44bf473da0d886b33333424958d34bb5b65412c594285dd489c351",
-      "added": "2026-07-30",
-      "by": "brylop"
-    },
-    {
-      "v": "20260730183000",
-      "file": "20260730183000_claim_orphan_children_backfills_payments.sql",
-      "sha256": "864fa8386ae23121fc5d43287723476cba07c9a3ed0111b1cf8835435b390fa9",
-      "added": "2026-07-30",
-      "by": "brylop"
-    }
+    {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
+    {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
+    {"v":"20260219000003","file":"20260219000003_business_analytics.sql","sha256":"e60d5d1c6d0ccc4991519bf85dc03de2c7515b7e0173fecbd264bedcaad679bf","added":"","by":""},
+    {"v":"20260219000004","file":"20260219000004_fix_misclassified_parents.sql","sha256":"bf52a9aada911d0f522f53e808daff6af7d561a91a728ec4deb54f6c0b0385f7","added":"","by":""},
+    {"v":"20260219000005","file":"20260219000005_fix_recursion_and_force_rls.sql","sha256":"f462fffd5d099a4d370e06bfde88087c49725d605a6b07973326027a299135df","added":"","by":""},
+    {"v":"20260219000006","file":"20260219000006_fix_school_recursion.sql","sha256":"fbbc6433bb8e993cba17a648cdab5cd0e9121ff125e6c106af195b9b8b66c377","added":"","by":""},
+    {"v":"20260219000007","file":"20260219000007_fix_school_recursion_complete.sql","sha256":"3e2148405ce2bbd6b8dc79d589ad79859def8ec586b778f295e3d384b0b8c37f","added":"","by":""},
+    {"v":"20260219000008","file":"20260219000008_fix_signup_trigger.sql","sha256":"2823165c9e7afe3a73ddadcb60bea056d88e5ea803ddd77a50ea32552e091954","added":"","by":""},
+    {"v":"20260219000009","file":"20260219000009_migrate_roles_simple.sql","sha256":"7518258f2a22da29c9384ec775b21dc6cd914efe68411be30dab652679715ef9","added":"","by":""},
+    {"v":"20260219000010","file":"20260219000010_separate_athlete_parent.sql","sha256":"85a6a8850898b47b8539b34004f17a3122be9fda13f9f78cd50e26d0d1bd224e","added":"","by":""},
+    {"v":"20260220000011","file":"20260220000011_add_id_document_to_children.sql","sha256":"28f58153220bbfb392ea149041c62e6ce739b26cab474a479fa0f199a511f3ee","added":"","by":""},
+    {"v":"20260220000012","file":"20260220000012_add_onboarding_started.sql","sha256":"ad53be9b97596e1675ea0310d3c2ca991b5cf32ba5f03015ee688810b6cfd2d2","added":"","by":""},
+    {"v":"20260220000013","file":"20260220000013_dashboard_consolidation.sql","sha256":"aec03a6185a061c635ee14972766f0a3eeb2192ccea9f41b49e04925d8ee3a2a","added":"","by":""},
+    {"v":"20260220000014","file":"20260220000014_definitive_rls_fix.sql","sha256":"50179aec97a845898d68b50bc2d93c18de61b57b3707e6e8031f437bd17b7d32","added":"","by":""},
+    {"v":"20260220000015","file":"20260220000015_fix_invitations_rls.sql","sha256":"714cffbbbafd6fb7dac8a1f008ef29c8609d5c229e6e6258d5825eb0384c8b10","added":"","by":""},
+    {"v":"20260220000016","file":"20260220000016_fix_sm_recursion_final.sql","sha256":"8b32cf2d25a09c3e5d7d22f28b953fb145b534652f2d6eaa940615d9c732e7d1","added":"","by":""},
+    {"v":"20260220000017","file":"20260220000017_invite_parent_rpc.sql","sha256":"5c5d123d5f3b2c1828c2cc46e59352f8043221e177b401d5608b2b9b1c706599","added":"","by":""},
+    {"v":"20260220000018","file":"20260220000018_master_consolidation.sql","sha256":"f6f576003c623c15540d20af338f4913c88a9e775a4ee3631c5a264679a324a1","added":"","by":""},
+    {"v":"20260220000019","file":"20260220000019_nuclear_rls_fix.sql","sha256":"41be5c74f10f7bde23bd63f97a1e4a8ae857383e6ecdf5f0fa5545c4ff724f22","added":"","by":""},
+    {"v":"20260220000020","file":"20260220000020_rls_final_polish.sql","sha256":"78cd664ae5cbe06ad718682a28389f6b55c8e727feba3ddc6497c2583e3ee8cc","added":"","by":""},
+    {"v":"20260220000021","file":"20260220000021_sql_reconciliation.sql","sha256":"4b15ebdd69ce9cc92ab57b596dd16e0bfcd0245acb3f567986f0b5e9f20f2bbc","added":"","by":""},
+    {"v":"20260220000022","file":"20260220000022_unified_invitation_system.sql","sha256":"348dd137b6d5ee918f217eb1b0e16544b846343ddf0e5d1377d50c5a0278c6ba","added":"","by":""},
+    {"v":"20260221000023","file":"20260221000023_completion_signup_trigger.sql","sha256":"11a5f70a33277a98830ba6ad0585676cee997b901ca189fad89087fe064d33aa","added":"","by":""},
+    {"v":"20260221000024","file":"20260221000024_fix_children_insert_rls.sql","sha256":"ff8f2e63d6780af2b0e69cd7e244180a68732a489a260177f5a75e55052164d1","added":"","by":""},
+    {"v":"20260221000025","file":"20260221000025_fix_identity_documents_rls.sql","sha256":"9f92c13c323365ccdc782d2f84497aa144d3e5beb092eea4f8c7d078fdfe166b","added":"","by":""},
+    {"v":"20260221000026","file":"20260221000026_fix_invitation_rpc_roles.sql","sha256":"2e1b5f2d4df4de04f423f4779702af07e16f4bcdbe3cb85488d7d45dfdcc7079","added":"","by":""},
+    {"v":"20260221000027","file":"20260221000027_rollback_signup_trigger.sql","sha256":"3ad3f5225c5294d709921a1b6dc6e9dfb401f5f96367920587d3d5cedaaaed83","added":"","by":""},
+    {"v":"20260224000028","file":"20260224000028_cleanup_invitations_aggressive.sql","sha256":"912409456f3386188a579a22ce67302d720740dfb385dec6fba8fb5e69188c42","added":"","by":""},
+    {"v":"20260224000029","file":"20260224000029_fix_accept_invitation_rpc.sql","sha256":"aefe098e56cb5986a0f594c942bafe028670ca6bd4d3ef8a3bf247bf09fa69f3","added":"","by":""},
+    {"v":"20260224000030","file":"20260224000030_fix_participants_sync_and_linking.sql","sha256":"5f8f5e6056aeb4ef576ef936d1ddd249d86d39b04518f96e5ce568c327f67d48","added":"","by":""},
+    {"v":"20260224000031","file":"20260224000031_invitations_branch_support.sql","sha256":"a56539b084f83934497f2ac877176b92c964f14e40fc6193b847f09d64d601a0","added":"","by":""},
+    {"v":"20260224000032","file":"20260224000032_multi_coach_support.sql","sha256":"1b2d653d395e31fa2fc3d6586c549ec3dfdef15d2cc0100a64f276f9a5b44869","added":"","by":""},
+    {"v":"20260224000033","file":"20260224000033_prevent_duplicate_invitations.sql","sha256":"6afadfc6023e4f16d508661232ee56a1345fda603463dabeaff3bce6eb909357","added":"","by":""},
+    {"v":"20260224000034","file":"20260224000034_sync_program_prices.sql","sha256":"8407455e81d5ee2e02a1e5ebc3215059cdbc84b5c41f082825b010d5f7a3a771","added":"","by":""},
+    {"v":"20260225000035","file":"20260225000035_fix_coach_certifications_rls.sql","sha256":"06c1152d4e00d2a106c182bdfcf94c4f8d14fb33c6cef2452f489117c9103a46","added":"2026-03-01","by":"brylop"},
+    {"v":"20260225000036","file":"20260225000036_fix_coach_rls_policies.sql","sha256":"5c7960fd9db4c17f80155a6569e33e18b47b9cb48c93e2864f79b8efe331362b","added":"2026-03-01","by":"brylop"},
+    {"v":"20260225000037","file":"20260225000037_extended_rls_policies.sql","sha256":"ffb71da3fbbb0fd19c9832e03f216c2da24dc0ceb50b80ac3d5cd2a5fcb6b4e2","added":"","by":""},
+    {"v":"20260225000038","file":"20260225000038_fix_team_coaches_rls.sql","sha256":"f96a944e436f14b300b5948b08f643f076855a595a4e090f8ec037644c2e5e97","added":"2026-03-01","by":"brylop"},
+    {"v":"20260225000039","file":"20260225000039_harden_invitation_rpcs.sql","sha256":"ca182dfdb076933a5dd292ebe683e002af51ee38fd6c66b5bfa785d2e4136df2","added":"","by":""},
+    {"v":"20260225000040","file":"20260225000040_restore_triggers_and_rls.sql","sha256":"1fc70a85e4b6121f57642875244f4766dde32fa67c498d6ec8dc9b4e51f658af","added":"","by":""},
+    {"v":"20260225000041","file":"20260225000041_rls_crud_fix.sql","sha256":"aa01dd8d1b45ccef4360d6ce2bc00532942980e34297c90e6b58dff51cb17917","added":"2026-03-01","by":"brylop"},
+    {"v":"20260225000042","file":"20260225000042_system_hard_reset.sql","sha256":"d86b9bf69943b808322060b4bb2ccc20f1ae5462f0ba46d743c6af16bfb1e74b","added":"2026-03-01","by":"brylop"},
+    {"v":"20260225000043","file":"20260225000043_unified_integrity_fix.sql","sha256":"9119df9bfb178b72468d8bb365389e77ec40715ad5fba562aecae6ecde8247a4","added":"","by":""},
+    {"v":"20260225000044","file":"20260225000044_validate_existing_members_on_invite.sql","sha256":"c4b2d9829fea7c41e459f97bbd7bdeb9c1f3a8e76efe0dc77ae95b5cbd01a8ff","added":"","by":""},
+    {"v":"20260226000045","file":"20260226000045_add_notification_rpcs.sql","sha256":"4dd3fe4c16b4b4a20bfd504115f782f91855dc2f17da9de5c663c326cb7d463b","added":"","by":""},
+    {"v":"20260226000046","file":"20260226000046_atomic_checkout_rpc.sql","sha256":"c1f71844b0c6ebf5f44c4edfb956e7b07e95860a8ea599024b40303d6611604c","added":"","by":""},
+    {"v":"20260226000047","file":"20260226000047_comprehensive_rls_v2.sql","sha256":"272e33edf162d57fc297847e1e650d8e1461a7a659eed1bc9393807c6d18df55","added":"2026-03-01","by":"brylop"},
+    {"v":"20260226000048","file":"20260226000048_consolidated_rls_v3_final.sql","sha256":"a10524f88b22987c4752a313434ea0357be481ca6074acd95910f08e7629e05c","added":"2026-03-01","by":"brylop"},
+    {"v":"20260226000049","file":"20260226000049_fix_missing_rls_policies.sql","sha256":"b81c97c76b9d132b98cfbfb0ebcae47fe69d2dacd1f98e5c51c210f7174538e8","added":"2026-03-01","by":"brylop"},
+    {"v":"20260226000050","file":"20260226000050_fix_rls_and_view_final.sql","sha256":"b0eba2a191eeccc95b2efef9135d29aef963c38fbeefdde421507a4cc91bcd4d","added":"","by":""},
+    {"v":"20260226000051","file":"20260226000051_notify_user_rpc.sql","sha256":"f1ef525555b0a9251fdcc948e0881a7d0be489b893edbf46391abb3edfbaf94a","added":"","by":""},
+    {"v":"20260226000052","file":"20260226000052_rls_block_3_verified.sql","sha256":"48667dea3f0aa051d0cc8930083d0a5a1e7d104624f523ff21e4baac3fe6d9f4","added":"2026-03-01","by":"brylop"},
+    {"v":"20260226000053","file":"20260226000053_rollback_shift_to_teams.sql","sha256":"5e4fa3be517cf8f59fa52a8bae5fd21224541b781f9b333a9cbab7e5c9fadc6c","added":"","by":""},
+    {"v":"20260226000054","file":"20260226000054_school_dashboard_rpc.sql","sha256":"d7840aca75fbe56bdd38c065b6651b60dc3e54b3fb7ed7af4d57709f515f5407","added":"","by":""},
+    {"v":"20260226000055","file":"20260226000055_shift_to_teams.sql","sha256":"26a16b9461d591feb33166ba0348ac0be63c1f5661566e8cfee4dc55bde6a259","added":"","by":""},
+    {"v":"20260226000056","file":"20260226000056_sync_coach_invitations.sql","sha256":"f1caf9b4cf9460402fbdee67308ebe8324593921da7022a98a41c747c32f403b","added":"","by":""},
+    {"v":"20260226000057","file":"20260226000057_sync_school_settings.sql","sha256":"6c253afd6daf40c229a963f9e2d6df3f475fbffc842db43cf74d78fcf69cdb92","added":"","by":""},
+    {"v":"20260227000058","file":"20260227000058_notifications_realtime.sql","sha256":"7373784716b14de43a66652f2c28621422ac3b4e07743b26d9ba9d0b728d2947","added":"","by":""},
+    {"v":"20260227000059","file":"20260227000059_push_subscriptions.sql","sha256":"2d4fdd36414a8f45979a8424e4fb7029fee2d913aed1718bc8b5e82eee615c50","added":"","by":""},
+    {"v":"20260228000060","file":"20260228000060_add_preferences_to_profiles.sql","sha256":"cbf70ed19936dd41aab3e7a41104a98f639cee7baa230ebc7b2dc29917b6bcef","added":"","by":""},
+    {"v":"20260301000000","file":"20260301000000_fix_coach_children_rls.sql","sha256":"3775128bfa4282a769a9df00b803194dc3214319956a906f0f021dc3fcaab9dc","added":"","by":""},
+    {"v":"20260302000000","file":"20260302000000_add_children_status.sql","sha256":"4561bb5a729559d5cbf80ad557276e40052552cb0742c3ddc6c3ba93c1f4dbd6","added":"","by":""},
+    {"v":"20260303000000","file":"20260303000000_mvp_attendance_fix.sql","sha256":"58e18e4ab6a4a6baaac727db58ac63d71fc472c78f720bf6c1fb87a69f5fcbdf","added":"2026-03-03","by":"brylop"},
+    {"v":"20260304000000","file":"20260304000000_fix_pending_invitations.sql","sha256":"a28ef7e7a5e1c2d6501f7b5f13b5341a6699a7c166b46b09f3c177ba2ce163c7","added":"2026-03-04","by":"brylop"},
+    {"v":"20260304000001","file":"20260304000001_fix_accept_invitation_dob.sql","sha256":"a80d1b5bd0e991e6627ec5902203f9243f6a6796482322fcf34708226ac9241c","added":"2026-03-04","by":"brylop"},
+    {"v":"20260304000002","file":"20260304000002_fix_accept_invitation_create_child.sql","sha256":"a1ff6c08b7a43a5f83f561b45556e5046d90a33833c4de16c1c5c6a9b1adb947","added":"2026-03-04","by":"brylop"},
+    {"v":"20260305000001","file":"20260305000001_fix_children_parent_update_rls.sql","sha256":"9048b1ac1a859910ecb27de4538450cae6f637e7728dfaae4a8661f03ae029e8","added":"2026-03-05","by":"brylop"},
+    {"v":"20260305000002","file":"20260305000002_fix_students_view_price_monthly.sql","sha256":"1526dbc29aa46d00d5502906da61360ddc3a47f79e93b7255e9d65bd33ff229b","added":"2026-03-05","by":"brylop"},
+    {"v":"20260305000003","file":"20260305000003_fix_auto_parent_school_member_security.sql","sha256":"cc901e7e602ba0826c8ad9d11e6924f1c7ad6a4671c46e9a789ff07514ad19b2","added":"2026-03-05","by":"brylop"},
+    {"v":"20260305000004","file":"20260305000004_security_hardening_phase1.sql","sha256":"5c25d5ac0a38fbc6dcd4bbce5645128d3ef8ec4336de747adb6f29b65462d820","added":"2026-03-05","by":"brylop"},
+    {"v":"20260306000001","file":"20260306000001_fix_parent_flow_data.sql","sha256":"03792bb1c05617bef1761522547e85be4fbaea62a3f77acdfe66e344b4500d90","added":"2026-03-06","by":"brylop"},
+    {"v":"20260307000001","file":"20260307000001_branding_settings.sql","sha256":"6106e4533ec24791d7834b06e0584434df3138f925e3b14d3822c9ee8915b0f5","added":"2026-03-07","by":"brylop"},
+    {"v":"20260310000001","file":"20260310000001_universal_architecture_v2_1.sql","sha256":"596b79ceaf5d41a738e694103b9138efff8bd3114e457cc918848067634ee59b","added":"2026-03-09","by":"judegor99"},
+    {"v":"20260311000001","file":"20260311000001_athlete_module_v2.sql","sha256":"6a0d230d5ea34f2206603c86ea4c68f7240fe67a742c2ecf4b52e2d795227693","added":"2026-03-10","by":"Antigravity Assistant"},
+    {"v":"20260311000002","file":"20260311000002_athlete_goals.sql","sha256":"e030ff83da229498f17b7302ed2a14e3b9c6c6025e36d2e1c935c1a10bdd54bc","added":"2026-03-10","by":"Antigravity Assistant"},
+    {"v":"20260311220000","file":"20260311220000_relax_enrollment_program_unique.sql","sha256":"665423e9ac00d0ad520f221038480a7d0058d11c1ce3b82f71fea6a3dd61169e","added":"2026-03-11","by":"brylop"},
+    {"v":"20260312000000","file":"20260312000000_explore_rpcs.sql","sha256":"3547f09da0d7e4267c992d282309bfbd65353503a2e0e6b4c536c767c356cc84","added":"2026-03-12","by":"brylop"},
+    {"v":"20260312000001","file":"20260312000001_user_favorites.sql","sha256":"e2e4f3e838a50f385b418aeb046ac4fcbbe3a14348ebd408ed3531a6c65f7291","added":"2026-03-12","by":"brylop"},
+    {"v":"20260312000002","file":"20260312000002_role_protection.sql","sha256":"2a19229830bc6411960cf9cbcf073c58edf5ee77939f7535e6f303d9fe713405","added":"2026-03-12","by":"brylop"},
+    {"v":"20260312000004","file":"20260312000004_settings_rpcs.sql","sha256":"5f32fe3be71cb18bb1a4c38d7cc763c5f6cfef8347696746985db9b5a0d86f47","added":"2026-03-12","by":"brylop"},
+    {"v":"20260312000005","file":"20260312000005_expand_settings_rpcs.sql","sha256":"439f01540ed8ceec2952207b2a0ab62303b36a6835b03d7c169aae8659e5a4cd","added":"2026-03-12","by":"brylop"},
+    {"v":"20260312000006","file":"20260312000006_fix_athlete_enrollments_source.sql","sha256":"46205ad3edd1857bef91f4b73317f54abb9f9d9b22dc5010bc02da5832de3f74","added":"2026-03-12","by":"brylop"},
+    {"v":"20260317000001","file":"20260317000001_update_onboarding_status_logic.sql","sha256":"0b53fead2823cbc186f3cc705433afb2d44884479dfda27311002b5e1b574154","added":"2026-03-17","by":"judegor99"},
+    {"v":"20260317000002","file":"20260317000002_fix_onboarding_rpc_columns.sql","sha256":"c0d2790f4d02249a7078a048f41c35c9285ed0471554ff9a076ed45946ac1099","added":"2026-03-17","by":"judegor99"},
+    {"v":"20260318000000","file":"20260318000000_prd_iam_alignment.sql","sha256":"ce5ee7c4d8889e0c977a856345d90d008a78e24cfca47cdabc0a787104b838d3","added":"2026-03-18","by":"brylop"},
+    {"v":"20260324000001","file":"20260324000001_onboarding_wizard_flags.sql","sha256":"ae6ee80dca5111342e61783d61bb3a93b58f874b9ebd97aed016bb273081777b","added":"","by":""},
+    {"v":"20260324000002","file":"20260324000002_payment_reminder_tracking.sql","sha256":"62db3c13207f441b986d389b593cf8cd1db4f302486e279ae94888a865c62c4c","added":"2026-03-24","by":"brylop"},
+    {"v":"20260411","file":"20260411_sportmaps_pay_epayco.sql","sha256":"4c67fa9d0f9ac0a0606577cceda39bdc8282b11a5f4496e49d3a14e3622a5a8d","added":"2026-04-11","by":"brylop","legacy":true},
+    {"v":"20260414000001","file":"20260414000001_payment_message_templates.sql","sha256":"3afb50c3f3a70d7149a1ea5f51ecfdc1f672bfe168bc29d8bad972cd1194c853","added":"2026-04-14","by":"brylop"},
+    {"v":"20260415000001","file":"20260415000001_security_hardening_phase2.sql","sha256":"0132bd67d3e4a22b6e8b9bd89f8024909c1ea10f6691b3220a5d8c9d8da3a041","added":"2026-04-15","by":"brylop"},
+    {"v":"20260416000001","file":"20260416000001_marketplace_core_tables.sql","sha256":"7168b20b7795b360f9de11b2554725027a1ee15a80b9edda48c89634fce05946","added":"2026-04-16","by":"brylop"},
+    {"v":"20260416000002","file":"20260416000002_marketplace_rls.sql","sha256":"b83466acbfb036a16c2a38ecc69d403f6972687d762b6529e543b5f6acd64e0f","added":"2026-04-16","by":"brylop"},
+    {"v":"20260417000001","file":"20260417000001_inventory_engine.sql","sha256":"be96498d52fab0ac1a5232ba9893d6af4a7a1fd544f17d920372f50b31b3128a","added":"2026-04-16","by":"brylop"},
+    {"v":"20260417000002","file":"20260417000002_financial_engine.sql","sha256":"fdb651e60dcf60eb8de48f536714cff963106595a86306f0caf9c33a18ba82f8","added":"2026-04-16","by":"brylop"},
+    {"v":"20260417000003","file":"20260417000003_unified_marketplace_payments.sql","sha256":"df16a30a23fbac0d9cfd564a4d53d6c6cc0984a19b4e85ecbf70e2ecccf36750","added":"2026-04-16","by":"brylop"},
+    {"v":"20260417000004","file":"20260417000004_vendor_geolocation.sql","sha256":"43c5191e0d745138c3ccd9779f607fd86ebc7afc80861dd67eab408c7c38c329","added":"2026-04-16","by":"brylop"},
+    {"v":"20260418000001","file":"20260418000001_advanced_commerce.sql","sha256":"3dcc4925bdd04d9f3670eeb44b9b2976f0cbb601125831116aa556bdd8de8e6e","added":"2026-04-16","by":"brylop"},
+    {"v":"20260418000002","file":"20260418000002_logistics_integrations.sql","sha256":"c0714704de9834d93d55656af090665fed1069214396643b5a641dc2539b5f35","added":"2026-04-16","by":"brylop"},
+    {"v":"20260418000003","file":"20260418000003_school_vendor_integration.sql","sha256":"20a0b05114c3a35282b074fa9b888264b1610e9bdceefbc1ba9ec461e77a5a42","added":"2026-04-16","by":"brylop"},
+    {"v":"20260420000001","file":"20260420000001_tighten_public_rls_insert_policies.sql","sha256":"445c507e076113728e45b6417efbfc5f96dd05b355d04a3dc18c22ad64ec28b3","added":"2026-04-21","by":"brylop"},
+    {"v":"20260421000000","file":"20260421000000_explorar_require_public_profile_opt_in.sql","sha256":"a37d656ab7af7e145b32ebb0ea42695f84ae110f61a5ac068f3ed77a1f30f12d","added":"2026-04-21","by":"brylop"},
+    {"v":"20260421000001","file":"20260421000001_explore_map_trainers_and_opt_in.sql","sha256":"0563c745780e6880c5bbd154285aade4e9372e981b4cbe15225f6135fb46ce20","added":"2026-04-21","by":"brylop"},
+    {"v":"20260421000002","file":"20260421000002_schools_slug.sql","sha256":"51eafe9bd4d1684d2ae6fbaee4911aa11274528eeba9a3a6f9d7cbbe796bb76d","added":"2026-04-22","by":"brylop"},
+    {"v":"20260422000001","file":"20260422000001_enrollment_checkout_v2_1.sql","sha256":"6486a376c2ac81d3a6af656444d0b2b5b824247dfb6139568ce74a560dd2a9f5","added":"2026-04-22","by":"brylop"},
+    {"v":"20260422000002","file":"20260422000002_facility_reservations_public_insert.sql","sha256":"e6fca35ce0222769ccc1e7826a8d8605f7c05438fb1ec0c13ef81e8bd625fa6f","added":"2026-04-22","by":"brylop"},
+    {"v":"20260422000003","file":"20260422000003_vendor_profiles_public_on_active.sql","sha256":"3be999596ef3a40d6909d5aa379108995934ed51150fe7f31c96c777f8e9595f","added":"2026-04-22","by":"brylop"},
+    {"v":"20260422000004","file":"20260422000004_payment_receipts_parent_access.sql","sha256":"e60c8a4f922b51d2aa54b09dacd2896db23d07f6cea6c637458dda672ca1bab6","added":"2026-04-27","by":"brylop"},
+    {"v":"20260422000005","file":"20260422000005_school_payment_info_rpc.sql","sha256":"185eef16642240c9ab95797f21f1d7b4d9002836450b6979da5e25fe6ddd4482","added":"2026-04-22","by":"brylop"},
+    {"v":"20260424000000","file":"20260424000000_polls_anti_dup_capacity.sql","sha256":"a3a5df2a5eb2e7515097e73e2a846c3e62d96c75b6b0dbd07521af13f6f84bc7","added":"2026-04-24","by":"brylop"},
+    {"v":"20260424000001","file":"20260424000001_admin_activity_logs_rpcs.sql","sha256":"686bbaa32a1252ada097f88bf3a42095ed47014c746dd45bce2cf38e2f6c8530","added":"2026-04-27","by":"brylop"},
+    {"v":"20260424000002","file":"20260424000002_athlete_id_cards.sql","sha256":"aa49bde40aa1a2703d7e68cd800e88d09b1dc1d62b8a5c6ecc7b1f9bb41c0647","added":"2026-04-27","by":"brylop"},
+    {"v":"20260424000003","file":"20260424000003_athlete_id_cards_security_fixes.sql","sha256":"43736e837f91b990660849af44475e8376eafd18d9a6529cfd14b424cbd249a3","added":"2026-04-27","by":"brylop"},
+    {"v":"20260424000004","file":"20260424000004_athlete_certificates.sql","sha256":"bc309622132062f7d01dfcf572ebc4666e5883087e0b8f12a5f10c4eec218bd9","added":"2026-04-27","by":"brylop"},
+    {"v":"20260424000005","file":"20260424000005_school_join_qr.sql","sha256":"5b2fe67dcff5244ac50e1b5738ec0ef3a2ef907b81a4efbefc5c4a621fc914e7","added":"2026-04-27","by":"brylop"},
+    {"v":"20260424000006","file":"20260424000006_admin_global_counts.sql","sha256":"316e26fcd90304d5cfd9665245c801af5505dd3e31a803446e155968e4cab49b","added":"2026-04-27","by":"brylop"},
+    {"v":"20260427000001","file":"20260427000001_my_athlete_id_cards.sql","sha256":"66a9cb58fc95d0da60d70d2b6a78e12913d109bf4191d2b73aeedd1ba2567f51","added":"2026-04-27","by":"brylop"},
+    {"v":"20260428000001","file":"20260428000001_plan_join_rpcs.sql","sha256":"2f8e3965571712af0e094b218675ea4193388b6e0f70489367c844e763fd17dc","added":"2026-04-28","by":"brylop"},
+    {"v":"20260503000001","file":"20260503000001_wompi_migration.sql","sha256":"ebd233d18bff6fcd641372e5a9ca488363e589af73b76b4008375f7ad85fe0d4","added":"2026-05-03","by":"brylop"},
+    {"v":"20260503000002","file":"20260503000002_payment_ocr_fields.sql","sha256":"4f8a27e32043cac65bca1437539e58fab867f936bd2f6f1573a3120753aa91fd","added":"2026-05-03","by":"brylop"},
+    {"v":"20260503000004","file":"20260503000004_payment_period.sql","sha256":"83153fb100ac5355ad1cdcfaf1d54919c4d72a549fb9350eac7ddc12bcfabfa0","added":"2026-05-03","by":"brylop"},
+    {"v":"20260503000005","file":"20260503000005_payment_review_lock.sql","sha256":"c69b2c0b2676be3063d095ec53bbc464f53b71b76d59e46473edd973a2ad551a","added":"2026-05-03","by":"brylop"},
+    {"v":"20260503000006","file":"20260503000006_wompi_phases_a_b_c_d.sql","sha256":"b9b534ec1567ec0520e8b67a550e080b36f8cd8823776009cb231444a325882e","added":"2026-05-03","by":"brylop"},
+    {"v":"20260503000007","file":"20260503000007_security_invoker_views.sql","sha256":"6d68a96e1201b51032a610496c8149258fc0777761f96ff60ce257e6f4d8d735","added":"2026-05-06","by":"brylop"},
+    {"v":"20260504000001","file":"20260504000001_payment_provider_generic.sql","sha256":"1f4dcb6daac1127e1f88359058181649268680499cf3eca8020a1b16154f4d70","added":"2026-05-06","by":"brylop"},
+    {"v":"20260504000002","file":"20260504000002_payment_provider_rpcs.sql","sha256":"1abd198b05fc3d71589090f3a14c5fe9a43f533e0b40c6c2fc0e68fa11b80abe","added":"2026-05-06","by":"brylop"},
+    {"v":"20260511000001","file":"20260511000001_marketplace_role_capabilities_enums.sql","sha256":"1dd58c7e0033c13c2e44282b845e06eb6bb5735c31cc6287df31e83454771111","added":"2026-05-11","by":"brylop"},
+    {"v":"20260511000002","file":"20260511000002_marketplace_role_capabilities_logic.sql","sha256":"aebfd10194ae477c90e67591e737331cfbe8d3877a943dc29fac6a1717481810","added":"2026-05-11","by":"brylop"},
+    {"v":"20260511000003","file":"20260511000003_product_taxonomy_and_quality.sql","sha256":"211a59607cb075b85c476749044988e0579ace60421081a548a42ad19059844e","added":"2026-05-11","by":"brylop"},
+    {"v":"20260511000004","file":"20260511000004_ocr_dedup_index.sql","sha256":"8972b96f9263bcfc928350b4f6dbe9755938c5e229b28b898c0eb1fd15b50a95","added":"2026-05-11","by":"brylop","dup":true},
+    {"v":"20260511000004","file":"20260511000004_reviews_and_qa.sql","sha256":"0072fdad704a099a1a66baaaccf6eac325de02f9867c0054424b4373dfd65cdc","added":"2026-05-11","by":"brylop","dup":true},
+    {"v":"20260511000005","file":"20260511000005_ocr_raw_response.sql","sha256":"992b0da6f837da293a913357b8a58d0c13527a7d157ccb108ec16b1c83dbec68","added":"2026-05-11","by":"brylop","dup":true},
+    {"v":"20260511000005","file":"20260511000005_vendor_payouts_pipeline.sql","sha256":"1d8621315407fe9b34055ac3c5dc62c7ae360bb6ba651d005383d1cdc83afbd6","added":"2026-05-11","by":"brylop","dup":true},
+    {"v":"20260511000006","file":"20260511000006_lock_down_identity_documents_bucket.sql","sha256":"4c19f7d595a989a50c89e1e5781185b44f3bef148e59daffe6046d901fc68542","added":"2026-05-11","by":"brylop","dup":true},
+    {"v":"20260511000006","file":"20260511000006_payouts_functions_unconditional.sql","sha256":"92cae1b4c651e0d504e7ef5cdc679166305ab14a6fb5b6075f1233276cbe32ae","added":"2026-05-11","by":"brylop","dup":true},
+    {"v":"20260511000007","file":"20260511000007_financial_engine_minimal.sql","sha256":"93d7364007fd63ae11b554f8eeaf981aa07bdab69991a73eda8a666bfb2e4066","added":"2026-05-11","by":"brylop"},
+    {"v":"20260511000008","file":"20260511000008_payouts_functions_unconditional.sql","sha256":"2e1c62aeb04723f8cc112cf11615e872d90af82802fa98c8599aef53b9087e76","added":"2026-05-11","by":"brylop"},
+    {"v":"20260511000009","file":"20260511000009_drop_request_payout_for_jsonb_recreate.sql","sha256":"754881c5ef6bbaea30cf24179485f26e1f0098b893ea7b73d9571c6a953577e2","added":"2026-05-11","by":"brylop"},
+    {"v":"20260511000010","file":"20260511000010_security_search_path_and_mv_revokes.sql","sha256":"aaeca4ff672e0e33df3ce5ba1fd3b95cfb3f244b11d757a32a225c6f49e69356","added":"2026-05-11","by":"brylop"},
+    {"v":"20260511000011","file":"20260511000011_security_search_path_round2.sql","sha256":"b146050d58d3c254d956ee030510b17a84142fb1364f20cfab51e068b32ad0b6","added":"2026-05-11","by":"brylop"},
+    {"v":"20260511000012","file":"20260511000012_school_athletes_security_invoker.sql","sha256":"d607260837653b3da4570edb1257b7cf0b5bef8ec4c834fe6b7c8f051fd477e6","added":"2026-05-11","by":"brylop"},
+    {"v":"20260511000013","file":"20260511000013_security_search_path_round3.sql","sha256":"a62843d187e6f5498b06550fcbae45248f4183565fde1b8685b5e3c38c7523c6","added":"2026-05-11","by":"brylop"},
+    {"v":"20260511000014","file":"20260511000014_lock_down_public_buckets.sql","sha256":"724a7592983d464bba6433b1d8dbd207af5aa7ee373b1ff59a2c29c9c5817810","added":"2026-05-11","by":"brylop"},
+    {"v":"20260511000020","file":"20260511000020_shipping_provider_pipeline.sql","sha256":"6133fd2a274a42c912f8d161cdf17f8477c28c573c0355c4c82315a5981809c8","added":"2026-05-11","by":"brylop"},
+    {"v":"20260511000021","file":"20260511000021_shipping_pipeline_fix_missing_deps.sql","sha256":"eed54c324175f3064cbb881698fe3a9d8b58df4fe37b820b46dfb9eea39b0c4e","added":"2026-05-11","by":"brylop"},
+    {"v":"20260511000022","file":"20260511000022_shipping_tables_columns_fix.sql","sha256":"52eb7320330a0fda708d3d224c8de44213972e27169d49238e541c6b8af1d246","added":"2026-05-11","by":"brylop"},
+    {"v":"20260511000023","file":"20260511000023_marketplace_shipping_namespace.sql","sha256":"72e5cbdd10eb33f4b227b12cd680de3ff9b799b5139126736365b1549406c171","added":"2026-05-11","by":"brylop"},
+    {"v":"20260512000001","file":"20260512000001_recurring_subscriptions.sql","sha256":"41f278f9d760f85bd4017d414ade9e11f32e0fc3630e734543a8856c9b1cbd8d","added":"2026-05-12","by":"brylop"},
+    {"v":"20260512000002","file":"20260512000002_recurring_subscriptions_cron.sql","sha256":"77a5ee8a609bce1f818658af1389cd6bd1b06f6e83f49a1c421d617e911f2af5","added":"2026-05-12","by":"brylop"},
+    {"v":"20260512000003","file":"20260512000003_recurring_subscriptions_wompi_guard_and_search_path.sql","sha256":"854621ee86e71ad4cb262583c1bb5e291a99e75bff914d8d6fc2d2a33546069b","added":"2026-05-12","by":"brylop"},
+    {"v":"20260512000004","file":"20260512000004_vendor_docs_bucket.sql","sha256":"af981825e2e858b4f5eb5687fac109d33037b702b47e9bf4703404ebef49951c","added":"2026-05-12","by":"brylop"},
+    {"v":"20260512000005","file":"20260512000005_athlete_card_fee_status_match_fix.sql","sha256":"fd04f1f69a05d76643d4b5dbb9ba1cda9131ea31972b2763158dbb6ac7688bb4","added":"2026-05-12","by":"brylop"},
+    {"v":"20260512000006","file":"20260512000006_vendor_profiles_admin_read.sql","sha256":"f18a7626fc21bbdabb770aeaddddd3f8772ecf086fb17d0b830c3cfa111252e5","added":"2026-05-12","by":"brylop"},
+    {"v":"20260512000007","file":"20260512000007_profiles_admin_read.sql","sha256":"775fb8effded86b7a8aa7de47259e48deb24b8411d6eb1c9de2f40a1d4901f26","added":"2026-05-12","by":"brylop"},
+    {"v":"20260512000008","file":"20260512000008_profiles_admin_read_fix.sql","sha256":"0b6cfa04e2357ba8a20a5abf4fd4ed7ea0497fc3f5ad7cf12f29b56c57f2cf26","added":"2026-05-12","by":"brylop"},
+    {"v":"20260512000009","file":"20260512000009_product_images_bucket.sql","sha256":"29678f6e19210979695b64b58e4a0f2a6dc957202af1e3e4e9cf2b80dc6fad50","added":"2026-05-13","by":"brylop"},
+    {"v":"20260513000001","file":"20260513000001_brand_category_mapping.sql","sha256":"3af25ca0f6a14dfaa84aeb0538da6f340e3a0142b35a6424d70350c95ba615a4","added":"2026-05-13","by":"brylop"},
+    {"v":"20260513000002","file":"20260513000002_security_view_invoker_and_search_path_round4.sql","sha256":"cf9c24a396a02d998de07f2ea43266202c8468298c9ba44d6dba86266a10a855","added":"2026-05-14","by":"brylop"},
+    {"v":"20260513000003","file":"20260513000003_linter_fase3a_revoke_helpers.sql","sha256":"c199940c50d04f04490d84f9600cb64ed9f9a68698e6e926a331d445caf8a507","added":"2026-05-14","by":"brylop"},
+    {"v":"20260513000004","file":"20260513000004_lock_down_product_images_bucket.sql","sha256":"f9e3dc3040a5a348b227ebc7b7f90bd39341bed951703891170dd1683bbafeb1","added":"2026-05-14","by":"brylop"},
+    {"v":"20260513000005","file":"20260513000005_linter_fase3bcd_revoke_rpcs.sql","sha256":"643bd6d83564931599d06d855ede2c3971cf00dfcc621aecbe490a2866ea2f62","added":"2026-05-14","by":"brylop"},
+    {"v":"20260513000006","file":"20260513000006_linter_fase3a_hotfix_rls_helpers.sql","sha256":"667a639a62b61c5c47f94800c3aa4e11ff42cab84bf019f47bc2e0cf8596323e","added":"2026-05-14","by":"brylop"},
+    {"v":"20260513000007","file":"20260513000007_school_subscriptions_addons.sql","sha256":"e2d0b0f190923da3a3677308f43b0e92f27b4c83254734d63fd27b87b3ba7d43","added":"2026-05-14","by":"brylop"},
+    {"v":"20260514000001","file":"20260514000001_plan_upgrade_requests.sql","sha256":"c8b1eea866d52b3490f9a9b486ec2520a4a651d4af8822ac4e04bb58731db79c","added":"2026-05-14","by":"brylop"},
+    {"v":"20260514000002","file":"20260514000002_school_store_addon.sql","sha256":"88ffb9f566a90ef65b121671fdf417b2b2169cc64108d3adee5432909af37fdc","added":"2026-05-19","by":"brylop"},
+    {"v":"20260519000001","file":"20260519000001_school_business_model.sql","sha256":"be94ab0463b93b3d673fb29ab0b46ef836cbca3fb274113bd7c83a0f07d4abb6","added":"2026-05-19","by":"brylop","dup":true},
+    {"v":"20260519000001","file":"20260519000001_school_subscriptions_signup_trigger.sql","sha256":"dfe1577f98614ea66984ec611c2191340a55e07c5aea77a726e83e8c9d9ddc77","added":"2026-05-19","by":"brylop","dup":true},
+    {"v":"20260519000002","file":"20260519000002_vendor_profiles_inactive_on_signup.sql","sha256":"b2a0894178322a5b9568f02bee11c00684c14fb3862761444944a3b276dc7b63","added":"2026-05-19","by":"brylop"},
+    {"v":"20260519000010","file":"20260519000010_get_onboarding_status_hotfix.sql","sha256":"50d6ccff5eaf0109e49736264e3b1ff61ac0aa0f4b936a7fa01f1b473b99c93b","added":"2026-05-19","by":"brylop"},
+    {"v":"20260519000020","file":"20260519000020_school_settings_payment_fields.sql","sha256":"15c2a7c77dde1d4ed4ac441372b9062445dc29357c7630c9c4277d5429c3229f","added":"2026-05-19","by":"brylop"},
+    {"v":"20260519000030","file":"20260519000030_clarify_plans_tables_comments.sql","sha256":"2d3287a2809ffa9984968054f5a3cc1ac455b107d50b326c41c9e6a8976c22d2","added":"2026-05-19","by":"brylop"},
+    {"v":"20260520000001","file":"20260520000001_service_listings_professional_fields.sql","sha256":"1b8cdf0d5a7f196667739a03d96716b59b50c599850a16ed65f0ff4b0d93e6f9","added":"2026-05-21","by":"brylop"},
+    {"v":"20260522000001","file":"20260522000001_athlete_cards_adult_details_fix.sql","sha256":"5a5703b96a3b5ca15c62eb69f1eaa3a928b2d0e4104bd93b71e20fc505a8317c","added":"2026-05-23","by":"judegor99"},
+    {"v":"20260522120000","file":"20260522120000_security_payments_p0.sql","sha256":"6e99c744fe500baf079fb2c9d2d36be15d5f96b9ab8826c8e66ff3bdf93c188c","added":"2026-05-22","by":"brylop"},
+    {"v":"20260522130000","file":"20260522130000_wompi_autopay_unblock.sql","sha256":"f572f040addbd5745995478a61a5445e88936bee1a98e7c9d892fbace3199305","added":"2026-05-22","by":"brylop"},
+    {"v":"20260522140000","file":"20260522140000_recurring_subscriptions_multi_vendor.sql","sha256":"665ea7f6c62b56bc132587263650c0fcb80a6bbd07a788905695e8a86a95c376","added":"2026-06-09","by":"brylop"},
+    {"v":"20260522141000","file":"20260522141000_security_hardening_p1.sql","sha256":"0030240b4213c60a09f5452e11ded540e537c4633f739d63a18e8133d19bc338","added":"2026-05-22","by":"brylop"},
+    {"v":"20260528000001","file":"20260528000001_branding_security_phase1.sql","sha256":"2c0f90790bf1a1915a6aa394aba43bfadb361b06863111da365ae0efdd79c97b","added":"2026-06-09","by":"brylop"},
+    {"v":"20260528000002","file":"20260528000002_branding_security_phase1_trigger_fix.sql","sha256":"ed5f2f0f0937a07edcecf807e2dbe0291e461e4e090e6c47ac7f61bf9b0f2c2c","added":"2026-06-09","by":"brylop"},
+    {"v":"20260529000001","file":"20260529000001_subdomain_tenant_resolver.sql","sha256":"de55e47bd553d3e7807b081267fa97223523f68aac1bb54f4ad752ffb7e556f1","added":"2026-06-09","by":"brylop"},
+    {"v":"20260529000002","file":"20260529000002_custom_domains_elite.sql","sha256":"18359c7091a6a460ad93fe676b63a6f6e85819ed2c453fa301e97bd736c2228d","added":"2026-06-09","by":"brylop"},
+    {"v":"20260529000003","file":"20260529000003_user_devices.sql","sha256":"f714a5978f8c9fde2cdfbf4edcadb8746ec0db53b806e7877125e203d126c865","added":"2026-06-09","by":"brylop"},
+    {"v":"20260617000001","file":"20260617000001_google_oauth_role_selection.sql","sha256":"6bee397e8d3c7177bc913c8d1d729988ceca2f838b7532f010286eaa91d5e198","added":"2026-06-17","by":"brylop"},
+    {"v":"20260617000002","file":"20260617000002_handle_new_user_resilient.sql","sha256":"6641c8075da7dca51c9a152f37c48863dd23f64a049b2e6763c307b07ac44469","added":"2026-06-17","by":"brylop"},
+    {"v":"20260617000003","file":"20260617000003_person_role_onboarding.sql","sha256":"5bc2c4a7101cebd3f18d502d711747e1edcfd1c18e73fc23c41bf4a7b97e5f6a","added":"2026-06-18","by":"brylop"},
+    {"v":"20260618000001","file":"20260618000001_fix_role_mapping_school_admin.sql","sha256":"d8ce4d769bf411c4020112824143fe1916354ebe35c0662fe5fb11e4135ecb69","added":"2026-06-18","by":"brylop"},
+    {"v":"20260618100000","file":"20260618100000_whatsapp_ai_channel_wa1.sql","sha256":"a35ff80d75b6c8670b1f07a4f8ad754633b0b90c4613d7a0008c08f2dd97d484","added":"2026-06-25","by":"brylop"},
+    {"v":"20260618110000","file":"20260618110000_whatsapp_ai_channel_wa2.sql","sha256":"f3d6ad715ff834f7b587986a5f2bb652425156c3514ce07988961c3b39a0c60a","added":"2026-07-14","by":"brylop"},
+    {"v":"20260620000001","file":"20260620000001_restore_qr_rpc_grants.sql","sha256":"9dfb9ead4294692cdf55a94f2b832bc3a5e49e93be0a1a7919535f20eff39f8f","added":"2026-06-20","by":"brylop"},
+    {"v":"20260620000002","file":"20260620000002_fix_list_qr_drop_programs_ref.sql","sha256":"50846f22f82658fa63b54dc528c80971e767e8d696f907f41e4861579009cfa3","added":"2026-06-20","by":"brylop"},
+    {"v":"20260620000003","file":"20260620000003_fix_get_join_qr_volatile.sql","sha256":"cfb1f6dfb6f37f49383368499d5a39e5a23c818681c92f7796f3cdb7260fa7e1","added":"2026-06-20","by":"brylop"},
+    {"v":"20260620000004","file":"20260620000004_fix_submit_qr_enrollment_subject.sql","sha256":"a3689e5341ac5314198912c3186b78bff016d53b4cce59caa01f4b7ac6141499","added":"2026-06-20","by":"brylop"},
+    {"v":"20260622000001","file":"20260622000001_submit_qr_existing_child.sql","sha256":"49a33dfb844a5445e1ccab196fea276fb925bc848acb8834abb871128ffedb58","added":"2026-06-24","by":"brylop"},
+    {"v":"20260622000002","file":"20260622000002_fix_qr_notification_link.sql","sha256":"8d18c9d4e91592284a05a9becdb7aa68d01f6f183cb945a2184018f104a85e35","added":"2026-06-24","by":"brylop"},
+    {"v":"20260624000000","file":"20260624000000_fix_school_public_profile_assets.sql","sha256":"5229c6791ca7fc24de0b41b6a49a1241e1fab0447aa06d31dcf18fc0b8c20a93","added":"2026-06-25","by":"brylop"},
+    {"v":"20260624000001","file":"20260624000001_payments_ocr_raw_response.sql","sha256":"b6785079aa99e9e77eab14fc6230be8f2264af5089493a6dfd14292776ca6364","added":"2026-06-24","by":"brylop","dup":true},
+    {"v":"20260624000001","file":"20260624000001_qr_landing_show_cover.sql","sha256":"bf4fabfd8e72f518d0f68dd66297a001f44bc1524b60f9189629077eeccab1ca","added":"2026-06-25","by":"brylop","dup":true},
+    {"v":"20260624000002","file":"20260624000002_qr_price_from_team.sql","sha256":"4594401629ebf888e24d8912d99131d6279d8b68db8c6c3f265bc5a51a3accc6","added":"2026-06-24","by":"brylop"},
+    {"v":"20260625000001","file":"20260625000001_qr_universal_price_sources.sql","sha256":"d1b734abeb0fe18561d5452d115562a3b5579ba1c876dffd21cce91af04f279f","added":"2026-06-25","by":"brylop"},
+    {"v":"20260625000002","file":"20260625000002_qr_plans_from_offerings.sql","sha256":"b5f94da9811bbf4b0b848280533bf8ba132e9b42036cc2019bef9f406aac46ad","added":"2026-06-25","by":"brylop"},
+    {"v":"20260625000003","file":"20260625000003_qr_paid_count_trigger.sql","sha256":"3b1c5e9b3925a20882735a5831746f40021f54ca8e26a2481f93db45e7f94a4b","added":"2026-06-25","by":"brylop"},
+    {"v":"20260625000004","file":"20260625000004_qr_pay_monthly.sql","sha256":"235418ecda5ab78921fade4536d95dcb76e6dcf19fec5a9df9b23ecb65c23ced","added":"2026-06-25","by":"brylop"},
+    {"v":"20260627000001","file":"20260627000001_access_control_versioned_schema.sql","sha256":"bcec62f09feb9b67f8c7151e4f5c0ea0b0c7fbdb51c3e8e5789a76211cf2b75d","added":"2026-06-27","by":"brylop"},
+    {"v":"20260627000002","file":"20260627000002_adms_device_log.sql","sha256":"cd00b6985b38410cb2eff6dc819de74c1ffd4f5c9b739a42a39f339b74b2c8f6","added":"2026-06-27","by":"brylop"},
+    {"v":"20260627000003","file":"20260627000003_device_commands_reboot_type.sql","sha256":"9572689fe00e0f9851bafef86fc1ef465918eb9147e379edc66dbbe0ad97930b","added":"2026-06-30","by":"brylop"},
+    {"v":"20260701000001","file":"20260701000001_fix_recurring_attempt_idempotent_advance.sql","sha256":"4a564939149fb1e7cc08e3e682b7567b5455040eb109cefea6e1082fc0f31e19","added":"2026-07-01","by":"brylop"},
+    {"v":"20260701000002","file":"20260701000002_payment_links_one_active_per_payment.sql","sha256":"81d6db72aaeb951fd02ae8f2cbe24b167475256bb8e7a8e65a979f4432576c0b","added":"2026-07-01","by":"brylop"},
+    {"v":"20260701000003","file":"20260701000003_webhook_events.sql","sha256":"25f8191b6d178653241d33274cbddd5da0abea5bce96a8688230b2946f0c9a25","added":"2026-07-01","by":"brylop"},
+    {"v":"20260701000004","file":"20260701000004_payment_reconciliation.sql","sha256":"86c9bcf964ade8d45b54d041f7c73e3c3a0cd948570969b8180ab7e64087e1c1","added":"2026-07-01","by":"brylop"},
+    {"v":"20260701000005","file":"20260701000005_detect_anomalies_resilient.sql","sha256":"a6291e7b20b9e869505e42560b04a365eefb85ce504673bf139a134188ba0181","added":"2026-07-01","by":"brylop"},
+    {"v":"20260702000001","file":"20260702000001_accounting_phase0.sql","sha256":"e8bd625118f394d2c953e6138c4595021f1026a9f08edf8729ea52c77240affc","added":"2026-07-02","by":"brylop"},
+    {"v":"20260703000001","file":"20260703000001_add_brand_to_turnstile_devices.sql","sha256":"ec133239d14977f34e6ebbce6fd88831a4e7f338a3b317d106d046c888ede1e9","added":"2026-07-02","by":"judegor99"},
+    {"v":"20260703000002","file":"20260703000002_backfill_brand_and_enforce_not_null.sql","sha256":"a799e8f1460ea0bb689728166d4d31ecd6776e1c72affcaccd12fa011ccd681d","added":"2026-07-03","by":"judegor99"},
+    {"v":"20260706000001","file":"20260706000001_accounting_multi_owner.sql","sha256":"b7a1e065a962dcda0d193ef42017d262a6ef8f09006b0a17826b27678c5d5468","added":"2026-07-06","by":"brylop"},
+    {"v":"20260706000002","file":"20260706000002_payments_partial_status.sql","sha256":"a6fce3e42816632f2862e27715ec03afe554ebfe760f9fa5709e0867d22007f7","added":"2026-07-06","by":"brylop"},
+    {"v":"20260706120000","file":"20260706120000_late_fee_engine.sql","sha256":"efe560159e3c1a23c5b90f71a3d407234ef59a9efd63ed913b05d7cb8e33369e","added":"2026-07-06","by":"brylop"},
+    {"v":"20260706130000","file":"20260706130000_late_fee_engine_fix_status_type.sql","sha256":"6fd80c7c0293efc6ccad1e2058bf83e713feef2c73a9d13775c72b42e1006c1b","added":"2026-07-06","by":"brylop"},
+    {"v":"20260707000001","file":"20260707000001_cash_ledger_real_amounts.sql","sha256":"c91ac5115efe9efed62a6303b536e79518ffcb337b51b84fe9d432134cfbf8f9","added":"2026-07-06","by":"brylop","dup":true},
+    {"v":"20260707000001","file":"20260707000001_fix_school_athletes_view_all_statuses.sql","sha256":"5c1c36f7b4e373c0cf84372a49b92b68681168e9fc6afb9de5b29a51c62a6656","added":"2026-07-06","by":"judegor99","dup":true},
+    {"v":"20260708000001","file":"20260708000001_electronic_invoicing_phase1.sql","sha256":"52e8e680e466c527dd5dff2715668158ca82a9cc06f51ea15387f37dd552c0ca","added":"2026-07-08","by":"brylop"},
+    {"v":"20260708000002","file":"20260708000002_one_main_branch_per_school.sql","sha256":"2817a06ebb82017e3b347b263451eb8e1d1560e79715842f1b147d8e58c428f0","added":"2026-07-08","by":"brylop"},
+    {"v":"20260708000003","file":"20260708000003_fix_duplicate_sede_principal.sql","sha256":"817ced154d6579589b3ac118a4b716e767a3ff4b062b719428e72abd2a8c97fd","added":"","by":""},
+    {"v":"20260710000001","file":"20260710000001_accounting_phase1_receipts.sql","sha256":"d6d41ce48aa5a716f2597cdcf27caebcab0a2a4120ad82cf31e6c93a4a9df2fa","added":"2026-07-10","by":"brylop","dup":true},
+    {"v":"20260710000001","file":"20260710000001_electronic_invoicing_marketplace_source.sql","sha256":"61d698c8222ac95235547b68371b32209bf0f91f23f8923a66ba8e83ed0df7b8","added":"2026-07-10","by":"brylop","dup":true},
+    {"v":"20260710000002","file":"20260710000002_accounting_phase2_suppliers.sql","sha256":"4b3b80807ae1f3442a9d06b4d4c9c379ff5e9bee232a96e928138883c92a0962","added":"2026-07-10","by":"brylop","dup":true},
+    {"v":"20260710000002","file":"20260710000002_electronic_invoicing_order_source.sql","sha256":"e496c09ce52d5d4fd9e8ea7b01d116b2419b42df2f9da6b5d7fb0a0a6039681e","added":"2026-07-10","by":"brylop","dup":true},
+    {"v":"20260711000001","file":"20260711000001_accounting_phase3_payroll_foundation.sql","sha256":"687951ed6c68df476863077e5a7ef32d8dafeb3c6f674111e81e9fec37b9df92","added":"2026-07-10","by":"brylop"},
+    {"v":"20260711000002","file":"20260711000002_accounting_phase3_payroll_engine.sql","sha256":"0db58e9511b97d5e616eb218579c805bb86c757cc46eb1987fadf546ddb38254","added":"2026-07-10","by":"brylop"},
+    {"v":"20260711000003","file":"20260711000003_accounting_phase4_budgets.sql","sha256":"45f43498a06e744159007479d3072807809ad5e7fddf34c79a29ee6e9fb9bb65","added":"2026-07-10","by":"brylop"},
+    {"v":"20260711000004","file":"20260711000004_accounting_fee_to_expense.sql","sha256":"e4be8796acfa4e6b502dde31afe05a34717247bf15c1fd2f1ee0ce9ec5b3d8b4","added":"2026-07-10","by":"brylop"},
+    {"v":"20260711120000","file":"20260711120000_store_messaging.sql","sha256":"66ac8ecbf1344230567f80d62ba7faaeb6021552a4d66ca2a3b96ad18ec6dd56","added":"2026-07-10","by":"brylop"},
+    {"v":"20260711130000","file":"20260711130000_qr_pay_prefer_enrollment_fee.sql","sha256":"647d06bda08477bf17218ed38aed245c88656a3e0262f39df3da6d6662c1b69b","added":"2026-07-11","by":"brylop"},
+    {"v":"20260711130001","file":"20260711130001_athlete_enrollments_prefer_fee.sql","sha256":"14dee68a90f864db8f5d3aeed9865e53308dfaa1f244e740aa05220b2cad3e4f","added":"2026-07-11","by":"brylop"},
+    {"v":"20260711130002","file":"20260711130002_payments_status_check_add_partial.sql","sha256":"52b8036fdba10d7d577d6c7560e8de8fccd43ab9d766cd2dfcd2b7f81c30df3f","added":"2026-07-11","by":"brylop"},
+    {"v":"20260711130003","file":"20260711130003_next_period_complete_partial.sql","sha256":"6381664aea30225d996f7a32d0bad2afca237a7bd53736e32edec30bfae1ee77","added":"2026-07-11","by":"brylop"},
+    {"v":"20260713000001","file":"20260713000001_fix_card_rpcs_drop_programs.sql","sha256":"afd1acbe609af8d7c3c0c3751d66832842f433309fedb9c2fca08d9e9d65eca9","added":"2026-07-13","by":"brylop"},
+    {"v":"20260713000002","file":"20260713000002_school_settings_installments_fields.sql","sha256":"b367967b4865ab6e6b1c2ec9bbdd8fcb68dd52004a5418f3a37fef7ccddfc0e0","added":"2026-07-13","by":"brylop"},
+    {"v":"20260713000003","file":"20260713000003_auto_generate_monthly_charges.sql","sha256":"4b916f35e0f4763472361f0da595dbc70992c67ec755764a850879195d80db66","added":"2026-07-13","by":"brylop"},
+    {"v":"20260713000004","file":"20260713000004_payment_reminders_engine.sql","sha256":"680af58439ba1d4d4723c8fc3e2261183a919c2a8f1a8d111e4c49cbe4720a07","added":"2026-07-13","by":"brylop"},
+    {"v":"20260713000005","file":"20260713000005_coach_messaging_gate.sql","sha256":"d4a7cf5226dc06bef1abab6479d50c5ceb6c680024e755950a234154cc42adcc","added":"2026-07-13","by":"brylop"},
+    {"v":"20260713000006","file":"20260713000006_school_addons_admin_toggle.sql","sha256":"c27ce8aebcae0f8db3763d81e51bd4ae29c2ca96e34297aa27a9796eb71b98c1","added":"2026-07-13","by":"brylop"},
+    {"v":"20260713000007","file":"20260713000007_add_start_plan_code.sql","sha256":"167fada8fc2ad7e7a70689e96cbb2c2eafded74fdc458e2c800f9287efbeb21e","added":"2026-07-13","by":"brylop"},
+    {"v":"20260714000001","file":"20260714000001_tournaments_school_ownership.sql","sha256":"b4c1b47543801c3a8446cb16cba6ab860e55c0dd85ca4164363fdfe044b24a03","added":"2026-07-14","by":"brylop"},
+    {"v":"20260714000002","file":"20260714000002_tournaments_rls_host_access.sql","sha256":"859a90757f8f9d365e1a216520452a5428595bfec25c5bc682b1efdcc9976a59","added":"2026-07-14","by":"brylop"},
+    {"v":"20260714000003","file":"20260714000003_fix_school_addons_enabled_at_nullable.sql","sha256":"bee7116d856979d22bc7b3870c824594ddd825601eaf5320bdd502bc36e95832","added":"2026-07-14","by":"brylop"},
+    {"v":"20260714000004","file":"20260714000004_school_payment_providers_connect.sql","sha256":"8177a17b6d9f7f035439b8360634d119b26dfcd1ef12e68df0100d72ec529122","added":"2026-07-21","by":"brylop"},
+    {"v":"20260714120000","file":"20260714120000_events_public_read_active.sql","sha256":"90a439ed8ffbd3207f08d39fd4613a74945078f67919237764184ea815ba03f0","added":"2026-07-15","by":"brylop"},
+    {"v":"20260715000001","file":"20260715000001_equipment_module.sql","sha256":"80c35a985c542317969a382d3fe741b46c57dbb8b71c9204e8217785c6201131","added":"2026-07-15","by":"brylop"},
+    {"v":"20260715000002","file":"20260715000002_equipment_rpcs.sql","sha256":"e728a71f5ffea4ba51c530e6ca3cab6ef039200e5de85d4f54e2d53b411709c7","added":"2026-07-15","by":"brylop"},
+    {"v":"20260715000003","file":"20260715000003_equipment_buckets.sql","sha256":"770a520a68ff7e94e93882294533983477c4354a1ae352f3316d850a75dcc941","added":"2026-07-15","by":"brylop"},
+    {"v":"20260715000004","file":"20260715000004_equipment_list_coaches.sql","sha256":"af4032504e9c2c2586f0c067ab2bd941b270e38b660d6b2f9598412603c6e0c1","added":"2026-07-16","by":"brylop"},
+    {"v":"20260716000001","file":"20260716000001_equipment_self_checkout_list.sql","sha256":"d7f1b431989c437755ac4d00075e55a3c64e9cd2f2b9fd8a5c28beaa774315b9","added":"2026-07-16","by":"brylop","dup":true},
+    {"v":"20260716000001","file":"20260716000001_sport_category_templates.sql","sha256":"d5362781b4bd892a7b1179d082b34a827526d4ebf736d3023837e66c95bf5e1a","added":"2026-07-17","by":"brylop","dup":true},
+    {"v":"20260716000002","file":"20260716000002_tournament_matches.sql","sha256":"488f01da2de87d0cf70ac0117f39fcc00583e53d745f6fdb0b0295fd4f931084","added":"2026-07-17","by":"brylop"},
+    {"v":"20260717000001","file":"20260717000001_receipt_verdict_shadow.sql","sha256":"ed1ebcacdcafb2e73b5a63f357cde42b219f1ab40be98619ea623e4d497ce04f","added":"2026-07-21","by":"brylop"},
+    {"v":"20260717000002","file":"20260717000002_payment_glosas.sql","sha256":"6f6d9fef73769bc0963be67be14f80b15344b998a289de7198509696cfe8c196","added":"2026-07-21","by":"brylop"},
+    {"v":"20260717000003","file":"20260717000003_payment_glosas_rpcs_and_cron.sql","sha256":"d5a7f3de1513bd161d3a2ccfd1433f47f4405a267d816d0d8af40da59e410461","added":"2026-07-21","by":"brylop"},
+    {"v":"20260717171018","file":"20260717171018_extend_enrollment_on_payment_paid.sql","sha256":"72044e4a9a1c6cfa64f0efd047358dfb03e5ff19cc05d3c71f0f12c5e7ec0481","added":"2026-07-21","by":"judegor99"},
+    {"v":"20260717171019","file":"20260717171019_sync_generate_monthly_charges.sql","sha256":"c0859c4d10bc98fd1b5439a14f6b664b50875ee31061f0a316b111f38b57176d","added":"2026-07-21","by":"judegor99"},
+    {"v":"20260717171020","file":"20260717171020_include_unregistered_athletes_in_monthly_charges.sql","sha256":"ef07eea97fe2739c043b5ddbc17e681d53a7b1409f748771412992335b8cf9c0","added":"2026-07-21","by":"judegor99"},
+    {"v":"20260718000001","file":"20260718000001_glosa_notification_markers.sql","sha256":"7f34c316ae31c22bb9213fe8ffef818b76085d961fb0d268dd58085f0ccbed2a","added":"2026-07-21","by":"brylop"},
+    {"v":"20260721000001","file":"20260721000001_receipt_auto_approve.sql","sha256":"598ef32ff4c9e90e749a7a972687cdbe164ef46eab45ee27491e9335a2e42555","added":"2026-07-21","by":"brylop"},
+    {"v":"20260721000002","file":"20260721000002_fix_notify_self_initiated_payment.sql","sha256":"12eb39ee874006b1041d75c7ecb76232e150fb060073b4801ecb299f63eda96d","added":"2026-07-21","by":"brylop"},
+    {"v":"20260722000001","file":"20260722000001_notifications_category_data.sql","sha256":"89fd2c46e939c458d58a35787eec42292dbea723dd308d8b7cd72f26132d76f2","added":"2026-07-23","by":"brylop"},
+    {"v":"20260722000002","file":"20260722000002_notification_deliveries_outbox.sql","sha256":"afaf4798dcfaecbf606e5dee399031c1c33b7495dcf9c0cc4c0258dd91111aa7","added":"2026-07-23","by":"brylop"},
+    {"v":"20260722000003","file":"20260722000003_notifications_dispatch_trigger.sql","sha256":"7304ba99f2b03597ffac5a4f318d4b6bf5b0f73ef7c08b0009a8dfd53aaabb45","added":"2026-07-23","by":"brylop"},
+    {"v":"20260722000004","file":"20260722000004_auto_approve_notify_school.sql","sha256":"3bef9b407d7dc4eabe12959dd6dcc1b3d5f20500498e7c2f66861161102b0c7d","added":"2026-07-23","by":"brylop"},
+    {"v":"20260722000005","file":"20260722000005_disable_legacy_push_trigger.sql","sha256":"ef769a5283df72b4a1a9b04c31acafdcd6bda4f95239bce8ac8ef7897f19c1c3","added":"2026-07-23","by":"brylop"},
+    {"v":"20260723000001","file":"20260723000001_bank_reconciliation.sql","sha256":"c5d9668c1c43a17021246aeaba0e6b00ad5570c141a0e7fced557de79347e9d5","added":"2026-07-23","by":"brylop","dup":true},
+    {"v":"20260723000001","file":"20260723000001_notify_school_payment_paid.sql","sha256":"2bf0430edd2a0473015d62abe28958f86d94de61f06b70c2ad27a1f4b1ced9a8","added":"2026-07-23","by":"brylop","dup":true},
+    {"v":"20260724000001","file":"20260724000001_payment_period_dedup_indexes.sql","sha256":"25854dd675bf0515ac005bf16ee2d94411135b951650012c415e2fe4d1ed2f44","added":"2026-07-28","by":"brylop"},
+    {"v":"20260724000002","file":"20260724000002_open_month_rpc.sql","sha256":"18f353c76c04623f5f7102aced6d63fd648a87fab9bf0e3dd20c63ebf6dd106b","added":"2026-07-28","by":"brylop"},
+    {"v":"20260724000003","file":"20260724000003_generate_monthly_charges_delegates.sql","sha256":"8e7d0f573d4ff4a8befb6ae4f401331cdc6aa638c7515e117f572fbddd4e989d","added":"2026-07-28","by":"brylop"},
+    {"v":"20260728000001","file":"20260728000001_payment_receipts_school_access.sql","sha256":"5f4252ff1ec9ec643da557a5c227fb123c9b6577d6af3644f3476945f44d0fa9","added":"2026-07-28","by":"brylop"},
+    {"v":"20260728000002","file":"20260728000002_fix_qr_duplicate_charges.sql","sha256":"cb8166cd1fe726256d03b9617b6eb06ad6bbe3e236fabcc3e7c06fa4ea03bf12","added":"2026-07-28","by":"brylop"},
+    {"v":"20260729000001","file":"20260729000001_cleanup_duplicate_active_charges.sql","sha256":"4f266ca0b4611ed52717aebf5ec4ae57e8e5f47e7521af1d27d127216445a57e","added":"2026-07-29","by":"brylop"},
+    {"v":"20260729000002","file":"20260729000002_claim_orphan_children_by_email.sql","sha256":"6d2c9553f6083a9177289f6d896140957009a1240e0a980dd1c15f2971356400","added":"2026-07-29","by":"brylop","dup":true},
+    {"v":"20260729000002","file":"20260729000002_school_athletes_fee_plan_wins.sql","sha256":"5c22cae7b751607b4a9e0f4117453a9225f02824d124184596ff8317659fce5f","added":"2026-07-29","by":"brylop","dup":true},
+    {"v":"20260730000000","file":"20260730000000_enrollment_no_split_rows.sql","sha256":"a37af8ac779cf828cea0cd560bb5d83b8e684d36b83337f351e678c734757a84","added":"2026-07-29","by":"brylop"},
+    {"v":"20260730000001","file":"20260730000001_email_sends_log.sql","sha256":"2dd3e3fe2d70f158aa3e1313b3aefb84e6494cfe60134f9562a201a9d80532a2","added":"2026-07-29","by":"brylop","dup":true},
+    {"v":"20260730000001","file":"20260730000001_school_athletes_team_fee_zero_with_plan.sql","sha256":"66fdb7e78c56ef8382759dafc20e27d1fdefa8f81feb433073aa24f3f8e0100a","added":"2026-07-30","by":"brylop","dup":true},
+    {"v":"20260730000002","file":"20260730000002_payment_mode_fail_closed_unset.sql","sha256":"eeaff1ff048af269d66fb0118e6551495f50c0e71ce286c6119960b2eee6375b","added":"2026-07-30","by":"brylop"},
+    {"v":"20260730000003","file":"20260730000003_create_invitation_reuse_pending.sql","sha256":"4b55853ecbcf86fd1c0446cf91aaaae03fbf85ee7cb55c7cb1ec1732fca03183","added":"2026-07-30","by":"brylop","dup":true},
+    {"v":"20260730000003","file":"20260730000003_payment_mode_solo_dynasty_aggregator.sql","sha256":"7eefdac4353794087b5664cc1be7f31af22a660961d77b52cd38a909f3464c82","added":"2026-07-30","by":"brylop","dup":true},
+    {"v":"20260730000004","file":"20260730000004_upsert_school_provider_rpc.sql","sha256":"7569c9aa7bb3d214fdad09d0399796dd8f444c6e217660bf369b1d286cc88a7f","added":"2026-07-30","by":"brylop"},
+    {"v":"20260730000005","file":"20260730000005_backfill_payments_parent_id.sql","sha256":"f073209b74d773b3b1e34568f1a3e98d348abeaf1a4b7295c42b211c3702afea","added":"2026-07-30","by":"brylop","dup":true},
+    {"v":"20260730000005","file":"20260730000005_school_payment_kpis.sql","sha256":"f8a988a15e7584fded38d6362fd90c882d8e0b10a7f29b9b443dc39f302fafc8","added":"2026-07-30","by":"brylop","dup":true},
+    {"v":"20260730160000","file":"20260730160000_profiles_admin_see_inactive_members.sql","sha256":"d21b651177680470aa623f31d2f65a77c8202a9aea3d8fcfd4d4e4082111f1c1","added":"2026-07-30","by":"brylop"},
+    {"v":"20260730170000","file":"20260730170000_deactivate_athlete_cancels_plan.sql","sha256":"41b86799b0f03b8ac7a0e7528720df568b65a058b58a05b39ab94d853b0defe4","added":"2026-07-30","by":"brylop"},
+    {"v":"20260730170001","file":"20260730170001_school_athletes_deterministic_plan.sql","sha256":"6a3906c3536a4196d7ae2473d4aa1b5b81b861d3bedc13d7becdd7753f49f689","added":"2026-07-30","by":"brylop"},
+    {"v":"20260730180000","file":"20260730180000_cleanup_duplicate_plans_and_inactive_charges.sql","sha256":"f745ae2e5b44bf473da0d886b33333424958d34bb5b65412c594285dd489c351","added":"2026-07-30","by":"brylop"},
+    {"v":"20260730183000","file":"20260730183000_claim_orphan_children_backfills_payments.sql","sha256":"864fa8386ae23121fc5d43287723476cba07c9a3ed0111b1cf8835435b390fa9","added":"2026-07-30","by":"brylop"},
+    {"v":"20260730194230","file":"20260730194230_adopt_orphan_payments_on_child_link.sql","sha256":"75c86b1063fbf0da77f1c910becdf86be5fb9d063cfc41b12cd4fc90bb8bb480","added":"2026-07-31","by":"brylop"},
+    {"v":"20260730195021","file":"20260730195021_school_athletes_lateral_rewrite.sql","sha256":"15d7739a139a76809765d1e911379ed5e77616383590801201b3b8ac81839388","added":"2026-07-31","by":"brylop"}
   ]
 }
