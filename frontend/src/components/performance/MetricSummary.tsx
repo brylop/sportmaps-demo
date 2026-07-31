@@ -60,15 +60,21 @@ export function MetricSummary({ series, unit, higherIsBetter, band }: MetricSumm
   const first = series[0];
 
   const stepDelta = prev ? computeDelta(last.value, prev.value, higherIsBetter) : null;
+  // Con solo dos mediciones, "desde el inicio" es literalmente el mismo número
+  // que "vs. medición previa": la tarjeta se omite en vez de repetirlo.
   const totalDelta =
-    series.length >= 2 ? computeDelta(last.value, first.value, higherIsBetter) : null;
+    series.length >= 3 ? computeDelta(last.value, first.value, higherIsBetter) : null;
 
   const daysSince = Math.floor(
     (Date.now() - new Date(last.date).getTime()) / (1000 * 60 * 60 * 24)
   );
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+    <div
+      className={`grid grid-cols-2 gap-2.5 ${
+        totalDelta ? 'md:grid-cols-4' : 'md:grid-cols-3'
+      }`}
+    >
       <Tile label="Valor actual">
         <div className="font-mono font-bold text-2xl leading-none tabular-nums">
           {fmt(last.value)}
@@ -104,23 +110,19 @@ export function MetricSummary({ series, unit, higherIsBetter, band }: MetricSumm
         )}
       </Tile>
 
-      <Tile label="Desde el inicio">
-        {totalDelta ? (
-          <>
-            <div
-              className={`font-mono font-bold text-2xl leading-none tabular-nums ${deltaTone(
-                totalDelta.improved
-              )}`}
-            >
-              {totalDelta.label}
-              {unit && <span className="text-xs font-medium text-muted-foreground ml-1">{unit}</span>}
-            </div>
-            <DeltaLine delta={totalDelta} suffix={`desde ${shortDate(first.date)}`} />
-          </>
-        ) : (
-          <div className="text-sm text-muted-foreground">—</div>
-        )}
-      </Tile>
+      {totalDelta && (
+        <Tile label="Desde el inicio">
+          <div
+            className={`font-mono font-bold text-2xl leading-none tabular-nums ${deltaTone(
+              totalDelta.improved
+            )}`}
+          >
+            {totalDelta.label}
+            {unit && <span className="text-xs font-medium text-muted-foreground ml-1">{unit}</span>}
+          </div>
+          <DeltaLine delta={totalDelta} suffix={`desde ${shortDate(first.date)}`} />
+        </Tile>
+      )}
 
       <Tile label="Mediciones">
         <div className="font-mono font-bold text-2xl leading-none tabular-nums">{series.length}</div>
