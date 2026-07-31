@@ -258,6 +258,150 @@ export function buildChartPoints(
   });
 }
 
+// ─── Destacados para la vista del padre ───────────────────────────────────
+
+/**
+ * Rango de la escala de una métrica, para poder comparar mejoras entre
+ * métricas que se miden en unidades distintas.
+ *
+ * Cadena de respaldo, porque el catálogo real no siempre tiene los dos
+ * extremos: los `rating` sí (0-6 o 0-10) y los porcentajes también, pero las
+ * medidas en cm, las repeticiones y el test de Léger tienen `max_value` NULL.
+ */
+function metricRange(metric: DisplayMetric): number | null {
+  const t = sortedThresholds(metric.thresholds);
+  const mins = t.map((x) => x.min_value).filter((v): v is number => v !== null);
+  const maxs = t.map((x) => x.max_value).filter((v): v is number => v !== null);
+
+  if (t.length > 0 && mins.length > 0 && maxs.length > 0) {
+    const span = Math.max(...maxs) - Math.min(...mins);
+    if (span > 0) return span;
+  }
+  return null;
+}
+
+export interface MetricHighlight {
+  metric: DisplayMetric;
+  series: SeriesPoint[];
+  current: number;
+  delta: MetricDelta;
+  band: MetricBand;
+  /** Fracción de mejora, comparable entre métricas. Positivo = mejoró. */
+  score: number;
+}
+
+/**
+ * Cuánto mejoró, en una escala comparable entre métricas distintas.
+ *
+ * El signo se corrige con `higher_is_better`, así que positivo siempre
+ * significa «mejoró»: en Velocidad T bajar de 10,5 s a 10,3 s da score > 0.
+ *
+ * Si se conoce el rango de la escala, la mejora se expresa como fracción de
+ * ese rango — es lo más justo entre unidades distintas. Si no (medidas en cm
+ * sin techo definido), cae a variación relativa sobre el valor anterior.
+ */
+function improvementScore(metric: DisplayMetric, series: SeriesPoint[]): number | null {
+  if (series.length < 2) return null;
+  const current = series[series.length - 1].value;
+  const previous = series[series.length - 2].value;
+
+  const raw = current - previous;
+  const signed = metric.higher_is_better ? raw : -raw;
+  if (signed === 0) return 0;
+
+  const range = metricRange(metric);
+  if (range) return signed / range;
+  if (previous !== 0) return signed / Math.abs(previous);
+  return null;
+}
+
+function buildHighlight(
+  metric: DisplayMetric,
+  series: SeriesPoint[],
+  resolveBand: (value: number, metric: DisplayMetric) => MetricBand
+): MetricHighlight | null {
+  const score = improvementScore(metric, series);
+  if (score === null) return null;
+  const current = series[series.length - 1].value;
+  return {
+    metric,
+    series,
+    current,
+    delta: computeDelta(current, series[series.length - 2].value, metric.higher_is_better),
+    band: resolveBand(current, metric),
+    score,
+  };
+}
+
+/**
+ * Lo que más mejoró: el mejor de cada categoría, no los tres mejores en
+ * absoluto.
+ *
+ * Comparar entre categorías es lo que menos se sostiene —dentro de `tactical`
+ * y `technical` todo va en escala 0-6, pero `physical` mezcla centímetros,
+ * repeticiones y segundos—, y además un padre saca más de ver un avance en
+ * cada frente que tres notas técnicas seguidas.
+ */
+export function pickHighlights(
+  metrics: DisplayMetric[],
+  evolution: Record<string, SeriesPoint[]>,
+  resolveBand: (value: number, metric: DisplayMetric) => MetricBand
+): MetricHighlight[] {
+  const best = new Map<string, MetricHighlight>();
+
+  for (const metric of metrics) {
+    const series = evolution[metric.metric_key];
+    if (!series?.length) continue;
+    const h = buildHighlight(metric, series, resolveBand);
+    if (!h || h.score <= 0) continue;
+
+    const category = metric.category ?? 'other';
+    const previous = best.get(category);
+    if (!previous || h.score > previous.score) best.set(category, h);
+  }
+
+  return [...best.values()].sort((a, b) => b.score - a.score);
+}
+
+/**
+ * En qué se va a trabajar: lo que está en banda roja o ámbar, peor primero.
+ * Sin bandas configuradas no aparece nada — es preferible a inventar un
+ * veredicto.
+ */
+export function pickToWorkOn(
+  metrics: DisplayMetric[],
+  evolution: Record<string, SeriesPoint[]>,
+  resolveBand: (value: number, metric: DisplayMetric) => MetricBand,
+  limit = 3
+): MetricHighlight[] {
+  const rank: Record<string, number> = { red: 0, yellow: 1 };
+  const out: MetricHighlight[] = [];
+
+  for (const metric of metrics) {
+    const series = evolution[metric.metric_key];
+    if (!series?.length) continue;
+    const current = series[series.length - 1].value;
+    const band = resolveBand(current, metric);
+    if (band !== 'red' && band !== 'yellow') continue;
+
+    out.push({
+      metric,
+      series,
+      current,
+      band,
+      delta:
+        series.length >= 2
+          ? computeDelta(current, series[series.length - 2].value, metric.higher_is_better)
+          : { raw: 0, pct: null, improved: null, label: '—' },
+      score: improvementScore(metric, series) ?? 0,
+    });
+  }
+
+  return out
+    .sort((a, b) => rank[a.band as string] - rank[b.band as string] || a.score - b.score)
+    .slice(0, limit);
+}
+
 /** Dominio del eje Y que cubre datos y umbrales, con un margen del 8%. */
 export function yDomain(values: number[], thresholds?: MetricThreshold[]): [number, number] {
   const bounds = sortedThresholds(thresholds)
