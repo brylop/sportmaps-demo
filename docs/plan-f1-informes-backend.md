@@ -56,9 +56,43 @@ Todo lo demás que F1 necesita existe en migraciones, verificado uno por uno:
 | B. Guardas en F1 | Envolver cada referencia en `IF EXISTS`. | No. Esparce el problema y lo vuelve permanente. |
 | C. Seguir y regularizar después | F1 funciona en la base compartida. | Aceptable solo si hay prisa real. La deuda crece con cada migración que asume esas tablas. |
 
-**Para desbloquear:** corre `scripts/dump_unversioned_schema.sql` (un solo
-`SELECT`, respeta los gotchas del editor de Supabase) y pásame la salida. Con
-ese volcado escribo M0 fiel a lo que hay, sin inventar columnas.
+### ✅ Desbloqueado — M0 escrita
+
+Volcado corrido 2026-07-31. **M0 = `20260731154626_regularize_performance_schema.sql`**,
+escrita contra el DDL real. Es un **no-op deliberado contra la base actual**: todo
+va guardado (`IF NOT EXISTS`, o `DO` que consulta el catálogo antes de crear), y
+las policies se crean solo si faltan — sin `DROP … CREATE`, para no reemplazar una
+policy real por una transcripción con una diferencia sutil.
+
+Tres cosas que el volcado destapó y no estaban en el plan:
+
+**Una sexta pieza sin versionar: `is_parent_of_child(uuid)`.** La invocan las
+policies de `performance_entries` y `competition_results`, y tampoco la crea
+ninguna migración — solo aparece citada dentro de un reporte de linter embebido en
+`20260503000007`. M0 la crea **solo si falta**, así que la base compartida no se
+toca; pero **el cuerpo que puse es una reconstrucción**, no un volcado (el script
+saca DDL de tablas, no de funciones). Es una `SECURITY DEFINER` que gobierna el
+acceso del padre a los datos de su hijo, así que la diferencia importa: la query
+para reconciliarla está al final de M0.
+
+**`GRANT ALL … TO anon` en las cinco tablas**, los 7 privilegios. RLS está activa
+y las policies bloquean a anon en SELECT/INSERT/UPDATE/DELETE (con `auth.uid()`
+NULL, `subject_id = auth.uid()` es falso y `user_school_ids()` da vacío). El que
+RLS **no** cubre es `TRUNCATE`, que ignora policies — pero PostgREST no expone
+TRUNCATE, así que hoy no es alcanzable por la API. Probablemente viene de los
+default privileges que Supabase aplica a `public`, o sea que **no sería específico
+de estas tablas**; no lo puedo confirmar desde el repo. M0 lo **replica sin
+endosarlo**, porque su trabajo es que una base limpia quede igual a la de hoy, no
+mejor. Endurecerlo merece migración aparte, medida y aprobada.
+
+**El gap de `sport_metric_thresholds` sigue ahí:** no tiene eje de edad ni de
+categoría, así que una banda de «cm» vale igual para un benjamín y para un
+juvenil. Regularizar no es el momento de cambiar el modelo, pero es decisión de
+producto pendiente antes de F1.
+
+> ⚠️ **M0 no se ha ejecutado contra ningún Postgres.** No hay base local en este
+> entorno, así que está verificada por lectura y por el gate del ledger, no por el
+> parser. Al aplicarla, si algo falla, el fix va en migración nueva.
 
 ---
 
@@ -69,7 +103,7 @@ fix de RLS no debería obligar a releer la migración de tablas.
 
 | # | slug | Contenido |
 |---|---|---|
-| **M0** | `regularize_performance_schema` | Las 5 tablas del §0 con su DDL real, `CREATE TABLE IF NOT EXISTS` + índices + policies + grants. Sin datos. |
+| ~~**M0**~~ | ~~`regularize_performance_schema`~~ | ✅ **Escrita**: `20260731154626`. Las 5 tablas + `is_parent_of_child` + índices + policies + grants, todo guardado. Sin datos. Falta aplicarla. |
 | **M1** | `athlete_reports_tables` | `athlete_reports`, `team_report_notes`, `report_team_schedule` (+ `athlete_report_snapshots`, ver D-F). Índice único por `subject_type+subject_id`. Columnas nuevas en `school_settings`. Triggers de auditoría y `updated_at`. |
 | **M2** | `athlete_reports_rls` | `ENABLE ROW LEVEL SECURITY`, las policies de §9 y el helper `coach_can_see_report()`. **Sin `UPDATE` a `authenticated` sobre `athlete_reports`** (§9.1). |
 | **M3** | `athlete_reports_rpcs_write` | `generate_report_drafts`, `set_athlete_report_note`, `publish_athlete_report`, `publish_team_reports`, `hold_athlete_report`, `regenerate_report_snapshot`, `reschedule_pending_reports`. |
@@ -84,17 +118,23 @@ autenticado invoca con cualquier UUID.
 
 ## 2. Decisiones a cerrar antes de escribir SQL
 
-### D-A · El eje polimórfico no admite FK
+### D-A · El eje polimórfico no admite FK — ✅ CERRADA por el volcado
 
-`subject_type + subject_id` apunta a tres tablas distintas (`profiles`,
-`children`, `unregistered_athletes`). **Postgres no tiene FK polimórficas**, así
-que la convención del repo («FKs de negocio a `profiles(id)`») no se puede
-cumplir aquí tal cual. Opciones: sin FK y validar en el único escritor
-(`generate_report_drafts`), o un trigger de validación.
+`performance_entries` resuelve `subject_type` + `subject_id` con **solo un CHECK
+sobre el tipo** (`IN ('profile','child','unregistered')`) y **ninguna FK sobre el
+id**, sin trigger de validación. `metric_key` tampoco tiene FK al catálogo: es
+texto libre.
 
-Prefiero **hacer exactamente lo que ya hace `performance_entries`**, que usa el
-mismo eje: la consistencia con la tabla hermana vale más que la teoría. Eso lo
-decide el volcado del §0 — otra razón para correrlo primero.
+No es descuido: **Postgres no admite FK polimórficas**, así que sin trigger no
+hay otra salida. **`athlete_reports` copia esa convención** — CHECK en
+`subject_type`, sin FK en `subject_id` — y valida la existencia del sujeto dentro
+de `generate_report_drafts`, que es su único escritor. Consistencia con la tabla
+hermana antes que pureza.
+
+Dato adicional: `competition_results` usa el mismo eje pero admite un cuarto
+valor (`'team'`) y `subject_type` nulo, con `CHECK (subject_id IS NOT NULL OR
+team_id IS NOT NULL)`. El informe no necesita el caso de equipo — su sujeto es
+siempre un atleta.
 
 ### D-B · Qué tabla de asistencia alimenta los buckets
 
@@ -178,11 +218,15 @@ pantalla que no existe.
 
 ---
 
-## 5. Qué necesito de ti para arrancar
+## 5. Qué necesito de ti para seguir
 
-1. **La salida de `scripts/dump_unversioned_schema.sql`** — desbloquea M0 y cierra D-A.
-2. **Opción A, B o C** del §0.
-3. **D-C** (qué gobierna sin equipo/calendario) y **D-F** (la cuarta tabla).
+1. **Aplicar M0 (`20260731154626`) en Supabase** y decirme si el parser se queja.
+   Es no-op contra los datos, pero nunca se ejecutó.
+2. **El cuerpo real de `is_parent_of_child`** (la query está al final de M0), para
+   reconciliar mi reconstrucción en una migración nueva si difiere.
+3. **D-C** (qué gobierna al atleta sin equipo ni calendario) y **D-F** (la cuarta
+   tabla para archivar snapshots).
 
-D-B, D-D y D-E ya traen recomendación y las doy por cerradas salvo que digas lo
-contrario.
+D-A quedó cerrada por el volcado. D-B, D-D y D-E traen recomendación y las doy por
+cerradas salvo que digas lo contrario. Con D-C y D-F resueltas, M1 y M2 se pueden
+escribir sin esperar nada más.
