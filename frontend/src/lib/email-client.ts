@@ -7,6 +7,8 @@ export type EmailType =
     | 'welcome_school'
     | 'parent_invitation'
     | 'coach_invitation'
+    | 'athlete_invitation'
+    | 'staff_invitation'
     | 'payment_reminder';
 
 interface SendEmailParams {
