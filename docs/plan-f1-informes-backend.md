@@ -90,9 +90,28 @@ categoría, así que una banda de «cm» vale igual para un benjamín y para un
 juvenil. Regularizar no es el momento de cambiar el modelo, pero es decisión de
 producto pendiente antes de F1.
 
-> ⚠️ **M0 no se ha ejecutado contra ningún Postgres.** No hay base local en este
-> entorno, así que está verificada por lectura y por el gate del ledger, no por el
-> parser. Al aplicarla, si algo falla, el fix va en migración nueva.
+### M0 deadlockeó contra la base viva → aplicar `20260731160301`
+
+Al aplicar M0 saltó `40P01 deadlock detected`. **No fue error de SQL** — el parser
+aceptó el archivo completo, que es información útil. Fue concurrencia:
+
+`IF NOT EXISTS` evita el **error**, no el **lock**. `ALTER TABLE … ENABLE ROW LEVEL
+SECURITY` y `ALTER TABLE … ADD COLUMN IF NOT EXISTS` piden `AccessExclusiveLock`
+aunque no cambien nada. Con esos locks dentro de una transacción larga y una base
+que sirve tráfico real (una sola Supabase para dev/stg/prod), basta que otra sesión
+esté leyendo una de las cinco tablas para cruzar el orden de adquisición.
+
+O sea: **M0 era no-op lógico pero no no-op en locks.** M0 no se edita (inmutable,
+ya commiteada) y sobre una base limpia funciona — no hay tráfico con el que
+competir. Para la base viva está **`20260731160301_regularize_performance_schema_lockfree.sql`**,
+que pregunta al catálogo antes de cada sentencia que tomaría lock y así **no toma
+ni un lock exclusivo** cuando todo ya existe. Es autosuficiente: crea lo que falte,
+sin depender de que M0 haya corrido. Lleva `SET LOCAL lock_timeout = '5s'` para
+fallar claro en vez de colgarse.
+
+> **Lección para toda migración futura sobre esta base compartida:** una migración
+> «no-op» solo es segura si tampoco toma locks. Vale para `ENABLE RLS`,
+> `ADD COLUMN IF NOT EXISTS`, `DROP/CREATE TRIGGER` y `GRANT`.
 
 ---
 
