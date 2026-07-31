@@ -125,8 +125,49 @@ fix de RLS no debería obligar a releer la migración de tablas.
 | ~~**M0**~~ | ~~`regularize_performance_schema`~~ | ✅ **Escrita**: `20260731154626`. Las 5 tablas + `is_parent_of_child` + índices + policies + grants, todo guardado. Sin datos. Falta aplicarla. |
 | **M1** | `athlete_reports_tables` | `athlete_reports`, `team_report_notes`, `report_team_schedule` (+ `athlete_report_snapshots`, ver D-F). Índice único por `subject_type+subject_id`. Columnas nuevas en `school_settings`. Triggers de auditoría y `updated_at`. |
 | **M2** | `athlete_reports_rls` | `ENABLE ROW LEVEL SECURITY`, las policies de §9 y el helper `coach_can_see_report()`. **Sin `UPDATE` a `authenticated` sobre `athlete_reports`** (§9.1). |
-| **M3** | `athlete_reports_rpcs_write` | `generate_report_drafts`, `set_athlete_report_note`, `publish_athlete_report`, `publish_team_reports`, `hold_athlete_report`, `regenerate_report_snapshot`, `reschedule_pending_reports`. |
+| ~~**M3**~~ | ~~`athlete_reports_rpcs_write`~~ | ✅ **Escrita**: `20260731163725`. Las 7 RPCs de escritura + 2 helpers de fecha. Tests de concurrencia documentados al final del archivo. |
 | **M4** | `athlete_reports_rpcs_read` | `mark_report_viewed`, `report_coverage`, `adopt_reports_on_child_link`. |
+
+### D-G · El snapshot lo arma el llamador, no la RPC
+
+Decisión tomada al escribir M3, **desviación de §10** y la marco como tal.
+
+`publish_athlete_report` recibe el snapshot como parámetro en vez de calcularlo.
+Dos razones:
+
+El cálculo (destacados con delta, métricas a trabajar, bandas, radar) **ya existe
+y está en uso** en `frontend/src/lib/school/performanceDisplay.ts` —
+`pickHighlights`, `pickToWorkOn`, `computeDelta`, `sortedThresholds`.
+Reimplementarlo en SQL crea **dos rankings que pueden divergir**, y el día que
+divergen el padre y el coach ven números distintos del mismo mes.
+
+Y varias columnas que el cálculo necesita **no están versionadas** —
+`attendance_records.user_id`, `.unregistered_athlete_id`, `.session_id` — así que
+SQL escrito contra ellas funcionaría en la base real y fallaría en una limpia.
+Misma deriva de M0.
+
+Lo que la RPC sigue garantizando es lo que importa: autorización interna,
+`SELECT … FOR UPDATE`, validación de estado, resolución del destinatario y la
+transición atómica. El snapshot es un dato de entrada; la máquina de estados sigue
+siendo del servidor. Riesgo aceptado: un caller autorizado podría pasar un
+snapshot fabricado — pero es admin o coach de esa escuela y ya puede escribir las
+mediciones subyacentes, así que no gana capacidad nueva.
+
+### Inventario de deriva encontrada hasta ahora
+
+Cada vez que se toca algo aparece otra pieza sin versionar. Lo que va:
+
+| Objeto | Estado |
+|---|---|
+| 5 tablas de rendimiento | cubiertas por M0 / `20260731160301` |
+| `is_parent_of_child(uuid)` | cuerpo **reconstruido** en M0, a reconciliar |
+| `school_staff.coach_auth_id` | **sin versionar** — M2 elige el cuerpo de `current_staff_ids()` según si existe |
+| `attendance_records.user_id`, `.unregistered_athlete_id`, `.session_id` | **sin versionar** — motivo de D-G |
+| `upsert_attendance_record(...)` RPC | **sin versionar** |
+
+Merece **una** migración de regularización consolidada, con un volcado como el de
+M0 pero de funciones y de estas columnas. Antes de F5, que es la que más depende
+de asistencia.
 
 Cada `CREATE FUNCTION` con `SET search_path = pg_catalog, public, pg_temp` y su
 `GRANT EXECUTE` explícito. Cada RPC valida al caller **en su cuerpo** (§10.1) —
