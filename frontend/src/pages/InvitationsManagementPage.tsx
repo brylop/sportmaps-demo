@@ -24,6 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { PhoneInput } from '@/components/ui/phone-input';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { dbErrorMessage } from '@/lib/errors/dbErrorMessage';
+import { invitationEmailPayload } from '@/lib/email/invitationEmail';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -396,39 +397,6 @@ export default function InvitationsManagementPage() {
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
-  /**
-   * Arma el payload de send-email según el rol invitado.
-   *
-   * Antes los dos envíos (crear y reenviar) mandaban 'parent_invitation' fijo, así
-   * que a un entrenador le llegaba "para gestionar la información deportiva de tu
-   * hijo(a)". La plantilla 'coach_invitation' ya existía en la edge function.
-   *
-   * Ojo al tocar esto: un `type` que la edge function no conozca hace throw y el
-   * correo no sale. Solo hay plantilla de invitación para acudiente y entrenador;
-   * atleta/administrador/súper usuario siguen usando la de acudiente hasta que se
-   * agreguen plantillas propias (requiere desplegar send-email).
-   */
-  const invitationEmailPayload = (
-    role: string | undefined,
-    to: string,
-    name: string | null | undefined,
-    registrationUrl: string,
-  ) => {
-    const cleanName = (name || '').trim();
-    return role === 'coach'
-      ? {
-          type: 'coach_invitation',
-          to,
-          // La plantilla saluda "Hola <coachName>,": sin fallback quedaría "Hola ,".
-          data: { schoolName, coachName: cleanName || 'entrenador', registrationUrl },
-        }
-      : {
-          type: 'parent_invitation',
-          to,
-          data: { schoolName, childName: cleanName, registrationUrl },
-        };
-  };
-
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);
 
@@ -485,12 +453,13 @@ export default function InvitationsManagementPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
-        body: JSON.stringify(invitationEmailPayload(
-          invitation.role_to_assign,
-          invitation.invited_email,
-          invitation.child_name,
-          link,
-        )),
+        body: JSON.stringify(invitationEmailPayload({
+          role: invitation.role_to_assign,
+          to: invitation.invited_email,
+          name: invitation.child_name,
+          registrationUrl: link,
+          schoolName,
+        })),
       });
       toast({ title: '📧 Correo reenviado', description: `Email enviado a ${invitation.invited_email}` });
     } catch {
@@ -535,7 +504,13 @@ export default function InvitationsManagementPage() {
           'Authorization': `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
         body: JSON.stringify(
-          invitationEmailPayload(data.role, data.parentEmail, data.childName, registration_link)
+          invitationEmailPayload({
+            role: data.role,
+            to: data.parentEmail,
+            name: data.childName,
+            registrationUrl: registration_link,
+            schoolName,
+          })
         ),
       }).catch(err => console.warn('Email send failed:', err));
 

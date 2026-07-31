@@ -33,6 +33,7 @@ import {
   Send, Mail, Ban, X as XIcon, Search, Link as LinkIcon,
   Users, CreditCard,
 } from 'lucide-react';
+import { invitationEmailPayload } from '@/lib/email/invitationEmail';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -289,11 +290,15 @@ export function TrainerInvitationsTab() {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${s?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
           },
-          body: JSON.stringify({
-            type: 'parent_invitation',
-            to:   form.email,
-            data: { schoolName: studioName, childName: form.childName || '', registrationUrl: link },
-          }),
+          // Este tab invita atletas adultos y acudientes: con la plantilla de
+          // acudiente fija, al atleta le hablaban de "tu hijo(a)".
+          body: JSON.stringify(invitationEmailPayload({
+            role: form.role,
+            to: form.email,
+            name: form.childName,
+            registrationUrl: link,
+            schoolName: studioName,
+          })),
         }).catch(() => {});
       }
 
