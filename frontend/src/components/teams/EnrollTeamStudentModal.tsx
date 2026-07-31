@@ -142,10 +142,17 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                 .maybeSingle();
 
             if (enrollment?.id) {
-                await supabase
+                // El error se tiene que propagar. RLS solo deja escribir
+                // enrollments a owner/admin, así que a un entrenador esta
+                // actualización le falla — y antes el resultado se descartaba y
+                // el toast de éxito salía igual: la UI decía "removido" y el
+                // atleta seguía en el equipo.
+                const { error: cancelError } = await supabase
                     .from('enrollments')
                     .update({ status: 'cancelled' })
                     .eq('id', enrollment.id);
+
+                if (cancelError) throw cancelError;
             }
 
             toast({
