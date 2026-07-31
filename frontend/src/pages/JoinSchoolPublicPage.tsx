@@ -265,7 +265,7 @@ export default function JoinSchoolPublicPage() {
     if (!user) return toast({ title: 'Debes iniciar sesión', variant: 'destructive' });
     const useExisting = selectedChildId !== 'new';
     if (!useExisting && (!childName || !childDob)) {
-      return toast({ title: 'Completa nombre y fecha de nacimiento', variant: 'destructive' });
+      return toast({ title: 'Completa el nombre y la fecha de nacimiento del menor', variant: 'destructive' });
     }
 
     setSubmitting(true);
@@ -317,7 +317,7 @@ export default function JoinSchoolPublicPage() {
             </div>
           )}
           <div>
-            <p className="text-xs uppercase tracking-wider opacity-80">Inscripciones</p>
+            <p className="text-xs uppercase tracking-wider opacity-80">Inscripción de menores</p>
             <h1 className="text-2xl font-bold">{data.school?.name}</h1>
           </div>
         </div>
@@ -342,8 +342,10 @@ export default function JoinSchoolPublicPage() {
                 >
                   <UserPlus className="h-5 w-5 shrink-0" style={{ color: accent }} />
                   <div>
-                    <p className="font-bold text-sm">Inscribir un atleta</p>
-                    <p className="text-xs text-muted-foreground">Registrar a alguien nuevo y pagar el primer mes</p>
+                    <p className="font-bold text-sm">Inscribir a un menor de edad</p>
+                    <p className="text-xs text-muted-foreground">
+                      Soy el padre, madre o acudiente. Registro al menor a mi cargo y pago el primer mes.
+                    </p>
                   </div>
                 </button>
 
@@ -355,9 +357,29 @@ export default function JoinSchoolPublicPage() {
                   <CheckCircle2 className="h-5 w-5 shrink-0" style={{ color: accent }} />
                   <div>
                     <p className="font-bold text-sm">Pagar mensualidad</p>
-                    <p className="text-xs text-muted-foreground">Ya soy parte de la escuela</p>
+                    <p className="text-xs text-muted-foreground">Ya soy acudiente de un menor inscrito en esta escuela</p>
                   </div>
                 </button>
+
+                {/* El QR crea la cuenta como acudiente y registra al atleta como menor a su
+                    cargo. Un atleta mayor de edad NO debe inscribirse por aquí: lo inscribe
+                    la escuela (o su invitación de atleta), o quedaría como "hijo" de sí mismo. */}
+                <div className="rounded-xl border border-dashed p-3 text-xs text-muted-foreground">
+                  <p className="font-semibold text-foreground">¿El atleta es mayor de edad?</p>
+                  <p className="mt-0.5">
+                    Este enlace es solo para que un acudiente inscriba a un menor. Si eres el atleta
+                    y ya cumpliste 18, crea tu cuenta como atleta y pídele a {data.school?.name || 'la escuela'} que
+                    te inscriba en tu plan o equipo.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/register?role=athlete')}
+                    className="mt-2 font-semibold hover:underline"
+                    style={{ color: accent }}
+                  >
+                    Crear mi cuenta como atleta →
+                  </button>
+                </div>
               </div>
             )}
 
@@ -435,7 +457,7 @@ export default function JoinSchoolPublicPage() {
                   className="w-full gap-2"
                   style={{ backgroundColor: accent }}
                 >
-                  {user ? 'Continuar' : (data.cta_text || 'Inscribirme')}
+                  {user ? 'Continuar' : (data.cta_text || 'Inscribir a mi hijo/a')}
                   <ArrowRight className="h-4 w-4" />
                 </Button>
                 <Button variant="ghost" onClick={() => setStep('menu')} className="w-full">Volver</Button>
@@ -451,16 +473,22 @@ export default function JoinSchoolPublicPage() {
                 </TabsList>
 
                 <TabsContent value="register" className="space-y-3 pt-3">
+                  <div className="rounded-lg bg-slate-50 p-3">
+                    <p className="text-sm font-semibold">Datos del acudiente</p>
+                    <p className="text-xs text-muted-foreground">
+                      Tus datos, no los del menor. Esta cuenta queda como responsable del pago.
+                    </p>
+                  </div>
                   <div>
-                    <Label>Nombre completo *</Label>
+                    <Label>Tu nombre completo (acudiente) *</Label>
                     <Input value={parentName} onChange={(e) => setParentName(sanitizeName(e.target.value))} autoCapitalize="words" />
                   </div>
                   <div>
-                    <Label>Teléfono</Label>
+                    <Label>Tu teléfono</Label>
                     <Input value={parentPhone} inputMode="tel" onChange={(e) => setParentPhone(e.target.value.replace(/[^\d+\s-]/g, ''))} />
                   </div>
                   <div>
-                    <Label>Email *</Label>
+                    <Label>Tu email *</Label>
                     <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
                   </div>
                   <div>
@@ -469,7 +497,7 @@ export default function JoinSchoolPublicPage() {
                   </div>
                   <Button onClick={handleRegister} disabled={authLoading} className="w-full gap-2" style={{ backgroundColor: accent }}>
                     {authLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-                    Crear cuenta y continuar
+                    Crear cuenta de acudiente y continuar
                   </Button>
                   <button type="button" onClick={() => setAuthTab('login')} className="text-xs text-muted-foreground hover:underline w-full text-center">
                     ¿Ya tienes cuenta? Inicia sesión
@@ -513,14 +541,14 @@ export default function JoinSchoolPublicPage() {
                 ) : !payTargets || payTargets.children.length === 0 ? (
                   <div className="space-y-3 text-center py-4">
                     <p className="text-sm text-muted-foreground">
-                      No encontramos atletas tuyos inscritos en esta escuela.
+                      No encontramos menores a tu cargo inscritos en esta escuela.
                     </p>
                     <Button
                       onClick={() => { setIntent('inscribir'); setStep('choose'); }}
                       className="w-full gap-2"
                       style={{ backgroundColor: accent }}
                     >
-                      <UserPlus className="h-4 w-4" /> Inscribir un atleta
+                      <UserPlus className="h-4 w-4" /> Inscribir a un menor
                     </Button>
                   </div>
                 ) : (
@@ -573,10 +601,16 @@ export default function JoinSchoolPublicPage() {
             {/* PASO 3 — Datos del atleta (siempre, ya logueado) */}
             {step === 'child' && (
               <div className="space-y-4">
-                <h2 className="font-bold text-lg">¿A quién inscribes?</h2>
+                <div>
+                  <h2 className="font-bold text-lg">¿A qué menor inscribes?</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Los datos de abajo son del menor de edad, no tuyos.
+                  </p>
+                </div>
 
                 {existingChildren.length > 0 && (
                   <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Menores ya registrados a tu cargo</Label>
                     {existingChildren.map((c) => (
                       <button
                         key={c.id}
@@ -599,7 +633,7 @@ export default function JoinSchoolPublicPage() {
                       className={`w-full text-left border rounded-lg p-3 transition-all ${selectedChildId === 'new' ? 'border-2' : 'border-dashed border-muted hover:border-muted-foreground/40'}`}
                       style={selectedChildId === 'new' ? { borderColor: accent, boxShadow: `0 0 0 2px ${accent}33` } : undefined}
                     >
-                      <span className="font-semibold text-sm">+ Agregar nuevo atleta</span>
+                      <span className="font-semibold text-sm">+ Registrar otro menor</span>
                     </button>
                   </div>
                 )}
@@ -607,15 +641,15 @@ export default function JoinSchoolPublicPage() {
                 {selectedChildId === 'new' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="md:col-span-2">
-                    <Label>Nombre completo *</Label>
+                    <Label>Nombre completo del menor *</Label>
                     <Input value={childName} onChange={(e) => setChildName(sanitizeName(e.target.value))} autoCapitalize="words" />
                   </div>
                   <div>
-                    <Label>Fecha de nacimiento *</Label>
+                    <Label>Fecha de nacimiento del menor *</Label>
                     <Input type="date" value={childDob} onChange={(e) => setChildDob(e.target.value)} />
                   </div>
                   <div>
-                    <Label>Género</Label>
+                    <Label>Género del menor</Label>
                     <Select value={childGender} onValueChange={setChildGender}>
                       <SelectTrigger><SelectValue placeholder="Opcional" /></SelectTrigger>
                       <SelectContent>
@@ -626,20 +660,20 @@ export default function JoinSchoolPublicPage() {
                     </Select>
                   </div>
                   <div>
-                    <Label>Tipo de doc</Label>
+                    <Label>Tipo de documento del menor</Label>
                     <Select value={childDocType} onValueChange={setChildDocType}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="TI">TI</SelectItem>
-                        <SelectItem value="CC">CC</SelectItem>
-                        <SelectItem value="RC">RC</SelectItem>
-                        <SelectItem value="CE">CE</SelectItem>
-                        <SelectItem value="PAS">PAS</SelectItem>
+                        <SelectItem value="TI">TI — Tarjeta de identidad</SelectItem>
+                        <SelectItem value="RC">RC — Registro civil</SelectItem>
+                        <SelectItem value="CC">CC — Cédula</SelectItem>
+                        <SelectItem value="CE">CE — Cédula de extranjería</SelectItem>
+                        <SelectItem value="PAS">PAS — Pasaporte</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
-                    <Label>Número de documento</Label>
+                    <Label>Número de documento del menor</Label>
                     <Input
                       value={childDocNumber}
                       inputMode={childDocType === 'PAS' ? 'text' : 'numeric'}
@@ -663,7 +697,7 @@ export default function JoinSchoolPublicPage() {
 
                 <Button onClick={handleSubmitChild} disabled={submitting} className="w-full gap-2" style={{ backgroundColor: accent }}>
                   {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {data.require_first_payment ? 'Inscribirme y continuar al pago' : 'Completar inscripción'}
+                  {data.require_first_payment ? 'Inscribir al menor y continuar al pago' : 'Completar inscripción del menor'}
                 </Button>
                 <Button variant="ghost" onClick={() => setStep(user ? 'choose' : 'auth')} className="w-full">
                   Volver
@@ -676,7 +710,9 @@ export default function JoinSchoolPublicPage() {
               <div className="text-center py-6 space-y-3">
                 <CheckCircle2 className="h-14 w-14 text-green-600 mx-auto" />
                 <h2 className="text-xl font-bold">¡Inscripción completada!</h2>
-                <p className="text-sm text-muted-foreground">Tu inscripción ya está registrada en {data.school?.name}.</p>
+                <p className="text-sm text-muted-foreground">
+                  La inscripción del menor ya quedó registrada en {data.school?.name}, a tu nombre como acudiente.
+                </p>
                 <Button onClick={() => navigate('/dashboard')} style={{ backgroundColor: accent }}>
                   Ir a mi panel
                 </Button>

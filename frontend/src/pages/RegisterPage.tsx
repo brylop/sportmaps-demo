@@ -591,10 +591,17 @@ export default function RegisterPage() {
               {/* Role Selection */}
               <div className="space-y-3 md:col-span-2 mt-4">
                 <label className="text-[10px] font-bold uppercase tracking-widest text-[#4a5246]">Soy...</label>
+                {!inviteRole && (
+                  <p className="text-[11px] text-[#8a9186] leading-snug px-1">
+                    <span className="text-[#d4d8d0] font-semibold">Atleta:</span> me inscribo yo mismo, soy mayor de edad.{' '}
+                    <span className="text-[#d4d8d0] font-semibold">Acudiente:</span> inscribo a un menor de edad a mi cargo
+                    (la cuenta va a tu nombre y tú pagas).
+                  </p>
+                )}
                 <div className="role-card-grid">
                   {[
-                    { id: 'athlete', icon: '⚽', label: 'Atleta' },
-                    { id: 'parent', icon: '👨‍👩‍👧', label: 'Padre' },
+                    { id: 'athlete', icon: '⚽', label: 'Atleta 18+' },
+                    { id: 'parent', icon: '👨‍👩‍👧', label: 'Acudiente' },
                     { id: 'coach', icon: '📋', label: 'Coach' },
                     { id: 'school', icon: '🏫', label: 'Escuela' },
                     { id: 'wellness_professional', icon: '💚', label: 'Profesional' },
@@ -625,8 +632,14 @@ export default function RegisterPage() {
               {showDateOfBirth && (
                 <div className="space-y-2 md:col-span-2 animate-in slide-in-from-top-2 duration-300">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">
-                    Fecha de Nacimiento
+                    {roleValue === 'parent' ? 'Tu fecha de nacimiento (acudiente)' : 'Tu fecha de nacimiento'}
                   </label>
+                  {roleValue === 'athlete' && (
+                    <p className="text-[11px] text-[#8a9186] leading-snug px-1">
+                      La tuya, la del atleta. Si el atleta es menor de edad, la cuenta la debe crear
+                      su acudiente con el rol <span className="text-[#d4d8d0] font-semibold">Acudiente</span>.
+                    </p>
+                  )}
                   <Controller
                     name="dateOfBirth"
                     control={control}

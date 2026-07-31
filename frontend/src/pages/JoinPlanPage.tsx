@@ -260,27 +260,32 @@ export default function JoinPlanPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-3">
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">¿Quien se registra?</Label>
+              <Label className="text-xs font-semibold">¿Quien crea esta cuenta?</Label>
               <div className="grid grid-cols-2 gap-2">
                 <Button
                   type="button"
                   variant={registrantKind === 'parent' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setRegistrantKind('parent')}
-                  className="text-xs"
+                  className="text-xs h-auto py-2 leading-tight"
                 >
-                  Padre / Madre
+                  Soy el acudiente<br /><span className="font-normal opacity-80">del atleta menor de edad</span>
                 </Button>
                 <Button
                   type="button"
                   variant={registrantKind === 'athlete' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setRegistrantKind('athlete')}
-                  className="text-xs"
+                  className="text-xs h-auto py-2 leading-tight"
                 >
-                  Soy el deportista
+                  Soy el atleta<br /><span className="font-normal opacity-80">y soy mayor de edad</span>
                 </Button>
               </div>
+              <p className="text-[11px] text-muted-foreground">
+                {registrantKind === 'parent'
+                  ? 'La cuenta queda a tu nombre como responsable del pago; el atleta menor queda a tu cargo.'
+                  : 'La cuenta queda a tu nombre como atleta: pagas y ves tu plan tu mismo, sin acudiente.'}
+              </p>
             </div>
 
             <div className="space-y-1.5">
@@ -294,8 +299,16 @@ export default function JoinPlanPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="fullName">Tu nombre completo *</Label>
-              <Input id="fullName" required value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Nombre completo" />
+              <Label htmlFor="fullName">
+                {registrantKind === 'parent' ? 'Tu nombre completo (acudiente) *' : 'Tu nombre completo (atleta) *'}
+              </Label>
+              <Input
+                id="fullName"
+                required
+                value={fullName}
+                onChange={e => setFullName(e.target.value)}
+                placeholder={registrantKind === 'parent' ? 'Nombre del acudiente' : 'Tu nombre'}
+              />
             </div>
 
             <div className="space-y-1.5">
@@ -306,14 +319,14 @@ export default function JoinPlanPage() {
             <div className="space-y-1.5 p-3 rounded-lg bg-primary/5 border border-primary/20">
               <Label htmlFor="docNumber" className="flex items-center gap-1.5 font-semibold">
                 <Shield className="h-3.5 w-3.5" />
-                {registrantKind === 'parent' ? 'Documento del hijo/a *' : 'Tu documento *'}
+                {registrantKind === 'parent' ? 'Documento del menor a tu cargo *' : 'Tu documento (atleta) *'}
               </Label>
               <Input
                 id="docNumber"
                 required
                 value={docNumber}
                 onChange={e => setDocNumber(e.target.value)}
-                placeholder="Numero de documento (CC, TI o RC)"
+                placeholder={registrantKind === 'parent' ? 'Documento del menor (TI o RC)' : 'Tu documento (CC)'}
                 className={validation ? (validation.already_linked ? 'border-destructive' : 'border-green-500') : ''}
               />
               {validating && (
@@ -333,7 +346,10 @@ export default function JoinPlanPage() {
               )}
               {docNumber.length >= 5 && !validating && !validation && (
                 <p className="text-xs text-destructive flex items-center gap-1">
-                  <AlertCircle className="h-3 w-3" /> No encontramos un atleta con ese CC en este plan
+                  <AlertCircle className="h-3 w-3" />
+                  {registrantKind === 'parent'
+                    ? 'No encontramos un menor con ese documento en este plan'
+                    : 'No encontramos un atleta con ese documento en este plan'}
                 </p>
               )}
             </div>

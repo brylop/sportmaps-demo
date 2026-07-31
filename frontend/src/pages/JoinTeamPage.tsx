@@ -11,14 +11,21 @@ import { Loader2, CheckCircle2, AlertCircle, UserPlus, Shield } from 'lucide-rea
 import { useToast } from '@/hooks/use-toast';
 
 /**
- * Pagina publica de auto-registro por equipo.
- * URL: /join-team/:teamId
+ * Pagina publica de auto-registro del acudiente.
+ * URL: /join-team/:teamId  (el equipo del link solo da contexto/branding)
  *
  * Flujo:
  * 1. Carga info del equipo/escuela/sede via get_team_join_info
- * 2. Padre ingresa: email, password, nombre, telefono, documento del hijo
- * 3. Validamos el doc via validate_child_for_team_join (pre-registro)
- * 4. Si OK -> supabase.auth.signUp -> claim_child_for_parent -> dashboard
+ * 2. Acudiente ingresa: email, password, nombre, telefono, documento del menor
+ * 3. Buscamos el documento con find_athletes_by_document — GLOBAL: todos los
+ *    equipos y todas las escuelas. Antes era validate_child_for_team_join, que
+ *    solo miraba DENTRO del equipo del link: con el link del equipo equivocado
+ *    el acudiente recibia "no encontrado" aunque su hijo si existiera, se iba al
+ *    QR y ahi chocaba con el indice unico de documento.
+ * 4. supabase.auth.signUp -> claim_children_by_document -> dashboard
+ *
+ * Un mismo documento puede devolver VARIAS filas (el mismo chico inscrito en dos
+ * clubes), por eso el acudiente elige cual/cuales son suyos.
  */
 
 interface TeamInfo {
@@ -31,10 +38,17 @@ interface TeamInfo {
   athletes_count: number;
 }
 
-interface ValidationResult {
+interface AthleteMatch {
   child_id: string;
   full_name: string;
+  date_of_birth: string | null;
+  school_id: string;
+  school_name: string | null;
+  team_id: string | null;
+  team_name: string | null;
+  branch_name: string | null;
   already_linked: boolean;
+  is_mine: boolean;
 }
 
 export default function JoinTeamPage() {
@@ -49,8 +63,14 @@ export default function JoinTeamPage() {
   const [childDoc, setChildDoc] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [validating, setValidating] = useState(false);
-  const [validation, setValidation] = useState<ValidationResult | null>(null);
+  const [matches, setMatches] = useState<AthleteMatch[]>([]);
+  const [searched, setSearched] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [linkedNames, setLinkedNames] = useState<string[]>([]);
   const [success, setSuccess] = useState(false);
+
+  const claimable = matches.filter(m => !m.already_linked);
+  const blocked   = matches.filter(m => m.already_linked);
 
   // ── Cargar info del equipo ───────────────────────────────────────────────
   const { data: teamInfo, isLoading: loadingTeam, error: teamError } = useQuery<TeamInfo | null>({
@@ -64,33 +84,54 @@ export default function JoinTeamPage() {
     enabled: !!teamId,
   });
 
-  // ── Validar documento cuando cambia ──────────────────────────────────────
+  // ── Buscar el documento cuando cambia (global, no por equipo) ────────────
   useEffect(() => {
-    setValidation(null);
-    if (!childDoc || !teamId || childDoc.replace(/\D/g, '').length < 5) return;
+    setMatches([]);
+    setSelectedIds([]);
+    setSearched(false);
+    if (!childDoc || childDoc.replace(/[^A-Za-z0-9]/g, '').length < 5) return;
     const timer = setTimeout(async () => {
       setValidating(true);
-      const { data, error } = await (supabase.rpc as any)('validate_child_for_team_join', {
-        p_team_id: teamId,
+      const { data, error } = await (supabase.rpc as any)('find_athletes_by_document', {
         p_doc_number: childDoc,
+        p_school_id: teamInfo?.school_id ?? null,
       });
       setValidating(false);
-      if (!error && data && data.length > 0) {
-        setValidation(data[0] as ValidationResult);
+      setSearched(true);
+      if (error) {
+        toast({ title: 'No pudimos buscar el documento', description: error.message, variant: 'destructive' });
+        return;
       }
+      const rows = (data as AthleteMatch[]) || [];
+      setMatches(rows);
+      // Pre-selecciona los vinculables de ESTA escuela; si no hay ninguno de
+      // esta escuela, los vinculables de cualquier otra (link equivocado).
+      const free = rows.filter(r => !r.already_linked);
+      const here = free.filter(r => r.school_id === teamInfo?.school_id);
+      setSelectedIds((here.length > 0 ? here : free).map(r => r.child_id));
     }, 500);
     return () => clearTimeout(timer);
-  }, [childDoc, teamId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [childDoc, teamInfo?.school_id]);
+
+  const toggleSelected = (id: string) =>
+    setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
 
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validation) {
-      toast({ title: 'Documento invalido', description: 'El atleta no existe en este equipo', variant: 'destructive' });
+    if (matches.length === 0) {
+      toast({ title: 'Documento no encontrado', description: 'No encontramos ningun atleta con ese documento en SportMaps', variant: 'destructive' });
       return;
     }
-    if (validation.already_linked) {
-      toast({ title: 'Ya vinculado', description: 'Este atleta ya tiene un acudiente asociado', variant: 'destructive' });
+    if (selectedIds.length === 0) {
+      toast({
+        title: blocked.length > 0 ? 'Ese atleta ya tiene acudiente' : 'Selecciona al atleta',
+        description: blocked.length > 0
+          ? 'Ya existe una cuenta vinculada a ese atleta. Inicia sesion con ella o pidele a la escuela que la cambie.'
+          : 'Marca cual de los atletas encontrados es tuyo.',
+        variant: 'destructive',
+      });
       return;
     }
     if (password.length < 8) {
@@ -123,37 +164,40 @@ export default function JoinTeamPage() {
       if (!sessionData.session) {
         toast({
           title: 'Revisa tu correo',
-          description: 'Te enviamos un enlace para confirmar tu cuenta. Despues de confirmar, haz login e ingresa el documento de tu hijo/a.',
+          description: 'Te enviamos un enlace para confirmar tu cuenta. Despues de confirmar, haz login e ingresa el documento del menor.',
         });
         setSuccess(true);
         return;
       }
 
-      // 2. Reclamar al hijo
-      const { data: claimData, error: claimError } = await (supabase.rpc as any)('claim_child_for_parent', {
-        p_child_id:  validation.child_id,
-        p_full_name: fullName,
-        p_phone:     phone,
+      // 2. Vincular a los atletas elegidos (global: puede ser mas de uno y de
+      //    escuelas distintas). La RPC adopta huerfanos y respeta los que ya
+      //    tienen otro acudiente.
+      const { data: claimData, error: claimError } = await (supabase.rpc as any)('claim_children_by_document', {
+        p_doc_number: childDoc,
+        p_child_ids:  selectedIds,
+        p_full_name:  fullName,
+        p_phone:      phone,
       });
 
       if (claimError) {
         throw new Error(claimError.message);
       }
 
-      // La RPC devuelve status_code: 'ok' | 'already_linked' | 'not_found' | 'no_auth'
-      const status = Array.isArray(claimData) && claimData.length > 0 ? claimData[0].status_code : null;
-      if (status === 'already_linked') {
-        throw new Error('Este atleta ya esta vinculado a otro acudiente. Contacta a la escuela.');
-      }
-      if (status === 'not_found') {
-        throw new Error('Atleta no encontrado');
-      }
-      if (status === 'no_auth') {
-        throw new Error('Sesion no valida. Vuelve a iniciar sesion.');
-      }
-      if (status !== 'ok') {
+      const res = (claimData || {}) as {
+        matches?: number;
+        claimed?: { child_id: string; full_name: string }[];
+        already_mine?: { child_id: string; full_name: string }[];
+        taken_by_other?: { child_id: string; full_name: string }[];
+      };
+      const linked = [...(res.claimed || []), ...(res.already_mine || [])];
+      if (linked.length === 0) {
+        if ((res.taken_by_other || []).length > 0) {
+          throw new Error('Ese atleta ya esta vinculado a otra cuenta. Contacta a la escuela para que lo pasen a la tuya.');
+        }
         throw new Error('No se pudo completar la vinculacion');
       }
+      setLinkedNames(linked.map(l => l.full_name));
 
       // Refrescar la sesion para que el profile.role='parent' se cargue
       // (el trigger handle_new_user puede haber puesto otro role por default)
@@ -167,7 +211,10 @@ export default function JoinTeamPage() {
       localStorage.removeItem('sportmaps_active_school_id');
 
       setSuccess(true);
-      toast({ title: '✅ Registro completado', description: `${validation.full_name} vinculado a tu cuenta` });
+      toast({
+        title: '✅ Registro completado',
+        description: `${linked.map(l => l.full_name).join(', ')} vinculado a tu cuenta`,
+      });
 
       // Usar window.location para forzar reload completo (no solo navigate SPA)
       setTimeout(() => { window.location.href = '/dashboard'; }, 1500);
@@ -213,7 +260,9 @@ export default function JoinTeamPage() {
               <CheckCircle2 className="h-5 w-5" /> ¡Listo!
             </CardTitle>
             <CardDescription>
-              {validation ? `${validation.full_name} quedo vinculado a tu cuenta.` : 'Te enviamos un correo para confirmar.'}
+              {linkedNames.length > 0
+                ? `${linkedNames.join(', ')} quedo vinculado a tu cuenta. `
+                : 'Te enviamos un correo para confirmar. '}
               Te redirigimos al dashboard.
             </CardDescription>
           </CardHeader>
@@ -231,7 +280,7 @@ export default function JoinTeamPage() {
               <UserPlus className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <CardTitle className="text-lg">Registro de Acudientes</CardTitle>
+              <CardTitle className="text-lg">Registro del acudiente</CardTitle>
               <CardDescription className="text-xs">
                 {teamInfo.school_name}
                 {teamInfo.branch_name ? ` · ${teamInfo.branch_name}` : ''}
@@ -239,6 +288,15 @@ export default function JoinTeamPage() {
                 <span className="font-semibold text-primary">{teamInfo.team_name}</span>
               </CardDescription>
             </div>
+          </div>
+
+          {/* Este link fuerza role='parent' y vincula un `children`: sirve solo para el
+              acudiente de un menor. El atleta mayor de edad se registra por su cuenta. */}
+          <div className="rounded-md border border-dashed px-3 py-2 text-[11px] text-muted-foreground">
+            Este enlace es para el <strong className="text-foreground">acudiente</strong> de un atleta{' '}
+            <strong className="text-foreground">menor de edad</strong> ya cargado por la escuela.
+            Si eres el atleta y eres mayor de edad, pídele a la escuela tu invitación de atleta
+            para registrarte tu mismo.
           </div>
         </CardHeader>
 
@@ -255,7 +313,7 @@ export default function JoinTeamPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="fullName">Tu nombre completo *</Label>
+              <Label htmlFor="fullName">Tu nombre completo (acudiente) *</Label>
               <Input id="fullName" required value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Nombre del acudiente" />
             </div>
 
@@ -266,34 +324,84 @@ export default function JoinTeamPage() {
 
             <div className="space-y-1.5 p-3 rounded-lg bg-primary/5 border border-primary/20">
               <Label htmlFor="childDoc" className="flex items-center gap-1.5 font-semibold">
-                <Shield className="h-3.5 w-3.5" /> Documento del hijo/a *
+                <Shield className="h-3.5 w-3.5" /> Documento del menor a tu cargo *
               </Label>
               <Input
                 id="childDoc"
                 required
                 value={childDoc}
                 onChange={e => setChildDoc(e.target.value)}
-                placeholder="Numero de documento (TI, RC o CC)"
-                className={validation ? (validation.already_linked ? 'border-destructive' : 'border-green-500') : ''}
+                placeholder="Documento del menor (TI o RC)"
+                className={searched ? (claimable.length > 0 ? 'border-green-500' : 'border-destructive') : ''}
               />
+              <p className="text-[11px] text-muted-foreground">
+                Lo buscamos en toda la app, no solo en {teamInfo.team_name}: si esta en otro
+                equipo o en otra sede igual lo encontramos.
+              </p>
+
               {validating && (
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Loader2 className="h-3 w-3 animate-spin" /> Validando...
+                  <Loader2 className="h-3 w-3 animate-spin" /> Buscando...
                 </p>
               )}
-              {validation && !validation.already_linked && (
-                <p className="text-xs text-green-600 flex items-center gap-1 font-medium">
-                  <CheckCircle2 className="h-3 w-3" /> {validation.full_name}
-                </p>
+
+              {/* Un mismo documento puede aparecer en varias escuelas (mismo chico,
+                  dos clubes): el acudiente marca cual/cuales son suyos. */}
+              {claimable.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  <p className="text-xs font-medium text-green-700">
+                    {claimable.length === 1 ? 'Encontramos a:' : `Encontramos ${claimable.length} atletas con ese documento:`}
+                  </p>
+                  {claimable.map(m => (
+                    <button
+                      key={m.child_id}
+                      type="button"
+                      onClick={() => toggleSelected(m.child_id)}
+                      className={`w-full text-left rounded-md border px-2.5 py-2 transition-all ${
+                        selectedIds.includes(m.child_id) ? 'border-green-500 bg-green-50' : 'border-muted hover:border-muted-foreground/40'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1.5 text-xs font-semibold">
+                        {selectedIds.includes(m.child_id) && <CheckCircle2 className="h-3 w-3 text-green-600" />}
+                        {m.full_name}
+                      </span>
+                      <span className="block text-[11px] text-muted-foreground">
+                        {[m.school_name, m.team_name, m.branch_name].filter(Boolean).join(' · ')}
+                        {m.school_id !== teamInfo.school_id ? ' — otra escuela' : ''}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               )}
-              {validation && validation.already_linked && (
-                <p className="text-xs text-destructive flex items-center gap-1">
-                  <AlertCircle className="h-3 w-3" /> Este atleta ya tiene acudiente vinculado
-                </p>
+
+              {blocked.length > 0 && (
+                <div className="text-xs text-destructive space-y-1 pt-1">
+                  {blocked.map(m => (
+                    <p key={m.child_id} className="flex items-start gap-1">
+                      <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                      <span>
+                        {m.full_name} ({[m.school_name, m.team_name].filter(Boolean).join(' · ')}) ya tiene
+                        una cuenta de acudiente vinculada.
+                      </span>
+                    </p>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/login${email ? `?email=${encodeURIComponent(email)}` : ''}`)}
+                    className="font-semibold underline"
+                  >
+                    Iniciar sesion con esa cuenta
+                  </button>
+                </div>
               )}
-              {childDoc.length >= 5 && !validating && !validation && (
-                <p className="text-xs text-destructive flex items-center gap-1">
-                  <AlertCircle className="h-3 w-3" /> Documento no encontrado en este equipo
+
+              {searched && matches.length === 0 && !validating && (
+                <p className="text-xs text-destructive flex items-start gap-1">
+                  <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                  <span>
+                    No encontramos ningun atleta con ese documento en SportMaps. Revisa el numero
+                    o pidele a {teamInfo.school_name} que lo cargue.
+                  </span>
                 </p>
               )}
             </div>
@@ -301,7 +409,7 @@ export default function JoinTeamPage() {
             <Button
               type="submit"
               className="w-full"
-              disabled={submitting || !validation || validation.already_linked}
+              disabled={submitting || selectedIds.length === 0}
             >
               {submitting ? (
                 <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Registrando...</>
