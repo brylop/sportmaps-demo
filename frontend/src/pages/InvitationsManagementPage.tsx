@@ -481,11 +481,12 @@ export default function InvitationsManagementPage() {
       const { data: inviteId, error } = await (supabase.rpc as any)('create_invitation', {
         p_email: data.parentEmail,
         p_role: data.role,
-        // Para coach se guarda el nombre (si vino de "Sugeridos"): es el campo que
-        // bulk-send y resendEmail leen como nombre del entrenador. Para atleta y
-        // administrador se deja null: accept_invitation_pro usa child_name para
-        // emparejar atletas no registrados y un nombre ahí lo confundiría.
-        p_child_name: ['parent', 'coach'].includes(data.role) ? (data.childName || null) : null,
+        // child_name guarda el nombre de la persona invitada, no solo del menor:
+        // es el campo que las plantillas de correo leen al reenviar. Se guarda para
+        // los roles que tienen campo de nombre en el form. (Para atleta es seguro:
+        // accept_invitation_pro empareja unregistered_athletes por invitation_id y
+        // por email, nunca por child_name.)
+        p_child_name: ['parent', 'coach', 'athlete'].includes(data.role) ? (data.childName || null) : null,
         p_team_id: ['parent', 'athlete', 'coach'].includes(data.role) ? (data.teamId || null) : null,
         p_monthly_fee: ['parent', 'athlete'].includes(data.role) ? fee : null,
         p_parent_phone: data.parentPhone.replace(/\D/g, '').length >= 8 ? data.parentPhone : null,
@@ -1265,6 +1266,26 @@ export default function InvitationsManagementPage() {
                         Este equipo aún no tiene atletas registrados — escribe el nombre manualmente.
                       </p>
                     )}
+                  </div>
+                )}
+
+                {/* Nombre para los roles que no son acudiente. Sin esto el correo
+                    saludaba "Hola entrenador," en vez de usar su nombre; se guarda
+                    en child_name, que es el campo que las plantillas leen. */}
+                {['coach', 'athlete'].includes(formData.role) && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="inviteeName" className="text-sm font-medium">
+                      {formData.role === 'coach' ? 'Nombre del entrenador' : 'Nombre del atleta'}{' '}
+                      <span className="font-normal text-muted-foreground">(opcional)</span>
+                    </Label>
+                    <Input
+                      id="inviteeName" placeholder="Nombre completo" className="h-10"
+                      value={formData.childName}
+                      onChange={e => setFormData({ ...formData, childName: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Se usa para personalizar el correo de invitación.
+                    </p>
                   </div>
                 )}
 
