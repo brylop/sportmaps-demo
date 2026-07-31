@@ -108,10 +108,19 @@ atleta no vino», que es justo lo que D12 pide no confundir.
 
 ### D-C · Qué gobierna cuando no hay calendario
 
-D17 dice que gobierna el equipo con el `send_day` más temprano. Falta el caso
-base: **atleta sin fila en `report_team_schedule`**, y peor, **atleta sin
-equipo** — en Dynasty hay 6 activos así. Con la regla literal su informe nunca
-se publicaría, en silencio.
+Dos fechas distintas que es fácil confundir, y conviene fijarlas por escrito
+porque de esto sale el SQL:
+
+- **Qué equipo gobierna** a un atleta multi-equipo: el del `send_day` **más
+  tardío** (D17). Con el más temprano el snapshot se congelaba antes de vencer
+  el plazo del segundo coach y su nota se perdía siempre.
+- **Cuándo se crean los borradores**: `draft_lead_days` antes del `send_day`
+  **más temprano de la escuela** (§11), para que todos existan antes de que se
+  publique cualquiera.
+
+Falta el caso base: **atleta sin fila en `report_team_schedule`**, y peor,
+**atleta sin equipo** — en Dynasty hay 6 activos así. Con la regla literal su
+informe nunca se publicaría, en silencio.
 
 Propuesta: `team_id` nulo, gobierna un día por defecto de la escuela, y esos
 atletas **aparecen en el tablero de cobertura** en vez de desaparecer. Un
