@@ -48,6 +48,8 @@ interface BillingSettings {
   late_fee_enabled: boolean;
   late_fee_percentage: number;
   allow_coach_messaging: boolean;
+  /** El entrenador puede inscribir en equipos con cobro (genera mensualidad). */
+  coach_can_enroll_paid_teams: boolean;
   require_payment_proof: boolean;
   bank_name?: string | null;
   bank_account_type?: string | null;
@@ -83,6 +85,8 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   late_fee_enabled: false,
   late_fee_percentage: 5,
   allow_coach_messaging: true,
+  // Default alineado con el de la columna en DB: es el comportamiento de siempre.
+  coach_can_enroll_paid_teams: true,
   require_payment_proof: true,
   allow_installments: true,
   max_installments_per_payment: 3,
@@ -391,6 +395,7 @@ export default function PaymentsAutomationPage() {
         late_fee_enabled: billing.late_fee_enabled,
         late_fee_percentage: billing.late_fee_percentage,
         allow_coach_messaging: billing.allow_coach_messaging,
+        coach_can_enroll_paid_teams: billing.coach_can_enroll_paid_teams,
         require_payment_proof: billing.require_payment_proof,
         bank_name: billing.bank_name,
         bank_account_type: billing.bank_account_type,
@@ -1867,7 +1872,20 @@ export default function PaymentsAutomationPage() {
                     <Switch checked={billing.allow_coach_messaging} onCheckedChange={v => updateBilling('allow_coach_messaging', v)} />
                   </div>
                   <Separator />
-                  <p className="text-xs text-muted-foreground text-center">Más opciones de permisos próximamente.</p>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <Label className="font-medium">Coaches pueden inscribir en equipos con cobro</Label>
+                      <p className="text-xs text-muted-foreground max-w-[46ch]">
+                        Inscribir a un atleta en un equipo con mensualidad le genera el cobro en
+                        la apertura del mes. Si lo apagas, esas inscripciones las hace la escuela.
+                        Asignar planes de pago nunca lo puede hacer un entrenador.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={billing.coach_can_enroll_paid_teams}
+                      onCheckedChange={v => updateBilling('coach_can_enroll_paid_teams', v)}
+                    />
+                  </div>
                 </CardContent>
               </Card>
               {/* Datos de Pago — full width */}

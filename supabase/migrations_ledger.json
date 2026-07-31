@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 296,
-  "head": "20260731123145",
+  "count": 297,
+  "head": "20260731152955",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -299,6 +299,7 @@
     {"v":"20260730195021","file":"20260730195021_school_athletes_lateral_rewrite.sql","sha256":"15d7739a139a76809765d1e911379ed5e77616383590801201b3b8ac81839388","added":"2026-07-31","by":"brylop"},
     {"v":"20260730195052","file":"20260730195052_qr_signup_match_by_document.sql","sha256":"35b90e5e05aa003001ad38ed55b4a76738f83cca7e6df249f65a57983d457bc6","added":"2026-07-31","by":"brylop"},
     {"v":"20260730231131","file":"20260730231131_fix_accept_invitation_pro_offering_dedup_and_payment_cancel_scope.sql","sha256":"39eafc21c741103782f5939c60cc00ed5a2758b77f0523a0fe0750b7d7c2f3fc","added":"2026-07-31","by":"brylop"},
-    {"v":"20260731123145","file":"20260731123145_parent_labels_for_metrics.sql","sha256":"d49ad2e0b7050a3a61e582cd9ea8d943e31e8247ac299068254eefc5b1a8af80","added":"2026-07-31","by":"brylop"}
+    {"v":"20260731123145","file":"20260731123145_parent_labels_for_metrics.sql","sha256":"d49ad2e0b7050a3a61e582cd9ea8d943e31e8247ac299068254eefc5b1a8af80","added":"2026-07-31","by":"brylop"},
+    {"v":"20260731152955","file":"20260731152955_coach_enroll_paid_teams_toggle.sql","sha256":"f768c4a6443e8762993c70bd325ca097d66cb2f5260c1d02b6ae5f3d34e19c6b","added":"2026-07-31","by":"brylop"}
   ]
 }

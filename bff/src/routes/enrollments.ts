@@ -72,9 +72,12 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
         // school_id = req.schoolId). `profiles` no tiene school_id: para el
         // adulto el scope lo pone isAthleteActive() vía school_members.
         const targetTable = data.user_id ? 'profiles' : data.child_id ? 'children' : 'unregistered_athletes';
+        // `monthly_fee` solo existe en `children` y es la última fuente de precio
+        // de open_month, así que hace falta para saber si esta inscripción cobra.
+        const studentColumns = targetTable === 'children' ? 'id, monthly_fee' : 'id';
         let studentQuery = supabase
             .from(targetTable)
-            .select('id')
+            .select(studentColumns)
             .eq('id', studentId);
         if (targetTable !== 'profiles') {
             studentQuery = studentQuery.eq('school_id', schoolId);
@@ -89,16 +92,52 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
 
         // Mismo razonamiento para equipo y plan: sin esto la inscripción podía
         // quedar colgada de un team_id o un offering_plan_id de otra escuela.
+        let teamRow: { id: string; price_monthly: number | null } | null = null;
         if (data.team_id) {
             const { data: team } = await supabase
                 .from('teams')
-                .select('id')
+                .select('id, price_monthly')
                 .eq('id', data.team_id)
                 .eq('school_id', schoolId)
                 .maybeSingle();
 
             if (!team) {
                 return res.status(404).json({ error: 'Equipo no encontrado en esta escuela' });
+            }
+            teamRow = team as any;
+        }
+
+        // ── Inscribir a un equipo con precio TAMBIÉN cobra ───────────────────
+        // No al instante como el plan: open_month resuelve el monto con
+        //   COALESCE(e.monthly_fee, offering_plans.price, teams.price_monthly,
+        //            children.monthly_fee)
+        // y toma cualquier inscripción activa con monto > 0, sin exigir plan. Así
+        // que el cobro nace en la apertura del mes — diferido, y por eso pasaba
+        // inadvertido. Quién puede hacerlo lo decide la ESCUELA, no el código:
+        // el default del flag es `true`, o sea el comportamiento de siempre.
+        if (req.role === 'coach') {
+            const effectiveFee =
+                Number(teamRow?.price_monthly) ||
+                Number((student as any)?.monthly_fee) ||
+                0;
+
+            if (effectiveFee > 0) {
+                const { data: settings } = await supabase
+                    .from('school_settings')
+                    .select('coach_can_enroll_paid_teams')
+                    .eq('school_id', schoolId)
+                    .maybeSingle();
+
+                // Sin fila de settings se aplica el default de la columna (true):
+                // negar aquí dejaría sin inscribir a escuelas que nunca abrieron
+                // la configuración de pagos.
+                if ((settings as any)?.coach_can_enroll_paid_teams === false) {
+                    return res.status(403).json({
+                        error: 'Esta escuela no permite que un entrenador inscriba en equipos con cobro. '
+                             + 'Pídelo a la escuela.',
+                        effective_fee: effectiveFee,
+                    });
+                }
             }
         }
 
