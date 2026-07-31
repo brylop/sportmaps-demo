@@ -111,7 +111,9 @@ router.get('/performance/evolution', async (req: Request, res: Response) => {
       const def = defMap.get(key);
       return {
         metric_key: key,
-        display_name: def?.display_name ?? key,
+        // El padre ve el rótulo de familia; si no hay, el nombre técnico.
+        display_name: def?.parent_label ?? def?.display_name ?? key,
+        parent_hint: def?.parent_hint ?? null,
         unit: def?.unit ?? '',
         category: def?.category ?? 'other',
         min_value: def?.min_value ?? null,

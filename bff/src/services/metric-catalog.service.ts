@@ -21,6 +21,10 @@ export interface MetricDefinition {
   id: string;
   metric_key: string;
   display_name: string;
+  /** Nombre en idioma de familia. NULL = usar display_name. */
+  parent_label: string | null;
+  /** Qué mide y por qué importa, para el padre. NULL = no mostrar. */
+  parent_hint: string | null;
   data_type: string;
   unit: string | null;
   category: string | null;
@@ -33,7 +37,7 @@ export interface MetricDefinition {
 }
 
 const DEFINITION_COLUMNS =
-  'id, metric_key, display_name, data_type, unit, category, subcategory, min_value, max_value, higher_is_better, is_active';
+  'id, metric_key, display_name, parent_label, parent_hint, data_type, unit, category, subcategory, min_value, max_value, higher_is_better, is_active';
 
 const VALID_BANDS: Band[] = ['green', 'yellow', 'red'];
 

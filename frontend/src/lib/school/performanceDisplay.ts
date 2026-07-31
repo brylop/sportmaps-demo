@@ -22,11 +22,19 @@ import type { MetricBand, MetricThreshold } from './performanceQueries';
 export interface DisplayMetric {
   metric_key: string;
   display_name: string;
+  parent_label?: string | null;
+  parent_hint?: string | null;
   unit?: string | null;
   category?: string | null;
   higher_is_better: boolean;
   thresholds?: MetricThreshold[];
 }
+
+// Nota: no hay helper para elegir entre display_name y parent_label. La
+// resolución vive en el BFF, por ruta: /athlete/performance/evolution ya
+// devuelve el rótulo de familia en display_name, y /school/performance/*
+// devuelve el nombre técnico (el coach lo necesita preciso). Cada vista recibe
+// el nombre que le corresponde sin decidir nada.
 
 // ─── Categorías ───────────────────────────────────────────────────────
 
