@@ -616,10 +616,16 @@ router.get('/', requireAuth, requireRole('owner', 'admin', 'super_admin', 'schoo
 // ── PUT /api/v1/students/:id ──────────────────────────────────────────────────
 // Actualiza perfil base + enrollment de un atleta.
 // Usa service role → ownership check OBLIGATORIO antes de cualquier write.
+// ⚠️ El entrenador NO va en esta lista. Este endpoint escribe la cuota de la
+// inscripción (`monthly_fee`), el correo y el teléfono del acudiente, y la
+// identidad del atleta (nombre, documento, fecha de nacimiento). Cambiar cuánto
+// paga una familia o a dónde le llegan las notificaciones no es una atribución
+// deportiva. Antes aceptaba 'coach' — incoherente con POST /students/bulk, que
+// nunca lo aceptó. El coach queda en solo lectura sobre atletas.
 router.put(
   '/:id',
   requireAuth,
-  requireRole('owner', 'admin', 'school_admin', 'coach', 'staff'),
+  requireRole('owner', 'admin', 'school_admin', 'staff'),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       // req.params.id llega tipado como string | string[] (Express 5): se

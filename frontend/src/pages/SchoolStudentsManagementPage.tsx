@@ -776,7 +776,9 @@ export default function SchoolStudentsManagementPage() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => setViewingStudent(student)}>Ver Perfil</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleEditStudent(student)}>Editar</DropdownMenuItem>
+        {canManageStudents && (
+          <DropdownMenuItem onClick={() => handleEditStudent(student)}>Editar</DropdownMenuItem>
+        )}
         {/* Inactivar cancela el plan y anula la cartera pendiente: es acción de
             owner/admin (el RPC exige is_school_admin), no del coach. */}
         {canManageStudents && (
@@ -1009,7 +1011,9 @@ export default function SchoolStudentsManagementPage() {
                         <TableCell>
                           <div className="flex gap-1">
                             <Button variant="ghost" size="sm" onClick={() => setViewingStudent(student)}>Ver</Button>
-                            <Button variant="ghost" size="sm" onClick={() => handleEditStudent(student)}><Edit className="h-4 w-4 text-primary" /></Button>
+                            {canManageStudents && (
+                              <Button variant="ghost" size="sm" onClick={() => handleEditStudent(student)}><Edit className="h-4 w-4 text-primary" /></Button>
+                            )}
                             {canManageStudents && (
                               <Button
                                 variant="ghost" size="sm"
@@ -1547,14 +1551,16 @@ export default function SchoolStudentsManagementPage() {
                   <Button variant="outline" onClick={() => setViewingStudent(null)}>
                     Cerrar
                   </Button>
-                  <Button onClick={() => {
-                    const stored = s;
-                    setViewingStudent(null);
-                    handleEditStudent(stored);
-                  }}>
-                    <Edit className="w-4 h-4 mr-2" />
-                    Editar
-                  </Button>
+                  {canManageStudents && (
+                    <Button onClick={() => {
+                      const stored = s;
+                      setViewingStudent(null);
+                      handleEditStudent(stored);
+                    }}>
+                      <Edit className="w-4 h-4 mr-2" />
+                      Editar
+                    </Button>
+                  )}
                 </DialogFooter>
               </>
             );
