@@ -18,7 +18,7 @@ import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { studentsAPI, Student } from '@/lib/api/students';
 import { classesAPI } from '@/lib/api/classes';
 import { supabase } from '@/integrations/supabase/client';
-import { Search, Loader2, UserPlus, Check, Users, X } from 'lucide-react';
+import { Search, Loader2, UserPlus, Check, Users, X, Wallet } from 'lucide-react';
 
 interface Team {
     id: string;
@@ -42,14 +42,37 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
     const [loading, setLoading] = useState(false);
     const [enrolling, setEnrolling] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [teamFee, setTeamFee] = useState<number | null>(null);
     const { toast } = useToast();
 
     useEffect(() => {
         if (open && team) {
             loadStudents();
             loadEnrolledStudents();
+            loadTeamFee();
         }
     }, [open, team]);
+
+    /**
+     * La mensualidad del equipo, para poder advertirla ANTES de inscribir.
+     *
+     * Inscribir a un atleta en un equipo con precio le genera un cobro, pero no
+     * en el momento: `open_month` resuelve el monto con
+     * COALESCE(enrollments.monthly_fee, offering_plans.price, teams.price_monthly,
+     * children.monthly_fee) y toma cualquier inscripción activa con monto > 0.
+     * El cobro nace en la apertura del mes, así que nada en la pantalla delataba
+     * el efecto económico de un clic. Se avisa para todos los roles, no solo
+     * para el entrenador: el admin también se enteraba solo al abrir el mes.
+     */
+    const loadTeamFee = async () => {
+        if (!team?.id) return;
+        const { data } = await supabase
+            .from('teams')
+            .select('price_monthly')
+            .eq('id', team.id)
+            .maybeSingle();
+        setTeamFee(Number((data as any)?.price_monthly) || null);
+    };
 
     const loadStudents = async () => {
         if (!team?.school_id) return;
@@ -214,6 +237,27 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                                         <Users className="h-3 w-3 mr-1" />
                                         {enrolledStudentIds.length}/{team.max_students || 20}
                                     </Badge>
+                                </div>
+                            )}
+                            {teamFee !== null && teamFee > 0 && (
+                                <div className="flex items-start gap-2 rounded-lg border border-amber-500/30
+                                                bg-amber-500/[0.07] px-3 py-2 mt-1">
+                                    <Wallet
+                                        className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5"
+                                        aria-hidden="true"
+                                    />
+                                    <span className="text-xs leading-relaxed">
+                                        Este equipo tiene una mensualidad de{' '}
+                                        <strong className="font-semibold tabular-nums">
+                                            {teamFee.toLocaleString('es-CO', {
+                                                style: 'currency',
+                                                currency: 'COP',
+                                                maximumFractionDigits: 0,
+                                            })}
+                                        </strong>
+                                        . Al inscribir, el cobro se genera en la apertura del mes
+                                        (o la cuota propia del atleta, si tiene una asignada).
+                                    </span>
                                 </div>
                             )}
                         </div>
