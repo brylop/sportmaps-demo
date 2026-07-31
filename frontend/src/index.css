@@ -335,3 +335,23 @@ input[type=number] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+/* Autofill de Chrome/Edge: pintaba los campos autocompletados de celeste claro con
+   texto oscuro, ilegible sobre el tema oscuro. No hay forma de sobreescribir el
+   background del user-agent, así que se tapa con un box-shadow inset del color del
+   tema y se fuerza el color del texto. La transición larga evita el flash celeste. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus,
+select:-webkit-autofill,
+select:-webkit-autofill:focus {
+  -webkit-text-fill-color: hsl(var(--foreground));
+  -webkit-box-shadow: 0 0 0 1000px hsl(var(--background)) inset;
+  box-shadow: 0 0 0 1000px hsl(var(--background)) inset;
+  caret-color: hsl(var(--foreground));
+  transition: background-color 9999s ease-in-out 0s;
+}
