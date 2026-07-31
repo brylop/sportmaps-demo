@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '../../config/supabase';
+import { getMetricCatalog } from '../../services/metric-catalog.service';
 
 const router = Router();
 
@@ -90,15 +91,15 @@ router.get('/performance/evolution', async (req: Request, res: Response) => {
       .select('id, category_id')
       .in('id', schoolIds);
 
-    const categoryIds = [...new Set((schools ?? []).map((s: any) => s.category_id).filter(Boolean))];
-    const { data: defs } = categoryIds.length
-      ? await supabase
-          .from('sport_metric_definitions')
-          .select('metric_key, display_name, data_type, unit, category')
-          .in('sport_category_id', categoryIds)
-      : { data: [] as any[] };
-
-    const defMap = new Map((defs ?? []).map((d: any) => [d.metric_key, d]));
+    // Mismo catálogo que ve el coach: incluye umbrales, rango y dirección de
+    // mejora, para que padre y atleta no vean una versión degradada.
+    // includeInactive: es una vista de historial, no un formulario — una métrica
+    // desactivada conserva sus mediciones y hay que seguir sabiendo nombrarla.
+    const defs = await getMetricCatalog(
+      (schools ?? []).map((s: any) => s.category_id),
+      { includeInactive: true }
+    );
+    const defMap = new Map(defs.map((d) => [d.metric_key, d]));
 
     const evolution: Record<string, { date: string; value: number }[]> = {};
     for (const row of rows) {
@@ -106,12 +107,20 @@ router.get('/performance/evolution', async (req: Request, res: Response) => {
       evolution[row.metric_key].push({ date: row.recorded_at, value: Number(row.value) });
     }
 
-    const metrics = Object.keys(evolution).map((key) => ({
-      metric_key: key,
-      display_name: defMap.get(key)?.display_name ?? key,
-      unit: defMap.get(key)?.unit ?? '',
-      category: defMap.get(key)?.category ?? 'other',
-    }));
+    const metrics = Object.keys(evolution).map((key) => {
+      const def = defMap.get(key);
+      return {
+        metric_key: key,
+        display_name: def?.display_name ?? key,
+        unit: def?.unit ?? '',
+        category: def?.category ?? 'other',
+        min_value: def?.min_value ?? null,
+        max_value: def?.max_value ?? null,
+        // Por defecto "más es mejor": es lo que asumía la UI antes de exponerlo.
+        higher_is_better: def?.higher_is_better ?? true,
+        thresholds: def?.thresholds ?? [],
+      };
+    });
 
     res.json({ evolution, metrics, period_days: days });
   } catch (err: any) {

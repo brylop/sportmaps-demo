@@ -16,7 +16,8 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Loader2, Activity, AlertCircle, Users, Calendar } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useTeamPerformanceRoster, useCreatePerformanceEntries } from '@/hooks/usePerformanceData';
-import { computeMetricBand, type MetricBand, type SportMetricDefinition } from '@/lib/school/performanceQueries';
+import { computeMetricBand, type SportMetricDefinition } from '@/lib/school/performanceQueries';
+import { BAND_STYLE } from '@/lib/school/performanceDisplay';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import { format } from 'date-fns';
@@ -51,11 +52,6 @@ const SUBCATEGORY_LABEL: Record<string, string> = {
   general: 'General',
 };
 
-const BAND_DOT: Record<NonNullable<MetricBand>, string> = {
-  green: 'bg-green-500',
-  yellow: 'bg-amber-500',
-  red: 'bg-red-500',
-};
 
 function groupBySubcategory(metrics: SportMetricDefinition[]) {
   const groups = new Map<string, SportMetricDefinition[]>();
@@ -276,7 +272,13 @@ export function TeamPerformanceEntryModal({
                           <td key={m.metric_key} className="px-2 py-1.5 border-b border-l">
                             <div className="flex flex-col items-center gap-0.5">
                               <div className="flex items-center gap-1">
-                                {band && <span className={`h-1.5 w-1.5 rounded-full ${BAND_DOT[band]}`} />}
+                                {band && (
+                                  <span
+                                    className={`h-1.5 w-1.5 rounded-full ${BAND_STYLE[band].dot}`}
+                                    title={BAND_STYLE[band].label}
+                                    aria-label={BAND_STYLE[band].label}
+                                  />
+                                )}
                                 <NumberStepper
                                   value={currentVal ?? ''}
                                   onChange={(val) => setCell(s.subject_id, m.metric_key, val)}

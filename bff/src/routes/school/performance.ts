@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '../../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../../middlewares/authMiddleware';
+import { computeBand, getMetricCatalog } from '../../services/metric-catalog.service';
 
 const router = Router();
 
@@ -34,37 +35,11 @@ router.get(
         });
       }
 
-      const { data: metrics, error: metricsErr } = await supabase
-        .from('sport_metric_definitions')
-        .select('id, metric_key, display_name, data_type, unit, category, subcategory, min_value, max_value, higher_is_better, is_active')
-        .eq('sport_category_id', school.category_id)
-        .eq('is_active', true)
-        .order('category', { ascending: true });
-
-      if (metricsErr) throw metricsErr;
-
-      // Adjuntar bandas de semáforo por métrica (mismo patrón que en /roster)
-      const metricIds = (metrics ?? []).map((m: any) => m.id);
-      let thresholdsByMetric: Record<string, any[]> = {};
-      if (metricIds.length > 0) {
-        const { data: thresholds } = await supabase
-          .from('sport_metric_thresholds')
-          .select('metric_id, band, min_value, max_value')
-          .in('metric_id', metricIds);
-        for (const t of thresholds ?? []) {
-          if (!thresholdsByMetric[t.metric_id]) thresholdsByMetric[t.metric_id] = [];
-          thresholdsByMetric[t.metric_id].push({ band: t.band, min_value: t.min_value, max_value: t.max_value });
-        }
-      }
-
-      const metricsWithThresholds = (metrics ?? []).map((m: any) => ({
-        ...m,
-        thresholds: thresholdsByMetric[m.id] ?? [],
-      }));
+      const metrics = await getMetricCatalog([school.category_id]);
 
       res.json({
         sport_category_id: school.category_id,
-        metrics: metricsWithThresholds,
+        metrics,
       });
     } catch (err: any) {
       req.log?.error({ err }, 'school/performance unhandled error');
@@ -110,38 +85,7 @@ router.get(
         });
       }
 
-      const { data: metrics, error: metricsErr } = await supabase
-        .from('sport_metric_definitions')
-        .select('id, metric_key, display_name, data_type, unit, category, subcategory, min_value, max_value, higher_is_better, is_active')
-        .eq('sport_category_id', school.category_id)
-        .eq('is_active', true)
-        .order('category', { ascending: true });
-      if (metricsErr) throw metricsErr;
-
-      // NUEVO: bandas de todas las métricas del catálogo, en un solo query
-      const metricIds = (metrics ?? []).map((m: any) => m.id);
-      let thresholdsByMetric: Record<string, { band: string; min_value: number | null; max_value: number | null }[]> = {};
-      if (metricIds.length > 0) {
-        const { data: thresholds } = await supabase
-          .from('sport_metric_thresholds')
-          .select('metric_id, band, min_value, max_value')
-          .in('metric_id', metricIds);
-        for (const t of thresholds ?? []) {
-          if (!thresholdsByMetric[t.metric_id]) thresholdsByMetric[t.metric_id] = [];
-          thresholdsByMetric[t.metric_id].push(t);
-        }
-      }
-
-      function computeBand(value: number, metric: any): 'green' | 'yellow' | 'red' | null {
-        const bands = thresholdsByMetric[metric.id];
-        if (!bands || bands.length === 0) return null;
-        for (const b of bands) {
-          const aboveMin = b.min_value === null || value >= b.min_value;
-          const belowMax = b.max_value === null || value <= b.max_value;
-          if (aboveMin && belowMax) return b.band as any;
-        }
-        return null;
-      }
+      const metrics = await getMetricCatalog([school.category_id]);
 
       // 2. Roster del equipo o plan, vía la vista unificada school_athletes
       let rosterQuery = supabase
@@ -174,31 +118,24 @@ router.get(
           .eq('school_id', schoolId)
           .in('subject_id', subjectIds)
           .order('recorded_at', { ascending: false })
-          .limit(subjectIds.length * (metrics?.length ?? 1) * 3); // margen para varias métricas/sujeto
+          .limit(subjectIds.length * (metrics.length || 1) * 3); // margen para varias métricas/sujeto
 
         for (const e of recentEntries ?? []) {
           const key = `${e.subject_id}:${e.metric_key}`;
           if (!latestValues[key]) {
-            const metric = (metrics ?? []).find((m: any) => m.metric_key === e.metric_key);
+            const metric = metrics.find((m) => m.metric_key === e.metric_key);
             latestValues[key] = {
               value: Number(e.value),
               recorded_at: e.recorded_at,
-              band: metric ? computeBand(Number(e.value), metric) : null,
+              band: metric ? computeBand(Number(e.value), metric.thresholds) : null,
             };
           }
         }
       }
 
-      const { data: metricsWithThresholds } = {
-        data: (metrics ?? []).map((m: any) => ({
-          ...m,
-          thresholds: thresholdsByMetric[m.id] ?? [],
-        }))
-      };
-
       res.json({
         sport_category_id: school.category_id,
-        metrics: metricsWithThresholds, // antes: metrics ?? []
+        metrics,
         subjects,
         latest_values: latestValues,
       });

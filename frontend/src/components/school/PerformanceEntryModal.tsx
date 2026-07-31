@@ -21,10 +21,10 @@ import {
 } from '@/hooks/usePerformanceData';
 import {
   computeMetricBand,
-  type MetricBand,
   type MetricCategory,
   type SportMetricDefinition,
 } from '@/lib/school/performanceQueries';
+import { BAND_STYLE } from '@/lib/school/performanceDisplay';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import { format } from 'date-fns';
@@ -54,11 +54,6 @@ const SUBCATEGORY_LABEL: Record<string, string> = {
   tactica: 'Táctica',
 };
 
-const BAND_DOT: Record<NonNullable<MetricBand>, string> = {
-  green: 'bg-green-500',
-  yellow: 'bg-amber-500',
-  red: 'bg-red-500',
-};
 
 function groupByCategoryAndSubcategory(metrics: SportMetricDefinition[]) {
   const groups = new Map<string, SportMetricDefinition[]>();
@@ -229,7 +224,13 @@ export function PerformanceEntryModal({
                           return (
                             <div key={m.metric_key} className="flex items-center justify-between gap-3">
                               <Label className="text-sm font-medium flex-1 flex items-center gap-1.5">
-                                {band && <span className={`h-1.5 w-1.5 rounded-full ${BAND_DOT[band]}`} />}
+                                {band && (
+                                  <span
+                                    className={`h-1.5 w-1.5 rounded-full ${BAND_STYLE[band].dot}`}
+                                    title={BAND_STYLE[band].label}
+                                    aria-label={BAND_STYLE[band].label}
+                                  />
+                                )}
                                 {m.display_name}
                                 {m.unit && <span className="text-xs text-muted-foreground ml-1">({m.unit})</span>}
                               </Label>
