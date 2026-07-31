@@ -162,6 +162,10 @@ export interface AthleteEvolutionMetric {
   display_name: string;
   unit: string;
   category: string;
+  min_value: number | null;
+  max_value: number | null;
+  higher_is_better: boolean;
+  thresholds: MetricThreshold[];
 }
 
 export interface AthleteEvolutionResponse {

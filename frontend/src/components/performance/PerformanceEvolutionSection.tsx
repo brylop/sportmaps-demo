@@ -1,16 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { LineChart, Line, XAxis, YAxis, Tooltip as RechartTooltip, ResponsiveContainer } from 'recharts';
-import { TrendingUp, BarChart3 } from 'lucide-react';
+import { BarChart3, TrendingUp } from 'lucide-react';
 import { useAthletePerformanceEvolution } from '@/hooks/usePerformanceData';
-
-const CATEGORY_COLOR: Record<string, string> = {
-  physical:   'text-red-500 bg-red-500/10 border-red-500/20',
-  technical:  'text-blue-500 bg-blue-500/10 border-blue-500/20',
-  tactical:   'text-purple-500 bg-purple-500/10 border-purple-500/20',
-  attendance: 'text-green-600 bg-green-500/10 border-green-500/20',
-  other:      'text-muted-foreground bg-muted/40 border-border',
-};
+import { MetricSummary } from './MetricSummary';
+import { MetricSparklineGrid } from './MetricSparklineGrid';
+import { MetricTrendChart } from './MetricTrendChart';
+import { computeMetricBand } from '@/lib/school/performanceQueries';
+import { categoryStyle } from '@/lib/school/performanceDisplay';
 
 interface PerformanceEvolutionSectionProps {
   /** Si se omite, muestra la evolución del propio usuario autenticado (atleta adulto). */
@@ -30,6 +26,14 @@ export function PerformanceEvolutionSection({
   const metrics = data?.metrics ?? [];
   const evolution = data?.evolution ?? {};
 
+  const activeMetric = selectedMetric || (metrics[0]?.metric_key ?? '');
+  const activeMetricInfo = metrics.find((m) => m.metric_key === activeMetric);
+
+  const series = useMemo(() => {
+    const raw = evolution[activeMetric] ?? [];
+    return [...raw].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [evolution, activeMetric]);
+
   if (isLoading) {
     return (
       <Card>
@@ -44,78 +48,60 @@ export function PerformanceEvolutionSection({
     return (
       <Card className="border-dashed">
         <CardContent className="py-10 text-center text-muted-foreground">
-          <BarChart3 className="h-8 w-8 mx-auto mb-3 opacity-20" />
+          <BarChart3 className="h-8 w-8 mx-auto mb-3 opacity-20" aria-hidden="true" />
           <p className="text-sm">Todavía no hay métricas de rendimiento registradas.</p>
         </CardContent>
       </Card>
     );
   }
 
-  const activeMetric = selectedMetric || metrics[0].metric_key;
-  const series = evolution[activeMetric] ?? [];
-  const chartData = series.map((e) => ({
-    fecha: new Date(e.date).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }),
-    valor: e.value,
-  }));
-  const activeMetricInfo = metrics.find((m) => m.metric_key === activeMetric);
+  const latestBand = series.length
+    ? computeMetricBand(series[series.length - 1].value, activeMetricInfo?.thresholds)
+    : null;
+
+  const activeStyle = categoryStyle(activeMetricInfo?.category);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-xl flex items-center gap-2">
-          <TrendingUp className="h-5 w-5 text-primary" />
+          <TrendingUp className="h-5 w-5 text-primary" aria-hidden="true" />
           {title}
         </CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap gap-2">
-          {metrics.map((m) => {
-            const colorClass = CATEGORY_COLOR[m.category] ?? CATEGORY_COLOR.other;
-            const active = activeMetric === m.metric_key;
-            return (
-              <button
-                key={m.metric_key}
-                onClick={() => setSelectedMetric(m.metric_key)}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
-                  active ? colorClass : 'border-border text-muted-foreground hover:bg-muted/40'
-                }`}
-              >
-                {m.display_name}
-              </button>
-            );
-          })}
+
+      <CardContent className="space-y-5">
+        <MetricSummary
+          series={series}
+          unit={activeMetricInfo?.unit}
+          higherIsBetter={activeMetricInfo?.higher_is_better ?? true}
+          band={latestBand}
+        />
+
+        <div className="bg-accent/10 rounded-2xl p-5 border border-border/20">
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`h-2 w-2 rounded-sm ${activeStyle.swatch}`} aria-hidden="true" />
+            <h3 className="text-sm font-bold">{activeMetricInfo?.display_name}</h3>
+            <span className="text-[11px] text-muted-foreground">
+              {activeStyle.label}
+              {activeMetricInfo && !activeMetricInfo.higher_is_better && ' · menos es mejor'}
+            </span>
+          </div>
+          <MetricTrendChart
+            series={series}
+            displayName={activeMetricInfo?.display_name ?? ''}
+            unit={activeMetricInfo?.unit}
+            thresholds={activeMetricInfo?.thresholds}
+          />
         </div>
 
-        <div className="bg-accent/10 rounded-2xl p-6 border border-border/20">
-          {chartData.length >= 2 ? (
-            <div className="h-[220px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ left: -20, right: 10, top: 10, bottom: 0 }}>
-                  <XAxis dataKey="fecha" tick={{ fontSize: 10, opacity: 0.5 }} tickLine={false} axisLine={false} dy={10} />
-                  <YAxis tick={{ fontSize: 10, opacity: 0.5 }} tickLine={false} axisLine={false} />
-                  <RechartTooltip
-                    contentStyle={{ fontSize: 12, borderRadius: '12px', border: '1px solid hsl(var(--border))' }}
-                    formatter={(val: any) => [`${val} ${activeMetricInfo?.unit ?? ''}`, activeMetricInfo?.display_name]}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="valor"
-                    stroke="hsl(var(--primary))"
-                    strokeWidth={3}
-                    dot={{ r: 4, fill: 'hsl(var(--background))', stroke: 'hsl(var(--primary))', strokeWidth: 2 }}
-                    activeDot={{ r: 6 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <div className="h-[180px] flex flex-col items-center justify-center text-muted-foreground text-center">
-              <BarChart3 className="h-8 w-8 mb-2 opacity-20" />
-              <p className="text-sm">Se necesitan al menos 2 registros para ver la tendencia.</p>
-            </div>
-          )}
-        </div>
+        <MetricSparklineGrid
+          metrics={metrics}
+          evolution={evolution}
+          selected={activeMetric}
+          onSelect={setSelectedMetric}
+        />
       </CardContent>
     </Card>
   );
