@@ -395,6 +395,40 @@ export default function InvitationsManagementPage() {
     });
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Arma el payload de send-email según el rol invitado.
+   *
+   * Antes los dos envíos (crear y reenviar) mandaban 'parent_invitation' fijo, así
+   * que a un entrenador le llegaba "para gestionar la información deportiva de tu
+   * hijo(a)". La plantilla 'coach_invitation' ya existía en la edge function.
+   *
+   * Ojo al tocar esto: un `type` que la edge function no conozca hace throw y el
+   * correo no sale. Solo hay plantilla de invitación para acudiente y entrenador;
+   * atleta/administrador/súper usuario siguen usando la de acudiente hasta que se
+   * agreguen plantillas propias (requiere desplegar send-email).
+   */
+  const invitationEmailPayload = (
+    role: string | undefined,
+    to: string,
+    name: string | null | undefined,
+    registrationUrl: string,
+  ) => {
+    const cleanName = (name || '').trim();
+    return role === 'coach'
+      ? {
+          type: 'coach_invitation',
+          to,
+          // La plantilla saluda "Hola <coachName>,": sin fallback quedaría "Hola ,".
+          data: { schoolName, coachName: cleanName || 'entrenador', registrationUrl },
+        }
+      : {
+          type: 'parent_invitation',
+          to,
+          data: { schoolName, childName: cleanName, registrationUrl },
+        };
+  };
+
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);
 
@@ -451,11 +485,12 @@ export default function InvitationsManagementPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
-        body: JSON.stringify({
-          type: 'parent_invitation',
-          to: invitation.invited_email,
-          data: { schoolName, childName: invitation.child_name || '', registrationUrl: link },
-        }),
+        body: JSON.stringify(invitationEmailPayload(
+          invitation.role_to_assign,
+          invitation.invited_email,
+          invitation.child_name,
+          link,
+        )),
       });
       toast({ title: '📧 Correo reenviado', description: `Email enviado a ${invitation.invited_email}` });
     } catch {
@@ -477,7 +512,11 @@ export default function InvitationsManagementPage() {
       const { data: inviteId, error } = await (supabase.rpc as any)('create_invitation', {
         p_email: data.parentEmail,
         p_role: data.role,
-        p_child_name: data.role === 'parent' ? data.childName : null,
+        // Para coach se guarda el nombre (si vino de "Sugeridos"): es el campo que
+        // bulk-send y resendEmail leen como nombre del entrenador. Para atleta y
+        // administrador se deja null: accept_invitation_pro usa child_name para
+        // emparejar atletas no registrados y un nombre ahí lo confundiría.
+        p_child_name: ['parent', 'coach'].includes(data.role) ? (data.childName || null) : null,
         p_team_id: ['parent', 'athlete', 'coach'].includes(data.role) ? (data.teamId || null) : null,
         p_monthly_fee: ['parent', 'athlete'].includes(data.role) ? fee : null,
         p_parent_phone: data.parentPhone.replace(/\D/g, '').length >= 8 ? data.parentPhone : null,
@@ -495,11 +534,9 @@ export default function InvitationsManagementPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
-        body: JSON.stringify({
-          type: 'parent_invitation',
-          to: data.parentEmail,
-          data: { schoolName, childName: data.childName || '', registrationUrl: registration_link },
-        }),
+        body: JSON.stringify(
+          invitationEmailPayload(data.role, data.parentEmail, data.childName, registration_link)
+        ),
       }).catch(err => console.warn('Email send failed:', err));
 
       return { id: inviteId, registration_link };
