@@ -88,6 +88,13 @@ export function PerformanceEvolutionSection({
               {activeMetricInfo && !activeMetricInfo.higher_is_better && ' · menos es mejor'}
             </span>
           </div>
+          {/* Qué mide y por qué importa. Es lo que convierte un número en
+              información para alguien que no entrena voleibol. */}
+          {activeMetricInfo?.parent_hint && (
+            <p className="text-xs text-muted-foreground mb-3 max-w-[65ch]">
+              {activeMetricInfo.parent_hint}
+            </p>
+          )}
           <MetricTrendChart
             series={series}
             displayName={activeMetricInfo?.display_name ?? ''}

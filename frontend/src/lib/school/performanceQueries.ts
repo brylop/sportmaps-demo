@@ -20,6 +20,10 @@ export interface SportMetricDefinition {
   id: string;
   metric_key: string;
   display_name: string;
+  /** Nombre en idioma de familia. NULL = usar display_name. */
+  parent_label?: string | null;
+  /** Qué mide y por qué importa, para el padre. */
+  parent_hint?: string | null;
   data_type: MetricDataType;
   unit: string | null;
   category: MetricCategory | null;
@@ -159,7 +163,9 @@ export async function getAthletePerformanceEntries(childId?: string): Promise<Pe
 
 export interface AthleteEvolutionMetric {
   metric_key: string;
+  /** Ya viene resuelto por el BFF: parent_label si existe, si no display_name. */
   display_name: string;
+  parent_hint?: string | null;
   unit: string;
   category: string;
   min_value: number | null;
