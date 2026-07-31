@@ -317,6 +317,7 @@
     "migrations:sync": "node scripts/migrations.mjs sync",
     "migrations:next": "node scripts/migrations.mjs next",
     "migrations:new": "node scripts/migrations.mjs new",
+    "migrations:drift": "node scripts/find_schema_drift.mjs --stats",
     "check:migrations": "node scripts/migrations.mjs check"
   },
   "repository": {
