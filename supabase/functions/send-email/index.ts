@@ -14,6 +14,8 @@ type EmailType =
     | "welcome_school"
     | "parent_invitation"
     | "coach_invitation"
+    | "athlete_invitation"
+    | "staff_invitation"
     | "payment_reminder";
 
 interface EmailItem {
@@ -161,6 +163,48 @@ function getSubjectAndHtml(type: EmailType, d: Record<string, string>): { subjec
           <p style="color: #888; font-size: 12px; margin-top: 20px;">
             Si el boton no funciona, copia y pega este enlace:<br>
             <span style="color: #248223; word-break: break-all;">${d.registrationUrl || "https://app.sportmaps.co/register?role=coach"}</span>
+          </p>
+        `),
+            };
+
+        // Atleta mayor de edad: se registra él mismo, no un acudiente. Antes le
+        // llegaba parent_invitation hablándole de "tu hijo(a)".
+        case "athlete_invitation":
+            return {
+                subject: `${d.schoolName} te invita a entrenar en SportMaps`,
+                html: wrapTemplate(`
+          <h2 style="color: #248223; margin-top: 0;">¡Te esperamos en la cancha!</h2>
+          <p style="color: #4a4a4a; line-height: 1.6;">
+            Hola${d.athleteName ? ` <strong>${d.athleteName}</strong>` : ""}, la academia <strong>${d.schoolName}</strong> te invitó a unirte a SportMaps como deportista.
+          </p>
+          <p style="color: #4a4a4a; line-height: 1.6;">
+            Crea tu cuenta para ver tus horarios, tus pagos y tu evolución deportiva. Este registro es para ti: no necesitas un acudiente.
+          </p>
+          ${orangeButton(d.registrationUrl || "https://app.sportmaps.co/register?role=athlete", "Crear mi Cuenta")}
+          <p style="color: #888; font-size: 12px; margin-top: 20px;">
+            Si el botón no funciona, copia y pega este enlace:<br>
+            <span style="color: #248223; word-break: break-all;">${d.registrationUrl || "https://app.sportmaps.co/register?role=athlete"}</span>
+          </p>
+        `),
+            };
+
+        // Administrador de sede y súper usuario. `roleLabel` viene del llamador
+        // para no tener una plantilla por cada rol administrativo.
+        case "staff_invitation":
+            return {
+                subject: `${d.schoolName} te dio acceso como ${d.roleLabel || "miembro del equipo"}`,
+                html: wrapTemplate(`
+          <h2 style="color: #248223; margin-top: 0;">Tienes un nuevo acceso</h2>
+          <p style="color: #4a4a4a; line-height: 1.6;">
+            Hola${d.staffName ? ` <strong>${d.staffName}</strong>` : ""}, la academia <strong>${d.schoolName}</strong> te dio acceso a SportMaps como <strong>${d.roleLabel || "miembro del equipo"}</strong>.
+          </p>
+          <p style="color: #4a4a4a; line-height: 1.6;">
+            Crea tu cuenta para entrar al panel de la academia.
+          </p>
+          ${orangeButton(d.registrationUrl || "https://app.sportmaps.co/register", "Crear mi Cuenta")}
+          <p style="color: #888; font-size: 12px; margin-top: 20px;">
+            Si el botón no funciona, copia y pega este enlace:<br>
+            <span style="color: #248223; word-break: break-all;">${d.registrationUrl || "https://app.sportmaps.co/register"}</span>
           </p>
         `),
             };
