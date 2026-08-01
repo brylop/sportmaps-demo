@@ -296,6 +296,18 @@ export default function PublicFacilityBookingPage() {
     }
   }
 
+  const handleBackFromCode = () => {
+    setCode('');
+    setErrorMsg(null);
+    if (fullName && email) {
+      setStep('new_details');
+    } else if (email) {
+      setStep('email_needed');
+    } else {
+      setStep('phone');
+    }
+  };
+
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -379,6 +391,13 @@ export default function PublicFacilityBookingPage() {
             {/* ── Paso: elegir instalación ── */}
             {step === 'facility' && (
               <div className="space-y-3">
+                <button
+                  onClick={() => { setStep('welcome'); setErrorMsg(null); }}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mb-4"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  <span>Volver</span>
+                </button>
                 <p className="text-sm font-semibold text-muted-foreground mb-3">Elige la instalación</p>
                 {schoolInfo.facilities.map((f) => (
                   <button
@@ -399,16 +418,26 @@ export default function PublicFacilityBookingPage() {
             {/* ── Paso: elegir horario (SIN identificarse todavía) ── */}
             {step === 'slots' && (
               <div className="space-y-4">
+                <button
+                  onClick={() => {
+                    if (schoolInfo.facilities.length > 1) {
+                      setStep('facility');
+                    } else {
+                      setStep('welcome');
+                    }
+                    setErrorMsg(null);
+                  }}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mb-4"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  <span>Volver</span>
+                </button>
+
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
                     <Calendar className="h-5 w-5 text-primary" />
                     <h2 className="font-bold text-lg">{selectedFacility?.name}</h2>
                   </div>
-                  {schoolInfo.facilities.length > 1 && (
-                    <button onClick={() => setStep('facility')} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">
-                      <ArrowLeft className="h-3 w-3" /> Cambiar
-                    </button>
-                  )}
                 </div>
 
                 {loadingSlots ? (
@@ -467,8 +496,12 @@ export default function PublicFacilityBookingPage() {
             {/* ── Paso: teléfono (ya con el horario elegido, copy según la bienvenida) ── */}
             {step === 'phone' && (
               <div className="space-y-5">
-                <button onClick={() => { setStep('slots'); setPendingSlot(null); }} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary">
-                  <ArrowLeft className="h-3 w-3" /> Cambiar horario
+                <button
+                  onClick={() => { setStep('slots'); setPendingSlot(null); setErrorMsg(null); }}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mb-4"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  <span>Volver</span>
                 </button>
 
                 {pendingSlot && (
@@ -512,6 +545,13 @@ export default function PublicFacilityBookingPage() {
             {/* ── Paso: email para inscrito sin cuenta (Escenario 2) ── */}
             {step === 'email_needed' && (
               <div className="space-y-5">
+                <button
+                  onClick={() => { setStep('phone'); setErrorMsg(null); }}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mb-4"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  <span>Volver</span>
+                </button>
                 <div className="text-center">
                   <Mail className="h-8 w-8 text-primary mx-auto mb-2" />
                   <h2 className="font-bold text-lg">¡Ya tienes una inscripción!</h2>
@@ -532,6 +572,13 @@ export default function PublicFacilityBookingPage() {
             {/* ── Paso: datos de persona nueva (Escenario 1 — cortesía) ── */}
             {step === 'new_details' && (
               <div className="space-y-5">
+                <button
+                  onClick={() => { setStep('phone'); setErrorMsg(null); }}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mb-4"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  <span>Volver</span>
+                </button>
                 <div className="text-center">
                   <Sparkles className="h-8 w-8 text-amber-500 mx-auto mb-2" />
                   <h2 className="font-bold text-lg">¡Tienes una clase de cortesía!</h2>
@@ -564,6 +611,13 @@ export default function PublicFacilityBookingPage() {
             {/* ── Paso: código OTP ── */}
             {step === 'code' && (
               <div className="space-y-5">
+                <button
+                  onClick={handleBackFromCode}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mb-4"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  <span>Volver</span>
+                </button>
                 <div className="text-center">
                   <ShieldCheck className="h-8 w-8 text-primary mx-auto mb-2" />
                   <h2 className="font-bold text-lg">Ingresa el código</h2>
@@ -582,7 +636,7 @@ export default function PublicFacilityBookingPage() {
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                   Verificar y confirmar reserva
                 </Button>
-                <button onClick={() => { setStep('phone'); setCode(''); setErrorMsg(null); }} className="w-full text-xs text-muted-foreground hover:text-primary">
+                <button onClick={handleBackFromCode} className="w-full text-xs text-muted-foreground hover:text-primary">
                   ¿No te llegó? Volver a empezar
                 </button>
               </div>
