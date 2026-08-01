@@ -144,7 +144,7 @@ export async function deliverPublishedReports(
     schoolId: string,
     year: number,
     month: number,
-    opts: { limit?: number; onlyDue?: boolean; teamIds?: string[] } = {},
+    opts: { limit?: number; onlyDue?: boolean; teamIds?: string[]; reportIds?: string[] } = {},
 ): Promise<{ results: DeliveryResult[]; sent: number; skipped: number }> {
     const hoy = new Date().toISOString().slice(0, 10);
 
@@ -169,6 +169,14 @@ export async function deliverPublishedReports(
     if (opts.teamIds) {
         if (opts.teamIds.length === 0) return { results: [], sent: 0, skipped: 0 };
         query = query.in('team_id', opts.teamIds);
+    }
+
+    // Envío puntual: «evalué a este atleta y quiero mandarle a él». Se COMBINA
+    // con el filtro de equipos, no lo reemplaza — si no, pasarle un id ajeno
+    // sería la forma de saltarse el alcance del coach.
+    if (opts.reportIds) {
+        if (opts.reportIds.length === 0) return { results: [], sent: 0, skipped: 0 };
+        query = query.in('id', opts.reportIds);
     }
 
     const { data: informes, error } = await query;

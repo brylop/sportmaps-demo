@@ -425,6 +425,9 @@ router.post(
 const SendSchema = PeriodSchema.extend({
     only_due: z.boolean().optional(),
     limit: z.coerce.number().int().min(1).max(100).optional(),
+    // Envío puntual de un atleta. El caso real es «acabo de evaluar a este y
+    // quiero mandarle a él», no esperar a despachar el equipo entero.
+    report_id: z.string().uuid().optional(),
 });
 
 router.post(
@@ -436,7 +439,7 @@ router.post(
         if (!parsed.success) {
             return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
         }
-        const { year, month, only_due, limit } = parsed.data;
+        const { year, month, only_due, limit, report_id } = parsed.data;
 
         // Quién despacha lo decide la escuela en reports_release_by. Con 'coach'
         // el entrenador manda, pero SOLO sus equipos: delegar la liberación no es
@@ -464,6 +467,9 @@ router.post(
                 onlyDue: only_due === true,
                 limit,
                 teamIds,
+                // Se pasa además de teamIds, no en su lugar: el alcance del coach
+                // sigue aplicando, así que un id de otro equipo no despacha nada.
+                reportIds: report_id ? [report_id] : undefined,
             });
             res.json(salida);
         } catch (err: any) {
