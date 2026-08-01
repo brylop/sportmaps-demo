@@ -1139,22 +1139,42 @@ export default function SchoolStudentsManagementPage() {
               )}
             </div>
 
-            {/* ── Acudiente (solo menores) ── */}
-            {(!editingStudent || editingAthleteType === 'child') && (
-              <div className="space-y-4">
-                <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Contacto del acudiente</h3>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="parent_email">Email del acudiente</Label>
-                    <Input id="parent_email" type="email" {...form.register('parent_email')} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="parent_phone">Teléfono</Label>
-                    <Input id="parent_phone" type="tel" placeholder="+57 300..." {...form.register('parent_phone')} />
+            {/* ── Contacto (acudiente o deportista) ── */}
+            {(() => {
+              const isChildMode = !editingStudent || editingAthleteType === 'child';
+              const isAdultMode = editingAthleteType === 'adult';
+
+              return (
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
+                    {isChildMode ? 'Contacto del acudiente' : 'Contacto del deportista'}
+                  </h3>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="parent_email">
+                        {isChildMode ? 'Email del acudiente' : 'Email'}
+                      </Label>
+                      <Input
+                        id="parent_email"
+                        type="email"
+                        {...form.register('parent_email')}
+                        disabled={isAdultMode}
+                        placeholder={isAdultMode ? 'Gestionado desde su cuenta de usuario' : ''}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="parent_phone">Teléfono</Label>
+                      <Input
+                        id="parent_phone"
+                        type="tel"
+                        placeholder="+57 300..."
+                        {...form.register('parent_phone')}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* ── Inscripción ── */}
             <div className="space-y-4">
@@ -1411,6 +1431,12 @@ export default function SchoolStudentsManagementPage() {
                       <InfoRow label="EPS" value={studentDocInfo.eps_name} />
                       {s.emergency_contact && (
                         <InfoRow label="Contacto emergencia" value={s.emergency_contact} />
+                      )}
+                      {!isChild && s.parent_email && (
+                        <InfoRow label="Email" value={s.parent_email} icon={<Mail className="w-3 h-3" />} />
+                      )}
+                      {!isChild && s.parent_phone && (
+                        <InfoRow label="Teléfono" value={s.parent_phone} icon={<Phone className="w-3 h-3" />} />
                       )}
                     </div>
                   </section>

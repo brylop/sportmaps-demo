@@ -724,7 +724,10 @@ router.put(
 
         } else if (athlete_type === 'adult') {
           // profiles no tiene school_id → el ownership ya fue verificado en paso 1
-          const adultUpdate: any = { ...profileUpdate };
+          const adultUpdate: any = {
+            ...profileUpdate,
+            phone: profile.parent_phone ?? undefined,
+          };
           Object.keys(adultUpdate).forEach(k => adultUpdate[k] === undefined && delete adultUpdate[k]);
 
           const { error } = await supabase
@@ -734,7 +737,11 @@ router.put(
           if (error) throw new Error(`Error actualizando profile: ${error.message}`);
 
         } else if (athlete_type === 'unregistered') {
-          const unregUpdate: any = { ...profileUpdate };
+          const unregUpdate: any = {
+            ...profileUpdate,
+            email: profile.parent_email ?? undefined,
+            phone: profile.parent_phone ?? undefined,
+          };
           Object.keys(unregUpdate).forEach(k => unregUpdate[k] === undefined && delete unregUpdate[k]);
 
           const { error } = await supabase
