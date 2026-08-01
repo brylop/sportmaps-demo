@@ -221,10 +221,19 @@ Diagnóstico sobre la BD de dev/staging. Escuelas con transacción de pasarela: 
 | Escuela Demo SportMaps | 22–27 jul (×13) | wompi | comercio **`11981889`** |
 | DYNASTY VOLLEY CLUB | 2026-07-29 | wompi | comercio **`1298966`** ← cobro real |
 
-El primer segmento del `transaction_id` de Wompi identifica el comercio. Los dos prefijos
-son distintos y consistentes ⇒ las pruebas de julio y el cobro de Dynasty fueron a
-**cuentas distintas**: las llaves de ENV cambiaron entre el 27 y el 29 de julio.
-**Ningún cobro de una escuela terminó en la cuenta comercial de otra.**
+Los dos prefijos son distintos y consistentes dentro de cada grupo ⇒ las pruebas de julio
+y el cobro de Dynasty salieron de **cuentas distintas**: las llaves de ENV cambiaron entre
+el 27 y el 29 de julio. **Ningún cobro de una escuela terminó en la cuenta comercial de
+otra.**
+
+⚠️ Matiz sobre la evidencia: una versión anterior de este doc afirmaba que *el primer
+segmento del `transaction_id` es el merchant id*. No es exacto — consultando
+`GET /v1/merchants/{public_key}` con la llave sandbox de SportMaps, el comercio resulta
+ser `1981889` mientras las transacciones de la demo traen prefijo `11981889`. El prefijo
+**correlaciona** con el comercio pero no es literalmente su id. La conclusión se sostiene
+por dos vías independientes: los prefijos difieren entre ambos grupos, y la llave pública
+usada en las pruebas pertenece a un comercio de pruebas propio (`sportmaps`,
+brylop71@gmail.com), no a Dynasty.
 
 Lo que sí queda abierto es el futuro: hoy ENV tiene las llaves de Dynasty, así que
 cualquier otra escuela que cobre ahora le manda el dinero a Dynasty. Lo cierra
