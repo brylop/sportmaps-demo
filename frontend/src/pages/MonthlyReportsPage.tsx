@@ -97,6 +97,38 @@ export default function MonthlyReportsPage() {
         },
     });
 
+    /**
+     * Quién libera y despacha. Lo decide CADA escuela: en Dynasty los entrenadores
+     * están encima del día a día y les sirve mandarlo ellos; otra va a querer que
+     * nada salga sin pasar por administración. Por eso vive en school_settings y
+     * no en el código.
+     *
+     * El valor llega en el GET de informes, no de una consulta aparte: el coach
+     * no puede leer school_settings por RLS, y necesita saberlo para que no se le
+     * muestre un botón que le va a dar 403.
+     */
+    const cambiarLiberacion = useMutation({
+        mutationFn: async (valor: 'school' | 'coach') => {
+            const { error } = await supabase
+                .from('school_settings')
+                .upsert({ school_id: schoolId, reports_release_by: valor }, { onConflict: 'school_id' });
+            if (error) throw error;
+            return valor;
+        },
+        onSuccess: (valor) => {
+            toast({
+                title: valor === 'coach'
+                    ? 'Los entrenadores publican y envían lo suyo'
+                    : 'Solo la administración publica y envía',
+                description: valor === 'coach'
+                    ? 'Cada entrenador libera los informes de SUS equipos, no los del resto.'
+                    : 'Los entrenadores siguen escribiendo las notas.',
+            });
+                queryClient.invalidateQueries({ queryKey: claveInformes });
+        },
+        onError: fallar('No se pudo cambiar quién libera'),
+    });
+
     const { data, isLoading, refetch } = useQuery({
         queryKey: claveInformes,
         enabled: !!schoolId,
@@ -107,6 +139,7 @@ export default function MonthlyReportsPage() {
     });
 
     const resumen = data?.resumen;
+    const releaseBy = data?.release_by ?? 'school';
     const reports = useMemo(() => data?.reports ?? [], [data]);
 
     /** Un error del BFF trae `error`; si no, algo peor pasó y hay que mostrarlo igual. */
@@ -189,6 +222,9 @@ export default function MonthlyReportsPage() {
         onError: fallar('No se pudo guardar la nota individual'),
     });
 
+    /** El coach envía solo si la escuela le delegó la liberación. */
+    const puedeCoachEnviar = isCoach && releaseBy === 'coach';
+
     const publicables = reports.filter(
         (r) => r.team_id === teamId && (r.status === 'borrador' || r.status === 'listo'),
     ).length;
@@ -238,6 +274,22 @@ export default function MonthlyReportsPage() {
                     <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
                         {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Actualizar'}
                     </Button>
+
+                    {!isCoach && (
+                        <div className="ml-auto">
+                            <Label className="text-xs">Quién publica y envía</Label>
+                            <Select
+                                value={releaseBy}
+                                onValueChange={(v) => cambiarLiberacion.mutate(v as 'school' | 'coach')}
+                            >
+                                <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="school">Solo la administración</SelectItem>
+                                    <SelectItem value="coach">Cada entrenador, lo suyo</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
@@ -356,8 +408,8 @@ export default function MonthlyReportsPage() {
                 </CardContent>
             </Card>
 
-            {/* ── Enviar. Solo la escuela: publicar no es enviar. ── */}
-            {!isCoach && (
+            {/* ── Enviar. La escuela siempre; el coach solo si se lo habilitaron. ── */}
+            {(!isCoach || puedeCoachEnviar) && (
             <Card>
                 <CardHeader className="pb-3">
                     <CardTitle className="text-base">3 · Enviar</CardTitle>
