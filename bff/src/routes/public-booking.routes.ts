@@ -301,7 +301,7 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
       const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
         type: 'magiclink',
         email: verif.resolved_email!,
-        options: { redirectTo: `${process.env.FRONTEND_URL || 'https://app.sportmaps.co'}/my-enrollments` },
+        options: { redirectTo: `${process.env.FRONTEND_URL || 'https://app.sportmaps.co'}/enrollments` },
       });
 
       if (linkErr || !linkData) {

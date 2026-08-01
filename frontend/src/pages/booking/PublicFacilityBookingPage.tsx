@@ -765,7 +765,7 @@ export default function PublicFacilityBookingPage() {
                 <div className="space-y-3 pt-2">
                   <Button
                     onClick={() => {
-                      window.location.href = `/login?email=${encodeURIComponent(registeredEmail)}&redirectTo=${encodeURIComponent('/my-enrollments')}`;
+                      window.location.href = `/login?email=${encodeURIComponent(registeredEmail)}&redirectTo=${encodeURIComponent('/enrollments')}`;
                     }}
                     className="w-full h-12 gap-2"
                   >
