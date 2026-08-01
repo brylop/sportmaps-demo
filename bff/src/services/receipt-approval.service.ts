@@ -11,7 +11,7 @@
 import crypto from 'crypto';
 import type { Logger } from 'pino';
 import { supabase } from '../config/supabase';
-import { extractReceiptWith, listConfiguredProviders } from './ocr.service';
+import { extractReceiptWithFallback, listConfiguredProviders } from './ocr.service';
 import { evaluateVerdict, normalizeReference } from './receipt-verdict';
 import { buildVerdictContext } from './receipt-context.service';
 import { autoCreateGlosaFromReasons, maybeAutoCreateGlosa } from './glosa.service';
@@ -179,9 +179,11 @@ export async function evaluatePaymentReceipt(paymentId: string, log?: Logger): P
                 }
 
                 const providers = listConfiguredProviders();
-                const providerA = providers[0];
-                if (providerA) {
-                    const ocrA = await extractReceiptWith(providerA, base64, mime);
+                // Antes: providers[0] pelado. Si ese provider estaba caido (Groq
+                // dando 404), la excepcion mataba la evaluacion entera.
+                const attemptA = await extractReceiptWithFallback(providers, base64, mime);
+                if (attemptA) {
+                    const { provider: providerA, result: ocrA } = attemptA;
                     const ctx = await buildVerdictContext(p.school_id, {
                         referenceNorm: normalizeReference(ocrA.reference),
                         imageSha256: realHash,
@@ -199,9 +201,14 @@ export async function evaluatePaymentReceipt(paymentId: string, log?: Logger): P
                     }
 
                     if (verdictA.verdict === 'verde') {
-                        const providerB = providers.find((x) => x !== providerA);
-                        if (providerB) {
-                            const ocrB = await extractReceiptWith(providerB, base64, mime);
+                        // Sigue exigiendo un provider DISTINTO al que leyó A; lo
+                        // único que cambia es que prueba los demás en vez de
+                        // rendirse si el segundo de la lista está caído.
+                        const attemptB = await extractReceiptWithFallback(
+                            providers.filter((x) => x !== providerA), base64, mime,
+                        );
+                        if (attemptB) {
+                            const { provider: providerB, result: ocrB } = attemptB;
                             const sameAmount = ocrA.amount != null && ocrA.amount === ocrB.amount;
                             const sameRef = normalizeReference(ocrA.reference) === normalizeReference(ocrB.reference);
                             if (sameAmount && sameRef) {
