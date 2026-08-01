@@ -251,6 +251,14 @@ export default function PrivacyPage() {
           <p>
             De conformidad con el <strong className="text-foreground">Artículo 7 de la Ley 1581 de 2012</strong> y el artículo 12 del Decreto 1377 de 2013, el tratamiento de datos de menores de edad es excepcional y debe respetar sus derechos prevalentes.
           </p>
+          <div className="mt-3 bg-[#248223]/5 border border-[#248223]/20 rounded-xl p-4">
+            <p>
+              <strong className="text-foreground">Los menores de edad no tienen cuenta propia en SportMaps.</strong> La Plataforma no está dirigida a niños y no permite que un menor se registre por sí mismo: el formulario de registro exige la fecha de nacimiento y solo admite personas mayores de edad.
+            </p>
+            <p className="mt-2">
+              Los menores existen únicamente como deportistas a cargo del perfil de su padre, madre o acudiente. Es el acudiente quien inicia sesión, consulta la información del menor, autoriza el tratamiento de sus datos y realiza los pagos a la escuela. El menor no recibe credenciales de acceso ni comunicaciones directas de SportMaps.
+            </p>
+          </div>
           <p className="mt-2">
             Al registrar a un menor en la Plataforma, el acudiente declara bajo gravedad de juramento:
           </p>
@@ -416,6 +424,16 @@ export default function PrivacyPage() {
             <li>Los datos anonimizados (sin posibilidad de reidentificación) podrán conservarse indefinidamente para fines estadísticos.</li>
             <li>Los datos requeridos por órdenes judiciales o administrativas se conservarán por el término que éstas dispongan.</li>
           </ul>
+          <div className="mt-4 bg-[#248223]/5 border border-[#248223]/20 rounded-xl p-4">
+            <p className="font-medium text-foreground">Cómo pedir la eliminación de tu cuenta</p>
+            <p className="mt-2">
+              Desde la aplicación: <strong className="text-foreground">Ajustes → Seguridad → Zona de Peligro → Eliminar Cuenta</strong>. Al confirmar, cancelamos de inmediato tus cobros recurrentes y desactivamos tus medios de pago, y el borrado se ejecuta a los 30 días; puedes cancelar la solicitud dentro de ese plazo.
+            </p>
+            <p className="mt-2">
+              Sin instalar la aplicación: consulta el detalle y el procedimiento por correo en{' '}
+              <Link to="/eliminar-cuenta" className="text-[#248223] hover:underline">sportmaps.co/eliminar-cuenta</Link>.
+            </p>
+          </div>
         </section>
 
         {/* 13. Cookies */}

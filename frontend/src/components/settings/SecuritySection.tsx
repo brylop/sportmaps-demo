@@ -3,8 +3,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Shield, Key, Loader2, Save, AlertTriangle } from 'lucide-react';
+import { Shield, Key, Loader2, Save } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { AccountDeletionCard } from '@/components/settings/AccountDeletionCard';
 
 interface SecuritySectionProps {
   saving: boolean;
@@ -110,30 +111,7 @@ export function SecuritySection({ saving, onChangePassword }: SecuritySectionPro
         </Card>
       </form>
 
-      <Card className="border-destructive/20 bg-destructive/5">
-        <CardHeader>
-          <CardTitle className="text-destructive flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5" />
-            Zona de Peligro
-          </CardTitle>
-          <CardDescription>
-            Acciones irreversibles sobre tu cuenta de SportMaps.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <p className="font-medium">Eliminar mi cuenta</p>
-              <p className="text-sm text-muted-foreground">
-                Se borrarán permanentemente todos tus datos, perfiles y membresías.
-              </p>
-            </div>
-            <Button variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive hover:text-destructive-foreground transition-colors shrink-0">
-              Eliminar Cuenta
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <AccountDeletionCard />
     </div>
   );
 }
