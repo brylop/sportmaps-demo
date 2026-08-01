@@ -223,7 +223,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Resultados', href: '/results', icon: Trophy },
           { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity },
           { title: 'Rutinas del Gym', href: '/school/routines', icon: Dumbbell },
-          { title: 'Reportes', href: '/coach-reports', icon: FileText }
+          { title: 'Reportes', href: '/coach-reports', icon: FileText },
+          { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText }
         ]
       },
       {
