@@ -23,6 +23,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { openExternalUrl } from '@/lib/openExternalUrl';
 import { studentsAPI } from '@/lib/api/students';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -277,20 +278,23 @@ export default function MiPlanPage() {
         return finalUrl;
     };
 
+    // El plan SaaS es un servicio digital: en nativo SIEMPRE sale al navegador
+    // del sistema (ver lib/openExternalUrl.ts). En web se comporta igual que
+    // antes. No convertir esto de vuelta a window.location.href.
     const handleUpgrade = async () => {
-        window.location.href = await buildUrlWithToken();
+        await openExternalUrl(await buildUrlWithToken());
     };
 
     const handleChoosePlan = async (code: TierCode) => {
-        window.location.href = await buildUrlWithToken(undefined, undefined, code);
+        await openExternalUrl(await buildUrlWithToken(undefined, undefined, code));
     };
 
     const handleContactSales = async () => {
-        window.location.href = await buildUrlWithToken(undefined, 'contact_sales', 'enterprise');
+        await openExternalUrl(await buildUrlWithToken(undefined, 'contact_sales', 'enterprise'));
     };
 
     const handleUpdatePayment = async () => {
-        window.location.href = await buildUrlWithToken(undefined, 'update_payment');
+        await openExternalUrl(await buildUrlWithToken(undefined, 'update_payment'));
     };
 
     return (
