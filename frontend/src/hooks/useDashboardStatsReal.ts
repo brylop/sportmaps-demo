@@ -119,18 +119,38 @@ export function useDashboardStatsReal() {
           coachesCount = coachCountRes || 0;
 
           // Plans count from offering_plans
-          let plansQuery = supabase
-            .from('offering_plans' as any)
-            .select('id', { count: 'exact', head: true })
-            .eq('school_id', schoolId)
-            .eq('is_active', true);
-
+          // `offering_plans` NO tiene branch_id: la sede vive en el offering
+          // padre. Filtrar por branch_id acá devolvía 400 de PostgREST
+          // ("column offering_plans.branch_id does not exist") y el contador de
+          // planes quedaba en 0 en cada carga del dashboard.
+          let branchOfferingIds: string[] | null = null;
           if (activeBranchId) {
-            plansQuery = (plansQuery as any).eq('branch_id', activeBranchId);
+            const { data: branchOfferings } = await supabase
+              .from('offerings')
+              .select('id')
+              .eq('school_id', schoolId)
+              // Las escuelas de una sola sede dejan branch_id en NULL: sin esta
+              // rama del OR perderían todos sus planes.
+              .or(`branch_id.eq.${activeBranchId},branch_id.is.null`);
+            branchOfferingIds = (branchOfferings || []).map((o: any) => o.id);
           }
 
-          const { count: plansCountRes } = await (plansQuery as any);
-          plansCount = plansCountRes || 0;
+          if (branchOfferingIds && branchOfferingIds.length === 0) {
+            plansCount = 0;
+          } else {
+            let plansQuery = supabase
+              .from('offering_plans' as any)
+              .select('id', { count: 'exact', head: true })
+              .eq('school_id', schoolId)
+              .eq('is_active', true);
+
+            if (branchOfferingIds) {
+              plansQuery = (plansQuery as any).in('offering_id', branchOfferingIds);
+            }
+
+            const { count: plansCountRes } = await (plansQuery as any);
+            plansCount = plansCountRes || 0;
+          }
         }
 
         const isCoach = profile?.role === 'coach';
