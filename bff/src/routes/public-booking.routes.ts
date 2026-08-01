@@ -122,33 +122,10 @@ router.post('/start-verification', otpStartLimiter, async (req: Request, res: Re
         });
       }
 
-      const code = generateCode();
-      const { data: verif, error } = await supabase
-        .from('public_booking_verifications')
-        .insert({
-          school_id, phone: cleanPhone,
-          otp_hash: hashOtp(code),
-          resolved_email: targetEmail,
-          resolved_kind: 'registered',
-          resolved_user_id: profileMatch?.id ?? null,
-          resolved_child_id: childMatch?.id ?? null,
-          expires_at: new Date(Date.now() + OTP_TTL_MIN * 60_000).toISOString(),
-        })
-        .select('id').single();
-      if (error) throw error;
-
-      await emailClient.send({
-        to: targetEmail,
-        subject: 'Tu código para agendar en SportMaps',
-        html: `<p>Tu código de verificación es:</p><h2 style="letter-spacing:3px">${code}</h2><p>Vence en ${OTP_TTL_MIN} minutos.</p>`,
-        text: `Tu código de verificación es ${code} (vence en ${OTP_TTL_MIN} min).`,
-      });
-
       return res.json({
-        verification_id: verif.id,
-        scenario: 'registered',
-        masked_email: maskEmail(targetEmail),
-        ...(process.env.NODE_ENV !== 'production' ? { debug_code: code } : {}),
+        scenario: 'already_registered',
+        email: targetEmail,
+        message: 'Ya tienes una cuenta registrada. Por seguridad, debes iniciar sesión con tu correo y contraseña.',
       });
     }
 
@@ -344,7 +321,22 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
       .update({ verified_at: new Date().toISOString(), booking_token: bookingToken })
       .eq('id', verification_id);
 
-    return res.json({ scenario: verif.resolved_kind, booking_token: bookingToken });
+    let resolvedName = verif.full_name || '';
+    if (verif.resolved_unregistered_id) {
+      const { data: unreg } = await supabase
+        .from('unregistered_athletes')
+        .select('full_name')
+        .eq('id', verif.resolved_unregistered_id)
+        .maybeSingle();
+      if (unreg) resolvedName = unreg.full_name;
+    }
+
+    return res.json({
+      scenario: verif.resolved_kind,
+      booking_token: bookingToken,
+      email: verif.resolved_email,
+      fullName: resolvedName,
+    });
   } catch (err: any) {
     req.log?.error({ err }, 'public-booking verify-otp error');
     return res.status(500).json({ error: 'Error interno del servidor.' });

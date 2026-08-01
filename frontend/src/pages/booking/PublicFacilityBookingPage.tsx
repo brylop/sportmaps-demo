@@ -42,7 +42,7 @@ interface Slot {
 // El teléfono, verificado en el backend, sigue siendo la única fuente de verdad.
 type Step =
   | 'welcome' | 'facility' | 'slots' | 'phone'
-  | 'email_needed' | 'new_details' | 'code' | 'success' | 'pending';
+  | 'email_needed' | 'new_details' | 'code' | 'success' | 'pending' | 'already_registered';
 
 async function api(path: string, opts: RequestInit = {}) {
   const res = await fetch(`${BFF_URL}/api/v1/public/booking${path}`, {
@@ -90,6 +90,8 @@ export default function PublicFacilityBookingPage() {
   const [verificationId, setVerificationId] = useState<string | null>(null);
   const [maskedEmail, setMaskedEmail] = useState<string | null>(null);
   const [bookingToken, setBookingToken] = useState<string | null>(null);
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [resolvedKind, setResolvedKind] = useState<'new' | 'enrolled_unregistered' | null>(null);
 
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
@@ -172,6 +174,11 @@ export default function PublicFacilityBookingPage() {
         body: JSON.stringify({ school_id: schoolInfo.school.id, phone, ...(extra || {}) }),
       });
 
+       if (data.scenario === 'already_registered') {
+        setRegisteredEmail(data.email || '');
+        setStep('already_registered');
+        return;
+      }
       if (data.scenario === 'enrolled_needs_email') {
         setStep('email_needed');
         return;
@@ -199,6 +206,9 @@ export default function PublicFacilityBookingPage() {
         }
 
         setBookingToken(verifyData.booking_token);
+        setResolvedKind(verifyData.scenario);
+        if (verifyData.email) setEmail(verifyData.email);
+        if (verifyData.fullName) setFullName(verifyData.fullName);
         await handleConfirm(verifyData.booking_token);
         return;
       }
@@ -247,6 +257,9 @@ export default function PublicFacilityBookingPage() {
       }
 
       setBookingToken(data.booking_token);
+      setResolvedKind(data.scenario);
+      if (data.email) setEmail(data.email);
+      if (data.fullName) setFullName(data.fullName);
       // Ya identificado y con el slot elegido antes → confirmar directo
       await handleConfirm(data.booking_token);
     } catch (err: any) {
@@ -644,28 +657,132 @@ export default function PublicFacilityBookingPage() {
 
             {/* ── Éxito ── */}
             {step === 'success' && (
-              <div className="text-center py-6 space-y-4">
-                <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="h-8 w-8 text-emerald-600 dark:text-emerald-500" />
+              <div className="text-center py-6 space-y-6">
+                <div className="space-y-4">
+                  <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto">
+                    <CheckCircle2 className="h-8 w-8 text-emerald-600 dark:text-emerald-500" />
+                  </div>
+                  <div>
+                    <h2 className="font-bold text-lg">¡Reserva confirmada!</h2>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Te esperamos en {selectedFacility?.name} el {pendingSlot && fmtDate(pendingSlot.date)}.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="font-bold text-lg">¡Reserva confirmada!</h2>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Te esperamos en {selectedFacility?.name} el {pendingSlot && fmtDate(pendingSlot.date)}.
-                  </p>
-                </div>
+
+                {/* Llamado a crear cuenta para no registrados / cortesías */}
+                {(resolvedKind === 'new' || resolvedKind === 'enrolled_unregistered') && (
+                  <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5 text-left space-y-4">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-primary/10 rounded-xl mt-0.5">
+                        <Sparkles className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-foreground">¡Crea tu cuenta de SportMaps!</h4>
+                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                          Para ver el historial de tus clases, gestionar tus reservas y pagos de forma sencilla, te invitamos a activar tu cuenta ahora.
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={() => {
+                        const targetEmail = email;
+                        const targetName = fullName;
+                        const targetPhone = phone;
+                        window.location.href = `/register?email=${encodeURIComponent(targetEmail)}&phone=${encodeURIComponent(targetPhone)}&name=${encodeURIComponent(targetName)}&role=athlete`;
+                      }}
+                      className="w-full h-11 text-xs gap-2"
+                      variant="default"
+                    >
+                      Crear mi cuenta gratis
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
 
             {/* ── Pendiente de aprobación ── */}
             {step === 'pending' && (
-              <div className="text-center py-6 space-y-4">
-                <div className="w-16 h-16 bg-yellow-500/10 rounded-full flex items-center justify-center mx-auto">
-                  <Clock className="h-8 w-8 text-yellow-600 dark:text-yellow-500" />
+              <div className="text-center py-6 space-y-6">
+                <div className="space-y-4">
+                  <div className="w-16 h-16 bg-yellow-500/10 rounded-full flex items-center justify-center mx-auto">
+                    <Clock className="h-8 w-8 text-yellow-600 dark:text-yellow-500" />
+                  </div>
+                  <div>
+                    <h2 className="font-bold text-lg">Solicitud enviada</h2>
+                    <p className="text-sm text-muted-foreground mt-1">{pendingApprovalMsg}</p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="font-bold text-lg">Solicitud enviada</h2>
-                  <p className="text-sm text-muted-foreground mt-1">{pendingApprovalMsg}</p>
+
+                {/* Llamado a crear cuenta para no registrados / cortesías */}
+                {(resolvedKind === 'new' || resolvedKind === 'enrolled_unregistered') && (
+                  <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5 text-left space-y-4">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-primary/10 rounded-xl mt-0.5">
+                        <Sparkles className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-foreground">¡Crea tu cuenta de SportMaps!</h4>
+                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                          Para ver el historial de tus clases, gestionar tus reservas y pagos de forma sencilla, te invitamos a activar tu cuenta ahora.
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={() => {
+                        const targetEmail = email;
+                        const targetName = fullName;
+                        const targetPhone = phone;
+                        window.location.href = `/register?email=${encodeURIComponent(targetEmail)}&phone=${encodeURIComponent(targetPhone)}&name=${encodeURIComponent(targetName)}&role=athlete`;
+                      }}
+                      className="w-full h-11 text-xs gap-2"
+                      variant="default"
+                    >
+                      Crear mi cuenta gratis
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Paso: Ya registrado (redirigir a login con contraseña) ── */}
+            {step === 'already_registered' && (
+              <div className="space-y-6 text-center py-4">
+                <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto">
+                  <AlertCircle className="h-8 w-8 text-blue-500" />
+                </div>
+                <div className="space-y-2">
+                  <h2 className="font-bold text-lg">Cuenta ya registrada</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Identificamos que tu número de teléfono ya está asociado a la cuenta: <strong className="text-foreground">{registeredEmail}</strong>.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Por tu seguridad, para poder realizar un agendamiento debes iniciar sesión con tu correo y contraseña.
+                  </p>
+                </div>
+                <div className="space-y-3 pt-2">
+                  <Button
+                    onClick={() => {
+                      const backUrl = encodeURIComponent(window.location.pathname + window.location.search);
+                      window.location.href = `/login?email=${encodeURIComponent(registeredEmail)}&redirectTo=${backUrl}`;
+                    }}
+                    className="w-full h-12 gap-2"
+                  >
+                    Iniciar sesión con contraseña
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                  <button
+                    onClick={() => {
+                      setStep('phone');
+                      setErrorMsg(null);
+                    }}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mx-auto"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    <span>Usar otro número</span>
+                  </button>
                 </div>
               </div>
             )}
