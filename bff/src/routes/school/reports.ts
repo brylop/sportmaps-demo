@@ -162,10 +162,33 @@ router.get(
             .eq('school_id', req.schoolId)
             .maybeSingle();
 
+        // Cobertura por equipo (M4). Es información que `resumen` NO puede dar:
+        // se calcula sobre los INSCRITOS del periodo, así que incluye a los
+        // atletas que no tienen informe porque nadie los midió — el dato que
+        // convierte la pantalla en una lista de trabajo. `resumen` solo puede
+        // contar filas que ya existen.
+        //
+        // Fail-soft a propósito: las migraciones se aplican a mano, así que este
+        // deploy puede llegar antes que M4. Sin la RPC la pantalla pierde el
+        // panel de cobertura y sigue funcionando; si esto tirara 500, el listado
+        // entero se caería por un panel accesorio.
+        let cobertura: any[] = [];
+        const { data: cov, error: covErr } = await userClient(req).rpc('report_coverage', {
+            p_school_id: req.schoolId,
+            p_year: year,
+            p_month: month,
+        });
+        if (covErr) {
+            req.log?.warn({ err: covErr }, 'report_coverage no disponible');
+        } else {
+            cobertura = (cov ?? []) as any[];
+        }
+
         res.json({
             year,
             month,
             resumen,
+            cobertura,
             release_by: (cfg as any)?.reports_release_by ?? 'school',
             reports: filas,
         });
