@@ -85,9 +85,14 @@ async function extractWithGroq(base64Image: string, mimeType: string): Promise<O
             Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-            // Llama 4 Scout: modelo de vision actual de Groq (free tier).
-            // El anterior llama-3.2-90b-vision-preview fue decommissioned.
-            model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+            // Modelo de VISION de Groq. Configurable porque Groq rota/retira
+            // modelos sin aviso y el nombre hardcodeado ya nos rompio dos veces:
+            // llama-3.2-90b-vision-preview fue decommissioned, y despues
+            // llama-4-scout empezo a dar 404 ("does not exist or you do not have
+            // access to it") — puede ser retiro del modelo O falta de acceso de
+            // la cuenta, el error de Groq no distingue.
+            // Si Groq falla, la cadena de fallback pasa a Gemini/OpenAI sola.
+            model: process.env.GROQ_OCR_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct',
             temperature: 0,
             max_tokens: 500,
             response_format: { type: 'json_object' },
@@ -258,7 +263,8 @@ function parseLlmJson(content: string, provider: string): OcrResult {
 }
 
 export async function extractReceipt(base64Image: string, mimeType: string = 'image/png'): Promise<OcrResult> {
-    const order = (process.env.OCR_PROVIDER || 'groq').toLowerCase();
+    // Default gemini (antes groq, que hoy da 404 al modelo de vision).
+    const order = (process.env.OCR_PROVIDER || 'gemini').toLowerCase();
 
     const providers: Record<string, () => Promise<OcrResult>> = {
         groq:   () => extractWithGroq(base64Image, mimeType),
@@ -267,6 +273,7 @@ export async function extractReceipt(base64Image: string, mimeType: string = 'im
     };
 
     const tryOrder = [order, 'gemini', 'openai', 'groq'].filter((v, i, a) => a.indexOf(v) === i && providers[v]);
+    // (el orden de respaldo ya tenia gemini primero; solo cambio el default de `order`)
 
     let lastErr: Error | null = null;
     for (const name of tryOrder) {
@@ -286,12 +293,19 @@ export async function extractReceipt(base64Image: string, mimeType: string = 'im
 // ─────────────────────────────────────────────────────────────────────────────
 export type OcrProvider = 'groq' | 'gemini' | 'openai';
 
-/** Providers con API key configurada, en orden de preferencia (groq, gemini, openai). */
+/**
+ * Providers con API key configurada, en orden de preferencia.
+ *
+ * GEMINI VA PRIMERO (antes iba groq). Groq empezo a responder 404 al modelo de
+ * vision y, como este orden decide quien lee el comprobante en la doble
+ * extraccion, tenerlo de primero costaba un intento fallido por comprobante.
+ * Groq queda de ultimo: si algun dia vuelve a servir, entra solo.
+ */
 export function listConfiguredProviders(): OcrProvider[] {
     const out: OcrProvider[] = [];
-    if (process.env.GROQ_API_KEY) out.push('groq');
     if (process.env.GEMINI_API_KEY) out.push('gemini');
     if (process.env.OPENAI_API_KEY) out.push('openai');
+    if (process.env.GROQ_API_KEY) out.push('groq');
     return out;
 }
 
@@ -305,4 +319,35 @@ export function extractReceiptWith(
         case 'gemini': return extractWithGemini(base64Image, mimeType);
         case 'openai': return extractWithOpenAI(base64Image, mimeType);
     }
+}
+
+/**
+ * Primer provider de `candidates` que responda, con QUIEN respondio.
+ *
+ * Existe porque la doble extraccion de Fase 5 llamaba a `extractReceiptWith`
+ * pelado con `providers[0]`: si ese provider estaba caido, la excepcion subia
+ * hasta el catch de `evaluatePaymentReceipt` y se perdia la evaluacion ENTERA
+ * — ni auto-aprobacion ni glosa, el comprobante mudo en la cola y un 200 al
+ * cliente. Paso de verdad: Groq empezo a dar 404 y nadie se entero.
+ *
+ * NO debilita el control: el llamador sigue exigiendo que DOS providers
+ * distintos coincidan para aprobar. Esto solo evita que la caida de uno
+ * tumbe el proceso completo.
+ *
+ * Devuelve null si TODOS fallan (ahi si no hay lectura posible).
+ */
+export async function extractReceiptWithFallback(
+    candidates: OcrProvider[],
+    base64Image: string,
+    mimeType: string = 'image/png',
+): Promise<{ provider: OcrProvider; result: OcrResult } | null> {
+    for (const provider of candidates) {
+        try {
+            const result = await extractReceiptWith(provider, base64Image, mimeType);
+            return { provider, result };
+        } catch (err: any) {
+            console.warn(`[OCR] ${provider} fallo en doble extraccion:`, err?.message);
+        }
+    }
+    return null;
 }
