@@ -8,43 +8,271 @@ function todayString(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 }
 
-async function validatePlanForAttendance(enrollmentId: string, isSecondary: boolean = false): Promise<{
-  valid: boolean;
-  reason?: 'expired' | 'no_credits' | 'no_secondary_credits' | 'not_found';
-  enrollment?: {
-    id: string; sessions_used: number; max_sessions: number | null;
-    secondary_sessions_used: number; max_secondary_sessions: number | null;
-    expires_at: string | null; plan_name: string | null;
+// ─────────────────────────────────────────────────────────────────────────────
+// Créditos de sesión — docs/plan-asistencia-y-creditos-de-sesion.md
+//
+// Regla de fondo: los créditos viven SIEMPRE en la inscripción que tiene
+// `offering_plan_id`. El equipo solo pone al atleta en el roster, así que un
+// entrenador asignado únicamente al equipo descuenta del plan del atleta sin
+// tener vínculo con la oferta. Por eso el crédito se resuelve POR ATLETA y no
+// por la fila que mandó la pantalla.
+//
+// Y registrar la asistencia NUNCA falla por falta de saldo: dejar constancia de
+// que el atleta vino, y cobrarle el crédito, son dos cosas distintas.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type AthleteRef = { childId?: string | null; userId?: string | null; unregisteredId?: string | null };
+
+type CreditEnrollment = {
+  id: string; sessions_used: number; max_sessions: number | null;
+  secondary_sessions_used: number; max_secondary_sessions: number | null;
+  expires_at: string | null; plan_name: string | null;
+};
+
+/** Reserva del día que la asistencia puede consumir en vez de descontar otra clase. */
+type FreeBooking = {
+  source: 'session_bookings' | 'facility_reservations';
+  id: string;
+  session_id: string | null;
+  /** Hora del bloque, para poder decírselo al entrenador. */
+  start_time: string | null;
+};
+
+type CreditOutcome =
+  | 'deducted'            // se descontó una clase
+  | 'covered_by_booking'  // ya tenía reserva ese día: no se descuenta
+  | 'returned'            // corrección a ausente: crédito devuelto
+  | 'booking_released'    // corrección a ausente sobre una reserva: vuelve a confirmed
+  | 'no_plan'             // equipo puro: no maneja sesiones
+  | 'no_credits'          // plan agotado — la asistencia igual quedó registrada
+  | 'expired'             // plan vencido — idem
+  | 'unchanged';
+
+const PLAN_JOIN = 'offering_plans!enrollments_offering_plan_id_fkey(name, max_sessions, max_secondary_sessions)';
+
+function athleteFilter(a: AthleteRef): Record<string, string> {
+  if (a.childId) return { child_id: a.childId };
+  if (a.userId)  return { user_id: a.userId };
+  return { unregistered_athlete_id: a.unregisteredId as string };
+}
+
+function athleteKey(a: AthleteRef): string | null {
+  return a.childId ?? a.userId ?? a.unregisteredId ?? null;
+}
+
+function toCreditEnrollment(row: any): CreditEnrollment {
+  const plan = row?.offering_plans;
+  return {
+    id: row.id,
+    sessions_used: row.sessions_used ?? 0,
+    max_sessions: plan?.max_sessions ?? null,
+    secondary_sessions_used: row.secondary_sessions_used ?? 0,
+    max_secondary_sessions: plan?.max_secondary_sessions ?? null,
+    expires_at: row.expires_at ?? null,
+    plan_name: plan?.name ?? null,
   };
-}> {
-  const { data: enr, error } = await supabase
+}
+
+/**
+ * Traduce la respuesta de `move_session_credit` al shape de CreditEnrollment. Se
+ * usa con spread sobre el crédito ya conocido, así que solo pisa lo que el RPC
+ * devolvió con valor — un `plan_name` nulo no debe borrar el que ya teníamos.
+ */
+function pickCreditFields(moved: any): Partial<CreditEnrollment> {
+  const out: Partial<CreditEnrollment> = {
+    sessions_used: moved?.sessions_used ?? 0,
+    secondary_sessions_used: moved?.secondary_sessions_used ?? 0,
+  };
+  if (moved?.max_sessions !== undefined && moved?.max_sessions !== null) out.max_sessions = moved.max_sessions;
+  if (moved?.max_secondary_sessions !== undefined && moved?.max_secondary_sessions !== null) out.max_secondary_sessions = moved.max_secondary_sessions;
+  if (moved?.expires_at) out.expires_at = moved.expires_at;
+  if (moved?.plan_name) out.plan_name = moved.plan_name;
+  return out;
+}
+
+/** La inscripción con plan del atleta, o null si no maneja sesiones. */
+async function findCreditEnrollment(schoolId: string, athlete: AthleteRef): Promise<CreditEnrollment | null> {
+  const key = athleteKey(athlete);
+  if (!key || !schoolId) return null;
+
+  const { data } = await supabase
     .from('enrollments')
-    .select('id, sessions_used, secondary_sessions_used, expires_at, status, offering_plans!enrollments_offering_plan_id_fkey(name, max_sessions, max_secondary_sessions)')
-    .eq('id', enrollmentId).eq('status', 'active').maybeSingle();
+    .select(`id, sessions_used, secondary_sessions_used, expires_at, ${PLAN_JOIN}`)
+    .eq('school_id', schoolId)
+    .match(athleteFilter(athlete))
+    .eq('status', 'active')
+    .not('offering_plan_id', 'is', null)
+    .order('created_at', { ascending: true })
+    .limit(1);
 
-  if (error || !enr) return { valid: false, reason: 'not_found' };
+  const row = (data || [])[0];
+  return row ? toCreditEnrollment(row) : null;
+}
 
-  const plan = (enr as any).offering_plans;
-  const today = todayString();
+/**
+ * Mueve el saldo. `delta` +1 consume, -1 devuelve. Pasa por el RPC porque el
+ * read-modify-write desde acá hacía que dos reservas simultáneas consumieran un
+ * solo crédito (el RPC toma SELECT … FOR UPDATE sobre la inscripción).
+ */
+async function moveCredit(enrollmentId: string, delta: 1 | -1, isSecondary: boolean): Promise<any> {
+  const { data, error } = await supabase.rpc('move_session_credit', {
+    p_enrollment_id: enrollmentId,
+    p_delta: delta,
+    p_is_secondary: isSecondary,
+  });
+  if (error) throw error;
+  return data;
+}
 
-  if (enr.expires_at && enr.expires_at < today) return { valid: false, reason: 'expired' };
+/**
+ * Busca una reserva de HOY que la asistencia pueda consumir. Prioridad: la de
+ * esta misma sesión; si no, la más temprana libre del día en la misma bolsa.
+ * Sin esto, reservar a las 6pm y ser marcado presente en la sesión de las 4pm
+ * descontaba dos clases por un solo entrenamiento.
+ */
+async function findFreeBookingOfDay(
+  schoolId: string, athlete: AthleteRef, day: string,
+  isSecondary: boolean, preferSessionId?: string | null,
+): Promise<FreeBooking | null> {
+  if (!schoolId || !athleteKey(athlete)) return null;
 
-  if (isSecondary) {
-    const maxSecondary: number | null = plan?.max_secondary_sessions ?? null;
-    if (maxSecondary !== null && enr.secondary_sessions_used >= maxSecondary) return { valid: false, reason: 'no_secondary_credits' };
-  } else {
-    const maxSessions: number | null = plan?.max_sessions ?? null;
-    if (maxSessions !== null && enr.sessions_used >= maxSessions) return { valid: false, reason: 'no_credits' };
+  const { data: bks } = await supabase
+    .from('session_bookings')
+    .select('id, session_id, attendance_sessions!inner(session_date, start_time)')
+    .eq('school_id', schoolId)
+    .match(athleteFilter(athlete))
+    .eq('status', 'confirmed')
+    .eq('is_secondary', isSecondary)
+    .eq('attendance_sessions.session_date', day);
+
+  const candidates: FreeBooking[] = (bks || []).map((b: any) => ({
+    source: 'session_bookings' as const,
+    id: b.id,
+    session_id: b.session_id,
+    start_time: b.attendance_sessions?.start_time ?? null,
+  }));
+
+  // Las reservas de instalación consumen la bolsa secundaria, nunca la principal.
+  if (isSecondary && !athlete.unregisteredId) {
+    const { data: res } = await supabase
+      .from('facility_reservations')
+      .select('id, start_time')
+      .eq('school_id', schoolId)
+      .match(athlete.childId ? { child_id: athlete.childId } : { user_id: athlete.userId as string })
+      .eq('reservation_date', day)
+      .eq('status', 'confirmed');
+
+    for (const r of res || []) {
+      candidates.push({ source: 'facility_reservations', id: (r as any).id, session_id: null, start_time: (r as any).start_time ?? null });
+    }
   }
 
+  if (!candidates.length) return null;
+
+  const exact = preferSessionId ? candidates.find(c => c.session_id === preferSessionId) : null;
+  if (exact) return exact;
+
+  return candidates.sort((a, b) => (a.start_time ?? '').localeCompare(b.start_time ?? ''))[0];
+}
+
+/**
+ * Marca la reserva como usada. Es el candado que impide que la reserva de la
+ * mañana absorba también la asistencia de la tarde: una reserva se consume una
+ * sola vez.
+ *
+ * `facility_reservations` no se toca — su `status` es un enum/text con valores
+ * propios y no admite 'attended'. Ahí el emparejamiento vale como guard pero sin
+ * candado; el riesgo es acotado porque el slot de instalación es exclusivo
+ * (`facility_reservations_unique_active_slot`), o sea una reserva por bloque.
+ */
+async function consumeBooking(booking: FreeBooking): Promise<void> {
+  if (booking.source !== 'session_bookings') return;
+  await supabase.from('session_bookings')
+    .update({ status: 'attended', updated_at: new Date().toISOString() })
+    .eq('id', booking.id);
+}
+
+/** Devuelve a 'confirmed' la reserva que esta asistencia había consumido. */
+async function releaseConsumedBooking(
+  schoolId: string, athlete: AthleteRef, day: string, isSecondary: boolean, sessionId?: string | null,
+): Promise<boolean> {
+  if (!schoolId || !athleteKey(athlete)) return false;
+
+  let q = supabase
+    .from('session_bookings')
+    .select('id, session_id, attendance_sessions!inner(session_date)')
+    .eq('school_id', schoolId)
+    .match(athleteFilter(athlete))
+    .eq('status', 'attended')
+    .eq('is_secondary', isSecondary)
+    .eq('attendance_sessions.session_date', day);
+
+  if (sessionId) q = q.eq('session_id', sessionId);
+
+  const { data } = await q.limit(1);
+  const row = (data || [])[0];
+  if (!row) return false;
+
+  await supabase.from('session_bookings')
+    .update({ status: 'confirmed', updated_at: new Date().toISOString() })
+    .eq('id', (row as any).id);
+  return true;
+}
+
+type PlanStatus = {
+  /** false = la inscripción no existe o no está activa. Es lo ÚNICO que bloquea. */
+  found: boolean;
+  /** La inscripción que aporta los créditos. null = el atleta no maneja sesiones. */
+  credit: CreditEnrollment | null;
+  /** Motivo por el que no se va a descontar, aunque la asistencia sí se registre. */
+  warning: 'expired' | 'no_credits' | 'no_secondary_credits' | null;
+};
+
+async function validatePlanForAttendance(
+  enrollmentId: string, isSecondary: boolean = false,
+  schoolId?: string, athlete: AthleteRef = {},
+): Promise<PlanStatus> {
+  const { data: enr, error } = await supabase
+    .from('enrollments')
+    .select(`id, sessions_used, secondary_sessions_used, expires_at, status, offering_plan_id, ${PLAN_JOIN}`)
+    .eq('id', enrollmentId).eq('status', 'active').maybeSingle();
+
+  if (error || !enr) return { found: false, credit: null, warning: null };
+
+  // La fila recibida solo confirma que la inscripción existe y está activa; el
+  // saldo sale de la que tiene el plan, que puede ser esta misma u otra.
+  const credit = (enr as any).offering_plan_id
+    ? toCreditEnrollment(enr)
+    : (schoolId ? await findCreditEnrollment(schoolId, athlete) : null);
+
+  if (!credit) return { found: true, credit: null, warning: null };
+
+  const today = todayString();
+  if (credit.expires_at && credit.expires_at < today) return { found: true, credit, warning: 'expired' };
+
+  if (isSecondary) {
+    if (credit.max_secondary_sessions !== null && credit.secondary_sessions_used >= credit.max_secondary_sessions) {
+      return { found: true, credit, warning: 'no_secondary_credits' };
+    }
+  } else if (credit.max_sessions !== null && credit.sessions_used >= credit.max_sessions) {
+    return { found: true, credit, warning: 'no_credits' };
+  }
+
+  return { found: true, credit, warning: null };
+}
+
+/** Estado del plan tal como lo consume el frontend (badge de la fila + toast). */
+function planSummary(credit: CreditEnrollment | null, booking?: FreeBooking | null) {
+  if (!credit) return null;
   return {
-    valid: true,
-    enrollment: {
-      id: enr.id, sessions_used: enr.sessions_used, max_sessions: plan?.max_sessions ?? null,
-      secondary_sessions_used: enr.secondary_sessions_used,
-      max_secondary_sessions: plan?.max_secondary_sessions ?? null,
-      expires_at: enr.expires_at ?? null, plan_name: plan?.name ?? null,
-    },
+    plan_name: credit.plan_name,
+    sessions_used: credit.sessions_used,
+    max_sessions: credit.max_sessions,
+    sessions_remaining: credit.max_sessions !== null ? Math.max(0, credit.max_sessions - credit.sessions_used) : null,
+    secondary_sessions_used: credit.secondary_sessions_used,
+    max_secondary_sessions: credit.max_secondary_sessions,
+    expires_at: credit.expires_at,
+    booking_today: booking ? { start_time: booking.start_time, source: booking.source } : null,
   };
 }
 
@@ -318,6 +546,29 @@ router.get(
         }
       });
 
+      // ── 4b. Reservas de hoy ───────────────────────────────────────────────
+      // El entrenador tiene que ver que el atleta ya reservó: en ese caso pasar
+      // lista NO le descuenta otra clase, y sin el aviso parece un error.
+      const bookingByAthlete: Record<string, { start_time: string | null; status: string }> = {};
+      {
+        const { data: todayBks } = await supabase
+          .from('session_bookings')
+          .select('child_id, user_id, unregistered_athlete_id, status, attendance_sessions!inner(session_date, start_time)')
+          .eq('school_id', schoolId)
+          .in('status', ['confirmed', 'attended'])
+          .eq('attendance_sessions.session_date', todayString());
+
+        for (const b of todayBks || []) {
+          const key = (b as any).child_id ?? (b as any).user_id ?? (b as any).unregistered_athlete_id;
+          if (key && !bookingByAthlete[key]) {
+            bookingByAthlete[key] = {
+              start_time: (b as any).attendance_sessions?.start_time ?? null,
+              status: (b as any).status,
+            };
+          }
+        }
+      }
+
       // ── 5. Construir athletes enriquecidos ────────────────────────────────
       const athletes = enrollments.map((e: any) => {
         const athleteId   = e.child_id ?? e.user_id ?? e.unregistered_athlete_id;
@@ -345,7 +596,14 @@ router.get(
           enrollment_id: e.id,
           // Para EQUIPOS: plan null siempre — el equipo no tiene plan
           // Para PLANES:  plan con toda la info
-          plan: (contextType === 'offering' && plan) ? {
+          // Reserva de hoy: el descuento la consume en vez de cobrar otra clase.
+          booking_today: bookingByAthlete[athleteId] ?? null,
+          // El plan se expone en AMBOS contextos. El equipo no tiene plan propio,
+          // pero el atleta sí, y es de su plan de donde sale el descuento: con
+          // `plan: null` forzado por equipo el entrenador descontaba a ciegas y
+          // solo se enteraba por un 422 seco. Atleta de equipo puro → plan null
+          // natural, que es lo correcto: no maneja sesiones.
+          plan: plan ? {
             name:                    plan.name,
             start_date:              e.start_date    ?? null,
             expires_at:              expiresAt,
@@ -465,10 +723,68 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
         if (error) throw error;
       };
 
+      // ── Estado previo, para mover créditos por transición ────────────────
+      // Esta ruta no tocaba `enrollments`, así que el saldo dependía de la
+      // pantalla: CoachPlansPage marcaba presente y no descontaba nada, y
+      // corregir presente→ausente en un equipo quemaba la clase (la devolución
+      // solo vivía en walk-in). Ahora ambas rutas comparten la misma lógica.
+      const prevByAthlete: Record<string, string> = {};
+      if (finalSessionId) {
+        const { data: prevRecords } = await supabase
+          .from('attendance_records')
+          .select('status, child_id, user_id, unregistered_athlete_id')
+          .eq('session_id', finalSessionId);
+
+        for (const r of prevRecords || []) {
+          const key = (r as any).child_id ?? (r as any).user_id ?? (r as any).unregistered_athlete_id;
+          if (key) prevByAthlete[key] = (r as any).status;
+        }
+      }
+
       for (const record of records) {
         await upsertRecord(record);
       }
-      return res.json({ success: true, sessionId: finalSessionId });
+
+      const creditOutcomes: Record<string, CreditOutcome> = {};
+
+      for (const record of records) {
+        const athlete: AthleteRef = {
+          childId: record.childId, userId: record.userId, unregisteredId: record.unregisteredAthleteId,
+        };
+        const key = athleteKey(athlete);
+        if (!key) continue;
+
+        const wasPresent   = prevByAthlete[key] === 'present';
+        const isNowPresent = record.status === 'present';
+        if (wasPresent === isNowPresent) continue;
+
+        // `is_secondary` no viaja en esta ruta: acá solo se mueve la bolsa principal.
+        const credit = await findCreditEnrollment(schoolId!, athlete);
+        if (!credit) { creditOutcomes[key] = 'no_plan'; continue; }
+
+        if (isNowPresent) {
+          const freeBooking = await findFreeBookingOfDay(schoolId!, athlete, today, false, finalSessionId);
+          if (freeBooking) {
+            await consumeBooking(freeBooking);
+            creditOutcomes[key] = 'covered_by_booking';
+            continue;
+          }
+          if (credit.expires_at && credit.expires_at < today) { creditOutcomes[key] = 'expired'; continue; }
+          if (credit.max_sessions !== null && credit.sessions_used >= credit.max_sessions) {
+            creditOutcomes[key] = 'no_credits';
+            continue;
+          }
+          const moved = await moveCredit(credit.id, 1, false);
+          creditOutcomes[key] = moved?.moved ? 'deducted' : 'no_credits';
+        } else {
+          const released = await releaseConsumedBooking(schoolId!, athlete, today, false, finalSessionId);
+          if (released) { creditOutcomes[key] = 'booking_released'; continue; }
+          const moved = await moveCredit(credit.id, -1, false);
+          creditOutcomes[key] = moved?.moved ? 'returned' : 'unchanged';
+        }
+      }
+
+      return res.json({ success: true, sessionId: finalSessionId, credit_outcomes: creditOutcomes });
     } catch (err: any) {
       console.error('SESSION ERROR DETAIL:', {
         message: err.message,
@@ -610,90 +926,24 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
         if (sess?.finalized) return res.status(409).json({ error: 'La sesión ya fue finalizada.' });
       }
 
-      // ── Validar plan y buscar reservas previas con finalSessionId ya resuelto ──
-      let planCheck: any = null;
-      let alreadyBooked = false;
+      // ── Estado del plan y reserva del día, con finalSessionId ya resuelto ──
+      // Lo único que bloquea es que la inscripción no exista o no esté activa. Que
+      // al atleta le falten clases o tenga el plan vencido NO impide pasar lista:
+      // se registra la asistencia y se le informa al entrenador.
+      const athlete: AthleteRef = { childId, userId, unregisteredId: unregisteredAthleteId };
 
-      if (status === 'present') {
-        // 1. Buscar si hay una reserva previa en session_bookings
-        if (finalSessionId) {
-          const { data: existingBk } = await supabase
-            .from('session_bookings')
-            .select('id')
-            .eq('session_id', finalSessionId)
-            .match(childId ? { child_id: childId } : userId ? { user_id: userId } : { unregistered_athlete_id: unregisteredAthleteId })
-            .eq('status', 'confirmed')
-            .maybeSingle();
-
-          if (existingBk) {
-            alreadyBooked = true;
-          }
-        }
-
-        // 2. Buscar si hay una reserva previa en facility_reservations
-        if (!alreadyBooked) {
-          let facilityId = req.body.facilityId;
-          let startTime = req.body.startTime;
-          let reservationDate = today;
-
-          if (finalSessionId) {
-            const { data: sess } = await supabase
-              .from('attendance_sessions')
-              .select('facility_id, session_date, start_time')
-              .eq('id', finalSessionId)
-              .maybeSingle();
-            if (sess) {
-              facilityId = sess.facility_id;
-              reservationDate = sess.session_date;
-              startTime = sess.start_time;
-            }
-          } else if (facilityAvailabilityId) {
-            const { data: avail } = await supabase
-              .from('facility_availability')
-              .select('facility_id, start_time')
-              .eq('id', facilityAvailabilityId)
-              .maybeSingle();
-            if (avail) {
-              facilityId = avail.facility_id;
-              startTime = avail.start_time;
-            }
-          }
-
-          if (facilityId && startTime) {
-            const startStr = startTime.substring(0, 5);
-            const { data: facRes } = await supabase
-              .from('facility_reservations')
-              .select('id, start_time')
-              .eq('facility_id', facilityId)
-              .eq('school_id', schoolId)
-              .eq('reservation_date', reservationDate)
-              .match(childId ? { child_id: childId } : { user_id: userId })
-              .eq('status', 'confirmed');
-
-            const matchingRes = (facRes || []).find((r: any) => r.start_time.substring(0, 5) === startStr);
-            if (matchingRes) {
-              alreadyBooked = true;
-            }
-          }
-        }
-
-        if (!alreadyBooked) {
-          planCheck = await validatePlanForAttendance(enrollmentId, is_secondary);
-          if (!planCheck.valid) {
-            const messages: Record<string, string> = {
-              expired:   'El plan está vencido.',
-              no_credits:'El plan no tiene clases disponibles.',
-              not_found: 'No se encontró un plan activo.',
-              no_secondary_credits: 'El plan no tiene clases secundarias disponibles.',
-            };
-            return res.status(422).json({ error: messages[planCheck.reason!], reason: planCheck.reason });
-          }
-        }
-      } else {
-        const { data: enr } = await supabase
-          .from('enrollments').select('id').eq('id', enrollmentId).eq('status', 'active').maybeSingle();
-        if (!enr) return res.status(422).json({ error: 'Enrollment no encontrado.', reason: 'not_found' });
+      const planStatus = await validatePlanForAttendance(enrollmentId, is_secondary, schoolId!, athlete);
+      if (!planStatus.found) {
+        return res.status(422).json({ error: 'Enrollment no encontrado.', reason: 'not_found' });
       }
+
+      // Reserva de HOY que esta asistencia puede consumir en lugar de descontar
+      // otra clase. Antes se buscaba solo la reserva de ESTA sesión (o de la
+      // misma hora exacta en instalaciones): quien reservaba a las 6pm y aparecía
+      // en la sesión de las 4pm pagaba dos clases por un solo entrenamiento.
+      const freeBooking = (status === 'present' && planStatus.credit)
+        ? await findFreeBookingOfDay(schoolId!, athlete, today, is_secondary, finalSessionId)
+        : null;
 
       // Consulta del estado previo para transición de créditos
       let previousStatus: string | null = null;
@@ -739,61 +989,54 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
       });
       if (recErr) throw recErr;
 
-      // Lógica de créditos basada en transición de estado:
-      const wasPresent = previousStatus === 'present';
+      // ── Créditos, por transición de estado ───────────────────────────────
+      // créditos del día = reservas hechas + asistencias que no encontraron
+      // reserva libre. Todo el movimiento del saldo pasa por move_session_credit.
+      const wasPresent   = previousStatus === 'present';
       const isNowPresent = status === 'present';
+      let credit  = planStatus.credit;
+      let outcome: CreditOutcome = 'unchanged';
 
-      if (!wasPresent && isNowPresent && !alreadyBooked) {
-        // Descontar crédito — primer vez presente o cambio a presente
-        if (planCheck?.enrollment) {
-          const fieldToDeduct = is_secondary ? 'secondary_sessions_used' : 'sessions_used';
-          const currentVal    = is_secondary
-            ? planCheck.enrollment.secondary_sessions_used
-            : planCheck.enrollment.sessions_used;
-          await supabase.from('enrollments')
-            .update({ [fieldToDeduct]: currentVal + 1 })
-            .eq('id', enrollmentId);
-          
-          if (is_secondary) planCheck.enrollment.secondary_sessions_used++;
-          else planCheck.enrollment.sessions_used++;
+      if (!wasPresent && isNowPresent) {
+        if (!credit) {
+          outcome = 'no_plan';
+        } else if (freeBooking) {
+          // Ya pagó esta clase al reservar: se consume la reserva, no el saldo.
+          await consumeBooking(freeBooking);
+          outcome = 'covered_by_booking';
+        } else if (planStatus.warning) {
+          // Sin saldo o vencido: la asistencia queda registrada igual.
+          outcome = planStatus.warning === 'expired' ? 'expired' : 'no_credits';
+        } else {
+          const moved = await moveCredit(credit.id, 1, is_secondary);
+          if (moved?.moved) {
+            credit = { ...credit, ...pickCreditFields(moved) };
+            outcome = 'deducted';
+          } else {
+            outcome = moved?.reason === 'no_plan' ? 'no_plan' : 'no_credits';
+          }
         }
       } else if (wasPresent && !isNowPresent) {
-        // Devolver crédito — cambió de presente a ausente/tarde/excusado
-        const { data: enr } = await supabase
-          .from('enrollments')
-          .select('sessions_used, secondary_sessions_used')
-          .eq('id', enrollmentId)
-          .single();
-        if (enr) {
-          const fieldToReturn = is_secondary ? 'secondary_sessions_used' : 'sessions_used';
-          const currentVal = is_secondary ? enr.secondary_sessions_used : enr.sessions_used;
-          const newVal = Math.max(0, currentVal - 1);
-          await supabase.from('enrollments')
-            .update({ [fieldToReturn]: newVal })
-            .eq('id', enrollmentId);
-          
-          if (planCheck?.enrollment) {
-            if (is_secondary) planCheck.enrollment.secondary_sessions_used = newVal;
-            else planCheck.enrollment.sessions_used = newVal;
+        // Corrección a ausente/tarde/excusado. Si la presencia se había cubierto
+        // con una reserva, lo que se devuelve es la reserva (que seguirá viva y
+        // se quemará como no-show), no el crédito: ese ya lo cobró la reserva.
+        const released = await releaseConsumedBooking(schoolId!, athlete, today, is_secondary, finalSessionId);
+        if (released) {
+          outcome = 'booking_released';
+        } else if (credit) {
+          const moved = await moveCredit(credit.id, -1, is_secondary);
+          if (moved?.moved) {
+            credit = { ...credit, ...pickCreditFields(moved) };
+            outcome = 'returned';
           }
         }
       }
 
-      const summaryEnrollment = planCheck?.enrollment;
       return res.status(201).json({
         success: true,
         sessionId: finalSessionId,
-        plan_summary: summaryEnrollment ? {
-          plan_name:               summaryEnrollment.plan_name,
-          sessions_used:           summaryEnrollment.sessions_used, 
-          max_sessions:            summaryEnrollment.max_sessions,
-          sessions_remaining:      summaryEnrollment.max_sessions !== null
-            ? Math.max(0, summaryEnrollment.max_sessions - summaryEnrollment.sessions_used)
-            : null,
-          secondary_sessions_used: summaryEnrollment.secondary_sessions_used,
-          max_secondary_sessions:  summaryEnrollment.max_secondary_sessions,
-          expires_at:              summaryEnrollment.expires_at,
-        } : null,
+        credit_outcome: outcome,
+        plan_summary: planSummary(credit, freeBooking),
       });
     } catch (err: any) {
       // TEMPORAL — log detallado
