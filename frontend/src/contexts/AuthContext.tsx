@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -56,6 +56,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [trainerOnboardingStatus, setTrainerOnboardingStatus] = useState<string | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Usuario cuyo perfil ya cargamos (o estamos cargando). Evita el trabajo
+  // duplicado entre las DOS rutas que arrancan sesión: getSession() y
+  // onAuthStateChange (que dispara INITIAL_SESSION de inmediato). Las dos hacían
+  // fetchProfile + fetchTrainerContext para el mismo usuario = 4 round-trips
+  // donde bastan 2. También corta el refetch en TOKEN_REFRESHED, que reemplazaba
+  // el objeto `profile` cada ~50 min y en cada vuelta a la pestaña, disparando
+  // en cascada todo lo que depende de su identidad.
+  const profileLoadedForRef = useRef<string | null>(null);
 
   const fetchProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
     try {
@@ -184,6 +193,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (session?.user) {
         try {
+          profileLoadedForRef.current = session.user.id;
           const userProfile = await fetchProfile(session.user.id);
           if (mounted) {
             if (userProfile) {
@@ -205,6 +215,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             await fetchTrainerContext(session.user.id, resolvedRole);
           }
         } catch (error) {
+          // Si falló, liberar el guard para que la otra ruta sí lo reintente.
+          profileLoadedForRef.current = null;
           console.error('Failed to load/create profile:', error);
         }
       }
@@ -237,6 +249,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // Defer Supabase fetches to avoid deadlocks
         if (session?.user) {
+          // Ya cargamos (o estamos cargando) el perfil de ESTE usuario: no repetir.
+          // Un usuario distinto sí debe re-resolver todo.
+          if (profileLoadedForRef.current === session.user.id) {
+            setLoading(false);
+            return;
+          }
+          profileLoadedForRef.current = session.user.id;
+
           setTimeout(async () => {
             try {
               const userProfile = await fetchProfile(session.user!.id);
@@ -257,12 +277,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 await fetchTrainerContext(session.user!.id, resolvedRole2);
               }
             } catch (error) {
+              profileLoadedForRef.current = null;
               console.error('Deferred profile load/create failed:', error);
             } finally {
               if (mounted) setLoading(false);
             }
           }, 0);
         } else {
+          profileLoadedForRef.current = null;
           setProfile(null);
           setIsPersonalTrainer(false);
           setTrainerSchoolId(null);

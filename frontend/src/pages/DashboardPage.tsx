@@ -245,7 +245,14 @@ export default function DashboardPage() {
     } finally {
       setLoadingStatus(false);
     }
-  }, [profile, user, toast]);
+    // Deps por VALOR, no por identidad de objeto. `profile` es un objeto nuevo
+    // cada vez que AuthContext hace setProfile — y eso pasa al menos dos veces
+    // por login (ruta getSession + ruta onAuthStateChange). Con `[profile]` este
+    // callback cambiaba de identidad, el efecto de abajo volvía a correr, y todo
+    // el bloque (claim_orphan_children, get_my_invitations, accept_invitation_pro,
+    // get_onboarding_status — dos de ellos ESCRIBEN) se ejecutaba 3 veces por
+    // carga del dashboard.
+  }, [profile?.email, profile?.role, user?.id, toast]);
 
   useEffect(() => {
     refreshOnboardingData();
