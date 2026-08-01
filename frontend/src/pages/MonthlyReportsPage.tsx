@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { bffClient } from '@/lib/api/bffClient';
 import { supabase } from '@/integrations/supabase/client';
 import { FileText, Send, Users, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -55,7 +56,19 @@ interface Resumen {
 
 export default function MonthlyReportsPage() {
     const { schoolId } = useSchoolContext();
+    const { profile } = useAuth();
     const { toast } = useToast();
+
+    /**
+     * Coach = autor, escuela = publica (D2). Son dos responsabilidades distintas
+     * y un solo botón para ambas es el error que este módulo evita.
+     *
+     * Generar borradores y enviar son del admin: el BFF los limita a ADMIN_ROLES,
+     * así que mostrarle esos botones al coach sería ofrecerle un 403. Publicar
+     * depende de school_settings.reports_release_by, que se valida dentro de la
+     * RPC — se le deja visible y la RPC decide.
+     */
+    const isCoach = profile?.role === 'coach';
     const queryClient = useQueryClient();
 
     const hoy = new Date();
@@ -176,7 +189,9 @@ export default function MonthlyReportsPage() {
                     Informe Mensual
                 </h1>
                 <p className="text-sm text-muted-foreground mt-1">
-                    Generar, escribir la nota de cada equipo, publicar y enviar a las familias.
+                    {isCoach
+                        ? 'Tu nota del mes para cada equipo.'
+                        : 'Generar, escribir la nota de cada equipo, publicar y enviar a las familias.'}
                 </p>
             </div>
 
@@ -211,7 +226,15 @@ export default function MonthlyReportsPage() {
                 </CardContent>
             </Card>
 
-            {/* ── Paso 1 ── */}
+            {isCoach && (
+                <div className="rounded-lg border bg-accent/10 p-3 text-sm">
+                    Escribí la nota de cada uno de tus equipos. La escuela genera los
+                    borradores y hace el envío a las familias.
+                </div>
+            )}
+
+            {/* ── Paso 1: generar. Solo la escuela. ── */}
+            {!isCoach && (
             <Card>
                 <CardHeader className="pb-3">
                     <CardTitle className="text-base">1 · Generar borradores</CardTitle>
@@ -256,11 +279,12 @@ export default function MonthlyReportsPage() {
                     )}
                 </CardContent>
             </Card>
+            )}
 
-            {/* ── Pasos 2 y 3 ── */}
+            {/* ── Nota del equipo y publicación ── */}
             <Card>
                 <CardHeader className="pb-3">
-                    <CardTitle className="text-base">2 · Nota del equipo y publicación</CardTitle>
+                    <CardTitle className="text-base">{isCoach ? 'Nota del equipo' : '2 · Nota del equipo y publicación'}</CardTitle>
                     <CardDescription>
                         La nota de equipo es obligatoria para publicar. Un párrafo por equipo, no uno
                         por atleta.
@@ -317,7 +341,8 @@ export default function MonthlyReportsPage() {
                 </CardContent>
             </Card>
 
-            {/* ── Paso 4 ── */}
+            {/* ── Enviar. Solo la escuela: publicar no es enviar. ── */}
+            {!isCoach && (
             <Card>
                 <CardHeader className="pb-3">
                     <CardTitle className="text-base">3 · Enviar</CardTitle>
@@ -338,6 +363,7 @@ export default function MonthlyReportsPage() {
                     </Button>
                 </CardContent>
             </Card>
+            )}
 
             {/* ── Listado ── */}
             {reports.length > 0 && (

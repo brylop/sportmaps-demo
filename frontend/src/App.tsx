@@ -612,7 +612,7 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="informe-mensual" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
                           <MonthlyReportsPage />
                         </ProtectedRoute>
                       } />
