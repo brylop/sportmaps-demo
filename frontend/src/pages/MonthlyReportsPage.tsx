@@ -112,6 +112,22 @@ export default function MonthlyReportsPage() {
     const periodo = { year, month };
     const claveInformes = ['monthly-reports', schoolId, year, month];
 
+    /**
+     * Un error del BFF trae `error`; si no, algo peor pasó y hay que mostrarlo igual.
+     *
+     * Va ARRIBA de las mutaciones a propósito. Los `onError: fallar(...)` la
+     * INVOCAN al construir el objeto de opciones, no cuando el error ocurre, así
+     * que declararla debajo la deja en zona muerta y el componente entero tira
+     * `Cannot access 'fallar' before initialization` al montar. TypeScript no lo
+     * atrapa y el build tampoco: solo se ve en el navegador.
+     */
+    const fallar = (titulo: string) => (err: any) =>
+        toast({
+            title: titulo,
+            description: err?.message || 'Error inesperado',
+            variant: 'destructive',
+        });
+
     const { data: equipos } = useQuery({
         queryKey: ['teams-for-reports', schoolId],
         enabled: !!schoolId,
@@ -152,7 +168,7 @@ export default function MonthlyReportsPage() {
                     ? 'Cada entrenador libera los informes de SUS equipos, no los del resto.'
                     : 'Los entrenadores siguen escribiendo las notas.',
             });
-                queryClient.invalidateQueries({ queryKey: claveInformes });
+            queryClient.invalidateQueries({ queryKey: claveInformes });
         },
         onError: fallar('No se pudo cambiar quién libera'),
     });
@@ -170,14 +186,6 @@ export default function MonthlyReportsPage() {
     const cobertura = useMemo(() => data?.cobertura ?? [], [data]);
     const releaseBy = data?.release_by ?? 'school';
     const reports = useMemo(() => data?.reports ?? [], [data]);
-
-    /** Un error del BFF trae `error`; si no, algo peor pasó y hay que mostrarlo igual. */
-    const fallar = (titulo: string) => (err: any) =>
-        toast({
-            title: titulo,
-            description: err?.message || 'Error inesperado',
-            variant: 'destructive',
-        });
 
     const generar = useMutation({
         mutationFn: () => bffClient.post<{ created: number }>('/api/v1/school/reports/generate', periodo),
