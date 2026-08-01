@@ -32,6 +32,28 @@ const sports = SPORTS_LIST;
 // Roles que representan instituciones/negocios (no personas físicas)
 const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'external_vendor', 'organizer', 'personal_trainer'];
 
+// Edad mínima para abrir cuenta propia. Los menores NO tienen cuenta en
+// SportMaps: el acudiente los registra como hijos bajo su propio perfil
+// (ver la Política de Privacidad, sección de menores de edad). Esto sostiene
+// la declaración de "público objetivo: adultos" en Google Play y App Store —
+// si un menor pudiera auto-registrarse, aplicaría la Families Policy.
+const MIN_SELF_SIGNUP_AGE = 18;
+
+/** Edad cumplida a hoy según una fecha ISO (yyyy-mm-dd). null si no parsea. */
+function ageFromDateOfBirth(iso: string | undefined): number | null {
+  if (!iso || iso.trim() === '') return null;
+  const dob = new Date(iso);
+  if (Number.isNaN(dob.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDiff = today.getMonth() - dob.getMonth();
+  // Aún no ha llegado el cumpleaños de este año.
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+    age -= 1;
+  }
+  return age;
+}
+
 const registerSchema = z.object({
   email: z.string().email('Email inválido'),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
@@ -56,6 +78,16 @@ const registerSchema = z.object({
   return true;
 }, {
   message: 'La fecha de nacimiento es requerida',
+  path: ['dateOfBirth'],
+}).refine((data) => {
+  // Gate de edad: solo personas físicas mayores de edad abren cuenta propia.
+  if (INSTITUTION_ROLES.includes(data.role)) return true;
+  const age = ageFromDateOfBirth(data.dateOfBirth);
+  if (age === null) return true; // el refine anterior ya exige la fecha
+  return age >= MIN_SELF_SIGNUP_AGE;
+}, {
+  message:
+    'Debes ser mayor de edad para crear una cuenta. Si eres menor, pídele a tu padre, madre o acudiente que cree su cuenta y te registre como deportista a su cargo.',
   path: ['dateOfBirth'],
 }).refine((data) => {
   if (data.role === 'school' && (!data.schoolName || data.schoolName.trim() === '')) {
