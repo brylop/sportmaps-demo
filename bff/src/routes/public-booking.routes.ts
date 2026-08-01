@@ -417,9 +417,8 @@ router.get('/slots', async (req: Request, res: Response) => {
 
       for (const avail of (availData || []).filter((a: any) => a.day_of_week === dbDay)) {
         const slotStart = avail.start_time.substring(0, 5);
-        const slotDateTimeCO = new Date(`${dateStr}T${avail.start_time.substring(0, 8)}`);
-        const slotUTC = new Date(slotDateTimeCO.getTime() + 5 * 60 * 60 * 1000);
-        if (slotUTC.getTime() - nowMs < advanceMs) continue;
+        const slotMs = new Date(`${dateStr}T${avail.start_time.substring(0, 8)}-05:00`).getTime();
+        if (slotMs - nowMs < advanceMs) continue;
 
         const key = `${avail.id}_${dateStr}`;
         const cap = capMap[key];
@@ -472,9 +471,8 @@ router.post('/confirm', async (req: Request, res: Response) => {
 
     // Revalidar ventana de anticipación en servidor
     const advanceHours = (avail as any).facility?.min_booking_advance_hours ?? 0;
-    const slotDateTimeCO = new Date(`${date}T${avail.start_time.substring(0, 8)}`);
-    const slotUTC = new Date(slotDateTimeCO.getTime() + 5 * 60 * 60 * 1000);
-    const hoursUntil = (slotUTC.getTime() - Date.now()) / 3_600_000;
+    const slotMs = new Date(`${date}T${avail.start_time.substring(0, 8)}-05:00`).getTime();
+    const hoursUntil = (slotMs - Date.now()) / 3_600_000;
     if (hoursUntil < advanceHours) {
       return res.status(400).json({ error: `Este horario requiere ${advanceHours}h de anticipación.`, reason: 'outside_booking_advance_window' });
     }

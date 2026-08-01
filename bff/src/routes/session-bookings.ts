@@ -517,10 +517,9 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
 
           // Ventana de anticipación mínima de la instalación
           const slotStart = avail.start_time.substring(0, 5);
-          const slotDateTimeCO = new Date(`${dateStr}T${avail.start_time.substring(0, 8)}`);
-          const slotUTC = new Date(slotDateTimeCO.getTime() + 5 * 60 * 60 * 1000); // Colombia UTC-5
+          const slotMs = new Date(`${dateStr}T${avail.start_time.substring(0, 8)}-05:00`).getTime();
           const advanceMs = (facility.min_booking_advance_hours ?? 0) * 60 * 60 * 1000;
-          if (slotUTC.getTime() - nowMs < advanceMs) continue;
+          if (slotMs - nowMs < advanceMs) continue;
 
           // Elegir el mejor enrollment del atleta para esta escuela con crédito disponible
           const candidateEnrollments = planEnrollments.filter((e: any) => e.school_id === avail.school_id);
@@ -808,9 +807,8 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
 
       // Revalidar ventana de anticipación en servidor (nunca confiar en el cliente)
       const advanceHours = (avail as any).facility?.min_booking_advance_hours ?? 0;
-      const slotDateTimeCO = new Date(`${dateStr}T${avail.start_time.substring(0, 8)}`);
-      const slotUTC = new Date(slotDateTimeCO.getTime() + 5 * 60 * 60 * 1000);
-      const hoursUntil = (slotUTC.getTime() - Date.now()) / 3_600_000;
+      const slotMs = new Date(`${dateStr}T${avail.start_time.substring(0, 8)}-05:00`).getTime();
+      const hoursUntil = (slotMs - Date.now()) / 3_600_000;
       if (hoursUntil < advanceHours) {
         return res.status(400).json({
           error: `Este horario requiere al menos ${advanceHours}h de anticipación para reservarse.`,
