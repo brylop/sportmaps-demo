@@ -616,11 +616,11 @@ router.post('/confirm', async (req: Request, res: Response) => {
     }).select().single();
     if (bookErr) return res.status(409).json({ error: bookErr.message });
 
-    await supabase.from('enrollments')
-      .select('sessions_used').eq('id', enrollmentId).single()
-      .then(async ({ data: enr }) => {
-        if (enr) await supabase.from('enrollments').update({ sessions_used: (enr.sessions_used || 0) + 1 }).eq('id', enrollmentId);
-      });
+    // Atómico: esta ruta es pública y sin sesión, así que es la más expuesta a
+    // dos envíos simultáneos con el mismo token.
+    await supabase.rpc('move_session_credit', {
+      p_enrollment_id: enrollmentId, p_delta: 1, p_is_secondary: false,
+    });
 
     await supabase.from('public_booking_verifications')
       .update({ booking_token_used_at: new Date().toISOString() })

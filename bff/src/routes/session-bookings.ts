@@ -121,9 +121,13 @@ router.post('/:id/book', requireAuth, async (req: Request, res: Response) => {
 
     if (error) return res.status(409).json({ error: error.message });
 
-    const f = is_secondary ? 'secondary_sessions_used' : 'sessions_used';
-    const { data: enr } = await supabase.from('enrollments').select(f).eq('id', enrollment_id).single();
-    if (enr) await supabase.from('enrollments').update({ [f]: ((enr as any)[f] || 0) + 1 }).eq('id', enrollment_id);
+    // El saldo se mueve SOLO por el RPC. El read-modify-write que había acá
+    // (leer sessions_used, sumar 1 en Node, escribir) hacía que dos reservas
+    // simultáneas del mismo atleta consumieran una sola clase: las dos leían el
+    // mismo valor. El RPC toma SELECT … FOR UPDATE sobre la inscripción.
+    await supabase.rpc('move_session_credit', {
+      p_enrollment_id: enrollment_id, p_delta: 1, p_is_secondary: !!is_secondary,
+    });
 
     res.status(201).json({ booking: data });
   } catch (err: any) {
@@ -203,11 +207,9 @@ router.delete('/bookings/:id', requireAuth, async (req: Request, res: Response) 
       .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
       .eq('id', id);
 
-    const f = b.is_secondary ? 'secondary_sessions_used' : 'sessions_used';
-    const { data: enr } = await supabase.from('enrollments').select(f).eq('id', b.enrollment_id).single();
-    if (enr) await supabase.from('enrollments')
-      .update({ [f]: Math.max(0, ((enr as any)[f] || 0) - 1) })
-      .eq('id', b.enrollment_id);
+    await supabase.rpc('move_session_credit', {
+      p_enrollment_id: b.enrollment_id, p_delta: -1, p_is_secondary: !!b.is_secondary,
+    });
 
     res.json({ success: true });
   } catch (err: any) {
@@ -1025,13 +1027,10 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
 
     if (error) return res.status(409).json({ error: error.message });
 
-    // ── 5. Incrementar contador de sesiones usadas ────────────────────────
-    const f = is_secondary ? 'secondary_sessions_used' : 'sessions_used';
-    const { data: enr } = await supabase
-      .from('enrollments').select(f).eq('id', enrollment_id).single();
-    if (enr) await supabase.from('enrollments')
-      .update({ [f]: ((enr as any)[f] || 0) + 1 })
-      .eq('id', enrollment_id);
+    // ── 5. Consumir la clase (atómico, ver move_session_credit) ───────────
+    await supabase.rpc('move_session_credit', {
+      p_enrollment_id: enrollment_id, p_delta: 1, p_is_secondary: !!is_secondary,
+    });
 
     res.status(201).json({ booking: b });
   } catch (err: any) {
@@ -1243,13 +1242,9 @@ router.delete('/athlete/cancel-booking', requireAuth, async (req: Request, res: 
       if (updateError) throw updateError;
 
       // Reembolso de crédito
-      const f = booking.is_secondary ? 'secondary_sessions_used' : 'sessions_used';
-      const { data: enr } = await supabase.from('enrollments').select(f).eq('id', booking.enrollment_id).single();
-      if (enr) {
-        await supabase.from('enrollments')
-          .update({ [f]: Math.max(0, ((enr as any)[f] || 0) - 1) })
-          .eq('id', booking.enrollment_id);
-      }
+      await supabase.rpc('move_session_credit', {
+        p_enrollment_id: booking.enrollment_id, p_delta: -1, p_is_secondary: !!booking.is_secondary,
+      });
 
       return res.json({ success: true });
     }
@@ -1355,12 +1350,9 @@ router.delete('/athlete/:id/cancel', requireAuth, async (req: Request, res: Resp
       .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
       .eq('id', id);
 
-    const f = b.is_secondary ? 'secondary_sessions_used' : 'sessions_used';
-    const { data: enr } = await supabase
-      .from('enrollments').select(f).eq('id', b.enrollment_id).single();
-    if (enr) await supabase.from('enrollments')
-      .update({ [f]: Math.max(0, ((enr as any)[f] || 0) - 1) })
-      .eq('id', b.enrollment_id);
+    await supabase.rpc('move_session_credit', {
+      p_enrollment_id: b.enrollment_id, p_delta: -1, p_is_secondary: !!b.is_secondary,
+    });
 
     res.json({ success: true });
   } catch (err: any) {
@@ -1521,15 +1513,10 @@ router.post('/athlete/book-secondary', requireAuth, async (req: Request, res: Re
       throw error;
     }
 
-    // ── 4. Incrementar secundarias usadas ─────────────────────────────────
-    const { data: enr } = await supabase
-      .from('enrollments')
-      .select('secondary_sessions_used')
-      .eq('id', enrollment_id)
-      .single();
-    if (enr) await supabase.from('enrollments')
-      .update({ secondary_sessions_used: ((enr as any).secondary_sessions_used || 0) + 1 })
-      .eq('id', enrollment_id);
+    // ── 4. Consumir una secundaria (atómico, ver move_session_credit) ──────
+    await supabase.rpc('move_session_credit', {
+      p_enrollment_id: enrollment_id, p_delta: 1, p_is_secondary: true,
+    });
 
     res.status(201).json({ reservation: b });
   } catch (err: any) {
@@ -1628,14 +1615,9 @@ router.delete('/athlete/secondary/:id/cancel', requireAuth, async (req: Request,
       .update({ status: 'cancelled' })
       .eq('id', id);
 
-    const { data: enr } = await supabase
-      .from('enrollments')
-      .select('secondary_sessions_used')
-      .eq('id', r.enrollment_id)
-      .single();
-    if (enr) await supabase.from('enrollments')
-      .update({ secondary_sessions_used: Math.max(0, ((enr as any).secondary_sessions_used || 0) - 1) })
-      .eq('id', r.enrollment_id);
+    await supabase.rpc('move_session_credit', {
+      p_enrollment_id: r.enrollment_id, p_delta: -1, p_is_secondary: true,
+    });
 
     res.json({ success: true });
   } catch (err: any) {

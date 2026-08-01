@@ -48,6 +48,11 @@ interface PlanInfo {
   price: number | null;
   currency: string | null;
 }
+/** Reserva del atleta para hoy. Si existe, pasar lista NO le descuenta otra clase. */
+interface BookingToday {
+  start_time: string | null;
+  status: string;
+}
 interface RosterItem {
   id: string;
   full_name: string;
@@ -58,8 +63,59 @@ interface RosterItem {
   parent_phone?: string | null;
   enrollment_id?: string | null;
   plan: PlanInfo | null;
+  booking_today?: BookingToday | null;
   is_booking?: boolean;
   payment: { status: string; due_date: string | null } | null;
+}
+
+/** Resultado del movimiento de crédito que devuelve el BFF por atleta. */
+type CreditOutcome =
+  | 'deducted' | 'covered_by_booking' | 'returned' | 'booking_released'
+  | 'no_plan' | 'no_credits' | 'expired' | 'unchanged';
+
+type CreditTally = {
+  deducted: number;
+  returned: number;
+  noPlan: number;
+  covered: string[];
+  noCredits: string[];
+};
+
+function newTally(): CreditTally {
+  return { deducted: 0, returned: 0, noPlan: 0, covered: [], noCredits: [] };
+}
+
+function addOutcome(t: CreditTally, outcome: CreditOutcome | undefined, name: string) {
+  switch (outcome) {
+    case 'deducted':           t.deducted++; break;
+    case 'returned':
+    case 'booking_released':   t.returned++; break;
+    case 'covered_by_booking': t.covered.push(name); break;
+    case 'no_plan':            t.noPlan++; break;
+    case 'no_credits':
+    case 'expired':            t.noCredits.push(name); break;
+    default: break;
+  }
+}
+
+/** El entrenador tiene que entender por qué se descontó o por qué no. */
+function describeCredits(t: CreditTally): string | undefined {
+  const parts: string[] = [];
+  if (t.deducted) parts.push(`se descontó 1 clase a ${t.deducted} atleta${t.deducted > 1 ? 's' : ''}`);
+  if (t.covered.length) parts.push(`${t.covered.join(', ')} ya tenía reserva para hoy: no se le descontó`);
+  if (t.returned) parts.push(`${t.returned} clase${t.returned > 1 ? 's' : ''} devuelta${t.returned > 1 ? 's' : ''}`);
+  if (t.noCredits.length) parts.push(`${t.noCredits.join(', ')} sin clases disponibles en el plan`);
+  if (t.noPlan) parts.push(`${t.noPlan} sin plan de clases`);
+  return parts.length ? parts.join(' · ') : undefined;
+}
+
+function formatHour(t: string | null): string | null {
+  if (!t) return null;
+  const [h, m] = t.split(':');
+  const hour = Number(h);
+  const suffix = hour >= 12 ? 'pm' : 'am';
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12}:${m ?? '00'} ${suffix}`;
 }
 interface AttendanceSession {
   id: string;
@@ -444,6 +500,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
       const presentEntries = Object.entries(attendanceState).filter(([, s]) => s === 'present');
       const otherEntries   = Object.entries(attendanceState).filter(([, s]) => s !== 'present');
       const walkInErrors: string[] = [];
+      const tally = newTally();
 
       // Presentes → walk-in con descuento
       for (const [id] of presentEntries) {
@@ -462,15 +519,17 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify(payload),
         });
+        const body = await res.json();
         if (!res.ok) {
-          const body = await res.json();
+          // Falta de saldo y plan vencido ya NO fallan: la asistencia se registra
+          // y el motivo viene en `credit_outcome`. Acá solo quedan errores reales.
           const msgs: Record<string, string> = {
-            expired:              `${a.full_name}: plan vencido`,
-            no_credits:           `${a.full_name}: sin clases disponibles`,
-            no_secondary_credits: `${a.full_name}: sin clases secundarias`,
-            not_found:            `${a.full_name}: sin plan activo`,
+            not_found: `${a.full_name}: sin inscripción activa`,
+            no_session: `${a.full_name}: no hay sesión activa`,
           };
           walkInErrors.push(msgs[body.reason] || `${a.full_name}: ${body.error}`);
+        } else {
+          addOutcome(tally, body.credit_outcome, a.full_name);
         }
       }
 
@@ -496,7 +555,13 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             body: JSON.stringify(sessionPayload),
           });
-          if (!res.ok) { const b = await res.json(); throw new Error(b.error); }
+          const b = await res.json();
+          if (!res.ok) throw new Error(b.error);
+          // Esta ruta ahora también mueve créditos (devolución al corregir a
+          // ausente, y descuento cuando la pantalla marca presente por acá).
+          for (const [id, outcome] of Object.entries(b.credit_outcomes ?? {})) {
+            addOutcome(tally, outcome as CreditOutcome, athletes.find((x) => x.id === id)?.full_name ?? 'Atleta');
+          }
 
         } else if (isOffering) {
           // Offering → walk-in por cada atleta (sin descuento porque status != present)
@@ -518,22 +583,25 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
               body: JSON.stringify(payload),
             });
-            // Ignorar errores de plan en estados no-present
+            const b = await res.json();
             if (!res.ok) {
-              const b = await res.json();
               if (!['expired', 'no_credits', 'no_session'].includes(b.reason)) {
                 throw new Error(b.error);
               }
+            } else {
+              addOutcome(tally, b.credit_outcome, a?.full_name ?? 'Atleta');
             }
           }
         }
       }
 
       if (walkInErrors.length) throw new Error(walkInErrors.join('\n'));
+      return tally;
     },
-    onSuccess: () => {
+    onSuccess: (t) => {
       queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedItem] });
-      toast({ title: '✅ Asistencia guardada' });
+      queryClient.invalidateQueries({ queryKey: ['attendance-roster', contextType, contextId] });
+      toast({ title: '✅ Asistencia guardada', description: describeCredits(t) });
     },
     onError: (e: any) => toast({ title: 'Algunos registros no se guardaron', description: e.message, variant: 'destructive' }),
   });
@@ -561,7 +629,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
 
   const handleWalkIn = async (athlete: RosterItem) => {
     if (!athlete.enrollment_id) {
-      toast({ title: 'Sin plan activo', description: `${athlete.full_name} no tiene un plan activo.`, variant: 'destructive' });
+      toast({ title: 'Sin inscripción activa', description: `${athlete.full_name} no tiene una inscripción activa en esta escuela.`, variant: 'destructive' });
       return;
     }
     setWalkInProcessing(true);
@@ -586,7 +654,17 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
       queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedItem] });
       queryClient.invalidateQueries({ queryKey: ['attendance-roster', contextType, contextId] });
 
-      toast({ title: `✅ ${athlete.full_name} registrado`, description: 'Asistencia registrada y crédito descontado.' });
+      const walkInMsg: Record<string, string> = {
+        deducted:           'Asistencia registrada · se descontó 1 clase del plan.',
+        covered_by_booking: 'Asistencia registrada · ya tenía reserva para hoy, no se descontó otra clase.',
+        no_plan:            'Asistencia registrada · no maneja plan de clases.',
+        no_credits:         'Asistencia registrada · el plan no tiene clases disponibles.',
+        expired:            'Asistencia registrada · el plan está vencido.',
+      };
+      toast({
+        title: `✅ ${athlete.full_name} registrado`,
+        description: walkInMsg[body.credit_outcome] ?? 'Asistencia registrada.',
+      });
       setWalkInOpen(false);
       setWalkInSearch('');
       setWalkInAthlete(null);
@@ -976,7 +1054,15 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
                               )}
                             </div>
                             {student.plan ? <PlanInfoCard plan={student.plan} /> : (
-                              <p className="text-[11px] text-muted-foreground mt-1">Sin plan activo</p>
+                              <p className="text-[11px] text-muted-foreground mt-1">No maneja plan de clases</p>
+                            )}
+                            {student.booking_today && (
+                              <p className="text-[11px] mt-1 flex items-center gap-1 text-blue-600 font-medium">
+                                <Clock className="w-3 h-3 shrink-0" />
+                                {student.booking_today.status === 'attended'
+                                  ? `Reserva de hoy ya usada${formatHour(student.booking_today.start_time) ? ` (${formatHour(student.booking_today.start_time)})` : ''}`
+                                  : `Ya reservó hoy${formatHour(student.booking_today.start_time) ? ` (${formatHour(student.booking_today.start_time)})` : ''} — no se descuenta otra clase`}
+                              </p>
                             )}
                           </div>
 

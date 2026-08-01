@@ -54,7 +54,44 @@ interface RosterItem {
   athlete_type: 'child' | 'adult' | 'unregistered';
   enrollment_id: string | null;
   plan: PlanInfo | null;
+  /** Reserva de hoy: si existe, pasar lista NO descuenta otra clase. */
+  booking_today?: { start_time: string | null; status: string } | null;
   payment: { status: string; due_date: string | null } | null;
+}
+
+type CreditOutcome =
+  | 'deducted' | 'covered_by_booking' | 'returned' | 'booking_released'
+  | 'no_plan' | 'no_credits' | 'expired' | 'unchanged';
+
+/** El entrenador/admin tiene que entender por qué se descontó o por qué no. */
+function describeOutcomes(outcomes: { outcome: CreditOutcome | undefined; name: string }[]): string | undefined {
+  let deducted = 0, returned = 0, noPlan = 0;
+  const covered: string[] = [], noCredits: string[] = [];
+
+  for (const { outcome, name } of outcomes) {
+    if (outcome === 'deducted') deducted++;
+    else if (outcome === 'returned' || outcome === 'booking_released') returned++;
+    else if (outcome === 'covered_by_booking') covered.push(name);
+    else if (outcome === 'no_plan') noPlan++;
+    else if (outcome === 'no_credits' || outcome === 'expired') noCredits.push(name);
+  }
+
+  const parts: string[] = [];
+  if (deducted) parts.push(`se descontó 1 clase a ${deducted} atleta${deducted > 1 ? 's' : ''}`);
+  if (covered.length) parts.push(`${covered.join(', ')} ya tenía reserva para hoy: no se le descontó`);
+  if (returned) parts.push(`${returned} clase${returned > 1 ? 's' : ''} devuelta${returned > 1 ? 's' : ''}`);
+  if (noCredits.length) parts.push(`${noCredits.join(', ')} sin clases disponibles en el plan`);
+  if (noPlan) parts.push(`${noPlan} sin plan de clases`);
+  return parts.length ? parts.join(' · ') : undefined;
+}
+
+function formatHour(t: string | null): string | null {
+  if (!t) return null;
+  const [h, m] = t.split(':');
+  const hour = Number(h);
+  const suffix = hour >= 12 ? 'pm' : 'am';
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12}:${m ?? '00'} ${suffix}`;
 }
 
 interface BookingRow {
@@ -591,6 +628,7 @@ export default function AttendanceSupervisionPage() {
       const presentEntries = Object.entries(attendanceState).filter(([, s]) => s === 'present');
       const otherEntries   = Object.entries(attendanceState).filter(([, s]) => s !== 'present');
       const walkInErrors: string[] = [];
+      const outcomes: { outcome: CreditOutcome | undefined; name: string }[] = [];
 
       // Presentes → walk-in con descuento
       for (const [id] of presentEntries) {
@@ -618,18 +656,18 @@ export default function AttendanceSupervisionPage() {
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'x-school-id': schoolId ?? '' },
           body: JSON.stringify(payload),
         });
+        const body = await res.json();
         if (!res.ok) {
-          const body = await res.json();
+          // Falta de saldo y plan vencido ya NO fallan: la asistencia se registra
+          // y el motivo llega en `credit_outcome`. Acá solo errores reales.
           const msgs: Record<string, string> = {
-            expired:              `${a.full_name}: plan vencido`,
-            no_credits:           `${a.full_name}: sin clases disponibles`,
-            no_secondary_credits: `${a.full_name}: sin clases secundarias`,
-            not_found:            `${a.full_name}: sin plan activo`,
+            not_found:  `${a.full_name}: sin inscripción activa`,
+            no_session: `${a.full_name}: no hay sesión activa`,
           };
           walkInErrors.push(msgs[body.reason] || `${a.full_name}: ${body.error}`);
         } else {
+          outcomes.push({ outcome: body.credit_outcome, name: a.full_name });
           // Si era una sesión nueva y se creó con éxito, actualizamos la url de la sesión en el modal
-          const body = await res.json();
           if (body.sessionId && modalCtx.id.startsWith('new_')) {
             modalCtx.id = body.sessionId;
           }
@@ -654,7 +692,15 @@ export default function AttendanceSupervisionPage() {
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'x-school-id': schoolId ?? '' },
             body: JSON.stringify({ teamId: modalCtx.id, records }),
           });
-          if (!res.ok) { const b = await res.json(); throw new Error(b.error); }
+          const b = await res.json();
+          if (!res.ok) throw new Error(b.error);
+          // Esta ruta ahora también mueve créditos (devolución al corregir a ausente).
+          for (const [id, outcome] of Object.entries(b.credit_outcomes ?? {})) {
+            outcomes.push({
+              outcome: outcome as CreditOutcome,
+              name: athletes.find((x) => x.id === id)?.full_name ?? 'Atleta',
+            });
+          }
 
         } else {
           // Offering o Facility_session → walk-in por cada atleta (sin descuento porque status != present)
@@ -685,14 +731,13 @@ export default function AttendanceSupervisionPage() {
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'x-school-id': schoolId ?? '' },
               body: JSON.stringify(payload),
             });
-            // Ignorar errores de plan en estados no-present
+            const body = await res.json();
             if (!res.ok) {
-              const b = await res.json();
-              if (!['expired', 'no_credits', 'no_session'].includes(b.reason)) {
-                throw new Error(b.error);
+              if (!['expired', 'no_credits', 'no_session'].includes(body.reason)) {
+                throw new Error(body.error);
               }
             } else {
-              const body = await res.json();
+              outcomes.push({ outcome: body.credit_outcome, name: a.full_name });
               if (body.sessionId && modalCtx.id.startsWith('new_')) {
                 modalCtx.id = body.sessionId;
               }
@@ -702,12 +747,13 @@ export default function AttendanceSupervisionPage() {
       }
 
       if (walkInErrors.length) throw new Error(walkInErrors.join('\n'));
+      return outcomes;
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['supervision-session'] });
       queryClient.invalidateQueries({ queryKey: ['supervision-roster'] });
       queryClient.invalidateQueries({ queryKey: ['supervision-bookings', schoolId, selectedDate] });
-      toast({ title: '✅ Asistencia guardada' });
+      toast({ title: '✅ Asistencia guardada', description: describeOutcomes(result ?? []) });
     },
     onError: (e: any) => toast({ title: 'Algunos registros no se guardaron', description: e.message, variant: 'destructive' }),
   });
@@ -1390,7 +1436,15 @@ export default function AttendanceSupervisionPage() {
                             )}
                           </span>
                         ) : (
-                          <p className="text-[11px] text-muted-foreground mt-0.5">Sin plan activo</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">No maneja plan de clases</p>
+                        )}
+                        {athlete.booking_today && (
+                          <p className="text-[11px] mt-1 flex items-center gap-1 text-blue-600 font-medium">
+                            <Clock className="w-3 h-3 shrink-0" />
+                            {athlete.booking_today.status === 'attended'
+                              ? `Reserva de hoy ya usada${formatHour(athlete.booking_today.start_time) ? ` (${formatHour(athlete.booking_today.start_time)})` : ''}`
+                              : `Ya reservó hoy${formatHour(athlete.booking_today.start_time) ? ` (${formatHour(athlete.booking_today.start_time)})` : ''} — no se descuenta otra clase`}
+                          </p>
                         )}
                       </div>
 
