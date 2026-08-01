@@ -106,6 +106,40 @@ router.get(
 
         const filas = (data ?? []) as any[];
 
+        // El nombre del atleta no vive en athlete_reports: el eje es polimórfico
+        // (subject_type + subject_id, sin FK) porque Postgres no admite FK a tres
+        // tablas. Se resuelve acá, en una consulta por tipo presente, no una por
+        // fila. Sin el nombre la lista es una columna de estados sin sujeto.
+        const porTipo: Record<string, string[]> = {};
+        for (const f of filas) {
+            (porTipo[f.subject_type] ??= []).push(f.subject_id);
+        }
+
+        const TABLA_POR_TIPO: Record<string, string> = {
+            profile: 'profiles',
+            child: 'children',
+            unregistered: 'unregistered_athletes',
+        };
+
+        const nombres = new Map<string, string>();
+        await Promise.all(
+            Object.entries(porTipo).map(async ([tipo, ids]) => {
+                const tabla = TABLA_POR_TIPO[tipo];
+                if (!tabla) return;
+                const { data: sujetos } = await supabase
+                    .from(tabla)
+                    .select('id, full_name')
+                    .in('id', [...new Set(ids)]);
+                for (const s of (sujetos ?? []) as any[]) {
+                    nombres.set(`${tipo}:${s.id}`, s.full_name);
+                }
+            }),
+        );
+
+        for (const f of filas) {
+            f.athlete_name = nombres.get(`${f.subject_type}:${f.subject_id}`) ?? 'Atleta';
+        }
+
         // Buckets del tablero (§10.2). `sin_destinatario` es el que le sirve al
         // admin para perseguir a las familias que no activaron cuenta.
         const resumen = {
