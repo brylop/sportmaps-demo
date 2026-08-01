@@ -40,6 +40,7 @@ const JoinTeamPage = lazy(() => import("./pages/JoinTeamPage"));
 const JoinPlanPage = lazy(() => import("./pages/JoinPlanPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
+const AccountDeletionPage = lazy(() => import("./pages/AccountDeletionPage"));
 const SchoolDetailPage = lazy(() => import("./pages/SchoolDetailPage"));
 const UnauthorizedPage = lazy(() => import("./pages/UnauthorizedPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -304,6 +305,11 @@ const App = () => (
                     <Route path="/terms" element={<Navigate to="/terminos-y-condiciones" replace />} />
                     <Route path="/politica-de-privacidad" element={<PrivacyPage />} />
                     <Route path="/privacy" element={<Navigate to="/politica-de-privacidad" replace />} />
+                    {/* Publica a proposito: Google Play exige una URL de eliminacion de
+                        cuenta accesible sin instalar la app ni iniciar sesion. Se declara
+                        en Play Console -> Contenido de la app -> Eliminacion de datos. */}
+                    <Route path="/eliminar-cuenta" element={<AccountDeletionPage />} />
+                    <Route path="/delete-account" element={<Navigate to="/eliminar-cuenta" replace />} />
                     <Route path="/checkout" element={
                       <ProtectedRoute><CheckoutPage /></ProtectedRoute>
                     } />
