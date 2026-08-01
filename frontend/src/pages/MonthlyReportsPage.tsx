@@ -56,6 +56,34 @@ interface Resumen {
     sin_destinatario: number;
 }
 
+/**
+ * Cobertura por equipo (RPC `report_coverage`, M4). Se calcula sobre los
+ * INSCRITOS del mes, no sobre los informes que existen, así que es la única
+ * fuente que puede contar a los atletas que NADIE midió — que son justo los que
+ * hay que perseguir. `Resumen` cuenta filas ya creadas y por definición no los ve.
+ */
+interface Cobertura {
+    team_id: string | null;
+    team_name: string;
+    total: number;
+    listos: number;
+    faltan_nota: number;
+    publicados: number;
+    leidos: number;
+    sin_destinatario: number;
+    sin_mediciones_con_asistencia: number;
+    sin_actividad: number;
+}
+
+interface ReportsResponse {
+    year: number;
+    month: number;
+    resumen: Resumen;
+    cobertura: Cobertura[];
+    release_by: 'school' | 'coach';
+    reports: ReportRow[];
+}
+
 export default function MonthlyReportsPage() {
     const { schoolId } = useSchoolContext();
     const { profile } = useAuth();
@@ -133,12 +161,13 @@ export default function MonthlyReportsPage() {
         queryKey: claveInformes,
         enabled: !!schoolId,
         queryFn: () =>
-            bffClient.get<{ resumen: Resumen; reports: ReportRow[] }>(
+            bffClient.get<ReportsResponse>(
                 `/api/v1/school/reports?year=${year}&month=${month}`,
             ),
     });
 
     const resumen = data?.resumen;
+    const cobertura = useMemo(() => data?.cobertura ?? [], [data]);
     const releaseBy = data?.release_by ?? 'school';
     const reports = useMemo(() => data?.reports ?? [], [data]);
 
@@ -344,6 +373,67 @@ export default function MonthlyReportsPage() {
                             </p>
                         </div>
                     )}
+                </CardContent>
+            </Card>
+            )}
+
+            {/* ── Cobertura por equipo ──
+                Va para los DOS roles. Al admin le dice qué equipos van atrasados;
+                al coach, a quién de los suyos no midió — que es la acción que le
+                toca a él y que ninguna otra pantalla le muestra. */}
+            {cobertura.length > 0 && (
+            <Card>
+                <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Cobertura de {MESES[month - 1]}</CardTitle>
+                    <CardDescription>
+                        Cuenta sobre los <strong>inscritos del mes</strong>, no sobre los informes que
+                        ya existen: por eso incluye a los atletas que nadie midió.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                        <thead>
+                            <tr className="border-b text-[11px] uppercase tracking-wide text-muted-foreground">
+                                <th className="text-left font-medium py-2 pr-3">Equipo</th>
+                                <th className="text-right font-medium py-2 px-2">Atletas</th>
+                                <th className="text-right font-medium py-2 px-2">Con nota</th>
+                                <th className="text-right font-medium py-2 px-2">Falta nota</th>
+                                <th className="text-right font-medium py-2 px-2">Publicados</th>
+                                <th className="text-right font-medium py-2 px-2">Leídos</th>
+                                <th className="text-right font-medium py-2 pl-2">Sin medir</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {cobertura.map((c) => (
+                                <tr key={c.team_id ?? 'sin-equipo'} className="border-b last:border-0">
+                                    <td className="py-2 pr-3 font-medium">{c.team_name}</td>
+                                    <td className="py-2 px-2 text-right tabular-nums">{c.total}</td>
+                                    <td className="py-2 px-2 text-right tabular-nums">{c.listos}</td>
+                                    <td className={`py-2 px-2 text-right tabular-nums ${c.faltan_nota > 0 ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-muted-foreground'}`}>
+                                        {c.faltan_nota}
+                                    </td>
+                                    <td className="py-2 px-2 text-right tabular-nums">{c.publicados}</td>
+                                    <td className="py-2 px-2 text-right tabular-nums">{c.leidos}</td>
+                                    {/* Los dos buckets separados: «vino y nadie lo
+                                        midió» es trabajo del coach; «ni vino ni fue
+                                        medido» es otra conversación. Sumarlos borra
+                                        esa diferencia, que es la útil. */}
+                                    <td className="py-2 pl-2 text-right tabular-nums">
+                                        <span className={c.sin_mediciones_con_asistencia > 0 ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-muted-foreground'}>
+                                            {c.sin_mediciones_con_asistencia}
+                                        </span>
+                                        {c.sin_actividad > 0 && (
+                                            <span className="text-muted-foreground"> + {c.sin_actividad}</span>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                    <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
+                        <strong>Sin medir</strong>: el primer número son los que <em>asistieron</em> y nadie
+                        midió — ahí falta trabajo del entrenador. El segundo, los que tampoco asistieron.
+                    </p>
                 </CardContent>
             </Card>
             )}
