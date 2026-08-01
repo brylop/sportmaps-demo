@@ -1,5 +1,22 @@
 import { Request, Response, NextFunction } from 'express';
 import { supabase } from '../config/supabase';
+import { getCachedUser, getCachedMembership, type CachedUser } from '../utils/authCache';
+
+/**
+ * Valida el Bearer token contra Supabase, con cache de TTL corto.
+ * Ver utils/authCache.ts para el porque y las garantias de seguridad.
+ */
+async function resolveUser(token: string): Promise<CachedUser | null> {
+    return getCachedUser(token, async () => {
+        const { data: { user }, error } = await supabase.auth.getUser(token);
+        if (error || !user) return null;
+        return {
+            id: user.id,
+            email: user.email!,
+            user_metadata: user.user_metadata,
+        };
+    });
+}
 
 // ── Augmentar el tipo global de Express.Request ───────────────────────────────
 declare global {
@@ -165,9 +182,9 @@ export const requireAuth = async (
         }
 
         const token = authHeader.split(' ')[1];
-        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+        const user = await resolveUser(token);
 
-        if (authError || !user) {
+        if (!user) {
             return res.status(401).json({ error: 'Token inválido o expirado.' });
         }
 
@@ -178,50 +195,61 @@ export const requireAuth = async (
         //    a esta escuela", incluso si el router montado siguiente no
         //    necesita contexto de escuela (ej. marketplaceAdminRouter que va
         //    montado en /api/v1/admin junto a adminPayoutsRouter).
-        const { data: platformProfile } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', user.id)
-            .maybeSingle();
-
-        const platformRole = (platformProfile as any)?.role as string | undefined;
-        if (platformRole === 'super_admin' || platformRole === 'admin') {
-            req.user = {
-                id: user.id,
-                email: user.email!,
-                user_metadata: user.user_metadata,
-            };
-            req.schoolId = (req.headers['x-school-id'] as string) || '';
-            req.branchId = null;
-            req.role = platformRole as any;
-            return next();
-        }
-
-        // 3. Resto de usuarios: validar contra school_members
         const targetSchoolId = req.headers['x-school-id'] as string | undefined;
 
-        let q = supabase
-            .from('school_members')
-            .select('school_id, role, branch_id')
-            .eq('profile_id', user.id)
-            .eq('status', 'active');
+        // Rol + escuela van juntos en una sola entrada de cache: son las dos
+        // consultas que corrian en CADA request. Solo se resuelven en miss.
+        const membership = await getCachedMembership(user.id, targetSchoolId, token, async () => {
+            const { data: platformProfile } = await supabase
+                .from('profiles')
+                .select('role')
+                .eq('id', user.id)
+                .maybeSingle();
 
-        // Si el frontend envió x-school-id, filtrar por esa escuela exacta.
-        // De lo contrario, tomar el primer registro activo del usuario.
-        if (targetSchoolId) {
-            q = q.eq('school_id', targetSchoolId);
-        }
+            const platformRole = (platformProfile as any)?.role as string | undefined;
+            if (platformRole === 'super_admin' || platformRole === 'admin') {
+                return {
+                    schoolId: targetSchoolId || '',
+                    branchId: null,
+                    role: platformRole,
+                };
+            }
 
-        const { data: members, error: memberErr } = await q
-            .order('joined_at', { ascending: false })
-            .limit(1);
+            // 3. Resto de usuarios: validar contra school_members
+            let q = supabase
+                .from('school_members')
+                .select('school_id, role, branch_id')
+                .eq('profile_id', user.id)
+                .eq('status', 'active');
 
-        if (memberErr) {
-            req.log?.error({ err: memberErr }, 'Error consultando school_members');
-            return res.status(500).json({ error: 'Error interno verificando permisos.' });
-        }
+            // Si el frontend envió x-school-id, filtrar por esa escuela exacta.
+            // De lo contrario, tomar el primer registro activo del usuario.
+            if (targetSchoolId) {
+                q = q.eq('school_id', targetSchoolId);
+            }
 
-        if (!members || members.length === 0) {
+            const { data: members, error: memberErr } = await q
+                .order('joined_at', { ascending: false })
+                .limit(1);
+
+            // Error de BD: se propaga para que NO se cachee un fallo transitorio
+            // como si fuera "sin permisos".
+            if (memberErr) {
+                req.log?.error({ err: memberErr }, 'Error consultando school_members');
+                throw new Error('Error interno verificando permisos.');
+            }
+
+            if (!members || members.length === 0) return null;
+
+            const member = members[0] as any;
+            return {
+                schoolId: member.school_id,
+                branchId: member.branch_id ?? null,
+                role: member.role,
+            };
+        });
+
+        if (!membership) {
             return res.status(403).json({
                 error: 'No tienes permisos para acceder a esta escuela.',
                 detail: `profile_id=${user.id} no encontrado en school_members con status=active`
@@ -229,16 +257,14 @@ export const requireAuth = async (
             });
         }
 
-        const member = members[0] as any;
-
-        req.user = { 
-            id: user.id, 
-            email: user.email!, 
-            user_metadata: user.user_metadata 
+        req.user = {
+            id: user.id,
+            email: user.email!,
+            user_metadata: user.user_metadata,
         };
-        req.schoolId = member.school_id;
-        req.branchId = member.branch_id ?? null;
-        req.role = member.role;
+        req.schoolId = membership.schoolId;
+        req.branchId = membership.branchId;
+        req.role = membership.role as Request['role'];
 
         next();
     } catch (err) {
@@ -462,9 +488,9 @@ export const requireMarketplaceAuth = async (
         }
 
         const token = authHeader.split(' ')[1];
-        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+        const user = await resolveUser(token);
 
-        if (authError || !user) {
+        if (!user) {
             return res.status(401).json({ error: 'Token inválido o expirado.' });
         }
 
@@ -511,9 +537,9 @@ export const requireTrainerAuth = async (
         }
 
         const token = authHeader.split(' ')[1];
-        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+        const user = await resolveUser(token);
 
-        if (authError || !user) {
+        if (!user) {
             return res.status(401).json({ error: 'Token inválido o expirado.' });
         }
 
@@ -589,16 +615,16 @@ export const optionalAuth = async (
         }
 
         const token = authHeader.split(' ')[1];
-        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+        const user = await resolveUser(token);
 
-        if (authError || !user) {
+        if (!user) {
             // El caller envio un Authorization header pero el token es invalido.
             // Antes esto pasaba silencioso y el atacante podia probar tokens sin
             // dejar rastro. Logueamos para que aparezca en metricas de seguridad
             // y se pueda correlacionar con ataques.
             req.log?.warn(
                 {
-                    err: authError?.message ?? null,
+                    err: 'token rechazado por Supabase',
                     ua: req.headers['user-agent'],
                     ip: req.ip,
                 },
@@ -642,9 +668,9 @@ export const requireAthleteAuth = async (
         }
 
         const token = authHeader.split(' ')[1];
-        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+        const user = await resolveUser(token);
 
-        if (authError || !user) {
+        if (!user) {
             return res.status(401).json({ error: 'Token inválido o expirado.' });
         }
 
