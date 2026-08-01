@@ -259,15 +259,59 @@ export default function MonthlyReportsPage() {
         onError: fallar('No se pudo guardar la nota individual'),
     });
 
-    /** El coach envía solo si la escuela le delegó la liberación. */
-    const puedeCoachEnviar = isCoach && releaseBy === 'coach';
+    /**
+     * Publicar y enviar son la misma puerta: admin siempre, coach solo si la
+     * escuela le delegó la liberación. Se calcula una vez y se usa en los dos
+     * caminos —el lote del equipo y el puntual de una fila— para que no puedan
+     * quedar en desacuerdo.
+     */
+    const puedePublicar = !isCoach || releaseBy === 'coach';
+    const puedeEnviar = puedePublicar;
+
+    /**
+     * Publicar UN informe. El lote de arriba es el camino de fin de mes; este es
+     * el de «acabo de evaluar a este atleta». Misma RPC de siempre, así que
+     * también exige la nota del equipo — publicar uno no es saltarse esa regla.
+     */
+    const publicarUno = useMutation({
+        mutationFn: (id: string) => bffClient.post(`/api/v1/school/reports/${id}/publish`, {}),
+        onSuccess: () => {
+            toast({
+                title: '✅ Informe publicado',
+                description: 'Snapshot congelado. Ya se puede enviar.',
+            });
+            queryClient.invalidateQueries({ queryKey: claveInformes });
+        },
+        onError: fallar('No se pudo publicar'),
+    });
+
+    /** Enviar UN informe, sin arrastrar al resto del periodo. */
+    const enviarUno = useMutation({
+        mutationFn: (id: string) =>
+            bffClient.post<{ sent: number; skipped: number; results: { reason?: string }[] }>(
+                '/api/v1/school/reports/send',
+                { ...periodo, report_id: id },
+            ),
+        onSuccess: (r) => {
+            toast({
+                title: r.sent > 0 ? '📧 Informe enviado' : 'No se envió',
+                description: r.sent > 0
+                    ? 'Correo con el resumen y el enlace, más la notificación en la app.'
+                    : r.results?.[0]?.reason ?? 'Revisá que esté publicado y tenga acudiente.',
+                variant: r.sent > 0 ? 'default' : 'destructive',
+            });
+            queryClient.invalidateQueries({ queryKey: claveInformes });
+        },
+        onError: fallar('No se pudo enviar'),
+    });
 
     const publicables = reports.filter(
         (r) => r.team_id === teamId && (r.status === 'borrador' || r.status === 'listo'),
     ).length;
 
     const ocupado = generar.isPending || guardarNota.isPending || publicarEquipo.isPending
-        || enviar.isPending || guardarNotaIndividual.isPending;
+        || enviar.isPending || guardarNotaIndividual.isPending
+        || publicarUno.isPending || enviarUno.isPending;
 
     return (
         <div className="p-4 md:p-6 space-y-5 max-w-5xl">
@@ -507,7 +551,7 @@ export default function MonthlyReportsPage() {
             </Card>
 
             {/* ── Enviar. La escuela siempre; el coach solo si se lo habilitaron. ── */}
-            {(!isCoach || puedeCoachEnviar) && (
+            {puedeEnviar && (
             <Card>
                 <CardHeader className="pb-3">
                     <CardTitle className="text-base">3 · Enviar</CardTitle>
@@ -575,6 +619,41 @@ export default function MonthlyReportsPage() {
                                                 )}
                                             >
                                                 {r.coach_note ? 'Editar nota' : 'Nota individual'}
+                                            </Button>
+                                        )}
+
+                                        {/* Camino de UN atleta: evaluar a uno y mandarle a él
+                                            sin esperar a que el equipo entero esté listo. El
+                                            lote de arriba sigue siendo el camino normal de fin
+                                            de mes; esto es el puntual. Los permisos son los
+                                            mismos: la RPC y la ruta deciden, acá solo se
+                                            esconde lo que sabemos que daría 403. */}
+                                        {editable && puedePublicar && (
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 text-xs"
+                                                disabled={ocupado}
+                                                onClick={() => publicarUno.mutate(r.id)}
+                                            >
+                                                {publicarUno.isPending && publicarUno.variables === r.id && (
+                                                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                                )}
+                                                Publicar
+                                            </Button>
+                                        )}
+
+                                        {r.status === 'publicado' && !r.sent_at && r.recipient_id && puedeEnviar && (
+                                            <Button
+                                                size="sm"
+                                                className="h-7 text-xs"
+                                                disabled={ocupado}
+                                                onClick={() => enviarUno.mutate(r.id)}
+                                            >
+                                                {enviarUno.isPending && enviarUno.variables === r.id && (
+                                                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                                )}
+                                                Enviar
                                             </Button>
                                         )}
                                         <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
