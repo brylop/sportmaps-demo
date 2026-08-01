@@ -41,6 +41,8 @@ interface ReportRow {
     sent_at: string | null;
     viewed_at: string | null;
     teams: { name: string } | null;
+    athlete_name: string;
+    coach_note: string | null;
 }
 
 interface Resumen {
@@ -76,6 +78,8 @@ export default function MonthlyReportsPage() {
     const [month, setMonth] = useState(hoy.getMonth() + 1);
     const [teamId, setTeamId] = useState<string>('');
     const [nota, setNota] = useState('');
+    /** Informe cuya nota individual se está editando, y su texto. */
+    const [notaIndividual, setNotaIndividual] = useState<{ id: string; texto: string } | null>(null);
 
     const periodo = { year, month };
     const claveInformes = ['monthly-reports', schoolId, year, month];
@@ -174,12 +178,23 @@ export default function MonthlyReportsPage() {
         onError: fallar('No se pudieron enviar'),
     });
 
+    const guardarNotaIndividual = useMutation({
+        mutationFn: ({ id, texto }: { id: string; texto: string }) =>
+            bffClient.put(`/api/v1/school/reports/${id}/note`, { note: texto }),
+        onSuccess: () => {
+            toast({ title: '✅ Nota individual guardada' });
+            setNotaIndividual(null);
+            queryClient.invalidateQueries({ queryKey: claveInformes });
+        },
+        onError: fallar('No se pudo guardar la nota individual'),
+    });
+
     const publicables = reports.filter(
         (r) => r.team_id === teamId && (r.status === 'borrador' || r.status === 'listo'),
     ).length;
 
-    const ocupado = generar.isPending || guardarNota.isPending
-        || publicarEquipo.isPending || enviar.isPending;
+    const ocupado = generar.isPending || guardarNota.isPending || publicarEquipo.isPending
+        || enviar.isPending || guardarNotaIndividual.isPending;
 
     return (
         <div className="p-4 md:p-6 space-y-5 max-w-5xl">
@@ -373,27 +388,82 @@ export default function MonthlyReportsPage() {
                     </CardHeader>
                     <CardContent className="p-0">
                         <div className="divide-y border-t">
-                            {reports.map((r) => (
-                                <div key={r.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-                                    <span className="flex-1 min-w-0 truncate">
-                                        {r.teams?.name ?? <span className="text-muted-foreground">Sin equipo</span>}
-                                    </span>
-                                    <Badge variant={r.status === 'publicado' ? 'default' : 'secondary'}>
-                                        {r.status}
-                                    </Badge>
-                                    {r.sent_at && (
-                                        <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" aria-label="enviado" />
-                                    )}
-                                    {r.status === 'publicado' && !r.recipient_id && (
-                                        <span className="text-[11px] text-amber-600 dark:text-amber-400 whitespace-nowrap">
-                                            sin acudiente
+                            {reports.map((r) => {
+                                const editando = notaIndividual?.id === r.id;
+                                // Publicado = congelado: cambiar la nota despues
+                                // exige regenerar, que versiona y audita.
+                                const editable = r.status !== 'publicado';
+
+                                return (
+                                <div key={r.id} className="px-4 py-2.5 text-sm">
+                                    <div className="flex items-center gap-3">
+                                        <span className="flex-1 min-w-0">
+                                            <span className="block truncate font-medium">{r.athlete_name}</span>
+                                            <span className="block text-[11px] text-muted-foreground truncate">
+                                                {r.teams?.name ?? 'Sin equipo'}
+                                                {r.coach_note && ' · con nota individual'}
+                                            </span>
                                         </span>
+                                        <Badge variant={r.status === 'publicado' ? 'default' : 'secondary'}>
+                                            {r.status}
+                                        </Badge>
+                                        {r.sent_at && (
+                                            <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" aria-label="enviado" />
+                                        )}
+                                        {r.status === 'publicado' && !r.recipient_id && (
+                                            <span className="text-[11px] text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                                                sin acudiente
+                                            </span>
+                                        )}
+                                        {editable && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-7 text-xs"
+                                                onClick={() => setNotaIndividual(
+                                                    editando ? null : { id: r.id, texto: r.coach_note ?? '' },
+                                                )}
+                                            >
+                                                {r.coach_note ? 'Editar nota' : 'Nota individual'}
+                                            </Button>
+                                        )}
+                                        <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+                                            {r.scheduled_for}
+                                        </span>
+                                    </div>
+
+                                    {editando && (
+                                        <div className="mt-2.5 space-y-2">
+                                            <Textarea
+                                                value={notaIndividual.texto}
+                                                onChange={(e) => setNotaIndividual({ id: r.id, texto: e.target.value })}
+                                                rows={3}
+                                                placeholder={`Algo puntual sobre ${r.athlete_name.split(' ')[0]}, si hay que decirlo…`}
+                                            />
+                                            <p className="text-[11px] text-muted-foreground">
+                                                Opcional. Va solo en el informe de este atleta, además de la nota
+                                                del equipo. Dejala vacía para quitarla.
+                                            </p>
+                                            <div className="flex gap-2">
+                                                <Button
+                                                    size="sm"
+                                                    disabled={ocupado}
+                                                    onClick={() => guardarNotaIndividual.mutate(notaIndividual)}
+                                                >
+                                                    {guardarNotaIndividual.isPending && (
+                                                        <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                                                    )}
+                                                    Guardar
+                                                </Button>
+                                                <Button variant="ghost" size="sm" onClick={() => setNotaIndividual(null)}>
+                                                    Cancelar
+                                                </Button>
+                                            </div>
+                                        </div>
                                     )}
-                                    <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
-                                        {r.scheduled_for}
-                                    </span>
                                 </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </CardContent>
                 </Card>
