@@ -759,18 +759,17 @@ export default function PublicFacilityBookingPage() {
                     Identificamos que tu número de teléfono ya está asociado a la cuenta: <strong className="text-foreground">{registeredEmail}</strong>.
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Por tu seguridad, para poder realizar un agendamiento debes iniciar sesión con tu correo y contraseña.
+                    Para agendar clases y ver tus inscripciones activas, por favor inicia sesión en tu panel privado con tu usuario y contraseña.
                   </p>
                 </div>
                 <div className="space-y-3 pt-2">
                   <Button
                     onClick={() => {
-                      const backUrl = encodeURIComponent(window.location.pathname + window.location.search);
-                      window.location.href = `/login?email=${encodeURIComponent(registeredEmail)}&redirectTo=${backUrl}`;
+                      window.location.href = `/login?email=${encodeURIComponent(registeredEmail)}&redirectTo=${encodeURIComponent('/my-enrollments')}`;
                     }}
                     className="w-full h-12 gap-2"
                   >
-                    Iniciar sesión con contraseña
+                    Iniciar sesión en mi panel
                     <ArrowRight className="h-4 w-4" />
                   </Button>
                   <button
