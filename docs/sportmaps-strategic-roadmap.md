@@ -1,5 +1,11 @@
 # SportMaps — Roadmap Estratégico Consolidado
 
+> ⚠️ **Alcance vigente (revisado 2026-08-01).** Este documento sigue siendo la referencia de
+> **tesis, mapa competitivo, hedges arquitectónicos y track disruptivo D1–D4**. Su §7 «Plan de
+> ejecución consolidado» y su §4 «Pendiente en roadmap» **quedan superseded por
+> [`docs/ROADMAP.md`](ROADMAP.md) v2.0**, que es el único documento que ordena trabajo.
+> El §3 «Estado actual» está congelado en mayo de 2026 y no refleja lo entregado después.
+
 **Fecha:** 2026-05-19
 **Versión:** 1.1
 **Status:** Borrador para revisión
@@ -9,7 +15,8 @@
 **Anexos:**
 - `docs/athlete-modules-remediation-plan.md` — detalle técnico F0-F3
 - `docs/saas-vendor-subscriptions-plan.md` — plan vendor subscriptions
-- `docs/ROADMAP.md` — roadmap legacy (puede estar desactualizado)
+- `docs/ROADMAP.md` — **roadmap maestro vigente** (v2.0, 2026-08-01): estado y prioridades
+- `docs/archived/ROADMAP-v1.3-2026-05-12.md` — maestro anterior; conserva los anexos A–F (DDL, RLS, endpoints, RPCs, tests)
 - `docs/PROMPT_MAESTRO_PAYMENTS.md` — diseño pagos
 
 **Referencias en memoria personal de Claude:**
