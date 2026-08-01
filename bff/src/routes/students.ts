@@ -754,6 +754,8 @@ router.put(
       }
 
       // ── PASO 3: Actualizar enrollments + propagar a payments ──────────────────────
+      const warnings: string[] = [];
+
       if (enrollment) {
         // Helper: columna del atleta según tipo
         const athleteCol = athlete_type === 'child' ? 'child_id'
@@ -961,10 +963,61 @@ router.put(
             await createPendingPayment(null, enrollment.offering_plan_id, amount, `Plan ${planData?.name || 'Plan'}`, planStartDate);
           }
         }
+
+        // ── Guard: ninguna inscripción activa puede quedar sin equipo NI plan ───
+        //
+        // Las dos ramas de arriba actualizan por separado y ambas escriben
+        // `|| null` (equipo ~L829, plan ~L913). Guardar un atleta sin equipo
+        // cuando su fila no tenía plan —o al revés— la dejaba HUÉRFANA: activa,
+        // sin referenciar nada, y **conservando su monthly_fee** (la rama de
+        // equipo escribe `monthly_fee: teamFee` en el mismo UPDATE).
+        //
+        // El daño era invisible por partida doble: `school_athletes` la ignora
+        // (sus LATERAL exigen team_id o offering_plan_id, así que el listado se
+        // ve impecable) mientras `open_month` **sí** la factura, porque su
+        // cascada cae hasta children.monthly_fee cuando no hay plan ni equipo.
+        // Resultado: cobros duplicados que nadie podía ver en pantalla.
+        //
+        // Auditoría 2026-07-31: 26 filas así en producción, hasta 3 por atleta.
+        // Combinaciones válidas: equipo+plan, solo plan, solo equipo. La cuarta
+        // no existe en el negocio → aquí se cierra, y la migración del CHECK
+        // (D19) la vuelve imposible a nivel de tabla.
+        // Ver docs/plan-f0-inscripciones-y-cobros-duplicados.md §1.A
+        const { data: orphaned, error: orphanErr } = await applyAthleteFilter(
+          supabase.from('enrollments')
+            .select('id')
+            .eq('school_id', schoolId)
+            .eq('status', 'active')
+            .is('team_id', null)
+            .is('offering_plan_id', null)
+        );
+        if (orphanErr) throw new Error(`Error verificando inscripciones huérfanas: ${orphanErr.message}`);
+
+        if (orphaned?.length) {
+          const today = new Date().toISOString().split('T')[0];
+          const { error: cancelErr } = await supabase.from('enrollments')
+            .update({ status: 'cancelled', end_date: today, updated_at: new Date().toISOString() })
+            .in('id', (orphaned as any[]).map(r => r.id))
+            .eq('school_id', schoolId);
+          if (cancelErr) throw new Error(`Error cancelando inscripción huérfana: ${cancelErr.message}`);
+
+          // No se anulan cobros aquí: los pendientes de una huérfana no traen
+          // team_id ni offering_plan_id, así que no hay forma de distinguirlos
+          // de otros cobros del atleta sin arriesgar cancelar el equivocado.
+          // Se avisa y la escuela decide.
+          warnings.push(
+            'El atleta quedó sin equipo y sin plan, así que su inscripción se cerró y dejará de generar cobros. ' +
+            'Si sigue activo, asígnale un equipo o un plan. Revisa sus cobros pendientes.'
+          );
+          req.log?.warn?.(
+            { athleteId: id, schoolId, cancelled: (orphaned as any[]).map(r => r.id) },
+            'Inscripción huérfana cancelada por el guard del editor de atletas'
+          );
+        }
       }
 
 
-      return res.json({ success: true });
+      return res.json({ success: true, warnings });
 
     } catch (err: any) {
       req.log?.error?.({ err: err.message }, 'Error en PUT /students/:id');
