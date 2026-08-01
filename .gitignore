@@ -203,3 +203,7 @@ supabase/seed/osm_chunks/
 
 # Supabase CLI temp
 supabase/.temp/
+
+# Volcados de depuracion contra la BD compartida: llevan datos reales
+# (correos, UUIDs de usuarios). Nunca versionar.
+bff/records_by_email.json
