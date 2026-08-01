@@ -262,6 +262,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity },
           { title: 'Rutinas del Gym', href: '/school/routines', icon: Dumbbell },
+          { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText },
           {
             title: 'Asistencias',
             icon: BarChart3,
@@ -291,7 +292,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
               { title: 'Estado de resultados', href: '/accounting/reports', icon: BarChart3 },
               { title: 'Presupuesto', href: '/accounting/budget', icon: PieChart },
               { title: 'Reportes', href: '/school-reports', icon: FileText },
-              { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText },
             ],
           },
           { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
@@ -494,6 +494,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Rutinas del Gym', href: '/school/routines', icon: Dumbbell },
+           { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText },
           {
             title: 'Asistencias',
             icon: BarChart3,
@@ -523,7 +524,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
               { title: 'Estado de resultados', href: '/accounting/reports', icon: BarChart3 },
               { title: 'Presupuesto', href: '/accounting/budget', icon: PieChart },
               { title: 'Reportes', href: '/school-reports', icon: FileText },
-              { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText },
             ],
           },
           { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
