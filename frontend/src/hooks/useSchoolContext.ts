@@ -384,9 +384,14 @@ function useSchoolContextManager(): SchoolContext {
         if (anyInSchool) selectSchool(anyInSchool);
     };
 
+    // OJO: NO tocar `loading` aquí. `loading` es el gate de <ProtectedRoute>, que
+    // desmonta TODO el árbol autenticado mientras esté en true. Como este fetch
+    // corre en un efecto DESPUÉS de que resolveUserContext ya puso loading=false,
+    // ponerlo en true otra vez desmontaba y remontaba AuthLayout entero: cada
+    // query y cada efecto de la app se disparaba dos veces por login.
+    // `loading` = "aún no resolví el contexto base", nada más.
     const fetchTeams = useCallback(async (id: string, branchId: string | null = null) => {
         if (!id || id === "") return;
-        setLoading(true);
         try {
             let query = supabase
                 .from('teams')
@@ -417,8 +422,6 @@ function useSchoolContextManager(): SchoolContext {
             }
         } catch (e) {
             console.error(e);
-        } finally {
-            setLoading(false);
         }
     }, []);
 
