@@ -241,9 +241,12 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
               icon: Users
             },
             {
-              title: 'Ingresos Mensuales',
+              // "del Mes" y no "Mensuales": esta tarjeta es SOLO el mes en curso.
+              // El acumulado histórico vive en Gestión de Pagos → Ingresos Totales,
+              // y verlos distintos confundía (uno es global, este no).
+              title: 'Ingresos del Mes',
               value: `$${stats.totalRevenue || 0}`,
-              description: 'Este mes',
+              description: 'Solo este mes',
               icon: DollarSign
             }
           ],

@@ -927,7 +927,9 @@ export default function PaymentsAutomationPage() {
           // Las 4 tarjetas salen del RPC (histórico completo), no del array de
           // 100 filas: así calculadas mostraban $150.000 de $1.250.000 reales.
           // Sin datos del RPC se muestra '—', nunca un número inventado.
-          { title: 'Ingresos Totales', value: kpis ? formatCurrency(kpis.revenue_total) : '—', sub: 'Histórico acumulado', icon: TrendingUp, color: 'text-emerald-500' },
+          // "todos los meses" explícito: este número es global y no cuadra con
+          // "Ingresos del Mes" del panel, que es solo el mes en curso.
+          { title: 'Ingresos Totales', value: kpis ? formatCurrency(kpis.revenue_total) : '—', sub: 'Histórico acumulado · todos los meses', icon: TrendingUp, color: 'text-emerald-500' },
           { title: 'Por Validar', value: kpis ? kpis.awaiting_count : '—', sub: kpis ? `${formatCurrency(kpis.awaiting_amount)} pendientes` : 'Sin datos', icon: Clock, color: 'text-amber-500' },
           // Transacciones = pagos con plata movida (paid|partial). Un cobro
           // emitido y no pagado NO es una transacción; contarlos daba 100.

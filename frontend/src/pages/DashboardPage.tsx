@@ -390,7 +390,10 @@ export default function DashboardPage() {
             description = 'Promedio general';
           } else {
             value = formatCurrency(realStats.monthly_revenue || 0);
-            description = 'Ingresos confirmados este mes';
+            // El dato es: cobros EMITIDOS este mes que ya están pagados
+            // (`created_at >= día 1` + status paid). No es la caja del mes ni el
+            // acumulado: un cobro del mes pasado que se pague hoy no entra acá.
+            description = 'Cobros de este mes ya pagados';
           }
 
           return {
