@@ -611,7 +611,6 @@ router.post('/confirm', async (req: Request, res: Response) => {
     const { data: booking, error: bookErr } = await supabase.from('session_bookings').insert({
       school_id: verif.school_id,
       session_id: sessionId,
-      enrollment_id: enrollmentId,
       unregistered_athlete_id: unregisteredAthleteId,
       is_secondary: false,
       booking_type: 'reservation',
