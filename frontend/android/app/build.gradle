@@ -1,5 +1,14 @@
 apply plugin: 'com.android.application'
 
+// Firma de release. Las credenciales viven en android/keystore.properties
+// (gitignored, junto con keystore/*.jks). Si el archivo no esta, el build de
+// release sale SIN FIRMAR — sirve para CI de compilacion, no para subir a Play.
+def keystorePropertiesFile = rootProject.file('keystore.properties')
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace "co.sportmaps.app"
     compileSdk rootProject.ext.compileSdkVersion
@@ -7,7 +16,10 @@ android {
         applicationId "co.sportmaps.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        // versionCode 1 ya se consumio en el AAB firmado del 2026-07-21. Play
+        // rechaza reusar un versionCode ya subido, asi que arrancamos en 2 y
+        // SIEMPRE se incrementa en cada AAB que se sube.
+        versionCode 2
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -16,8 +28,19 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                storeFile rootProject.file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
+            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : null
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
@@ -33,6 +56,9 @@ repositories {
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    // Explicito: MainActivity usa ViewCompat/WindowInsetsCompat para los insets
+    // de edge-to-edge. Llegaba transitivo por appcompat, pero no dependemos de eso.
+    implementation "androidx.core:core:$androidxCoreVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
