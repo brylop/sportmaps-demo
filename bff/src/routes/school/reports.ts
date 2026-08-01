@@ -153,7 +153,22 @@ router.get(
             sin_destinatario: filas.filter((r) => r.status === 'publicado' && !r.recipient_id).length,
         };
 
-        res.json({ year, month, resumen, reports: filas });
+        // Se devuelve quién libera para que el frontend no tenga que adivinarlo:
+        // el coach no puede leer school_settings (RLS), y sin este dato la
+        // pantalla o le esconde un botón que sí puede usar, o le ofrece un 403.
+        const { data: cfg } = await supabase
+            .from('school_settings')
+            .select('reports_release_by')
+            .eq('school_id', req.schoolId)
+            .maybeSingle();
+
+        res.json({
+            year,
+            month,
+            resumen,
+            release_by: (cfg as any)?.reports_release_by ?? 'school',
+            reports: filas,
+        });
     },
 );
 
@@ -392,7 +407,7 @@ const SendSchema = PeriodSchema.extend({
 router.post(
     '/reports/send',
     requireAuth,
-    requireRole(...ADMIN_ROLES),
+    requireRole(...STAFF_ROLES),
     async (req: AuthenticatedRequest, res: Response) => {
         const parsed = SendSchema.safeParse(req.body ?? {});
         if (!parsed.success) {
@@ -400,10 +415,32 @@ router.post(
         }
         const { year, month, only_due, limit } = parsed.data;
 
+        // Quién despacha lo decide la escuela en reports_release_by. Con 'coach'
+        // el entrenador manda, pero SOLO sus equipos: delegar la liberación no es
+        // darle el botón de escribirle a toda la escuela.
+        let teamIds: string[] | undefined;
+        if (!ADMIN_ROLES.includes(req.role as any)) {
+            const { data: settings } = await supabase
+                .from('school_settings')
+                .select('reports_release_by')
+                .eq('school_id', req.schoolId)
+                .maybeSingle();
+
+            if ((settings as any)?.reports_release_by !== 'coach') {
+                return res.status(403).json({
+                    error: 'En esta escuela el envío lo hace la administración.',
+                });
+            }
+
+            const { data: propios } = await userClient(req).rpc('current_staff_team_ids');
+            teamIds = Array.isArray(propios) ? propios : [];
+        }
+
         try {
             const salida = await deliverPublishedReports(req.schoolId, year, month, {
                 onlyDue: only_due === true,
                 limit,
+                teamIds,
             });
             res.json(salida);
         } catch (err: any) {

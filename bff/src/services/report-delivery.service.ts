@@ -144,13 +144,13 @@ export async function deliverPublishedReports(
     schoolId: string,
     year: number,
     month: number,
-    opts: { limit?: number; onlyDue?: boolean } = {},
+    opts: { limit?: number; onlyDue?: boolean; teamIds?: string[] } = {},
 ): Promise<{ results: DeliveryResult[]; sent: number; skipped: number }> {
     const hoy = new Date().toISOString().slice(0, 10);
 
     let query = supabase
         .from('athlete_reports')
-        .select('id, subject_type, subject_id, recipient_id, snapshot, scheduled_for')
+        .select('id, subject_type, subject_id, recipient_id, snapshot, scheduled_for, team_id')
         .eq('school_id', schoolId)
         .eq('period_year', year)
         .eq('period_month', month)
@@ -162,6 +162,14 @@ export async function deliverPublishedReports(
     // El emisor diario manda solo lo que ya venció; publicar y mandar a mano
     // (para probar) no debería esperar al día del calendario.
     if (opts.onlyDue) query = query.lte('scheduled_for', hoy);
+
+    // Cuando la escuela delega la liberación al entrenador, éste despacha SUS
+    // equipos y nada más. Sin este filtro, delegar en un coach le daría el botón
+    // de mandarle correo a toda la escuela.
+    if (opts.teamIds) {
+        if (opts.teamIds.length === 0) return { results: [], sent: 0, skipped: 0 };
+        query = query.in('team_id', opts.teamIds);
+    }
 
     const { data: informes, error } = await query;
     if (error) throw error;
