@@ -340,6 +340,47 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
             });
         }
 
+        // ── Guard: una sola inscripción activa por atleta y escuela ──────────
+        //
+        // Llegar acá con una inscripción activa significa que no fue merge ni replace,
+        // o sea que es un intento de abrir una SEGUNDA. El caso que se colaba: atleta
+        // con {equipo A, plan P} y llega {team_id: B}. El merge exige que a la fila le
+        // FALTE el dato que llega (y no le falta el equipo, tiene otro), el replace
+        // exige `offering_plan_id` en el request, y el índice uq_enrollment_child_team
+        // es por (child_id, team_id) así que un equipo distinto no colisiona. Resultado:
+        // INSERT, roster inflado y —hasta la mig 20260803114540— riesgo de doble cobro.
+        //
+        // Se responde 409 en vez de mover el equipo en silencio: cambiar de equipo tiene
+        // efectos de cobro (anular los pendientes del equipo viejo, emitir los del
+        // nuevo) que el editor de atletas sí implementa y este endpoint no. Hacerlo a
+        // medias acá dejaría cobros del equipo anterior vivos.
+        //
+        // Se devuelve el `enrollment_id` para que la UI pueda ofrecer "editar la
+        // inscripción" en lugar de dejar al admin sin salida. Verificado que los dos
+        // llamadores que pueden caer acá (EnrollTeamStudentModal y classes.enrollStudent)
+        // muestran `error.message` en un toast.
+        //
+        // Cuando llegue la multi-categoría (MOD-3), este 409 se relaja: el segundo
+        // team_id pasará a crear una fila en enrollment_categories.
+        // Ref: docs/plan-f0-generacion-de-mes-y-cobros-duplicados.md §3.2 vía A, §5 B1.
+        if (!mergeTarget && !replaceTarget && (activeEnrollments?.length ?? 0) > 0) {
+            const current = activeEnrollments![0];
+            let currentTeamName: string | null = null;
+            if (current.team_id) {
+                const { data: t } = await supabase
+                    .from('teams').select('name').eq('id', current.team_id).maybeSingle();
+                currentTeamName = (t as any)?.name ?? null;
+            }
+            return res.status(409).json({
+                error: 'El atleta ya tiene una inscripción activa en esta escuela.',
+                details: currentTeamName
+                    ? `Hoy está en "${currentTeamName}". Para moverlo de equipo, edítalo desde la ficha del atleta: así se anulan los cobros pendientes del equipo anterior.`
+                    : 'Para cambiar su equipo o su plan, edítalo desde la ficha del atleta.',
+                enrollment_id: current.id,
+                code: 'ATHLETE_ALREADY_ENROLLED',
+            });
+        }
+
         // ✅ Crear inscripción
         const { data: enrollment, error: enrollError } = await supabase
             .from('enrollments')
