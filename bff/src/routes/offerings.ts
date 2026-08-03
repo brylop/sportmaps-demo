@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
+import { todayInZone } from '../utils/businessDate';
 import { z } from 'zod';
 
 const router = Router();
@@ -416,7 +417,7 @@ router.patch('/:offeringId/plans/:planId',
                 .from('attendance_sessions')
                 .delete()
                 .eq('offering_id', offeringId)
-                .gte('session_date', new Date().toISOString().split('T')[0])
+                .gte('session_date', todayInZone())
                 .eq('current_bookings', 0)
                 .eq('finalized', false);
 

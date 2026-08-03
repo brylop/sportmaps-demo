@@ -1,5 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { supabase } from '../config/supabase';
+import { todayInZone } from '../utils/businessDate';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 
 const router = Router();
@@ -425,7 +426,7 @@ router.get(
         const childMap = Object.fromEntries((childRes.data || []).map((x: any) => [x.id, x]));
         const profileMap = Object.fromEntries((profileRes.data || []).map((x: any) => [x.id, x]));
         const unregMap = Object.fromEntries((unregRes.data || []).map((x: any) => [x.id, x]));
-        const today = new Date().toISOString().split('T')[0];
+        const today = todayInZone();
 
         const athletes = mergedBks.map((b: any) => {
           const athleteId = b.user_id ?? b.child_id ?? b.unregistered_athlete_id;
@@ -464,7 +465,7 @@ router.get(
         return res.json({ athletes, bookings: bks, context_type: 'facility_session', context_id: contextId });
       }
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = todayInZone();
 
       // ── 1. Resolver plan_ids del offering (solo si contextType = offering) ──
       let offeringPlanIds: string[] = [];
@@ -1135,7 +1136,7 @@ router.get('/school-roster', requireAuth, requireRole('owner', 'super_admin', 'a
       const childMap = Object.fromEntries((childRes.data || []).map((x: any) => [x.id, x]));
       const profileMap = Object.fromEntries((profileRes.data || []).map((x: any) => [x.id, x]));
       const unregMap = Object.fromEntries((unregRes.data || []).map((x: any) => [x.id, x]));
-      const today = new Date().toISOString().split('T')[0];
+      const today = todayInZone();
       const q = search.toLowerCase();
 
       const athletes = enrollments

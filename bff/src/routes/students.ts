@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
+import { todayInZone } from '../utils/businessDate';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { normalizeSchoolName } from '../utils/brandingUtils';
 import {
@@ -396,7 +397,7 @@ router.post(
                             team_id: teamId,
                             school_id: schoolId,
                             status: 'active',
-                            start_date: new Date().toISOString().split('T')[0],
+                            start_date: todayInZone(),
                         });
                     }
 
@@ -880,7 +881,7 @@ router.put(
          */
         const cancelExtraEnrollments = async (extras: any[]) => {
           if (!extras.length) return;
-          const today = new Date().toISOString().split('T')[0];
+          const today = todayInZone();
           await supabase.from('enrollments')
             .update({ status: 'cancelled', end_date: today, updated_at: new Date().toISOString() })
             .in('id', extras.map(r => r.id))
@@ -889,7 +890,7 @@ router.put(
 
         // ── Enrollment de EQUIPO ────────────────────────────────────────────────
         if (enrollment.team_id !== undefined) {
-          const teamStartDate: string = enrollment.team_start_date || new Date().toISOString().split('T')[0];
+          const teamStartDate: string = enrollment.team_start_date || todayInZone();
           // Plan manda: si hay plan seleccionado, el equipo es SOLO roster y no
           // genera cobro propio (evita el doble cobro equipo+plan).
           const hasPlan = !!enrollment.offering_plan_id;
@@ -967,7 +968,7 @@ router.put(
 
         // ── Enrollment de PLAN ──────────────────────────────────────────────────
         if (enrollment.offering_plan_id !== undefined) {
-          const planStartDate: string = enrollment.plan_start_date || new Date().toISOString().split('T')[0];
+          const planStartDate: string = enrollment.plan_start_date || todayInZone();
           const planFee: number | null = enrollment.plan_monthly_fee ?? null;
           const expiresAt = new Date(planStartDate);
           expiresAt.setDate(expiresAt.getDate() + 30);
@@ -1067,7 +1068,7 @@ router.put(
         if (orphanErr) throw new Error(`Error verificando inscripciones huérfanas: ${orphanErr.message}`);
 
         if (orphaned?.length) {
-          const today = new Date().toISOString().split('T')[0];
+          const today = todayInZone();
           const { error: cancelErr } = await supabase.from('enrollments')
             .update({ status: 'cancelled', end_date: today, updated_at: new Date().toISOString() })
             .in('id', (orphaned as any[]).map(r => r.id))
