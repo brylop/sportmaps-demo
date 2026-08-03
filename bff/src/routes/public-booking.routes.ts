@@ -486,6 +486,27 @@ router.post('/confirm', async (req: Request, res: Response) => {
       if (!verif.resolved_enrollment_id) return res.status(422).json({ error: 'No se encontró tu inscripción.' });
       enrollmentId = verif.resolved_enrollment_id;
       unregisteredAthleteId = verif.resolved_unregistered_id;
+
+      // El trigger de BD (fn_process_session_booking) NO valida esto porque
+      // session_bookings.enrollment_id queda NULL para no-registrados.
+      // Hay que replicar aquí la misma validación que el trigger hace para
+      // reservas normales: plan activo, no vencido, con crédito disponible.
+      const { data: enr } = await supabase
+        .from('enrollments')
+        .select('status, expires_at, sessions_used, offering_plans!enrollments_offering_plan_id_fkey(max_sessions)')
+        .eq('id', enrollmentId)
+        .single();
+
+      if (!enr || enr.status !== 'active') {
+        return res.status(422).json({ error: 'Tu inscripción no está activa.', reason: 'enrollment_not_active' });
+      }
+      if (enr.expires_at && enr.expires_at < todayStr()) {
+        return res.status(422).json({ error: `Tu plan venció el ${enr.expires_at}.`, reason: 'plan_expired' });
+      }
+      const maxSess = (enr as any).offering_plans?.max_sessions;
+      if (maxSess !== null && maxSess !== undefined && (enr.sessions_used ?? 0) >= maxSess) {
+        return res.status(422).json({ error: 'Ya no tienes clases disponibles en tu plan.', reason: 'no_credits' });
+      }
     } else if (verif.resolved_kind === 'new') {
       // Crear unregistered_athlete + enrollment de cortesía (idempotente por verification_id)
       const { data: courtesySettings } = await supabase
