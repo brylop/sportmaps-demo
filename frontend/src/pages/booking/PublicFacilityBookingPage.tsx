@@ -66,6 +66,20 @@ function fmtDate(d: string) {
   });
 }
 
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-left flex items-start gap-3 animate-in fade-in slide-in-from-top-2 duration-200 shadow-sm">
+      <div className="p-1.5 bg-red-500/20 rounded-lg shrink-0 mt-0.5">
+        <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+      </div>
+      <div className="flex-1 text-xs">
+        <p className="font-bold text-red-900 dark:text-red-200">No fue posible continuar</p>
+        <p className="text-red-700 dark:text-red-300 mt-0.5 leading-relaxed">{message}</p>
+      </div>
+    </div>
+  );
+}
+
 // ── Componente principal ────────────────────────────────────────────────────────
 
 export default function PublicFacilityBookingPage() {
@@ -456,7 +470,7 @@ export default function PublicFacilityBookingPage() {
                 {loadingSlots ? (
                   <div className="py-10 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" /></div>
                 ) : errorMsg ? (
-                  <p className="text-sm text-red-600 text-center py-6">{errorMsg}</p>
+                  <div className="py-2"><ErrorBanner message={errorMsg} /></div>
                 ) : availableDates.length === 0 ? (
                   <div className="py-10 text-center text-muted-foreground">
                     <Calendar className="h-10 w-10 mx-auto mb-2 opacity-30" />
@@ -543,7 +557,7 @@ export default function PublicFacilityBookingPage() {
                     className="h-12 text-center text-lg tracking-wide"
                   />
                 </div>
-                {errorMsg && <p className="text-sm text-red-600 text-center">{errorMsg}</p>}
+                {errorMsg && <ErrorBanner message={errorMsg} />}
                 <Button
                   onClick={() => handleStartVerification()}
                   disabled={busy || phone.replace(/\D/g, '').length < 7}
@@ -574,7 +588,7 @@ export default function PublicFacilityBookingPage() {
                   <Label>Correo electrónico</Label>
                   <Input type="email" placeholder="tu@correo.com" value={email} onChange={(e) => setEmail(e.target.value)} className="h-12" />
                 </div>
-                {errorMsg && <p className="text-sm text-red-600 text-center">{errorMsg}</p>}
+                {errorMsg && <ErrorBanner message={errorMsg} />}
                 <Button onClick={handleSubmitEmailForEnrolled} disabled={busy || !email.includes('@')} className="w-full h-12 gap-2">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                   Enviar código
@@ -613,7 +627,7 @@ export default function PublicFacilityBookingPage() {
                     </div>
                   </div>
                 </div>
-                {errorMsg && <p className="text-sm text-red-600 text-center">{errorMsg}</p>}
+                {errorMsg && <ErrorBanner message={errorMsg} />}
                 <Button onClick={handleSubmitNewDetails} disabled={busy} className="w-full h-12 gap-2">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                   Enviar código de verificación
@@ -644,7 +658,7 @@ export default function PublicFacilityBookingPage() {
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
                   className="h-14 text-center text-2xl tracking-[0.5em] font-bold"
                 />
-                {errorMsg && <p className="text-sm text-red-600 text-center">{errorMsg}</p>}
+                {errorMsg && <ErrorBanner message={errorMsg} />}
                 <Button onClick={handleVerifyCode} disabled={busy || code.length !== 6} className="w-full h-12 gap-2">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                   Verificar y confirmar reserva
