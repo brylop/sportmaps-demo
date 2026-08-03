@@ -182,10 +182,28 @@ el mes.
 
 ### Bloque 4 — código (en este orden)
 
-**4.1 La RPC del QR** — migración nueva: el `INSERT` lleva `monthly_fee` (ya tiene
-`v_amount`) y el plan si el QR lo resuelve; y al reusar una inscripción existente,
-rellenar esos campos si están en NULL. Es el más chico y el que está sangrando: sin esto,
-cada alta por QR sigue dejando una fila vacía.
+**4.1 La RPC del QR** — ✅ escrita:
+[`20260803110621_qr_signup_enrollment_completa`](../supabase/migrations/20260803110621_qr_signup_enrollment_completa.sql).
+El `INSERT` lleva `offering_plan_id` y `monthly_fee`; la rama de reuso rellena huecos sin
+sobrescribir lo que ya puso la escuela; y trae un backfill de `monthly_fee` para las filas
+que nadie va a volver a escanear. **No hay que reimprimir ningún QR**: los impresos
+siguen apuntando a esta misma RPC, así que la próxima pasada completa la inscripción.
+
+Se construyó copiando la función del archivo original y aplicando solo esos dos cambios,
+no transcribiéndola. Ninguna migración posterior a `20260730195052` la redefine, así que
+la base es la correcta — pero conviene confirmar contra lo desplegado antes de aplicar,
+porque esta base tiene deriva sin versionar:
+
+```sql
+SELECT substring(prosrc from 'INSERT INTO public\.enrollments[^;]+;')
+FROM pg_proc WHERE proname = 'submit_qr_signup';
+```
+
+Si eso devuelve el `INSERT` sin `offering_plan_id` ni `monthly_fee`, la migración parte de
+donde cree. Si devuelve algo distinto, hay que rebasar el cambio sobre lo que hay.
+
+El backfill NO asigna plan: emparejar por monto es heurística y hay dos planes de $90.000.
+Para el cobro correcto alcanza `monthly_fee`, que es lo primero que lee el generador.
 
 **4.2 Asignar equipo/plan completa en vez de insertar.** Revisar
 [`bff/src/routes/students.ts:884`](../bff/src/routes/students.ts#L884) y el bloque de plan
