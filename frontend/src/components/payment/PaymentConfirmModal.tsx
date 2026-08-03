@@ -4,7 +4,12 @@
  * Este modal aparece DESPUÉS de que el padre seleccione "Pagar online"
  * y ANTES de que se abra el checkout de Wompi.
  *
- * Objetivo: transparencia total sobre el fee de procesamiento.
+ * Objetivo: transparencia total sobre el recargo por pago online.
+ *
+ * Ese recargo es de la ESCUELA — se suma a la mensualidad, entra a su cuenta en la
+ * pasarela y le compensa la comisión que esta le descuenta. SportMaps no retiene nada
+ * de la transacción. La prop sigue llamándose `sportmapsFee` por el nombre de la
+ * columna en BD (`payment_links.sportmaps_fee`), que quedó del modelo anterior.
  */
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -77,7 +82,7 @@ export function PaymentConfirmModal({
                         </div>
                         <div className="flex justify-between items-center">
                             <span className="text-sm text-muted-foreground">
-                                Fee procesamiento ({feePct}%)
+                                Recargo por pago online ({feePct}%)
                             </span>
                             <span className="font-medium text-amber-600">
                                 +{formatCurrency(sportmapsFee)}
@@ -117,8 +122,8 @@ export function PaymentConfirmModal({
 
                     {/* ── Nota sobre el fee ──────────────────────────────────── */}
                     <p className="text-[11px] text-center text-muted-foreground leading-relaxed px-2">
-                        El fee de procesamiento ({feePct}%) cubre los costos de la pasarela de pagos.
-                        Tu escuela recibe siempre el monto completo de {formatCurrency(baseAmount)}.
+                        El recargo ({feePct}%) cubre el costo de procesar tu pago en línea.
+                        Tu escuela recibe la mensualidad completa de {formatCurrency(baseAmount)}.
                     </p>
 
                     {/* ── Botones ────────────────────────────────────────────── */}

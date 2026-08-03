@@ -24,6 +24,18 @@ import { useAuth } from '@/contexts/AuthContext';
 
 // ── Payloads aceptados por cada flujo ────────────────────────────────────────
 
+/**
+ * Montos calculados por el SERVIDOR en `create-session`. Son la fuente de verdad:
+ * el Widget siempre cobra `grossAmount`, venga la firma del BFF o de la Edge Function.
+ * Lo que el frontend estime por su cuenta es solo una previsualización.
+ */
+export interface ServerQuote {
+    grossAmount: number;
+    baseAmount: number;
+    sportmapsFee: number;
+    feePct: number;
+}
+
 interface SchoolPaymentPayload {
     paymentId: string;
     enrollmentId?: string;
@@ -31,6 +43,15 @@ interface SchoolPaymentPayload {
     schoolName?: string;
     studentName?: string;
     teamName?: string;
+    /**
+     * Se invoca con los montos del servidor ANTES de abrir el Widget. Devolver false
+     * aborta el checkout sin cobrar nada.
+     *
+     * Existe para que la pantalla que muestra el desglose pueda contrastar su estimación
+     * contra el monto real y, si difieren, mostrar el del servidor en vez de cobrar en
+     * silencio uno distinto al que el usuario aceptó.
+     */
+    confirmQuote?: (quote: ServerQuote) => boolean | Promise<boolean>;
 }
 
 interface ServiceCheckoutPayload {
@@ -170,6 +191,19 @@ export function useWompiCheckout({ onSuccess, onError, onClosed }: UseWompiCheck
                 preferredProvider: 'wompi',
                 ...(payload.enrollmentId ? { enrollmentId: payload.enrollmentId } : {}),
             });
+
+            // El servidor puede haber calculado un monto distinto al estimado en pantalla
+            // (tarifa cambiada, link previo recreado, descuento aplicado). Antes de abrir
+            // el Widget le damos al caller la última palabra con los montos reales.
+            if (payload.confirmQuote) {
+                const approved = await payload.confirmQuote({
+                    grossAmount: Number(data.grossAmount),
+                    baseAmount: Number(data.baseAmount),
+                    sportmapsFee: Number(data.sportmapsFee),
+                    feePct: Number(data.feePct),
+                });
+                if (!approved) return null;
+            }
 
             return await launchWidget({
                 reference: data.reference,

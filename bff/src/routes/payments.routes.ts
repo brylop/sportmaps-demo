@@ -237,15 +237,51 @@ router.post(
                 reused: true,
             });
 
-            const { data: existingLink } = await fetchActiveLink();
-            if (existingLink && (existingLink.provider_reference || existingLink.wompi_reference)) {
-                return reuseResponse(existingLink);
-            }
-
-            // 5. Calcular montos en el server (NUNCA confiar en el cliente)
+            // 5. Calcular montos en el server (NUNCA confiar en el cliente).
+            //    Va ANTES del reuso porque hacen falta para decidir si el link vigente
+            //    sigue siendo válido.
             const baseAmount = Number(payment.amount);
             const sportmapsFee = Math.round(baseAmount * (feePct / 100));
             const grossAmount = baseAmount + sportmapsFee;
+
+            // 5.b Reusar el link activo SOLO si sus montos siguen vigentes.
+            //
+            //     El link congela `fee_pct` y `base_amount` al crearse y vive 72h. Si la
+            //     escuela cambia `online_fee_pct` (o cambia el monto del cobro) dentro de esa
+            //     ventana, devolver la fila vieja hace que el Widget cobre la tarifa anterior
+            //     mientras la UI muestra la nueva — sin error visible en ningún lado.
+            //     Caso real (Dynasty, link creado 2026-07-31 con fee_pct=0): siguió abriendo
+            //     el checkout en $180.000 después de subir la tarifa a 5% ($189.000).
+            //     Si quedó obsoleto se expira y se crea uno nuevo con los montos vigentes.
+            const { data: existingLink } = await fetchActiveLink();
+            if (existingLink && (existingLink.provider_reference || existingLink.wompi_reference)) {
+                const staleFee = Number(existingLink.fee_pct) !== feePct;
+                const staleBase = Math.abs(Number(existingLink.base_amount) - baseAmount) > 0.5;
+
+                if (!staleFee && !staleBase) {
+                    return reuseResponse(existingLink);
+                }
+
+                req.log?.warn(
+                    {
+                        paymentId,
+                        linkId: existingLink.id,
+                        linkFeePct: Number(existingLink.fee_pct),
+                        currentFeePct: feePct,
+                        linkBaseAmount: Number(existingLink.base_amount),
+                        currentBaseAmount: baseAmount,
+                    },
+                    'create-session: link obsoleto (cambió la tarifa o el monto) → se expira y se recrea',
+                );
+
+                // Expirarlo libera el único parcial uq_payment_links_one_pending_per_payment
+                // para el INSERT de más abajo.
+                await supabase
+                    .from('payment_links')
+                    .update({ status: 'expired', updated_at: new Date().toISOString() })
+                    .eq('id', existingLink.id)
+                    .eq('status', 'pending');
+            }
 
             // 6. Generar referencia segun provider
             const reference = provider === 'mercadopago'

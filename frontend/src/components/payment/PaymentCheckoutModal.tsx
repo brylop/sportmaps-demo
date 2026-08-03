@@ -37,7 +37,7 @@ import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { emailClient } from '@/lib/email-client';
 import { getPaymentPayload, SchoolAthlete } from '@/lib/athleteUtils';
 import { PaymentConfirmModal } from '@/components/payment/PaymentConfirmModal';
-import { useWompiCheckout } from '@/hooks/useWompiCheckout';
+import { useWompiCheckout, type ServerQuote } from '@/hooks/useWompiCheckout';
 import { blockPwaReload, unblockPwaReload } from '@/pwa/reloadGuard';
 import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
 import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
@@ -97,6 +97,13 @@ export function PaymentCheckoutModal({
   const [checkingDian, setCheckingDian] = useState<boolean>(true);
   const [bankDetails, setBankDetails] = useState<any>(null);
   const [showFullQr, setShowFullQr] = useState(false);
+
+  // Montos que devolvió `create-session`. Mandan sobre los que estima este componente:
+  // el Widget cobra SIEMPRE el gross del servidor, así que si difieren mostramos el suyo
+  // y pedimos confirmar de nuevo en vez de cobrar algo distinto a lo que el padre aceptó.
+  const [serverQuote, setServerQuote] = useState<ServerQuote | null>(null);
+  // Cobro creado por este modal en modo 'create', para no duplicarlo si se reintenta.
+  const [createdPaymentId, setCreatedPaymentId] = useState<string | null>(null);
 
   const [discountConfig, setDiscountConfig] = useState<EarlyPaymentDiscountConfig>({ enabled: false, days: 5, percentage: 0 });
   const [paymentCreatedAt, setPaymentCreatedAt] = useState<string | null>(null);
@@ -191,8 +198,17 @@ export function PaymentCheckoutModal({
 
   const chargeAmount = discountResult.eligible ? discountResult.finalAmount : finalAmount;
 
-  const sportmapsFee = Math.round(chargeAmount * (onlineFeePct / 100));
-  const grossAmount = chargeAmount + sportmapsFee;
+  // Estimación local, solo para previsualizar antes de pedirle la sesión al servidor.
+  const estimatedFee = Math.round(chargeAmount * (onlineFeePct / 100));
+  const estimatedGross = chargeAmount + estimatedFee;
+
+  // Lo que se MUESTRA: el servidor si ya respondió, la estimación mientras tanto.
+  // `create-session` es la única autoridad sobre el monto — recalcula el fee con la
+  // tarifa vigente y es lo que termina en la firma de integridad y en el Widget.
+  const displayedBase = serverQuote?.baseAmount ?? chargeAmount;
+  const sportmapsFee = serverQuote?.sportmapsFee ?? estimatedFee;
+  const grossAmount = serverQuote?.grossAmount ?? estimatedGross;
+  const displayedFeePct = serverQuote?.feePct ?? onlineFeePct;
 
   const { startSchoolPayment, loading: wompiLoading } = useWompiCheckout({
     onSuccess: () => {
@@ -209,7 +225,11 @@ export function PaymentCheckoutModal({
   });
 
   const openCheckout = async () => {
-    let effectivePaymentId = paymentId;
+    // `createdPaymentId` recuerda el cobro que creamos en un intento anterior de ESTA
+    // sesión del modal. Sin él, un segundo clic (p.ej. tras confirmar un monto corregido)
+    // volvería a insertar en `payments`: con mensualidad lo frena el índice único de
+    // período, pero un abono u otro concepto sí quedaría duplicado.
+    let effectivePaymentId = paymentId || createdPaymentId || undefined;
 
     // En modo "create" todavia NO existe una fila en `payments` (a diferencia de
     // MercadoPago, que la inserta en handleMpSuccess). startSchoolPayment necesita
@@ -270,18 +290,36 @@ export function PaymentCheckoutModal({
     }
 
     if (!effectivePaymentId) return;
+    setCreatedPaymentId(effectivePaymentId);
 
-    // Cerramos NUESTRO modal antes de abrir el Widget de Wompi. El Dialog de
-    // Radix aplica aria-hidden + pointer-events:none + scroll-lock al resto de
-    // la página; el Widget de Wompi se monta como overlay aparte y, con el modal
-    // abierto, queda recortado y peleando el foco ("Blocked aria-hidden…").
-    setShowOnlineConfirm(false);
-    onOpenChange(false);
+    // Monto que el padre tiene en pantalla en ESTE intento.
+    const acceptedGross = Math.round(grossAmount);
 
     return startSchoolPayment({
       paymentId: effectivePaymentId,
       schoolId,
       studentName: childName,
+      confirmQuote: (quote) => {
+        // El servidor calculó otro total (tarifa cambiada, descuento, link recreado).
+        // No abrimos el Widget: sus montos pasan a ser los que se muestran y el padre
+        // confirma de nuevo sobre el valor real. Antes esto se cobraba en silencio.
+        if (Math.round(quote.grossAmount) !== acceptedGross) {
+          setServerQuote(quote);
+          toast({
+            title: 'El monto se actualizó',
+            description: `El total a pagar es ${formatCurrency(quote.grossAmount)}. Revisa el desglose y confirma de nuevo.`,
+          });
+          return false;
+        }
+
+        // Cerramos NUESTRO modal antes de abrir el Widget de Wompi. El Dialog de
+        // Radix aplica aria-hidden + pointer-events:none + scroll-lock al resto de
+        // la página; el Widget de Wompi se monta como overlay aparte y, con el modal
+        // abierto, queda recortado y peleando el foco ("Blocked aria-hidden…").
+        setShowOnlineConfirm(false);
+        onOpenChange(false);
+        return true;
+      },
     });
   };
 
@@ -353,6 +391,8 @@ export function PaymentCheckoutModal({
       setAdvancedPeriod(null);
       setConfirmAdvanceOpen(false);
       setMpReference('');
+      setServerQuote(null);
+      setCreatedPaymentId(null);
     }
   }, [open]);
 
@@ -367,7 +407,7 @@ export function PaymentCheckoutModal({
       icon: Globe,
       popular: true,
       enabled: true,
-      badge: `+${formatCurrency(sportmapsFee)} fee`,
+      badge: `+${formatCurrency(sportmapsFee)} recargo`,
     }] : []),
     // ── MercadoPago (cuando la escuela / global tiene MP configurado) ─────
     ...(mpEnabled ? [{
@@ -377,7 +417,7 @@ export function PaymentCheckoutModal({
       icon: CreditCard,
       popular: !wompiEnabled,
       enabled: true,
-      badge: `+${formatCurrency(sportmapsFee)} fee`,
+      badge: `+${formatCurrency(sportmapsFee)} recargo`,
     }] : []),
     // ── Pago manual (siempre disponible) ──────────────────────────────────
     { id: 'transfer' as const, name: 'Transferencia / Nequi / Daviplata', description: 'Nequi, Daviplata o transferencia bancaria', icon: Smartphone, popular: !wompiEnabled && !mpEnabled, enabled: true },
@@ -1150,7 +1190,7 @@ export function PaymentCheckoutModal({
                 {selectedMethod === 'transfer'
                   ? "El comprobante será revisado por la administración antes de validarse."
                   : selectedMethod === 'online'
-                    ? `Incluye ${formatCurrency(sportmapsFee)} de procesamiento. Tu escuela recibe ${formatCurrency(chargeAmount)} completos.`
+                    ? `Incluye ${formatCurrency(sportmapsFee)} de recargo por pago online. Tu escuela recibe la mensualidad completa de ${formatCurrency(displayedBase)}.`
                     : "🔒 Pago 100% seguro."}
               </p>
             </div>
@@ -1216,10 +1256,10 @@ export function PaymentCheckoutModal({
       <PaymentConfirmModal
         open={showOnlineConfirm}
         onOpenChange={setShowOnlineConfirm}
-        baseAmount={chargeAmount}
+        baseAmount={displayedBase}
         grossAmount={grossAmount}
         sportmapsFee={sportmapsFee}
-        feePct={onlineFeePct}
+        feePct={displayedFeePct}
         concept={finalConcept}
         childName={childName}
         loading={wompiLoading}
