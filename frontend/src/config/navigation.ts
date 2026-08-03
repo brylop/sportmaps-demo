@@ -152,7 +152,9 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Cuenta',
         items: [
-          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
+          // Sin 'Facturación': /mi-plan es el plan SaaS que la ESCUELA le paga a
+          // SportMaps. Un atleta no lo administra y no debe ver ni el tier ni el
+          // conteo de alumnos activos de la escuela.
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       },
@@ -191,7 +193,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Mis Citas', href: '/wellness/appointments', icon: Heart },
           { title: 'Carnets de mis hijos', href: '/my-cards', icon: IdCard },
           { title: 'Mis Constancias', href: '/my-certificates', icon: FileCheck2 },
-          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
+          // Sin 'Facturación': /mi-plan es el plan SaaS de la escuela, no del padre.
+          // Sus propios cobros están en 'Pagos' (/my-payments).
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
@@ -232,7 +235,9 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
           { title: 'Anuncios', href: '/announcements', icon: Bell },
-          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
+          // Sin 'Facturación': el coach está asociado a la escuela, no contrata su
+          // plan. El entrenador independiente sí ve el suyo — ese es el rol
+          // 'personal_trainer', que tiene su propio menú.
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }

@@ -49,6 +49,8 @@ import {
     Star,
 } from 'lucide-react';
 import { useEntitlements } from '@/hooks/useEntitlements';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useAuth } from '@/contexts/AuthContext';
 import {
     ACADEMY_TIERS,
     ADDONS,
@@ -170,13 +172,30 @@ const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export default function MiPlanPage() {
     const ent = useEntitlements();
+    const { currentUserRole, loading: schoolLoading } = useSchoolContext();
+    const { profile } = useAuth();
     const [cycle, setCycle] = useState<'monthly' | 'annual'>('monthly');
 
+    // El plan lo ve SOLO quien lo paga. Estar asociado a una entidad no alcanza:
+    // un padre, un atleta o un coach de la escuela no administran su plan. El
+    // entrenador independiente sí ve el suyo, porque figura como 'owner' de su
+    // propia entidad (school_type='personal_trainer').
+    //
+    // Se gatea por el rol DENTRO de la entidad activa, no por profiles.role: así la
+    // regla vale para cualquier tipo de entidad sin mantener listas de roles.
+    const canManagePlan =
+        profile?.role === 'admin' ||
+        profile?.role === 'super_admin' ||
+        (!!currentUserRole &&
+            ['owner', 'admin', 'school_admin', 'school', 'super_admin'].includes(currentUserRole));
+
     // Alumnos activos reales (mismo cálculo que el dashboard).
+    // `canManagePlan` en el enabled: sin esto la consulta se disparaba igual y le
+    // devolvía a un padre el conteo de atletas de la escuela.
     const { data: activeStudents = 0, isLoading: loadingStudents } = useQuery({
         queryKey: ['active-students', ent.schoolId],
         queryFn: async () => (await studentsAPI.getStats(ent.schoolId!)).active,
-        enabled: !!ent.schoolId,
+        enabled: !!ent.schoolId && canManagePlan,
         staleTime: 5 * 60 * 1000,
     });
 
@@ -218,12 +237,29 @@ export default function MiPlanPage() {
         (k) => ent.addons[k] && (!isStaging || k !== 'biomech'),
     );
 
-    if (ent.isLoading) {
+    if (ent.isLoading || schoolLoading) {
         return (
             <div className="container mx-auto p-6 max-w-5xl space-y-6">
                 <Skeleton className="h-12 w-64" />
                 <Skeleton className="h-40 w-full" />
                 <Skeleton className="h-96 w-full" />
+            </div>
+        );
+    }
+
+    if (!canManagePlan) {
+        return (
+            <div className="container mx-auto p-6 max-w-5xl">
+                <Card>
+                    <CardContent className="p-6 text-center">
+                        <Shield className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+                        <h2 className="text-xl font-semibold mb-2">Esta sección no es para tu cuenta</h2>
+                        <p className="text-muted-foreground">
+                            La facturación del plan la administra quien lo contrata. Si buscas tus
+                            propios pagos, están en la sección <strong>Pagos</strong>.
+                        </p>
+                    </CardContent>
+                </Card>
             </div>
         );
     }

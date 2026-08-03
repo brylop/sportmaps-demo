@@ -507,8 +507,15 @@ const App = () => (
                           <SchoolStudentsManagementPage />
                         </ProtectedRoute>
                       } />
+                      {/* El plan lo ve SOLO quien lo paga. Estar asociado a una entidad no
+                          alcanza: 'parent', 'athlete' y 'coach' estaban en esta lista y podían
+                          abrir la facturación de la escuela — un padre veía el tier, los precios
+                          y los 397 alumnos activos del club de sus hijos.
+                          'personal_trainer' se queda: es dueño de su propia entidad y ve SU plan.
+                          El filtro fino vive en MiPlanPage (rol dentro de la entidad activa);
+                          esta lista es solo el primer tamiz. */}
                       <Route path="mi-plan" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'athlete', 'parent', 'coach', 'wellness_professional', 'store_owner', 'organizer', 'reporter', 'personal_trainer']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'wellness_professional', 'store_owner', 'organizer', 'reporter', 'personal_trainer']}>
                           <MiPlanPage />
                         </ProtectedRoute>
                       } />
