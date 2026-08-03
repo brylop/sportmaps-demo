@@ -195,12 +195,22 @@ la base es la correcta — pero conviene confirmar contra lo desplegado antes de
 porque esta base tiene deriva sin versionar:
 
 ```sql
-SELECT substring(prosrc from 'INSERT INTO public\.enrollments[^;]+;')
-FROM pg_proc WHERE proname = 'submit_qr_signup';
+SELECT
+  prosrc LIKE '%(user_id, child_id, school_id, team_id, start_date, status)%'
+    AS base_esperada,
+  prosrc LIKE '%(user_id, child_id, school_id, team_id, offering_plan_id, monthly_fee, start_date, status)%'
+    AS ya_corregida
+FROM pg_proc
+WHERE proname = 'submit_qr_signup'
 ```
 
-Si eso devuelve el `INSERT` sin `offering_plan_id` ni `monthly_fee`, la migración parte de
-donde cree. Si devuelve algo distinto, hay que rebasar el cambio sobre lo que hay.
+`base_esperada = true` → la función desplegada tiene el `INSERT` viejo y la migración
+parte de donde cree. `ya_corregida = true` → ya se aplicó. Las dos en false → alguien
+editó la función a mano y hay que rebasar el cambio sobre eso antes de aplicar.
+
+Sin regex a propósito: el editor SQL de Supabase parte las sentencias por `;`, incluso
+cuando el `;` está dentro de un literal, así que un `substring(... from '…[^;]+;')` se
+corta por la mitad y devuelve un error que no tiene nada que ver.
 
 El backfill NO asigna plan: emparejar por monto es heurística y hay dos planes de $90.000.
 Para el cobro correcto alcanza `monthly_fee`, que es lo primero que lee el generador.
