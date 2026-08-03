@@ -347,7 +347,10 @@ router.get(
             let teamsQuery = supabase
                 .from('teams')
                 .select('id, name, price_monthly, description')   // monthly_fee no existe en teams
-                .eq('school_id', schoolId);
+                .eq('school_id', schoolId)
+                // La sección del panel se llama "Equipos Activos": un equipo dado
+                // de baja no debe contarse ni listarse ahí.
+                .eq('active', true);
 
             if (branchFilterId) teamsQuery = teamsQuery.eq('branch_id', branchFilterId);
 
