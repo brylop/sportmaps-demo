@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '../../config/supabase';
+import { todayInZone } from '../../utils/businessDate';
 
 const router = Router();
 
@@ -53,7 +54,7 @@ router.get('/availability/schedule', async (req: Request, res: Response) => {
   try {
     const trainerId = req.user.id;
     const schoolId  = req.schoolId;
-    const date      = (req.query.date as string) || new Date().toISOString().split('T')[0];
+    const date      = (req.query.date as string) || todayInZone();
 
     // Día de semana ISO (1=Lun ... 7=Dom) desde la fecha solicitada
     const dateObj    = new Date(date + 'T12:00:00');

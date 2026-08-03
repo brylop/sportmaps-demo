@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
+import { todayInZone } from '../utils/businessDate';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import {
     AthleteType,
@@ -228,7 +229,7 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
         if (activeError) throw activeError;
 
         const athleteCol = athleteColFor(athleteType);
-        const startDate = data.start_date || new Date().toISOString().split('T')[0];
+        const startDate = data.start_date || todayInZone();
 
         const mergeTarget = (activeEnrollments || []).find((row: any) =>
             (!data.team_id || !row.team_id || row.team_id === data.team_id) &&

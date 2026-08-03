@@ -26,6 +26,7 @@
 
 import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
+import { todayInZone } from '../utils/businessDate';
 import {
     validateWebhookChecksum,
     fetchTransaction,
@@ -320,7 +321,7 @@ async function handleSchoolPayment({
             return { status: 400, body: { error: 'Amount mismatch' } };
         }
 
-        const today = new Date().toISOString().split('T')[0];
+        const today = todayInZone();
 
         // 4. Marcar payment como pagado.
         //    payment_method DEBE ser un valor de payments_payment_method_check

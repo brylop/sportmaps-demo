@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { optionalAuth } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
+import { todayInZone } from '../utils/businessDate';
 
 const router = Router();
 
@@ -127,7 +128,7 @@ router.get('/services/:id/slots', optionalAuth, async (req: Request, res: Respon
         const { data, error } = await supabase.rpc('get_available_slots', {
             p_vendor_profile_id: service.vendor_profile_id,
             p_service_listing_id: id,
-            p_date: (date as string) || new Date().toISOString().split('T')[0],
+            p_date: (date as string) || todayInZone(),
         });
 
         if (error) {

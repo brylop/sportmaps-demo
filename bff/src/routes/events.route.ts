@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
+import { todayInZone } from '../utils/businessDate';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 
 const router = Router();
@@ -931,7 +932,7 @@ router.post('/school-tournaments/:id/enroll', requireAuth, requireRole('school',
         let phase = null as any;
         if (p.price_phase_id) phase = (phases || []).find((x) => x.id === p.price_phase_id) || null;
         if (!phase) {
-            const today = new Date().toISOString().split('T')[0];
+            const today = todayInZone();
             phase = (phases || []).find((x) => x.valid_until >= today) || (phases || [])[0] || null;
         }
 
