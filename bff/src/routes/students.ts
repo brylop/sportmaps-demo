@@ -791,13 +791,93 @@ router.put(
           const { data, error } = await applyAthleteFilter(
             supabase.from('enrollments')
               .select('id, team_id, offering_plan_id, monthly_fee')
-              .eq('school_id', schoolId).eq('status', 'active').not(col, 'is', null)
+              .eq('school_id', schoolId).eq('status', 'active')
               .order('created_at', { ascending: true })
           );
           if (error) throw new Error(`Error leyendo inscripciones: ${error.message}`);
           const rows = (data as any[]) ?? [];
-          return { survivor: rows[0] ?? null, extras: rows.slice(1) };
+          const withCol = rows.filter(r => r[col]);
+
+          // El `.not(col, 'is', null)` estaba en la QUERY, así que los dos bloques de
+          // abajo miraban conjuntos DISJUNTOS: el de equipo veía solo filas con
+          // team_id y el de plan solo filas con offering_plan_id. Con una inscripción
+          // de roster existente, asignar un plan hacía que el bloque de equipo la
+          // actualizara y el de plan —al no ver ninguna con plan— INSERTARA una
+          // segunda. Y con la fila vacía que dejaba el QR, ninguno de los dos la veía
+          // y los dos insertaban: tres filas para un atleta.
+          //
+          // Ahora el filtro se aplica en memoria y, si no hay fila con esa columna, se
+          // reusa cualquier inscripción activa. `extras` sigue siendo solo las
+          // duplicadas del MISMO tipo: cancelar la complementaria acá le borraría al
+          // atleta el equipo o el plan que la escuela ya le había puesto.
+          const survivor = withCol[0] ?? rows[0] ?? null;
+          return { survivor, extras: withCol.slice(1) };
         };
+
+        /**
+         * Deja UNA sola inscripción activa antes de que los bloques de equipo y plan
+         * escriban nada, heredando en la que sobrevive los datos de las que se van.
+         *
+         * Sin esto, un atleta que ya venía con el par partido (una fila de roster y
+         * otra de plan, 80 casos en producción al 2026-08-03) se quedaba partido para
+         * siempre: cada bloque encontraba "su" fila y ninguno las unía. El generador
+         * del mes recorre inscripciones, así que cada fila era un cobro.
+         */
+        const consolidateEnrollments = async () => {
+          const { data, error } = await applyAthleteFilter(
+            supabase.from('enrollments')
+              .select('id, team_id, offering_plan_id, monthly_fee')
+              .eq('school_id', schoolId).eq('status', 'active')
+              .order('created_at', { ascending: true })
+          );
+          if (error) throw new Error(`Error leyendo inscripciones: ${error.message}`);
+          const rows = (data as any[]) ?? [];
+          if (rows.length <= 1) return;
+
+          const [keep, ...rest] = rows;
+          const inheritedTeam = keep.team_id ?? rest.find(r => r.team_id)?.team_id ?? null;
+
+          // La cuota sigue al PLAN. Con `keep.monthly_fee ?? …` la fila de roster
+          // ganaba con su 0 —el `??` solo atrapa null— y la fusionada quedaba con plan
+          // y cuota cero, o sea un atleta activo al que no se le cobra nada.
+          const planRow = keep.offering_plan_id ? keep : (rest.find(r => r.offering_plan_id) ?? null);
+          const inheritedPlan = planRow?.offering_plan_id ?? null;
+          const inheritedFee = planRow
+            ? (planRow.monthly_fee ?? null)
+            : (keep.monthly_fee ?? rest.find(r => r.monthly_fee != null)?.monthly_fee ?? null);
+
+          // Cancelar ANTES de mover los datos a `keep`: los índices únicos son
+          // parciales (WHERE status='active'), así que escribir el plan en la fila que
+          // queda con la duplicada todavía activa revienta con 23505.
+          await cancelExtraEnrollments(rest);
+
+          await supabase.from('enrollments')
+            .update({
+              team_id: inheritedTeam,
+              offering_plan_id: inheritedPlan,
+              monthly_fee: inheritedFee,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', keep.id).eq('school_id', schoolId);
+
+          // Los planes que se van y NO quedaron en la fusionada dejan de cobrar; si
+          // no, el atleta arrastra una mensualidad viva de un plan que ya no tiene.
+          await cancelPendingPlanPayments({
+            schoolId, athleteCol, athleteId: id,
+            planIds: rest
+              .map(r => r.offering_plan_id)
+              .filter((pid: string | null): pid is string => !!pid && pid !== inheritedPlan),
+          });
+
+          req.log?.warn?.(
+            { athleteId: id, schoolId, kept: keep.id, cancelled: rest.map(r => r.id) },
+            'Inscripciones duplicadas fusionadas en una sola',
+          );
+        };
+
+        // Va antes de los dos bloques: después de esto hay como máximo una activa, así
+        // que ambos escriben sobre la misma fila en vez de crear una cada uno.
+        await consolidateEnrollments();
 
         /**
          * Cancela las inscripciones activas duplicadas. Va SIEMPRE antes de
