@@ -671,24 +671,41 @@ export default function PublicFacilityBookingPage() {
 
             {/* ── Éxito ── */}
             {step === 'success' && (
-              <div className="text-center py-6 space-y-6">
-                <div className="space-y-4">
-                  <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto">
-                    <CheckCircle2 className="h-8 w-8 text-emerald-600 dark:text-emerald-500" />
+              <div className="text-center py-4 space-y-6 animate-in fade-in zoom-in-95 duration-200">
+                <div className="space-y-3">
+                  <div className="w-16 h-16 bg-emerald-500/10 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/20 shadow-sm">
+                    <CheckCircle2 className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
                   </div>
                   <div>
-                    <h2 className="font-bold text-lg">¡Reserva confirmada!</h2>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Te esperamos en {selectedFacility?.name} el {pendingSlot && fmtDate(pendingSlot.date)}.
-                    </p>
+                    <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 mb-2">
+                      Reserva Confirmada
+                    </Badge>
+                    <h2 className="font-bold text-xl text-foreground">¡Te esperamos en la clase!</h2>
                   </div>
                 </div>
 
+                {pendingSlot && (
+                  <div className="rounded-2xl border border-border bg-muted/20 p-4 text-left shadow-xs space-y-2.5">
+                    <div className="flex items-center justify-between pb-2 border-b border-border/50">
+                      <span className="text-xs text-muted-foreground font-medium">Instalación</span>
+                      <span className="text-xs font-bold text-foreground">{selectedFacility?.name}</span>
+                    </div>
+                    <div className="flex items-center justify-between pb-2 border-b border-border/50">
+                      <span className="text-xs text-muted-foreground font-medium">Fecha</span>
+                      <span className="text-xs font-semibold text-foreground capitalize">{fmtDate(pendingSlot.date)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground font-medium">Horario</span>
+                      <span className="text-xs font-semibold text-primary">{fmtTime(pendingSlot.start_time)} — {fmtTime(pendingSlot.end_time)}</span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Llamado a crear cuenta para no registrados / cortesías */}
                 {(resolvedKind === 'new' || resolvedKind === 'enrolled_unregistered') && (
-                  <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5 text-left space-y-4">
+                  <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5 text-left space-y-4 shadow-sm">
                     <div className="flex items-start gap-3">
-                      <div className="p-2 bg-primary/10 rounded-xl mt-0.5">
+                      <div className="p-2 bg-primary/10 rounded-xl shrink-0 mt-0.5">
                         <Sparkles className="h-5 w-5 text-primary" />
                       </div>
                       <div>
@@ -705,7 +722,7 @@ export default function PublicFacilityBookingPage() {
                         const targetPhone = phone;
                         window.location.href = `/register?email=${encodeURIComponent(targetEmail)}&phone=${encodeURIComponent(targetPhone)}&name=${encodeURIComponent(targetName)}&role=athlete`;
                       }}
-                      className="w-full h-11 text-xs gap-2"
+                      className="w-full h-11 text-xs gap-2 font-semibold shadow-sm"
                       variant="default"
                     >
                       Crear mi cuenta gratis
@@ -718,22 +735,27 @@ export default function PublicFacilityBookingPage() {
 
             {/* ── Pendiente de aprobación ── */}
             {step === 'pending' && (
-              <div className="text-center py-6 space-y-6">
-                <div className="space-y-4">
-                  <div className="w-16 h-16 bg-yellow-500/10 rounded-full flex items-center justify-center mx-auto">
-                    <Clock className="h-8 w-8 text-yellow-600 dark:text-yellow-500" />
+              <div className="text-center py-4 space-y-6 animate-in fade-in zoom-in-95 duration-200">
+                <div className="space-y-3">
+                  <div className="w-16 h-16 bg-amber-500/10 rounded-2xl flex items-center justify-center mx-auto border border-amber-500/20 shadow-sm">
+                    <Clock className="h-8 w-8 text-amber-600 dark:text-amber-400" />
                   </div>
                   <div>
-                    <h2 className="font-bold text-lg">Solicitud enviada</h2>
-                    <p className="text-sm text-muted-foreground mt-1">{pendingApprovalMsg}</p>
+                    <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 mb-2">
+                      Pendiente de Aprobación
+                    </Badge>
+                    <h2 className="font-bold text-xl text-foreground">Solicitud Recibida</h2>
                   </div>
                 </div>
 
-                {/* Llamado a crear cuenta para no registrados / cortesías */}
+                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-left text-xs leading-relaxed text-amber-900 dark:text-amber-200">
+                  {pendingApprovalMsg || 'Tu solicitud de clase quedó registrada. La escuela debe aprobarla antes de confirmarse.'}
+                </div>
+
                 {(resolvedKind === 'new' || resolvedKind === 'enrolled_unregistered') && (
-                  <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5 text-left space-y-4">
+                  <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5 text-left space-y-4 shadow-sm">
                     <div className="flex items-start gap-3">
-                      <div className="p-2 bg-primary/10 rounded-xl mt-0.5">
+                      <div className="p-2 bg-primary/10 rounded-xl shrink-0 mt-0.5">
                         <Sparkles className="h-5 w-5 text-primary" />
                       </div>
                       <div>
@@ -750,7 +772,7 @@ export default function PublicFacilityBookingPage() {
                         const targetPhone = phone;
                         window.location.href = `/register?email=${encodeURIComponent(targetEmail)}&phone=${encodeURIComponent(targetPhone)}&name=${encodeURIComponent(targetName)}&role=athlete`;
                       }}
-                      className="w-full h-11 text-xs gap-2"
+                      className="w-full h-11 text-xs gap-2 font-semibold shadow-sm"
                       variant="default"
                     >
                       Crear mi cuenta gratis
@@ -763,27 +785,37 @@ export default function PublicFacilityBookingPage() {
 
             {/* ── Paso: Ya registrado (redirigir a login con contraseña) ── */}
             {step === 'already_registered' && (
-              <div className="space-y-6 text-center py-4">
-                <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto">
-                  <AlertCircle className="h-8 w-8 text-blue-500" />
+              <div className="space-y-6 text-center py-4 animate-in fade-in zoom-in-95 duration-200">
+                <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mx-auto border border-blue-500/20 shadow-sm">
+                  <ShieldCheck className="h-8 w-8 text-blue-600 dark:text-blue-400" />
                 </div>
                 <div className="space-y-2">
-                  <h2 className="font-bold text-lg">Cuenta ya registrada</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Identificamos que tu número de teléfono ya está asociado a la cuenta: <strong className="text-foreground">{registeredEmail}</strong>.
+                  <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30">
+                    Cuenta Detectada
+                  </Badge>
+                  <h2 className="font-bold text-xl text-foreground">¡Ya eres parte de nuestra plataforma!</h2>
+                </div>
+
+                <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4 text-left space-y-3">
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Identificamos que tu número de celular está vinculado a la cuenta:
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    Para agendar clases y ver tus inscripciones activas, por favor inicia sesión en tu panel privado con tu usuario y contraseña.
+                  <div className="p-3 bg-background rounded-xl border border-border font-mono text-xs font-bold text-foreground text-center shadow-xs">
+                    {registeredEmail}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Por seguridad y para cargar directamente tus inscripciones activas, ingresa con tu correo y contraseña.
                   </p>
                 </div>
-                <div className="space-y-3 pt-2">
+
+                <div className="space-y-3 pt-1">
                   <Button
                     onClick={() => {
                       window.location.href = `/login?email=${encodeURIComponent(registeredEmail)}&redirectTo=${encodeURIComponent('/enrollments')}`;
                     }}
-                    className="w-full h-12 gap-2"
+                    className="w-full h-12 gap-2 text-sm font-semibold shadow-md"
                   >
-                    Iniciar sesión en mi panel
+                    Iniciar sesión en mi cuenta
                     <ArrowRight className="h-4 w-4" />
                   </Button>
                   <button
@@ -791,7 +823,7 @@ export default function PublicFacilityBookingPage() {
                       setStep('phone');
                       setErrorMsg(null);
                     }}
-                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mx-auto"
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mx-auto pt-1"
                   >
                     <ArrowLeft className="h-3.5 w-3.5" />
                     <span>Usar otro número</span>
