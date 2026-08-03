@@ -373,8 +373,19 @@ async function handleSchoolPayment({
                 wompi_reference: txReference,
                 wompi_transaction_id: txId,
                 gross_amount: txAmountCop,
-                school_receives: link.base_amount,
-                sportmaps_receives: link.sportmaps_fee,
+                // MODELO VIGENTE: el recargo por pago online es de la ESCUELA. Existe para
+                // cubrirle la comisión que la pasarela le descuenta, y el dinero ya entra
+                // completo a su cuenta (el Widget de Wompi no hace split). SportMaps no
+                // participa de la transacción: su ingreso es el addon de integración, que
+                // se cobra por fuera del flujo de pago.
+                //
+                // Antes esto anotaba el recargo en `sportmaps_receives`, lo que iba dejando
+                // una cuenta por cobrar contra la escuela que nadie liquidaba nunca
+                // (`transfer_status` no sale de 'pending' en ningún punto del sistema).
+                school_receives: txAmountCop,
+                sportmaps_receives: 0,
+                // La comisión real de la pasarela no la expone la API de transacciones: se
+                // descuenta al liquidar y solo se ve en el dashboard del comercio.
                 wompi_fee: 0,
                 transfer_status: 'pending',
                 webhook_signature_valid: true,

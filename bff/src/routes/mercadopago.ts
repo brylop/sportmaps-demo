@@ -355,8 +355,12 @@ async function handleSchoolPayment(args: HandlerArgs): Promise<HandlerResult> {
                 provider_reference: externalRef,
                 provider_transaction_id: paymentId,
                 gross_amount: amount,
-                school_receives: link.base_amount,
-                sportmaps_receives: link.sportmaps_fee,
+                // El recargo por pago online es de la ESCUELA (cubre la comisión que le
+                // descuenta la pasarela) y entra completo a su cuenta. SportMaps cobra la
+                // integración por fuera, no por transacción. Ver el comentario largo en
+                // routes/wompi.ts, handleSchoolPayment.
+                school_receives: amount,
+                sportmaps_receives: 0,
                 provider_fee: 0,
                 transfer_status: 'pending',
                 webhook_signature_valid: true,
