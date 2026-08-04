@@ -1,18 +1,24 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 import {
   Building2, MapPin, Trash2, Users, Calendar, Clock,
-  CheckCircle2, XCircle, Eye, Pencil, Ban, MoreHorizontal, CalendarCheck,
+  CheckCircle2, XCircle, Eye, Pencil, Ban, MoreHorizontal, CalendarCheck, RefreshCw, Link2, Check
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useSchoolFacilities } from '@/hooks/useSchoolData';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useFacilityReservations } from '@/hooks/useFacilityReservations';
 import type { FacilityReservation } from '@/hooks/useFacilityReservations';
 import { FacilityFormDialog } from '@/components/school/FacilityFormDialog';
 import { OwnerReservationModal } from '@/components/school/OwnerReservationModal';
+import { FacilityAvailabilityModal } from '@/components/school/FacilityAvailabilityModal';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -166,6 +172,7 @@ function ReservationDetailModal({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function SchoolFacilitiesPage() {
+  const { schoolId } = useSchoolContext();
   const {
     facilities: supaFacilities,
     isLoading: facilitiesLoading,
@@ -179,6 +186,8 @@ export default function SchoolFacilitiesPage() {
   const {
     reservations,
     isLoading: reservationsLoading,
+    isFetching: reservationsFetching,
+    refetch: refetchReservations,
     stats,
     createReservation,
     isCreating: isCreatingRes,
@@ -203,6 +212,7 @@ export default function SchoolFacilitiesPage() {
   const [viewingReservation, setViewingReservation] = useState<FacilityReservation | null>(null);
   const [deleteReservationId, setDeleteReservationId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [availabilityFacility, setAvailabilityFacility] = useState<any | null>(null);
 
   // Derived filtered reservations
   const filteredReservations = statusFilter 
@@ -211,6 +221,32 @@ export default function SchoolFacilitiesPage() {
 
   // Stable callback for getBookedSlots
   const stableGetBookedSlots = useCallback(getBookedSlots, []);
+
+  const { toast } = useToast();
+  const [schoolSlug, setSchoolSlug] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!schoolId) return;
+    (supabase.from('schools') as any)
+      .select('slug')
+      .eq('id', schoolId)
+      .maybeSingle()
+      .then(({ data }: any) => {
+        if (data?.slug) {
+          setSchoolSlug(data.slug);
+        }
+      });
+  }, [schoolId]);
+
+  const handleCopyLink = () => {
+    if (!schoolSlug) return;
+    const url = `${window.location.origin}/agendar/${schoolSlug}`;
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    toast({ title: '📋 Link copiado', description: 'El enlace de agendamiento público se copió al portapapeles.' });
+  };
 
   // Handlers
   const handleFacilitySubmit = (data: any) => {
@@ -319,9 +355,17 @@ export default function SchoolFacilitiesPage() {
                 {facilities.length} espacio{facilities.length !== 1 ? 's' : ''} deportivo{facilities.length !== 1 ? 's' : ''} gestionado{facilities.length !== 1 ? 's' : ''}
               </p>
             </div>
-            <Button className="font-bold h-11 shadow-lg shadow-primary/20" onClick={handleOpenNewFacility}>
-              <Building2 className="w-4 h-4 mr-2" /> Agregar Instalación
-            </Button>
+            <div className="flex gap-2">
+              {schoolSlug && (
+                <Button variant="outline" className="font-bold h-11 border-2 border-border/80" onClick={handleCopyLink}>
+                  {copied ? <Check className="w-4 h-4 mr-2 text-emerald-600 dark:text-emerald-500" /> : <Link2 className="w-4 h-4 mr-2" />}
+                  {copied ? '¡Copiado!' : 'Copiar Link Público'}
+                </Button>
+              )}
+              <Button className="font-bold h-11 shadow-lg shadow-primary/20" onClick={handleOpenNewFacility}>
+                <Building2 className="w-4 h-4 mr-2" /> Agregar Instalación
+              </Button>
+            </div>
           </div>
 
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
@@ -336,6 +380,15 @@ export default function SchoolFacilitiesPage() {
                       <h3 className="font-bold text-lg leading-tight">{facility.name}</h3>
                     </div>
                     <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground/40 hover:text-primary hover:bg-primary/10"
+                        onClick={() => setAvailabilityFacility(facility)}
+                        title="Configurar disponibilidad"
+                      >
+                        <Clock className="h-4 w-4" />
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground/40 hover:text-primary hover:bg-primary/10" onClick={() => handleEditFacility(facility)}>
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -379,34 +432,34 @@ export default function SchoolFacilitiesPage() {
                 {stats.total} reservas en historial · <span className="text-foreground font-bold">{stats.pending}</span> por confirmar
               </p>
             </div>
-            <Button className="font-bold h-11 shadow-lg shadow-primary/20" onClick={handleOpenNew}>
-              <Users className="mr-2 h-4 w-4" /> Nueva Reserva
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                className="font-bold h-11"
+                onClick={() => void refetchReservations()}
+                disabled={reservationsFetching}
+              >
+                <RefreshCw className={`mr-2 h-4 w-4 ${reservationsFetching ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Actualizar</span>
+              </Button>
+              <Button className="font-bold h-11 shadow-lg shadow-primary/20" onClick={handleOpenNew}>
+                <Users className="mr-2 h-4 w-4" /> Nueva Reserva
+              </Button>
+            </div>
           </div>
 
           {/* Stats Bar */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            {[
-              { label: 'Total Historial', value: stats.total, color: 'text-foreground', bg: 'bg-muted/20', filter: null },
-              { label: 'Confirmadas', value: stats.confirmed, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/5', filter: 'confirmed' },
-              { label: 'Pendientes', value: stats.pending, color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-500/5', filter: 'pending' },
-              { label: 'Canceladas', value: stats.cancelled, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-500/5', filter: 'cancelled' },
-              { label: 'Completadas', value: stats.completed, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-500/5', filter: 'completed' },
-            ].map((s) => (
-              <Card 
-                key={s.label} 
-                className={`p-4 text-center border-2 transition-all cursor-pointer select-none active:scale-95 shadow-sm 
-                  ${statusFilter === s.filter 
-                    ? 'border-primary shadow-lg shadow-primary/10 ring-2 ring-primary/10' 
-                    : 'border-transparent opacity-70 hover:opacity-100 hover:border-border'} 
-                  ${s.bg}`}
-                onClick={() => setStatusFilter(s.filter)}
-              >
-                <p className={`text-3xl font-black tracking-tight ${s.color}`}>{s.value}</p>
-                <p className="text-[10px] uppercase font-black tracking-widest text-muted-foreground mt-1">{s.label}</p>
-              </Card>
-            ))}
-          </div>
+          <StatFilterBar
+            value={statusFilter}
+            onChange={setStatusFilter}
+            items={[
+              { key: null, label: 'Total Historial', value: stats.total, tone: 'neutral' },
+              { key: 'confirmed', label: 'Confirmadas', value: stats.confirmed, tone: 'emerald' },
+              { key: 'pending', label: 'Pendientes', value: stats.pending, tone: 'yellow' },
+              { key: 'cancelled', label: 'Canceladas', value: stats.cancelled, tone: 'rose' },
+              { key: 'completed', label: 'Completadas', value: stats.completed, tone: 'blue' },
+            ]}
+          />
 
           {/* Table Container */}
           <Card className="border-border/40 overflow-hidden shadow-xl shadow-foreground/5 mb-10">
@@ -543,6 +596,11 @@ export default function SchoolFacilitiesPage() {
                 </div>
               )}
             </div>
+            <TableRefreshBar
+              onRefresh={refetchReservations}
+              loading={reservationsFetching}
+              summary={`${filteredReservations.length} de ${stats.total} reservas`}
+            />
           </Card>
         </TabsContent>
       </Tabs>
@@ -626,6 +684,20 @@ export default function SchoolFacilitiesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Facility availability modal ── */}
+      {availabilityFacility && (
+        <FacilityAvailabilityModal
+          open={!!availabilityFacility}
+          onOpenChange={(open) => {
+            if (!open) setAvailabilityFacility(null);
+          }}
+          facilityId={availabilityFacility.id}
+          facilityName={availabilityFacility.name}
+          facilityCapacity={availabilityFacility.capacity}
+          schoolId={schoolId!}
+        />
+      )}
     </div>
   );
 }

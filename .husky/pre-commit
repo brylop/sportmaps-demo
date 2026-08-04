@@ -3,6 +3,24 @@
 
 echo "🛡️  Zero-Tolerance Gatekeeper: Checking Code Quality..."
 
+# 0. Migraciones: versión única, orden correcto, inmutabilidad y ledger al día
+echo "🗂️  Checking migrations ledger..."
+node scripts/migrations.mjs check
+if [ $? -ne 0 ]; then
+    echo "❌ Migraciones: revisa los errores de arriba (npm run migrations:list para el inventario)."
+    exit 1
+fi
+
+# El .sql y el ledger viajan en el MISMO commit, o el registro queda mintiendo.
+STAGED=$(git diff --cached --name-only)
+if echo "$STAGED" | grep -q '^supabase/migrations/.*\.sql$'; then
+    if ! echo "$STAGED" | grep -q '^supabase/migrations_ledger\.json$'; then
+        echo "❌ Estás commiteando migraciones sin el ledger."
+        echo "   → npm run migrations:sync && git add supabase/migrations_ledger.json"
+        exit 1
+    fi
+fi
+
 # 1. Frontend Checks (Next.js)
 if [ -d "frontend" ]; then
     echo "📦 Checking Frontend (Next.js)..."

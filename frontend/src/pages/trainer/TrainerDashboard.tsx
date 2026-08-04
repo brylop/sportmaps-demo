@@ -6,10 +6,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Users, Calendar, DollarSign, Clock, ArrowRight, TrendingUp, Star } from 'lucide-react';
+import { Users, Calendar, DollarSign, Clock, ArrowRight, TrendingUp, Star, Repeat } from 'lucide-react';
 
 export default function TrainerDashboard() {
-  const { trainerProfile, trainerSchoolId, isPersonalTrainer } = useTrainerContext();
+  const { trainerProfile, trainerSchoolId } = useTrainerContext();
   const { profile } = useAuth();
 
   const [stats, setStats] = useState({
@@ -23,60 +23,47 @@ export default function TrainerDashboard() {
     if (!trainerSchoolId) return;
 
     const fetchStats = async () => {
-      const today = new Date().toISOString().split('T')[0]; // '2026-04-16'
+      // ✅ Fecha local de Colombia (no UTC)
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' })
+        .format(new Date());
 
-      // 1. Sesiones de HOY desde attendance_sessions (tiene session_date)
-      const { data: todaySessions } = await supabase
-        .from('attendance_sessions')
-        .select('id')
-        .eq('school_id', trainerSchoolId)
-        .eq('session_date', today);
-
-      const todaySessionIds = todaySessions?.map(s => s.id) ?? [];
-
-      // 2. Sesiones PRÓXIMAS (hoy en adelante) desde attendance_sessions
-      const { data: upcomingSessions } = await supabase
-        .from('attendance_sessions')
-        .select('id')
-        .eq('school_id', trainerSchoolId)
-        .gte('session_date', today);
-
-      const upcomingSessionIds = upcomingSessions?.map(s => s.id) ?? [];
-
-      // Placeholder UUID para evitar query con array vacío
-      const EMPTY = ['00000000-0000-0000-0000-000000000000'];
-
-      const [enrollmentsRes, bookingsTodayRes, pendingPayRes, upcomingRes] = await Promise.all([
+      const [enrollmentsRes, todaySessionsRes, pendingPayRes, upcomingSessionsRes] = await Promise.all([
+        // Clientes activos
         supabase
-          .from('enrollments')
+          .from('enrollments' as any)
           .select('id', { count: 'exact', head: true })
           .eq('school_id', trainerSchoolId)
           .eq('status', 'active'),
 
+        // ✅ Sesiones HOY (PT usa trainer_session_plans, no attendance_sessions)
         supabase
-          .from('session_bookings')
+          .from('trainer_session_plans' as any)
           .select('id', { count: 'exact', head: true })
           .eq('school_id', trainerSchoolId)
-          .in('session_id', todaySessionIds.length > 0 ? todaySessionIds : EMPTY),
+          .eq('session_date', today)
+          .eq('status', 'assigned'),
 
+        // Pagos pendientes (incluir vencidos)
         supabase
-          .from('payments')
+          .from('payments' as any)
           .select('id', { count: 'exact', head: true })
           .eq('school_id', trainerSchoolId)
-          .eq('status', 'pending'),
+          .in('status', ['pending', 'overdue']),
 
+        // ✅ Próximas sesiones
         supabase
-          .from('session_bookings')
+          .from('trainer_session_plans' as any)
           .select('id', { count: 'exact', head: true })
           .eq('school_id', trainerSchoolId)
-          .in('session_id', upcomingSessionIds.length > 0 ? upcomingSessionIds : EMPTY),
+          .gt('session_date', today)
+          .eq('status', 'assigned'),
       ]);
 
       setStats({
-        activeClients:    enrollmentsRes.count    ?? 0,
-        todaySessions:    bookingsTodayRes.count  ?? 0,
-        pendingPayments:  pendingPayRes.count     ?? 0,
-        upcomingSessions: upcomingRes.count       ?? 0,
+        activeClients:    enrollmentsRes.count       ?? 0,
+        todaySessions:    todaySessionsRes.count     ?? 0,
+        pendingPayments:  pendingPayRes.count        ?? 0,
+        upcomingSessions: upcomingSessionsRes.count  ?? 0,
       });
     };
 
@@ -128,10 +115,11 @@ export default function TrainerDashboard() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Accesos rápidos</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[
             { label: 'Gestionar disponibilidad', href: '/trainer/availability', icon: Calendar },
             { label: 'Ver mis planes', href: '/trainer/plans', icon: TrendingUp },
+            { label: 'Mis suscriptores', href: '/vendor/subscribers', icon: Repeat },
             { label: 'Editar mi perfil', href: '/trainer/profile', icon: Star },
           ].map((action) => (
             <Link key={action.href} to={action.href}>

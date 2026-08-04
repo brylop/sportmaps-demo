@@ -10,6 +10,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { useToast } from '@/hooks/use-toast';
 import { schoolsAPI } from '@/lib/api/schools';
 import { supabase } from '@/integrations/supabase/client';
+import { DEFAULT_BANNER, GENERIC_SPORT_IMAGE, initialsOf, sportImage } from '@/lib/sportImages';
 
 // Helper to convert hex to HSL for Tailwind variables
 function hexToHSL(hex: string) {
@@ -77,7 +78,9 @@ export default function PublicSchoolPage() {
             }
             return data || [];
         },
-        enabled: !!school?.id,
+        // Respeta school_settings.show_facilities: si la escuela apagó el listado
+        // de instalaciones, su perfil público no lo consulta.
+        enabled: !!school?.id && school?.show_facilities !== false,
     });
 
     const handleAction = (action: string) => {
@@ -104,15 +107,24 @@ export default function PublicSchoolPage() {
             {/* Hero Section */}
             <div className="relative h-[400px] w-full overflow-hidden">
                 <div className="absolute inset-0 bg-black/60 z-10" />
+                {/* Sin portada cargada iba `src={undefined}` → icono de imagen rota.
+                    Ahora hay respaldo y onError para que el hero nunca se vea partido. */}
                 <img
-                    src={school.banner_url}
-                    alt="School Banner"
+                    src={school.banner_url || DEFAULT_BANNER}
+                    alt={`Portada de ${school.name}`}
                     className="w-full h-full object-cover"
+                    onError={(e) => {
+                        const img = e.currentTarget;
+                        if (img.src !== DEFAULT_BANNER) img.src = DEFAULT_BANNER;
+                    }}
                 />
                 <div className="absolute inset-0 z-20 container mx-auto px-4 flex flex-col justify-end pb-12 text-white">
                     <div className="flex flex-col md:flex-row items-end md:items-center gap-6">
-                        <div className="h-24 w-24 md:h-32 md:w-32 rounded-xl bg-primary flex items-center justify-center border-4 border-white shadow-xl text-4xl font-bold uppercase transition-colors duration-500">
-                            {school.name.substring(0, 2)}
+                        <div className="h-24 w-24 md:h-32 md:w-32 shrink-0 rounded-xl bg-primary flex items-center justify-center border-4 border-white shadow-xl text-4xl font-bold uppercase overflow-hidden transition-colors duration-500">
+                            {school.logo_url
+                                ? <img src={school.logo_url} alt={`Logo de ${school.name}`} className="w-full h-full object-cover"
+                                    onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                : initialsOf(school.name)}
                         </div>
                         <div className="flex-1 space-y-2">
                             <div className="flex flex-wrap gap-2 mb-2">
@@ -208,28 +220,51 @@ export default function PublicSchoolPage() {
 
                             <TabsContent value="teams" className="space-y-6 animate-in fade-in slide-in-from-left-4 duration-500">
                                 <div className="grid md:grid-cols-2 gap-4">
-                                    {school.teams?.map((prog: any, idx: number) => (
+                                    {(school.teams ?? []).map((prog: any, idx: number) => (
                                         <Card key={idx} className="overflow-hidden hover:shadow-lg transition-all group border-l-4 border-l-primary/0 hover:border-l-primary">
+                                            <div className="h-40 bg-muted overflow-hidden">
+                                                <img
+                                                    src={prog.image_url || sportImage(prog.sport, prog.name)}
+                                                    alt={prog.name}
+                                                    className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                                                    onError={(e) => {
+                                                        const img = e.currentTarget;
+                                                        if (img.src !== GENERIC_SPORT_IMAGE) img.src = GENERIC_SPORT_IMAGE;
+                                                    }}
+                                                />
+                                            </div>
                                             <CardHeader className="bg-muted/30 pb-3">
-                                                <div className="flex justify-between items-start">
-                                                    <CardTitle className="text-xl group-hover:text-primary transition-colors">{prog.name}</CardTitle>
-                                                    <Badge variant="secondary">{prog.age}</Badge>
+                                                <div className="flex justify-between items-start gap-2">
+                                                    <div>
+                                                        <CardTitle className="text-xl group-hover:text-primary transition-colors">{prog.name}</CardTitle>
+                                                        {prog.sport && <CardDescription>{prog.sport}</CardDescription>}
+                                                    </div>
+                                                    <Badge variant="secondary" className="shrink-0">{prog.age}</Badge>
                                                 </div>
                                             </CardHeader>
                                             <CardContent className="pt-4 space-y-3">
                                                 <p className="text-sm text-muted-foreground line-clamp-2">
-                                                    Programa integral de desarrollo técnico y táctico para jóvenes deportistas.
+                                                    {prog.description || 'Programa integral de desarrollo técnico y táctico para jóvenes deportistas.'}
                                                 </p>
                                                 <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
                                                     <Calendar className="h-4 w-4" />
                                                     {prog.schedule}
                                                 </div>
+                                                {prog.price && (
+                                                    <div className="text-sm font-bold text-primary">{prog.price}</div>
+                                                )}
                                             </CardContent>
                                             <CardFooter className="bg-muted/10 border-t pt-4">
                                                 <Button className="w-full group-hover:bg-primary" variant="secondary" onClick={() => handleAction('Inscribir Programa')}>Ver Detalle</Button>
                                             </CardFooter>
                                         </Card>
                                     ))}
+                                    {(school.teams ?? []).length === 0 && (
+                                        <div className="col-span-full py-12 text-center text-muted-foreground border-2 border-dashed rounded-xl bg-muted/20">
+                                            <Users className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                                            No hay equipos publicados por el momento
+                                        </div>
+                                    )}
                                 </div>
                             </TabsContent>
 
@@ -238,13 +273,16 @@ export default function PublicSchoolPage() {
                                     {facilities.map((facility) => (
                                         <Card key={facility.id} className="overflow-hidden hover:shadow-lg transition-all group">
                                             <div className="h-48 bg-muted relative">
-                                                {/* Placeholder image based on type */}
+                                                {/* Imagen por tipo/nombre. La URL de piscina que había acá
+                                                    responde 404, así que TODA instalación mostraba la de fútbol. */}
                                                 <img
-                                                    src={facility.type.includes('Piscina')
-                                                        ? 'https://images.unsplash.com/photo-1576435728678-368297b5d3c6?auto=format&fit=crop&q=80&w=800'
-                                                        : 'https://images.unsplash.com/photo-1575361204480-aadea25e6e68?auto=format&fit=crop&q=80&w=800'}
+                                                    src={sportImage(facility.type, facility.name, facility.description)}
                                                     alt={facility.name}
                                                     className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                                                    onError={(e) => {
+                                                        const img = e.currentTarget;
+                                                        if (img.src !== GENERIC_SPORT_IMAGE) img.src = GENERIC_SPORT_IMAGE;
+                                                    }}
                                                 />
                                                 <div className="absolute top-2 right-2">
                                                     <Badge variant={facility.status === 'available' ? 'default' : 'secondary'} className="shadow-sm">
@@ -280,7 +318,7 @@ export default function PublicSchoolPage() {
 
                             <TabsContent value="services" className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                 <div className="grid gap-4">
-                                    {school.services.map((service: any, idx: number) => (
+                                    {(school.services ?? []).map((service: any, idx: number) => (
                                         <div key={idx} className="flex flex-col sm:flex-row items-center justify-between p-6 bg-white border rounded-xl hover:shadow-md transition-shadow">
                                             <div className="flex items-start gap-4 mb-4 sm:mb-0">
                                                 <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
@@ -297,23 +335,35 @@ export default function PublicSchoolPage() {
                                             </div>
                                         </div>
                                     ))}
+                                    {(school.services ?? []).length === 0 && (
+                                        <div className="py-12 text-center text-muted-foreground border-2 border-dashed rounded-xl bg-muted/20">
+                                            <CheckCircle2 className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                                            No hay servicios publicados por el momento
+                                        </div>
+                                    )}
                                 </div>
                             </TabsContent>
 
                             <TabsContent value="staff" className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                 <div className="grid md:grid-cols-2 gap-6">
-                                    {school.staff.map((member: any, idx: number) => (
+                                    {(school.staff ?? []).map((member: any, idx: number) => (
                                         <div key={idx} className="flex items-center gap-4 p-4 border rounded-lg bg-white shadow-sm">
-                                            <div className="h-16 w-16 rounded-full bg-slate-200 flex items-center justify-center overflow-hidden">
-                                                <span className="text-xl font-bold text-slate-500">{member.name[0]}</span>
+                                            <div className="h-16 w-16 shrink-0 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
+                                                <span className="text-xl font-bold text-primary">{initialsOf(member.name)}</span>
                                             </div>
                                             <div>
                                                 <h4 className="font-bold">{member.name}</h4>
                                                 <p className="text-primary text-sm font-medium">{member.role}</p>
-                                                <p className="text-xs text-muted-foreground mt-1">Exp: {member.exp}</p>
+                                                {member.exp && <p className="text-xs text-muted-foreground mt-1">Exp: {member.exp}</p>}
                                             </div>
                                         </div>
                                     ))}
+                                    {(school.staff ?? []).length === 0 && (
+                                        <div className="col-span-full py-12 text-center text-muted-foreground border-2 border-dashed rounded-xl bg-muted/20">
+                                            <Users className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                                            No hay entrenadores publicados por el momento
+                                        </div>
+                                    )}
                                 </div>
                             </TabsContent>
 

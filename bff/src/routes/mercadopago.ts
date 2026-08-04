@@ -1,0 +1,839 @@
+/**
+ * mercadopago — Webhook + create-payment endpoint para MercadoPago.
+ *
+ * Endpoints:
+ *   POST /api/v1/webhooks/mercadopago/webhook  → recibe notificaciones de MP
+ *   POST /api/v1/payments/mp/create            → crea payment desde Brick onSubmit
+ *   POST /api/v1/payments/mp/save-card         → guarda customer+card para autopay
+ *
+ * Webhook flow:
+ *  1. MP llama con { type: "payment", action: "...", data: { id } }
+ *  2. Validamos x-signature (HMAC SHA256 con webhook_secret).
+ *  3. GET /v1/payments/{id} a MP (anti-spoofing + payload completo).
+ *  4. Leemos external_reference, extraemos prefijo (SCH/CART/SVC/...).
+ *  5. Dispatch a handler equivalente al de Wompi pero con p_provider='mercadopago'.
+ *
+ * Create flow:
+ *  1. Frontend renderiza Brick con publicKey del provider del contexto.
+ *  2. Brick onSubmit retorna { token, paymentMethodId, installments, payer }.
+ *  3. Frontend POSTea aqui con esos datos + reference + amount + schoolId/vendorId.
+ *  4. BFF resuelve config (access_token), llama POST /v1/payments y retorna status.
+ */
+
+import { Router, Request, Response } from 'express';
+import { supabase } from '../config/supabase';
+import { todayInZone } from '../utils/businessDate';
+import {
+    validateMpWebhookSignature,
+    fetchMpPayment,
+    createMpPayment,
+    saveMpCustomerCard,
+    mapMpStatus,
+    type MpPayment,
+    type InternalStatus,
+} from '../services/mercadopago.service';
+import { loadProviderConfig } from '../services/payment-provider.resolver';
+import {
+    recordWebhookEvent,
+    markWebhookProcessed,
+    markWebhookOrphan,
+    markWebhookFailed,
+    markWebhookIgnored,
+} from '../services/webhook-events.service';
+
+// Doble export: webhookRouter para /webhooks/mercadopago, paymentsRouter para /payments/mp
+const webhookRouter = Router();
+const paymentsRouter = Router();
+
+// ─── Webhook ──────────────────────────────────────────────────────────────
+
+webhookRouter.post('/webhook', async (req: Request, res: Response) => {
+    try {
+        const body = req.body ?? {};
+        const xSignature = (req.headers['x-signature'] || req.headers['X-Signature']) as string | undefined;
+        const xRequestId = (req.headers['x-request-id'] || req.headers['X-Request-Id']) as string | undefined;
+
+        const eventType = body?.type ?? body?.topic;
+        const dataId = body?.data?.id ?? req.query['data.id'] ?? req.query['id'];
+
+        req.log?.info({ eventType, dataId }, 'MercadoPago webhook received');
+
+        // MP envia varios topics; solo procesamos pagos
+        if (eventType !== 'payment' && eventType !== 'payment.updated') {
+            return res.status(200).json({ status: 'ignored', eventType });
+        }
+
+        if (!dataId) {
+            return res.status(400).json({ error: 'Missing data.id' });
+        }
+
+        // Resolver config: necesitamos el webhook_secret y access_token del merchant
+        // que recibio este pago. Estrategia:
+        //  1. Hacer fetch con MP_ACCESS_TOKEN_DEFAULT primero para leer external_reference.
+        //  2. Buscar la entidad por external_reference para encontrar school_id/vendor_id.
+        //  3. Cargar config especifica de ese merchant.
+        //  4. Re-validar signature con su webhook_secret.
+        //
+        // Para simplicidad de demo: si no hay config especifica, usar default.
+
+        const fallbackToken = process.env.MP_ACCESS_TOKEN_DEFAULT;
+        if (!fallbackToken) {
+            req.log?.error('MP_ACCESS_TOKEN_DEFAULT not configured');
+            return res.status(500).json({ error: 'mp_not_configured' });
+        }
+
+        const payment = await fetchMpPayment(String(dataId), fallbackToken);
+        if (!payment) {
+            req.log?.warn({ dataId }, 'Cannot fetch MP payment');
+            return res.status(400).json({ error: 'cannot_verify_payment' });
+        }
+
+        const externalRef = payment.external_reference;
+        if (!externalRef) {
+            req.log?.warn({ dataId }, 'MP payment without external_reference');
+            return res.status(200).json({ status: 'ignored', reason: 'no_external_reference' });
+        }
+
+        // Resolver merchant especifico desde external_reference para validar firma.
+        const merchantCtx = await locateMerchantContext(externalRef);
+        const merchantConfig = await loadProviderConfig({
+            provider: 'mercadopago',
+            schoolId: merchantCtx.schoolId,
+            vendorId: merchantCtx.vendorId,
+        });
+
+        // Cada merchant debe tener su propio webhookSecret configurado en
+        // payment_provider_configs. NO se usa fallback global: un secret
+        // compartido entre escuelas permitiria que una merchant maliciosa
+        // forje webhooks de otras escuelas que tampoco lo configuraron.
+        const effectiveSecret = merchantConfig?.webhookSecret ?? null;
+        const isSandbox = merchantConfig?.sandbox ?? ((process.env.MP_ENV ?? 'sandbox').toLowerCase() !== 'production');
+
+        if (!effectiveSecret) {
+            req.log?.error(
+                { dataId, schoolId: merchantCtx.schoolId, vendorId: merchantCtx.vendorId },
+                'MP webhook: merchant sin webhookSecret configurado',
+            );
+            return res.status(503).json({ error: 'merchant_webhook_secret_missing' });
+        }
+
+        const validSig = validateMpWebhookSignature({
+            xSignature,
+            xRequestId,
+            dataId,
+            secret: effectiveSecret,
+            isSandbox,
+        });
+
+        if (!validSig) {
+            req.log?.warn({ dataId }, 'MP webhook signature invalid');
+            return res.status(401).json({ error: 'invalid_signature' });
+        }
+
+        if ((payment.currency_id ?? '').toUpperCase() !== 'COP') {
+            // Soporte multi-pais futuro: bloqueado por ahora a CO
+            req.log?.error({ currency: payment.currency_id, externalRef }, 'MP webhook: unsupported currency');
+            return res.status(400).json({ error: 'unsupported_currency' });
+        }
+
+        const internalStatus = mapMpStatus(payment.status);
+
+        // Dedup + log persistente del evento (H-03/H-04). event_id estable por
+        // (payment.id, status): deduplica el mismo update y registra transiciones.
+        const { firstSeen, id: eventLogId } = await recordWebhookEvent({
+            provider: 'mercadopago',
+            eventId: `${payment.id}:${payment.status}`,
+            reference: externalRef,
+            eventType,
+            payload: body,
+        });
+        if (!firstSeen) {
+            return res.status(200).json({ status: 'already_processed', dedup: 'webhook_events' });
+        }
+
+        // Rutear (logica compartida con el reproceso de huerfanos).
+        const routed = await routeMercadoPagoTransaction({ payment, log: req.log });
+
+        if (!routed.handled) {
+            req.log?.warn({ externalRef }, 'MP webhook: unknown prefix');
+            await markWebhookIgnored(eventLogId, String(routed.body?.reason ?? 'unknown_prefix'));
+        } else {
+            const reason = typeof routed.body?.reason === 'string' ? routed.body.reason : '';
+            if (reason.endsWith('_not_found')) {
+                await markWebhookOrphan(eventLogId, reason);
+            } else if (routed.status >= 500) {
+                await markWebhookFailed(eventLogId, `handler_status_${routed.status}`);
+            } else {
+                await markWebhookProcessed(eventLogId);
+            }
+        }
+
+        // Captura de tarjeta para autopay (si APPROVED y la entidad lo permite)
+        if (internalStatus === 'paid') {
+            await maybeCaptureMpCard(req, payment, externalRef, merchantConfig?.accessToken ?? fallbackToken).catch(err => {
+                req.log?.warn({ err: err?.message }, 'maybeCaptureMpCard failed (non-blocking)');
+            });
+        }
+
+        return res.status(routed.status).json(routed.body);
+    } catch (err: any) {
+        req.log?.error({ err: err?.message || err }, 'Unexpected error in MP webhook');
+        return res.status(500).json({ error: 'internal_server_error' });
+    }
+});
+
+// ─── Locate merchant from external_reference ──────────────────────────────
+
+async function locateMerchantContext(externalRef: string): Promise<{
+    schoolId: string | null;
+    vendorId: string | null;
+}> {
+    const prefix = externalRef.split('-')[0];
+
+    if (prefix === 'SCH') {
+        const { data } = await supabase
+            .from('payment_links')
+            .select('school_id')
+            .eq('provider_reference', externalRef)
+            .maybeSingle();
+        return { schoolId: data?.school_id ?? null, vendorId: null };
+    }
+
+    if (prefix === 'CART') {
+        const { data } = await supabase
+            .from('orders')
+            .select('vendor_id')
+            .eq('provider_reference', externalRef)
+            .maybeSingle();
+        return { schoolId: null, vendorId: data?.vendor_id ?? null };
+    }
+
+    if (['SVC', 'EVT', 'SUB', 'MKT'].includes(prefix)) {
+        const { data } = await supabase
+            .from('marketplace_transactions')
+            .select('vendor_id')
+            .eq('provider_reference', externalRef)
+            .maybeSingle();
+        return { schoolId: null, vendorId: data?.vendor_id ?? null };
+    }
+
+    return { schoolId: null, vendorId: null };
+}
+
+// ─── Handlers (mismo dispatch que Wompi pero con p_provider='mercadopago') ───
+
+interface HandlerArgs {
+    req: Request;
+    paymentId: string;
+    externalRef: string;
+    mpStatus: string;
+    internalStatus: InternalStatus;
+    amount: number;
+    paymentMethodId: string;
+    paymentTypeId: string;
+    payment: MpPayment;
+}
+
+interface HandlerResult {
+    status: number;
+    body: Record<string, unknown>;
+}
+
+const HANDLERS: Record<string, (args: HandlerArgs) => Promise<HandlerResult>> = {
+    SCH: handleSchoolPayment,
+    SVC: handleMarketplaceTransaction,
+    EVT: handleMarketplaceTransaction,
+    SUB: handleMarketplaceTransaction,
+    MKT: handleMarketplaceTransaction,
+    CART: handleCartOrder,
+    BKG: handleSessionBooking,
+};
+
+/**
+ * Rutea un pago MP (ya validado/refetcheado) al handler que corresponde por
+ * prefijo de external_reference. Compartido por el webhook en vivo y por el
+ * cron de reproceso de huerfanos (webhook-reprocess.service).
+ *
+ * `handled=false` => prefijo desconocido. No hace dedup ni card-capture.
+ */
+export async function routeMercadoPagoTransaction(
+    input: { payment: MpPayment; log?: Request['log'] },
+): Promise<{ status: number; body: Record<string, unknown>; handled: boolean }> {
+    const { payment } = input;
+    const externalRef: string = payment.external_reference || '';
+    const internalStatus = mapMpStatus(payment.status);
+    const amount = Number(payment.transaction_amount);
+
+    const prefix = externalRef.split('-')[0];
+    const handler = HANDLERS[prefix];
+    if (!handler) {
+        return { status: 200, body: { status: 'ignored', reason: 'unknown_prefix', prefix }, handled: false };
+    }
+
+    // Los handlers solo usan req.log?.*, asi que basta un shim con el logger.
+    const req = { log: input.log } as unknown as Request;
+    const result = await handler({
+        req,
+        paymentId: String(payment.id),
+        externalRef,
+        mpStatus: payment.status,
+        internalStatus,
+        amount,
+        paymentMethodId: payment.payment_method_id,
+        paymentTypeId: payment.payment_type_id,
+        payment,
+    });
+    return { status: result.status, body: result.body, handled: true };
+}
+
+async function handleSchoolPayment(args: HandlerArgs): Promise<HandlerResult> {
+    const { req, paymentId, externalRef, internalStatus, amount } = args;
+
+    const { data: link, error: linkErr } = await supabase
+        .from('payment_links')
+        .select('id, payment_id, school_id, gross_amount, base_amount, sportmaps_fee, status')
+        .eq('provider_reference', externalRef)
+        .maybeSingle();
+
+    if (linkErr || !link) {
+        req.log?.warn({ externalRef }, 'MP school payment: link not found');
+        return { status: 200, body: { status: 'ignored', reason: 'link_not_found' } };
+    }
+
+    const { data: existingSplit } = await supabase
+        .from('payment_splits')
+        .select('id')
+        .eq('provider_transaction_id', paymentId)
+        .maybeSingle();
+
+    if (existingSplit) {
+        return { status: 200, body: { status: 'already_processed' } };
+    }
+
+    if (internalStatus === 'paid') {
+        if (Math.abs(amount - Number(link.gross_amount)) > 1) {
+            req.log?.error(
+                { expected: link.gross_amount, received: amount, externalRef },
+                'MP school payment: amount mismatch',
+            );
+            return { status: 400, body: { error: 'amount_mismatch' } };
+        }
+
+        const today = todayInZone();
+
+        await supabase
+            .from('payments')
+            .update({
+                status: 'paid',
+                payment_channel: 'online',
+                payment_method: 'mercadopago',
+                payment_provider: 'mercadopago',
+                provider_reference: externalRef,
+                provider_transaction_id: paymentId,
+                payment_date: today,
+                approved_at: new Date().toISOString(),
+                gross_amount: amount,
+                sportmaps_fee: link.sportmaps_fee,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', link.payment_id);
+
+        await supabase
+            .from('payment_links')
+            .update({
+                status: 'paid',
+                paid_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', link.id);
+
+        await supabase
+            .from('payment_splits')
+            .insert({
+                payment_id: link.payment_id,
+                payment_link_id: link.id,
+                payment_provider: 'mercadopago',
+                provider_reference: externalRef,
+                provider_transaction_id: paymentId,
+                gross_amount: amount,
+                // El recargo por pago online es de la ESCUELA (cubre la comisión que le
+                // descuenta la pasarela) y entra completo a su cuenta. SportMaps cobra la
+                // integración por fuera, no por transacción. Ver el comentario largo en
+                // routes/wompi.ts, handleSchoolPayment.
+                school_receives: amount,
+                sportmaps_receives: 0,
+                provider_fee: 0,
+                transfer_status: 'pending',
+                webhook_signature_valid: true,
+            });
+
+        // Notificar al staff de la escuela (dispara Modo Recepción + outbox).
+        // No-bloqueante: el pago ya quedó paid igual.
+        const { error: notifErr } = await supabase.rpc('notify_school_payment_paid', {
+            p_payment_id: link.payment_id,
+        });
+        if (notifErr) {
+            req.log?.warn({ err: notifErr, paymentId: link.payment_id }, 'notify_school_payment_paid falló (no-bloqueante)');
+        }
+
+        req.log?.info({ paymentId: link.payment_id, externalRef }, 'MP school payment confirmed');
+        return { status: 200, body: { status: 'ok', kind: 'school_payment' } };
+    }
+
+    await supabase
+        .from('payment_links')
+        .update({
+            status: internalStatus === 'rejected' ? 'declined' : internalStatus,
+            failed_attempts: 1,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', link.id);
+
+    await supabase.rpc('flag_payment_for_review', {
+        p_kind: 'payment',
+        p_id: link.payment_id,
+        p_reason: `mp_${internalStatus} (payment_id=${paymentId})`,
+    });
+
+    return {
+        status: 200,
+        body: { status: 'ok', kind: 'school_payment', internalStatus, flagged_for_review: true },
+    };
+}
+
+async function handleMarketplaceTransaction(args: HandlerArgs): Promise<HandlerResult> {
+    const { req, paymentId, externalRef, internalStatus, amount } = args;
+
+    const { data: tx, error: txErr } = await supabase
+        .from('marketplace_transactions')
+        .select('id, gross_amount, status, provider_transaction_id')
+        .eq('provider_reference', externalRef)
+        .maybeSingle();
+
+    if (txErr || !tx) {
+        return { status: 200, body: { status: 'ignored', reason: 'tx_not_found' } };
+    }
+
+    if (tx.provider_transaction_id === paymentId && tx.status !== 'pending') {
+        return { status: 200, body: { status: 'already_processed' } };
+    }
+
+    if (internalStatus === 'paid') {
+        if (Math.abs(amount - Number(tx.gross_amount)) > 1) {
+            return { status: 400, body: { error: 'amount_mismatch' } };
+        }
+
+        const { data: result, error } = await supabase.rpc('confirm_marketplace_payment', {
+            p_transaction_id: tx.id,
+            p_wompi_reference: externalRef,             // semantica: provider_reference
+            p_wompi_transaction_id: paymentId,           // semantica: provider_transaction_id
+            p_payment_method: 'mercadopago',
+            p_provider: 'mercadopago',
+        });
+
+        if (error) {
+            req.log?.error({ err: error, externalRef }, 'confirm_marketplace_payment failed');
+            return { status: 500, body: { error: 'confirm_rpc_failed' } };
+        }
+
+        return { status: 200, body: { status: 'ok', kind: 'marketplace', result } };
+    }
+
+    await supabase
+        .from('marketplace_transactions')
+        .update({
+            status: internalStatus === 'rejected' ? 'declined' : internalStatus,
+            payment_provider: 'mercadopago',
+            provider_transaction_id: paymentId,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', tx.id);
+
+    await supabase.rpc('flag_payment_for_review', {
+        p_kind: 'marketplace_transaction',
+        p_id: tx.id,
+        p_reason: `mp_${internalStatus} (payment_id=${paymentId})`,
+    });
+
+    return {
+        status: 200,
+        body: { status: 'ok', kind: 'marketplace', internalStatus, flagged_for_review: true },
+    };
+}
+
+async function handleCartOrder(args: HandlerArgs): Promise<HandlerResult> {
+    const { req, paymentId, externalRef, internalStatus, amount, paymentTypeId } = args;
+
+    const { data: order, error: orderErr } = await supabase
+        .from('orders')
+        .select('id, total_amount, status, provider_transaction_id')
+        .eq('provider_reference', externalRef)
+        .maybeSingle();
+
+    if (orderErr || !order) {
+        return { status: 200, body: { status: 'ignored', reason: 'order_not_found' } };
+    }
+
+    if (order.provider_transaction_id === paymentId && order.status !== 'pending') {
+        return { status: 200, body: { status: 'already_processed' } };
+    }
+
+    if (internalStatus === 'paid') {
+        if (Math.abs(amount - Number(order.total_amount)) > 1) {
+            return { status: 400, body: { error: 'amount_mismatch' } };
+        }
+
+        const { data: stockResult, error: stockErr } = await supabase.rpc('confirm_order_payment', {
+            p_order_id: order.id,
+            p_wompi_reference: externalRef,
+            p_wompi_transaction_id: paymentId,
+            p_payment_method_type: paymentTypeId,
+            p_provider: 'mercadopago',
+        });
+
+        if (stockErr) {
+            req.log?.error({ err: stockErr, orderId: order.id }, 'MP confirm_order_payment failed');
+            await supabase
+                .from('orders')
+                .update({
+                    status: 'payment_review',
+                    payment_provider: 'mercadopago',
+                    provider_transaction_id: paymentId,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('id', order.id);
+            return { status: 200, body: { status: 'review', error: stockErr.message } };
+        }
+
+        const { error: splitErr } = await supabase.rpc('split_order_payment', {
+            p_order_id: order.id,
+            p_provider: 'mercadopago',
+        });
+        if (splitErr) {
+            req.log?.warn({ err: splitErr, orderId: order.id }, 'split_order_payment failed (non-blocking)');
+        }
+
+        // Settlements R5 — crea settlements y acredita pending_balance (idempotente)
+        const { data: settleResult, error: settleErr } = await supabase.rpc(
+            'compute_settlements_for_order',
+            { p_order_id: order.id },
+        );
+        if (settleErr) {
+            req.log?.warn({ err: settleErr, orderId: order.id }, 'compute_settlements_for_order failed (non-blocking)');
+        } else {
+            req.log?.info({ orderId: order.id, settleResult }, 'Settlements computed');
+        }
+
+        return { status: 200, body: { status: 'ok', kind: 'cart', result: stockResult } };
+    }
+
+    await supabase
+        .from('orders')
+        .update({
+            status: internalStatus === 'rejected' ? 'declined' : internalStatus,
+            payment_provider: 'mercadopago',
+            provider_transaction_id: paymentId,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', order.id);
+
+    await supabase.rpc('flag_payment_for_review', {
+        p_kind: 'order',
+        p_id: order.id,
+        p_reason: `mp_${internalStatus} (payment_id=${paymentId})`,
+    });
+
+    return {
+        status: 200,
+        body: { status: 'ok', kind: 'cart', internalStatus, flagged_for_review: true },
+    };
+}
+
+async function handleSessionBooking(args: HandlerArgs): Promise<HandlerResult> {
+    const { req, paymentId, externalRef, internalStatus, amount } = args;
+
+    const { data: booking } = await supabase
+        .from('session_bookings')
+        .select('id, user_id, price, payment_status, provider_transaction_id')
+        .eq('provider_reference', externalRef)
+        .maybeSingle();
+
+    if (!booking) {
+        return { status: 200, body: { status: 'ignored', reason: 'booking_not_found' } };
+    }
+
+    if (booking.provider_transaction_id === paymentId && booking.payment_status === 'paid') {
+        return { status: 200, body: { status: 'already_processed' } };
+    }
+
+    if (internalStatus === 'paid') {
+        if (Math.abs(amount - Number(booking.price)) > 1) {
+            return { status: 400, body: { error: 'amount_mismatch' } };
+        }
+
+        const { data: result, error } = await supabase.rpc('confirm_session_booking_payment', {
+            p_booking_id: booking.id,
+            p_wompi_reference: externalRef,
+            p_wompi_transaction_id: paymentId,
+            p_provider: 'mercadopago',
+        });
+
+        if (error) {
+            req.log?.error({ err: error }, 'confirm_session_booking_payment failed');
+            return { status: 500, body: { error: 'confirm_rpc_failed' } };
+        }
+
+        return { status: 200, body: { status: 'ok', kind: 'session_booking', result } };
+    }
+
+    await supabase
+        .from('session_bookings')
+        .update({
+            payment_status: internalStatus === 'rejected' ? 'failed' : internalStatus,
+            payment_provider: 'mercadopago',
+            provider_transaction_id: paymentId,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', booking.id);
+
+    await supabase.rpc('flag_payment_for_review', {
+        p_kind: 'session_booking',
+        p_id: booking.id,
+        p_reason: `mp_${internalStatus} (payment_id=${paymentId})`,
+    });
+
+    return {
+        status: 200,
+        body: { status: 'ok', kind: 'session_booking', internalStatus, flagged_for_review: true },
+    };
+}
+
+// ─── Captura de tarjeta para autopay ──────────────────────────────────────
+// MP requiere customer_id + card_id (no token unico). Solo intentamos guardar
+// si el payer.email es conocido y el flujo viene de subscription/SCH.
+
+async function maybeCaptureMpCard(
+    req: Request,
+    payment: MpPayment,
+    externalRef: string,
+    accessToken: string,
+): Promise<void> {
+    if (!payment.payer?.email) return;
+
+    // Recuperar user_id desde la entidad
+    const prefix = externalRef.split('-')[0];
+    let userId: string | null = null;
+
+    if (prefix === 'CART') {
+        const { data } = await supabase.from('orders').select('user_id').eq('provider_reference', externalRef).maybeSingle();
+        userId = data?.user_id || null;
+    } else if (prefix === 'SCH') {
+        const { data: link } = await supabase.from('payment_links').select('payment_id').eq('provider_reference', externalRef).maybeSingle();
+        if (link?.payment_id) {
+            const { data: pay } = await supabase.from('payments').select('user_id').eq('id', link.payment_id).maybeSingle();
+            userId = pay?.user_id || null;
+        }
+    } else if (['SVC', 'EVT', 'SUB', 'MKT'].includes(prefix)) {
+        const { data } = await supabase.from('marketplace_transactions').select('user_id').eq('provider_reference', externalRef).maybeSingle();
+        userId = data?.user_id || null;
+    } else if (prefix === 'BKG') {
+        const { data } = await supabase.from('session_bookings').select('user_id').eq('provider_reference', externalRef).maybeSingle();
+        userId = data?.user_id || null;
+    }
+
+    if (!userId) return;
+
+    // MP no devuelve un card_token reutilizable directamente desde un payment.
+    // Para autopay el frontend debe hacer un flujo separado: tokenizar la card
+    // y llamar /payments/mp/save-card explicitamente. Aqui solo persistimos
+    // metadata si la card aparece en el payment.
+    if (!payment.card?.last_four_digits) return;
+
+    await supabase.rpc('save_payment_token', {
+        p_user_id: userId,
+        p_wompi_token: `mp_${payment.id}`,                  // sintetico: marca que fue MP
+        p_payment_method_type: payment.payment_method_id || 'CARD',
+        p_last_four: payment.card.last_four_digits,
+        p_brand: payment.card.first_six_digits ? null : null,
+        p_holder_name: payment.card.cardholder?.name ?? null,
+        p_expires_at: null,
+        p_set_default: false,
+        p_provider: 'mercadopago',
+        p_provider_customer_id: null,
+        p_provider_card_id: null,
+    });
+
+    req.log?.info({ userId, externalRef }, 'MP card metadata captured');
+}
+
+// ─── POST /api/v1/payments/mp/create — desde Brick onSubmit ────────────────
+
+paymentsRouter.post('/create', async (req: Request, res: Response) => {
+    try {
+        const {
+            token,
+            paymentMethodId,
+            installments,
+            payerEmail,
+            payerFirstName,
+            payerLastName,
+            payerIdentification,            // { type: 'CC'|'CE'|'NIT'|'PAS', number: '...' }
+            transactionAmount,
+            description,
+            externalReference,
+            schoolId,
+            vendorId,
+            metadata,
+            items,                          // opcional: items[] para additional_info
+            statementDescriptor,            // opcional: por default 'SPORTMAPS'
+        } = req.body ?? {};
+
+        const missing: string[] = [];
+        if (!token) missing.push('token');
+        if (!paymentMethodId) missing.push('paymentMethodId');
+        if (!transactionAmount) missing.push('transactionAmount');
+        if (!payerEmail) missing.push('payerEmail');
+        if (!externalReference) missing.push('externalReference');
+        if (missing.length) {
+            req.log?.warn({ missing, body: req.body }, 'MP /create missing_fields');
+            return res.status(400).json({ error: 'missing_fields', missing });
+        }
+
+        const config = await loadProviderConfig({
+            provider: 'mercadopago',
+            schoolId: schoolId ?? null,
+            vendorId: vendorId ?? null,
+        });
+
+        if (!config) {
+            return res.status(500).json({ error: 'mp_provider_not_configured' });
+        }
+
+        const baseUrl = process.env.PUBLIC_API_URL ?? `${req.protocol}://${req.get('host')}`;
+        const notificationUrl = `${baseUrl}/api/v1/webhooks/mercadopago/webhook`;
+
+        const result = await createMpPayment({
+            accessToken: config.accessToken!,
+            token,
+            paymentMethodId,
+            installments,
+            payerEmail,
+            payerFirstName,
+            payerLastName,
+            payerIdentification: payerIdentification?.type && payerIdentification?.number
+                ? { type: String(payerIdentification.type), number: String(payerIdentification.number) }
+                : undefined,
+            transactionAmount: Number(transactionAmount),
+            description: description || `SportMaps ${externalReference}`,
+            externalReference,
+            notificationUrl,
+            statementDescriptor,
+            items: Array.isArray(items) && items.length ? items : undefined,
+            metadata: { ...(metadata ?? {}), schoolId, vendorId },
+        });
+
+        if (!result.ok) {
+            req.log?.error({ err: result.error }, 'MP create payment failed');
+            return res.status(result.status ?? 502).json({ error: result.error });
+        }
+
+        return res.status(200).json({
+            paymentId: result.payment.id,
+            status: result.payment.status,
+            statusDetail: result.payment.status_detail,
+            internalStatus: mapMpStatus(result.payment.status),
+            externalReference: result.payment.external_reference,
+        });
+    } catch (err: any) {
+        req.log?.error({ err: err?.message || err }, 'Error in /payments/mp/create');
+        return res.status(500).json({ error: 'internal_server_error' });
+    }
+});
+
+// ─── POST /api/v1/payments/mp/save-card — autopay setup ───────────────────
+
+paymentsRouter.post('/save-card', async (req: Request, res: Response) => {
+    try {
+        const { cardToken, payerEmail, userId, schoolId, vendorId, setDefault } = req.body ?? {};
+
+        if (!cardToken || !payerEmail || !userId) {
+            return res.status(400).json({ error: 'missing_fields' });
+        }
+
+        const config = await loadProviderConfig({
+            provider: 'mercadopago',
+            schoolId: schoolId ?? null,
+            vendorId: vendorId ?? null,
+        });
+
+        if (!config?.accessToken) {
+            return res.status(500).json({ error: 'mp_provider_not_configured' });
+        }
+
+        const result = await saveMpCustomerCard({
+            accessToken: config.accessToken,
+            payerEmail,
+            cardToken,
+        });
+
+        if (!result.ok) {
+            return res.status(502).json({ error: result.error });
+        }
+
+        const syntheticToken = `${result.customerId}:${result.cardId}`;
+
+        const { data: rpcResult, error: rpcErr } = await supabase.rpc('save_payment_token', {
+            p_user_id: userId,
+            p_wompi_token: syntheticToken,
+            p_payment_method_type: 'CARD',
+            p_last_four: result.lastFour ?? null,
+            p_brand: result.brand ?? null,
+            p_holder_name: null,
+            p_expires_at: null,
+            p_set_default: !!setDefault,
+            p_provider: 'mercadopago',
+            p_provider_customer_id: result.customerId,
+            p_provider_card_id: result.cardId,
+        });
+
+        if (rpcErr) {
+            return res.status(500).json({ error: 'persist_token_failed', details: rpcErr.message });
+        }
+
+        return res.status(200).json({
+            ok: true,
+            tokenId: rpcResult?.token_id,
+            lastFour: result.lastFour,
+            brand: result.brand,
+        });
+    } catch (err: any) {
+        req.log?.error({ err: err?.message || err }, 'Error in /payments/mp/save-card');
+        return res.status(500).json({ error: 'internal_server_error' });
+    }
+});
+
+// ─── GET /api/v1/payments/providers — para frontend gate ──────────────────
+
+paymentsRouter.get('/providers', async (req: Request, res: Response) => {
+    try {
+        const schoolId = (req.query.schoolId as string) || null;
+        const vendorId = (req.query.vendorId as string) || null;
+
+        // Importacion lazy para evitar ciclo
+        const { listProvidersForSchool, listProvidersForVendor, listProvidersForMarketplace } =
+            await import('../services/payment-provider.resolver');
+
+        let providers;
+        if (schoolId) providers = await listProvidersForSchool(schoolId);
+        else if (vendorId) providers = await listProvidersForVendor(vendorId);
+        else providers = listProvidersForMarketplace();
+
+        return res.status(200).json({ providers });
+    } catch (err: any) {
+        req.log?.error({ err: err?.message || err }, 'Error listing providers');
+        return res.status(500).json({ error: 'internal_server_error' });
+    }
+});
+
+export { webhookRouter, paymentsRouter };
+export default webhookRouter;

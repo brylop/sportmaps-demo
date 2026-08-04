@@ -6,17 +6,31 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, CheckCircle2, Shield, AlertCircle, Download, Users, CreditCard, Upload, Eye, EyeOff, Copy } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Shield, AlertCircle, Download, Users, CreditCard, Upload, Eye, EyeOff, Copy, Maximize2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
+import { usePdfBranding } from '@/hooks/usePdfBranding';
 import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
+import { bffClient } from '@/lib/api/bffClient';
+import { autoEvaluate as autoEvaluateGlosa } from '@/lib/api/glosas';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
+import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { maskSensitive } from '@/lib/utils';
 import { FileUpload } from '@/components/common/FileUpload';
+import type { ReceiptValidationResult, ConceptKind } from '@/hooks/useReceiptValidator';
+import { blockPwaReload, unblockPwaReload } from '@/pwa/reloadGuard';
+import { useNextUnpaidPeriod, isPeriodActive, type PeriodStatus } from '@/hooks/usePaymentPeriod';
+
+/** Intenta parsear un string como JSON; devuelve null si no es JSON valido. */
+function safeParseJson(s: string): unknown | null {
+  try { return JSON.parse(s); } catch { return null; }
+}
 
 export default function ParentCheckoutPage() {
   const navigate = useNavigate();
@@ -25,31 +39,80 @@ export default function ParentCheckoutPage() {
   const { schoolBranding } = useSchoolContext();
   const { toast } = useToast();
 
-  const [paymentFlow, setPaymentFlow] = useState<'wompi' | 'manual'>('wompi');
+  // Copiar un dato de pago (siempre disponible, también en móvil donde no hay hover).
+  const copyField = (value: string | null | undefined, label: string) => {
+    if (!value) return;
+    navigator.clipboard?.writeText(value);
+    toast({ title: `${label} copiado`, description: value });
+  };
+
+  const [paymentFlow, setPaymentFlow] = useState<'wompi' | 'mercadopago' | 'manual'>('wompi');
   const [processing, setProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
   const [receiptNumber, setReceiptNumber] = useState('');
   const [wompiTxId, setWompiTxId] = useState('');
   const [paymentMethodUsed, setPaymentMethodUsed] = useState('');
+
+  // Reference MP generada cuando el padre selecciona MercadoPago.
+  // Se persiste para que recordPaymentWithTraceability use la misma referencia.
+  const [mpReference, setMpReference] = useState<string>('');
   const [showSensitive, setShowSensitive] = useState(false);
   const [manualReceiptUrl, setManualReceiptUrl] = useState('');
+  const [manualOcrResult, setManualOcrResult] = useState<ReceiptValidationResult | null>(null);
 
   // Feature Flag State
   const [paymentSettings, setPaymentSettings] = useState<{ allow_online: boolean; allow_manual: boolean } | null>(null);
+  // Config de abonos (school_settings). Gatea el OCR: si allow_installments es
+  // false, un comprobante por menos del esperado se bloquea.
+  const [installmentCfg, setInstallmentCfg] = useState<{ allow_installments: boolean; min_installment_amount: number }>({ allow_installments: false, min_installment_amount: 0 });
   const [loadingSettings, setLoadingSettings] = useState(true);
+  const [showFullQr, setShowFullQr] = useState(false);
 
-  const amount = parseInt(searchParams.get('amount') || '150000');
-  const concept = searchParams.get('concept') || 'Mensualidad Octubre 2024';
-  const studentName = searchParams.get('student') || 'Juan Vargas';
-  const schoolName = searchParams.get('school') || 'Spirit All Stars';
+  // Si venimos del QR de inscripción, el pago YA existe (payment_id). Lo cargamos
+  // como fuente de verdad (monto/concepto reales) y al pagar lo ACTUALIZAMOS en vez
+  // de crear uno nuevo → evita el pago duplicado sin comprobante.
+  const paymentIdParam = searchParams.get('payment_id');
+  const [qrPayment, setQrPayment] = useState<{ amount: number; amount_paid: number | null; concept: string; child_id: string | null; team_id: string | null } | null>(null);
+
+  const amount = qrPayment?.amount ?? parseInt(searchParams.get('amount') || '150000');
+  // Abono previo (si el pago ya tiene un parcial). Se cobra solo el SALDO.
+  const amountPaid = Number(qrPayment?.amount_paid) || 0;
+  const balanceDue = Math.max(amount - amountPaid, 0);
+  const chargeAmount = amountPaid > 0 ? balanceDue : amount;
+  const concept = qrPayment?.concept ?? (searchParams.get('concept') || 'Mensualidad Octubre 2024');
+  // Nombres reales: primero lo resuelto del pago (child_id / school_id), luego
+  // los query params. NUNCA placeholders demo hardcodeados.
+  const studentNameParam = searchParams.get('student') || '';
+  const schoolNameParam  = searchParams.get('school')  || '';
+  const [resolvedStudentName, setResolvedStudentName] = useState('');
+  const [resolvedSchoolName,  setResolvedSchoolName]  = useState('');
+  // Escuela del cobro: viene en la URL o se deriva del equipo. Se necesita en el
+  // render (no solo al pagar) para que el OCR del comprobante pueda computar el
+  // veredicto y correr el dedup contra los cobros de ESTA escuela.
+  const [resolvedSchoolId,    setResolvedSchoolId]    = useState<string | null>(null);
+  const studentName = resolvedStudentName || studentNameParam || 'Deportista';
+  const schoolName  = resolvedSchoolName  || schoolNameParam  || '';
   const teamName = searchParams.get('team') || '';
+  const schoolIdParam = searchParams.get('school_id');
 
   const formatPrice = (price: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(price);
+
+  // Concept fijo (bloquea OCR si el monto no coincide) vs lenient (advisory).
+  // Por ahora solo mensualidad es 'fixed'; inscripcion/abono pasan como 'lenient'
+  // mientras validamos bien esos flujos.
+  const conceptKind: ConceptKind = /mensual/i.test(concept) ? 'fixed' : 'lenient';
 
   const [hasCompleteDianData, setHasCompleteDianData] = useState<boolean>(true);
   const [checkingDian, setCheckingDian] = useState<boolean>(true);
 
   // Fetch DIAN Profile Data
+  // Bloquear auto-recarga del PWA mientras el acudiente está en el checkout
+  // (evita perder el comprobante subido si un SW nuevo toma control).
+  useEffect(() => {
+    blockPwaReload();
+    return () => unblockPwaReload();
+  }, []);
+
   useEffect(() => {
     if (user?.id) {
       const checkProfile = async () => {
@@ -71,120 +134,258 @@ export default function ParentCheckoutPage() {
   // Fetch School Settings (Feature Flag)
   useEffect(() => {
     const fetchSchoolSettings = async () => {
-      let query = supabase.from('schools').select('id, payment_settings').limit(1);
+      // Multi-tenant safe: prefer explicit school_id, fall back to name.
+      // Never use .limit(1) without a filter - would pick arbitrary tenant.
+      let query = supabase.from('schools').select('id, payment_settings');
 
-      if (schoolName) {
-        query = query.eq('name', schoolName);
-      }
-
-      const { data, error } = await query.maybeSingle();
-
-      if (data) {
-        const settings = data.payment_settings as any || { allow_online: false, allow_manual: true };
-        setPaymentSettings(settings);
-        // Default Logic
-        if (settings.allow_online && !settings.allow_manual) setPaymentFlow('wompi');
-        else if (!settings.allow_online && settings.allow_manual) setPaymentFlow('manual');
-        else setPaymentFlow('wompi'); // Default fallback
+      if (schoolIdParam) {
+        query = query.eq('id', schoolIdParam);
+      } else if (schoolNameParam) {
+        query = query.eq('name', schoolNameParam);
       } else {
         setPaymentSettings({ allow_online: false, allow_manual: true });
         setPaymentFlow('manual');
+        setLoadingSettings(false);
+        return;
       }
 
-      // Fetch Bank Details if a school was found
+      const { data } = await query.maybeSingle();
+
+      // La fuente de verdad de "pagos online" es school_settings.wompi_enabled
+      // (lo que edita el owner en SportMaps Pay). schools.payment_settings es
+      // un JSONB legacy que sólo tenía el default y nunca se actualizaba, por
+      // lo que el toggle del owner nunca llegaba al padre. Se deja como OR de
+      // respaldo por si alguna escuela vieja lo tuviera seteado.
+      const legacy = (data?.payment_settings as any) || { allow_online: false };
+
       if (data?.id) {
-        const { data: bankData } = await supabase.from('school_settings')
-          .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url')
+        const { data: ss } = await supabase.from('school_settings')
+          .select('wompi_enabled, allow_installments, min_installment_amount, bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url')
           .eq('school_id', data.id)
-          .single();
-        setBankDetails(bankData);
+          .maybeSingle();
+
+        const s = ss as any;
+        const allowOnline = Boolean(s?.wompi_enabled) || Boolean(legacy.allow_online);
+        // El pago manual (transferencia + comprobante) siempre está disponible.
+        setPaymentSettings({ allow_online: allowOnline, allow_manual: true });
+        setPaymentFlow(allowOnline ? 'wompi' : 'manual');
+
+        setInstallmentCfg({
+          allow_installments: Boolean(s?.allow_installments),
+          min_installment_amount: Number(s?.min_installment_amount) || 0,
+        });
+        setBankDetails(s);
+      } else {
+        setPaymentSettings({ allow_online: false, allow_manual: true });
+        setPaymentFlow('manual');
       }
 
       setLoadingSettings(false);
     };
 
     fetchSchoolSettings();
-  }, [schoolName]);
+  }, [schoolNameParam, schoolIdParam]);
 
-  const handleDownloadReceipt = () => {
-    downloadReceipt({
+  // Cargar el pago preexistente del QR como fuente de verdad (monto/concepto/ids)
+  useEffect(() => {
+    if (!paymentIdParam) return;
+    supabase.from('payments')
+      .select('amount, amount_paid, concept, child_id, team_id')
+      .eq('id', paymentIdParam)
+      .maybeSingle()
+      .then(({ data }) => { if (data) setQrPayment(data as any); });
+  }, [paymentIdParam]);
+
+  const pdfBranding = usePdfBranding();
+
+  const handleDownloadReceipt = async () => {
+    await downloadReceipt({
       receiptNumber,
       date: new Date().toLocaleDateString('es-CO'),
       customerName: user?.user_metadata?.full_name || 'Cliente',
       customerEmail: user?.email,
       concept,
-      amount,
+      amount: chargeAmount,
       paymentMethod: paymentMethodUsed || paymentFlow,
       paymentType: 'monthly',
       schoolName,
       studentName,
-      logoUrl: schoolBranding?.logo_url,
-      brandingSettings: schoolBranding?.branding_settings,
+      // Feature gate aplicado en usePdfBranding (free -> null + defaults)
+      logoUrl: pdfBranding.logoUrl,
+      brandingSettings: pdfBranding.brandingSettings,
       receiptUrl: manualReceiptUrl,
     });
   };
 
-  const childId = searchParams.get('child_id');
-  const teamId = searchParams.get('team_id');
+  const childId = qrPayment?.child_id ?? searchParams.get('child_id');
+  const teamId = qrPayment?.team_id ?? searchParams.get('team_id');
+
+  // Resuelve el nombre real del atleta y de la escuela desde el pago, para que
+  // la UI del checkout, la notificación y el recibo no muestren placeholders
+  // demo ("Juan Vargas / Spirit All Stars") cuando la URL no trae esos params.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (childId) {
+        const { data } = await supabase.from('children').select('full_name').eq('id', childId).maybeSingle();
+        if (!cancelled && data?.full_name) setResolvedStudentName(data.full_name);
+      }
+      let sid = schoolIdParam;
+      if (!sid && teamId) {
+        const { data: t } = await supabase.from('teams').select('school_id').eq('id', teamId).maybeSingle();
+        sid = t?.school_id ?? null;
+      }
+      if (!cancelled) setResolvedSchoolId(sid);
+      if (sid) {
+        const { data: s } = await supabase.from('schools').select('name').eq('id', sid).maybeSingle();
+        if (!cancelled && s?.name) setResolvedSchoolName(s.name);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [childId, teamId, schoolIdParam]);
+
+  // Periodo objetivo (solo si es mensualidad y hay hijo)
+  const isMensualidad = /mensual/i.test(concept);
+  const { period: nextPeriod } = useNextUnpaidPeriod(isMensualidad ? childId : null);
+  const periodAlreadyCovered =
+    !!nextPeriod && isPeriodActive(nextPeriod.current_status as PeriodStatus);
 
   const recordPaymentWithTraceability = async (reference: string) => {
-    // Resolve School ID (Robustly)
-    let schoolId = null;
-    let ownerId = null;
-    const { data: demoSchool } = await supabase
-      .from('schools')
-      .select('id, owner_id')
-      .eq('email', 'spoortmaps+school@gmail.com')
-      .maybeSingle();
+    // Multi-tenant safe: resolve schoolId from URL or derive from team_id.
+    // Never fall back to "any school" - would attach the payment to the wrong tenant.
+    let schoolId: string | null = schoolIdParam;
+    let ownerId: string | null = null;
 
-    if (demoSchool) {
-      schoolId = demoSchool.id;
-      ownerId = demoSchool.owner_id;
-    } else {
-      const { data: anySchool } = await supabase
-        .from('schools')
-        .select('id, owner_id')
-        .limit(1)
+    if (!schoolId && teamId) {
+      const { data: team } = await supabase
+        .from('teams')
+        .select('school_id')
+        .eq('id', teamId)
         .maybeSingle();
-      if (anySchool) {
-        schoolId = anySchool.id;
-        ownerId = anySchool.owner_id;
-      }
+      schoolId = team?.school_id ?? null;
+    }
+
+    if (schoolId) {
+      const { data: schoolRow } = await supabase
+        .from('schools')
+        .select('owner_id')
+        .eq('id', schoolId)
+        .maybeSingle();
+      ownerId = schoolRow?.owner_id ?? null;
     }
 
     if (!schoolId) {
-      toast({ title: 'Error', description: 'No se encontró una escuela válida', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Falta school_id en el checkout', variant: 'destructive' });
       return;
     }
 
-    const { error: insertError } = await supabase.from('payments').insert({
-      parent_id: user?.id, 
-      child_id: childId || null,
-      team_id: teamId || null,
-      amount, 
-      concept, 
-      status: 'paid',
+    // Period explicito solo cuando es mensualidad y la RPC nos dio un mes
+    const periodYear  = isMensualidad && nextPeriod ? nextPeriod.year  : null;
+    const periodMonth = isMensualidad && nextPeriod ? nextPeriod.month : null;
+    const periodLabel = isMensualidad && nextPeriod ? nextPeriod.label : null;
+
+    // Campos que se setean al pagar (comunes a insertar y actualizar).
+    // OJO: period_year/period_month NO van aquí. Al pagar un cobro EXISTENTE
+    // (viene del QR con payment_id) el cobro ya trae su propio período; si lo
+    // sobreescribiéramos con el que calcula next_unpaid_period, colisionaría con
+    // uniq_payment_active_period_per_child cuando hay otros cobros activos del
+    // mismo hijo → "Pago rechazado / duplicate key". Solo se setea en INSERT.
+    const mutableFields = {
+      // Manual paga "awaiting_approval" (admin valida); Wompi paga "paid" directo
+      status: paymentFlow === 'manual' ? 'awaiting_approval' : 'paid',
       payment_date: new Date().toISOString().split('T')[0],
-      due_date: new Date().toISOString().split('T')[0],
-      receipt_number: reference, 
-      payment_type: 'one_time',
+      receipt_number: reference,
       payment_method: paymentFlow === 'wompi' ? 'card' : 'transfer',
-      school_id: schoolId,
-      receipt_url: manualReceiptUrl
-    });
+      receipt_url: manualReceiptUrl,
+      // Persistir OCR del comprobante (solo manual). Admin lo usa para detectar discrepancias.
+      ocr_amount:    manualOcrResult?.extractedAmount    ?? null,
+      ocr_currency:  manualOcrResult?.extractedCurrency  ?? null,
+      ocr_date:      manualOcrResult?.extractedDate      ?? null,
+      ocr_bank:      manualOcrResult?.extractedBank      ?? null,
+      ocr_reference: manualOcrResult?.extractedReference ?? null,
+      ocr_provider:  manualOcrResult?.provider           ?? null,
+      ocr_destination:      manualOcrResult?.extractedDestination     ?? null,
+      ocr_destination_name: manualOcrResult?.extractedDestinationName ?? null,
+      ocr_origin_name:      manualOcrResult?.extractedOriginName      ?? null,
+      ocr_time:             manualOcrResult?.extractedTime            ?? null,
+      ocr_raw_response: manualOcrResult?.rawResponse
+        ? safeParseJson(manualOcrResult.rawResponse) ?? manualOcrResult.rawResponse
+        : null,
+      // Veredicto de reglas (modo sombra): se guarda pero NO cambia el status.
+      receipt_verdict:             manualOcrResult?.verdict           ?? null,
+      receipt_verdict_reasons:     manualOcrResult?.verdictReasons    ?? null,
+      receipt_reference_norm:      manualOcrResult?.referenceNorm     ?? null,
+      receipt_image_sha256:        manualOcrResult?.imageSha256       ?? null,
+      receipt_image_sha256_source: manualOcrResult?.imageSha256Source ?? null,
+      receipt_verdict_at:          manualOcrResult?.verdict ? new Date().toISOString() : null,
+    };
+
+    let insertError;
+    let resolvedPaymentId: string | null = paymentIdParam || null;
+    if (paymentIdParam) {
+      // Vino del QR: ACTUALIZA el pago ya creado (no duplicar). Conserva
+      // amount/concept/child/school del pago original.
+      ({ error: insertError } = await supabase.from('payments')
+        .update({ ...mutableFields, updated_at: new Date().toISOString() } as any)
+        .eq('id', paymentIdParam));
+    } else {
+      const ins = await supabase.from('payments').insert({
+        parent_id: user?.id,
+        child_id: childId || null,
+        team_id: teamId || null,
+        amount,
+        // Si tenemos label del periodo, usarlo en lugar del concept libre del
+        // query string (mas consistente con la fuente de verdad de la BD).
+        concept: periodLabel ? `Mensualidad ${periodLabel}` : concept,
+        due_date: new Date().toISOString().split('T')[0],
+        payment_type: 'one_time',
+        school_id: schoolId,
+        // El período solo se estampa al CREAR el cobro (no al actualizar uno del QR).
+        period_year:  periodYear,
+        period_month: periodMonth,
+        ...mutableFields,
+      } as any).select('id').single();
+      insertError = ins.error;
+      resolvedPaymentId = ins.data?.id ?? null;
+    }
 
     if (insertError) {
       console.error('Error inserting payment:', insertError);
-      toast({ title: 'Error', description: 'No se pudo registrar el pago en la base de datos', variant: 'destructive' });
+      // Conflicto de unique index: el comprobante ya fue usado en otro pago de
+      // esta escuela — sea por numero de operacion (uq_payments_school_ocr_reference)
+      // o por hash de imagen re-subida (uq_payments_school_receipt_hash).
+      const dupMsg = insertError.message?.toLowerCase() ?? '';
+      const isOcrDuplicate = insertError.code === '23505'
+        && (dupMsg.includes('ocr_reference') || dupMsg.includes('receipt_hash') || dupMsg.includes('receipt_image_sha256'));
+      const isPeriodDuplicate = insertError.code === '23505'
+        && dupMsg.includes('uniq_payment_active_period_per_child');
+      toast({
+        title: isOcrDuplicate ? 'Comprobante ya usado' : isPeriodDuplicate ? 'Ya hay un cobro para este mes' : 'Error',
+        description: isOcrDuplicate
+          ? 'Este comprobante ya está vinculado a otro pago en esta escuela. Si crees que es un error, contacta a la administración.'
+          : isPeriodDuplicate
+          ? 'Ya existe un cobro activo para este mes de este atleta. Vuelve a la lista de cobros y paga el que aparece pendiente.'
+          : 'No se pudo registrar el pago en la base de datos',
+        variant: 'destructive',
+      });
       return;
     }
 
-    const traceMsg = `Pago de ${formatPrice(amount)} por ${studentName}${teamName ? ` (${teamName})` : ''} en ${schoolName}`;
+    // Evaluación post-insert (Fase 5). Fire-and-forget: el BFF decide server-side
+    // auto-aprobar (verde+doble extracción+toggle+tope) / abrir glosa (amarillo) / nada.
+    if (resolvedPaymentId && (manualOcrResult?.verdict === 'verde' || manualOcrResult?.verdict === 'amarillo')) {
+      autoEvaluateGlosa(resolvedPaymentId).catch(() => { /* dormant/no-op tolerado */ });
+    }
+
+    const periodSuffix = periodLabel ? ` — ${periodLabel}` : '';
+    const traceMsg = `Pago de ${formatPrice(chargeAmount)} por ${studentName}${teamName ? ` (${teamName})` : ''} en ${schoolName}${periodSuffix}`;
 
     if (ownerId) {
       await supabase.rpc('notify_user', {
         p_user_id: ownerId,
-        p_title: 'Pago Recibido',
+        p_title: paymentFlow === 'manual'
+          ? `Comprobante por validar${periodSuffix}`
+          : `Pago Recibido${periodSuffix}`,
         p_message: traceMsg,
         p_type: 'payment',
         p_link: '/finances',
@@ -202,19 +403,61 @@ export default function ParentCheckoutPage() {
       return;
     }
 
+    // El pago online necesita un pago real registrado: la referencia debe existir
+    // en payment_links (la crea create-session). Si generamos una referencia al
+    // vuelo, wompi-sign responde 404 "Reference no encontrada", la firma falla y
+    // el Widget nunca abre.
+    if (!paymentIdParam) {
+      toast({
+        title: 'No disponible',
+        description: 'No se pudo iniciar el pago en línea. Usa transferencia manual.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setProcessing(true);
-    const reference = generatePaymentReference();
-    setReceiptNumber(reference);
 
     try {
+      // 1. Crear la sesión server-side → registra la referencia en payment_links
+      //    y devuelve el monto firmado por el servidor (fuente de verdad del monto).
+      const session = await bffClient.post<{ reference: string; amountInCents: number }>(
+        '/api/v1/payments/create-session',
+        { paymentId: paymentIdParam, preferredProvider: 'wompi' },
+        schoolIdParam ? { 'x-school-id': schoolIdParam } : undefined,
+      );
+
+      const reference = session.reference;
+      setReceiptNumber(reference);
+
       const customerName = user.user_metadata?.full_name || user.email || 'Padre';
       const customerEmail = user.email || 'demo@sportmaps.co';
 
+      // Documento del comprador: se exige antes de pagar (BillingDetailsForm),
+      // así que el perfil ya lo tiene. Lo prellenamos en el Widget para que el
+      // padre no dependa del desplegable interno (que en algunos Android no abre).
+      let legalId: string | undefined;
+      let legalIdType: string | undefined;
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('document_type, document_number')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (prof?.document_number && prof?.document_type) {
+        legalId = String(prof.document_number).trim();
+        // Wompi usa PP para pasaporte; el resto (CC/CE/NIT/TI/RC) coincide.
+        const t = String(prof.document_type).trim().toUpperCase();
+        legalIdType = t === 'PASAPORTE' ? 'PP' : t;
+      }
+
+      // 2. Abrir el Widget con la referencia válida.
       const transaction = await openWompiCheckout({
         reference,
-        amountInCents: amount * 100,
+        amountInCents: session.amountInCents,
         customerEmail,
         customerName,
+        legalId,
+        legalIdType,
         studentName,
         teamName: concept,
         schoolName,
@@ -276,9 +519,58 @@ export default function ParentCheckoutPage() {
     } finally { setProcessing(false); }
   };
 
+  const handleMpSuccess = async (result: MpCreatePaymentResult) => {
+    setProcessing(true);
+    try {
+      setWompiTxId(String(result.paymentId));
+      setPaymentMethodUsed('MercadoPago');
+      const ref = mpReference || `SCH-MP-${Date.now().toString(36).toUpperCase()}`;
+      setReceiptNumber(ref);
+      await recordPaymentWithTraceability(ref);
+      setSuccess(true);
+
+      if (result.internalStatus === 'paid') {
+        toast({ title: '¡Pago exitoso!', description: 'Procesado con MercadoPago' });
+      } else {
+        toast({
+          title: 'Pago en proceso',
+          description: `Estado: ${result.statusDetail}. Te notificaremos cuando se confirme.`,
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Error registrando el pago',
+        description: getUserFriendlyError(error),
+        variant: 'destructive',
+      });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleMpError = (err: Error) => {
+    toast({
+      title: 'Error en MercadoPago',
+      description: err.message,
+      variant: 'destructive',
+    });
+  };
+
+  // Genera la reference MP cuando el padre cambia a MercadoPago, para
+  // garantizar consistencia entre la creacion del pago y el registro en DB.
+  useEffect(() => {
+    if (paymentFlow === 'mercadopago' && !mpReference) {
+      const ref = `SCH-MP-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+      setMpReference(ref);
+    }
+  }, [paymentFlow, mpReference]);
+
   const handlePayment = () => {
     if (paymentFlow === 'wompi') {
       handleWompiPayment();
+    } else if (paymentFlow === 'mercadopago') {
+      // El Brick maneja su propio submit; este boton no aplica para MP.
+      toast({ title: 'Completa los datos en el formulario MercadoPago' });
     } else {
       handleManualPayment();
     }
@@ -304,7 +596,7 @@ export default function ParentCheckoutPage() {
             <Badge variant="secondary" className="mb-2">Recibo #{receiptNumber}</Badge>
 
             <div className="bg-muted/50 rounded-xl p-4 mb-6 text-left">
-              <div className="flex justify-between font-bold text-lg"><span>Total</span><span className="text-green-600">{formatPrice(amount)}</span></div>
+              <div className="flex justify-between font-bold text-lg"><span>Pagado</span><span className="text-green-600">{formatPrice(chargeAmount)}</span></div>
             </div>
 
             <div className="flex gap-3">
@@ -334,11 +626,38 @@ export default function ParentCheckoutPage() {
       </div>
 
       <div className="container mx-auto px-4 py-8 max-w-lg">
+        {periodAlreadyCovered && nextPeriod && (
+          <div className="mb-4 p-3 rounded-lg border-2 border-amber-300 bg-amber-50 flex items-start gap-2">
+            <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-semibold text-amber-900">
+                {nextPeriod.label} ya tiene un pago activo
+              </p>
+              <p className="text-amber-800 text-xs mt-0.5">
+                {nextPeriod.current_status === 'paid' || nextPeriod.current_status === 'approved'
+                  ? `Ya pagaste ${nextPeriod.label}.`
+                  : `Hay un comprobante de ${nextPeriod.label} esperando validación.`}
+                {' '}Si continúas, este pago quedará registrado como un cobro adicional para ese mes.
+              </p>
+            </div>
+          </div>
+        )}
         <Card className="mb-6">
-          <CardHeader><CardTitle>Total: {formatPrice(amount)}</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>
+              {nextPeriod && isMensualidad ? `Mensualidad ${nextPeriod.label}` : (amountPaid > 0 ? `Saldo: ${formatPrice(chargeAmount)}` : `Total: ${formatPrice(amount)}`)}
+            </CardTitle>
+          </CardHeader>
           <CardContent>
-            <div className="flex justify-between mb-2"><span className="text-muted-foreground">Concepto</span><span>{concept}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Estudiante</span><span>{studentName}</span></div>
+            <div className="flex justify-between mb-2"><span className="text-muted-foreground">Concepto</span><span>{nextPeriod && isMensualidad ? `Mensualidad ${nextPeriod.label}` : concept}</span></div>
+            <div className="flex justify-between mb-2"><span className="text-muted-foreground">Total</span><span className="font-bold">{formatPrice(amount)}</span></div>
+            {amountPaid > 0 && (
+              <>
+                <div className="flex justify-between mb-2"><span className="text-muted-foreground">Ya abonado</span><span className="font-semibold text-emerald-600">− {formatPrice(amountPaid)}</span></div>
+                <div className="flex justify-between mb-2 pt-2 border-t"><span className="text-muted-foreground">Saldo pendiente</span><span className="font-bold text-amber-600">{formatPrice(chargeAmount)}</span></div>
+              </>
+            )}
+            <div className="flex justify-between"><span className="text-muted-foreground">Deportista</span><span>{studentName}</span></div>
           </CardContent>
         </Card>
 
@@ -353,13 +672,48 @@ export default function ParentCheckoutPage() {
               <div className="p-4 bg-destructive/10 text-destructive rounded-lg">Esta escuela no acepta pagos por este medio.</div>
             ) : (
               <>
-                <RadioGroup value={paymentFlow} onValueChange={(v) => setPaymentFlow(v as 'wompi' | 'manual')}>
+                <RadioGroup value={paymentFlow} onValueChange={(v) => setPaymentFlow(v as 'wompi' | 'mercadopago' | 'manual')}>
                   {canPayOnline && (
                     <div className={`flex items-center space-x-3 p-4 border rounded-lg cursor-pointer ${paymentFlow === 'wompi' ? 'border-primary bg-primary/5' : ''}`} onClick={() => setPaymentFlow('wompi')}>
                       <RadioGroupItem value="wompi" id="wompi" />
                       <Label htmlFor="wompi" className="cursor-pointer flex-1">
                         <div className="font-medium flex items-center gap-2"><CreditCard className="h-4 w-4" /> Wompi (Online)</div>
                       </Label>
+                    </div>
+                  )}
+
+                  {canPayOnline && import.meta.env.VITE_MP_PUBLIC_KEY_DEFAULT && (
+                    <div className={`flex flex-col space-y-3 p-4 border rounded-lg cursor-pointer mt-3 ${paymentFlow === 'mercadopago' ? 'border-primary bg-primary/5' : ''}`} onClick={() => setPaymentFlow('mercadopago')}>
+                      <div className="flex items-center space-x-3">
+                        <RadioGroupItem value="mercadopago" id="mercadopago" />
+                        <Label htmlFor="mercadopago" className="cursor-pointer flex-1">
+                          <div className="font-medium flex items-center gap-2">
+                            <CreditCard className="h-4 w-4" /> MercadoPago (Online)
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            Tarjetas, PSE, Efecty, Wallet MP
+                          </div>
+                        </Label>
+                      </div>
+
+                      {paymentFlow === 'mercadopago' && mpReference && (
+                        <div className="pl-7 pt-2 animate-in fade-in slide-in-from-top-2" onClick={(e) => e.stopPropagation()}>
+                          <MercadoPagoBrick
+                            publicKey={import.meta.env.VITE_MP_PUBLIC_KEY_DEFAULT}
+                            sandbox={true}
+                            transactionAmount={amount}
+                            externalReference={mpReference}
+                            payerEmail={user?.email || 'demo@sportmaps.co'}
+                            payerFirstName={(user?.user_metadata?.full_name || 'Padre').split(' ')[0]}
+                            payerLastName={(user?.user_metadata?.full_name || '').split(' ').slice(1).join(' ') || 'Demo'}
+                            description={`${concept} — ${studentName}`}
+                            schoolId={schoolIdParam || undefined}
+                            onSuccess={handleMpSuccess}
+                            onPending={handleMpSuccess}
+                            onError={handleMpError}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -394,75 +748,82 @@ export default function ParentCheckoutPage() {
                             {bankDetails.bank_name && <p><strong>Banco:</strong> {bankDetails.bank_name} ({bankDetails.bank_account_type})</p>}
                             
                             {bankDetails.bank_account_number && (
-                              <div className="flex justify-between items-center group">
+                              <div className="flex justify-between items-center gap-2">
                                 <p><strong>Número:</strong> {showSensitive ? bankDetails.bank_account_number : maskSensitive(bankDetails.bank_account_number)}</p>
-                                {showSensitive && (
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-4 w-4 opacity-0 group-hover:opacity-100" 
-                                    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(bankDetails.bank_account_number); }}
-                                  >
-                                    <Copy className="h-3 w-3" />
-                                  </Button>
-                                )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 shrink-0 font-sans"
+                                  onClick={(e) => { e.stopPropagation(); copyField(bankDetails.bank_account_number, 'Número'); }}
+                                >
+                                  <Copy className="h-3.5 w-3.5 mr-1" /> Copiar
+                                </Button>
                               </div>
                             )}
-                            
+
                             {bankDetails.nequi_number && (
-                              <div className="flex justify-between items-center group">
+                              <div className="flex justify-between items-center gap-2">
                                 <p><strong>Nequi:</strong> {showSensitive ? bankDetails.nequi_number : maskSensitive(bankDetails.nequi_number)}</p>
-                                {showSensitive && (
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-4 w-4 opacity-0 group-hover:opacity-100" 
-                                    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(bankDetails.nequi_number); }}
-                                  >
-                                    <Copy className="h-3 w-3" />
-                                  </Button>
-                                )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 shrink-0 font-sans"
+                                  onClick={(e) => { e.stopPropagation(); copyField(bankDetails.nequi_number, 'Nequi'); }}
+                                >
+                                  <Copy className="h-3.5 w-3.5 mr-1" /> Copiar
+                                </Button>
                               </div>
                             )}
-                            
+
                             {bankDetails.daviplata_number && (
-                              <div className="flex justify-between items-center group">
+                              <div className="flex justify-between items-center gap-2">
                                 <p><strong>Daviplata:</strong> {showSensitive ? bankDetails.daviplata_number : maskSensitive(bankDetails.daviplata_number)}</p>
-                                {showSensitive && (
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-4 w-4 opacity-0 group-hover:opacity-100" 
-                                    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(bankDetails.daviplata_number); }}
-                                  >
-                                    <Copy className="h-3 w-3" />
-                                  </Button>
-                                )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 shrink-0 font-sans"
+                                  onClick={(e) => { e.stopPropagation(); copyField(bankDetails.daviplata_number, 'Daviplata'); }}
+                                >
+                                  <Copy className="h-3.5 w-3.5 mr-1" /> Copiar
+                                </Button>
                               </div>
                             )}
-                            
+
                             {bankDetails.bank_titular_name && <p><strong>Titular:</strong> {bankDetails.bank_titular_name}</p>}
                             {bankDetails.bank_titular_id && (
-                              <div className="flex justify-between items-center group">
+                              <div className="flex justify-between items-center gap-2">
                                 <p><strong>NIT/CC:</strong> {showSensitive ? bankDetails.bank_titular_id : maskSensitive(bankDetails.bank_titular_id)}</p>
-                                {showSensitive && (
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-4 w-4 opacity-0 group-hover:opacity-100" 
-                                    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(bankDetails.bank_titular_id); }}
-                                  >
-                                    <Copy className="h-3 w-3" />
-                                  </Button>
-                                )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 shrink-0 font-sans"
+                                  onClick={(e) => { e.stopPropagation(); copyField(bankDetails.bank_titular_id, 'NIT/CC'); }}
+                                >
+                                  <Copy className="h-3.5 w-3.5 mr-1" /> Copiar
+                                </Button>
                               </div>
                             )}
                           </div>
 
                           {bankDetails.payment_qr_url && (
                             <div className="mt-3 text-center flex flex-col items-center">
-                              <p className="text-xs font-semibold mb-2">O escanea este QR:</p>
-                              <img src={bankDetails.payment_qr_url} alt="QR de Pago" className="w-24 h-24 rounded-lg object-cover shadow-sm border" />
+                              <p className="text-xs font-semibold mb-2 text-muted-foreground">O escanea este QR:</p>
+                              <div 
+                                className="relative group cursor-pointer overflow-hidden rounded-lg border shadow-sm transition-all duration-300 hover:shadow-md hover:scale-[1.02]"
+                                onClick={(e) => { e.stopPropagation(); setShowFullQr(true); }}
+                              >
+                                <img 
+                                  src={bankDetails.payment_qr_url} 
+                                  alt="QR de Pago" 
+                                  className="w-24 h-24 object-cover" 
+                                />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                  <span className="text-[10px] text-white font-medium bg-black/60 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                    <Maximize2 className="h-3 w-3" /> Ampliar
+                                  </span>
+                                </div>
+                              </div>
+                              <span className="text-[10px] text-muted-foreground mt-1 block">Clic para ampliar 🔍</span>
                             </div>
                           )}
                           
@@ -473,7 +834,14 @@ export default function ParentCheckoutPage() {
                               path={`manual-payments/${user?.id}`}
                               accept="image/*,application/pdf"
                               onUploadComplete={(url) => setManualReceiptUrl(url)}
+                              onValidationResult={(r) => setManualOcrResult(r)}
                               validateReceipt={true}
+                              schoolId={resolvedSchoolId || undefined}
+                              paymentId={paymentIdParam || undefined}
+                              expectedAmount={chargeAmount}
+                              conceptKind={conceptKind}
+                              allowPartial={installmentCfg.allow_installments}
+                              minPartialAmount={installmentCfg.min_installment_amount}
                             />
                           </div>
                         </div>
@@ -482,14 +850,79 @@ export default function ParentCheckoutPage() {
                   )}
                 </RadioGroup>
 
-                <Button className="w-full mt-6" onClick={handlePayment} disabled={processing || (!canPayOnline && !canPayManual)}>
-                  {processing ? 'Procesando...' : `Pagar ${formatPrice(amount)}`}
-                </Button>
+                {paymentFlow !== 'mercadopago' && (
+                  <>
+                    {paymentFlow === 'manual' && manualReceiptUrl && (
+                      <div className="mt-4 flex items-start gap-2 text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3">
+                        <span className="font-bold whitespace-nowrap">Falta 1 paso:</span>
+                        <span>tu comprobante está cargado pero <strong>aún no se ha enviado</strong>. Pulsa el botón de abajo para enviarlo a la escuela.</span>
+                      </div>
+                    )}
+                    <Button className="w-full mt-4" onClick={handlePayment} disabled={processing || (!canPayOnline && !canPayManual)}>
+                      {processing
+                        ? 'Procesando...'
+                        : paymentFlow === 'manual'
+                          ? (manualReceiptUrl ? 'Enviar comprobante y registrar pago' : `Registrar pago de ${formatPrice(chargeAmount)}`)
+                          : `Pagar ${formatPrice(chargeAmount)}`}
+                    </Button>
+                  </>
+                )}
               </>
             )}
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={showFullQr} onOpenChange={setShowFullQr}>
+        <DialogContent className="sm:max-w-md max-w-[90vw] rounded-xl p-6 flex flex-col items-center justify-center bg-background/95 backdrop-blur-md border border-primary/20 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+          <DialogHeader className="w-full text-center mb-2">
+            <DialogTitle className="text-lg font-bold text-foreground">QR de Pago</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Escanea este código desde la app de tu banco para realizar la transferencia a la escuela
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="bg-white p-4 rounded-xl border shadow-inner flex items-center justify-center max-w-full max-h-[60vh] overflow-hidden">
+            <img 
+              src={bankDetails?.payment_qr_url || ''} 
+              alt="Código QR de Pago Completo" 
+              className="max-w-full max-h-[50vh] object-contain rounded-lg transition-transform duration-300 hover:scale-105"
+            />
+          </div>
+          
+          <div className="flex gap-3 w-full mt-6">
+            <Button 
+              variant="outline" 
+              className="flex-1 border-primary/20 hover:bg-primary/5 text-xs h-9" 
+              onClick={async () => {
+                try {
+                  const response = await fetch(bankDetails?.payment_qr_url || '');
+                  const blob = await response.blob();
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `qr-pago-${schoolName.toLowerCase().replace(/\s+/g, '-')}.png`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  window.URL.revokeObjectURL(url);
+                  toast({ title: "Código QR descargado" });
+                } catch (e) {
+                  window.open(bankDetails?.payment_qr_url || '', '_blank');
+                }
+              }}
+            >
+              <Download className="h-4 w-4 mr-2 text-primary" /> Descargar QR
+            </Button>
+            <Button 
+              className="flex-1 text-xs h-9" 
+              onClick={() => setShowFullQr(false)}
+            >
+              Cerrar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

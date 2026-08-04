@@ -91,12 +91,22 @@ router.post('/onboarding/step', async (req: Request, res: Response) => {
                 experience_years: stepData?.experience_years || null
             });
 
+            // 4. Insertar en school_staff para que sea reconocido como coach de su propio workspace
+            await supabase.from('school_staff').insert({
+                school_id: currentSchoolId,
+                coach_auth_id: user.id,
+                full_name: user?.user_metadata?.full_name || 'Entrenador Personal',
+                email: user.email,
+                status: 'active'
+            });
+
             return res.json({ success: true, current_step: 1, next_step: 2 });
         }
 
         // Guardar datos del paso en trainer_profiles y/o schools según el paso
         const trainerUpdates: Record<string, any> = {};
         const schoolUpdates: Record<string, any> = {};
+        const profileUpdates: Record<string, any> = {};
 
         switch (step) {
             case 1: // Deporte principal y especialidades
@@ -123,11 +133,13 @@ router.post('/onboarding/step', async (req: Request, res: Response) => {
             case 5: // Configuración de pagos
                 if (stepData?.payment_settings) {
                     const { payment_settings } = stepData;
+                    const hasPaymentMethod = !!(payment_settings.nequi_number || payment_settings.bank_name);
                     const { error: settingsErr } = await supabase
                         .from('school_settings')
                         .update({
                             nequi_number: payment_settings.nequi_number || null,
-                            bank_name: payment_settings.bank_name || null
+                            bank_name: payment_settings.bank_name || null,
+                            payment_setup_completed: hasPaymentMethod
                         })
                         .eq('school_id', currentSchoolId);
                     if (settingsErr) throw settingsErr;
@@ -135,11 +147,18 @@ router.post('/onboarding/step', async (req: Request, res: Response) => {
                 if (stepData?.whatsapp_number) trainerUpdates.whatsapp_number = stepData.whatsapp_number;
                 break;
             case 6: // Foto de perfil y bio
-                if (stepData?.avatar_url) trainerUpdates.avatar_url = stepData.avatar_url;
-                if (stepData?.bio) trainerUpdates.bio = stepData.bio;
+                if (stepData?.avatar_url) {
+                    trainerUpdates.avatar_url = stepData.avatar_url;
+                    profileUpdates.avatar_url = stepData.avatar_url;
+                }
+                if (stepData?.bio) {
+                    trainerUpdates.bio = stepData.bio;
+                    profileUpdates.bio = stepData.bio;
+                }
                 if (stepData?.display_name) {
                     trainerUpdates.display_name = stepData.display_name;
                     schoolUpdates.name = stepData.display_name;
+                    profileUpdates.full_name = stepData.display_name;
                 }
                 if (stepData?.tagline) trainerUpdates.tagline = stepData.tagline;
                 break;
@@ -166,6 +185,15 @@ router.post('/onboarding/step', async (req: Request, res: Response) => {
             .eq('id', currentSchoolId);
         if (schoolErr) throw schoolErr;
 
+        // Actualizar perfil base (profiles) si hay datos (Paso 6)
+        if (Object.keys(profileUpdates).length > 0) {
+            const { error: baseProfileErr } = await supabase
+                .from('profiles')
+                .update(profileUpdates)
+                .eq('id', user.id);
+            if (baseProfileErr) throw baseProfileErr;
+        }
+
         res.json({ success: true, current_step: step, next_step: nextStep });
     } catch (err) {
         (req as any).log?.error({ err }, 'Error saving trainer onboarding step');
@@ -179,7 +207,7 @@ router.post('/onboarding/step', async (req: Request, res: Response) => {
  */
 router.post('/onboarding/complete', async (req: Request, res: Response) => {
     try {
-        const { schoolId } = req;
+        const { schoolId, user } = req;
 
         const { error } = await supabase
             .from('schools')
@@ -188,6 +216,16 @@ router.post('/onboarding/complete', async (req: Request, res: Response) => {
             .eq('school_type', 'personal_trainer');
 
         if (error) throw error;
+
+        // Marcar tambien profiles.onboarding_completed para dejar el flag parejo
+        // con los demas roles (athlete/coach/etc). No bloquea la respuesta.
+        if (user?.id) {
+            const { error: profErr } = await supabase
+                .from('profiles')
+                .update({ onboarding_completed: true })
+                .eq('id', user.id);
+            if (profErr) (req as any).log?.warn({ err: profErr }, 'No se pudo marcar profiles.onboarding_completed para trainer');
+        }
 
         res.json({ success: true, onboarding_status: 'completed' });
     } catch (err) {

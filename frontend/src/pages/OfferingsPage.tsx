@@ -6,7 +6,7 @@ export default function OfferingsPage() {
             <div>
                 <h1 className="text-2xl font-bold tracking-tight">Mis Planes</h1>
                 <p className="text-sm text-muted-foreground mt-1">
-                    Gestiona los planes y membresías disponibles para tus estudiantes.
+                    Gestiona los planes y membresías disponibles para tus deportistas.
                 </p>
             </div>
             <OfferingsManagement />

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTrainerContext } from '@/hooks/useTrainerContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -24,7 +24,7 @@ import { PhoneInput } from '@/components/ui/phone-input';
 const BFF_URL = import.meta.env.VITE_BFF_URL || 'http://localhost:3000';
 
 export default function TrainerProfileEditor() {
-  const { trainerProfile, trainerSchoolId, refetchProfile } = useTrainerContext();
+  const { trainerProfile, trainerSchoolId, refetchProfile, loadingProfile } = useTrainerContext();
   const { session, user } = useAuth();
   const { toast } = useToast();
   const { uploadFile, uploading: storageUploading } = useStorage();
@@ -35,23 +35,55 @@ export default function TrainerProfileEditor() {
   const [linkCopied, setLinkCopied] = useState(false);
 
   const [form, setForm] = useState({
-    display_name: trainerProfile?.display_name ?? '',
-    tagline: trainerProfile?.tagline ?? '',
-    bio: trainerProfile?.bio ?? '',
-    primary_sport: trainerProfile?.primary_sport ?? '',
-    specialties: (trainerProfile?.specialties ?? []).join(', '),
-    experience_years: String(trainerProfile?.experience_years ?? ''),
-    rate_per_session: String(trainerProfile?.rate_per_session ?? ''),
-    rate_currency: trainerProfile?.rate_currency ?? 'COP',
-    rate_notes: trainerProfile?.rate_notes ?? '',
-    city: trainerProfile?.city ?? '',
-    modality: (trainerProfile?.modality ?? 'presencial') as 'presencial' | 'virtual' | 'ambas',
-    instagram_url: trainerProfile?.instagram_url ?? '',
-    whatsapp_number: trainerProfile?.whatsapp_number ?? '',
-    avatar_url: trainerProfile?.avatar_url ?? '',
+    display_name: '',
+    tagline: '',
+    bio: '',
+    primary_sport: '',
+    specialties: '',
+    experience_years: '',
+    rate_per_session: '',
+    rate_currency: 'COP',
+    rate_notes: '',
+    city: '',
+    modality: 'presencial' as 'presencial' | 'virtual' | 'ambas',
+    instagram_url: '',
+    whatsapp_number: '',
+    avatar_url: '',
   });
 
+  // Sincronizar formulario cuando cargue el perfil del entrenador
+  useEffect(() => {
+    if (trainerProfile) {
+      setForm({
+        display_name: trainerProfile.display_name ?? '',
+        tagline: trainerProfile.tagline ?? '',
+        bio: trainerProfile.bio ?? '',
+        primary_sport: trainerProfile.primary_sport ?? '',
+        specialties: (trainerProfile.specialties ?? []).join(', '),
+        experience_years: String(trainerProfile.experience_years ?? ''),
+        rate_per_session: String(trainerProfile.rate_per_session ?? ''),
+        rate_currency: trainerProfile.rate_currency ?? 'COP',
+        rate_notes: trainerProfile.rate_notes ?? '',
+        city: trainerProfile.city ?? '',
+        modality: (trainerProfile.modality ?? 'presencial') as 'presencial' | 'virtual' | 'ambas',
+        instagram_url: trainerProfile.instagram_url ?? '',
+        whatsapp_number: trainerProfile.whatsapp_number ?? '',
+        avatar_url: trainerProfile.avatar_url ?? '',
+      });
+    }
+  }, [trainerProfile]);
+
   const set = (key: string, value: string) => setForm(prev => ({ ...prev, [key]: value }));
+
+  const formatNumber = (num: string | number) => {
+    if (!num) return '';
+    const cleanNumber = String(num).replace(/\D/g, "");
+    return cleanNumber.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  };
+
+  const parseNumber = (str: string) => {
+    return str.replace(/\D/g, "");
+  };
 
   const handleSave = async () => {
     if (!session?.access_token) return;
@@ -127,15 +159,16 @@ export default function TrainerProfileEditor() {
           <p className="text-muted-foreground text-sm">Personaliza cómo te ven los clientes potenciales.</p>
         </div>
         <div className="flex items-center gap-2">
+          {loadingProfile && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mr-2" />}
           {isPublished ? (
             <Badge className="bg-green-500 text-white gap-1.5"><Globe className="h-3 w-3" /> Publicado</Badge>
           ) : (
-            <Button size="sm" onClick={handlePublish} disabled={publishing} className="gap-2">
+            <Button size="sm" onClick={handlePublish} disabled={publishing || loadingProfile} className="gap-2">
               {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
               Publicar perfil
             </Button>
           )}
-          <Button onClick={handleSave} disabled={saving} className="gap-2">
+          <Button onClick={handleSave} disabled={saving || loadingProfile} className="gap-2">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             Guardar
           </Button>
@@ -361,37 +394,16 @@ export default function TrainerProfileEditor() {
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Tarifa por sesión</label>
                     <div className="flex h-11 bg-background/50 border border-border/40 rounded-xl overflow-hidden focus-within:border-primary/50 transition-colors">
-                      <button 
-                        type="button" 
-                        className="w-10 flex items-center justify-center border-r border-border/40 hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground"
-                        onClick={() => {
-                          const val = parseInt(form.rate_per_session) || 0;
-                          if (val >= 5000) set('rate_per_session', String(val - 5000));
-                        }}
-                      >
-                        <Minus className="h-3.5 w-3.5" />
-                      </button>
                       <div className="relative flex-1 flex items-center group">
-                        <DollarSign className="absolute left-3 h-4 w-4 text-primary font-bold" />
+                        <DollarSign className="absolute left-3.5 h-4 w-4 text-primary font-bold" />
                         <Input 
                           className="pl-8 border-0 bg-transparent h-full text-base font-bold focus-visible:ring-0 focus-visible:ring-offset-0" 
-                          type="number" 
-                          min={0} 
-                          value={form.rate_per_session} 
-                          onChange={e => set('rate_per_session', e.target.value)} 
-                          placeholder="80000" 
+                          type="text" 
+                          value={formatNumber(form.rate_per_session)} 
+                          onChange={e => set('rate_per_session', parseNumber(e.target.value))} 
+                          placeholder="80.000" 
                         />
                       </div>
-                      <button 
-                        type="button" 
-                        className="w-10 flex items-center justify-center border-l border-border/40 hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground"
-                        onClick={() => {
-                          const val = parseInt(form.rate_per_session) || 0;
-                          set('rate_per_session', String(val + 5000));
-                        }}
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                      </button>
                       <Select value={form.rate_currency} onValueChange={v => set('rate_currency', v)}>
                         <SelectTrigger className="w-[85px] h-full rounded-none border-0 border-l border-border/40 bg-background/40 font-bold focus:ring-0">
                           <SelectValue />

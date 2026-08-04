@@ -29,10 +29,12 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { EnrollmentAuthModal } from '@/components/explore/EnrollmentAuthModal';
+import { PlanCard, type PlanFeature, type PlanDuration } from '@/components/explore/PlanCard';
 import { PaymentModal } from '@/components/payment/PaymentModal';
 import { ChildSelectorModal } from '@/components/enrollment/ChildSelectorModal';
 import { DirectionsButton } from '@/components/common/DirectionsButton';
 import { FacilityReservationModal } from '@/components/school/FacilityReservationModal';
+import { formatFriendlyDuration } from '@/lib/utils';
 
 interface School {
   id: string;
@@ -86,6 +88,27 @@ interface Facility {
   booking_enabled?: boolean;
 }
 
+interface OfferingPlan {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  currency: string;
+  duration_days: number;
+  max_sessions: number | null;
+  is_active: boolean;
+}
+
+interface Offering {
+  id: string;
+  name: string;
+  description: string | null;
+  sport: string | null;
+  offering_type: string;
+  is_active: boolean;
+  offering_plans: OfferingPlan[];
+}
+
 export default function SchoolDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -94,6 +117,7 @@ export default function SchoolDetailPage() {
 
   const [school, setSchool] = useState<School | null>(null);
   const [programs, setPrograms] = useState<Program[]>([]);
+  const [offerings, setOfferings] = useState<Offering[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(false);
@@ -126,21 +150,37 @@ export default function SchoolDetailPage() {
       if (schoolError) throw schoolError;
       setSchool(schoolData);
 
-      // Fetch programs from teams table
-      const { data: programsData, error: programsError } = await supabase
-        .from('teams')
-        .select('*')
+      // Fetch offerings + offering_plans (nueva arquitectura v2.1)
+      // Estos son los planes que el owner edita desde Mi Perfil Publico → tab Planes.
+      const { data: offeringsData } = await supabase
+        .from('offerings')
+        .select('id, name, description, sport, offering_type, is_active, offering_plans(id, name, description, price, currency, duration_days, max_sessions, is_active)')
         .eq('school_id', id)
-        .eq('active', true)
-        .order('name');
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+      const activeOfferings = (offeringsData as unknown as Offering[] | null)?.filter(
+        o => (o.offering_plans ?? []).some(p => p.is_active)
+      ) ?? [];
+      setOfferings(activeOfferings);
 
-      if (programsError) throw programsError;
+      // Fallback: fetch programs from teams (legacy)
+      if (activeOfferings.length === 0) {
+        const { data: programsData, error: programsError } = await supabase
+          .from('teams')
+          .select('*')
+          .eq('school_id', id)
+          .eq('active', true)
+          .order('name');
 
-      // If no programs, add demo programs
-      if (!programsData || programsData.length === 0) {
-        setPrograms(getDemoPrograms(schoolData.name, schoolData.sports?.[0] || 'Fútbol'));
+        if (programsError && programsError.code !== 'PGRST116') throw programsError;
+
+        if (!programsData || programsData.length === 0) {
+          setPrograms(getDemoPrograms(schoolData.name, schoolData.sports?.[0] || 'Fútbol'));
+        } else {
+          setPrograms(programsData);
+        }
       } else {
-        setPrograms(programsData);
+        setPrograms([]);
       }
 
       // Fetch facilities for reservations
@@ -191,6 +231,28 @@ export default function SchoolDetailPage() {
     setChildSelectionOpen(true);
   };
 
+  // v2.1: guardamos offering + plan separados para que el PaymentModal pueda pasar
+  // offering_plan_id real al backend (no un pseudo-id con ":").
+  const [selectedOffering, setSelectedOffering] = useState<{ offering: Offering; planId: string; planLabel: string; price: number } | null>(null);
+
+  const handleEnrollOffering = (offering: Offering, plan: { price: number; durationDays: number; key: string; label: string }) => {
+    const pseudoProgram: Program = {
+      id: plan.key,  // el id real del offering_plan
+      name: `${offering.name} · ${plan.label}`,
+      description: offering.description,
+      sport: offering.sport ?? 'Multideporte',
+      schedule: null,
+      price_monthly: plan.price,
+      age_min: null,
+      age_max: null,
+      max_students: null,
+      current_students: 0,
+      active: true,
+    };
+    setSelectedOffering({ offering, planId: plan.key, planLabel: plan.label, price: plan.price });
+    handleEnroll(pseudoProgram);
+  };
+
   const handleChildSelected = (childId: string, childName: string) => {
     setSelectedChildId(childId);
     setChildSelectionOpen(false);
@@ -239,7 +301,7 @@ export default function SchoolDetailPage() {
       {
         id: 'demo-2',
         name: `${sport} Intermedio`,
-        description: 'Nivel intermedio para estudiantes con experiencia previa. Desarrolla habilidades técnicas avanzadas y trabajo en equipo.',
+        description: 'Nivel intermedio para deportistas con experiencia previa. Desarrolla habilidades técnicas avanzadas y trabajo en equipo.',
         sport: sport,
         schedule: 'Martes y Jueves 5:00 PM - 6:30 PM',
         price_monthly: 55000,
@@ -364,8 +426,10 @@ export default function SchoolDetailPage() {
             description: school?.name,
             amount: selectedProgram.price_monthly,
             schoolId: school?.id,
-            teamId: selectedProgram.id,
-            childId: selectedChildId || undefined, // Pass selected child
+            // v2.1: si viene de offering, pasamos offering_plan_id; si no, teamId legacy
+            teamId: selectedOffering ? undefined : selectedProgram.id,
+            offeringPlanId: selectedOffering?.planId,
+            childId: selectedChildId || undefined,
           }}
           onSuccess={handlePaymentSuccess}
         />
@@ -377,6 +441,8 @@ export default function SchoolDetailPage() {
         onOpenChange={setReservationModalOpen}
         facility={selectedFacility}
         schoolName={school?.name || ''}
+        schoolPhone={school?.phone}
+        schoolEmail={school?.email}
       />
 
       {/* Cover Image */}
@@ -506,9 +572,9 @@ export default function SchoolDetailPage() {
                 <TabsTrigger value="reviews">Reseñas</TabsTrigger>
               </TabsList>
 
-              {/* Programs Tab */}
-              <TabsContent value="programs" className="space-y-4">
-                {programs.length === 0 ? (
+              {/* Programs Tab — Fitpal-style plan cards */}
+              <TabsContent value="programs">
+                {offerings.length === 0 && programs.length === 0 ? (
                   <Card className="p-12 text-center">
                     <Trophy className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
                     <h3 className="text-lg font-semibold mb-2">
@@ -518,77 +584,121 @@ export default function SchoolDetailPage() {
                       Esta escuela aún no ha publicado programas
                     </p>
                   </Card>
+                ) : offerings.length > 0 ? (
+                  // Nueva arquitectura: offerings con sus offering_plans como duraciones
+                  <>
+                    <div className="text-center mb-6">
+                      <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Encuentra el plan ideal para ti</h2>
+                      <p className="text-muted-foreground mt-1">Elige entre los servicios que ofrece {school.name}</p>
+                    </div>
+                    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                      {offerings.map((off) => {
+                        const activePlans = (off.offering_plans ?? []).filter(p => p.is_active);
+                        if (activePlans.length === 0) return null;
+
+                        const features: PlanFeature[] = [];
+                        if (off.description) {
+                          off.description.split(/\.\s+|\n+/).map(s => s.trim()).filter(s => s.length > 3)
+                            .slice(0, 4).forEach(s => features.push({ label: s.replace(/\.$/, '') }));
+                        }
+                        const firstPlan = activePlans[0];
+                        if (firstPlan?.max_sessions != null) {
+                          features.push({ label: `${firstPlan.max_sessions} sesiones incluidas` });
+                        }
+                        if (features.length === 0) {
+                          const typeLabel: Record<string, string> = {
+                            session_pack: 'Paquete de clases',
+                            monthly: 'Mensualidad',
+                            drop_in: 'Clase suelta',
+                            subscription: 'Suscripción',
+                            class: 'Clases regulares',
+                            program: 'Programa deportivo',
+                          };
+                          features.push({ label: typeLabel[off.offering_type] ?? 'Programa deportivo' });
+                        }
+
+                        const durations: PlanDuration[] = activePlans.map(p => {
+                          const priceFmt = `$${p.price.toLocaleString('es-CO')}`;
+                          const label = `${formatFriendlyDuration(p.duration_days)} / ${priceFmt}`;
+                          return {
+                            key: p.id,
+                            label: p.name ? `${p.name} - ${label}` : label,
+                            price: p.price,
+                            durationDays: p.duration_days,
+                          };
+                        });
+
+                        return (
+                          <PlanCard
+                            key={off.id}
+                            title={off.name}
+                            sport={off.sport ?? undefined}
+                            features={features}
+                            durations={durations}
+                            primaryCta="Inscribirme"
+                            onPrimary={(selected) => handleEnrollOffering(off, selected)}
+                          />
+                        );
+                      })}
+                    </div>
+                  </>
                 ) : (
-                  programs.map((program) => (
-                    <Card key={program.id} className="overflow-hidden">
-                      <CardHeader>
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <CardTitle>{program.name}</CardTitle>
-                              {program.level && (
-                                <Badge variant="outline" className="text-xs">
-                                  <GraduationCap className="h-3 w-3 mr-1" />
-                                  {program.level.charAt(0).toUpperCase() + program.level.slice(1)}
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge variant="secondary">{program.sport}</Badge>
-                              {program.spots_available !== undefined && program.spots_available <= 5 && program.spots_available > 0 && (
-                                <Badge variant="destructive" className="animate-pulse">
-                                  ¡Solo {program.spots_available} cupos!
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-2xl font-bold text-primary">
-                              ${program.price_monthly.toLocaleString()}
-                            </p>
-                            <p className="text-sm text-muted-foreground">por mes</p>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        {program.description && (
-                          <p className="text-muted-foreground">{program.description}</p>
-                        )}
+                  // Fallback legacy: tabla teams
+                  <>
+                    <div className="text-center mb-6">
+                      <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Encuentra el plan ideal para ti</h2>
+                      <p className="text-muted-foreground mt-1">Elige entre los programas que ofrece {school.name}</p>
+                    </div>
+                    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                      {programs.map((program) => {
+                        const isFull = program.max_students !== null && program.current_students >= program.max_students;
+                        const features: PlanFeature[] = [];
 
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div className="flex items-center gap-2">
-                            <Users className="h-4 w-4 text-muted-foreground" />
-                            <span>{getAgeRange(program)}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Trophy className="h-4 w-4 text-muted-foreground" />
-                            <span>{getAvailability(program)}</span>
-                          </div>
-                          {program.schedule && (
-                            <div className="flex items-center gap-2 col-span-2">
-                              <Clock className="h-4 w-4 text-muted-foreground" />
-                              <span>{typeof program.schedule === 'string' ? program.schedule : JSON.stringify(program.schedule)}</span>
-                            </div>
-                          )}
-                        </div>
+                        if (program.description) {
+                          program.description
+                            .split(/\.\s+|\n+/)
+                            .map(s => s.trim())
+                            .filter(s => s.length > 3)
+                            .slice(0, 4)
+                            .forEach(s => features.push({ label: s.replace(/\.$/, '') }));
+                        }
+                        features.push({ label: `Edades: ${getAgeRange(program)}` });
+                        if (program.schedule) {
+                          const sched = typeof program.schedule === 'string' ? program.schedule : JSON.stringify(program.schedule);
+                          features.push({ label: `Horario: ${sched}` });
+                        }
+                        features.push({ label: getAvailability(program) });
 
-                        <Button
-                          className="w-full"
-                          onClick={() => handleEnroll(program)}
-                          disabled={
-                            program.max_students !== null &&
-                            program.current_students >= program.max_students
-                          }
-                        >
-                          <Calendar className="h-4 w-4 mr-2" />
-                          {program.max_students !== null &&
-                            program.current_students >= program.max_students
-                            ? 'Programa Lleno'
-                            : 'Inscribirme'}
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  ))
+                        const badges: { label: string; tone?: 'destructive' | 'secondary' | 'outline' }[] = [];
+                        if (program.spots_available !== undefined && program.spots_available <= 5 && program.spots_available > 0) {
+                          badges.push({ label: `¡Solo ${program.spots_available} cupos!`, tone: 'destructive' });
+                        }
+
+                        const durations: PlanDuration[] = [{
+                          key: 'monthly',
+                          label: `1 mes - 30 días / $${program.price_monthly.toLocaleString('es-CO')}`,
+                          price: program.price_monthly,
+                          durationDays: 30,
+                        }];
+
+                        return (
+                          <PlanCard
+                            key={program.id}
+                            title={program.name}
+                            sport={program.sport}
+                            level={program.level ? program.level.charAt(0).toUpperCase() + program.level.slice(1) : null}
+                            badges={badges}
+                            features={features}
+                            durations={durations}
+                            primaryCta="Inscribirme"
+                            onPrimary={() => handleEnroll(program)}
+                            disabled={isFull}
+                            disabledLabel="Programa lleno"
+                          />
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
               </TabsContent>
 
@@ -670,7 +780,7 @@ export default function SchoolDetailPage() {
                     <div>
                       <h3 className="font-semibold mb-3">Acerca de nosotros</h3>
                       <p className="text-muted-foreground leading-relaxed">
-                        {school.description || `En ${school.name}, nos dedicamos a formar atletas integrales a través de programas deportivos de alta calidad. Contamos con entrenadores certificados y experiencia comprobada en el desarrollo de jóvenes talentos. Nuestras instalaciones modernas y metodología de entrenamiento garantizan el mejor ambiente para el crecimiento deportivo y personal de nuestros estudiantes.`}
+                        {school.description || `En ${school.name}, nos dedicamos a formar atletas integrales a través de programas deportivos de alta calidad. Contamos con entrenadores certificados y experiencia comprobada en el desarrollo de jóvenes talentos. Nuestras instalaciones modernas y metodología de entrenamiento garantizan el mejor ambiente para el crecimiento deportivo y personal de nuestros deportistas.`}
                       </p>
                     </div>
 

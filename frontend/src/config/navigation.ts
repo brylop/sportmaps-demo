@@ -1,6 +1,8 @@
 import {
   Home,
   Calendar,
+  Landmark,
+  PieChart,
   Users,
   Trophy,
   BarChart3,
@@ -23,9 +25,18 @@ import {
   Send,
   GraduationCap,
   Dumbbell,
-  User
+  User,
+  ClipboardList,
+  IdCard,
+  FileCheck2,
+  QrCode,
+  Truck,
+  ShieldCheck,
+  CreditCard,
+  MonitorSpeaker
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
+import { SHOW_EXPLORE } from '@/lib/feature-flags';
 
 export interface NavItem {
   title: string;
@@ -39,6 +50,45 @@ export interface NavItem {
 export interface NavGroup {
   title: string;
   items: NavItem[];
+}
+
+/**
+ * "Mi Tienda" — grupo de navegación adicional que se renderiza al final
+ * del sidebar SOLO para usuarios con vendor_profile activo (cualquier rol).
+ * No depende del rol principal. Lo monta AppSidebar.
+ */
+export function getVendorNavGroup(opts: {
+  canSellProducts: boolean;
+  canSellServices: boolean;
+  verificationStatus: 'pending' | 'verified' | 'rejected' | null;
+}): NavGroup {
+  const items: NavItem[] = [
+    { title: 'Panel Tienda', href: '/vendor/dashboard', icon: ShoppingBag },
+  ];
+
+  if (opts.canSellProducts) {
+    items.push({ title: 'Productos',  href: '/vendor/products',  icon: ShoppingBag });
+    items.push({ title: 'Inventario', href: '/inventory',        icon: ClipboardList });
+  }
+  if (opts.canSellServices) {
+    items.push({ title: 'Servicios',  href: '/vendor/services',  icon: Activity });
+    items.push({ title: 'Agenda',     href: '/vendor/appointments', icon: Calendar });
+  }
+  items.push({ title: 'Pedidos',         href: '/orders',           icon: FileText });
+  items.push({ title: 'Inbox',           href: '/vendor/inbox',     icon: MessageSquare });
+  items.push({ title: 'Liquidaciones',   href: '/vendor/payouts',   icon: DollarSign });
+  items.push({ title: 'Envíos',          href: '/vendor/shipping',  icon: Truck });
+  items.push({ title: 'Promociones',     href: '/vendor/promotions', icon: Plus });
+  items.push({
+    title: 'Verificación',
+    href:  '/vendor/onboarding',
+    icon:  FileCheck2,
+    badge: opts.verificationStatus === 'pending' ? 'pendiente'
+         : opts.verificationStatus === 'rejected' ? 'revisar'
+         : undefined,
+  });
+
+  return { title: 'Mi Tienda', items };
 }
 
 /**
@@ -60,11 +110,13 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Principal',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Mi Calendario', href: '/calendar', icon: Calendar }
+          { title: 'Mi Calendario', href: '/calendar', icon: Calendar },
+          { title: 'Mis Pagos', href: '/athlete-payments', icon: DollarSign },
+          ...(SHOW_EXPLORE ? [{ title: 'Explorar', href: '/explorar', icon: MapPin }] : []),
         ]
       },
       {
-        title: 'Rendimiento',
+        title: 'Mi Rendimiento',
         items: [
           { title: 'Estadísticas', href: '/stats', icon: BarChart3 },
           { title: 'Objetivos', href: '/goals', icon: Target },
@@ -72,20 +124,37 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         ]
       },
       {
-        title: 'Explorar',
-        items: [
-          { title: 'Explorar', href: '/explorar', icon: MapPin },
-        ]
-      },
-      {
-        title: 'Mi Actividad',
+        title: 'Actividad Deportiva',
         items: [
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Mis Eventos', href: '/my-event-registrations', icon: Calendar },
-          { title: 'Mis Pagos', href: '/athlete-payments', icon: DollarSign },
-          { title: 'Tienda Deportiva', href: '/shop', icon: ShoppingBag },
-          { title: 'Entrenadores', href: '/explore/trainers', icon: Dumbbell },
-          { title: 'Bienestar', href: '/wellness', icon: Heart },
+        ]
+      },
+      {
+        title: 'Bienestar',
+        items: [
+          { title: 'Explorar Bienestar', href: '/wellness', icon: Heart },
+          { title: 'Mis Citas', href: '/wellness/appointments', icon: Calendar },
+        ]
+      },
+      {
+        title: 'Tienda',
+        items: [
+          { title: 'Catálogo', href: '/shop', icon: ShoppingBag },
+        ]
+      },
+      {
+        title: 'Documentos',
+        items: [
+          { title: 'Mis Carnets', href: '/my-cards', icon: IdCard },
+        ]
+      },
+      {
+        title: 'Cuenta',
+        items: [
+          // Sin 'Facturación': /mi-plan es el plan SaaS que la ESCUELA le paga a
+          // SportMaps. Un atleta no lo administra y no debe ver ni el tier ni el
+          // conteo de alumnos activos de la escuela.
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       },
@@ -100,27 +169,32 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Calendario Familiar', href: '/calendar', icon: Calendar }
         ]
       },
-      {
+      ...(SHOW_EXPLORE ? [{
         title: 'Explorar',
         items: [
           { title: 'Explorar', href: '/explorar', icon: MapPin },
         ]
-      },
+      }] : []),
       {
         title: 'Seguimiento',
         items: [
           { title: 'Progreso Deportivo', href: '/academic-progress', icon: BookOpen },
           { title: 'Asistencias', href: '/parent-attendance', icon: BarChart3 },
-          { title: 'Pagos', href: '/my-payments', icon: DollarSign }
+          { title: 'Pagos', href: '/my-payments', icon: DollarSign },
+          { title: 'Tienda', href: '/mi-tienda', icon: ShoppingBag }
         ]
       },
       {
         title: 'Mi Actividad',
         items: [
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
-          { title: 'Entrenadores', href: '/explore/trainers', icon: Dumbbell },
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Mis Eventos', href: '/my-event-registrations', icon: Calendar },
+          { title: 'Mis Citas', href: '/wellness/appointments', icon: Heart },
+          { title: 'Carnets de mis hijos', href: '/my-cards', icon: IdCard },
+          { title: 'Mis Constancias', href: '/my-certificates', icon: FileCheck2 },
+          // Sin 'Facturación': /mi-plan es el plan SaaS de la escuela, no del padre.
+          // Sus propios cobros están en 'Pagos' (/my-payments).
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
@@ -133,17 +207,27 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Mis Equipos', href: '/teams', icon: Users },
           { title: 'Mis Planes', href: '/coach-plans', icon: FileText },
-          { title: 'Mis Estudiantes', href: '/students', icon: Users },
+          { title: 'Mi Dotación', href: '/coach/dotacion', icon: Dumbbell },
+          { title: 'Mis Deportistas', href: '/students', icon: Users },
           { title: 'Calendario', href: '/calendar', icon: Calendar }
         ]
       },
       {
         title: 'Gestión',
         items: [
-          { title: 'Asistencias', href: '/coach-attendance', icon: BarChart3 },
+          {
+            title: 'Asistencias',
+            icon: BarChart3,
+            submenu: [
+              { title: 'Supervisión', href: '/coach-attendance', icon: BarChart3 },
+              { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
+            ],
+          },
           { title: 'Resultados', href: '/results', icon: Trophy },
-          { title: 'Planes de Entrenamiento', href: '/training-plans', icon: Activity },
-          { title: 'Reportes', href: '/coach-reports', icon: FileText }
+          { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity },
+          { title: 'Rutinas del Gym', href: '/school/routines', icon: Dumbbell },
+          { title: 'Reportes', href: '/coach-reports', icon: FileText },
+          { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText }
         ]
       },
       {
@@ -151,6 +235,9 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
           { title: 'Anuncios', href: '/announcements', icon: Bell },
+          // Sin 'Facturación': el coach está asociado a la escuela, no contrata su
+          // plan. El entrenador independiente sí ve el suyo — ese es el rol
+          // 'personal_trainer', que tiene su propio menú.
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
@@ -161,9 +248,9 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Principal',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
+          { title: 'Deportistas', href: '/students', icon: Users },
+          { title: 'Entrenadores', href: '/staff', icon: Users },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Estudiantes', href: '/students', icon: Users },
-          { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
       },
       {
@@ -178,35 +265,73 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             ]
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
-          { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
-          { title: 'Resultados', href: '/results-overview', icon: Trophy }
+          { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity },
+          { title: 'Rutinas del Gym', href: '/school/routines', icon: Dumbbell },
+          { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText },
+          {
+            title: 'Asistencias',
+            icon: BarChart3,
+            submenu: [
+              { title: 'Supervisión', href: '/attendance-supervision', icon: BarChart3 },
+              { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
+            ],
+          },
+          { title: 'Resultados', href: '/results-overview', icon: Trophy },
+          { title: 'Mis Torneos', href: '/school/tournaments', icon: Trophy },
+          { title: 'Dotación', href: '/school/equipment', icon: Dumbbell },
         ]
       },
       {
-        title: 'Explorar & Competencias',
-        items: [
-          { title: 'Explorar', href: '/explorar', icon: MapPin },
-          { title: 'Mis Delegaciones', href: '/school/delegations', icon: Map }
-        ]
-      },
-      {
-        title: 'Tienda',
-        items: [
-          { title: 'Productos de la Escuela', href: '/products', icon: ShoppingBag },
-          { title: 'Pedidos', href: '/orders', icon: ShoppingBag }
-        ]
-      },
-      {
-        title: 'Administración',
+        title: 'Finanzas',
         items: [
           { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
+          { title: 'Modo Recepción', href: '/recepcion', icon: MonitorSpeaker },
+          {
+            title: 'Finanzas y Contabilidad',
+            icon: BookOpen,
+            submenu: [
+              { title: 'Finanzas', href: '/finances', icon: DollarSign },
+              { title: 'Contabilidad', href: '/accounting', icon: BookOpen },
+              { title: 'Proveedores', href: '/accounting/suppliers', icon: Truck },
+              { title: 'Nómina', href: '/accounting/payroll', icon: Users },
+              { title: 'Estado de resultados', href: '/accounting/reports', icon: BarChart3 },
+              { title: 'Presupuesto', href: '/accounting/budget', icon: PieChart },
+              { title: 'Reportes', href: '/school-reports', icon: FileText },
+            ],
+          },
           { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
-          { title: 'Plantillas', href: '/message-templates', icon: MessageSquare },
-          { title: 'Finanzas', href: '/finances', icon: DollarSign },
-          { title: 'Reportes', href: '/school-reports', icon: FileText },
+          { title: 'Plantillas de Mensajes', href: '/message-templates', icon: MessageSquare },
+        ]
+      },
+      {
+        title: 'Documentos e Identidad',
+        items: [
+          {
+            title: 'Carnets',
+            icon: IdCard,
+            submenu: [
+              { title: 'Carnets Digitales', href: '/cards', icon: IdCard },
+              { title: 'Plantillas de Carnets', href: '/cards/templates/certificates', icon: FileText },
+            ],
+          },
+          { title: 'Constancias', href: '/certificates', icon: FileCheck2 },
+          { title: 'QR de Inscripción', href: '/qr-signup', icon: QrCode },
+        ]
+      },
+      {
+        title: 'Sedes e Instalaciones',
+        items: [
           { title: 'Sedes', href: '/branches', icon: MapPin },
           { title: 'Instalaciones', href: '/facilities', icon: Building },
-          { title: 'Configuración', href: '/settings', icon: Settings }
+          { title: 'Control de Acceso', href: '/school/access-control', icon: ShieldCheck },
+        ]
+      },
+      {
+        title: 'Cuenta',
+        items: [
+          { title: 'Mi Perfil Público', href: '/school/public-profile', icon: User },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
+          { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }
     ],
@@ -225,7 +350,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Mis Servicios', href: '/vendor/services', icon: Activity },
           { title: 'Citas Reservadas', href: '/vendor/appointments', icon: Calendar },
-          { title: 'Explorar', href: '/explorar', icon: MapPin }
         ]
       },
       {
@@ -241,7 +365,14 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Planes Nutricionales', href: '/nutrition', icon: BookOpen },
           { title: 'Reportes', href: '/wellness-reports', icon: FileText },
-          { title: 'Configuración', href: '/settings', icon: Settings }
+        ]
+      },
+      {
+        title: 'Perfil',
+        items: [
+          { title: 'Mi Perfil Público', href: '/vendor/public-profile', icon: User },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
+          { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }
     ],
@@ -253,7 +384,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Dashboard Vendedor', href: '/vendor/dashboard', icon: Home },
           { title: 'Mis Productos', href: '/vendor/products', icon: ShoppingBag },
           { title: 'Pedidos', href: '/orders', icon: FileText },
-          { title: 'Explorar', href: '/explorar', icon: MapPin }
         ]
       },
       {
@@ -270,89 +400,78 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Clientes', href: '/customers', icon: Users },
           { title: 'Reportes', href: '/store-reports', icon: FileText },
           { title: 'Promociones', href: '/promotions', icon: Trophy },
-          { title: 'Configuración', href: '/settings', icon: Settings }
+        ]
+      },
+      {
+        title: 'Perfil',
+        items: [
+          { title: 'Mi Perfil Público', href: '/vendor/public-profile', icon: User },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
+          { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }
     ],
 
     admin: [
       {
-        title: 'Principal',
+        title: 'Plataforma',
         items: [
-          { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Estudiantes', href: '/students', icon: Users },
-          { title: 'Entrenadores', href: '/staff', icon: Users }
+          { title: 'Dashboard',           href: '/admin',                icon: Home },
+          { title: 'Logs y actividad',    href: '/admin/activity-logs',  icon: BarChart3 },
+          { title: 'Analítica',           href: '/admin/analytics',      icon: BarChart3 }
         ]
       },
       {
-        title: 'Gestión Deportiva',
+        title: 'Gestión Global',
         items: [
-          {
-            title: 'Equipos y Planes',
-            icon: Users,
-            submenu: [
-              { title: 'Mis Equipos', href: '/teams', icon: Users },
-              { title: 'Mis Planes', href: '/offerings', icon: FileText }
-            ]
-          },
-          { title: 'Calendario', href: '/calendar', icon: Calendar },
-          { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
-          { title: 'Resultados', href: '/results-overview', icon: Trophy }
+          { title: 'Escuelas',  href: '/admin/schools', icon: Building },
+          { title: 'Suscripciones', href: '/admin/subscriptions', icon: DollarSign },
+          { title: 'Usuarios',  href: '/admin/users',   icon: Users },
+          { title: 'Reportes',  href: '/admin/reports', icon: FileText }
         ]
       },
       {
-        title: 'Administración',
+        title: 'Sistema',
         items: [
-          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
-          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
-          { title: 'Plantillas', href: '/message-templates', icon: MessageSquare },
-          { title: 'Finanzas', href: '/finances', icon: DollarSign },
-          { title: 'Reportes', href: '/school-reports', icon: FileText },
-          { title: 'Sedes', href: '/branches', icon: MapPin },
-          { title: 'Instalaciones', href: '/facilities', icon: Building },
-          { title: 'Configuración', href: '/settings', icon: Settings }
+          { title: 'Configuración',     href: '/admin/config',  icon: Settings },
+          { title: 'Notificaciones',    href: '/notifications', icon: Bell },
+          { title: 'Mensajes',          href: '/messages',      icon: MessageSquare },
+          { title: 'Facturación',       href: '/mi-plan',       icon: CreditCard }
         ]
       }
     ],
 
     super_admin: [
       {
-        title: 'Principal',
+        title: 'Plataforma',
         items: [
-          { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Estudiantes', href: '/students', icon: Users },
-          { title: 'Entrenadores', href: '/staff', icon: Users }
+          { title: 'Dashboard', href: '/admin', icon: Home },
+          { title: 'Logs y actividad', href: '/admin/activity-logs', icon: BarChart3 },
+          { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 }
         ]
       },
       {
-        title: 'Gestión Deportiva',
+        title: 'Gestión Global',
         items: [
-          {
-            title: 'Equipos y Planes',
-            icon: Users,
-            submenu: [
-              { title: 'Mis Equipos', href: '/teams', icon: Users },
-              { title: 'Mis Planes', href: '/offerings', icon: FileText }
-            ]
-          },
-          { title: 'Calendario', href: '/calendar', icon: Calendar },
-          { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
-          { title: 'Resultados', href: '/results-overview', icon: Trophy }
+          { title: 'Escuelas', href: '/admin/schools', icon: Building },
+          { title: 'Suscripciones', href: '/admin/subscriptions', icon: DollarSign },
+          { title: 'Usuarios', href: '/admin/users', icon: Users },
+          { title: 'Reportes', href: '/admin/reports', icon: FileText }
         ]
       },
       {
-        title: 'Administración',
+        title: 'Moderación',
         items: [
-          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
-          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
-          { title: 'Plantillas', href: '/message-templates', icon: MessageSquare },
-          { title: 'Finanzas', href: '/finances', icon: DollarSign },
-          { title: 'Reportes', href: '/school-reports', icon: FileText },
-          { title: 'Sedes', href: '/branches', icon: MapPin },
-          { title: 'Instalaciones', href: '/facilities', icon: Building },
-          { title: 'Configuración', href: '/settings', icon: Settings }
+          { title: 'Marketplace',     href: '/admin/marketplace/moderation', icon: ShieldCheck },
+          { title: 'Pagos a vendors', href: '/admin/payouts',                icon: DollarSign }
+        ]
+      },
+      {
+        title: 'Sistema',
+        items: [
+          { title: 'Configuración', href: '/admin/config', icon: Settings },
+          { title: 'Parámetros de Nómina', href: '/admin/payroll-config', icon: Landmark },
+          { title: 'Notificaciones', href: '/notifications', icon: Bell }
         ]
       }
     ],
@@ -362,9 +481,9 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Principal',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
+          { title: 'Deportistas', href: '/students', icon: Users },
+          { title: 'Entrenadores', href: '/staff', icon: Users },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Estudiantes', href: '/students', icon: Users },
-          { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
       },
       {
@@ -379,21 +498,71 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             ]
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
-          { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
-          { title: 'Resultados', href: '/results-overview', icon: Trophy }
+          { title: 'Rutinas del Gym', href: '/school/routines', icon: Dumbbell },
+           { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText },
+          {
+            title: 'Asistencias',
+            icon: BarChart3,
+            submenu: [
+              { title: 'Supervisión', href: '/attendance-supervision', icon: BarChart3 },
+              { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
+            ],
+          },
+          { title: 'Resultados', href: '/results-overview', icon: Trophy },
+          { title: 'Mis Torneos', href: '/school/tournaments', icon: Trophy },
+          { title: 'Dotación', href: '/school/equipment', icon: Dumbbell },
         ]
       },
       {
-        title: 'Administración',
+        title: 'Finanzas',
         items: [
           { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
+          { title: 'Modo Recepción', href: '/recepcion', icon: MonitorSpeaker },
+          {
+            title: 'Finanzas y Contabilidad',
+            icon: BookOpen,
+            submenu: [
+              { title: 'Finanzas', href: '/finances', icon: DollarSign },
+              { title: 'Contabilidad', href: '/accounting', icon: BookOpen },
+              { title: 'Proveedores', href: '/accounting/suppliers', icon: Truck },
+              { title: 'Nómina', href: '/accounting/payroll', icon: Users },
+              { title: 'Estado de resultados', href: '/accounting/reports', icon: BarChart3 },
+              { title: 'Presupuesto', href: '/accounting/budget', icon: PieChart },
+              { title: 'Reportes', href: '/school-reports', icon: FileText },
+            ],
+          },
           { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
-          { title: 'Plantillas', href: '/message-templates', icon: MessageSquare },
-          { title: 'Finanzas', href: '/finances', icon: DollarSign },
-          { title: 'Reportes', href: '/school-reports', icon: FileText },
+          { title: 'Plantillas de Mensajes', href: '/message-templates', icon: MessageSquare },
+        ]
+      },
+      {
+        title: 'Documentos e Identidad',
+        items: [
+          {
+            title: 'Carnets',
+            icon: IdCard,
+            submenu: [
+              { title: 'Carnets Digitales', href: '/cards', icon: IdCard },
+              { title: 'Plantillas de Carnets', href: '/cards/templates/certificates', icon: FileText },
+            ],
+          },
+          { title: 'Constancias', href: '/certificates', icon: FileCheck2 },
+          { title: 'QR de Inscripción', href: '/qr-signup', icon: QrCode },
+        ]
+      },
+      {
+        title: 'Sedes e Instalaciones',
+        items: [
           { title: 'Sedes', href: '/branches', icon: MapPin },
           { title: 'Instalaciones', href: '/facilities', icon: Building },
-          { title: 'Configuración', href: '/settings', icon: Settings }
+          { title: 'Control de Acceso', href: '/school/access-control', icon: ShieldCheck },
+        ]
+      },
+      {
+        title: 'Cuenta',
+        items: [
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
+          { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }
     ],
@@ -419,6 +588,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Cuenta',
         items: [
           { title: 'Perfil', href: '/organizer/profile', icon: Users },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/organizer/settings', icon: Settings }
         ]
       }
@@ -437,6 +607,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Cuenta',
         items: [
           { title: 'Notificaciones', href: '/notifications', icon: Bell },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
@@ -460,9 +631,16 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         ]
       },
       {
+        title: 'Mi Actividad',
+        items: [
+          { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
+        ]
+      },
+      {
         title: 'Perfil',
         items: [
           { title: 'Mi Perfil Público', href: '/trainer/profile', icon: User },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }

@@ -21,8 +21,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { EnrollPlanStudentModal } from '@/components/enrollment/EnrollPlanStudentModal';
 import { SPORTS_LIST, SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
 import { getSportVisual } from '@/lib/sportVisuals';
-import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus, Trash2, ArrowRight } from 'lucide-react';
+import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus, Trash2, ArrowRight, Copy } from 'lucide-react';
 import { OfferingCoachesPanel } from './OfferingCoachesPanel';
+import { formatFriendlyDuration } from '@/lib/utils';
 
 const MIN_SEARCH_CHARS = 1;
 
@@ -35,11 +36,15 @@ const OFFERING_TYPE_LABELS: Record<string, string> = {
 };
 
 const PLAN_DURATION_OPTIONS = [
-    { label: 'Mensual', value: '30' },
-    { label: '3 meses', value: '90' },
-    { label: '6 meses', value: '180' },
-    { label: '12 meses', value: '365' },
+    { label: 'Semanal (7 días)', value: '7' },
+    { label: 'Quincenal (15 días)', value: '15' },
+    { label: 'Mensual (30 días)', value: '30' },
+    { label: '3 meses (90 días)', value: '90' },
+    { label: '6 meses (180 días)', value: '180' },
+    { label: '12 meses (365 días)', value: '365' },
+    { label: 'Personalizado...', value: 'custom' },
 ];
+
 
 const DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 const HOUR_OPTIONS = [
@@ -450,6 +455,9 @@ export function OfferingsManagement() {
         schedule: [] as ScheduleSlot[],
     });
 
+    const [isCustomDays, setIsCustomDays] = useState(false);
+    const [customDays, setCustomDays] = useState('30');
+
     const resetOfferingForm = () => {
         setNewOffering({ name: '', description: '', offering_type: 'membership', sport: '' });
         setEditingOfferingId(null);
@@ -457,8 +465,11 @@ export function OfferingsManagement() {
 
     const resetPlanForm = () => {
         setNewPlan({ name: '', max_sessions: '', max_secondary_sessions: '0', secondary_session_label: '', duration_days: '30', price: '', auto_renew: false, schedule_type: 'general', schedule: [] });
+        setIsCustomDays(false);
+        setCustomDays('30');
         setEditingPlanId(null);
     };
+
 
     const handleSaveOffering = () => {
         const payload = {
@@ -483,11 +494,15 @@ export function OfferingsManagement() {
     };
 
     const handleSavePlan = (offeringId: string) => {
+        const durationValue = newPlan.duration_days === 'custom'
+            ? parseInt(customDays)
+            : parseInt(newPlan.duration_days);
+
         const payload = {
             name: newPlan.name,
             max_sessions: newPlan.max_sessions ? parseInt(newPlan.max_sessions) : null,
             max_secondary_sessions: parseInt(newPlan.max_secondary_sessions) || 0,
-            duration_days: parseInt(newPlan.duration_days) || 30,
+            duration_days: durationValue || 30,
             price: parseFloat(newPlan.price) || 0,
             auto_renew: newPlan.auto_renew,
             metadata: {
@@ -526,20 +541,25 @@ export function OfferingsManagement() {
         const plan = offering?.offering_plans?.find((p) => p.id === planId);
         if (plan) {
             setEditingPlanId(planId);
+            const durationStr = plan.duration_days?.toString() || '30';
+            const isPreset = ['7', '15', '30', '90', '180', '365'].includes(durationStr);
             setNewPlan({
                 name: plan.name,
                 max_sessions: plan.max_sessions?.toString() || '',
                 max_secondary_sessions: plan.max_secondary_sessions?.toString() || '0',
                 secondary_session_label: (plan.metadata?.secondary_session_label as string) || '',
-                duration_days: plan.duration_days?.toString() || '30',
+                duration_days: isPreset ? durationStr : 'custom',
                 price: plan.price?.toString() || '',
                 auto_renew: plan.auto_renew || false,
                 schedule_type: (plan.metadata?.schedule_type as 'general' | 'specific') || 'general',
                 schedule: (plan.metadata?.schedule as ScheduleSlot[]) || [],
             });
+            setIsCustomDays(!isPreset);
+            setCustomDays(!isPreset ? durationStr : '30');
             setShowCreatePlan(offeringId);
         }
     };
+
 
     const handleOpenEnroll = (offering: Offering, plan: any) => {
         setEnrollModal({
@@ -563,7 +583,7 @@ export function OfferingsManagement() {
             onError: (err: any) => {
                 const code = err?.body?.code || err?.code;
                 const msg = code === 'PLAN_HAS_ACTIVE_ENROLLMENTS'
-                    ? 'No puedes eliminar una tarifa con estudiantes activos. Cancela las inscripciones primero.'
+                    ? 'No puedes eliminar una tarifa con deportistas activos. Cancela las inscripciones primero.'
                     : err?.body?.error || err?.message || 'No se pudo eliminar la tarifa.';
                 toast({ title: '❌ Error al eliminar tarifa', description: msg, variant: 'destructive' });
                 setPlanToDelete(null);
@@ -581,7 +601,7 @@ export function OfferingsManagement() {
             onError: (err: any) => {
                 const code = err?.body?.code || err?.code;
                 const msg = code === 'OFFERING_HAS_ACTIVE_ENROLLMENTS'
-                    ? 'No puedes eliminar un plan con estudiantes activos. Cancela las inscripciones primero.'
+                    ? 'No puedes eliminar un plan con deportistas activos. Cancela las inscripciones primero.'
                     : err?.body?.error || err?.message || 'No se pudo eliminar el plan.';
                 toast({ title: '❌ Error al eliminar plan', description: msg, variant: 'destructive' });
                 setOfferingToDelete(null);
@@ -609,7 +629,7 @@ export function OfferingsManagement() {
                 <div>
                     <h3 className="text-lg font-bold tracking-tight">Planes y Membresías</h3>
                     <p className="text-sm text-muted-foreground mt-0.5">
-                        {offerings.length > 0 ? `${offerings.length} plan${offerings.length !== 1 ? 'es' : ''} configurado${offerings.length !== 1 ? 's' : ''}` : 'Configura los planes para tus estudiantes'}
+                        {offerings.length > 0 ? `${offerings.length} plan${offerings.length !== 1 ? 'es' : ''} configurado${offerings.length !== 1 ? 's' : ''}` : 'Configura los planes para tus deportistas'}
                     </p>
                 </div>
                 <Button onClick={() => { resetOfferingForm(); setShowCreate(true); }} size="sm" className="gap-1.5 shadow-sm">
@@ -643,6 +663,33 @@ export function OfferingsManagement() {
                             onEnroll={handleOpenEnroll}
                             onDeleteOffering={() => setOfferingToDelete(offering.id)}
                             onDeletePlan={(planId) => setPlanToDelete({ offeringId: offering.id, planId })}
+                            onCopyJoinLink={(planId, planName) => {
+                                const link = `${window.location.origin}/join-plan/${planId}`;
+                                const waText = encodeURIComponent(`Accede al plan ${planName} en SportMaps: ${link}`);
+                                toast({
+                                    title: `🔗 Invitar al plan ${planName}`,
+                                    description: (
+                                        <div className="flex gap-2 mt-2 flex-wrap">
+                                            <a
+                                                href={`https://wa.me/?text=${waText}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-[#25D366] text-white hover:bg-[#1ebe59] transition-colors"
+                                            >
+                                                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 fill-current" xmlns="http://www.w3.org/2000/svg"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                                                WhatsApp
+                                            </a>
+                                            <button
+                                                onClick={() => navigator.clipboard.writeText(link)}
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-border bg-background hover:bg-muted transition-colors"
+                                            >
+                                                <Copy className="h-3.5 w-3.5" />
+                                                Copiar
+                                            </button>
+                                        </div>
+                                    ) as any,
+                                });
+                            }}
                         />
                     ))}
                 </div>
@@ -656,7 +703,7 @@ export function OfferingsManagement() {
                             {editingOfferingId ? '✏️ Editar Plan' : '✨ Nuevo Plan'}
                         </DialogTitle>
                         <p className="text-sm text-muted-foreground">
-                            {editingOfferingId ? 'Modifica los detalles de este plan.' : 'Crea un plan o membresía para ofrecer a tus estudiantes.'}
+                            {editingOfferingId ? 'Modifica los detalles de este plan.' : 'Crea un plan o membresía para ofrecer a tus deportistas.'}
                         </p>
                     </DialogHeader>
 
@@ -809,7 +856,10 @@ export function OfferingsManagement() {
                                 </Label>
                                 <Select
                                     value={newPlan.duration_days}
-                                    onValueChange={(v) => setNewPlan((prev) => ({ ...prev, duration_days: v }))}
+                                    onValueChange={(v) => {
+                                        setNewPlan((prev) => ({ ...prev, duration_days: v }));
+                                        setIsCustomDays(v === 'custom');
+                                    }}
                                 >
                                     <SelectTrigger className="h-9">
                                         <SelectValue placeholder="Seleccionar duración" />
@@ -824,6 +874,25 @@ export function OfferingsManagement() {
                                 </Select>
                             </div>
                         </div>
+
+                        {isCustomDays && (
+                            <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                                <Label className="text-sm font-medium flex items-center gap-1.5">
+                                    <Clock className="h-3.5 w-3.5 text-blue-500" /> Días de duración <span className="text-destructive">*</span>
+                                </Label>
+                                <div className="flex items-center gap-2">
+                                    <NumberStepper
+                                        id="custom-duration-days"
+                                        value={customDays}
+                                        onChange={(v) => setCustomDays(v)}
+                                        placeholder="30"
+                                        min={1}
+                                        step={1}
+                                    />
+                                    <span className="text-sm text-muted-foreground font-medium">días</span>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Sessions row */}
                         <div className="grid grid-cols-2 gap-3">
@@ -971,7 +1040,7 @@ export function OfferingsManagement() {
                         <AlertDialogTitle>¿Eliminar plan completo?</AlertDialogTitle>
                         <AlertDialogDescription>
                             Se eliminará el plan y todas sus tarifas. 
-                            Solo posible si no hay estudiantes inscritos.
+                            Solo posible si no hay deportistas inscritos.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -1002,6 +1071,7 @@ function OfferingCard({
     onEnroll,
     onDeleteOffering,
     onDeletePlan,
+    onCopyJoinLink,
 }: {
     offering: Offering;
     onEditOffering: () => void;
@@ -1010,6 +1080,7 @@ function OfferingCard({
     onEnroll?: (offering: Offering, plan: any) => void;
     onDeleteOffering?: () => void;
     onDeletePlan?: (planId: string) => void;
+    onCopyJoinLink?: (planId: string, planName: string) => void;
 }) {
     const plans = offering.offering_plans ?? [];
     const sportVisual = offering.sport ? getSportVisual(offering.sport.toLowerCase()) : null;
@@ -1113,7 +1184,7 @@ function OfferingCard({
                                             )}
                                             <span className="text-foreground/80 flex items-center gap-0.5">
                                                 <Clock className="h-3 w-3" />
-                                                {PLAN_DURATION_OPTIONS.find(opt => opt.value === plan.duration_days.toString())?.label || `${plan.duration_days}d`}
+                                                {formatFriendlyDuration(plan.duration_days)}
                                             </span>
                                             <span className="font-bold text-primary ml-1">
                                                 ${formatCurrency(plan.price)}
@@ -1132,6 +1203,18 @@ function OfferingCard({
                                             >
                                                 <UserPlus className="h-3.5 w-3.5" />
                                                 <span className="hidden sm:inline text-[10px]">Inscribir</span>
+                                            </Button>
+                                        )}
+                                        {onCopyJoinLink && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => onCopyJoinLink(plan.id, plan.name)}
+                                                className="shrink-0 h-8 px-2 hover:bg-blue-50 hover:text-blue-600 border border-transparent hover:border-blue-100 transition-all gap-1.5"
+                                                title="Copiar link de invitacion al plan"
+                                            >
+                                                <Copy className="h-3.5 w-3.5" />
+                                                <span className="hidden sm:inline text-[10px]">Invitar</span>
                                             </Button>
                                         )}
                                         {onEditPlan && (

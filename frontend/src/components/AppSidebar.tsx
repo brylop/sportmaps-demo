@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { LogOut, ChevronDown } from 'lucide-react';
@@ -19,8 +19,16 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { getNavigationByRole } from '@/config/navigation';
+import { getNavigationByRole, getVendorNavGroup } from '@/config/navigation';
 import { UserRole } from '@/types/dashboard';
+import { useVendorProfile } from '@/hooks/useVendorProfile';
+import { useEntitlements } from '@/hooks/useEntitlements';
+// NOTE: SchoolSwitcher esta desactivado hasta que el schema soporte sede
+// end-to-end (falta enrollments.branch_id y varios enrollments no tienen
+// team asociado, asi que no se puede scopear fiablemente). El componente
+// se conserva en src/components/common/SchoolSwitcher.tsx para reactivar
+// una vez se aplique la migracion correspondiente.
+// import { SchoolSwitcher } from './common/SchoolSwitcher';
 import Logo from './Logo';
 
 export function AppSidebar() {
@@ -30,22 +38,29 @@ export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = sidebar;
   const location = useLocation();
   const [openSubmenus, setOpenSubmenus] = useState<Record<string, boolean>>({});
-
-  if (!profile || !user) return null;
+  const { hasVendorProfile, canSellProducts, canSellServices, verificationStatus } = useVendorProfile();
+  const { hasAddon } = useEntitlements();
 
   // En mobile el sidebar siempre muestra contenido expandido (nunca collapsed)
   const isCollapsed = !isMobile && state === 'collapsed';
 
   // Normalize role for navigation mapping
-  const effectiveRole = profile?.role === 'personal_trainer' 
-    ? 'personal_trainer' 
-    : (currentUserRole || profile?.role);
+  // Profile-level platform roles (admin/super_admin/personal_trainer) win over
+  // any per-school context role (currentUserRole) — un super-admin que ademas
+  // sea miembro de una escuela debe verse SIEMPRE como super-admin.
+  const isPlatformAdmin = profile?.role === 'admin' || profile?.role === 'super_admin';
+  const effectiveRole =
+    isPlatformAdmin || profile?.role === 'personal_trainer'
+      ? profile?.role
+      : (currentUserRole || profile?.role);
   let navigationRole: UserRole = 'athlete';
 
   if (effectiveRole) {
     switch (effectiveRole) {
-      case 'owner':
       case 'super_admin':
+        navigationRole = 'super_admin';
+        break;
+      case 'owner':
       case 'school':
         navigationRole = 'school';
         break;
@@ -71,13 +86,85 @@ export function AppSidebar() {
       case 'personal_trainer':
         navigationRole = 'personal_trainer';
         break;
+      // external_vendor es el rol nuevo que reemplaza al legacy store_owner.
+      // Usan exactamente la misma navegacion de vendor.
+      case 'external_vendor':
+      case 'store_owner':
+        navigationRole = 'store_owner';
+        break;
+      case 'wellness_professional':
+        navigationRole = 'wellness_professional';
+        break;
       default:
         navigationRole = (effectiveRole as UserRole) || 'athlete';
         break;
     }
   }
 
-  const navigationGroups = getNavigationByRole(navigationRole);
+  const baseNavigationGroups = getNavigationByRole(navigationRole);
+
+  // Mi Tienda: grupo ADICIONAL para roles que NO son primariamente vendor
+  // pero que decidieron sumarle marketplace a su cuenta.
+  //
+  // Roles vendor-primarios (external_vendor, wellness_professional,
+  // personal_trainer, store_owner) NO ven este grupo porque su sidebar
+  // principal ya cubre productos/servicios/pedidos/agenda. Mostrarlo
+  // duplica items y confunde con "Verificacion pendiente" mal posicionado.
+  //
+  // Roles school (school/school_admin/owner) requieren addon `store`
+  // explicito (es upgrade pago via /mi-plan).
+  //
+  // Roles candidatos a ver el grupo: coach (que quiere vender servicios
+  // extra), y school CON addon `store` activo.
+  const isSchoolRole = effectiveRole === 'school' || effectiveRole === 'school_admin' || effectiveRole === 'owner';
+  const isVendorPrimaryRole = (
+    effectiveRole === 'external_vendor' ||
+    effectiveRole === 'wellness_professional' ||
+    effectiveRole === 'personal_trainer' ||
+    effectiveRole === 'store_owner'
+  );
+  const schoolGateOk = !isSchoolRole || hasAddon('store');
+  const showVendorGroup = hasVendorProfile && schoolGateOk && !isVendorPrimaryRole;
+  const navigationGroups = showVendorGroup
+    ? [...baseNavigationGroups, getVendorNavGroup({ canSellProducts, canSellServices, verificationStatus })]
+    : baseNavigationGroups;
+
+  // ── Acordeon de grupos (roadmap I5) ──────────────────────────────────
+  // Solo un grupo colapsable queda abierto a la vez; el primero ("Principal")
+  // queda fijo. El grupo que contiene la ruta activa se abre solo para que el
+  // usuario siempre sepa en que modulo esta. El estado se persiste por rol.
+  const groupContainsPath = (group: (typeof navigationGroups)[number]) =>
+    group.items.some(item =>
+      (!!item.href && location.pathname.startsWith(item.href)) ||
+      (item.submenu?.some(sub => !!sub.href && location.pathname.startsWith(sub.href)) ?? false)
+    );
+
+  const groupStorageKey = `sportmaps_sidebar_group_${navigationRole}`;
+  const activeGroupTitle = useMemo(() => {
+    const g = navigationGroups.find((grp, idx) => idx !== 0 && groupContainsPath(grp));
+    return g?.title ?? null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigationGroups, location.pathname]);
+
+  const [openGroup, setOpenGroup] = useState<string | null>(() => {
+    try { return localStorage.getItem(groupStorageKey); } catch { return null; }
+  });
+
+  // Al navegar a otro modulo, abre el grupo que lo contiene (acordeon).
+  useEffect(() => {
+    if (activeGroupTitle) setOpenGroup(activeGroupTitle);
+  }, [activeGroupTitle]);
+
+  const toggleGroup = (title: string) => {
+    setOpenGroup(prev => {
+      const next = prev === title ? null : title;
+      try {
+        if (next) localStorage.setItem(groupStorageKey, next);
+        else localStorage.removeItem(groupStorageKey);
+      } catch { /* localStorage no disponible */ }
+      return next;
+    });
+  };
 
   const getUserInitials = () => {
     if (profile.full_name) {
@@ -87,20 +174,26 @@ export function AppSidebar() {
   };
 
   const getRoleBadge = () => {
+    // Platform-level admins SIEMPRE son Super Admin, sin importar contextos
+    if (profile?.role === 'admin' || profile?.role === 'super_admin') {
+      return 'Super Admin';
+    }
     const roleToShow = effectiveRole;
     if (roleToShow === 'owner') return 'Propietario';
     if (roleToShow === 'reporter') return 'Auditoría';
-    if (roleToShow === 'school_admin' || roleToShow === 'admin') {
+    if (roleToShow === 'school_admin') {
       return isGlobalAdmin ? 'Admin General' : 'Admin Sede';
     }
     const roleLabels: Record<string, string> = {
       athlete: 'Deportista', parent: 'Padre', coach: 'Entrenador',
       school: 'Escuela', staff: 'Staff', wellness_professional: 'Bienestar',
-      store_owner: 'Tienda', super_admin: 'Super Admin', viewer: 'Visitante',
+      store_owner: 'Tienda', viewer: 'Visitante',
       personal_trainer: 'Entrenador Personal',
     };
     return roleLabels[roleToShow as string] || roleToShow;
   };
+
+  if (!profile || !user) return null;
 
   return (
     <Sidebar
@@ -137,14 +230,38 @@ export function AppSidebar() {
                 </Badge>
               </div>
             </div>
+            {/* SchoolSwitcher desactivado — ver import comentado arriba. */}
+            {/* <div className="w-full mt-3 px-1"><SchoolSwitcher /></div> */}
           </div>
         )}
 
-        {navigationGroups.map((group, groupIdx) => (
+        {navigationGroups.map((group, groupIdx) => {
+          // El primer grupo ("Principal") queda fijo; el resto es acordeon.
+          // En modo icono (collapsed) todo se muestra, sin colapsar.
+          const isPinned = groupIdx === 0;
+          const collapsible = !isPinned && !isCollapsed;
+          const groupOpen = !collapsible || openGroup === group.title;
+          const groupHasActive = groupContainsPath(group);
+          return (
           <SidebarGroup key={groupIdx}>
-            <SidebarGroupLabel className="text-muted-foreground/50 text-[10px] uppercase tracking-widest font-bold px-4 mb-2">
-              {!isCollapsed ? group.title : ''}
-            </SidebarGroupLabel>
+            {collapsible ? (
+              <button
+                type="button"
+                onClick={() => toggleGroup(group.title)}
+                className="flex items-center w-full text-muted-foreground/50 text-[10px] uppercase tracking-widest font-bold px-4 mb-2 py-1 rounded-md hover:text-foreground hover:bg-primary/5 transition-colors cursor-pointer"
+              >
+                <span className="truncate">{group.title}</span>
+                {!groupOpen && groupHasActive && (
+                  <span className="ml-2 h-1.5 w-1.5 rounded-full bg-primary shrink-0 animate-in fade-in" />
+                )}
+                <ChevronDown className={`ml-auto h-3 w-3 shrink-0 transition-transform duration-200 ${groupOpen ? '' : '-rotate-90'}`} />
+              </button>
+            ) : (
+              <SidebarGroupLabel className="text-muted-foreground/50 text-[10px] uppercase tracking-widest font-bold px-4 mb-2">
+                {!isCollapsed ? group.title : ''}
+              </SidebarGroupLabel>
+            )}
+            {groupOpen && (
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item, itemIdx) => {
@@ -242,8 +359,10 @@ export function AppSidebar() {
                 })}
               </SidebarMenu>
             </SidebarGroupContent>
+            )}
           </SidebarGroup>
-        ))}
+          );
+        })}
       </SidebarContent>
 
       <SidebarFooter className="p-4 border-t border-border/40">

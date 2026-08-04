@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { bffClient } from '@/lib/api/bffClient';
 import { useSchoolContext } from './useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
 // ── Tipos que refleja el nuevo shape del BFF ─────────────────────────────────
 
@@ -109,12 +110,13 @@ export function useEnrollments(childId?: string) {
   const { schoolId } = useSchoolContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   const { data, isLoading: loading, error, refetch } = useQuery({
     queryKey: ['enrollments', 'my-plan', childId],
     queryFn: () => fetchMyPlan(childId),
-    enabled: true,
-    staleTime: 30_000,
+    enabled: !!user?.id,
+    staleTime: 60_000,
   });
 
   const rawEnrollments = data?.enrollments ?? [];

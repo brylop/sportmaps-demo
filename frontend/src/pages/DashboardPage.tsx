@@ -21,6 +21,7 @@ import { DashboardChecklist } from '@/components/dashboard/DashboardChecklist';
 import { InvitationBanner } from '@/components/dashboard/InvitationBanner';
 import { CoachProfileWizard } from '@/components/coach/CoachProfileWizard';
 import { SchoolOnboardingWizard } from '@/components/onboarding/SchoolOnboardingWizard';
+import { ActivateStoreCTA } from '@/components/vendor/ActivateStoreCTA';
 import { supabase } from '@/integrations/supabase/client';
 import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 
@@ -31,7 +32,6 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-
   const pendingInviteId = localStorage.getItem('pending_invite_id');
   const inviteUrlId = searchParams.get('invite');
   const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
@@ -41,7 +41,32 @@ export default function DashboardPage() {
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [showCoachWizard, setShowCoachWizard] = useState(false);
   const [rpcStatus, setRpcStatus] = useState<any>(null);
+  // Fallback directo si el RPC falla o tarda — query bruta a schools por owner.
+  const [fallbackSchool, setFallbackSchool] = useState<{ id: string; onboarding_status: string; business_model?: string } | null>(null);
   const hasAutoOpenedRef = useRef(false);
+
+  // Fallback: si el rol del profile indica escuela, consulta directa a schools.
+  // Garantiza que el wizard aparezca aunque get_onboarding_status() rompa.
+  useEffect(() => {
+    const isSchoolRole = ['school', 'school_admin', 'admin', 'owner', 'super_admin']
+      .includes(profile?.role as string);
+    if (!isSchoolRole || !user?.id) return;
+
+    (async () => {
+      const { data, error } = await supabase
+        .from('schools')
+        .select('id, onboarding_status, business_model')
+        .eq('owner_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) {
+        console.warn('[Dashboard] fallback schools query falló:', error);
+        return;
+      }
+      if (data) setFallbackSchool(data);
+    })();
+  }, [profile?.role, user?.id]);
 
   // Show welcome splash if it's the first time
   useEffect(() => {
@@ -134,6 +159,33 @@ export default function DashboardPage() {
         }
       }
 
+      // Adoptar hijos pre-cargados por la escuela cuyo parent_email_temp coincide
+      // con este correo (aunque la aceptación de invitación haya fallado). Evita
+      // que el acudiente no vea a su hijo pre-registrado y lo cree duplicado.
+      try {
+        await (supabase.rpc as any)('claim_orphan_children', { p_school_id: null });
+      } catch (e) {
+        console.warn('claim_orphan_children no-op:', e);
+      }
+
+      // Backstop de MEMBRESÍA: acepta TODAS las invitaciones pendientes de este
+      // correo (parent/athlete), sin depender de localStorage (que se pierde si
+      // el link se abre en otro dispositivo). Así queda school_members creado
+      // aunque el accept diferido no haya corrido. accept_invitation_pro es
+      // idempotente (marca 'accepted' + ON CONFLICT en la membresía).
+      try {
+        const { data: myInvites } = await (supabase.rpc as any)('get_my_invitations');
+        const pend = ((myInvites as any[]) || []).filter(
+          i => i?.status === 'pending' && ['parent', 'athlete'].includes(String(i?.role_to_assign || '').toLowerCase()),
+        );
+        for (const inv of pend) {
+          const { error: accErr } = await (supabase.rpc as any)('accept_invitation_pro', { p_invite_id: inv.id });
+          if (accErr) console.warn('auto-accept invite fallo', inv.id, accErr.message);
+        }
+      } catch (e) {
+        console.warn('auto-accept pending invites no-op:', e);
+      }
+
       // 1. Obtener status de onboarding desde RPC (La función SQL maestra)
       const { data: status, error: statusError } = await (supabase.rpc as any)('get_onboarding_status');
 
@@ -193,15 +245,25 @@ export default function DashboardPage() {
     } finally {
       setLoadingStatus(false);
     }
-  }, [profile, user, toast]);
+    // Deps por VALOR, no por identidad de objeto. `profile` es un objeto nuevo
+    // cada vez que AuthContext hace setProfile — y eso pasa al menos dos veces
+    // por login (ruta getSession + ruta onAuthStateChange). Con `[profile]` este
+    // callback cambiaba de identidad, el efecto de abajo volvía a correr, y todo
+    // el bloque (claim_orphan_children, get_my_invitations, accept_invitation_pro,
+    // get_onboarding_status — dos de ellos ESCRIBEN) se ejecutaba 3 veces por
+    // carga del dashboard.
+  }, [profile?.email, profile?.role, user?.id, toast]);
 
   useEffect(() => {
     refreshOnboardingData();
   }, [refreshOnboardingData]);
 
+  // Super-admins de plataforma usan /admin, NO el dashboard de escuela
+  if (profile?.role === 'admin' || (profile?.role as string) === 'super_admin') {
+    return <Navigate to="/admin" replace />;
+  }
+
   // ── Personal Trainer redirect ────────────────────────────────────────────────
-  // If a personal_trainer lands on /dashboard (default post-login redirect),
-  // send them to their own workspace immediately.
   if (profile?.role === 'personal_trainer') {
     return <Navigate to="/trainer/dashboard" replace />;
   }
@@ -221,6 +283,50 @@ export default function DashboardPage() {
     </div>
   );
 
+  // ────────────────────────────────────────────────────────────────────────────
+  // Gate: si es rol de escuela y onboarding sin completar, lo mandamos a
+  // /onboarding/school. Mismo patron que trainer (RequirePersonalTrainer)
+  // y vendor (VendorGuard). Esto bloquea el dashboard hasta que termine.
+  // ────────────────────────────────────────────────────────────────────────────
+  {
+    const isSchoolRole = ['school', 'school_admin', 'admin', 'owner']
+      .includes(profile?.role as string);
+    const effectiveStatus = onboardingStatus ?? fallbackSchool?.onboarding_status;
+    const hasSchool = !!(rpcStatus?.has_school || rpcStatus?.school_id || fallbackSchool?.id);
+
+    // Rol de escuela SIN escuela creada (típico en registro con Google: solo se
+    // eligió el rol y complete_role_selection no crea la academia). Enviar a
+    // /setup/school a capturar el nombre. Solo cuando el RPC YA respondió
+    // (rpcStatus presente) y confirma que no hay escuela, para no rebotar a un
+    // owner real durante la carga ni crear escuelas duplicadas.
+    if (isSchoolRole && !loadingStatus && rpcStatus && !hasSchool) {
+      return <Navigate to="/setup/school" replace />;
+    }
+
+    if (isSchoolRole && hasSchool && effectiveStatus && effectiveStatus !== 'completed') {
+      return <Navigate to="/onboarding/school" replace />;
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Gate: roles "persona" (athlete, parent, coach, wellness_professional) deben
+  // completar su onboarding full-screen una vez. Bandera: profiles.onboarding_completed.
+  // Usuarios existentes ya fueron marcados completados (migración 20260617000003),
+  // así que esto solo afecta a nuevos registros (default onboarding_completed=false).
+  // ────────────────────────────────────────────────────────────────────────────
+  {
+    const PERSON_ONBOARDING: Record<string, string> = {
+      athlete: '/onboarding/athlete',
+      parent: '/onboarding/parent',
+      coach: '/onboarding/coach',
+      wellness_professional: '/onboarding/wellness',
+    };
+    const dest = PERSON_ONBOARDING[profile.role as string];
+    if (dest && profile.onboarding_completed === false) {
+      return <Navigate to={dest} replace />;
+    }
+  }
+
   // Dashboard handles empty states via the Quick Start Checklist
 
   // Logic to determine stats to display
@@ -238,14 +344,18 @@ export default function DashboardPage() {
     if (realStats) {
       if (profile.role === 'school' || (profile.role as string) === 'school_admin' || profile.role === 'admin' || (profile.role as any) === 'super_admin' || profile.role === 'coach') {
         if (index === 0) {
-          // Students (Config Index 0)
-          const count = realStats.students_count || 0;
+          // Students (Config Index 0) — tarjeta "Deportistas Activos": contar solo activos, no inactivos
+          const count = realStats.active_students || 0;
+          const total = realStats.students_count || 0;
+          const inactive = Math.max(total - count, 0);
           return {
             ...stat,
             value: count,
-            description: count > 0
-              ? `${count} estudiante${count !== 1 ? 's' : ''} registrado${count !== 1 ? 's' : ''}`
-              : 'Agrega tu primer estudiante'
+            description: total > 0
+              ? (inactive > 0
+                  ? `${count} activo${count !== 1 ? 's' : ''} · ${inactive} inactivo${inactive !== 1 ? 's' : ''}`
+                  : `${count} deportista${count !== 1 ? 's' : ''} activo${count !== 1 ? 's' : ''}`)
+              : 'Agrega tu primer deportista'
           };
         }
         if (index === 1) {
@@ -287,7 +397,10 @@ export default function DashboardPage() {
             description = 'Promedio general';
           } else {
             value = formatCurrency(realStats.monthly_revenue || 0);
-            description = 'Ingresos confirmados este mes';
+            // El dato es: cobros EMITIDOS este mes que ya están pagados
+            // (`created_at >= día 1` + status paid). No es la caja del mes ni el
+            // acumulado: un cobro del mes pasado que se pague hoy no entra acá.
+            description = 'Cobros de este mes ya pagados';
           }
 
           return {
@@ -373,6 +486,9 @@ export default function DashboardPage() {
         userName={profile.full_name?.split(' ')[0]}
       />
 
+      {/* CTA Activar Mi Tienda — visible solo para roles elegibles sin vendor_profile */}
+      <ActivateStoreCTA />
+
       {/* Pending Enrollment Modal */}
       <PendingEnrollmentModal />
 
@@ -387,21 +503,52 @@ export default function DashboardPage() {
         />
       )}
 
-      {/* Wizard guiado para escuelas */}
-      {rpcStatus && ['school', 'school_admin', 'admin', 'owner', 'super_admin'].includes(profile.role as string)
-        && onboardingStatus !== 'completed'
-        && rpcStatus.has_school && (
-        <div className="animate-in fade-in slide-in-from-top-4 duration-500">
-          <SchoolOnboardingWizard
-            status={rpcStatus}
-            onComplete={() => {
-              setOnboardingStatus('completed');
-              refreshOnboardingData();
-            }}
-            onRefresh={refreshOnboardingData}
-          />
-        </div>
-      )}
+      {/* Wizard guiado para escuelas.
+          Triple fuente: rpcStatus.has_school, rpcStatus.school_id, o
+          fallbackSchool (query directa). Cualquiera prende el wizard. */}
+      {(() => {
+        const isSchoolRole = ['school', 'school_admin', 'admin', 'owner', 'super_admin']
+            .includes(profile?.role as string);
+        const hasSchoolInRpc = !!(rpcStatus?.has_school || rpcStatus?.school_id);
+        const hasSchoolInFallback = !!fallbackSchool?.id;
+        const hasSchool = hasSchoolInRpc || hasSchoolInFallback;
+        const effectiveOnboardingStatus = onboardingStatus
+          ?? fallbackSchool?.onboarding_status
+          ?? null;
+        const isCompleted = effectiveOnboardingStatus === 'completed';
+        const shouldShow = isSchoolRole && hasSchool && !isCompleted;
+
+        if (!shouldShow) return null;
+
+        // Compone status para el wizard: prefiere rpcStatus si existe,
+        // si no, sintetiza uno minimo desde fallbackSchool y query basicas.
+        const wizardStatus = rpcStatus ?? {
+          school_id:               fallbackSchool!.id,
+          onboarding_status:       fallbackSchool!.onboarding_status,
+          business_model:          fallbackSchool!.business_model,
+          has_school:              true,
+          has_branches:            false,
+          has_teams:               false,
+          has_plans:               false,
+          has_staff:               false,
+          has_students:            false,
+          payment_setup_completed: false,
+          role:                    profile?.role,
+        };
+
+        return (
+          <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+            <SchoolOnboardingWizard
+              status={wizardStatus}
+              onComplete={() => {
+                setOnboardingStatus('completed');
+                refreshOnboardingData();
+              }}
+              onRefresh={refreshOnboardingData}
+            />
+          </div>
+        );
+      })()}
 
       {/* Checklist genérico para otros roles (parent, coach, athlete) */}
       {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && onboardingStatus !== 'completed'

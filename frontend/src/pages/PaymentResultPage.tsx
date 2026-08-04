@@ -7,12 +7,14 @@ import { Separator } from '@/components/ui/separator';
 import { CheckCircle2, XCircle, Clock, Download, ArrowLeft } from 'lucide-react';
 import { checkTransactionStatus, WompiTransactionResult } from '@/lib/api/wompi';
 import { downloadReceipt } from '@/lib/receipt-generator';
+import { usePdfBranding } from '@/hooks/usePdfBranding';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function PaymentResultPage() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const { user } = useAuth();
+    const pdfBranding = usePdfBranding();
     const transactionId = searchParams.get('id');
 
     const [transaction, setTransaction] = useState<WompiTransactionResult | null>(null);
@@ -36,9 +38,9 @@ export default function PaymentResultPage() {
             minimumFractionDigits: 0,
         }).format(cents / 100);
 
-    const handleDownloadReceipt = () => {
+    const handleDownloadReceipt = async () => {
         if (!transaction) return;
-        downloadReceipt({
+        await downloadReceipt({
             receiptNumber: transaction.reference,
             date: new Date(transaction.createdAt).toLocaleDateString('es-CO'),
             customerName: user?.user_metadata?.full_name || 'Cliente',
@@ -47,6 +49,9 @@ export default function PaymentResultPage() {
             amount: transaction.amountInCents / 100,
             paymentMethod: transaction.paymentMethodType,
             paymentType: 'one_time',
+            schoolName: pdfBranding.schoolName ?? undefined,
+            logoUrl: pdfBranding.logoUrl,
+            brandingSettings: pdfBranding.brandingSettings,
         });
     };
 

@@ -13,8 +13,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const SYSTEM_PAYMENT_METHODS = [
   { id: 'bank_transfer', label: 'Transferencia Bancaria (Manual)' },
-  { id: 'wompi', label: 'WompiGateway (Tarjetas y PSE)' },
-  { id: 'epayco', label: 'ePayco (Tarjetas, PSE, Efectivo)' },
+  { id: 'wompi', label: 'Wompi (Tarjetas, PSE, Nequi, Bancolombia)' },
   { id: 'cash', label: 'Pago Presencial en Evento' }
 ];
 

@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { normalizeText } from '@/lib/normalizeText';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,11 +17,18 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Download, FolderOpen, Trophy, Zap, Calendar, CalendarCheck, CalendarX } from 'lucide-react';
+import { StatFilterBar, type StatFilterTone } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
+import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin, X, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
+import { cn } from '@/lib/utils';
 import { CSVImportModal } from '@/components/students/CSVImportModal';
 import { StudentTypeSelector } from '@/components/students/StudentTypeSelector';
 import { CreateChildModal } from '@/components/students/CreateChildModal';
@@ -31,30 +39,83 @@ import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { useNavigate } from 'react-router-dom';
 
 const studentSchema = z.object({
-  full_name: z.string().min(2, 'Nombre completo es requerido').max(100),
-  date_of_birth: z.string().min(1, 'Fecha de nacimiento es requerida'),
-  parent_email: z.string().email('Email inválido').max(255),
-  parent_phone: z.string().min(10, 'Teléfono debe tener al menos 10 dígitos').max(20),
-  team_id: z.string().optional(),
+  full_name:        z.string().min(2, 'Nombre completo es requerido').max(100),
+  date_of_birth:    z.string().optional(),
+  parent_email:     z.string().optional(),
+  parent_phone:     z.string().optional(),
+  team_id:          z.string().optional(),
   offering_plan_id: z.string().optional(),
-  monthly_fee: z.number().min(0).optional(),
-  medical_info: z.string().max(1000).optional(),
-  notes: z.string().max(500).optional(),
-  tshirt_size: z.string().optional(),
-  blood_type: z.string().optional(),
-  eps_name: z.string().optional(),
-}).refine(data => data.team_id || data.offering_plan_id, {
-  message: 'Debes seleccionar al menos un equipo o un plan',
-  path: ['team_id'],
+  team_start_date:   z.string().optional(),
+  plan_start_date:   z.string().optional(),
+  // Cuotas opcionales: un input numérico vacío llega como NaN; lo normalizamos a
+  // undefined para que se pueda dejar VACÍO (p.ej. equipo sin cobro cuando el
+  // valor a pagar es el del plan).
+  team_monthly_fee:  z.preprocess(
+    v => (v === '' || v === null || (typeof v === 'number' && Number.isNaN(v))) ? undefined : v,
+    z.number().min(0).optional()),
+  plan_monthly_fee:  z.preprocess(
+    v => (v === '' || v === null || (typeof v === 'number' && Number.isNaN(v))) ? undefined : v,
+    z.number().min(0).optional()),
+  medical_info:     z.string().max(1000).optional(),
+  notes:            z.string().max(500).optional(),
+  tshirt_size:      z.string().optional(),
+  blood_type:       z.string().optional(),
+  eps_name:         z.string().optional(),
 });
 
 type StudentFormData = z.infer<typeof studentSchema>;
+
+// ── Helpers de filtrado (puros, compartidos por los filtros y los badges) ─────
+type PaymentState = 'paid' | 'overdue' | 'pending' | 'none' | 'other';
+
+const PAYMENT_STATE_LABELS: Record<PaymentState, string> = {
+  paid:    'Al día',
+  overdue: 'Vencido',
+  pending: 'Pendiente',
+  none:    'Sin cobro',
+  other:   'Otros',
+};
+
+const PAYMENT_STATE_TONES: Record<PaymentState, StatFilterTone> = {
+  paid:    'emerald',
+  overdue: 'rose',
+  pending: 'yellow',
+  none:    'neutral',
+  other:   'blue',
+};
+
+/** Misma lógica que el badge de la tabla, para que filtro y badge nunca difieran. */
+const getPaymentState = (student: any): PaymentState => {
+  const ps  = student.payment_status;
+  const due = student.payment_due_date;
+  if (!ps) return 'none';
+  if (ps === 'paid') return 'paid';
+  if (ps === 'overdue' || ((ps === 'pending' || ps === 'awaiting_approval') && due && new Date(due) < new Date()))
+    return 'overdue';
+  if (ps === 'pending' || ps === 'awaiting_approval') return 'pending';
+  return 'other';
+};
+
+/**
+ * Equipo del atleta tal como se muestra en la tabla: si no hay `team_name` la
+ * fila se pinta "Sin asignar", así que tampoco cuenta como equipo para el filtro
+ * (children pueden traer `team_id` sin inscripción de equipo activa).
+ */
+const getTeamKey = (student: any): string | null =>
+  student.team_name ? (student.enrolled_team_id || student.team_id || null) : null;
+
+const getPlanKey = (student: any): string | null =>
+  student.plan_name ? (student.offering_plan_id || student.plan_name) : null;
 
 export default function SchoolStudentsManagementPage() {
   const { user, profile } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  // Alta de deportistas: SOLO admin/owner. El coach de escuela es solo lectura
+  // (ve/gestiona los atletas de sus equipos, pero no los da de alta).
+  const canManageStudents = profile?.role !== 'coach';
   const [dialogOpen, setDialogOpen] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showTypeSelector, setShowTypeSelector] = useState(false);
@@ -62,7 +123,13 @@ export default function SchoolStudentsManagementPage() {
   const [showCreateAdultModal, setShowCreateAdultModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('active');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  // Filtros del listado. 'all' = sin filtrar.
+  //   teamFilter:    'all' | 'none' (sin equipo) | <team_id>
+  //   planFilter:    'all' | 'with' (con plan) | 'none' (sin plan) | <offering_plan_id>
+  //   paymentFilter: 'all' | 'paid' | 'pending' | 'overdue' | 'none' | 'other'
+  const [teamFilter, setTeamFilter] = useState('all');
+  const [planFilter, setPlanFilter] = useState('all');
+  const [paymentFilter, setPaymentFilter] = useState('all');
   const [viewingStudent, setViewingStudent] = useState<(StudentViewRow & { display_parent_name?: string | null, display_parent_phone?: string | null }) | null>(null);
   const [editingStudent, setEditingStudent] = useState<StudentViewRow | null>(null);
   const [editingAthleteType, setEditingAthleteType] = useState<'child' | 'adult' | 'unregistered' | null>(null);
@@ -108,7 +175,6 @@ export default function SchoolStudentsManagementPage() {
     enabled: !!schoolId,
   });
 
-  // Para coaches: obtener coachId para filtrar solo sus estudiantes
   const [coachId, setCoachId] = useState<string | undefined>(undefined);
   const [coachIdResolved, setCoachIdResolved] = useState(false);
   useEffect(() => {
@@ -137,8 +203,6 @@ export default function SchoolStudentsManagementPage() {
     }
     const studentId = viewingStudent.id;
 
-    // ── Cargar campos estructurados desde children ──────────────────────
-    // (La vista school_athletes no siempre los expone, asi que consultamos directo)
     if (getAthleteType(viewingStudent) === 'child') {
       (supabase as any)
         .from('children')
@@ -158,7 +222,6 @@ export default function SchoolStudentsManagementPage() {
       setStudentDocInfo({});
     }
 
-    // ── Cargar documentos de identidad ────────────────────────────────────
     setLoadingDocs(true);
     supabase.storage
       .from('identity-documents')
@@ -177,7 +240,6 @@ export default function SchoolStudentsManagementPage() {
       })
       .finally(() => setLoadingDocs(false));
 
-    // ── Cargar info del plan activo del atleta ────────────────────────────
     setLoadingPlanInfo(true);
     setStudentPlanInfo(null);
 
@@ -200,13 +262,11 @@ export default function SchoolStudentsManagementPage() {
       .order('start_date', { ascending: false })
       .limit(1);
 
-    // ✅ Filtrar por el campo correcto según tipo de atleta
     if (athleteType === 'child') {
       planQuery = planQuery.eq('child_id', studentId);
     } else if (athleteType === 'adult') {
       planQuery = planQuery.eq('user_id', studentId);
     } else {
-      // unregistered
       planQuery = planQuery.eq('unregistered_athlete_id', studentId);
     }
 
@@ -228,46 +288,35 @@ export default function SchoolStudentsManagementPage() {
       .finally(() => setLoadingPlanInfo(false));
   }, [viewingStudent]);
 
-  const { data: students = [], isLoading } = useQuery({
+  const { data: students = [], isLoading, isFetching, refetch } = useQuery({
     queryKey: ['school-students', schoolId, activeBranchId, coachId],
     queryFn: async () => {
       if (!schoolId) return [];
       let data;
       if (coachId) {
         const [{ data: legacyTeams }, { data: junctionTeams }] = await Promise.all([
-          supabase
-            .from('teams')
-            .select('id')
-            .eq('school_id', schoolId)
-            .eq('coach_id', coachId),
-          supabase
-            .from('team_coaches')
-            .select('team_id')
-            .eq('coach_id', coachId),
+          supabase.from('teams').select('id').eq('school_id', schoolId).eq('coach_id', coachId),
+          supabase.from('team_coaches').select('team_id').eq('coach_id', coachId),
         ]);
-
         const teamIds = [...new Set([
           ...(legacyTeams || []).map(t => t.id),
           ...(junctionTeams || []).map(t => t.team_id),
         ])];
-
         const { data: athletes } = await supabase
           .from('school_athletes' as any)
           .select('*')
           .eq('school_id', schoolId)
-          .eq('is_active', true)
           .in('enrolled_team_id', teamIds.length ? teamIds : ['']);
-
         data = athletes ?? [];
       } else {
-        data = await studentsAPI.getSchoolView(schoolId, activeBranchId);
+        data = await studentsAPI.getSchoolView(schoolId, { branchId: activeBranchId, includeInactive: true });
       }
       return data as StudentViewRow[];
     },
     enabled: !!schoolId && coachIdResolved,
   });
 
-  const form = useForm<StudentFormData>({
+  const form = useForm<z.input<typeof studentSchema>>({
     resolver: zodResolver(studentSchema),
     defaultValues: {
       full_name: '',
@@ -276,7 +325,8 @@ export default function SchoolStudentsManagementPage() {
       parent_phone: '',
       team_id: '',
       offering_plan_id: '',
-      monthly_fee: Number(defaultMonthlyFee) || 0,
+      team_monthly_fee: Number(defaultMonthlyFee) || 0,
+      plan_monthly_fee: 0,
       medical_info: '',
       notes: '',
     },
@@ -296,12 +346,13 @@ export default function SchoolStudentsManagementPage() {
           branchId: selectedTeam?.branch_id || activeBranchId || undefined,
           teamId: data.team_id,
           teamName: selectedTeam?.name || 'Equipo',
-          monthlyFee: data.monthly_fee,
+          // Cuota efectiva: el plan manda si hay plan; si no, la del equipo.
+          monthlyFee: (data.offering_plan_id && Number(data.plan_monthly_fee) > 0)
+            ? Number(data.plan_monthly_fee)
+            : (Number(data.team_monthly_fee) || Number(data.plan_monthly_fee) || 0),
           medicalInfo: data.medical_info,
           notes: data.notes,
         });
-
-        // ── NUEVO: inscribir al plan si se seleccionó uno ─────────────────────
         if (result.success && result.childId && data.offering_plan_id) {
           try {
             const { bffClient } = await import('@/lib/api/bffClient');
@@ -319,13 +370,8 @@ export default function SchoolStudentsManagementPage() {
             });
           }
         }
-        // ─────────────────────────────────────────────────────────────────────
-
         if (result.success) {
-          toast({
-            title: '✅ Atleta registrado',
-            description: `${data.full_name} asociado a ${schoolName}`,
-          });
+          toast({ title: '✅ Atleta registrado', description: `${data.full_name} asociado a ${schoolName}` });
         }
       }
       return data;
@@ -339,59 +385,34 @@ export default function SchoolStudentsManagementPage() {
 
   const updateStudentMutation = useMutation({
     mutationFn: async (data: StudentFormData) => {
-      if (!editingStudent) return data;
-      // Atleta sin cuenta → tabla unregistered_athletes
-      if (editingAthleteType === 'unregistered') {
-        const { error } = await (supabase as any).from('unregistered_athletes')
-          .update({
-            full_name:     data.full_name,
-            date_of_birth: data.date_of_birth || null,
-            updated_at:    new Date().toISOString(),
-          })
-          .eq('id', editingStudent.id);
-        if (error) throw error;
-        return data;
-      }
+      if (!editingStudent || !schoolId) return;
 
-      // Atleta adulto con cuenta → tabla profiles
-      if (editingAthleteType === 'adult') {
-        const { error } = await supabase
-          .from('profiles')
-          .update({
-            full_name:     data.full_name,
-            date_of_birth: data.date_of_birth || null,
-            updated_at:    new Date().toISOString(),
-          })
-          .eq('id', editingStudent.id);
-        if (error) throw error;
-        return data;
-      }
-
-      // Menor → tabla children (flujo original)
-      const selectedTeam = teams.find(p => p.id === data.team_id);
-      await studentsAPI.updateStudent(editingStudent.id, {
-        full_name:     data.full_name,
-        date_of_birth: data.date_of_birth,
-        medical_info:  data.medical_info,
-        team_id:       data.team_id || null,
-        branch_id:     selectedTeam?.branch_id || activeBranchId || undefined,
-        monthly_fee:   typeof data.monthly_fee === 'number' ? data.monthly_fee : undefined,
-        tshirt_size:   data.tshirt_size || null,
-        blood_type:    data.blood_type  || null,
-        eps_name:      data.eps_name    || null,
+      const { bffClient } = await import('@/lib/api/bffClient');
+      await bffClient.put(`/api/v1/students/${editingStudent.id}`, {
+        athlete_type: editingAthleteType,
+        profile: {
+          full_name:     data.full_name,
+          date_of_birth: data.date_of_birth     || null,
+          medical_info:  data.medical_info       || null,
+          tshirt_size:   data.tshirt_size        || null,
+          blood_type:    data.blood_type         || null,
+          eps_name:      data.eps_name           || null,
+          parent_email:  data.parent_email       || null,
+          parent_phone:  data.parent_phone       || null,
+        },
+        enrollment: {
+          team_id:          data.team_id            || null,
+          offering_plan_id: data.offering_plan_id   || null,
+          team_start_date:  data.team_start_date    || null,
+          plan_start_date:  data.plan_start_date    || null,
+          // Campo vacío en la cuota de equipo = "equipo sin cobro" → 0 explícito.
+          // Con null el backend no tocaba nada y la vista volvía a heredar
+          // teams.price_monthly, así que el valor reaparecía tras guardar.
+          team_monthly_fee: data.team_monthly_fee   ?? 0,
+          // En el plan, vacío = usar el precio del plan (no forzar 0).
+          plan_monthly_fee: data.plan_monthly_fee   ?? null,
+        },
       });
-      // Upsert enrollment con team y/o plan
-      if (schoolId && (data.team_id || data.offering_plan_id)) {
-        await (supabase as any).from('enrollments').upsert({
-          child_id:         editingStudent.id,
-          school_id:        schoolId,
-          branch_id:        selectedTeam?.branch_id || activeBranchId || null,
-          team_id:          data.team_id || null,
-          offering_plan_id: data.offering_plan_id || null,
-          status:           'active',
-        }, { onConflict: 'child_id,school_id' });
-      }
-      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['school-students'] });
@@ -399,27 +420,31 @@ export default function SchoolStudentsManagementPage() {
       setEditingStudent(null);
       setEditingAthleteType(null);
       toast({ title: '✅ Atleta actualizado' });
-    }
+    },
+    onError: (error: any) => {
+      toast({
+        title: '❌ Error al actualizar',
+        description: error?.message || 'Ocurrió un error inesperado',
+        variant: 'destructive',
+      });
+    },
   });
 
-  const onSubmit = (data: StudentFormData) => {
-    if (editingStudent) {
-      updateStudentMutation.mutate(data);
-    } else {
-      createStudentMutation.mutate(data);
-    }
+  // El atleta que se está editando está inactivo: se le corrigen los datos, pero
+  // no se le asigna equipo ni plan (el plan es lo que genera los cobros).
+  const editingIsInactive = !!editingStudent && (editingStudent as any).is_active === false;
+
+  const onSubmit = (input: z.input<typeof studentSchema>) => {
+    const data = studentSchema.parse(input);
+    if (editingStudent) updateStudentMutation.mutate(data);
+    else createStudentMutation.mutate(data);
   };
 
-  const handleCreateStudent = () => {
-    setShowTypeSelector(true);
-  };
+  const handleCreateStudent = () => setShowTypeSelector(true);
 
-  // Helper para detectar tipo desde cualquier objeto de atleta
   const getAthleteType = (student: any): 'child' | 'adult' | 'unregistered' => {
     if (student.athlete_type) return student.athlete_type;
-    // Fallback: si tiene parent_id o parent_email_temp es menor
     if (student.parent_id || student.parent_email_temp) return 'child';
-    // Si tiene user_id propio es adulto con cuenta
     if (student.user_id) return 'adult';
     return 'unregistered';
   };
@@ -428,34 +453,32 @@ export default function SchoolStudentsManagementPage() {
     const athleteType = getAthleteType(student);
     setEditingStudent(student);
     setEditingAthleteType(athleteType);
-
-    // Traer campos estructurados que la view school_athletes no expone
     let extraFields = { tshirt_size: '', blood_type: '', eps_name: '' };
     if (athleteType === 'child') {
-      const { data } = await (supabase as any)
-        .from('children')
-        .select('tshirt_size, blood_type, eps_name')
-        .eq('id', student.id)
-        .maybeSingle();
-      if (data) {
-        extraFields = {
-          tshirt_size: data.tshirt_size || '',
-          blood_type:  data.blood_type  || '',
-          eps_name:    data.eps_name    || '',
-        };
-      }
+      const { data } = await (supabase as any).from('children').select('tshirt_size, blood_type, eps_name').eq('id', student.id).maybeSingle();
+      if (data) extraFields = { tshirt_size: data.tshirt_size || '', blood_type: data.blood_type || '', eps_name: data.eps_name || '' };
     }
-
+    const teamStartDate: string = (student as any).enrollment_start_date || '';
+    const planStartDate: string  = (student as any).plan_start_date       || '';
+    // Con plan activo el equipo es SOLO roster y no cobra: la cuota de equipo se
+    // muestra en 0 aunque la fila (fusionada equipo+plan) comparta el monthly_fee
+    // del plan. Sin plan, se respeta la cuota real del equipo.
+    const hasPlan: boolean       = !!(student.offering_plan_id);
+    const teamFee: number        = hasPlan ? 0 : ((student as any).team_monthly_fee || 0);
+    const planFee: number        = (student as any).plan_monthly_fee      || 0;
     form.reset({
       full_name:        student.full_name,
-      date_of_birth:    student.date_of_birth || '',
-      parent_email:     student.parent_email || '',
-      parent_phone:     student.parent_phone || '',
-      team_id:          student.team_id || '',
+      date_of_birth:    student.date_of_birth   || '',
+      parent_email:     student.parent_email     || '',
+      parent_phone:     student.parent_phone     || '',
+      team_id:          student.enrolled_team_id || student.team_id || '',
       offering_plan_id: student.offering_plan_id || '',
-      monthly_fee:      student.price_monthly || Number(defaultMonthlyFee) || 0,
-      medical_info:     student.medical_info || '',
-      notes:            student.notes || '',
+      team_start_date:  teamStartDate,
+      plan_start_date:  planStartDate,
+      team_monthly_fee: teamFee,
+      plan_monthly_fee: planFee,
+      medical_info:     student.medical_info     || '',
+      notes:            student.notes            || '',
       tshirt_size:      extraFields.tshirt_size,
       blood_type:       extraFields.blood_type,
       eps_name:         extraFields.eps_name,
@@ -466,51 +489,61 @@ export default function SchoolStudentsManagementPage() {
   const bulkInviteMutation = useMutation({
     mutationFn: async (studentIds: string[]) => {
       const selectedStudents = students.filter(s => studentIds.includes(s.id));
-      const results = { success: 0, failed: 0, skipped: 0 };
+      const results = { created: 0, failed: 0, skipped: 0, sent: 0, sendFailed: 0, aborted: false, message: '' };
+      const inviteIds: string[] = [];
+
+      // 1. Crear/refrescar las invitaciones (sin mandar correo todavía)
       for (const student of selectedStudents) {
         if (!student.parent_email) { results.skipped++; continue; }
         try {
           const { data: inviteId, error } = await (supabase.rpc as any)('create_invitation', {
-            p_email: student.parent_email,
-            p_role: 'parent',
-            p_child_name: student.full_name,
+            p_email: student.parent_email, p_role: 'parent', p_child_name: student.full_name,
             p_team_id: student.team_id || null,
             p_monthly_fee: student.price_monthly || Number(defaultMonthlyFee) || 0,
             p_parent_phone: student.parent_phone || null,
             p_branch_id: student.branch_id || activeBranchId || null
           });
           if (error) throw error;
-          const registration_link = `${window.location.origin}/register?email=${encodeURIComponent(student.parent_email)}&role=parent&invite=${inviteId}`;
-          const selectedTeam = teams.find(p => p.id === student.team_id);
-          const { data: { session: edgeSession } } = await supabase.auth.getSession();
-          fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-invitation-email`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${edgeSession?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}` },
-            body: JSON.stringify({
-              to: student.parent_email,
-              parentName: student.parent_name || student.parent_email.split('@')[0],
-              childName: student.full_name,
-              schoolName,
-              teamName: selectedTeam?.name || 'Equipo',
-              monthlyFee: student.price_monthly || Number(defaultMonthlyFee) || 0,
-              invitationLink: registration_link,
-            })
-          }).catch(e => console.error('Error sending bulk email:', e));
-          results.success++;
+          if (inviteId) inviteIds.push(inviteId as string);
+          results.created++;
         } catch (err) {
           console.error(`Error inviting ${student.full_name}:`, err);
           results.failed++;
         }
       }
+
+      // 2. Enviar los correos en UNA sola pasada por el BFF.
+      //    Antes se disparaba un fetch por atleta sin await: Resend devolvía 429
+      //    a la mayoría (rate limit) y el contador los daba por enviados igual.
+      //    Ahora el BFF agrupa de a 100, reintenta y deja registro en email_sends.
+      if (inviteIds.length > 0) {
+        const { bffClient } = await import('@/lib/api/bffClient');
+        const sendResult = await bffClient.post<{ sent: number; failed: number; aborted: boolean; message: string }>(
+          '/api/v1/invitations/bulk-send',
+          { invitation_ids: inviteIds }
+        );
+        results.sent = sendResult.sent;
+        results.sendFailed = sendResult.failed;
+        results.aborted = sendResult.aborted;
+        results.message = sendResult.message;
+      }
+
       return results;
     },
     onSuccess: (results) => {
       queryClient.invalidateQueries({ queryKey: ['school-students'] });
       queryClient.invalidateQueries({ queryKey: ['invitations'] });
       setSelectedStudentIds([]);
+      const problemas = results.failed + results.sendFailed > 0 || results.aborted;
       toast({
-        title: '✅ Proceso de invitación completado',
-        description: `Enviadas: ${results.success}, Fallidas: ${results.failed}, Saltadas (sin email): ${results.skipped}`,
+        title: problemas ? '⚠️ Invitaciones con incidencias' : '✅ Invitaciones enviadas',
+        description: results.aborted
+          ? results.message
+          : `Correos enviados: ${results.sent}` +
+            (results.sendFailed ? ` · Fallidos: ${results.sendFailed}` : '') +
+            (results.failed ? ` · Invitaciones con error: ${results.failed}` : '') +
+            (results.skipped ? ` · Saltadas sin email: ${results.skipped}` : ''),
+        variant: problemas ? 'destructive' : undefined,
       });
     },
     onError: (error) => {
@@ -519,72 +552,207 @@ export default function SchoolStudentsManagementPage() {
   });
 
   const toggleSelectAll = () => {
-    if (selectedStudentIds.length === filteredStudents.length && filteredStudents.length > 0) {
-      setSelectedStudentIds([]);
-    } else {
-      setSelectedStudentIds(filteredStudents.map(s => s.id));
-    }
+    if (selectedStudentIds.length === filteredStudents.length && filteredStudents.length > 0) setSelectedStudentIds([]);
+    else setSelectedStudentIds(filteredStudents.map(s => s.id));
   };
 
   const toggleSelectStudent = (id: string) => {
     setSelectedStudentIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
   };
 
+  // Inactivar/reactivar pasa por el RPC set_school_athlete_status: además del
+  // estado, al inactivar CANCELA la inscripción activa y ANULA los cobros
+  // pendientes. Antes esto se hacía client-side tocando solo la tabla base, así
+  // que el atleta dado de baja conservaba su plan `active` y el generador mensual
+  // (open_month, que solo mira enrollments.status) le seguía emitiendo cuotas.
   const toggleStatusMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: string, status: 'active' | 'inactive' }) => {
-      await studentsAPI.updateStudent(id, { status });
+    mutationFn: async ({ id, status, athlete_type, school_id }: { id: string, status: 'active' | 'inactive', athlete_type: 'child' | 'adult' | 'unregistered', school_id: string }) => {
+      const { data, error } = await (supabase.rpc as any)('set_school_athlete_status', {
+        p_school_id:    school_id,
+        p_athlete_type: athlete_type,
+        p_athlete_id:   id,
+        p_active:       status === 'active',
+      });
+      if (error) throw error;
+      return data as { enrollments_cancelled: number; payments_cancelled: number } | null;
     },
-    onSuccess: () => {
+    onSuccess: (result, vars) => {
       queryClient.invalidateQueries({ queryKey: ['school-students'] });
-      toast({ title: '✅ Estado actualizado' });
-    }
+      queryClient.invalidateQueries({ queryKey: ['school-payments'] });
+      const cancelled = Number(result?.payments_cancelled ?? 0);
+      toast({
+        title: vars.status === 'inactive' ? '✅ Atleta inactivado' : '✅ Atleta reactivado',
+        description: vars.status === 'inactive'
+          ? `Se canceló su plan${cancelled ? ` y se anularon ${cancelled} cobro(s) pendiente(s)` : ''}.`
+          : 'Vuelve a asignarle equipo y plan para que genere cobros.',
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: '❌ No se pudo cambiar el estado',
+        description: error?.message || 'Ocurrió un error inesperado',
+        variant: 'destructive',
+      });
+    },
   });
 
   const handleToggleStatus = (student: any) => {
-    toggleStatusMutation.mutate({ id: student.id, status: student.status === 'inactive' ? 'active' : 'inactive' });
+    toggleStatusMutation.mutate({
+      id: student.id,
+      status: student.status === 'inactive' ? 'active' : 'inactive',
+      athlete_type: getAthleteType(student),
+      // El RPC autoriza contra p_school_id (is_school_admin), así que manda la
+      // escuela del contexto: la del atleta puede apuntar a otra en el caso
+      // multi-escuela de menores.
+      school_id: schoolId || student.school_id,
+    });
   };
 
-  const handleTeamChange = (teamId: string) => {
-    form.setValue('team_id', teamId);
-    const selectedTeam = teams.find(p => p.id === teamId);
-    if (selectedTeam) form.setValue('monthly_fee', selectedTeam.monthly_fee);
+
+  // ── Helper: construye los params de navegación a /invitations ─────────────
+  // PATCH: para atletas unregistered se agrega role=athlete y unregisteredId
+  const buildInviteParams = (student: any) => {
+    const athleteType = getAthleteType(student);
+    const params = new URLSearchParams({
+      email:      student.parent_email    || '',
+      child:      student.full_name       || '',
+      team:       student.team_id         || '',
+      phone:      student.parent_phone    || '',
+      branch:     student.branch_id       || '',
+      planId:     student.offering_plan_id || '',
+    });
+    if (athleteType === 'unregistered') {
+      params.set('role', 'athlete');
+      params.set('unregisteredId', student.id);
+    }
+    return params.toString();
   };
 
-  const enhancedStudents = students.map(student => {
+  const enhancedStudents = useMemo(() => students.map(student => {
     const emergencyContact = student.emergency_contact || '';
     const hasEmergencyContactParts = emergencyContact.includes(' - ');
     const fallbackParentName = hasEmergencyContactParts ? emergencyContact.split(' - ')[0] : emergencyContact;
     const fallbackParentPhone = hasEmergencyContactParts ? emergencyContact.split(' - ')[1] : '';
+    
+    // Normalizar status en base a is_active de la vista
+    const status: 'active' | 'inactive' | 'suspended' = student.is_active ? 'active' : 'inactive';
 
     return {
       ...student,
+      status,
       display_parent_name: student.parent_name || (fallbackParentName ? fallbackParentName.trim() : null),
       display_parent_phone: student.parent_phone || (fallbackParentPhone ? fallbackParentPhone.trim() : null),
     };
+  }), [students]);
+
+  // Atletas de la pestaña activa (antes de filtros): base para las opciones de
+  // los selects, así solo se ofrecen equipos/planes/estados que existen aquí.
+  const tabStudents = useMemo(() => enhancedStudents.filter(student =>
+    activeTab === 'todos' || (activeTab === 'active' ? student.status !== 'inactive' : student.status === 'inactive')
+  ), [enhancedStudents, activeTab]);
+
+  const filterOptions = useMemo(() => {
+    const teamMap = new Map<string, { label: string; count: number }>();
+    const planMap = new Map<string, { label: string; count: number }>();
+    const paymentCounts = new Map<PaymentState, number>();
+    let noTeam = 0, noPlan = 0;
+
+    const bump = (map: Map<string, { label: string; count: number }>, key: string, label: string) => {
+      const prev = map.get(key);
+      if (prev) prev.count++;
+      else map.set(key, { label, count: 1 });
+    };
+
+    for (const s of tabStudents as any[]) {
+      const teamKey = getTeamKey(s);
+      if (teamKey) bump(teamMap, teamKey, s.team_name); else noTeam++;
+      const planKey = getPlanKey(s);
+      if (planKey) bump(planMap, planKey, s.plan_name); else noPlan++;
+      const pState = getPaymentState(s);
+      paymentCounts.set(pState, (paymentCounts.get(pState) || 0) + 1);
+    }
+
+    const toSortedList = (map: Map<string, { label: string; count: number }>) =>
+      [...map.entries()]
+        .map(([id, v]) => ({ id, ...v }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'es'));
+
+    const order: PaymentState[] = ['paid', 'pending', 'overdue', 'none', 'other'];
+
+    return {
+      teams:    toSortedList(teamMap),
+      plans:    toSortedList(planMap),
+      payments: order.filter(p => paymentCounts.has(p)).map(p => ({ id: p, count: paymentCounts.get(p)! })),
+      noTeam,
+      noPlan,
+      withPlan: tabStudents.length - noPlan,
+    };
+  }, [tabStudents]);
+
+  const filteredStudents = tabStudents.filter(student => {
+    const q = normalizeText(searchQuery);
+    if (q && !(
+      normalizeText(student.full_name).includes(q) ||
+      normalizeText(student.display_parent_name).includes(q)
+    )) return false;
+
+    if (teamFilter !== 'all') {
+      const teamKey = getTeamKey(student);
+      if (teamFilter === 'none' ? !!teamKey : teamKey !== teamFilter) return false;
+    }
+
+    if (planFilter !== 'all') {
+      const planKey = getPlanKey(student);
+      if (planFilter === 'none') { if (planKey) return false; }
+      else if (planFilter === 'with') { if (!planKey) return false; }
+      else if (planKey !== planFilter) return false;
+    }
+
+    if (paymentFilter !== 'all' && getPaymentState(student) !== paymentFilter) return false;
+
+    return true;
   });
 
-  const filteredStudents = enhancedStudents.filter(student =>
-    (activeTab === 'todos' || (activeTab === 'active' ? student.status !== 'inactive' : student.status === 'inactive')) &&
-    (student.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (student.display_parent_name && student.display_parent_name.toLowerCase().includes(searchQuery.toLowerCase())))
-  );
+  const activeFilterCount =
+    (teamFilter !== 'all' ? 1 : 0) + (planFilter !== 'all' ? 1 : 0) + (paymentFilter !== 'all' ? 1 : 0);
+
+  const clearFilters = () => {
+    setTeamFilter('all');
+    setPlanFilter('all');
+    setPaymentFilter('all');
+  };
+
+  // Si cambia la pestaña, un equipo/plan seleccionado puede no existir ahí:
+  // se limpia para no dejar un listado vacío sin explicación.
+  useEffect(() => {
+    const teamStillThere =
+      teamFilter === 'all' ? true
+      : teamFilter === 'none' ? filterOptions.noTeam > 0
+      : filterOptions.teams.some(t => t.id === teamFilter);
+    if (!teamStillThere) setTeamFilter('all');
+
+    const planStillThere =
+      planFilter === 'all' ? true
+      : planFilter === 'none' ? filterOptions.noPlan > 0
+      : planFilter === 'with' ? filterOptions.withPlan > 0
+      : filterOptions.plans.some(p => p.id === planFilter);
+    if (!planStillThere) setPlanFilter('all');
+
+    if (paymentFilter !== 'all' && !filterOptions.payments.some(p => p.id === paymentFilter))
+      setPaymentFilter('all');
+  }, [activeTab, filterOptions]);
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);
 
   const getPaymentBadge = (student: any) => {
-    const ps  = student.payment_status;
-    const due = student.payment_due_date;
-
-    if (!ps)
-      return <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-500">Sin cobro</Badge>;
-    if (ps === 'paid')
-      return <Badge className="bg-green-500 text-xs text-white">Al día</Badge>;
-    if (ps === 'overdue' || ((ps === 'pending' || ps === 'awaiting_approval') && due && new Date(due) < new Date()))
-      return <Badge variant="destructive" className="text-xs">Vencido</Badge>;
-    if (ps === 'pending' || ps === 'awaiting_approval')
-      return <Badge variant="secondary" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200">Pendiente</Badge>;
-    return <Badge variant="secondary" className="text-xs">{ps}</Badge>;
+    switch (getPaymentState(student)) {
+      case 'none':    return <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-500">Sin cobro</Badge>;
+      case 'paid':    return <Badge className="bg-green-500 text-xs text-white">Al día</Badge>;
+      case 'overdue': return <Badge variant="destructive" className="text-xs">Vencido</Badge>;
+      case 'pending': return <Badge variant="secondary" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200">Pendiente</Badge>;
+      default:        return <Badge variant="secondary" className="text-xs">{student.payment_status}</Badge>;
+    }
   };
 
   const calculateAge = (dateOfBirth?: string | null) => {
@@ -598,7 +766,7 @@ export default function SchoolStudentsManagementPage() {
     return `${age} años`;
   };
 
-  // ── Acciones de un estudiante como DropdownMenu (móvil) ───────────────────
+  // ── PATCH: label del item "Invitar" cambia según tipo de atleta ───────────
   const StudentActions = ({ student }: { student: any }) => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -607,54 +775,55 @@ export default function SchoolStudentsManagementPage() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => setViewingStudent(student)}>
-          Ver Perfil
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleEditStudent(student)}>
-          Editar
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleToggleStatus(student)}>
-          {student.status === 'inactive' ? 'Reactivar' : 'Inactivar'}
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => {
-          const params = new URLSearchParams({
-            email: student.parent_email || '',
-            child: student.full_name || '',
-            team: student.team_id || '',
-            phone: student.parent_phone || ''
-          });
-          navigate(`/invitations?${params.toString()}`);
-        }}>
-          Invitar Acudiente
+        <DropdownMenuItem onClick={() => setViewingStudent(student)}>Ver Perfil</DropdownMenuItem>
+        {canManageStudents && (
+          <DropdownMenuItem onClick={() => handleEditStudent(student)}>Editar</DropdownMenuItem>
+        )}
+        {/* Inactivar cancela el plan y anula la cartera pendiente: es acción de
+            owner/admin (el RPC exige is_school_admin), no del coach. */}
+        {canManageStudents && (
+          <DropdownMenuItem onClick={() => handleToggleStatus(student)}>
+            {student.status === 'inactive' ? 'Reactivar' : 'Inactivar'}
+          </DropdownMenuItem>
+        )}
+        {/* PATCH: label y params según tipo de atleta */}
+        <DropdownMenuItem onClick={() => navigate(`/invitations?${buildInviteParams(student)}`)}>
+          {getAthleteType(student) === 'unregistered' ? 'Invitar Atleta' : 'Invitar Acudiente'}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 
-  if (isLoading || schoolLoading) return <LoadingSpinner fullScreen text="Cargando estudiantes..." />;
+  if (isLoading || schoolLoading) return <LoadingSpinner fullScreen text="Cargando deportistas..." />;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Atletas</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            {filteredStudents.length} atleta{filteredStudents.length !== 1 ? 's' : ''} en <strong>{schoolName}</strong>
+            {filteredStudents.length} atleta{filteredStudents.length !== 1 ? 's' : ''}
+            {filteredStudents.length !== tabStudents.length && ` de ${tabStudents.length}`} en <strong>{schoolName}</strong>
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)}>
-            <FileUp className="mr-2 h-4 w-4" />
-            <span className="hidden sm:inline">Importar CSV</span>
-            <span className="sm:hidden">CSV</span>
-          </Button>
-          <Button size="sm" onClick={handleCreateStudent}>
-            <UserPlus className="w-4 h-4 mr-2" />
-            <span className="hidden sm:inline">Agregar Atleta</span>
-            <span className="sm:hidden">Agregar</span>
-          </Button>
-        </div>
+        {canManageStudents && (
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Actualizar</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)}>
+              <FileUp className="mr-2 h-4 w-4" />
+              <span className="hidden sm:inline">Importar CSV</span>
+              <span className="sm:hidden">CSV</span>
+            </Button>
+            <Button size="sm" onClick={handleCreateStudent}>
+              <UserPlus className="w-4 h-4 mr-2" />
+              <span className="hidden sm:inline">Agregar Atleta</span>
+              <span className="sm:hidden">Agregar</span>
+            </Button>
+          </div>
+        )}
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -669,13 +838,70 @@ export default function SchoolStudentsManagementPage() {
         <CardHeader className="pb-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-            <Input
-              placeholder="Buscar por nombre o acudiente..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
+            <Input placeholder="Buscar por nombre o acudiente..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-10" />
           </div>
+
+          {/* Filtros dinámicos: las opciones se derivan de los atletas de la pestaña */}
+          <div className="mt-3 flex flex-col sm:flex-row gap-2">
+            <Select value={teamFilter} onValueChange={setTeamFilter}>
+              <SelectTrigger className="sm:w-[220px]">
+                <SelectValue placeholder="Equipo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los equipos</SelectItem>
+                {filterOptions.noTeam > 0 && (
+                  <SelectItem value="none">Sin equipo ({filterOptions.noTeam})</SelectItem>
+                )}
+                {filterOptions.teams.map(t => (
+                  <SelectItem key={t.id} value={t.id}>{t.label} ({t.count})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={planFilter} onValueChange={setPlanFilter}>
+              <SelectTrigger className="sm:w-[220px]">
+                <SelectValue placeholder="Plan" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los planes</SelectItem>
+                {filterOptions.withPlan > 0 && (
+                  <SelectItem value="with">Con plan ({filterOptions.withPlan})</SelectItem>
+                )}
+                {filterOptions.noPlan > 0 && (
+                  <SelectItem value="none">Sin plan ({filterOptions.noPlan})</SelectItem>
+                )}
+                {filterOptions.plans.map(p => (
+                  <SelectItem key={p.id} value={p.id}>{p.label} ({p.count})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {activeFilterCount > 0 && (
+              <Button variant="ghost" size="sm" onClick={clearFilters} className="sm:self-center text-muted-foreground">
+                <X className="h-4 w-4 mr-1" />
+                Limpiar filtro{activeFilterCount !== 1 ? 's' : ''}
+              </Button>
+            )}
+          </div>
+
+          {/* Estado de pago en tarjetas: es el filtro que más se usa acá y en
+              un selector quedaba escondido detrás de equipo y plan. */}
+          <StatFilterBar
+            className="mt-4"
+            columns={5}
+            value={paymentFilter === 'all' ? null : paymentFilter}
+            onChange={(v) => setPaymentFilter(v ?? 'all')}
+            items={[
+              { key: null, label: 'Todos', value: tabStudents.length, tone: 'neutral' },
+              ...filterOptions.payments.map(p => ({
+                key: p.id,
+                label: PAYMENT_STATE_LABELS[p.id],
+                value: p.count,
+                tone: PAYMENT_STATE_TONES[p.id],
+              })),
+            ]}
+          />
+
           {selectedStudentIds.length > 0 && (
             <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-primary/5 border border-primary/20 rounded-lg animate-in fade-in slide-in-from-top-1">
               <div className="flex items-center gap-2 text-sm font-medium text-primary">
@@ -687,89 +913,71 @@ export default function SchoolStudentsManagementPage() {
                   {bulkInviteMutation.isPending ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Send className="mr-2 h-3 w-3" />}
                   Invitar
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setSelectedStudentIds([])} disabled={bulkInviteMutation.isPending}>
-                  Cancelar
-                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setSelectedStudentIds([])} disabled={bulkInviteMutation.isPending}>Cancelar</Button>
               </div>
             </div>
           )}
         </CardHeader>
         <CardContent className="p-0 sm:p-6">
-          {filteredStudents.length === 0 ? (
+          {filteredStudents.length === 0 && tabStudents.length > 0 ? (
+            /* Hay atletas, pero los filtros/búsqueda no dejan ninguno */
+            <div className="p-6">
+              <EmptyState
+                icon={Search}
+                title="Ningún atleta coincide"
+                description="Ajusta la búsqueda o los filtros de equipo, plan y estado de pago."
+                {...(activeFilterCount > 0 ? { actionLabel: "Limpiar filtros", onAction: clearFilters } : {})}
+              />
+            </div>
+          ) : filteredStudents.length === 0 ? (
             <div className="p-6">
               <EmptyState
                 icon={UserPlus}
                 title="No hay atletas"
-                description="Agrega atletas manualmente o importa desde un archivo CSV"
-                actionLabel="+ Agregar Atleta"
-                onAction={handleCreateStudent}
+                description={canManageStudents
+                  ? "Agrega atletas manualmente o importa desde un archivo CSV"
+                  : "Aún no hay atletas en tus equipos. El alta la realiza la escuela."}
+                {...(canManageStudents ? { actionLabel: "+ Agregar Atleta", onAction: handleCreateStudent } : {})}
               />
             </div>
           ) : (
             <>
-              {/* ── VISTA MOBILE: Cards (oculta en lg+) ────────────────────── */}
+              {/* Mobile */}
               <div className="grid grid-cols-1 gap-3 p-4 lg:hidden">
                 {filteredStudents.map((student) => (
-                  <div
-                    key={student.id}
-                    className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${selectedStudentIds.includes(student.id) ? 'bg-primary/5 border-primary/30' : 'bg-card border-border'
-                      }`}
-                  >
-                    {/* Checkbox */}
-                    <Checkbox
-                      checked={selectedStudentIds.includes(student.id)}
-                      onCheckedChange={() => toggleSelectStudent(student.id)}
-                      className="mt-1"
-                    />
-                    {/* Avatar */}
+                  <div key={student.id} className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${selectedStudentIds.includes(student.id) ? 'bg-primary/5 border-primary/30' : 'bg-card border-border'}`}>
+                    <Checkbox checked={selectedStudentIds.includes(student.id)} onCheckedChange={() => toggleSelectStudent(student.id)} className="mt-1" />
                     <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm shrink-0">
                       {student.full_name.substring(0, 2).toUpperCase()}
                     </div>
-                    {/* Info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1 flex-wrap">
                         <p className="font-semibold text-sm truncate">{student.full_name}</p>
                         <MedicalAlertBadge medicalInfo={student.medical_info} />
                       </div>
-                        <div className="flex gap-1 flex-wrap mt-1">
-                          {student.team_name && (
-                            <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200 py-0 h-5">
-                              <Trophy className="h-2.5 w-2.5 mr-1" /> {student.team_name}
-                            </Badge>
-                          )}
-                          {(student as any).plan_name && (
-                            <Badge variant="outline" className="text-[10px] bg-purple-50 text-purple-700 border-purple-200 py-0 h-5">
-                              <Zap className="h-2.5 w-2.5 mr-1" /> {(student as any).plan_name}
-                            </Badge>
-                          )}
-                          {!student.team_name && !(student as any).plan_name && (
-                            <span className="text-xs text-muted-foreground">Sin asignar</span>
-                          )}
-                          <span className="text-muted-foreground text-xs ml-1">· {student.branch_name || "Sin sede"}</span>
-                        </div>
+                      <div className="flex gap-1 flex-wrap mt-1">
+                        {student.team_name && <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200 py-0 h-5"><Trophy className="h-2.5 w-2.5 mr-1" /> {student.team_name}</Badge>}
+                        {(student as any).plan_name && <Badge variant="outline" className="text-[10px] bg-purple-50 text-purple-700 border-purple-200 py-0 h-5"><Zap className="h-2.5 w-2.5 mr-1" /> {(student as any).plan_name}</Badge>}
+                        {!student.team_name && !(student as any).plan_name && <span className="text-xs text-muted-foreground">Sin asignar</span>}
+                        <span className="text-muted-foreground text-xs ml-1">· {student.branch_name || "Sin sede"}</span>
+                      </div>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <span className="text-xs font-semibold text-primary">
-                          {(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}
-                        </span>
+                        <span className="text-xs font-semibold text-primary">{(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}</span>
                         {getPaymentBadge(student)}
                       </div>
                     </div>
-                    {/* Dropdown acciones */}
                     <StudentActions student={student} />
                   </div>
                 ))}
               </div>
 
-              {/* ── VISTA DESKTOP: Tabla (oculta en móvil) ─────────────────── */}
+              {/* Desktop */}
               <div className="hidden lg:block overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-[50px]">
-                        <Checkbox
-                          checked={filteredStudents.length > 0 && selectedStudentIds.length === filteredStudents.length}
-                          onCheckedChange={() => toggleSelectAll()}
-                        />
+                        <Checkbox checked={filteredStudents.length > 0 && selectedStudentIds.length === filteredStudents.length} onCheckedChange={() => toggleSelectAll()} />
                       </TableHead>
                       <TableHead>Nombre</TableHead>
                       <TableHead>Edad</TableHead>
@@ -784,67 +992,48 @@ export default function SchoolStudentsManagementPage() {
                   <TableBody>
                     {filteredStudents.map((student) => (
                       <TableRow key={student.id} className={selectedStudentIds.includes(student.id) ? "bg-primary/5" : ""}>
-                        <TableCell>
-                          <Checkbox checked={selectedStudentIds.includes(student.id)} onCheckedChange={() => toggleSelectStudent(student.id)} />
-                        </TableCell>
+                        <TableCell><Checkbox checked={selectedStudentIds.includes(student.id)} onCheckedChange={() => toggleSelectStudent(student.id)} /></TableCell>
                         <TableCell className="font-medium">
-                          <div className="flex items-center gap-2">
-                            <span>{student.full_name}</span>
-                            <MedicalAlertBadge medicalInfo={student.medical_info} />
-                          </div>
+                          <div className="flex items-center gap-2"><span>{student.full_name}</span><MedicalAlertBadge medicalInfo={student.medical_info} /></div>
                         </TableCell>
                         <TableCell>{calculateAge(student.date_of_birth)}</TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1">
-                            {student.team_name && (
-                              <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200 w-fit">
-                                <Trophy className="h-3 w-3 mr-1" /> {student.team_name}
-                              </Badge>
-                            )}
-                            {(student as any).plan_name && (
-                              <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200 w-fit">
-                                <Zap className="h-3 w-3 mr-1" /> {(student as any).plan_name}
-                              </Badge>
-                            )}
-                            {!student.team_name && !(student as any).plan_name && (
-                              <span className="text-xs text-muted-foreground">Sin asignar</span>
-                            )}
+                            {student.team_name && <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200 w-fit"><Trophy className="h-3 w-3 mr-1" /> {student.team_name}</Badge>}
+                            {(student as any).plan_name && <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200 w-fit"><Zap className="h-3 w-3 mr-1" /> {(student as any).plan_name}</Badge>}
+                            {!student.team_name && !(student as any).plan_name && <span className="text-xs text-muted-foreground">Sin asignar</span>}
                           </div>
                         </TableCell>
-                        <TableCell>
-                          <span className="text-xs text-muted-foreground">{student.branch_name || <span className="text-muted-foreground text-xs">Sin sede</span>}</span>
-                        </TableCell>
-                        <TableCell>{(student as any).athlete_type === 'adult' ? '\u2014' : (student.display_parent_name || student.parent_name || '-')}</TableCell>
-                        <TableCell className="font-semibold text-primary">
-                          {(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}
-                        </TableCell>
-                          <TableCell>{getPaymentBadge(student)}</TableCell>
+                        <TableCell><span className="text-xs text-muted-foreground">{student.branch_name || <span className="text-muted-foreground text-xs">Sin sede</span>}</span></TableCell>
+                        <TableCell>{(student as any).athlete_type === 'adult' ? '—' : (student.display_parent_name || student.parent_name || '-')}</TableCell>
+                        <TableCell className="font-semibold text-primary">{(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}</TableCell>
+                        <TableCell>{getPaymentBadge(student)}</TableCell>
                         <TableCell>
                           <div className="flex gap-1">
                             <Button variant="ghost" size="sm" onClick={() => setViewingStudent(student)}>Ver</Button>
-                            <Button variant="ghost" size="sm" onClick={() => handleEditStudent(student)}>
-                              <Edit className="h-4 w-4 text-primary" />
-                            </Button>
-                            <Button variant="ghost" size="sm" onClick={() => handleToggleStatus(student)}>
-                              {student.status === 'inactive'
-                                ? <UserCheck className="h-4 w-4 text-green-500" />
-                                : <UserMinus className="h-4 w-4 text-orange-500" />}
-                            </Button>
+                            {canManageStudents && (
+                              <Button variant="ghost" size="sm" onClick={() => handleEditStudent(student)}><Edit className="h-4 w-4 text-primary" /></Button>
+                            )}
+                            {canManageStudents && (
+                              <Button
+                                variant="ghost" size="sm"
+                                disabled={toggleStatusMutation.isPending}
+                                title={student.status === 'inactive'
+                                  ? 'Reactivar atleta'
+                                  : 'Inactivar: cancela su plan y anula sus cobros pendientes'}
+                                onClick={() => handleToggleStatus(student)}
+                              >
+                                {student.status === 'inactive' ? <UserCheck className="h-4 w-4 text-green-500" /> : <UserMinus className="h-4 w-4 text-orange-500" />}
+                              </Button>
+                            )}
+                            {/* PATCH: usa buildInviteParams para pasar el unregisteredId cuando aplica */}
                             <Button
                               variant="outline" size="sm"
                               className="text-primary border-primary/20 hover:bg-primary/5"
-                              onClick={() => {
-                                const params = new URLSearchParams({
-                                  email: student.parent_email || '',
-                                  child: student.full_name || '',
-                                  team: student.team_id || '',
-                                  phone: student.parent_phone || ''
-                                });
-                                navigate(`/invitations?${params.toString()}`);
-                              }}
+                              onClick={() => navigate(`/invitations?${buildInviteParams(student)}`)}
                             >
                               <Send className="w-3 h-3 mr-1" />
-                              Invitar
+                              {getAthleteType(student) === 'unregistered' ? 'Invitar' : 'Invitar'}
                             </Button>
                           </div>
                         </TableCell>
@@ -855,258 +1044,300 @@ export default function SchoolStudentsManagementPage() {
               </div>
             </>
           )}
+          <TableRefreshBar
+            className="sm:-mx-6 sm:-mb-6 mt-2 sm:rounded-b-lg"
+            onRefresh={refetch}
+            loading={isFetching}
+            summary={
+              filteredStudents.length === tabStudents.length
+                ? `${filteredStudents.length} atleta(s)`
+                : `${filteredStudents.length} de ${tabStudents.length} atleta(s)`
+            }
+          />
         </CardContent>
       </Card>
 
-      {/* Dialog agregar/editar — igual que antes, solo se agrega responsive al grid interno */}
+      {/* Dialogs — sin cambios respecto al original */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {editingStudent 
-                ? `Editar ${editingAthleteType === 'child' ? 'Menor' : 'Atleta'} — ${editingStudent.full_name}`
-                : 'Agregar Nuevo Atleta'}
-            </DialogTitle>
+            <DialogTitle>{editingStudent ? `Editar ${editingAthleteType === 'child' ? 'Menor' : 'Atleta'} — ${editingStudent.full_name}` : 'Agregar Nuevo Atleta'}</DialogTitle>
             <DialogDescription>
-              {editingStudent ? (
-                editingAthleteType === 'child'
-                  ? `Actualiza la información del menor y su acudiente.`
-                  : editingAthleteType === 'adult'
-                  ? `Actualiza la información del atleta. El email se gestiona desde su cuenta.`
-                  : `Actualiza la información del atleta registrado manualmente.`
-              ) : (
-                <>Registra al atleta. Quedará asociado a <strong>{schoolName}</strong>.</>
-              )}
+              {editingStudent ? (editingAthleteType === 'child' ? 'Actualiza la información del menor y su acudiente.' : editingAthleteType === 'adult' ? 'Actualiza la información del atleta. El email se gestiona desde su cuenta.' : 'Actualiza la información del atleta registrado manualmente.') : <>Registra al atleta. Quedará asociado a <strong>{schoolName}</strong>.</>}
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(onSubmit as any)} className="space-y-6">
+            {/* ── Datos del atleta ── */}
             <div className="space-y-4">
-              <h3 className="font-semibold flex items-center gap-2"><User className="w-4 h-4" />Información del Atleta</h3>
-              <div className="grid gap-4">
+              <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Datos del atleta</h3>
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="full_name">Nombre Completo *</Label>
-                  <Input id="full_name" placeholder="Ej: María Rodríguez Pérez" {...form.register('full_name')} />
-                  {form.formState.errors.full_name && <p className="text-sm text-destructive">{form.formState.errors.full_name.message}</p>}
+                  <Label htmlFor="full_name">Nombre completo *</Label>
+                  <Input id="full_name" {...form.register('full_name')} />
+                  {form.formState.errors.full_name && <p className="text-xs text-destructive">{form.formState.errors.full_name.message as string}</p>}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="date_of_birth">Fecha de Nacimiento del Atleta *</Label>
-                  <Input id="date_of_birth" type="date" autoComplete="off" {...form.register('date_of_birth')} />
-                  {form.formState.errors.date_of_birth && <p className="text-sm text-destructive">{form.formState.errors.date_of_birth.message}</p>}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="photo">Foto de Perfil</Label>
-                  <div className="border-2 border-dashed border-muted rounded-lg p-6 text-center hover:border-primary/50 transition-colors">
-                    <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground mb-2">Sube una foto del atleta</p>
-                    <Input id="photo" type="file" accept="image/*" onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} className="max-w-xs mx-auto" />
-                  </div>
-                </div>
-              </div>
-            </div>
-            {/* ── Equipo y Plan — dos secciones independientes ─────────── */}
-            {(!editingStudent || editingAthleteType === 'child') && (
-              <div className="space-y-3">
-                <h3 className="font-semibold flex items-center gap-2">
-                  <DollarSign className="w-4 h-4" />Equipo y/o Plan
-                </h3>
-
-                {/* ── Sección Equipo ── */}
-                <div className="rounded-lg border p-4 space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <Trophy className="h-4 w-4 text-red-500" />
-                    Equipo
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="team_id">Seleccionar Equipo</Label>
-                      <Select
-                        value={form.watch('team_id') || '__none__'}
-                        onValueChange={(v) => {
-                          const val = v === '__none__' ? '' : v;
-                          form.setValue('team_id', val);
-                          if (val) {
-                            const t = teams.find(p => p.id === val);
-                            if (t) form.setValue('monthly_fee', t.monthly_fee);
-                          } else {
-                            form.setValue('monthly_fee', 0);
+                  <Label>Fecha de nacimiento</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={cn('w-full pl-3 text-left font-normal', !form.watch('date_of_birth') && 'text-muted-foreground')}
+                      >
+                        {form.watch('date_of_birth')
+                          ? format(new Date(form.watch('date_of_birth')! + 'T12:00:00'), 'PPP', { locale: es })
+                          : <span>Seleccionar fecha</span>}
+                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={form.watch('date_of_birth') ? new Date(form.watch('date_of_birth')! + 'T12:00:00') : undefined}
+                        onSelect={(date) => {
+                          if (date) {
+                            const y = date.getFullYear();
+                            const m = String(date.getMonth() + 1).padStart(2, '0');
+                            const d = String(date.getDate()).padStart(2, '0');
+                            form.setValue('date_of_birth', `${y}-${m}-${d}`);
                           }
                         }}
-                      >
-                        <SelectTrigger id="team_id">
-                          <SelectValue placeholder="Sin equipo asignado" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">Sin equipo</SelectItem>
-                          {teams.map(team => (
-                            <SelectItem key={team.id} value={team.id}>
-                              {team.name} — {formatCurrency(team.monthly_fee)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {form.formState.errors.team_id && (
-                        <p className="text-sm text-destructive">{form.formState.errors.team_id.message}</p>
-                      )}
+                        captionLayout="dropdown-buttons"
+                        fromYear={1920}
+                        toYear={new Date().getFullYear()}
+                        disabled={(date) => date > new Date() || date < new Date('1900-01-01')}
+                        initialFocus
+                        locale={es}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="medical_info">Información médica</Label>
+                <Textarea id="medical_info" {...form.register('medical_info')} rows={2} />
+              </div>
+              {(!editingStudent || editingAthleteType === 'child') && (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">Campos opcionales</p>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="tshirt_size">Talla camiseta</Label>
+                      <Input id="tshirt_size" placeholder="XS, S, M, L..." {...form.register('tshirt_size')} />
                     </div>
-                    {form.watch('team_id') && form.watch('team_id') !== '__none__' && (
-                      <div className="space-y-2">
-                        <Label htmlFor="monthly_fee">Mensualidad (COP)</Label>
-                        <div className="relative">
-                          <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            id="monthly_fee"
-                            type="number"
-                            className="pl-9"
-                            placeholder="150000"
-                            {...form.register('monthly_fee', { valueAsNumber: true })}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Datos del atleta (talla, RH, EPS) */}
-                  <div className="grid grid-cols-3 gap-2 pt-3 border-t">
-                    <div className="space-y-1">
-                      <Label htmlFor="tshirt_size" className="text-xs">Talla</Label>
-                      <Select
-                        value={form.watch('tshirt_size') || ''}
-                        onValueChange={(v) => form.setValue('tshirt_size', v)}
-                      >
-                        <SelectTrigger id="tshirt_size" className="h-9"><SelectValue placeholder="—" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="XS">XS</SelectItem>
-                          <SelectItem value="S">S</SelectItem>
-                          <SelectItem value="M">M</SelectItem>
-                          <SelectItem value="L">L</SelectItem>
-                          <SelectItem value="XL">XL</SelectItem>
-                          <SelectItem value="4">4</SelectItem>
-                          <SelectItem value="6">6</SelectItem>
-                          <SelectItem value="8">8</SelectItem>
-                          <SelectItem value="10">10</SelectItem>
-                          <SelectItem value="12">12</SelectItem>
-                          <SelectItem value="14">14</SelectItem>
-                          <SelectItem value="16">16</SelectItem>
-                          <SelectItem value="18">18</SelectItem>
-                        </SelectContent>
-                      </Select>
+                    <div className="space-y-2">
+                      <Label htmlFor="blood_type">Tipo de sangre</Label>
+                      <Input id="blood_type" placeholder="O+, A-..." {...form.register('blood_type')} />
                     </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="blood_type" className="text-xs">RH</Label>
-                      <Select
-                        value={form.watch('blood_type') || ''}
-                        onValueChange={(v) => form.setValue('blood_type', v)}
-                      >
-                        <SelectTrigger id="blood_type" className="h-9"><SelectValue placeholder="—" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="O+">O+</SelectItem>
-                          <SelectItem value="O-">O-</SelectItem>
-                          <SelectItem value="A+">A+</SelectItem>
-                          <SelectItem value="A-">A-</SelectItem>
-                          <SelectItem value="B+">B+</SelectItem>
-                          <SelectItem value="B-">B-</SelectItem>
-                          <SelectItem value="AB+">AB+</SelectItem>
-                          <SelectItem value="AB-">AB-</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="eps_name" className="text-xs">EPS</Label>
-                      <Input id="eps_name" className="h-9" placeholder="Sanitas..." {...form.register('eps_name')} />
+                    <div className="space-y-2">
+                      <Label htmlFor="eps_name">EPS</Label>
+                      <Input id="eps_name" placeholder="Sura, Sanitas..." {...form.register('eps_name')} />
                     </div>
                   </div>
                 </div>
+              )}
+            </div>
 
-                {/* ── Sección Plan ── */}
-                <div className="rounded-lg border p-4 space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <Zap className="h-4 w-4 text-purple-500" />
-                    Plan de Servicio
+            {/* ── Contacto (acudiente o deportista) ── */}
+            {(() => {
+              const isChildMode = !editingStudent || editingAthleteType === 'child';
+              const isAdultMode = editingAthleteType === 'adult';
+
+              return (
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
+                    {isChildMode ? 'Contacto del acudiente' : 'Contacto del deportista'}
+                  </h3>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="parent_email">
+                        {isChildMode ? 'Email del acudiente' : 'Email'}
+                      </Label>
+                      <Input
+                        id="parent_email"
+                        type="email"
+                        {...form.register('parent_email')}
+                        disabled={isAdultMode}
+                        placeholder={isAdultMode ? 'Gestionado desde su cuenta de usuario' : ''}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="parent_phone">Teléfono</Label>
+                      <Input
+                        id="parent_phone"
+                        type="tel"
+                        placeholder="+57 300..."
+                        {...form.register('parent_phone')}
+                      />
+                    </div>
                   </div>
+                </div>
+              );
+            })()}
+
+            {/* ── Inscripción ── */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Inscripción</h3>
+              {/* Atleta inactivo: sus datos se pueden corregir, pero no se le
+                  asigna equipo ni plan — el plan es lo que dispara los cobros.
+                  El BFF lo rechaza igual (409); esto evita el viaje en vano. */}
+              {editingIsInactive && (
+                <p className="text-xs rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-orange-700 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300">
+                  Este atleta está inactivo: no se le puede asignar equipo ni plan. Reactívalo primero.
+                </p>
+              )}
+              <div className="grid gap-6 sm:grid-cols-2">
+                {/* Columna Equipo */}
+                <div className="space-y-3">
                   <div className="space-y-2">
-                    <Label htmlFor="offering_plan_id">Seleccionar Plan</Label>
+                    <Label>Equipo</Label>
                     <Select
-                      value={form.watch('offering_plan_id') || '__none__'}
-                      onValueChange={(v) => form.setValue('offering_plan_id', v === '__none__' ? '' : v)}
+                      disabled={editingIsInactive}
+                      value={form.watch('team_id') || '__none__'}
+                      onValueChange={(val) => {
+                        const v = val === '__none__' ? '' : val;
+                        form.setValue('team_id', v);
+                        const t = teams.find(t => t.id === v);
+                        // Con plan activo el equipo no cobra (plan manda); sin
+                        // plan, la cuota es el precio del equipo (0 si no tiene).
+                        form.setValue('team_monthly_fee' as any,
+                          form.getValues('offering_plan_id') ? 0 : (t?.monthly_fee ?? 0));
+                      }}
                     >
-                      <SelectTrigger id="offering_plan_id">
-                        <SelectValue placeholder="Sin plan asignado" />
-                      </SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Sin equipo" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Sin equipo</SelectItem>
+                        {teams.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Fecha de inscripción</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className={cn('w-full pl-3 text-left font-normal', !form.watch('team_start_date') && 'text-muted-foreground')}
+                        >
+                          {form.watch('team_start_date')
+                            ? format(new Date(form.watch('team_start_date')! + 'T12:00:00'), 'PPP', { locale: es })
+                            : <span>Seleccionar fecha</span>}
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={form.watch('team_start_date') ? new Date(form.watch('team_start_date')! + 'T12:00:00') : undefined}
+                          onSelect={(date) => {
+                            if (date) {
+                              const y = date.getFullYear();
+                              const m = String(date.getMonth() + 1).padStart(2, '0');
+                              const d = String(date.getDate()).padStart(2, '0');
+                              form.setValue('team_start_date', `${y}-${m}-${d}`);
+                            }
+                          }}
+                          captionLayout="dropdown-buttons"
+                          fromYear={2020}
+                          toYear={new Date().getFullYear() + 2}
+                          initialFocus
+                          locale={es}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="team_monthly_fee" className="text-xs text-muted-foreground">Mensualidad equipo (COP)</Label>
+                    <Input id="team_monthly_fee" type="number" step={1000}
+                      disabled={editingIsInactive || !!form.watch('offering_plan_id')}
+                      {...form.register('team_monthly_fee', { valueAsNumber: true })} />
+                    {form.watch('offering_plan_id') ? (
+                      <p className="text-[11px] text-muted-foreground">El plan define el cobro; el equipo no cobra (queda en 0).</p>
+                    ) : null}
+                  </div>
+                </div>
+                {/* Columna Plan */}
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>Plan</Label>
+                    <Select
+                      disabled={editingIsInactive}
+                      value={form.watch('offering_plan_id') || '__none__'}
+                      onValueChange={(val) => {
+                        const v = val === '__none__' ? '' : val;
+                        form.setValue('offering_plan_id', v);
+                        const p = offeringPlans.find(p => p.id === v);
+                        form.setValue('plan_monthly_fee' as any, v ? (p?.price ?? 0) : 0);
+                        // El plan define el cobro: el equipo pasa a ser roster y
+                        // su cuota baja a 0. Al quitar el plan, vuelve el precio
+                        // del equipo.
+                        if (v) {
+                          form.setValue('team_monthly_fee' as any, 0);
+                        } else {
+                          const t = teams.find(t => t.id === form.getValues('team_id'));
+                          form.setValue('team_monthly_fee' as any, t?.monthly_fee ?? 0);
+                        }
+                      }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Sin plan" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">Sin plan</SelectItem>
-                        {offeringPlans.map((plan: any) => (
-                          <SelectItem key={plan.id} value={plan.id}>
-                            {plan.offering_name ? `${plan.offering_name} — ` : ''}{plan.name}
-                            {plan.price > 0 ? ` (${formatCurrency(plan.price)})` : ''}
+                        {offeringPlans.map(p => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.offering_name ? `${p.offering_name} — ` : ''}{p.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    {offeringPlans.length === 0 && (
-                      <p className="text-xs text-muted-foreground">No hay planes activos para esta escuela.</p>
-                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Fecha de inscripción</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className={cn('w-full pl-3 text-left font-normal', !form.watch('plan_start_date') && 'text-muted-foreground')}
+                        >
+                          {form.watch('plan_start_date')
+                            ? format(new Date(form.watch('plan_start_date')! + 'T12:00:00'), 'PPP', { locale: es })
+                            : <span>Seleccionar fecha</span>}
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={form.watch('plan_start_date') ? new Date(form.watch('plan_start_date')! + 'T12:00:00') : undefined}
+                          onSelect={(date) => {
+                            if (date) {
+                              const y = date.getFullYear();
+                              const m = String(date.getMonth() + 1).padStart(2, '0');
+                              const d = String(date.getDate()).padStart(2, '0');
+                              form.setValue('plan_start_date', `${y}-${m}-${d}`);
+                            }
+                          }}
+                          captionLayout="dropdown-buttons"
+                          fromYear={2020}
+                          toYear={new Date().getFullYear() + 2}
+                          initialFocus
+                          locale={es}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="plan_monthly_fee" className="text-xs text-muted-foreground">Mensualidad plan (COP)</Label>
+                    <Input id="plan_monthly_fee" type="number" step={1000}
+                      disabled={editingIsInactive}
+                      {...form.register('plan_monthly_fee', { valueAsNumber: true })} />
                   </div>
                 </div>
-              </div>
-            )}
-
-
-            {/* Para adultos y unregistered — mensaje informativo en lugar del selector */}
-            {editingStudent && editingAthleteType !== 'child' && (
-              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground text-center">
-                El equipo y plan de este atleta se gestionan desde el módulo
-                <strong> Equipos y Planes</strong>.
-              </div>
-            )}
-            {/* Contacto del Padre/Tutor — solo para menores */}
-            {(!editingStudent || editingAthleteType === 'child') && (
-              <div className="space-y-4">
-                <h3 className="font-semibold flex items-center gap-2">
-                  <Mail className="w-4 h-4" />Contacto del Padre/Tutor
-                </h3>
-                <div className="grid gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="parent_email">Email del Padre/Tutor *</Label>
-                    <Input 
-                      id="parent_email" 
-                      type="email" 
-                      placeholder="padre@ejemplo.com" 
-                      {...form.register('parent_email')} 
-                    />
-                    {form.formState.errors.parent_email && (
-                      <p className="text-sm text-destructive">
-                        {form.formState.errors.parent_email.message}
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="parent_phone">Teléfono de Contacto *</Label>
-                    <Input 
-                      id="parent_phone" 
-                      type="tel" 
-                      placeholder="+57 300 123 4567" 
-                      {...form.register('parent_phone')} 
-                    />
-                    {form.formState.errors.parent_phone && (
-                      <p className="text-sm text-destructive">
-                        {form.formState.errors.parent_phone.message}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="space-y-4">
-              <h3 className="font-semibold flex items-center gap-2"><FileText className="w-4 h-4" />Información Adicional</h3>
-              <div className="space-y-2">
-                <Label htmlFor="medical_info">Información Médica</Label>
-                <Textarea id="medical_info" placeholder="Ej: Alérgico a los frutos secos..." {...form.register('medical_info')} rows={3} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="notes">Notas Generales</Label>
-                <Textarea id="notes" placeholder="Cualquier información relevante..." {...form.register('notes')} rows={3} />
               </div>
             </div>
+
             <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
               <Button type="submit" disabled={createStudentMutation.isPending || updateStudentMutation.isPending}>
@@ -1117,252 +1348,279 @@ export default function SchoolStudentsManagementPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog Ver Perfil */}
-      <Dialog open={!!viewingStudent} onOpenChange={(open) => !open && setViewingStudent(null)}>
-        <DialogContent className="w-[95vw] max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Perfil del Atleta</DialogTitle>
-            <DialogDescription>Detalles deportivos y de contacto</DialogDescription>
-          </DialogHeader>
-          {viewingStudent && (
-            <div className="space-y-4">
-              {/* ── Avatar + nombre ── */}
-              <div className="flex items-center gap-4">
-                <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center text-xl font-bold text-primary uppercase shrink-0">
-                  {viewingStudent.full_name.substring(0, 2)}
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-bold text-lg truncate">{viewingStudent.full_name}</h3>
-                    <MedicalAlertBadge medicalInfo={viewingStudent.medical_info} />
-                  </div>
-                  <p className="text-sm text-muted-foreground">{calculateAge(viewingStudent.date_of_birth)}</p>
-                </div>
-              </div>
+      {/* ── View Athlete Dialog (read-only) ────────────────────────────
+          Muestra datos personales, médico, equipo, plan, acudiente
+          y documentos cargados. Funciona para child / adult / unregistered.
+          ─────────────────────────────────────────────────────────────── */}
+      <Dialog open={!!viewingStudent} onOpenChange={(o) => !o && setViewingStudent(null)}>
+        <DialogContent className="w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto">
+          {viewingStudent && (() => {
+            const s = viewingStudent;
+            const athleteType = getAthleteType(s);
+            const age = calculateAge(s.date_of_birth);
+            const isChild = athleteType === 'child';
+            const isAdult = athleteType === 'adult';
+            const isUnregistered = athleteType === 'unregistered';
 
-              {/* ── Info básica ── */}
-              <div className="grid gap-1">
-                {[
-                  { label: 'Escuela', value: schoolName },
-                  { label: 'Documento', value: studentDocInfo.doc_number ? `${studentDocInfo.doc_type || ''} ${studentDocInfo.doc_number}`.trim() : ((viewingStudent as any).doc_number ? `${(viewingStudent as any).doc_type || ''} ${(viewingStudent as any).doc_number}`.trim() : '-') },
-                  { label: 'EPS', value: studentDocInfo.eps_name || '-' },
-                  { label: 'Talla camiseta', value: studentDocInfo.tshirt_size || '-' },
-                  { label: 'RH', value: studentDocInfo.blood_type || '-' },
-                  { label: 'Mensualidad', value: ((viewingStudent as any).monthly_fee || viewingStudent.price_monthly) ? formatCurrency((viewingStudent as any).monthly_fee || viewingStudent.price_monthly!) : '-', bold: true },
-                  { label: 'Acudiente', value: (viewingStudent as any).athlete_type === 'adult' ? '—' : ((viewingStudent as any).display_parent_name || viewingStudent.parent_name || '-') },
-                  { label: 'Teléfono', value: (viewingStudent as any).display_parent_phone || viewingStudent.parent_phone || '-' },
-                ].map(({ label, value, bold }) => (
-                  <div key={label} className="flex items-center justify-between p-2 rounded hover:bg-muted/50 gap-2">
-                    <span className="text-sm font-medium shrink-0">{label}:</span>
-                    <span className={`text-sm text-right truncate ${bold ? 'font-bold text-primary' : ''}`}>{value}</span>
-                  </div>
-                ))}
-              </div>
+            const typeBadge = isChild
+              ? <Badge className="bg-blue-500/10 text-blue-700 border-blue-500/30">Menor</Badge>
+              : isAdult
+                ? <Badge className="bg-purple-500/10 text-purple-700 border-purple-500/30">Adulto</Badge>
+                : <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/30">Sin cuenta</Badge>;
 
-              {/* ── Equipo y Plan ── */}
-              <div className="space-y-2">
-                <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Inscripciones</p>
+            const statusBadge = s.status === 'inactive'
+              ? <Badge variant="outline" className="text-muted-foreground">Inactivo</Badge>
+              : <Badge className="bg-green-500/10 text-green-700 border-green-500/30">Activo</Badge>;
 
-                {/* Equipo */}
-                {(viewingStudent as any).team_name ? (
-                  <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/40 dark:bg-muted/20">
-                    <div className="h-8 w-8 rounded-full bg-orange-100 dark:bg-orange-950/50 flex items-center justify-center shrink-0">
-                      <Trophy className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-                    </div>
+            // Plan manda (igual que la vista y el motor de cobros): nunca suma
+            // equipo + plan; si hay plan, ese es el valor.
+            const monthlyFee = Number((s as any).price_monthly)
+              || Number((s as any).plan_monthly_fee)
+              || Number((s as any).team_monthly_fee)
+              || Number(s.monthly_fee) || 0;
+
+            return (
+              <>
+                <DialogHeader>
+                  <div className="flex items-start gap-4">
+                    {/* Avatar del atleta: foto si subió, ícono genérico si no */}
+                    {s.avatar_url ? (
+                      <img
+                        src={s.avatar_url}
+                        alt={s.full_name}
+                        className="w-16 h-16 rounded-full object-cover flex-shrink-0 ring-2 ring-primary/20"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    ) : (
+                      <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <User className="w-8 h-8 text-primary" />
+                      </div>
+                    )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-foreground truncate">{(viewingStudent as any).team_name}</p>
-                      <p className="text-xs text-muted-foreground">Equipo{(viewingStudent as any).branch_name ? ` · ${(viewingStudent as any).branch_name}` : ''}</p>
+                      <DialogTitle className="text-xl break-words">{s.full_name}</DialogTitle>
+                      <DialogDescription asChild>
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                          {typeBadge}
+                          {statusBadge}
+                          {age != null && <span className="text-sm text-muted-foreground">{age} años</span>}
+                          {s.date_of_birth && (
+                            <span className="text-sm text-muted-foreground">
+                              · {format(new Date(s.date_of_birth + 'T12:00:00'), 'dd MMM yyyy', { locale: es })}
+                            </span>
+                          )}
+                        </div>
+                      </DialogDescription>
                     </div>
                   </div>
-                ) : (
-                  <div className="flex items-center gap-3 p-3 rounded-lg border border-dashed text-muted-foreground">
-                    <Trophy className="h-4 w-4 shrink-0" />
-                    <p className="text-xs">Sin equipo asignado</p>
-                  </div>
-                )}
+                </DialogHeader>
 
-                {/* Plan */}
-                {loadingPlanInfo ? (
-                  <div className="flex items-center gap-2 p-3 rounded-lg border border-dashed text-xs text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando plan...
-                  </div>
-                ) : studentPlanInfo ? (
-                  <div className="p-3 rounded-lg border border-border bg-muted/40 dark:bg-muted/20 space-y-2">
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-violet-100 dark:bg-violet-950/50 flex items-center justify-center shrink-0">
-                        <Zap className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-foreground truncate">
-                          {studentPlanInfo.offering_name ? `${studentPlanInfo.offering_name} — ` : ''}{studentPlanInfo.plan_name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">Plan de servicio</p>
-                      </div>
-                      <Badge variant="secondary" className="text-[10px] shrink-0 bg-green-100 text-green-700 border-green-200 dark:bg-green-950/50 dark:text-green-400 dark:border-green-800">Activo</Badge>
+                <div className="space-y-6 mt-2">
+                  {/* ── Sección: Datos personales ───────────────────── */}
+                  <section>
+                    <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                      <User className="w-4 h-4" /> Datos personales
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                      <InfoRow label="Documento" value={
+                        studentDocInfo.doc_type && studentDocInfo.doc_number
+                          ? `${studentDocInfo.doc_type.toUpperCase()} ${studentDocInfo.doc_number}`
+                          : null
+                      } />
+                      <InfoRow label="Talla camiseta" value={studentDocInfo.tshirt_size} />
+                      <InfoRow label="Tipo de sangre" value={studentDocInfo.blood_type} />
+                      <InfoRow label="EPS" value={studentDocInfo.eps_name} />
+                      {s.emergency_contact && (
+                        <InfoRow label="Contacto emergencia" value={s.emergency_contact} />
+                      )}
+                      {!isChild && s.parent_email && (
+                        <InfoRow label="Email" value={s.parent_email} icon={<Mail className="w-3 h-3" />} />
+                      )}
+                      {!isChild && s.parent_phone && (
+                        <InfoRow label="Teléfono" value={s.parent_phone} icon={<Phone className="w-3 h-3" />} />
+                      )}
                     </div>
-                    {/* Fechas del plan */}
-                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border">
-                      <div className="flex items-center gap-1.5 text-xs">
-                        <CalendarCheck className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
-                        <span className="text-muted-foreground">Inicio:</span>
-                        <span className="font-medium text-foreground">
-                          {studentPlanInfo.start_date
-                            ? new Date(studentPlanInfo.start_date + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
-                            : '—'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-xs">
-                        <CalendarX className="h-3.5 w-3.5 text-destructive shrink-0" />
-                        <span className="text-muted-foreground">Vence:</span>
-                        <span className={`font-medium ${
-                          studentPlanInfo.end_date && new Date(studentPlanInfo.end_date) < new Date()
-                            ? 'text-destructive'
-                            : 'text-foreground'
-                        }`}>
-                          {studentPlanInfo.end_date
-                            ? new Date(studentPlanInfo.end_date + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
-                            : 'Sin vencimiento'}
-                        </span>
-                      </div>
-                    </div>
-                    {/* Alerta de vencimiento */}
-                    {studentPlanInfo.end_date && (() => {
-                      const endDate = new Date(studentPlanInfo.end_date!);
-                      const today = new Date();
-                      const diffDays = Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                      if (diffDays < 0) return (
-                        <div className="flex items-center gap-1.5 text-xs text-destructive bg-destructive/10 rounded-md p-2">
-                          <CalendarX className="h-3 w-3 shrink-0" /> Plan vencido hace {Math.abs(diffDays)} día{Math.abs(diffDays) !== 1 ? 's' : ''}
-                        </div>
-                      );
-                      if (diffDays <= 15) return (
-                        <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 rounded-md p-2">
-                          <Calendar className="h-3 w-3 shrink-0" /> Vence en {diffDays} día{diffDays !== 1 ? 's' : ''}
-                        </div>
-                      );
-                      return null;
-                    })()}
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-3 p-3 rounded-lg border border-dashed text-muted-foreground">
-                    <Zap className="h-4 w-4 shrink-0" />
-                    <p className="text-xs">Sin plan activo</p>
-                  </div>
-                )}
-              </div>
+                  </section>
 
-              {/* ── Documentos del atleta ── */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <FolderOpen className="h-4 w-4 text-primary" />
-                  Documentos
-                </div>
-                {loadingDocs ? (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground p-2">
-                    <Loader2 className="h-3 w-3 animate-spin" /> Cargando documentos...
-                  </div>
-                ) : studentDocs.length === 0 ? (
-                  <p className="text-xs text-muted-foreground p-2 rounded border border-dashed text-center">
-                    El acudiente aun no ha subido documentos para este atleta.
-                  </p>
-                ) : (
-                  (() => {
-                    const classify = (n: string): 'identity' | 'eps' | 'other' => {
-                      if (n.startsWith('identity-') || n.startsWith('id-')) return 'identity';
-                      if (n.startsWith('eps-')) return 'eps';
-                      return 'other';
-                    };
-                    const groups = {
-                      identity: studentDocs.filter(d => classify(d.name) === 'identity'),
-                      eps:      studentDocs.filter(d => classify(d.name) === 'eps'),
-                      other:    studentDocs.filter(d => classify(d.name) === 'other'),
-                    };
-                    const DocList = ({ label, docs, color }: { label: string; docs: typeof studentDocs; color: string }) => (
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 text-xs font-medium">
-                          <span className={`inline-block h-2 w-2 rounded-full ${color}`} />
-                          {label} <span className="text-muted-foreground">({docs.length})</span>
+                  {/* ── Sección: Información médica ─────────────────── */}
+                  {s.medical_info && (
+                    <section>
+                      <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                        <Heart className="w-4 h-4 text-red-500" /> Información médica
+                      </h3>
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm whitespace-pre-wrap break-words">
+                        {(() => {
+                          try {
+                            const parsed = JSON.parse(s.medical_info);
+                            if (parsed.has_allergies) {
+                              return (
+                                <div className="space-y-1">
+                                  <p className="font-semibold text-red-700">⚠️ Tiene alergias</p>
+                                  {parsed.allergy_type && <p><strong>Tipo:</strong> {parsed.allergy_type}</p>}
+                                  {parsed.allergy_severity && <p><strong>Severidad:</strong> {parsed.allergy_severity}</p>}
+                                  {parsed.allergy_treatment && <p><strong>Tratamiento:</strong> {parsed.allergy_treatment}</p>}
+                                  {parsed.notes && <p className="mt-2"><strong>Notas:</strong> {parsed.notes}</p>}
+                                </div>
+                              );
+                            }
+                            return <span className="text-muted-foreground">Sin alergias reportadas{parsed.notes ? ` · ${parsed.notes}` : ''}</span>;
+                          } catch {
+                            return s.medical_info;
+                          }
+                        })()}
+                      </div>
+                    </section>
+                  )}
+
+                  {/* ── Sección: Equipo, sede y plan ─────────────────── */}
+                  <section>
+                    <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                      <Trophy className="w-4 h-4 text-orange-500" /> Equipo y plan
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                      <InfoRow label="Equipo" value={s.team_name} />
+                      <InfoRow label="Deporte" value={s.team_sport || s.sport} />
+                      <InfoRow label="Sede" value={s.branch_name} icon={<MapPin className="w-3 h-3" />} />
+                      <InfoRow label="Mensualidad" value={monthlyFee > 0 ? formatCurrency(monthlyFee) : null} />
+                    </div>
+
+                    {/* Plan activo */}
+                    <div className="mt-3 rounded-lg border bg-muted/30 p-3">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-2">
+                        <Zap className="w-3 h-3 text-purple-500" /> Plan activo
+                      </p>
+                      {loadingPlanInfo ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Loader2 className="w-4 h-4 animate-spin" /> Cargando plan...
                         </div>
-                        {docs.length === 0 ? (
-                          <p className="text-[11px] text-muted-foreground pl-3 italic">Sin archivo</p>
-                        ) : docs.map(doc => (
+                      ) : studentPlanInfo ? (
+                        <div className="space-y-1 text-sm">
+                          <p className="font-semibold">{studentPlanInfo.plan_name}</p>
+                          {studentPlanInfo.offering_name && <p className="text-muted-foreground text-xs">{studentPlanInfo.offering_name}</p>}
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-1">
+                            {studentPlanInfo.start_date && (
+                              <span>Inicio: {format(new Date(studentPlanInfo.start_date + 'T12:00:00'), 'dd MMM yyyy', { locale: es })}</span>
+                            )}
+                            {studentPlanInfo.end_date && (
+                              <span>Vence: {format(new Date(studentPlanInfo.end_date + 'T12:00:00'), 'dd MMM yyyy', { locale: es })}</span>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground italic">Sin plan activo</p>
+                      )}
+                    </div>
+                  </section>
+
+                  {/* ── Sección: Acudiente (solo child) ──────────────── */}
+                  {isChild && (s.display_parent_name || s.parent_name || s.parent_email || s.parent_phone) && (
+                    <section>
+                      <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                        <User className="w-4 h-4" /> Acudiente
+                      </h3>
+                      <div className="flex items-start gap-4">
+                        {/* Avatar del acudiente */}
+                        {s.parent_avatar ? (
+                          <img
+                            src={s.parent_avatar}
+                            alt={s.display_parent_name || s.parent_name || 'Acudiente'}
+                            className="w-12 h-12 rounded-full object-cover flex-shrink-0 ring-1 ring-border"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                            <User className="w-6 h-6 text-muted-foreground" />
+                          </div>
+                        )}
+                        <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                          <InfoRow label="Nombre" value={s.display_parent_name || s.parent_name} />
+                          <InfoRow label="Email" value={s.parent_email} icon={<Mail className="w-3 h-3" />} />
+                          <InfoRow label="Teléfono" value={s.parent_phone} icon={<Phone className="w-3 h-3" />} />
+                        </div>
+                      </div>
+                    </section>
+                  )}
+
+                  {/* ── Sección: Documentos cargados ─────────────────── */}
+                  <section>
+                    <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                      <FileText className="w-4 h-4" /> Documentos cargados
+                    </h3>
+                    {loadingDocs ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Cargando documentos...
+                      </div>
+                    ) : studentDocs.length === 0 ? (
+                      <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+                        Sin documentos cargados
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {studentDocs.map((doc) => (
                           <a
                             key={doc.name}
                             href={doc.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center justify-between p-2 rounded border hover:bg-muted/50 transition-colors text-xs group"
+                            className="flex items-center gap-3 rounded-lg border bg-card p-3 hover:bg-accent/50 transition-colors"
                           >
-                            <span className="flex items-center gap-2 truncate">
-                              <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                              <span className="truncate">{doc.name}</span>
-                            </span>
-                            <Download className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary shrink-0 ml-2" />
+                            <FileText className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                            <span className="flex-1 text-sm truncate">{doc.name}</span>
+                            <Download className="w-4 h-4 text-primary flex-shrink-0" />
                           </a>
                         ))}
                       </div>
-                    );
-                    return (
-                      <div className="space-y-3">
-                        <DocList label="Documento de identidad" docs={groups.identity} color="bg-blue-500" />
-                        <DocList label="Certificado EPS" docs={groups.eps} color="bg-green-500" />
-                        {groups.other.length > 0 && (
-                          <DocList label="Otros" docs={groups.other} color="bg-muted-foreground/50" />
-                        )}
-                      </div>
-                    );
-                  })()
-                )}
-              </div>
+                    )}
+                  </section>
+                </div>
 
-              <DialogFooter><Button onClick={() => setViewingStudent(null)}>Cerrar</Button></DialogFooter>
-            </div>
-          )}
+                <DialogFooter className="flex-col-reverse sm:flex-row gap-2 mt-6">
+                  <Button variant="outline" onClick={() => setViewingStudent(null)}>
+                    Cerrar
+                  </Button>
+                  {canManageStudents && (
+                    <Button onClick={() => {
+                      const stored = s;
+                      setViewingStudent(null);
+                      handleEditStudent(stored);
+                    }}>
+                      <Edit className="w-4 h-4 mr-2" />
+                      Editar
+                    </Button>
+                  )}
+                </DialogFooter>
+              </>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
-      <CSVImportModal
-        open={showImportModal}
-        onClose={() => setShowImportModal(false)}
-        onSuccess={() => {
-          setShowImportModal(false);
-          toast({ title: "Importación completada", description: "La lista de atletas se ha actualizado." });
-          queryClient.invalidateQueries({ queryKey: ['school-students'] });
-        }}
-        schoolId={schoolId ?? ''}
-        schoolName={schoolName}
-        branchId={activeBranchId}
-        students={students}
-        teams={teams}
-        branches={branches}
-      />
+      <CSVImportModal open={showImportModal} onClose={() => setShowImportModal(false)}
+        onSuccess={() => { setShowImportModal(false); toast({ title: "Importación completada", description: "La lista de atletas se ha actualizado." }); queryClient.invalidateQueries({ queryKey: ['school-students'] }); }}
+        schoolId={schoolId ?? ''} schoolName={schoolName} branchId={activeBranchId} students={students} teams={teams} branches={branches} />
+      <StudentTypeSelector open={showTypeSelector} onClose={() => setShowTypeSelector(false)} onSelectChild={() => setShowCreateChildModal(true)} onSelectAdult={() => setShowCreateAdultModal(true)} />
+      <CreateChildModal open={showCreateChildModal} onClose={() => setShowCreateChildModal(false)} onSuccess={() => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); setShowCreateChildModal(false); }} schoolId={schoolId || ''} />
+      <CreateAdultAthleteModal open={showCreateAdultModal} onClose={() => setShowCreateAdultModal(false)} onSuccess={() => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); setShowCreateAdultModal(false); }} schoolId={schoolId || ''} />
+    </div>
+  );
+}
 
-      <StudentTypeSelector
-        open={showTypeSelector}
-        onClose={() => setShowTypeSelector(false)}
-        onSelectChild={() => setShowCreateChildModal(true)}
-        onSelectAdult={() => setShowCreateAdultModal(true)}
-      />
-
-      <CreateChildModal
-        open={showCreateChildModal}
-        onClose={() => setShowCreateChildModal(false)}
-        onSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: ['school-students'] });
-          setShowCreateChildModal(false);
-        }}
-        schoolId={schoolId || ''}
-      />
-
-      <CreateAdultAthleteModal
-        open={showCreateAdultModal}
-        onClose={() => setShowCreateAdultModal(false)}
-        onSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: ['school-students'] });
-          setShowCreateAdultModal(false);
-        }}
-        schoolId={schoolId || ''}
-      />
+// ─── Helper: fila de info "Label — Value" usada en el View Dialog ───────────────
+function InfoRow({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string | null | undefined;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-0.5">
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="font-medium break-words flex items-center gap-1.5">
+        {icon}
+        {value || <span className="text-muted-foreground font-normal italic">—</span>}
+      </p>
     </div>
   );
 }

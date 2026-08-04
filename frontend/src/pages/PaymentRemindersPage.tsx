@@ -18,14 +18,19 @@ import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
 import { toast } from 'sonner';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { emailClient } from '@/lib/email-client';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
+import { ReminderHistoryModal } from '@/components/finances/ReminderHistoryModal';
 
 export default function PaymentRemindersPage() {
     const { schoolId, activeBranchId, activeBranchName, schoolName } = useSchoolContext();
     const [batch, setBatch] = useState<ReminderBatch | null>(null);
     const [loading, setLoading] = useState(true);
+    // F-01: distinguir "error de carga" de "sin datos" (no mostrar "¡Todo al día!" ante un fallo).
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [sending, setSending] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'overdue'>('all');
@@ -34,6 +39,9 @@ export default function PaymentRemindersPage() {
     const [sendingAuto, setSendingAuto] = useState(false);
     const [templates, setTemplates] = useState<{ id: string; name: string; template_type: string }[]>([]);
     const [selectedTemplateId, setSelectedTemplateId] = useState<string>('auto');
+    const [athletesWithoutPayment, setAthletesWithoutPayment] = useState<any[]>([]);
+    const [loadingWithout, setLoadingWithout] = useState(false);
+    const [showHistory, setShowHistory] = useState(false);
 
     useEffect(() => {
         if (schoolId) {
@@ -59,6 +67,7 @@ export default function PaymentRemindersPage() {
         if (!schoolId) return;
         try {
             setLoading(true);
+            setLoadError(null);
             // First, mark overdue payments
             const overdueCount = await paymentRemindersAPI.markOverduePayments(schoolId);
             if (overdueCount > 0) {
@@ -67,10 +76,16 @@ export default function PaymentRemindersPage() {
             // Then generate the reminder list
             const data = await paymentRemindersAPI.generateReminders(schoolId, activeBranchId);
             setBatch(data);
+            // Cargar atletas sin cobro
+            setLoadingWithout(true);
+            const without = await paymentRemindersAPI.getAthletesWithoutPayment(schoolId);
+            setAthletesWithoutPayment(without);
         } catch (error: any) {
+            setLoadError(error.message || 'Error al cargar recordatorios');
             toast.error(error.message || 'Error al cargar recordatorios');
         } finally {
             setLoading(false);
+            setLoadingWithout(false);
         }
     }
 
@@ -133,7 +148,7 @@ export default function PaymentRemindersPage() {
                         to: reminder.parentEmail,
                         data: {
                             userName: reminder.parentName,
-                            schoolName: batch?.schoolId || '',
+                            schoolName: schoolName || '',
                             concept: reminder.teamName,
                             amount: formatCurrency(reminder.amount),
                             dueDate: formatDate(reminder.dueDate),
@@ -217,6 +232,19 @@ export default function PaymentRemindersPage() {
             const cleanPhone = reminder.parentPhone.replace(/[\s\-()]/g, '');
             const phone = cleanPhone.startsWith('+') ? cleanPhone.replace('+', '') : `57${cleanPhone.replace(/^0+/, '')}`;
 
+            // Registrar en historial
+            const { data: { user } } = await supabase.auth.getUser();
+            await paymentRemindersAPI.logReminder({
+                school_id: schoolId!,
+                payment_id: reminder.paymentId || undefined,
+                contact_name: reminder.parentName,
+                contact_email: reminder.parentEmail || undefined,
+                contact_phone: reminder.parentPhone || undefined,
+                amount: reminder.amount,
+                channel: 'whatsapp',
+                sent_by: user?.id || '',
+            });
+
             window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message.body)}`, '_blank');
         } catch (err: any) {
             // Fallback: use hardcoded message if BFF fails
@@ -252,6 +280,7 @@ export default function PaymentRemindersPage() {
     }
 
     return (
+        <>
         <div className="space-y-6">
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -294,6 +323,10 @@ export default function PaymentRemindersPage() {
                             <><Send className="h-4 w-4 mr-2" /> Enviar ({selectedIds.size})</>
                         )}
                     </Button>
+                    <Button variant="outline" onClick={() => setShowHistory(true)}>
+                        <Clock className="h-4 w-4 mr-2" />
+                        Historial
+                    </Button>
                 </div>
             </div>
 
@@ -331,19 +364,78 @@ export default function PaymentRemindersPage() {
                 </div>
             )}
 
+            {/* Sin cobro */}
+            {athletesWithoutPayment.length > 0 && (
+                <Card className="border-amber-200 bg-amber-50/50">
+                    <CardHeader className="pb-3">
+                        <CardTitle className="text-base flex items-center gap-2 text-amber-800">
+                            <AlertTriangle className="h-4 w-4" />
+                            {athletesWithoutPayment.length} atleta{athletesWithoutPayment.length > 1 ? 's' : ''} sin cobro generado
+                        </CardTitle>
+                        <CardDescription>
+                            Tienen inscripción activa pero no tienen pago pendiente registrado
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Atleta</TableHead>
+                                    <TableHead>Tipo</TableHead>
+                                    <TableHead>Equipo / Plan</TableHead>
+                                    <TableHead className="text-right">Tarifa</TableHead>
+                                    <TableHead>Contacto</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {athletesWithoutPayment.map(a => (
+                                    <TableRow key={a.athlete_id}>
+                                        <TableCell className="font-medium text-sm">{a.full_name}</TableCell>
+                                        <TableCell>
+                                            <Badge variant="outline" className="text-[10px]">
+                                                {a.athlete_type === 'child' ? 'Menor' : a.athlete_type === 'adult' ? 'Adulto' : 'No registrado'}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">
+                                            {a.team_name || a.plan_name || '—'}
+                                        </TableCell>
+                                        <TableCell className="text-right text-sm font-semibold">
+                                            {a.price_monthly > 0
+                                                ? new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(a.price_monthly)
+                                                : '—'}
+                                        </TableCell>
+                                        <TableCell className="text-xs text-muted-foreground">
+                                            {a.contact_email || a.contact_phone || 'Sin contacto'}
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                        <TableRefreshBar
+                            className="-mx-6 -mb-6 mt-2 rounded-b-lg"
+                            onRefresh={loadReminders}
+                            loading={loading || loadingWithout}
+                            summary={`${athletesWithoutPayment.length} atleta(s) sin cobro`}
+                        />
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Filtro por estado en tarjetas */}
+            <StatFilterBar
+                columns={3}
+                value={filterStatus === 'all' ? null : filterStatus}
+                onChange={(v) => setFilterStatus((v as 'pending' | 'overdue') ?? 'all')}
+                items={[
+                    { key: null, label: 'Todos', value: batch?.totalReminders || 0, tone: 'neutral' },
+                    { key: 'pending', label: 'Pendientes', value: batch?.byStatus.pending || 0, tone: 'yellow' },
+                    { key: 'overdue', label: 'Vencidos', value: batch?.byStatus.overdue || 0, tone: 'rose' },
+                ]}
+            />
+
             {/* Filter Bar */}
             <div className="flex items-center gap-3 flex-wrap">
                 <Filter className="h-4 w-4 text-muted-foreground" />
-                <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
-                    <SelectTrigger className="w-[180px]">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all">Todos ({batch?.totalReminders || 0})</SelectItem>
-                        <SelectItem value="pending">Pendientes ({batch?.byStatus.pending || 0})</SelectItem>
-                        <SelectItem value="overdue">Vencidos ({batch?.byStatus.overdue || 0})</SelectItem>
-                    </SelectContent>
-                </Select>
 
                 {planOptions.length > 0 && (
                     <Select value={filterPlan} onValueChange={setFilterPlan}>
@@ -389,7 +481,21 @@ export default function PaymentRemindersPage() {
             </div>
 
             {/* Content */}
-            {filteredReminders.length === 0 ? (
+            {loadError ? (
+                // F-01: error de carga != "todo al día". No dar falsa tranquilidad.
+                <Card className="border-dashed border-destructive/50 flex flex-col items-center justify-center py-16 text-center">
+                    <AlertTriangle className="h-14 w-14 text-destructive mb-4 opacity-70" />
+                    <CardTitle className="text-xl">No se pudieron cargar los recordatorios</CardTitle>
+                    <CardDescription className="max-w-sm mt-2">
+                        Ocurrió un error de conexión. Esto <strong>no</strong> significa que no
+                        haya pagos pendientes. Reintenta.
+                    </CardDescription>
+                    <Button variant="outline" size="sm" className="mt-4" onClick={loadReminders}>
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Reintentar
+                    </Button>
+                </Card>
+            ) : filteredReminders.length === 0 ? (
                 <Card className="border-dashed flex flex-col items-center justify-center py-16 text-center">
                     <CheckCircle2 className="h-14 w-14 text-emerald-400 mb-4 opacity-50" />
                     <CardTitle className="text-xl">¡Todo al día!</CardTitle>
@@ -409,7 +515,7 @@ export default function PaymentRemindersPage() {
                                     />
                                 </TableHead>
                                 <TableHead>Padre / Acudiente</TableHead>
-                                <TableHead>Estudiante</TableHead>
+                                <TableHead>Deportista</TableHead>
                                 <TableHead>Plan</TableHead>
                                 <TableHead className="text-right">Monto</TableHead>
                                 <TableHead>Vencimiento</TableHead>
@@ -580,8 +686,20 @@ export default function PaymentRemindersPage() {
                             })}
                         </TableBody>
                     </Table>
+                    <TableRefreshBar
+                        onRefresh={loadReminders}
+                        loading={loading}
+                        summary={`${filteredReminders.length} recordatorio(s) · ${filteredStats.parents} acudiente(s)`}
+                    />
                 </Card>
             )}
         </div>
+
+        <ReminderHistoryModal
+            open={showHistory}
+            onOpenChange={setShowHistory}
+            schoolId={schoolId ?? ''}
+        />
+        </>
     );
 }

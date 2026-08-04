@@ -11,6 +11,8 @@ import { Users, Search, Mail, Phone, Calendar, UserPlus } from 'lucide-react';
 import { StudentTypeSelector } from '@/components/students/StudentTypeSelector';
 import { CreateChildModal } from '@/components/students/CreateChildModal';
 import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { TrainerInvitationsTab } from './tabs/TrainerInvitationsTab';
 
 const BFF_URL = import.meta.env.VITE_BFF_URL || 'http://localhost:3000';
 
@@ -68,110 +70,128 @@ export default function TrainerClients() {
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Mis Clientes</h1>
-          <p className="text-muted-foreground text-sm">Clientes activos en tu workspace</p>
-        </div>
-        <div className="flex items-center gap-2 self-start sm:self-auto">
-          <Badge variant="secondary" className="gap-1.5 h-9">
-            <Users className="h-3 w-3" />
-            {clients.length} activos
-          </Badge>
-          <Button size="sm" onClick={() => setShowTypeSelector(true)} className="h-9">
-            <UserPlus className="w-4 h-4 mr-2" />
-            <span className="hidden sm:inline">Agregar Cliente</span>
-            <span className="sm:hidden">Agregar</span>
-          </Button>
+          <h1 className="text-2xl font-bold tracking-tight">Gestión de Clientes</h1>
+          <p className="text-muted-foreground text-sm">Administra tus atletas e invitaciones</p>
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          className="pl-9"
-          placeholder="Buscar por nombre o email..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-      </div>
+      <Tabs defaultValue="active" className="w-full">
+        <TabsList className="grid w-full grid-cols-2 max-w-[400px]">
+          <TabsTrigger value="active" className="gap-2">
+            <Users className="h-4 w-4" />
+            Activos
+            <Badge variant="secondary" className="ml-1 h-5 px-1.5 min-w-[1.25rem] flex items-center justify-center">
+              {clients.length}
+            </Badge>
+          </TabsTrigger>
+          <TabsTrigger value="invitations" className="gap-2">
+            <UserPlus className="h-4 w-4" />
+            Invitaciones
+          </TabsTrigger>
+        </TabsList>
 
-      {/* List */}
-      {loading ? (
-        <div className="grid gap-3">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="h-20 rounded-xl bg-muted animate-pulse" />
-          ))}
-        </div>
-      ) : filtered.length === 0 ? (
-        <Card className="border-dashed">
-          <CardContent className="py-12 text-center">
-            <Users className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-            <p className="font-medium">No hay clientes aún</p>
-            <p className="text-sm text-muted-foreground mt-1">Cuando alguien se inscriba a uno de tus planes, aparecerá aquí.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-3">
-          {filtered.map(client => {
-            const p = (client.clientType === 'adult' || client.clientType === 'unregistered') ? client.profile : client.child;
-            const name = p?.full_name || 'Desconocido';
-            const email = (client.clientType === 'adult' || client.clientType === 'unregistered') ? p?.email : null;
-            const phone = (client.clientType === 'adult' || client.clientType === 'unregistered') ? p?.phone : null;
-            return (
-              <Card 
-                key={client.enrollment_id} 
-                className="border-border/50 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer"
-                onClick={() => {
-                  if (!client.athleteId) {
-                    console.error('athleteId is null for enrollment:', client.enrollment_id);
-                    return;
-                  }
-                  navigate(`/trainer/clients/${client.athleteId}?type=${client.clientType}`);
-                }}
-              >
-                <CardContent className="p-4 flex items-center gap-4">
-                  <div className="h-10 w-10 overflow-hidden rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary flex-shrink-0">
-                    {p && p.avatar_url ? (
-                       <img src={p.avatar_url} alt={name} className="h-full w-full object-cover" />
-                    ) : ( 
-                       name.substring(0, 2).toUpperCase() 
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm truncate">{name}</p>
-                    <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                      {email && (
-                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <Mail className="h-3 w-3" />
-                          {email}
+        <TabsContent value="active" className="space-y-6 mt-6">
+          <div className="flex items-center justify-between gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                className="pl-9"
+                placeholder="Buscar por nombre o email..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <Button onClick={() => setShowTypeSelector(true)} className="gap-2">
+              <UserPlus className="w-4 h-4" />
+              <span className="hidden sm:inline">Agregar Cliente</span>
+              <span className="sm:hidden">Agregar</span>
+            </Button>
+          </div>
+
+          {/* List */}
+          {loading ? (
+            <div className="grid gap-3">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="h-20 rounded-xl bg-muted animate-pulse" />
+              ))}
+            </div>
+          ) : filtered.length === 0 ? (
+            <Card className="border-dashed">
+              <CardContent className="py-12 text-center">
+                <Users className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+                <p className="font-medium">No hay clientes aún</p>
+                <p className="text-sm text-muted-foreground mt-1">Cuando alguien se inscriba a uno de tus planes, aparecerá aquí.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-3">
+              {filtered.map(client => {
+                const p = (client.clientType === 'adult' || client.clientType === 'unregistered') ? client.profile : client.child;
+                const name = p?.full_name || 'Desconocido';
+                const email = (client.clientType === 'adult' || client.clientType === 'unregistered') ? p?.email : null;
+                const phone = (client.clientType === 'adult' || client.clientType === 'unregistered') ? p?.phone : null;
+                return (
+                  <Card 
+                    key={client.enrollment_id} 
+                    className="border-border/50 hover:shadow-md transition-all hover:-translate-y-0.5 cursor-pointer"
+                    onClick={() => {
+                      if (!client.athleteId) {
+                        console.error('athleteId is null for enrollment:', client.enrollment_id);
+                        return;
+                      }
+                      navigate(`/trainer/clients/${client.athleteId}?type=${client.clientType}`);
+                    }}
+                  >
+                    <CardContent className="p-4 flex items-center gap-4">
+                      <div className="h-10 w-10 overflow-hidden rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary flex-shrink-0">
+                        {p && p.avatar_url ? (
+                           <img src={p.avatar_url} alt={name} className="h-full w-full object-cover" />
+                        ) : ( 
+                           name.substring(0, 2).toUpperCase() 
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm truncate">{name}</p>
+                        <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                          {email && (
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Mail className="h-3 w-3" />
+                              {email}
+                            </span>
+                          )}
+                          {phone && (
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Phone className="h-3 w-3" />
+                              {phone}
+                            </span>
+                          )}
+                          {client.clientType === 'child' && (
+                            <Badge variant="secondary" className="text-[10px]">Niño/a</Badge>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                        <Badge variant="outline" className="text-[10px] border-green-500 text-green-600 bg-green-50 dark:bg-green-500/10">
+                          Activo
+                        </Badge>
+                        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <Calendar className="h-2.5 w-2.5" />
+                          {new Date(client.created_at).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
                         </span>
-                      )}
-                      {phone && (
-                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <Phone className="h-3 w-3" />
-                          {phone}
-                        </span>
-                      )}
-                      {client.clientType === 'child' && (
-                        <Badge variant="secondary" className="text-[10px]">Niño/a</Badge>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                    <Badge variant="outline" className="text-[10px] border-green-500 text-green-600 bg-green-50 dark:bg-green-500/10">
-                      Activo
-                    </Badge>
-                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                      <Calendar className="h-2.5 w-2.5" />
-                      {new Date(client.created_at).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="invitations">
+          <TrainerInvitationsTab />
+        </TabsContent>
+      </Tabs>
+
       <StudentTypeSelector
         open={showTypeSelector}
         onClose={() => setShowTypeSelector(false)}

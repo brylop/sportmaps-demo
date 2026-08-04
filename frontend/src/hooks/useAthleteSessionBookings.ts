@@ -1,20 +1,29 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useSchoolContext } from './useSchoolContext';
 import { bffClient } from '@/lib/api/bffClient';
+import { useAuth } from '@/contexts/AuthContext';
 
-async function bff<T>(path: string, init?: RequestInit, childId?: string): Promise<T> {
+async function bff<T>(
+  path: string,
+  init?: RequestInit,
+  childId?: string,
+  branchId?: string | null,
+): Promise<T> {
   const method = (init?.method || 'GET').toUpperCase();
+  const params: string[] = [];
+  if (childId) params.push(`child_id=${childId}`);
+  if (branchId) params.push(`branch_id=${branchId}`);
   let queryString = '';
-  if (childId) {
-    queryString = path.includes('?') ? `&child_id=${childId}` : `?child_id=${childId}`;
+  if (params.length > 0) {
+    queryString = (path.includes('?') ? '&' : '?') + params.join('&');
   }
   const fullPath = `/api/v1/session-bookings${path}${queryString}`;
-  
+
   if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
     const body = init?.body ? JSON.parse(init.body as string) : undefined;
     return bffClient.request<T>(method as any, fullPath, body, init?.headers as any);
   }
-  
+
   return bffClient.request<T>(method as any, fullPath, undefined, init?.headers as any);
 }
 
@@ -60,44 +69,48 @@ export interface MyBooking {
     offering_plans: { name: string } | null;
     teams: { name: string } | null;
   };
+  session_type?: 'personal' | 'group';
 }
 
 export function useAvailableSessions(childId?: string) {
-  const { schoolId } = useSchoolContext();
+  const { schoolId, activeBranchId } = useSchoolContext();
+  const { user } = useAuth();
   return useQuery<{ sessions: BookableSession[] }>({
-    queryKey: ['athlete-available-sessions', schoolId, childId],
-    queryFn: () => bff('/athlete/available', undefined, childId),
-    staleTime: 0,
-    refetchInterval: 30_000,
-    enabled: !!schoolId,
+    queryKey: ['athlete-available-sessions', schoolId, activeBranchId, childId],
+    queryFn: () => bff('/athlete/available', undefined, childId, activeBranchId),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+    enabled: !!schoolId && !!user?.id,
   });
 }
 
 export function useUpcomingSessions(childId?: string) {
-  const { schoolId } = useSchoolContext();
+  const { schoolId, activeBranchId } = useSchoolContext();
+  const { user } = useAuth();
   return useQuery<{ sessions: BookableSession[] }>({
-    queryKey: ['athlete-upcoming-sessions', schoolId, childId],
-    queryFn: () => bff('/athlete/upcoming', undefined, childId),
+    queryKey: ['athlete-upcoming-sessions', schoolId, activeBranchId, childId],
+    queryFn: () => bff('/athlete/upcoming', undefined, childId, activeBranchId),
     staleTime: 60_000,
-    enabled: !!schoolId,
+    enabled: !!schoolId && !!user?.id,
   });
 }
 
 export function useMyBookings(childId?: string) {
-  const { schoolId } = useSchoolContext();
+  const { schoolId, activeBranchId } = useSchoolContext();
+  const { user } = useAuth();
   return useQuery<MyBooking[]>({
-    queryKey: ['athlete-my-bookings', schoolId, childId],
-    queryFn: () => bff('/athlete/my-bookings', undefined, childId),
-    staleTime: 30_000,
-    enabled: !!schoolId,
+    queryKey: ['athlete-my-bookings', schoolId, activeBranchId, childId],
+    queryFn: () => bff('/athlete/my-bookings', undefined, childId, activeBranchId),
+    staleTime: 60_000,
+    enabled: !!schoolId && !!user?.id,
   });
 }
 
 export function useMySecondaryBookings(childId?: string) {
-  const { schoolId } = useSchoolContext();
+  const { schoolId, activeBranchId } = useSchoolContext();
   return useQuery<MyBooking[]>({
-    queryKey: ['athlete-my-secondary-bookings', schoolId, childId],
-    queryFn: () => bff('/athlete/secondary-bookings', undefined, childId),
+    queryKey: ['athlete-my-secondary-bookings', schoolId, activeBranchId, childId],
+    queryFn: () => bff('/athlete/secondary-bookings', undefined, childId, activeBranchId),
     staleTime: 30_000,
     enabled: !!schoolId,
   });
@@ -115,70 +128,164 @@ export function useFacilitySlots(facilityId: string, date: string | null, childI
 
 export function useBookSession(childId?: string) {
   const queryClient = useQueryClient();
-  const { schoolId } = useSchoolContext();
   return useMutation({
     mutationFn: (payload: { session_id: string; enrollment_id: string }) =>
       bff('/athlete/book-session', { method: 'POST', body: JSON.stringify({ ...payload, child_id: childId }) }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['athlete-available-sessions', schoolId, childId] });
-      queryClient.invalidateQueries({ queryKey: ['athlete-upcoming-sessions', schoolId, childId] });
-      queryClient.invalidateQueries({ queryKey: ['athlete-my-bookings', schoolId, childId] });
-      queryClient.invalidateQueries({ queryKey: ['enrollments', schoolId, childId] });
+      // Prefix-match so we invalidate every (schoolId, branchId, childId) variant.
+      queryClient.invalidateQueries({ queryKey: ['athlete-available-sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-upcoming-sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-my-bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['enrollments'] });
     },
   });
 }
 
 export function useBookSecondarySession(childId?: string) {
   const queryClient = useQueryClient();
-  const { schoolId } = useSchoolContext();
   return useMutation({
-    mutationFn: (payload: { 
-      enrollment_id: string; 
-      facility_id: string; 
-      reservation_date: string; 
+    mutationFn: (payload: {
+      enrollment_id: string;
+      facility_id: string;
+      reservation_date: string;
       slots: { start_time: string; end_time: string }[];
       notes?: string;
     }) =>
       bff('/athlete/book-secondary', { method: 'POST', body: JSON.stringify({ ...payload, child_id: childId }) }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['athlete-my-secondary-bookings', schoolId, childId] });
-      queryClient.invalidateQueries({ queryKey: ['enrollments', schoolId, childId] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-my-secondary-bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['enrollments'] });
     },
   });
 }
 
 export function useCancelBooking(childId?: string) {
   const queryClient = useQueryClient();
-  const { schoolId } = useSchoolContext();
   return useMutation({
     mutationFn: (bookingId: string) =>
       bff(`/athlete/cancel-booking?booking_id=${bookingId}${childId ? `&child_id=${childId}` : ''}`, { method: 'DELETE' }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['athlete-available-sessions', schoolId, childId] });
-      queryClient.invalidateQueries({ queryKey: ['athlete-upcoming-sessions', schoolId, childId] });
-      queryClient.invalidateQueries({ queryKey: ['athlete-my-bookings', schoolId, childId] });
-      queryClient.invalidateQueries({ queryKey: ['enrollments', schoolId, childId] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-available-sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-upcoming-sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-my-bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['enrollments'] });
     },
   });
 }
 
 export function useCancelSecondaryBooking(childId?: string) {
   const queryClient = useQueryClient();
-  const { schoolId } = useSchoolContext();
   return useMutation({
     mutationFn: (bookingId: string) =>
       bff(`/athlete/cancel-secondary?booking_id=${bookingId}${childId ? `&child_id=${childId}` : ''}`, { method: 'DELETE' }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['athlete-my-secondary-bookings', schoolId, childId] });
-      queryClient.invalidateQueries({ queryKey: ['athlete-available-sessions', schoolId, childId] });
-      queryClient.invalidateQueries({ queryKey: ['enrollments', schoolId, childId] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-my-secondary-bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-available-sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['enrollments'] });
     },
   });
 }
+
 export function useAthleteFacilities(childId?: string) {
   return useQuery({
     queryKey: ['athlete-facilities', childId],
     queryFn: () => bff<{ facilities: { id: string; name: string; type: string; school_id: string }[] }>('/athlete/facilities', undefined, childId),
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+// ─── PT Availability ──────────────────────────────────────────────────────────
+
+export interface PTAvailabilitySlot {
+  availability_id: string;
+  session_date: string; // Nueva: para filtrar en el front
+  start_time: string;
+  end_time: string;
+  available_for_personal_classes: boolean;
+  available_for_group_classes: boolean;
+  is_booked: boolean;
+  is_my_booking: boolean;
+  session_id: string | null;
+  coach: {
+    full_name: string;
+    avatar_url: string | null;
+  };
+}
+
+export interface PTAvailabilityResponse {
+  date: string;
+  slots: PTAvailabilitySlot[];
+  sessions_left: number | null;
+  trainer_id: string;
+  enrollment_id: string;
+  available_days?: number[];
+}
+
+export function usePTAvailability(enrollmentId: string, childId?: string) {
+  return useQuery({
+    queryKey: ['pt-availability', enrollmentId, childId],
+    queryFn: () => bffClient.get<PTAvailabilityResponse>(`/api/v1/athlete/training/pt-availability?enrollment_id=${enrollmentId}${childId ? `&child_id=${childId}` : ''}`),
+    enabled: !!enrollmentId,
+    staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Prefetech data for PT availability to avoid lag when opening the modal
+ */
+export function prefetchPTAvailability(queryClient: any, enrollmentId: string, childId?: string) {
+  return queryClient.prefetchQuery({
+    queryKey: ['pt-availability', enrollmentId, childId],
+    queryFn: () => bffClient.get<PTAvailabilityResponse>(`/api/v1/athlete/training/pt-availability?enrollment_id=${enrollmentId}${childId ? `&child_id=${childId}` : ''}`),
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useBookPTSession(childId?: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { enrollment_id: string; session_date: string; session_time: string; notes?: string; session_type?: 'personal' | 'group' }) =>
+      bffClient.post('/api/v1/athlete/training/book-pt-session', payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['athlete-enrollments'] });
+      queryClient.invalidateQueries({ queryKey: ['pt-availability'] });
+      queryClient.invalidateQueries({ queryKey: ['training-today'] });
+    },
+  });
+}
+
+export function useCancelPTSession(childId?: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (planId: string) =>
+      bffClient.delete(`/api/v1/athlete/training/cancel-pt-session?plan_id=${planId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['athlete-enrollments'] });
+      queryClient.invalidateQueries({ queryKey: ['pt-availability'] });
+      queryClient.invalidateQueries({ queryKey: ['training-today'] });
+    },
+  });
+}
+
+export function useUpdatePTAttendance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, status }: { sessionId: string; status: 'completed' | 'assigned' }) =>
+      bffClient.patch(`/api/v1/trainer/availability/session/${sessionId}/attendance`, { status }),
+    onSuccess: () => {
+      // Corregido: era 'trainer-schedule', la key real del componente es 'coach-pt-sessions'
+      queryClient.invalidateQueries({ queryKey: ['coach-pt-sessions'] });
+    },
+  });
+}
+
+export function useHandleNoShow() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, action }: { sessionId: string; action: 'return_credit' | 'deduct' }) =>
+      bffClient.patch(`/api/v1/trainer/availability/session/${sessionId}/no-show`, { action }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['coach-pt-sessions'] });
+    },
   });
 }

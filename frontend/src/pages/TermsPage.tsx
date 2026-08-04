@@ -63,7 +63,7 @@ export default function TermsPage() {
             <div className="bg-muted/30 rounded-lg p-3">
               <p className="font-medium text-foreground">Escuelas y academias deportivas (school, school_admin):</p>
               <ul className="list-disc list-inside mt-1 space-y-1">
-                <li>Gestión de estudiantes, equipos, sedes y staff</li>
+                <li>Gestión de deportistas, equipos, sedes y staff</li>
                 <li>Configuración y automatización de cobros y mensualidades</li>
                 <li>Control de asistencia y reportes operativos/financieros</li>
                 <li>Comunicaciones con padres y entrenadores</li>
@@ -233,7 +233,7 @@ export default function TermsPage() {
             La Plataforma integra pasarelas de pago para el cobro de mensualidades, inscripciones a eventos, reservas y otros conceptos deportivos. Al realizar o recibir un pago, el Usuario acepta que:
           </p>
           <ul className="list-disc list-inside mt-2 space-y-1">
-            <li>Los pagos son procesados por terceros (Wompi, ePayco, Nequi, Daviplata) y están sujetos a sus propios términos de servicio y políticas de seguridad.</li>
+            <li>Los pagos son procesados por terceros (Wompi, Nequi, Daviplata) y están sujetos a sus propios términos de servicio y políticas de seguridad.</li>
             <li>SportMaps <strong className="text-foreground">no almacena</strong> datos completos de tarjetas de crédito ni débito en sus servidores. Los datos financieros son tratados por la pasarela de pago bajo estándares PCI-DSS.</li>
             <li>Los pagos manuales (transferencias bancarias, consignaciones) quedan sujetos a validación por parte de la institución receptora.</li>
             <li>Las devoluciones o reembolsos de mensualidades son responsabilidad de la escuela o academia correspondiente y se regirán por las políticas internas de cada institución.</li>

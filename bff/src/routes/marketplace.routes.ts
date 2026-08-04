@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { optionalAuth } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
+import { todayInZone } from '../utils/businessDate';
 
 const router = Router();
 
@@ -12,8 +13,13 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
     try {
         const {
             q, type = 'all', category, city, price_max,
-            service_type, page = '1', limit = '24', order_by = 'newest'
+            service_type, modality, page = '1', limit = '24', order_by = 'newest'
         } = req.query;
+
+        const VALID_MODALITIES = ['presencial', 'virtual', 'domicilio', 'hibrido'];
+        const modalityParam = typeof modality === 'string' && VALID_MODALITIES.includes(modality)
+            ? modality
+            : null;
 
         const { data, error } = await supabase.rpc('search_marketplace', {
             p_query: (q as string) || null,
@@ -22,6 +28,7 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
             p_city: (city as string) || null,
             p_price_max: price_max ? parseFloat(price_max as string) : null,
             p_service_type: (service_type as string) || null,
+            p_modality: modalityParam,
             p_page: parseInt(page as string, 10),
             p_limit: Math.min(parseInt(limit as string, 10), 100),
             p_order_by: order_by as string,
@@ -51,7 +58,8 @@ router.get('/products/:id', optionalAuth, async (req: Request, res: Response) =>
             .select(`
                 *,
                 product_variants (id, sku, name, attributes, price_override, stock, image_url, is_active, sort_order),
-                vendor_profiles!products_vendor_profile_id_fkey (id, display_name, slug, city, logo_url, verification_status)
+                vendor_profiles!products_vendor_profile_id_fkey (id, display_name, slug, city, logo_url, verification_status, avg_rating, reviews_count),
+                product_categories!products_category_id_fkey (slug, name, attribute_schema)
             `)
             .eq('id', id)
             .eq('active', true)
@@ -120,7 +128,7 @@ router.get('/services/:id/slots', optionalAuth, async (req: Request, res: Respon
         const { data, error } = await supabase.rpc('get_available_slots', {
             p_vendor_profile_id: service.vendor_profile_id,
             p_service_listing_id: id,
-            p_date: (date as string) || new Date().toISOString().split('T')[0],
+            p_date: (date as string) || todayInZone(),
         });
 
         if (error) {
@@ -136,9 +144,12 @@ router.get('/services/:id/slots', optionalAuth, async (req: Request, res: Respon
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/marketplace/categories
-// Categorias agregadas de productos y tipos de servicio
+// Categorias agregadas (legacy) — se mueve a /categories-legacy para no
+// colisionar con marketplace-catalog.routes.ts /categories (jerarquico).
+// El frontend nuevo (ProductWizard) consume el endpoint del catalog router
+// que devuelve un array. Este sigue disponible para llamadas legacy.
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/categories', async (_req: Request, res: Response) => {
+router.get('/categories-legacy', async (_req: Request, res: Response) => {
     try {
         // Categorias de productos
         const { data: productCategories } = await supabase
@@ -214,6 +225,45 @@ router.get('/vendor/:slug', optionalAuth, async (req: Request, res: Response) =>
                 vendor,
                 products: products || [],
                 services: services || [],
+            },
+        });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: 'Error interno.' });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/v1/marketplace/school-store/:schoolId
+// Resuelve el slug de la tienda (vendor_profile tipo 'school') de una escuela,
+// para que el padre entre a /tienda/:slug desde su app. La tienda de la escuela
+// es el vendor_profile con user_id = schools.owner_id y vendor_type='school'.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/school-store/:schoolId', optionalAuth, async (req: Request, res: Response) => {
+    try {
+        const { schoolId } = req.params;
+
+        const { data: school } = await supabase
+            .from('schools')
+            .select('owner_id, name')
+            .eq('id', schoolId)
+            .maybeSingle();
+        if (!school?.owner_id) {
+            return res.status(404).json({ ok: false, error: 'Escuela no encontrada.' });
+        }
+
+        const { data: vp } = await supabase
+            .from('vendor_profiles')
+            .select('slug, display_name, is_active')
+            .eq('user_id', school.owner_id)
+            .eq('vendor_type', 'school')
+            .maybeSingle();
+
+        return res.json({
+            ok: true,
+            data: {
+                slug: vp?.slug ?? null,
+                published: !!(vp && vp.slug && vp.is_active),
+                display_name: vp?.display_name ?? school.name,
             },
         });
     } catch (err) {

@@ -1,11 +1,13 @@
 import { Router, Request, Response } from 'express';
-import { requireMarketplaceAuth, requireRole, auditLog } from '../middlewares/authMiddleware';
+import { requireMarketplaceAuth, requireVendorProfile, auditLog } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
 
 const router = Router();
 
 router.use(requireMarketplaceAuth);
-router.use(requireRole('wellness_professional', 'admin'));
+// Autoriza por capability — wellness_professional, personal_trainer, coach (activado),
+// o cualquier vendor que tenga can_sell_services = true.
+router.use(requireVendorProfile('can_sell_services'));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/vendor/services — Mis servicios con variaciones
@@ -57,14 +59,31 @@ router.post('/', async (req: Request, res: Response) => {
         }
 
         const {
-            name, description, service_type, price, duration_minutes,
+            name, description, service_type, subcategory, price, duration_minutes,
             image_url, visibility, max_daily_slots, tax_rate,
-            cancellation_policy_hours, variations
+            cancellation_policy_hours, variations,
+            modality, target_audience, includes, requirements
         } = req.body;
 
         if (!name || !service_type || price === undefined) {
             return res.status(400).json({ ok: false, error: 'name, service_type y price son requeridos.' });
         }
+
+        const VALID_MODALITIES = ['presencial', 'virtual', 'domicilio', 'hibrido'];
+        const cleanModality = Array.isArray(modality)
+            ? modality.filter((m: unknown) => typeof m === 'string' && VALID_MODALITIES.includes(m))
+            : [];
+
+        const cleanAudience = Array.isArray(target_audience)
+            ? target_audience.filter((a: unknown) => typeof a === 'string' && (a as string).trim().length > 0).slice(0, 20)
+            : [];
+
+        const cleanIncludes = Array.isArray(includes)
+            ? includes
+                .filter((i: unknown) => typeof i === 'string' && (i as string).trim().length > 0)
+                .map((i: string) => i.trim().slice(0, 120))
+                .slice(0, 20)
+            : [];
 
         const { data, error } = await supabase
             .from('service_listings')
@@ -73,6 +92,7 @@ router.post('/', async (req: Request, res: Response) => {
                 name,
                 description: description || null,
                 service_type,
+                subcategory: subcategory || null,
                 price,
                 duration_minutes: duration_minutes || 60,
                 image_url: image_url || null,
@@ -81,6 +101,10 @@ router.post('/', async (req: Request, res: Response) => {
                 tax_rate: tax_rate || 0,
                 cancellation_policy_hours: cancellation_policy_hours || 24,
                 has_variations: variations && variations.length > 0,
+                modality: cleanModality,
+                target_audience: cleanAudience,
+                includes: cleanIncludes,
+                requirements: requirements || null,
             })
             .select()
             .single();
@@ -120,11 +144,34 @@ router.post('/', async (req: Request, res: Response) => {
 router.patch('/:id', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const updates = req.body;
+        const ALLOWED_FIELDS = [
+            'name', 'description', 'service_type', 'subcategory', 'price',
+            'duration_minutes', 'image_url', 'visibility', 'is_active',
+            'max_daily_slots', 'tax_rate', 'cancellation_policy_hours',
+            'modality', 'target_audience', 'includes', 'requirements',
+        ] as const;
 
-        delete updates.id;
-        delete updates.vendor_profile_id;
-        delete updates.created_at;
+        const updates: Record<string, unknown> = {};
+        for (const key of ALLOWED_FIELDS) {
+            if (key in req.body) updates[key] = (req.body as Record<string, unknown>)[key];
+        }
+
+        if (Array.isArray(updates.modality)) {
+            const VALID_MODALITIES = ['presencial', 'virtual', 'domicilio', 'hibrido'];
+            updates.modality = (updates.modality as unknown[])
+                .filter((m): m is string => typeof m === 'string' && VALID_MODALITIES.includes(m));
+        }
+        if (Array.isArray(updates.target_audience)) {
+            updates.target_audience = (updates.target_audience as unknown[])
+                .filter((a): a is string => typeof a === 'string' && a.trim().length > 0)
+                .slice(0, 20);
+        }
+        if (Array.isArray(updates.includes)) {
+            updates.includes = (updates.includes as unknown[])
+                .filter((i): i is string => typeof i === 'string' && i.trim().length > 0)
+                .map((i) => i.trim().slice(0, 120))
+                .slice(0, 20);
+        }
 
         const { data: vendor } = await supabase
             .from('vendor_profiles')

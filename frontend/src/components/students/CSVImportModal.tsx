@@ -133,7 +133,7 @@ export function CSVImportModal({
       if (students.length === 0) {
         toast({
           title: 'CSV vacío',
-          description: 'No se encontraron estudiantes en el archivo',
+          description: 'No se encontraron deportistas en el archivo',
           variant: 'destructive',
         });
       }
@@ -243,7 +243,7 @@ export function CSVImportModal({
     let csvContent = headers.join(',') + '\n';
 
     if (students && students.length > 0) {
-      // Si hay estudiantes, exportamos su data real para edición masiva
+      // Si hay deportistas, exportamos su data real para edición masiva
       const rows = students.map(s => {
         const branchName = s.branch_name || (branches ? branches.find((b: any) => b.id === s.branch_id)?.name : '') || '';
         const escapeCSV = (str: any) => `"${(str || '').toString().replace(/"/g, '""')}"`;
@@ -269,7 +269,7 @@ export function CSVImportModal({
       });
       csvContent += rows.join('\n');
     } else {
-      // Si no hay estudiantes, generamos un estudiante de ejemplo guiado
+      // Si no hay deportistas, generamos un deportista de ejemplo guiado
       const sampleBranch = branches && branches.length > 0 ? branches[0].name : 'Sede Principal';
       const sampleFee = teams && teams.length > 0 ? teams[0].monthly_fee : 150000;
 
@@ -286,7 +286,7 @@ export function CSVImportModal({
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = students && students.length > 0 ? `estudiantes_${new Date().toISOString().split('T')[0]}.csv` : 'plantilla_estudiantes.csv';
+    a.download = students && students.length > 0 ? `deportistas_${new Date().toISOString().split('T')[0]}.csv` : 'plantilla_deportistas.csv';
     a.click();
     window.URL.revokeObjectURL(url);
 
@@ -300,18 +300,18 @@ export function CSVImportModal({
 
   return (
     <Dialog open={open} onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5 text-primary" />
-            Importar Estudiantes desde CSV
+            Importar Deportistas desde CSV
           </DialogTitle>
           <DialogDescription>
-            Sube un archivo CSV con la lista de estudiantes. Se crearán con pago pendiente asociado a la escuela.
+            Sube un archivo CSV con la lista de deportistas. Se crearán con pago pendiente asociado a la escuela.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-4 overflow-y-auto flex-1 -mx-1 px-1">
           {/* Download Template */}
           <Alert>
             <Download className="h-4 w-4" />
@@ -321,7 +321,7 @@ export function CSVImportModal({
               </span>
               <Button type="button" variant="outline" onClick={downloadTemplate} className="w-full">
                 <Download className="mr-2 h-4 w-4" />
-                {students && students.length > 0 ? 'Exportar Mis Estudiantes para Edición Masiva (CSV)' : 'Descargar Plantilla CSV con Ejemplo'}
+                {students && students.length > 0 ? 'Exportar Mis Deportistas para Edición Masiva (CSV)' : 'Descargar Plantilla CSV con Ejemplo'}
               </Button>
             </AlertDescription>
           </Alert>
@@ -343,7 +343,7 @@ export function CSVImportModal({
                 <div>
                   <p className="font-medium text-lg">{file.name}</p>
                   <p className="text-sm text-muted-foreground">
-                    {(file.size / 1024).toFixed(2)} KB — {parsedStudents.length} estudiantes detectados
+                    {(file.size / 1024).toFixed(2)} KB — {parsedStudents.length} deportistas detectados
                   </p>
                 </div>
                 {!uploading && !result && (
@@ -435,7 +435,7 @@ export function CSVImportModal({
               <div className="flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
                 <span className="text-sm font-medium">
-                  Creando estudiantes y pagos pendientes...
+                  Creando deportistas y pagos pendientes...
                 </span>
               </div>
               <Progress value={uploadProgress} className="h-2" />
@@ -458,7 +458,7 @@ export function CSVImportModal({
                       </span>
                     </div>
                     <p className="text-sm text-green-700 dark:text-green-300">
-                      Estudiantes importados con pago pendiente
+                      Deportistas importados con pago pendiente
                     </p>
                   </div>
                 )}
@@ -526,7 +526,7 @@ export function CSVImportModal({
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0">
           <Button
             variant="outline"
             onClick={handleClose}
@@ -546,7 +546,7 @@ export function CSVImportModal({
               ) : (
                 <>
                   <Upload className="h-4 w-4 mr-2" />
-                  Importar {parsedStudents.length} Estudiante{parsedStudents.length > 1 ? 's' : ''}
+                  Importar {parsedStudents.length} Deportista{parsedStudents.length > 1 ? 's' : ''}
                 </>
               )}
             </Button>

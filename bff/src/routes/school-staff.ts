@@ -34,7 +34,8 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     if (error) throw error;
     res.json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -54,7 +55,8 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
     if (!data) return res.status(404).json({ error: 'Staff no encontrado' });
     res.json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -77,7 +79,8 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     if (error) throw error;
     res.status(201).json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -102,7 +105,8 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response) => {
     if (error) throw error;
     res.json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -128,7 +132,8 @@ router.patch('/:id/status', requireAuth, async (req: Request, res: Response) => 
     if (error) throw error;
     res.json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -147,7 +152,88 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
     if (error) throw error;
     res.status(204).send();
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ── Disponibilidad del Coach ──────────────────────────────────────────────────
+
+// GET /api/v1/school-staff/:coachId/availability
+router.get('/:coachId/availability', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const { coachId }  = req.params;
+
+    const { data, error } = await supabase
+      .from('coach_availability')
+      .select('*')
+      .eq('coach_id', coachId)
+      .eq('school_id', schoolId)
+      .order('day_of_week, start_time');
+
+    if (error) throw error;
+    res.json(data);
+  } catch (err: any) {
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// POST /api/v1/school-staff/:coachId/availability
+router.post('/:coachId/availability', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const { coachId }  = req.params;
+    const { 
+      day_of_week, 
+      start_time, 
+      end_time,
+      available_for_group_classes, 
+      available_for_personal_classes,
+      max_group_capacity 
+    } = req.body;
+
+    const { data, error } = await supabase
+      .from('coach_availability')
+      .upsert({
+        school_id: schoolId,
+        coach_id: coachId,
+        day_of_week,
+        start_time,
+        end_time,
+        available_for_group_classes,
+        available_for_personal_classes,
+        max_group_capacity: max_group_capacity ?? null,
+      }, { onConflict: 'coach_id,day_of_week,start_time,end_time' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (err: any) {
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// DELETE /api/v1/school-staff/:coachId/availability/:availId
+router.delete('/:coachId/availability/:availId', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const { availId }  = req.params;
+
+    const { error } = await supabase
+      .from('coach_availability')
+      .delete()
+      .eq('id', availId)
+      .eq('school_id', schoolId);
+
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err: any) {
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 

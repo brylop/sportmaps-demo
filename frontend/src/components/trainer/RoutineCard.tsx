@@ -1,7 +1,7 @@
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Clock, Dumbbell, Play, Trash2, Tag, Star } from 'lucide-react';
+import { Clock, Dumbbell, Play, Trash2, Tag, Flame } from 'lucide-react';
 
 interface RoutineCardProps {
   routine: {
@@ -10,6 +10,7 @@ interface RoutineCardProps {
     category: string;
     difficulty: string;
     estimated_minutes: number;
+    estimated_calories: number;
     blocks: any[];
     tags: string[];
     times_used: number;
@@ -18,6 +19,7 @@ interface RoutineCardProps {
   onUse: (id: string) => void;
   onClick: (id: string) => void;
   onDelete?: (id: string) => void;
+  onTagClick?: (tag: string, e: React.MouseEvent) => void;
 }
 
 const CATEGORY_STYLES: Record<string, string> = {
@@ -34,7 +36,7 @@ const DIFFICULTY_COLORS: Record<string, string> = {
   avanzado: 'text-destructive bg-destructive/10',
 };
 
-export function RoutineCard({ routine, onUse, onClick, onDelete }: RoutineCardProps) {
+export function RoutineCard({ routine, onUse, onClick, onDelete, onTagClick }: RoutineCardProps) {
   const categoryKey = (routine.category || '').toLowerCase();
   const bgStyle = CATEGORY_STYLES[categoryKey] || 'from-slate-500/20 via-slate-500/10 to-background border-slate-500/20';
 
@@ -85,9 +87,9 @@ export function RoutineCard({ routine, onUse, onClick, onDelete }: RoutineCardPr
             <span className="text-[9px] text-muted-foreground uppercase font-medium">Ejers</span>
           </div>
           <div className="flex flex-col items-center text-center">
-            <Star className="h-3.5 w-3.5 text-amber-500 mb-1" />
-            <span className="text-sm font-bold">{routine.times_used}</span>
-            <span className="text-[9px] text-muted-foreground uppercase font-medium">Usos</span>
+            <Flame className="h-3.5 w-3.5 text-orange-500 mb-1" />
+            <span className="text-sm font-bold">{routine.estimated_calories || 0}</span>
+            <span className="text-[9px] text-muted-foreground uppercase font-medium">Kcal</span>
           </div>
         </div>
 
@@ -95,7 +97,16 @@ export function RoutineCard({ routine, onUse, onClick, onDelete }: RoutineCardPr
           <div className="flex flex-wrap gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
             <Tag className="h-3 w-3 text-muted-foreground mt-0.5" />
             {routine.tags.slice(0, 3).map(tag => (
-              <span key={tag} className="text-[10px] text-muted-foreground bg-slate-500/5 px-1.5 py-0.5 rounded">
+              <span 
+                key={tag} 
+                className="text-[10px] text-muted-foreground bg-slate-500/5 px-1.5 py-0.5 rounded hover:bg-primary/10 hover:text-primary transition-colors"
+                onClick={(e) => {
+                  if (onTagClick) {
+                    e.stopPropagation();
+                    onTagClick(tag, e);
+                  }
+                }}
+              >
                 #{tag}
               </span>
             ))}

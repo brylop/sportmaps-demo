@@ -1,7 +1,17 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
+import { todayInZone } from '../utils/businessDate';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import {
+    AthleteType,
+    athleteColFor,
+    createPendingPayment,
+    cancelPendingPlanPayments,
+    emitPlanCharge,
+    isAthleteActive,
+    INACTIVE_ATHLETE_ERROR,
+} from '../services/enrollmentBilling';
 
 const router = Router();
 
@@ -40,21 +50,122 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
         const { schoolId } = req;
         const data = parsed.data;
 
+        // ── El entrenador arma el roster, no el cobro ────────────────────────
+        // `offering_plan_id` emite la mensualidad (emitPlanCharge más abajo) y,
+        // si el atleta ya tenía otro plan activo, anula sus cobros pendientes
+        // para emitir los del nuevo. Es la misma plata que motivó sacar al coach
+        // de PUT /students/:id — solo que por otra puerta. Se le deja `team_id`
+        // (el roster es su trabajo) y se le niega el plan. `staff` (secretaría)
+        // sí lo maneja, igual que en el editor de atletas.
+        if (req.role === 'coach' && data.offering_plan_id) {
+            return res.status(403).json({
+                error: 'Un entrenador no puede asignar planes de pago. Pídelo a la escuela.',
+            });
+        }
+
         // ✅ Validar que user_id o child_id o unregistered_athlete_id existe
         const studentId = data.user_id || data.child_id || data.unregistered_athlete_id;
         const studentField = data.user_id ? 'user_id' : data.child_id ? 'child_id' : 'unregistered_athlete_id';
 
+        // El atleta tiene que ser de ESTA escuela. Antes solo se validaba que la
+        // fila existiera, así que con un UUID conocido se podía inscribir al
+        // atleta de otra escuela y emitirle un cobro acá (el insert estampa
+        // school_id = req.schoolId). `profiles` no tiene school_id: para el
+        // adulto el scope lo pone isAthleteActive() vía school_members.
         const targetTable = data.user_id ? 'profiles' : data.child_id ? 'children' : 'unregistered_athletes';
-        const { data: student, error: studentError } = await supabase
+        // `monthly_fee` solo existe en `children` y es la última fuente de precio
+        // de open_month, así que hace falta para saber si esta inscripción cobra.
+        const studentColumns = targetTable === 'children' ? 'id, monthly_fee' : 'id';
+        let studentQuery = supabase
             .from(targetTable)
-            .select('id')
-            .eq('id', studentId)
-            .maybeSingle();
+            .select(studentColumns)
+            .eq('id', studentId);
+        if (targetTable !== 'profiles') {
+            studentQuery = studentQuery.eq('school_id', schoolId);
+        }
+        const { data: student, error: studentError } = await studentQuery.maybeSingle();
 
         if (studentError || !student) {
             return res.status(404).json({
-                error: 'Estudiante no encontrado'
+                error: 'Deportista no encontrado'
             });
+        }
+
+        // Mismo razonamiento para equipo y plan: sin esto la inscripción podía
+        // quedar colgada de un team_id o un offering_plan_id de otra escuela.
+        let teamRow: { id: string; price_monthly: number | null } | null = null;
+        if (data.team_id) {
+            const { data: team } = await supabase
+                .from('teams')
+                .select('id, price_monthly')
+                .eq('id', data.team_id)
+                .eq('school_id', schoolId)
+                .maybeSingle();
+
+            if (!team) {
+                return res.status(404).json({ error: 'Equipo no encontrado en esta escuela' });
+            }
+            teamRow = team as any;
+        }
+
+        // ── Inscribir a un equipo con precio TAMBIÉN cobra ───────────────────
+        // No al instante como el plan: open_month resuelve el monto con
+        //   COALESCE(e.monthly_fee, offering_plans.price, teams.price_monthly,
+        //            children.monthly_fee)
+        // y toma cualquier inscripción activa con monto > 0, sin exigir plan. Así
+        // que el cobro nace en la apertura del mes — diferido, y por eso pasaba
+        // inadvertido. Quién puede hacerlo lo decide la ESCUELA, no el código:
+        // el default del flag es `true`, o sea el comportamiento de siempre.
+        if (req.role === 'coach') {
+            const effectiveFee =
+                Number(teamRow?.price_monthly) ||
+                Number((student as any)?.monthly_fee) ||
+                0;
+
+            if (effectiveFee > 0) {
+                const { data: settings } = await supabase
+                    .from('school_settings')
+                    .select('coach_can_enroll_paid_teams')
+                    .eq('school_id', schoolId)
+                    .maybeSingle();
+
+                // Sin fila de settings se aplica el default de la columna (true):
+                // negar aquí dejaría sin inscribir a escuelas que nunca abrieron
+                // la configuración de pagos.
+                if ((settings as any)?.coach_can_enroll_paid_teams === false) {
+                    return res.status(403).json({
+                        error: 'Esta escuela no permite que un entrenador inscriba en equipos con cobro. '
+                             + 'Pídelo a la escuela.',
+                        effective_fee: effectiveFee,
+                    });
+                }
+            }
+        }
+
+        // El plan se valida y se lee la duración en una sola consulta: antes la
+        // duración se leía después, sin filtro de escuela.
+        let planDurationDays: number | null = null;
+        if (data.offering_plan_id) {
+            const { data: plan } = await supabase
+                .from('offering_plans')
+                .select('duration_days')
+                .eq('id', data.offering_plan_id)
+                .eq('school_id', schoolId)
+                .maybeSingle();
+
+            if (!plan) {
+                return res.status(404).json({ error: 'Plan no encontrado en esta escuela' });
+            }
+            planDurationDays = (plan as any).duration_days ?? null;
+        }
+
+        // ── Atleta inactivo: no se inscribe ──────────────────────────────────
+        // El plan es lo que genera cobros; inscribir a un inactivo lo devuelve a
+        // la facturación (open_month solo mira enrollments.status, no el estado
+        // del atleta). Vale para los tres tipos.
+        const athleteType: AthleteType = data.user_id ? 'adult' : data.child_id ? 'child' : 'unregistered';
+        if (!(await isAthleteActive(schoolId!, athleteType, studentId!))) {
+            return res.status(409).json({ error: INACTIVE_ATHLETE_ERROR });
         }
 
         // ✅ Si es inscripción a equipo, validar que no exista ya activa
@@ -93,20 +204,182 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
             }
         }
 
-        // ✅ Calcular fecha de expiración si hay plan
+        // ✅ Calcular fecha de expiración si hay plan (duración ya validada arriba)
         let expiresAt = null;
-        if (data.offering_plan_id) {
-            const { data: plan } = await supabase
+        if (planDurationDays) {
+            const date = new Date();
+            date.setDate(date.getDate() + planDurationDays);
+            expiresAt = date.toISOString().split('T')[0];
+        }
+
+        // ✅ Anti-duplicado: el atleta lleva UNA inscripción activa por escuela —
+        //    el plan manda el cobro y el equipo es el roster. Si ya existe una fila
+        //    activa a la que solo le falta el dato que llega (equipo sin plan, o
+        //    plan sin equipo), se completa esa fila en vez de abrir una segunda.
+        //    Sin esto, asignar un plan a un atleta ya inscrito en su equipo dejaba
+        //    dos inscripciones activas: roster inflado y riesgo de doble cobro.
+        const { data: activeEnrollments, error: activeError } = await supabase
+            .from('enrollments')
+            .select('id, team_id, offering_plan_id, monthly_fee')
+            .eq(studentField, studentId)
+            .eq('school_id', schoolId)
+            .eq('status', 'active')
+            .order('created_at', { ascending: true });
+
+        if (activeError) throw activeError;
+
+        const athleteCol = athleteColFor(athleteType);
+        const startDate = data.start_date || todayInZone();
+
+        const mergeTarget = (activeEnrollments || []).find((row: any) =>
+            (!data.team_id || !row.team_id || row.team_id === data.team_id) &&
+            (!data.offering_plan_id || !row.offering_plan_id || row.offering_plan_id === data.offering_plan_id) &&
+            ((data.team_id && !row.team_id) || (data.offering_plan_id && !row.offering_plan_id))
+        );
+
+        // ── Cambio de plan ───────────────────────────────────────────────────
+        // Si el atleta YA tiene un plan activo distinto, el merge de arriba no
+        // aplica (esa fila no "le falta" el plan, tiene otro) y antes se
+        // insertaba una SEGUNDA inscripción activa: la vista mostraba uno de los
+        // dos planes al azar (LIMIT 1 sin ORDER BY) y el editor de atletas
+        // quedaba roto con 23505. Ahora se reemplaza sobre la misma fila, igual
+        // que hace el editor: se anula el cobro del plan viejo y se emite el del
+        // nuevo. Una sola inscripción activa por atleta, siempre.
+        const planHolders = (activeEnrollments || []).filter(
+            (row: any) => row.offering_plan_id && row.offering_plan_id !== data.offering_plan_id,
+        );
+        const replaceTarget = data.offering_plan_id && data.status === 'active' && !mergeTarget && planHolders.length
+            ? planHolders[0]
+            : null;
+
+        if (replaceTarget) {
+            const { data: planInfo } = await supabase
                 .from('offering_plans')
-                .select('duration_days')
-                .eq('id', data.offering_plan_id)
-                .single();
-            
-            if (plan?.duration_days) {
-                const date = new Date();
-                date.setDate(date.getDate() + plan.duration_days);
-                expiresAt = date.toISOString().split('T')[0];
+                .select('name, price')
+                .eq('id', data.offering_plan_id!)
+                .maybeSingle();
+
+            // Las filas sobrantes (drift histórico) se cancelan ANTES de mover el
+            // plan: los índices únicos son parciales WHERE status='active'.
+            const extras = planHolders.slice(1).map((r: any) => r.id);
+            if (extras.length) {
+                await supabase
+                    .from('enrollments')
+                    .update({ status: 'cancelled', end_date: startDate })
+                    .in('id', extras)
+                    .eq('school_id', schoolId);
             }
+
+            await cancelPendingPlanPayments({
+                schoolId: schoolId!,
+                athleteCol,
+                athleteId: studentId!,
+                planIds: planHolders.map((r: any) => r.offering_plan_id),
+            });
+
+            const { data: replaced, error: replaceError } = await supabase
+                .from('enrollments')
+                .update({
+                    offering_plan_id: data.offering_plan_id,
+                    team_id: replaceTarget.team_id || data.team_id || null,
+                    // La cuota del atleta pasa a ser la del plan nuevo: si se
+                    // dejara el override viejo seguiría cobrando el monto anterior.
+                    monthly_fee: planInfo?.price ?? null,
+                    sessions_used: 0,
+                    secondary_sessions_used: 0,
+                    ...(expiresAt ? { expires_at: expiresAt } : {}),
+                })
+                .eq('id', replaceTarget.id)
+                .eq('school_id', schoolId)
+                .select()
+                .single();
+
+            if (replaceError) throw replaceError;
+
+            await createPendingPayment({
+                schoolId: schoolId!,
+                athleteCol,
+                athleteId: studentId!,
+                planId: data.offering_plan_id!,
+                amount: Number(planInfo?.price ?? 0),
+                concept: `Plan ${planInfo?.name || 'Plan'}`,
+                startDate,
+            });
+
+            return res.status(200).json({
+                message: 'Plan reemplazado exitosamente',
+                data: replaced,
+                replaced: true,
+            });
+        }
+
+        if (mergeTarget) {
+            const { data: merged, error: mergeError } = await supabase
+                .from('enrollments')
+                .update({
+                    team_id: mergeTarget.team_id || data.team_id || null,
+                    offering_plan_id: mergeTarget.offering_plan_id || data.offering_plan_id || null,
+                    ...(expiresAt ? { expires_at: expiresAt } : {})
+                })
+                .eq('id', mergeTarget.id)
+                .select()
+                .single();
+
+            if (mergeError) throw mergeError;
+
+            // El plan recién asignado tiene que traer su mensualidad: antes esta
+            // rama dejaba al atleta con plan y sin cobro (se leía como "el plan
+            // no se agregó").
+            if (data.offering_plan_id && !mergeTarget.offering_plan_id && data.status === 'active') {
+                await emitPlanCharge(schoolId!, athleteCol, studentId!, data.offering_plan_id, startDate);
+            }
+
+            return res.status(200).json({
+                message: 'Inscripción actualizada exitosamente',
+                data: merged,
+                merged: true
+            });
+        }
+
+        // ── Guard: una sola inscripción activa por atleta y escuela ──────────
+        //
+        // Llegar acá con una inscripción activa significa que no fue merge ni replace,
+        // o sea que es un intento de abrir una SEGUNDA. El caso que se colaba: atleta
+        // con {equipo A, plan P} y llega {team_id: B}. El merge exige que a la fila le
+        // FALTE el dato que llega (y no le falta el equipo, tiene otro), el replace
+        // exige `offering_plan_id` en el request, y el índice uq_enrollment_child_team
+        // es por (child_id, team_id) así que un equipo distinto no colisiona. Resultado:
+        // INSERT, roster inflado y —hasta la mig 20260803114540— riesgo de doble cobro.
+        //
+        // Se responde 409 en vez de mover el equipo en silencio: cambiar de equipo tiene
+        // efectos de cobro (anular los pendientes del equipo viejo, emitir los del
+        // nuevo) que el editor de atletas sí implementa y este endpoint no. Hacerlo a
+        // medias acá dejaría cobros del equipo anterior vivos.
+        //
+        // Se devuelve el `enrollment_id` para que la UI pueda ofrecer "editar la
+        // inscripción" en lugar de dejar al admin sin salida. Verificado que los dos
+        // llamadores que pueden caer acá (EnrollTeamStudentModal y classes.enrollStudent)
+        // muestran `error.message` en un toast.
+        //
+        // Cuando llegue la multi-categoría (MOD-3), este 409 se relaja: el segundo
+        // team_id pasará a crear una fila en enrollment_categories.
+        // Ref: docs/plan-f0-generacion-de-mes-y-cobros-duplicados.md §3.2 vía A, §5 B1.
+        if (!mergeTarget && !replaceTarget && (activeEnrollments?.length ?? 0) > 0) {
+            const current = activeEnrollments![0];
+            let currentTeamName: string | null = null;
+            if (current.team_id) {
+                const { data: t } = await supabase
+                    .from('teams').select('name').eq('id', current.team_id).maybeSingle();
+                currentTeamName = (t as any)?.name ?? null;
+            }
+            return res.status(409).json({
+                error: 'El atleta ya tiene una inscripción activa en esta escuela.',
+                details: currentTeamName
+                    ? `Hoy está en "${currentTeamName}". Para moverlo de equipo, edítalo desde la ficha del atleta: así se anulan los cobros pendientes del equipo anterior.`
+                    : 'Para cambiar su equipo o su plan, edítalo desde la ficha del atleta.',
+                enrollment_id: current.id,
+                code: 'ATHLETE_ALREADY_ENROLLED',
+            });
         }
 
         // ✅ Crear inscripción
@@ -121,7 +394,7 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
                 offering_plan_id: data.offering_plan_id || null,
                 school_id: schoolId,
                 status: data.status,
-                start_date: data.start_date || new Date().toISOString().split('T')[0],
+                start_date: startDate,
                 end_date: data.end_date || null,
                 expires_at: expiresAt,
                 sessions_used: 0,
@@ -131,6 +404,13 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
             .single();
 
         if (enrollError) throw enrollError;
+
+        // Mensualidad del plan nuevo. Solo para planes: la inscripción a equipo
+        // se sigue cobrando por su propia vía (open_month / editor de atletas) y
+        // emitirla aquí cambiaría el comportamiento del modal de equipos.
+        if (data.offering_plan_id && data.status === 'active') {
+            await emitPlanCharge(schoolId!, athleteCol, studentId!, data.offering_plan_id, startDate);
+        }
 
         res.status(201).json({
             message: 'Inscripción creada exitosamente',
@@ -191,7 +471,7 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
             .from('enrollments')
             .select(`
                 id, status, sessions_used, secondary_sessions_used,
-                expires_at, start_date, team_id, offering_plan_id, school_id
+                expires_at, start_date, team_id, offering_plan_id, school_id, monthly_fee
             `)
             .eq('status', 'active');
 
@@ -271,8 +551,9 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
                 team,
                 school: enrollment.school_id ? schoolMap[enrollment.school_id] : null,
                 offering_id: (offeringPlan?.offering as any)?.id ?? null,
-                // Precio unificado: plan tiene price, equipo tiene price_monthly
-                price_monthly: offeringPlan?.price ?? team?.price_monthly ?? null,
+                // Precio unificado: la cuota individual del atleta (enrollments.monthly_fee,
+                // editable por la escuela) manda sobre el precio de catálogo del plan/equipo.
+                price_monthly: enrollment.monthly_fee ?? offeringPlan?.price ?? team?.price_monthly ?? null,
                 currency: offeringPlan?.currency ?? 'COP',
                 computed: {
                     plan_status: planStatus,

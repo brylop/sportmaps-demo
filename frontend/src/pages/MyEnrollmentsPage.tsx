@@ -14,7 +14,7 @@ import {
   ChevronRight, CalendarCheck, Map as MapIcon,
   Building2, Star, Target,
   XCircle, CheckCircle2, ChevronLeft,
-  Sun, Sunset, Moon,
+  Sun, Sunset, Moon, AlertCircle,
 } from 'lucide-react';
 import {
   format, parseISO, addDays, startOfDay,
@@ -29,7 +29,7 @@ import { getSportVisual } from '@/lib/sportVisuals';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   useAvailableSessions,
@@ -43,6 +43,11 @@ import {
   useFacilitySlots,
   useAthleteFacilities,
   BookableSession,
+  usePTAvailability,
+  prefetchPTAvailability,
+  useBookPTSession,
+  useCancelPTSession,
+  PTAvailabilitySlot,
 } from '@/hooks/useAthleteSessionBookings';
 
 // ─── Tipos de instalación ─────────────────────────────────────────────────────
@@ -156,6 +161,17 @@ export default function MyEnrollmentsPage() {
   const { data: upcomingData } = useUpcomingSessions(selectedChildId);
   const { toast } = useToast();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  // ── Prefetch PT Availability ──
+  useEffect(() => {
+    if (!activeEnrollments) return;
+    activeEnrollments.forEach(e => {
+      if (e.program.school_type === 'personal_trainer') {
+        prefetchPTAvailability(queryClient, e.id, selectedChildId);
+      }
+    });
+  }, [activeEnrollments, selectedChildId, queryClient]);
 
   const [activeTab, setActiveTab] = useState<'groups' | 'classes' | 'reservations'>('groups');
   const [selectedTeam, setSelectedTeam] = useState<any>(null);
@@ -400,6 +416,11 @@ export default function MyEnrollmentsPage() {
                                   <Building2 className="h-3 w-3 text-blue-500" />
                                 )}
                                 <p className={`text-[11px] font-black uppercase tracking-tight truncate ${isPT ? 'text-indigo-600 dark:text-indigo-400' : ''}`}>{contextName}</p>
+                                {isPT && (
+                                  <span className="text-[9px] font-bold opacity-70 ml-1">
+                                    {b.session_type === 'group' ? '👥' : '👤'}
+                                  </span>
+                                )}
                               </div>
                               <p className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
@@ -659,6 +680,9 @@ function ScheduleClassModal({ enrollment, facilities, childId, onClose }: {
   childId?: string;
   onClose: () => void;
 }) {
+  const isPT = enrollment.school?.school_type === 'personal_trainer' || 
+               enrollment.program?.school_type === 'personal_trainer';
+  
   const plan = enrollment.plan_details;
   const isUnlimited = !plan || plan.max_sessions === null;
   const creditsLeft = isUnlimited ? null : Math.max(0, (plan?.max_sessions ?? 0) - (enrollment.sessions_used ?? 0));
@@ -724,16 +748,25 @@ function ScheduleClassModal({ enrollment, facilities, childId, onClose }: {
 
         <div className="flex-1 overflow-y-auto px-6 py-3 space-y-1">
           {tab === 'primary' && (
-            <PrimarySessionsTab
-              enrollment={enrollment}
-              creditsLeft={creditsLeft}
-              isUnlimited={isUnlimited}
-              planName={planName}
-              childId={childId}
-            />
+            isPT ? (
+              <PTPrimarySessionsTab
+                enrollment={enrollment}
+                creditsLeft={creditsLeft}
+                isUnlimited={isUnlimited}
+                planName={planName}
+                childId={childId}
+              />
+            ) : (
+              <PrimarySessionsTab
+                enrollment={enrollment}
+                creditsLeft={creditsLeft}
+                isUnlimited={isUnlimited}
+                planName={planName}
+                childId={childId}
+              />
+            )
           )}
           {tab === 'secondary' && hasSecondary && (
-            // ✅ FIX: pasar facilities[] para que el usuario elija
             <SecondarySessionsTab
               enrollment={enrollment}
               facilities={facilities}
@@ -1037,9 +1070,11 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
                   <p className="text-muted-foreground text-xs">
                     {fmtTime(confirming?.start_time ?? '')} — {fmtTime(confirming?.end_time ?? '')}
                   </p>
-                  {confirming?.coach && (confirming.coach.full_name || confirming.coach.name) && (
+                  {confirming?.coach && (confirming.coach.full_name || confirming.coach.name) ? (
                     <p className="text-muted-foreground text-xs">Coach: {confirming.coach.full_name || confirming.coach.name}</p>
-                  )}
+                  ) : (confirming as any)?.facility?.name ? (
+                    <p className="text-muted-foreground text-xs">Instalación: {(confirming as any).facility.name}</p>
+                  ) : null}
                 </div>
                 <div className={`rounded-lg px-3 py-2 text-xs font-medium border ${isUnlimited ? 'bg-green-500/10 text-green-700 border-green-200' : 'bg-amber-500/10 text-amber-700 border-amber-200'
                   }`}>
@@ -1074,6 +1109,315 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
               });
             }}>
               {isPending ? 'Agendando...' : 'Confirmar'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+/**
+ * Tab especializada para Personal Trainer
+ * Permite agendar slots individuales usando créditos del plan
+ */
+function PTPrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, childId }: {
+  enrollment: any;
+  creditsLeft: number | null;
+  isUnlimited: boolean;
+  planName: string;
+  childId?: string;
+}) {
+  const { toast } = useToast();
+  const [calendarDate, setCalendarDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<any | null>(null);
+  const [classTypeFilter, setClassTypeFilter] = useState<'all' | 'personal' | 'group'>('all');
+
+  const { data, isLoading, isFetching } = usePTAvailability(enrollment.id, childId);
+  const availableDays = useMemo(() => new Set(data?.available_days ?? []), [data?.available_days]);
+  const { mutate: book, isPending: isBooking } = useBookPTSession(childId);
+
+  // El PT normalmente tiene slots casi todos los días, así que permitimos navegar libremente
+  const monthStart = startOfMonth(calendarDate);
+  const monthEnd = endOfMonth(calendarDate);
+  const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
+  const startPad = (monthStart.getDay() + 6) % 7;
+  const todayDate = startOfDay(new Date());
+
+  const handleBook = (slot: PTAvailabilitySlot) => {
+    if (slot.is_booked) return;
+    if (!isUnlimited && creditsLeft !== null && creditsLeft <= 0) {
+      toast({ title: 'Sin créditos', description: 'No tienes créditos disponibles en tu plan.', variant: 'destructive' });
+      return;
+    }
+    setConfirming(slot);
+  };
+
+  const availability = useMemo(() => {
+    const raw = data?.slots || [];
+    if (!selectedDate) return [];
+
+    // Filtro de Hora Colombiana (UTC-5)
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    const isTodaySelected = selectedDate === todayStr;
+
+    const now = new Date();
+    const colombiaTimeStr = now.toLocaleTimeString('en-US', {
+      timeZone: 'America/Bogota',
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const processed = [];
+    for (const s of raw) {
+      // Validar fecha
+      if (s.session_date !== selectedDate) continue;
+
+      // Validar hora si es hoy
+      if (isTodaySelected) {
+        const slotTime = s.start_time.substring(0, 5); // HH:mm
+        if (slotTime < colombiaTimeStr) continue;
+      }
+
+      // Si permite Personal Y (filtro es 'all' o 'personal')
+      if (s.available_for_personal_classes && (classTypeFilter === 'all' || classTypeFilter === 'personal')) {
+        processed.push({ ...s, _displayType: 'personal', _key: `${s.availability_id}-${s.session_date}-personal` });
+      }
+
+      // Si permite Grupal Y (filtro es 'all' o 'group')
+      if (s.available_for_group_classes && (classTypeFilter === 'all' || classTypeFilter === 'group')) {
+        processed.push({ ...s, _displayType: 'group', _key: `${s.availability_id}-${s.session_date}-group` });
+      }
+    }
+
+    return processed;
+  }, [data, classTypeFilter, selectedDate]);
+
+  if (isLoading || (isFetching && !data)) return <SkeletonList />;
+
+  return (
+    <>
+      <div className="space-y-4">
+        {/* Calendario tipo Mes */}
+        <div className="rounded-xl border border-border/40 overflow-hidden bg-muted/10">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
+            <button onClick={() => setCalendarDate(d => new Date(d.getFullYear(), d.getMonth() - 1))} className="p-1 rounded-md hover:bg-muted/60 transition-colors">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <p className="text-sm font-black uppercase tracking-wider capitalize">
+              {format(calendarDate, 'MMMM yyyy', { locale: es })}
+            </p>
+            <button onClick={() => setCalendarDate(d => new Date(d.getFullYear(), d.getMonth() + 1))} className="p-1 rounded-md hover:bg-muted/60 transition-colors">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 text-center border-b border-border/20">
+            {['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'].map(d => (
+              <div key={d} className="py-2 text-[10px] font-black text-muted-foreground uppercase">{d}</div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 p-1">
+            {Array.from({ length: startPad }).map((_, i) => <div key={`p${i}`} />)}
+            {days.map(day => {
+              const dateStr = format(day, 'yyyy-MM-dd');
+              const isPast = isBefore(day, todayDate);
+              const isToday_ = isToday(day);
+              const isSelected = selectedDate === dateStr;
+              const dayOfWeek = (day.getDay() + 6) % 7; 
+              const isAvailable = availableDays.has(day.getDay());
+              
+              return (
+                <button key={dateStr} disabled={isPast}
+                  onClick={() => setSelectedDate(isSelected ? null : dateStr)}
+                  className={`relative flex flex-col items-center justify-center py-2 mx-0.5 my-0.5 text-xs font-semibold rounded-lg transition-all
+                    ${isSelected ? 'bg-primary text-primary-foreground shadow-md'
+                      : (isAvailable && !isPast) ? 'bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer'
+                        : 'text-muted-foreground/30 cursor-default'}
+                    ${isToday_ && !isSelected ? 'ring-1 ring-primary/50' : ''}`}
+                >
+                  {format(day, 'd')}
+                  {isAvailable && !isPast && !isSelected && (
+                    <span className="absolute bottom-1 w-1 h-1 rounded-full bg-primary/40" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Filtro Personal / Grupal (PT) ───────────────────────────── */}
+        {selectedDate && data?.slots && data.slots.length > 0 && (
+          <div className="flex items-center gap-1 p-1 bg-muted/40 rounded-xl border border-border/30 w-fit mx-auto">
+            {[
+              { key: 'all', label: 'Todas' },
+              { key: 'personal', label: '👤 Personal' },
+              { key: 'group', label: '👥 Grupal' },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setClassTypeFilter(key as any)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${classTypeFilter === key
+                  ? 'bg-background text-foreground shadow-sm border border-border/40'
+                  : 'text-muted-foreground hover:text-foreground'
+                  }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="space-y-3">
+          {!selectedDate ? (
+            <div className="py-8 text-center text-muted-foreground bg-muted/20 rounded-xl border border-dashed border-border/40">
+              <Calendar className="h-8 w-8 mx-auto mb-2 opacity-20" />
+              <p className="text-xs font-medium">Selecciona una fecha para ver disponibilidad</p>
+            </div>
+          ) : availability.length === 0 ? (
+            <EmptyCenter icon={Calendar} title="Sin disponibilidad" desc="No hay horarios disponibles para este día. Recuerda que las sesiones deben agendarse con al menos 6 horas de anticipación." color="amber" />
+          ) : (
+            <div className="space-y-6">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground capitalize px-1">
+                Disponibilidad para el {format(parseISO(selectedDate), "EEEE d 'de' MMMM", { locale: es })}
+              </p>
+              
+              {(() => {
+                const grouped = {
+                  morning: availability.filter(s => parseInt(s.start_time.split(':')[0]) < 12),
+                  afternoon: availability.filter(s => {
+                    const h = parseInt(s.start_time.split(':')[0]);
+                    return h >= 12 && h < 17;
+                  }),
+                  evening: availability.filter(s => parseInt(s.start_time.split(':')[0]) >= 17),
+                };
+
+                return (
+                  <div className="space-y-6 pb-4">
+                    {[
+                      { key: 'morning', label: 'Mañana', icon: Sun, color: 'text-amber-500', slots: grouped.morning },
+                      { key: 'afternoon', label: 'Tarde', icon: Sunset, color: 'text-orange-500', slots: grouped.afternoon },
+                      { key: 'evening', label: 'Noche', icon: Moon, color: 'text-indigo-500', slots: grouped.evening },
+                    ].map(section => section.slots.length > 0 && (
+                      <div key={section.key} className="space-y-3">
+                        <div className={`flex items-center gap-2 px-1 ${section.color}`}>
+                          <section.icon className="h-4 w-4" />
+                          <h4 className="text-[11px] font-black uppercase tracking-widest">{section.label}</h4>
+                        </div>
+                        <div className="space-y-2">
+                          {section.slots.map((slot: any) => (
+                            <Card key={slot._key} 
+                              className={`overflow-hidden border-border/40 transition-all ${
+                                slot.is_booked 
+                                  ? (slot.is_my_booking ? 'bg-slate-50 border-slate-200 shadow-sm' : 'opacity-40 grayscale bg-muted/20')
+                                  : 'hover:border-slate-400/40 hover:bg-muted/5'
+                              }`}
+                            >
+                              <CardContent className="p-0">
+                                <div className="flex items-center gap-4 px-4 py-3">
+                                  <div className={`flex flex-col items-center justify-center shrink-0 w-16 h-10 rounded-lg border 
+                                    ${slot.is_my_booking ? 'bg-slate-900 text-white border-slate-900' : 'bg-muted/30 border-border/30'}`}>
+                                    <p className="text-sm font-black italic leading-none">{fmtTime(slot.start_time).split(' ')[0]}</p>
+                                    <p className="text-[8px] font-black uppercase opacity-70">{fmtTime(slot.start_time).split(' ')[1]}</p>
+                                  </div>
+              
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                      <User className="h-3 w-3" /> {slot.coach.full_name}
+                                    </p>
+                                    <p className="text-xs font-black uppercase tracking-tight truncate mt-0.5">
+                                      {slot.is_my_booking 
+                                        ? 'Tu Sesión' 
+                                        : (slot.is_booked 
+                                          ? 'Ocupado' 
+                                          : (slot._displayType === 'group' ? '👥 Clase Grupal' : '👤 Clase Personal')
+                                          )
+                                      }
+                                    </p>
+                                  </div>
+              
+                                  {slot.is_my_booking ? (
+                                    <Badge className="bg-green-600 hover:bg-green-700">Agendada</Badge>
+                                  ) : slot.is_booked ? (
+                                    <Badge variant="secondary">No disponible</Badge>
+                                  ) : (
+                                    <Button size="sm" onClick={() => handleBook(slot)} disabled={isBooking}
+                                      className="h-8 px-4 text-[10px] font-black uppercase tracking-wider rounded-xl bg-slate-900 hover:bg-black text-white">
+                                      Reservar
+                                    </Button>
+                                  )}
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <AlertDialog open={!!confirming} onOpenChange={(o) => { if (!o) setConfirming(null); }}>
+        <AlertDialogContent className="rounded-2xl border-0 shadow-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-slate-950 text-white">
+                <CalendarCheck className="h-5 w-5" />
+              </div>
+              Confirmar Sesión PT
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4 pt-2">
+                <div className="rounded-2xl border border-border/50 p-4 bg-muted/20 space-y-3">
+                  <p className="font-bold text-foreground">{planName}</p>
+                  <p className="text-muted-foreground text-xs capitalize">
+                    {selectedDate ? format(parseISO(selectedDate), "EEEE d 'de' MMMM", { locale: es }) : ''}
+                  </p>
+                  <p className="text-foreground font-black text-sm">
+                    {fmtTime(confirming?.start_time ?? '')} — {fmtTime(confirming?.end_time ?? '')}
+                  </p>
+                </div>
+                
+                <div className={`rounded-xl px-4 py-3 text-sm font-medium border-2 ${isUnlimited ? 'bg-green-500/5 text-green-700 border-green-500/20' : 'bg-amber-500/5 text-amber-700 border-amber-500/20'}`}>
+                  {isUnlimited 
+                    ? 'Plan ilimitado — no se descuenta crédito' 
+                    : `Se usará 1 crédito de tu plan (quedarán ${(creditsLeft ?? 1) - 1})`}
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel className="rounded-xl border-border/50">Volver</AlertDialogCancel>
+            <AlertDialogAction 
+              className="bg-slate-950 hover:bg-black text-white rounded-xl font-bold" 
+              disabled={isBooking}
+              onClick={() => {
+                if (!confirming || !selectedDate) return;
+                book({
+                  enrollment_id: enrollment.id,
+                  session_date: selectedDate,
+                  session_time: confirming.start_time,
+                  session_type: confirming._displayType
+                }, {
+                  onSuccess: () => {
+                    toast({ title: '✅ Sesión agendada', description: 'Tu reserva ha sido confirmada.' });
+                    setConfirming(null);
+                  },
+                  onError: (err: any) => {
+                    toast({ title: 'Error al agendar', description: err.message, variant: 'destructive' });
+                    setConfirming(null);
+                  }
+                });
+              }}
+            >
+              {isBooking ? 'Agendando...' : 'Confirmar Reserva'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1337,8 +1681,17 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId, allBoo
   const { data: secondary, isLoading: l2 } = useMySecondaryBookings(childId);
   const { mutate: cancelP, isPending: cp } = useCancelBooking(childId);
   const { mutate: cancelS, isPending: cs } = useCancelSecondaryBooking(childId);
+  const { mutate: cancelPT, isPending: cpt } = useCancelPTSession(childId);
   const { toast } = useToast();
-  const [cancelling, setCancelling] = useState<{ id: string; type: 'p' | 's'; label: string } | null>(null);
+
+  // ✅ Distinguir cancelación normal vs PT
+  const [cancelling, setCancelling] = useState<{
+    id: string;
+    type: 'p' | 's' | 'pt';
+    label: string;
+    sessionDate?: string;
+    sessionTime?: string;
+  } | null>(null);
 
   if (l1 || l2) return <SkeletonList />;
 
@@ -1416,6 +1769,11 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId, allBoo
                               {!isPast && !s.finalized && b.status === 'confirmed' && (
                                 <Badge variant="outline" className="text-[9px] font-bold h-4 border-primary/30 text-primary">Próxima</Badge>
                               )}
+                              {isPT && (
+                                <Badge variant="secondary" className="text-[9px] font-bold h-4 bg-muted/50 text-muted-foreground border-none">
+                                  {b.session_type === 'group' ? '👥 Grupal' : '👤 Personal'}
+                                </Badge>
+                              )}
                             </div>
                             <div className="flex items-center gap-2.5 mt-1">
                               <p className="text-[11px] text-muted-foreground font-medium flex items-center gap-1">
@@ -1430,7 +1788,13 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId, allBoo
 
                           {!isPast && !s.finalized && b.status === 'confirmed' && (
                             <Button variant="ghost" size="sm"
-                              onClick={() => setCancelling({ id: b.id, type: isPrimary ? 'p' : 's', label: fmtDateShort(dateStr) })}
+                              onClick={() => setCancelling({
+                                id: b.id,
+                                type: isPrimary ? (isPT ? 'pt' : 'p') : 's',
+                                label: fmtDateShort(dateStr),
+                                sessionDate: dateStr,
+                                sessionTime: s.start_time,
+                              })}
                               className="shrink-0 h-9 w-9 p-0 rounded-full hover:bg-destructive/10 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity">
                               <XCircle className="h-4 w-4" />
                             </Button>
@@ -1451,31 +1815,57 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId, allBoo
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-destructive">
               <XCircle className="h-5 w-5" />
-              Cancelar reserva
+              Cancelar {cancelling?.type === 'pt' ? 'sesión PT' : 'reserva'}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              ¿Estás seguro de cancelar tu reserva del <span className="font-bold text-foreground">{cancelling?.label}</span>? 
-              El cupo se liberará y el crédito será devuelto a tu plan automáticamente.
+              {cancelling?.type === 'pt'
+                ? <>¿Cancelar tu sesión del <span className="font-bold text-foreground">{cancelling.label}</span>? Si faltan menos de 4 horas, tu entrenador decidirá si devuelve el crédito.</>
+                : <>¿Estás seguro de cancelar tu reserva del <span className="font-bold text-foreground">{cancelling?.label}</span>? El cupo se liberará y el crédito será devuelto a tu plan automáticamente.</>
+              }
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2">
             <AlertDialogCancel className="rounded-xl border-border/50">Cerrar</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl font-bold" disabled={cp || cs}
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl font-bold"
+              disabled={cp || cs || cpt}
               onClick={() => {
                 if (!cancelling) return;
-                const fn = cancelling.type === 'p' ? cancelP : cancelS;
-                (fn as any)(cancelling.id, {
-                  onSuccess: () => { 
-                    toast({ title: '✅ Reserva cancelada', description: 'El cupo ha sido liberado.' }); 
-                    setCancelling(null); 
-                  },
-                  onError: (err: any) => { 
-                    toast({ title: 'Error', description: err.message, variant: 'destructive' }); 
-                    setCancelling(null); 
-                  },
-                });
+
+                if (cancelling.type === 'pt') {
+                  cancelPT(cancelling.id, {
+                    onSuccess: () => {
+                      toast({ title: '✅ Sesión cancelada', description: 'El crédito fue devuelto a tu plan.' });
+                      setCancelling(null);
+                    },
+                    onError: (err: any) => {
+                      // Fuera de ventana — mostrar mensaje especial
+                      if (err?.message?.includes('outside_cancel_window') || err?.status === 400) {
+                        toast({
+                          title: '⏰ Cancelación solicitada',
+                          description: 'Tu solicitud fue enviada al entrenador. Él decidirá si devuelve el crédito.',
+                        });
+                      } else {
+                        toast({ title: 'Error', description: err.message, variant: 'destructive' });
+                      }
+                      setCancelling(null);
+                    },
+                  });
+                } else {
+                  const fn = cancelling.type === 'p' ? cancelP : cancelS;
+                  (fn as any)(cancelling.id, {
+                    onSuccess: () => {
+                      toast({ title: '✅ Reserva cancelada', description: 'El cupo ha sido liberado.' });
+                      setCancelling(null);
+                    },
+                    onError: (err: any) => {
+                      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+                      setCancelling(null);
+                    },
+                  });
+                }
               }}>
-              {(cp || cs) ? 'Cancelando...' : 'Sí, cancelar reserva'}
+              {(cp || cs || cpt) ? 'Cancelando...' : 'Sí, cancelar'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1573,28 +1963,40 @@ function CompactSessionSlot({ sessions, noCredits, isBooking, onBook }: {
 
           <div className="flex-1 min-w-0">
             {sessions.length > 1 ? (
-              <div className="flex flex-wrap gap-1.5 items-center">
-                {sessions.map(s => {
-                  const isP = (s as any).available_for_personal_classes === true;
-                  const isG = (s as any).available_for_group_classes === true;
-                  const label = isP ? '👤 Personal' : isG ? '👥 Grupal' : (s.coach?.full_name?.split(' ')[0] || 'Clase');
+              <div className="flex flex-col">
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  {sessions.map(s => {
+                    const isP = (s as any).available_for_personal_classes === true;
+                    const isG = (s as any).available_for_group_classes === true;
+                    const label = isP ? '👤 Personal' : isG ? '👥 Grupal' : (s.coach?.full_name?.split(' ')[0] || 'Clase');
 
-                  return (
-                    <button key={s.id} onClick={() => setSelectedSessionId(s.id)} disabled={isBooked && !s.already_booked}
-                      className={`px-2 py-1 rounded-md text-[9px] font-black uppercase border transition-all ${selectedSessionId === s.id
-                        ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                        : 'bg-background text-muted-foreground border-border hover:border-primary/40'
-                        } ${s.already_booked ? 'ring-1 ring-primary ring-offset-1' : ''}`}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
+                    return (
+                      <button key={s.id} onClick={() => setSelectedSessionId(s.id)} disabled={isBooked && !s.already_booked}
+                        className={`px-2 py-1 rounded-md text-[9px] font-black uppercase border transition-all ${selectedSessionId === s.id
+                          ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                          : 'bg-background text-muted-foreground border-border hover:border-primary/40'
+                          } ${s.already_booked ? 'ring-1 ring-primary ring-offset-1' : ''}`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {sessions[0]?.coach?.full_name && (
+                  <p className="text-[9px] text-muted-foreground mt-1 font-bold">
+                    {sessions[0].coach.full_name}
+                  </p>
+                )}
               </div>
             ) : (
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
-                  <p className="text-[11px] font-black uppercase tracking-tight truncate">{selectedSession.coach?.full_name || 'Entrenador'}</p>
+                  <p className="text-[11px] font-black uppercase tracking-tight truncate">
+                    {(selectedSession as any).session_type === 'facility' || (selectedSession as any).facility
+                      ? ((selectedSession as any).facility?.name || 'Instalación')
+                      : (selectedSession.coach?.full_name || 'Entrenador')
+                    }
+                  </p>
                   {(selectedSession as any).available_for_personal_classes === true &&
                     !(selectedSession as any).available_for_group_classes && (
                       <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-indigo-400 text-indigo-500 bg-indigo-500/5">

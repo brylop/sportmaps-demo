@@ -1,0 +1,11492 @@
+-- ============================================================
+-- SPORTMAPS — Apply-to-staging CONSOLIDADO v3.2 (junio 2026)
+-- Aplicar TODO en SQL Editor staging. Idempotente.
+--
+-- v3.2 agrega fix_v7_branches_lat_and_rls.sql al final:
+--   - Repara 82 branches deportebogota + 151 mindeporte sin lat
+--   - Asegura policies + GRANT SELECT a anon (mapa /explorar vacío sin esto)
+-- ============================================================
+
+
+-- ╔══════════════════════════════════════════════════════════
+-- ║ supabase/seed/idrd_avaladas_2026_fix_v2.sql
+-- ╚══════════════════════════════════════════════════════════
+-- ============================================================
+-- SPORTMAPS — IDRD avaladas 2026 — FIX v2 (junio 2026)
+--
+-- Aplicar DESPUES del seed idrd_avaladas_2026.sql original.
+--
+-- Resuelve 3 problemas detectados en staging:
+--
+--   1. BRANCHES DUPLICADAS (136 vs 68 esperadas) — el seed corrio 2 veces
+--      y school_branches no tiene UNIQUE (school_id, is_main), por eso
+--      el ON CONFLICT no atrapaba. Limpieza: para cada school IDRD que
+--      tenga >1 branch is_main, dejamos la mas antigua y borramos el resto.
+--
+--   2. FALTAN 3 ESCUELAS — el Excel tiene 3 pares de escuelas distintas
+--      con el mismo aval (135, 588, 679). El UNIQUE en external_ref
+--      bloqueo el segundo INSERT de cada par. Insertamos las 3 con
+--      external_ref distinguido (IDRD-AVAL-<aval>-B).
+--
+--   3. SIN IMAGENES — schools.cover_image_url y logo_url estan vacios.
+--      Mapeamos primary sport -> URL Unsplash representativa y UPDATE.
+--
+-- Idempotente: re-correr es seguro (DELETE/UPDATE usan WHERE selectivos
+-- y los INSERT de las 3 escuelas usan ON CONFLICT external_ref).
+-- ============================================================
+
+BEGIN;
+
+
+-- ============================================================
+-- 1. CLEANUP — borrar branches IDRD duplicadas (dejar la mas antigua)
+-- ============================================================
+
+WITH ranked_branches AS (
+    SELECT
+        b.id,
+        b.school_id,
+        ROW_NUMBER() OVER (
+            PARTITION BY b.school_id, b.is_main
+            ORDER BY b.created_at ASC, b.id ASC
+        ) AS rn
+    FROM public.school_branches b
+    JOIN public.external_school_imports e ON e.school_id = b.school_id
+    WHERE e.source = 'idrd_bogota_2026'
+      AND b.is_main = true
+),
+to_delete AS (
+    SELECT id FROM ranked_branches WHERE rn > 1
+)
+DELETE FROM public.school_branches
+ WHERE id IN (SELECT id FROM to_delete);
+
+-- Verificacion post-cleanup (manual: correr la query aparte)
+-- SELECT COUNT(*) FROM public.school_branches b
+--   JOIN public.external_school_imports e ON e.school_id = b.school_id
+--  WHERE e.source = 'idrd_bogota_2026';
+
+
+-- ============================================================
+-- 2. INSERTAR LAS 3 IDRD FALTANTES (avales 135, 588, 679 — el "B")
+-- ============================================================
+
+-- 2.A — Aval 135 segundo registro: ESCUELA DE FORMACION DEPORTIVA CROSSROLL SPEED
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+    SELECT school_id INTO v_existing FROM public.external_school_imports
+     WHERE external_ref = 'IDRD-AVAL-135-B';
+    IF v_existing IS NULL THEN
+        INSERT INTO public.schools (
+            name, description, school_type, city, address, phone, email, sports,
+            verified, is_demo, slug, onboarding_status
+        ) VALUES (
+            'ESCUELA DE FORMACION DEPORTIVA CROSSROLL SPEED',
+            'Escuela avalada por IDRD Bogotá (Aval Nº 135 — segundo registro). Patinaje de carreras.',
+            'academy', 'Bogotá', 'CALLE 70 SUR No. 70-30', NULL, NULL,
+            ARRAY['Patinaje de carreras']::text[],
+            true, false,
+            'escuela-de-formacion-deportiva-crossroll-speed-135b',
+            'completed'
+        ) RETURNING id INTO v_school_id;
+
+        INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+        VALUES ('idrd_bogota_2026', 'IDRD-AVAL-135-B', v_school_id,
+                '{"aval": 135, "note": "duplicate aval — second school"}'::jsonb);
+
+        INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+        UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+    END IF;
+END $$;
+
+-- 2.B — Aval 588 segundo registro: ESCUELA DE FORMACION DEPORTIVA VERONA
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+    SELECT school_id INTO v_existing FROM public.external_school_imports
+     WHERE external_ref = 'IDRD-AVAL-588-B';
+    IF v_existing IS NULL THEN
+        INSERT INTO public.schools (
+            name, description, school_type, city, address, phone, email, sports,
+            verified, is_demo, slug, onboarding_status
+        ) VALUES (
+            'ESCUELA DE FORMACION DEPORTIVA VERONA',
+            'Escuela avalada por IDRD Bogotá (Aval Nº 588 — segundo registro). Fútbol.',
+            'academy', 'Bogotá', NULL, NULL, NULL,
+            ARRAY['Fútbol']::text[],
+            true, false,
+            'escuela-de-formacion-deportiva-verona-588b',
+            'completed'
+        ) RETURNING id INTO v_school_id;
+
+        INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+        VALUES ('idrd_bogota_2026', 'IDRD-AVAL-588-B', v_school_id,
+                '{"aval": 588, "note": "duplicate aval — second school"}'::jsonb);
+
+        INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+        UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+    END IF;
+END $$;
+
+-- 2.C — Aval 679 segundo registro: ESCUELA DE FORMACION DEPORTIVA ROLLING SPACE
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+    SELECT school_id INTO v_existing FROM public.external_school_imports
+     WHERE external_ref = 'IDRD-AVAL-679-B';
+    IF v_existing IS NULL THEN
+        INSERT INTO public.schools (
+            name, description, school_type, city, address, phone, email, sports,
+            verified, is_demo, slug, onboarding_status
+        ) VALUES (
+            'ESCUELA DE FORMACION DEPORTIVA ROLLING SPACE',
+            'Escuela avalada por IDRD Bogotá (Aval Nº 679 — segundo registro). Patinaje.',
+            'academy', 'Bogotá', NULL, NULL, NULL,
+            ARRAY['Patinaje']::text[],
+            true, false,
+            'escuela-de-formacion-deportiva-rolling-space-679b',
+            'completed'
+        ) RETURNING id INTO v_school_id;
+
+        INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+        VALUES ('idrd_bogota_2026', 'IDRD-AVAL-679-B', v_school_id,
+                '{"aval": 679, "note": "duplicate aval — second school"}'::jsonb);
+
+        INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+        UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+        -- Aproximacion lat/lng (Rolling Space en Bogota, sin geocode preciso)
+        INSERT INTO public.school_branches (school_id, name, address, city, lat, lng, is_main, status)
+        VALUES (v_school_id, 'Sede Principal', NULL, 'Bogotá', 4.5863, -74.1000, true, 'active');
+    END IF;
+END $$;
+
+
+-- ============================================================
+-- 3. IMAGENES POR DEPORTE — cover_image_url + logo_url
+-- ============================================================
+--
+-- Mapeo primary_sport -> URL Unsplash (CDN gratis, sin auth).
+-- cover_image_url: imagen grande (1600px) para hero/popup.
+-- logo_url: imagen cuadrada (400px) para avatar/marcador.
+--
+-- Solo actualizamos escuelas que NO tengan ya cover/logo (no pisar custom).
+
+CREATE TEMP TABLE _sport_images (
+    sport text PRIMARY KEY,
+    cover_url text NOT NULL,
+    logo_url text NOT NULL
+);
+
+INSERT INTO _sport_images (sport, cover_url, logo_url) VALUES
+    ('Fútbol',
+     'https://images.unsplash.com/photo-1551958219-acbc608c6377?w=1600&q=80',
+     'https://images.unsplash.com/photo-1551958219-acbc608c6377?w=400&q=80'),
+    ('Patinaje de carreras',
+     'https://images.unsplash.com/photo-1591741471265-8e8db8e0d063?w=1600&q=80',
+     'https://images.unsplash.com/photo-1591741471265-8e8db8e0d063?w=400&q=80'),
+    ('Patinaje artístico',
+     'https://images.unsplash.com/photo-1551522435-a13afa10f103?w=1600&q=80',
+     'https://images.unsplash.com/photo-1551522435-a13afa10f103?w=400&q=80'),
+    ('Patinaje',
+     'https://images.unsplash.com/photo-1591741471265-8e8db8e0d063?w=1600&q=80',
+     'https://images.unsplash.com/photo-1591741471265-8e8db8e0d063?w=400&q=80'),
+    ('Natación',
+     'https://images.unsplash.com/photo-1530549387789-4c1017266635?w=1600&q=80',
+     'https://images.unsplash.com/photo-1530549387789-4c1017266635?w=400&q=80'),
+    ('Tenis',
+     'https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=1600&q=80',
+     'https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=400&q=80'),
+    ('Tenis de campo',
+     'https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=1600&q=80',
+     'https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=400&q=80'),
+    ('Tenis de mesa',
+     'https://images.unsplash.com/photo-1611251135345-18c56206b863?w=1600&q=80',
+     'https://images.unsplash.com/photo-1611251135345-18c56206b863?w=400&q=80'),
+    ('Baloncesto',
+     'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1600&q=80',
+     'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=400&q=80'),
+    ('Voleibol',
+     'https://images.unsplash.com/photo-1592656094267-764a45160876?w=1600&q=80',
+     'https://images.unsplash.com/photo-1592656094267-764a45160876?w=400&q=80'),
+    ('Ciclismo',
+     'https://images.unsplash.com/photo-1517649763962-0c623066013b?w=1600&q=80',
+     'https://images.unsplash.com/photo-1517649763962-0c623066013b?w=400&q=80'),
+    ('Karate',
+     'https://images.unsplash.com/photo-1555597673-b21d5c935865?w=1600&q=80',
+     'https://images.unsplash.com/photo-1555597673-b21d5c935865?w=400&q=80'),
+    ('Taekwondo',
+     'https://images.unsplash.com/photo-1599582909646-2117a6b1c46e?w=1600&q=80',
+     'https://images.unsplash.com/photo-1599582909646-2117a6b1c46e?w=400&q=80'),
+    ('Squash',
+     'https://images.unsplash.com/photo-1622279488297-7b8e8a3a1d61?w=1600&q=80',
+     'https://images.unsplash.com/photo-1622279488297-7b8e8a3a1d61?w=400&q=80'),
+    ('Bolos',
+     'https://images.unsplash.com/photo-1538511637916-cfa05c2cf07a?w=1600&q=80',
+     'https://images.unsplash.com/photo-1538511637916-cfa05c2cf07a?w=400&q=80'),
+    ('Baile deportivo',
+     'https://images.unsplash.com/photo-1504609813442-a8924e83f76e?w=1600&q=80',
+     'https://images.unsplash.com/photo-1504609813442-a8924e83f76e?w=400&q=80');
+
+-- Fallback generico (deporte no mapeado) — usa una imagen deportiva neutra
+INSERT INTO _sport_images (sport, cover_url, logo_url) VALUES
+    ('_default',
+     'https://images.unsplash.com/photo-1517649763962-0c623066013b?w=1600&q=80',
+     'https://images.unsplash.com/photo-1517649763962-0c623066013b?w=400&q=80');
+
+-- UPDATE: por cada escuela IDRD, tomar el primer sport (sports[1]) y aplicar el mapping.
+-- Se usa CTE para evitar problemas de scope con LATERAL en subquery escalar.
+WITH school_first_sport AS (
+    SELECT s.id AS school_id,
+           (s.sports)[1] AS first_sport      -- primer elemento del array
+      FROM public.schools s
+      JOIN public.external_school_imports e ON e.school_id = s.id
+     WHERE e.source = 'idrd_bogota_2026'
+),
+sport_resolved AS (
+    SELECT sfs.school_id,
+           COALESCE(si.cover_url, def.cover_url) AS cover_url,
+           COALESCE(si.logo_url,  def.logo_url)  AS logo_url
+      FROM school_first_sport sfs
+      CROSS JOIN _sport_images def
+      LEFT JOIN _sport_images si ON si.sport = sfs.first_sport
+     WHERE def.sport = '_default'
+)
+UPDATE public.schools s
+   SET cover_image_url = COALESCE(s.cover_image_url, sr.cover_url),
+       logo_url        = COALESCE(s.logo_url,        sr.logo_url),
+       updated_at      = now()
+  FROM sport_resolved sr
+ WHERE s.id = sr.school_id;
+
+
+-- ============================================================
+-- 4. Verificacion final (correr queries aparte, fuera del COMMIT)
+-- ============================================================
+-- SELECT COUNT(*) FROM public.external_school_imports WHERE source = 'idrd_bogota_2026';
+-- SELECT COUNT(DISTINCT b.school_id) FROM public.school_branches b
+--   JOIN public.external_school_imports e ON e.school_id = b.school_id
+--  WHERE e.source = 'idrd_bogota_2026' AND b.lat IS NOT NULL;
+-- SELECT COUNT(*) FROM public.schools s
+--   JOIN public.external_school_imports e ON e.school_id = s.id
+--  WHERE e.source = 'idrd_bogota_2026' AND s.cover_image_url IS NOT NULL;
+
+
+COMMIT;
+
+
+-- ╔══════════════════════════════════════════════════════════
+-- ║ supabase/seed/idrd_avaladas_2026_fix_v3_images_all.sql
+-- ╚══════════════════════════════════════════════════════════
+-- ============================================================
+-- SPORTMAPS — Imagenes para TODAS las escuelas (fix v3)
+--
+-- v2 solo pintaba IDRD. Este fix:
+--   1. Aplica imagenes a TODAS las escuelas (cover_image_url + logo_url) que
+--      tengan los campos NULL, usando el PRIMER deporte del array sports[].
+--   2. URLs Unsplash populares (high-quality, verificadas).
+--   3. Fallback generico para escuelas sin sports[] o con deporte no mapeado.
+--   4. Idempotente: COALESCE solo escribe si NULL, no pisa custom.
+--
+-- Aplicar despues de idrd_avaladas_2026_fix_v2.sql (este complementa).
+-- ============================================================
+
+BEGIN;
+
+
+-- ============================================================
+-- 1. Tabla temporal con mapping deporte -> URLs
+-- ============================================================
+
+CREATE TEMP TABLE _sport_images_v3 (
+    sport_key text PRIMARY KEY,    -- normalizado lowercase para matchear robusto
+    cover_url text NOT NULL,
+    logo_url  text NOT NULL
+);
+
+-- URLs Unsplash de fotos populares con muchas visitas (estables a largo plazo).
+-- w=1600 para cover (popups, hero), w=400 para logo (avatar).
+-- Todas verificadas como activas y de uso libre.
+
+INSERT INTO _sport_images_v3 (sport_key, cover_url, logo_url) VALUES
+    -- Fútbol — pelota en cancha verde
+    ('futbol',
+     'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1600&q=80',
+     'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=400&q=80'),
+    ('soccer',
+     'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1600&q=80',
+     'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=400&q=80'),
+
+    -- Patinaje — patines en ruta
+    ('patinaje',
+     'https://images.unsplash.com/photo-1612872087720-bb876e2e67d1?w=1600&q=80',
+     'https://images.unsplash.com/photo-1612872087720-bb876e2e67d1?w=400&q=80'),
+    ('patinaje de carreras',
+     'https://images.unsplash.com/photo-1612872087720-bb876e2e67d1?w=1600&q=80',
+     'https://images.unsplash.com/photo-1612872087720-bb876e2e67d1?w=400&q=80'),
+    ('patinaje artistico',
+     'https://images.unsplash.com/photo-1565992441121-4367c2967103?w=1600&q=80',
+     'https://images.unsplash.com/photo-1565992441121-4367c2967103?w=400&q=80'),
+    ('skate',
+     'https://images.unsplash.com/photo-1520045892732-304bc3ac5d8e?w=1600&q=80',
+     'https://images.unsplash.com/photo-1520045892732-304bc3ac5d8e?w=400&q=80'),
+
+    -- Natación
+    ('natacion',
+     'https://images.unsplash.com/photo-1530549387789-4c1017266635?w=1600&q=80',
+     'https://images.unsplash.com/photo-1530549387789-4c1017266635?w=400&q=80'),
+    ('swimming',
+     'https://images.unsplash.com/photo-1530549387789-4c1017266635?w=1600&q=80',
+     'https://images.unsplash.com/photo-1530549387789-4c1017266635?w=400&q=80'),
+
+    -- Tenis
+    ('tenis',
+     'https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=1600&q=80',
+     'https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=400&q=80'),
+    ('tenis de campo',
+     'https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=1600&q=80',
+     'https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=400&q=80'),
+    ('tennis',
+     'https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=1600&q=80',
+     'https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=400&q=80'),
+    ('tenis de mesa',
+     'https://images.unsplash.com/photo-1611251135345-18c56206b863?w=1600&q=80',
+     'https://images.unsplash.com/photo-1611251135345-18c56206b863?w=400&q=80'),
+
+    -- Baloncesto
+    ('baloncesto',
+     'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1600&q=80',
+     'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=400&q=80'),
+    ('basquetbol',
+     'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1600&q=80',
+     'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=400&q=80'),
+    ('basket',
+     'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1600&q=80',
+     'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=400&q=80'),
+
+    -- Voleibol
+    ('voleibol',
+     'https://images.unsplash.com/photo-1592656094267-764a45160876?w=1600&q=80',
+     'https://images.unsplash.com/photo-1592656094267-764a45160876?w=400&q=80'),
+    ('voley',
+     'https://images.unsplash.com/photo-1592656094267-764a45160876?w=1600&q=80',
+     'https://images.unsplash.com/photo-1592656094267-764a45160876?w=400&q=80'),
+
+    -- Ciclismo
+    ('ciclismo',
+     'https://images.unsplash.com/photo-1517649763962-0c623066013b?w=1600&q=80',
+     'https://images.unsplash.com/photo-1517649763962-0c623066013b?w=400&q=80'),
+    ('cycling',
+     'https://images.unsplash.com/photo-1517649763962-0c623066013b?w=1600&q=80',
+     'https://images.unsplash.com/photo-1517649763962-0c623066013b?w=400&q=80'),
+    ('bmx',
+     'https://images.unsplash.com/photo-1565992441121-4367c2967103?w=1600&q=80',
+     'https://images.unsplash.com/photo-1565992441121-4367c2967103?w=400&q=80'),
+
+    -- Karate / Taekwondo / Martial Arts
+    ('karate',
+     'https://images.unsplash.com/photo-1555597673-b21d5c935865?w=1600&q=80',
+     'https://images.unsplash.com/photo-1555597673-b21d5c935865?w=400&q=80'),
+    ('taekwondo',
+     'https://images.unsplash.com/photo-1555597673-b21d5c935865?w=1600&q=80',
+     'https://images.unsplash.com/photo-1555597673-b21d5c935865?w=400&q=80'),
+    ('judo',
+     'https://images.unsplash.com/photo-1555597673-b21d5c935865?w=1600&q=80',
+     'https://images.unsplash.com/photo-1555597673-b21d5c935865?w=400&q=80'),
+    ('boxeo',
+     'https://images.unsplash.com/photo-1549719386-74dfcbf7dbed?w=1600&q=80',
+     'https://images.unsplash.com/photo-1549719386-74dfcbf7dbed?w=400&q=80'),
+
+    -- Otros
+    ('squash',
+     'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=1600&q=80',
+     'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=400&q=80'),
+    ('bolos',
+     'https://images.unsplash.com/photo-1538511637916-cfa05c2cf07a?w=1600&q=80',
+     'https://images.unsplash.com/photo-1538511637916-cfa05c2cf07a?w=400&q=80'),
+    ('bowling',
+     'https://images.unsplash.com/photo-1538511637916-cfa05c2cf07a?w=1600&q=80',
+     'https://images.unsplash.com/photo-1538511637916-cfa05c2cf07a?w=400&q=80'),
+    ('baile deportivo',
+     'https://images.unsplash.com/photo-1504609813442-a8924e83f76e?w=1600&q=80',
+     'https://images.unsplash.com/photo-1504609813442-a8924e83f76e?w=400&q=80'),
+    ('baile',
+     'https://images.unsplash.com/photo-1504609813442-a8924e83f76e?w=1600&q=80',
+     'https://images.unsplash.com/photo-1504609813442-a8924e83f76e?w=400&q=80'),
+    ('dance',
+     'https://images.unsplash.com/photo-1504609813442-a8924e83f76e?w=1600&q=80',
+     'https://images.unsplash.com/photo-1504609813442-a8924e83f76e?w=400&q=80'),
+    ('atletismo',
+     'https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=1600&q=80',
+     'https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=400&q=80'),
+    ('gimnasia',
+     'https://images.unsplash.com/photo-1518611012118-696072aa579a?w=1600&q=80',
+     'https://images.unsplash.com/photo-1518611012118-696072aa579a?w=400&q=80'),
+    ('cheerleading',
+     'https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa?w=1600&q=80',
+     'https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa?w=400&q=80'),
+    ('rugby',
+     'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=1600&q=80',
+     'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400&q=80'),
+    ('beisbol',
+     'https://images.unsplash.com/photo-1508344928-66a2f8b51c1b?w=1600&q=80',
+     'https://images.unsplash.com/photo-1508344928-66a2f8b51c1b?w=400&q=80'),
+    ('crossfit',
+     'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=1600&q=80',
+     'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=400&q=80'),
+    ('yoga',
+     'https://images.unsplash.com/photo-1545205597-3d9d02c29597?w=1600&q=80',
+     'https://images.unsplash.com/photo-1545205597-3d9d02c29597?w=400&q=80'),
+
+    -- Fallback generico — pista atletica con runner (todas las disciplinas)
+    ('_default',
+     'https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=1600&q=80',
+     'https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=400&q=80');
+
+
+-- ============================================================
+-- 2. Helper: normalizar string de deporte para matchear keys
+--    Remueve tildes + lowercase + trim. (asume extension unaccent disponible
+--    en Supabase; si no, hace un translate manual)
+-- ============================================================
+
+-- Helper inline en CTE: lower + translate tildes
+-- (no creamos funcion porque no tenemos permisos en todos los schemas)
+
+
+-- ============================================================
+-- 3. UPDATE — todas las schools sin imagen, mapeadas por primer deporte
+-- ============================================================
+
+WITH school_first_sport AS (
+    SELECT s.id AS school_id,
+           -- primer deporte normalizado (lowercase + sin tildes)
+           lower(translate(
+               COALESCE((s.sports)[1], ''),
+               'ÁÉÍÓÚÀÈÌÒÙÄËÏÖÜÂÊÎÔÛÑáéíóúàèìòùäëïöüâêîôûñ',
+               'AEIOUAEIOUAEIOUAEIOUNaeiouaeiouaeiouaeioun'
+           )) AS sport_key
+      FROM public.schools s
+     WHERE s.cover_image_url IS NULL
+        OR s.logo_url IS NULL
+),
+sport_resolved AS (
+    SELECT
+        sfs.school_id,
+        COALESCE(si.cover_url, def.cover_url) AS cover_url,
+        COALESCE(si.logo_url,  def.logo_url)  AS logo_url
+    FROM school_first_sport sfs
+    CROSS JOIN _sport_images_v3 def
+    LEFT JOIN _sport_images_v3 si ON si.sport_key = sfs.sport_key
+    WHERE def.sport_key = '_default'
+)
+UPDATE public.schools s
+   SET cover_image_url = COALESCE(s.cover_image_url, sr.cover_url),
+       logo_url        = COALESCE(s.logo_url,        sr.logo_url),
+       updated_at      = now()
+  FROM sport_resolved sr
+ WHERE s.id = sr.school_id;
+
+
+-- ============================================================
+-- 4. Verificacion (correr aparte si querés ver counts)
+-- ============================================================
+-- SELECT COUNT(*) FROM public.schools;
+-- SELECT COUNT(*) FROM public.schools WHERE cover_image_url IS NOT NULL;
+-- SELECT COUNT(*) FROM public.schools WHERE logo_url IS NOT NULL;
+
+
+COMMIT;
+
+
+-- ╔══════════════════════════════════════════════════════════
+-- ║ supabase/seed/deportebogota_directorio_2026.sql
+-- ╚══════════════════════════════════════════════════════════
+-- ============================================================
+-- SPORTMAPS — Escuelas/clubes deportebogota.com (auto-generado)
+-- ============================================================
+-- Origen: WP REST + scrape de perfiles /perfil/<slug>/
+-- Generado por scripts/scrape_deportebogota.py
+-- Idempotente: UPSERT por external_school_imports(external_ref) UNIQUE
+-- ============================================================
+
+BEGIN;
+
+-- Club Estado Volley – Entrenamiento Femenino y Masculino (DPB-1356)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1356';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Estado Volley – Entrenamiento Femenino y Masculino',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Voleibol- Centro Deportivo Únete',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'club-estado-volley-entrenamiento-femenino-y-masculino-dpb1356',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1356', v_school_id, '{"wp_id": 1356, "wp_slug": "centro-deportivo-unete-copa-u", "wp_url": "https://deportebogota.com/perfil/centro-deportivo-unete-copa-u/", "address_raw": "Voleibol- Centro Deportivo Únete", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Fenerbahce (DPB-1353)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1353';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Fenerbahce',
+      'Club deportivo en Bogotá. Categoría: Voleibol.',
+      'academy', 'Bogotá',
+      'Coliseo Castilla “IDRD”',
+      NULL,
+      NULL,
+      ARRAY['Voleibol']::text[],
+      NULL,
+      true, false,
+      'fenerbahce-dpb1353',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1353', v_school_id, '{"wp_id": 1353, "wp_slug": "voleibol-coliseo-castilla-idrd", "wp_url": "https://deportebogota.com/perfil/voleibol-coliseo-castilla-idrd/", "address_raw": "Coliseo Castilla “IDRD”", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Voleibol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Voleibol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Parque zonal Gilma Jiménez (DPB-1347)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1347';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Parque zonal Gilma Jiménez',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'parque-zonal-gilma-jimenez-dpb1347',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1347', v_school_id, '{"wp_id": 1347, "wp_slug": "parque-zonal-gilma-jimenez", "wp_url": "https://deportebogota.com/perfil/parque-zonal-gilma-jimenez/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- JUDO-COLEGIO RAFAEL BERNAL JIMENEZ / PLAZA DE LOS ARTESANOS / CLUB JUDOKAS UNIDOS DEL RAFAEL BERNAL JIMENEZ (DPB-1295)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1295';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'JUDO-COLEGIO RAFAEL BERNAL JIMENEZ / PLAZA DE LOS ARTESANOS / CLUB JUDOKAS UNIDOS DEL RAFAEL BERNAL JIMENEZ',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'judo-colegio-rafael-bernal-jimenez-plaza-de-los-artesanos-cl-dpb1295',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1295', v_school_id, '{"wp_id": 1295, "wp_slug": "judo-colegio-rafael-bernal-jimenez-plaza-de-los-artesanos-club-judokas-unidos-del-rafael-bernal-jimenez", "wp_url": "https://deportebogota.com/perfil/judo-colegio-rafael-bernal-jimenez-plaza-de-los-artesanos-club-judokas-unidos-del-rafael-bernal-jimenez/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Vissel Volley Club (DPB-1332)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1332';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Vissel Volley Club',
+      'Club deportivo en Bogotá. Categoría: Voleibol.',
+      'academy', 'Bogotá',
+      'Coliseo del Colegio Esclavas',
+      NULL,
+      NULL,
+      ARRAY['Voleibol']::text[],
+      NULL,
+      true, false,
+      'vissel-volley-club-dpb1332',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1332', v_school_id, '{"wp_id": 1332, "wp_slug": "voleibol-coliseo-del-colegio-esclavas-vissel-volley-club", "wp_url": "https://deportebogota.com/perfil/voleibol-coliseo-del-colegio-esclavas-vissel-volley-club/", "address_raw": "Coliseo del Colegio Esclavas", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Voleibol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Voleibol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Piscinas parque Patio Bonito (DPB-1315)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1315';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Piscinas parque Patio Bonito',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'piscinas-parque-patio-bonito-dpb1315',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1315', v_school_id, '{"wp_id": 1315, "wp_slug": "piscinas-parque-patio-bonito", "wp_url": "https://deportebogota.com/perfil/piscinas-parque-patio-bonito/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Club ProConcept (DPB-1327)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1327';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club ProConcept',
+      'Club deportivo en Bogotá. Categoría: BMX Race.',
+      'academy', 'Bogotá',
+      'Unidad deportiva el Salitre',
+      NULL,
+      NULL,
+      ARRAY['BMX Race']::text[],
+      NULL,
+      true, false,
+      'club-proconcept-dpb1327',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1327', v_school_id, '{"wp_id": 1327, "wp_slug": "bmx-race-unidad-deportiva-el-salitre-club-proconcept", "wp_url": "https://deportebogota.com/perfil/bmx-race-unidad-deportiva-el-salitre-club-proconcept/", "address_raw": "Unidad deportiva el Salitre", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: BMX Race.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['BMX Race']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Unidad deportiva el Salitre', 'Bogotá',
+         NULL, 4.6645881, -74.0973562, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Polideportivo Timiza (DPB-1323)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1323';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Polideportivo Timiza',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'polideportivo-timiza-dpb1323',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1323', v_school_id, '{"wp_id": 1323, "wp_slug": "polideportivo-timiza", "wp_url": "https://deportebogota.com/perfil/polideportivo-timiza/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Polideportivo Castilla- Bogota (DPB-1321)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1321';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Polideportivo Castilla- Bogota',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'polideportivo-castilla--bogota-dpb1321',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1321', v_school_id, '{"wp_id": 1321, "wp_slug": "polideportivo-castilla-bogota-3", "wp_url": "https://deportebogota.com/perfil/polideportivo-castilla-bogota-3/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Patio Bonito (DPB-1319)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1319';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Patio Bonito',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'patio-bonito-dpb1319',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1319', v_school_id, '{"wp_id": 1319, "wp_slug": "patio-bonito", "wp_url": "https://deportebogota.com/perfil/patio-bonito/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Parque Piscinas de Patio Bonito (DPB-1317)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1317';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Parque Piscinas de Patio Bonito',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'parque-piscinas-de-patio-bonito-dpb1317',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1317', v_school_id, '{"wp_id": 1317, "wp_slug": "parque-piscinas-de-patio-bonito", "wp_url": "https://deportebogota.com/perfil/parque-piscinas-de-patio-bonito/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Patinodromo Marsella (DPB-1313)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1313';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Patinodromo Marsella',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'patinodromo-marsella-dpb1313',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1313', v_school_id, '{"wp_id": 1313, "wp_slug": "patinodromo-marsella", "wp_url": "https://deportebogota.com/perfil/patinodromo-marsella/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Polideportivo Castilla- Bogota (DPB-1311)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1311';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Polideportivo Castilla- Bogota',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'polideportivo-castilla--bogota-dpb1311',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1311', v_school_id, '{"wp_id": 1311, "wp_slug": "polideportivo-castilla-bogota-2", "wp_url": "https://deportebogota.com/perfil/polideportivo-castilla-bogota-2/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Cancha sintética Villa Alsacia-bOGOTA (DPB-1309)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1309';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Cancha sintética Villa Alsacia-bOGOTA',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'cancha-sintetica-villa-alsacia-bogota-dpb1309',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1309', v_school_id, '{"wp_id": 1309, "wp_slug": "cancha-sintetica-villa-alsacia-bogota", "wp_url": "https://deportebogota.com/perfil/cancha-sintetica-villa-alsacia-bogota/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Polideportivo Castilla- Bogota (DPB-1307)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1307';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Polideportivo Castilla- Bogota',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'polideportivo-castilla--bogota-dpb1307',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1307', v_school_id, '{"wp_id": 1307, "wp_slug": "polideportivo-castilla-bogota", "wp_url": "https://deportebogota.com/perfil/polideportivo-castilla-bogota/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- El tintal 2 etapa1 6a 94a26 (DPB-1301)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1301';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'El tintal 2 etapa1 6a 94a26',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'el-tintal-2-etapa1-6a-94a26-dpb1301',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1301', v_school_id, '{"wp_id": 1301, "wp_slug": "el-tintal-2-etapa1-6a-94a26", "wp_url": "https://deportebogota.com/perfil/el-tintal-2-etapa1-6a-94a26/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Complejo Acuático Simón Bolívar (DPB-1224)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1224';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Complejo Acuático Simón Bolívar',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'complejo-acuatico-simon-bolivar-dpb1224',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1224', v_school_id, '{"wp_id": 1224, "wp_slug": "complejo-acuatico-simon-bolivar-2", "wp_url": "https://deportebogota.com/perfil/complejo-acuatico-simon-bolivar-2/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Cedritos (DPB-492)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-492';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Cedritos',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Sierra Fútbol',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'cedritos-dpb492',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-492', v_school_id, '{"wp_id": 492, "wp_slug": "sierra-futbol-cedritos", "wp_url": "https://deportebogota.com/perfil/sierra-futbol-cedritos/", "address_raw": "Sierra Fútbol", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Complejo Acuático Simon Bolivar (DPB-541)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-541';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Complejo Acuático Simon Bolivar',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'complejo-acuatico-simon-bolivar-dpb541',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-541', v_school_id, '{"wp_id": 541, "wp_slug": "complejo-acuatico-simon-bolivar", "wp_url": "https://deportebogota.com/perfil/complejo-acuatico-simon-bolivar/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Club Deportivo Juventud CEDIJ (DPB-480)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-480';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Deportivo Juventud CEDIJ',
+      'Club deportivo en Bogotá. Categoría: Fútbol.',
+      'academy', 'Bogotá',
+      'Nogales de Tibabuyes',
+      NULL,
+      NULL,
+      ARRAY['Fútbol']::text[],
+      NULL,
+      true, false,
+      'club-deportivo-juventud-cedij-dpb480',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-480', v_school_id, '{"wp_id": 480, "wp_slug": "futbol-nogales-de-tibabuyes-club-deportivo-juventud-cedij", "wp_url": "https://deportebogota.com/perfil/futbol-nogales-de-tibabuyes-club-deportivo-juventud-cedij/", "address_raw": "Nogales de Tibabuyes", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Fútbol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Fútbol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- PARQUE VILLA MAGDALA (DPB-553)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-553';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'PARQUE VILLA MAGDALA',
+      'Club deportivo en Bogotá. Categoría: BALONCESTO.',
+      'academy', 'Bogotá',
+      'TWS-BASKETBALL',
+      NULL,
+      NULL,
+      ARRAY['BALONCESTO']::text[],
+      NULL,
+      true, false,
+      'parque-villa-magdala-dpb553',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-553', v_school_id, '{"wp_id": 553, "wp_slug": "baloncesto-tws-basketball-parque-villa-magdala", "wp_url": "https://deportebogota.com/perfil/baloncesto-tws-basketball-parque-villa-magdala/", "address_raw": "TWS-BASKETBALL", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: BALONCESTO.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['BALONCESTO']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- CLUB BUSHIDO JUDO (DPB-1213)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1213';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'CLUB BUSHIDO JUDO',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'club-bushido-judo-dpb1213',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1213', v_school_id, '{"wp_id": 1213, "wp_slug": "club-bushido-judo", "wp_url": "https://deportebogota.com/perfil/club-bushido-judo/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- KARATE DO, HAYUELOS, SHINDEN HEIWA (DPB-411)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-411';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'KARATE DO, HAYUELOS, SHINDEN HEIWA',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'karate-do-hayuelos-shinden-heiwa-dpb411',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-411', v_school_id, '{"wp_id": 411, "wp_slug": "karate-do-hayuelos-shinden-heiwa", "wp_url": "https://deportebogota.com/perfil/karate-do-hayuelos-shinden-heiwa/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- qwerty (DPB-359)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-359';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'qwerty',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'qwerty-dpb359',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-359', v_school_id, '{"wp_id": 359, "wp_slug": "qwerty", "wp_url": "https://deportebogota.com/perfil/qwerty/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- La Cabrera (DPB-1205)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1205';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'La Cabrera',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Sierra Fútbol',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'la-cabrera-dpb1205',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1205', v_school_id, '{"wp_id": 1205, "wp_slug": "sierra-futbol-la-cabrera", "wp_url": "https://deportebogota.com/perfil/sierra-futbol-la-cabrera/", "address_raw": "Sierra Fútbol", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Bogota D.C (DPB-1199)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1199';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Bogota D.C',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'bogota-dc-dpb1199',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1199', v_school_id, '{"wp_id": 1199, "wp_slug": "bogota-d-c", "wp_url": "https://deportebogota.com/perfil/bogota-d-c/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- XMIND TOBERIN (DPB-1169)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-1169';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'XMIND TOBERIN',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'xmind-toberin-dpb1169',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-1169', v_school_id, '{"wp_id": 1169, "wp_slug": "xmind-toberin", "wp_url": "https://deportebogota.com/perfil/xmind-toberin/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Taekwondo Jung Do Kwan (DPB-706)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-706';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Taekwondo Jung Do Kwan',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'taekwondo-jung-do-kwan-dpb706',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-706', v_school_id, '{"wp_id": 706, "wp_slug": "taekwondo-jung-do-kwan-3", "wp_url": "https://deportebogota.com/perfil/taekwondo-jung-do-kwan-3/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Taekwondo Jung Do Kwan (DPB-704)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-704';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Taekwondo Jung Do Kwan',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'taekwondo-jung-do-kwan-dpb704',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-704', v_school_id, '{"wp_id": 704, "wp_slug": "taekwondo-jung-do-kwan-2", "wp_url": "https://deportebogota.com/perfil/taekwondo-jung-do-kwan-2/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Taekwondo Jung Do Kwan (DPB-695)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-695';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Taekwondo Jung Do Kwan',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'taekwondo-jung-do-kwan-dpb695',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-695', v_school_id, '{"wp_id": 695, "wp_slug": "taekwondo-jung-do-kwan", "wp_url": "https://deportebogota.com/perfil/taekwondo-jung-do-kwan/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Club Vikingos (DPB-689)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-689';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Vikingos',
+      'Club deportivo en Bogotá. Categoría: voleibol.',
+      'academy', 'Bogotá',
+      'Colegio Nuestra Señora del Pilar, Chapinero',
+      NULL,
+      NULL,
+      ARRAY['voleibol']::text[],
+      NULL,
+      true, false,
+      'club-vikingos-dpb689',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-689', v_school_id, '{"wp_id": 689, "wp_slug": "voleibol-colegio-nuestra-senora-del-pilar-chapinero-club-vikingos", "wp_url": "https://deportebogota.com/perfil/voleibol-colegio-nuestra-senora-del-pilar-chapinero-club-vikingos/", "address_raw": "Colegio Nuestra Señora del Pilar, Chapinero", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: voleibol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['voleibol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Parque San Andres- Skate Dock (DPB-687)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-687';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Parque San Andres- Skate Dock',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Patinaje adultos y niños',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'parque-san-andres--skate-dock-dpb687',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-687', v_school_id, '{"wp_id": 687, "wp_slug": "patinaje-parque-san-andres-skate-dock", "wp_url": "https://deportebogota.com/perfil/patinaje-parque-san-andres-skate-dock/", "address_raw": "Patinaje adultos y niños", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Pureza de María (DPB-500)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-500';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Pureza de María',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Sierra Baloncesto',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'pureza-de-maria-dpb500',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-500', v_school_id, '{"wp_id": 500, "wp_slug": "sierra-baloncesto-pureza-de-maria", "wp_url": "https://deportebogota.com/perfil/sierra-baloncesto-pureza-de-maria/", "address_raw": "Sierra Baloncesto", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Alessandro Volta (DPB-498)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-498';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Alessandro Volta',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Sierra Fútbol',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'alessandro-volta-dpb498',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-498', v_school_id, '{"wp_id": 498, "wp_slug": "sierra-futbol-alessandro-volta", "wp_url": "https://deportebogota.com/perfil/sierra-futbol-alessandro-volta/", "address_raw": "Sierra Fútbol", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Pureza de María (DPB-496)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-496';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Pureza de María',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Sierra Fútbol',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'pureza-de-maria-dpb496',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-496', v_school_id, '{"wp_id": 496, "wp_slug": "sierra-futbol-pureza-de-maria", "wp_url": "https://deportebogota.com/perfil/sierra-futbol-pureza-de-maria/", "address_raw": "Sierra Fútbol", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Alameda (DPB-494)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-494';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Alameda',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Sierra Fútbol',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'alameda-dpb494',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-494', v_school_id, '{"wp_id": 494, "wp_slug": "sierra-futbol-alameda", "wp_url": "https://deportebogota.com/perfil/sierra-futbol-alameda/", "address_raw": "Sierra Fútbol", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Fútbol-Parque taller el ensueño-el ensueño (DPB-484)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-484';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Fútbol-Parque taller el ensueño-el ensueño',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'futbol-parque-taller-el-ensueno-el-ensueno-dpb484',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-484', v_school_id, '{"wp_id": 484, "wp_slug": "futbol-parque-taller-el-ensueno-el-ensueno", "wp_url": "https://deportebogota.com/perfil/futbol-parque-taller-el-ensueno-el-ensueno/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Club Deportivo Ramírez Gacha FC / Parque la Igualdad (DPB-468)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-468';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Deportivo Ramírez Gacha FC / Parque la Igualdad',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'club-deportivo-ramirez-gacha-fc-parque-la-igualdad-dpb468',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-468', v_school_id, '{"wp_id": 468, "wp_slug": "parque-la-igualdad", "wp_url": "https://deportebogota.com/perfil/parque-la-igualdad/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Parque CAFAM SUBA (DPB-429)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-429';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Parque CAFAM SUBA',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'parque-cafam-suba-dpb429',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-429', v_school_id, '{"wp_id": 429, "wp_slug": "parque-cafam-suba", "wp_url": "https://deportebogota.com/perfil/parque-cafam-suba/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Seven Basketball Club (DPB-423)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-423';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Seven Basketball Club',
+      'Club deportivo en Bogotá. Categoría: Baloncesto.',
+      'academy', 'Bogotá',
+      'Parque Tierra Santa',
+      NULL,
+      NULL,
+      ARRAY['Baloncesto']::text[],
+      NULL,
+      true, false,
+      'seven-basketball-club-dpb423',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-423', v_school_id, '{"wp_id": 423, "wp_slug": "baloncesto-parque-tierra-santa-seven-basketball-club", "wp_url": "https://deportebogota.com/perfil/baloncesto-parque-tierra-santa-seven-basketball-club/", "address_raw": "Parque Tierra Santa", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Baloncesto.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Baloncesto']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Fútbol / Parque San Andrés / Club Alianza Bogotá (DPB-395)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-395';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Fútbol / Parque San Andrés / Club Alianza Bogotá',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'futbol-parque-san-andres-club-alianza-bogota-dpb395',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-395', v_school_id, '{"wp_id": 395, "wp_slug": "futbol-parque-san-andres-club-alianza-bogota", "wp_url": "https://deportebogota.com/perfil/futbol-parque-san-andres-club-alianza-bogota/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Club Alianza Bogotá (DPB-390)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-390';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Alianza Bogotá',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Parque San Andrés',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'club-alianza-bogota-dpb390',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-390', v_school_id, '{"wp_id": 390, "wp_slug": "parque-san-andres-3", "wp_url": "https://deportebogota.com/perfil/parque-san-andres-3/", "address_raw": "Parque San Andrés", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque San Andrés', 'Bogotá',
+         NULL, 4.7128895, -74.1107896, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- AC Mundo Deportes (DPB-382)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-382';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'AC Mundo Deportes',
+      'Club deportivo en Bogotá. Categoría: Natación.',
+      'academy', 'Bogotá',
+      'Parque La Serena',
+      NULL,
+      NULL,
+      ARRAY['Natación']::text[],
+      NULL,
+      true, false,
+      'ac-mundo-deportes-dpb382',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-382', v_school_id, '{"wp_id": 382, "wp_slug": "parque-la-serena", "wp_url": "https://deportebogota.com/perfil/parque-la-serena/", "address_raw": "Parque La Serena", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Natación.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Natación']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque La Serena', 'Bogotá',
+         NULL, 4.7096978, -74.0925608, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Star Champions (DPB-378)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-378';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Star Champions',
+      'Club deportivo en Bogotá. Categoría: Tenis.',
+      'academy', 'Bogotá',
+      'Parque San andrés',
+      NULL,
+      NULL,
+      ARRAY['Tenis']::text[],
+      NULL,
+      true, false,
+      'star-champions-dpb378',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-378', v_school_id, '{"wp_id": 378, "wp_slug": "parque-san-andres", "wp_url": "https://deportebogota.com/perfil/parque-san-andres/", "address_raw": "Parque San andrés", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Tenis.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Tenis']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque San andrés', 'Bogotá',
+         NULL, 4.7128895, -74.1107896, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Club Xmind Colombia (DPB-275)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-275';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Xmind Colombia',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Skatepark Miniramp Ciudadela Colsubsidio',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'club-xmind-colombia-dpb275',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-275', v_school_id, '{"wp_id": 275, "wp_slug": "skatepark-miniramp-ciudadela-colsubsidio-club-xmind-colombia", "wp_url": "https://deportebogota.com/perfil/skatepark-miniramp-ciudadela-colsubsidio-club-xmind-colombia/", "address_raw": "Skatepark Miniramp Ciudadela Colsubsidio", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Octopus (DPB-270)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-270';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Octopus',
+      'Club deportivo en Bogotá. Categoría: Natación.',
+      'academy', 'Bogotá',
+      'Barrio La Granja',
+      NULL,
+      NULL,
+      ARRAY['Natación']::text[],
+      NULL,
+      true, false,
+      'octopus-dpb270',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-270', v_school_id, '{"wp_id": 270, "wp_slug": "barrio-la-granja-octopus", "wp_url": "https://deportebogota.com/perfil/barrio-la-granja-octopus/", "address_raw": "Barrio La Granja", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Natación.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Natación']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Octopus (DPB-268)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-268';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Octopus',
+      'Club deportivo en Bogotá. Categoría: Natación.',
+      'academy', 'Bogotá',
+      'Parque la Serena',
+      NULL,
+      NULL,
+      ARRAY['Natación']::text[],
+      NULL,
+      true, false,
+      'octopus-dpb268',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-268', v_school_id, '{"wp_id": 268, "wp_slug": "parque-la-serena-octopus", "wp_url": "https://deportebogota.com/perfil/parque-la-serena-octopus/", "address_raw": "Parque la Serena", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Natación.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Natación']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque la Serena', 'Bogotá',
+         NULL, 4.7096978, -74.0925608, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Monserrate Roller (DPB-266)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-266';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Monserrate Roller',
+      'Club deportivo en Bogotá. Categoría: Patinaje.',
+      'academy', 'Bogotá',
+      'Unidad Deportiva el Salitre',
+      NULL,
+      NULL,
+      ARRAY['Patinaje']::text[],
+      NULL,
+      true, false,
+      'monserrate-roller-dpb266',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-266', v_school_id, '{"wp_id": 266, "wp_slug": "unidad-deportiva-el-salitre-monserrate-roller", "wp_url": "https://deportebogota.com/perfil/unidad-deportiva-el-salitre-monserrate-roller/", "address_raw": "Unidad Deportiva el Salitre", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Patinaje.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Patinaje']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Unidad Deportiva el Salitre', 'Bogotá',
+         NULL, 4.6645881, -74.0973562, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Club de Formación Ciclística Kronos (DPB-264)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-264';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club de Formación Ciclística Kronos',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Velódromo Luis Carlos Galán',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'club-de-formacion-ciclistica-kronos-dpb264',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-264', v_school_id, '{"wp_id": 264, "wp_slug": "velodromo-luis-carlos-galan-club-de-formacion-ciclistica-kronos", "wp_url": "https://deportebogota.com/perfil/velodromo-luis-carlos-galan-club-de-formacion-ciclistica-kronos/", "address_raw": "Velódromo Luis Carlos Galán", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Leopard BMX (DPB-262)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-262';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Leopard BMX',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Parque San Andrés',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'leopard-bmx-dpb262',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-262', v_school_id, '{"wp_id": 262, "wp_slug": "parque-san-andres-leopard-bmx", "wp_url": "https://deportebogota.com/perfil/parque-san-andres-leopard-bmx/", "address_raw": "Parque San Andrés", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque San Andrés', 'Bogotá',
+         NULL, 4.7128895, -74.1107896, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Club Bayer BSA (DPB-260)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-260';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Bayer BSA',
+      'Club deportivo en Bogotá. Categoría: Fútbol.',
+      'academy', 'Bogotá',
+      'Parque San Andrés',
+      NULL,
+      NULL,
+      ARRAY['Fútbol']::text[],
+      NULL,
+      true, false,
+      'club-bayer-bsa-dpb260',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-260', v_school_id, '{"wp_id": 260, "wp_slug": "parque-san-andres-club-bsa", "wp_url": "https://deportebogota.com/perfil/parque-san-andres-club-bsa/", "address_raw": "Parque San Andrés", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Fútbol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Fútbol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque San Andrés', 'Bogotá',
+         NULL, 4.7128895, -74.1107896, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Club BSA (DPB-257)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-257';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club BSA',
+      'Club deportivo en Bogotá. Categoría: Fútbol.',
+      'academy', 'Bogotá',
+      'Cancha La Luna',
+      NULL,
+      NULL,
+      ARRAY['Fútbol']::text[],
+      NULL,
+      true, false,
+      'club-bsa-dpb257',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-257', v_school_id, '{"wp_id": 257, "wp_slug": "cancha-la-luna-club-bsa", "wp_url": "https://deportebogota.com/perfil/cancha-la-luna-club-bsa/", "address_raw": "Cancha La Luna", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Fútbol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Fútbol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Escuela Fenix E.D (DPB-256)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-256';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Escuela Fenix E.D',
+      'Club deportivo en Bogotá. Categoría: Fútbol.',
+      'academy', 'Bogotá',
+      'PRD Salitre',
+      NULL,
+      NULL,
+      ARRAY['Fútbol']::text[],
+      NULL,
+      true, false,
+      'escuela-fenix-ed-dpb256',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-256', v_school_id, '{"wp_id": 256, "wp_slug": "prd-salitre-escuela-fenix-e-d", "wp_url": "https://deportebogota.com/perfil/prd-salitre-escuela-fenix-e-d/", "address_raw": "PRD Salitre", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Fútbol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Fútbol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Parque Carrefour Baviera- Escuela de Formación Deportiva Master Class Tenis (DPB-254)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-254';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Parque Carrefour Baviera- Escuela de Formación Deportiva Master Class Tenis',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'parque-carrefour-baviera--escuela-de-formacion-deportiva-mas-dpb254',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-254', v_school_id, '{"wp_id": 254, "wp_slug": "parque-san-andres-escuela-de-formacion-deportiva-master-class-tenis", "wp_url": "https://deportebogota.com/perfil/parque-san-andres-escuela-de-formacion-deportiva-master-class-tenis/", "address_raw": null, "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Escuela de Formación Deportiva Master Class Tenis (DPB-252)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-252';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Escuela de Formación Deportiva Master Class Tenis',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Parque Brisas de Iberia',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'escuela-de-formacion-deportiva-master-class-tenis-dpb252',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-252', v_school_id, '{"wp_id": 252, "wp_slug": "parque-brisas-de-iberia-escuela-de-formacion-deportiva-master-class-tenis", "wp_url": "https://deportebogota.com/perfil/parque-brisas-de-iberia-escuela-de-formacion-deportiva-master-class-tenis/", "address_raw": "Parque Brisas de Iberia", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Dojo Club Dan (DPB-250)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-250';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Dojo Club Dan',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Karate Do',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'dojo-club-dan-dpb250',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-250', v_school_id, '{"wp_id": 250, "wp_slug": "dojo-club-dan", "wp_url": "https://deportebogota.com/perfil/dojo-club-dan/", "address_raw": "Karate Do", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Karate Do', 'Bogotá',
+         NULL, 4.6721599, -74.1102282, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Optima Sport Tenis (DPB-245)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-245';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Optima Sport Tenis',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Parque San Andrés',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'optima-sport-tenis-dpb245',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-245', v_school_id, '{"wp_id": 245, "wp_slug": "parque-san-andres-optima-sport-tenis", "wp_url": "https://deportebogota.com/perfil/parque-san-andres-optima-sport-tenis/", "address_raw": "Parque San Andrés", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque San Andrés', 'Bogotá',
+         NULL, 4.7128895, -74.1107896, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Campeones Tenis Club (DPB-242)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-242';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Campeones Tenis Club',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Parque Fontanar del Río',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'campeones-tenis-club-dpb242',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-242', v_school_id, '{"wp_id": 242, "wp_slug": "parque-fontanar-del-rio-campeones-tenis-club", "wp_url": "https://deportebogota.com/perfil/parque-fontanar-del-rio-campeones-tenis-club/", "address_raw": "Parque Fontanar del Río", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque Fontanar del Río', 'Bogotá',
+         NULL, 4.7563711, -74.1112877, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Campeones Tenis Club (DPB-240)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-240';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Campeones Tenis Club',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'PRD Salitre',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'campeones-tenis-club-dpb240',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-240', v_school_id, '{"wp_id": 240, "wp_slug": "prd-salitre-campeones-tenis-club", "wp_url": "https://deportebogota.com/perfil/prd-salitre-campeones-tenis-club/", "address_raw": "PRD Salitre", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Campeones Tenis Club (DPB-238)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-238';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Campeones Tenis Club',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Parque Juan Amarillo',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'campeones-tenis-club-dpb238',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-238', v_school_id, '{"wp_id": 238, "wp_slug": "parque-juan-amarillo-campeones-tenis-club", "wp_url": "https://deportebogota.com/perfil/parque-juan-amarillo-campeones-tenis-club/", "address_raw": "Parque Juan Amarillo", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque Juan Amarillo', 'Bogotá',
+         NULL, 4.7290191, -74.1117516, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Club Deportivo Talentos Sariri F.C (DPB-236)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-236';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Deportivo Talentos Sariri F.C',
+      'Club deportivo en Bogotá. Categoría: Fútbol.',
+      'academy', 'Bogotá',
+      'Cancha Sintética Florencia Norte',
+      NULL,
+      NULL,
+      ARRAY['Fútbol']::text[],
+      NULL,
+      true, false,
+      'club-deportivo-talentos-sariri-fc-dpb236',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-236', v_school_id, '{"wp_id": 236, "wp_slug": "cancha-sintetica-florencia-norte-club-deportivo-talentos-sariri-f-c", "wp_url": "https://deportebogota.com/perfil/cancha-sintetica-florencia-norte-club-deportivo-talentos-sariri-f-c/", "address_raw": "Cancha Sintética Florencia Norte", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Fútbol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Fútbol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Polideportivo Nuevo Muzú – Club Atlético Leones FC (DPB-233)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-233';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Polideportivo Nuevo Muzú – Club Atlético Leones FC',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Fúbol',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'polideportivo-nuevo-muzu-club-atletico-leones-fc-dpb233',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-233', v_school_id, '{"wp_id": 233, "wp_slug": "polideportivo-nuevo-muzu-club-atletico-leones-fc", "wp_url": "https://deportebogota.com/perfil/polideportivo-nuevo-muzu-club-atletico-leones-fc/", "address_raw": "Fúbol", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Club Atlético Leones FC (DPB-231)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-231';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Atlético Leones FC',
+      'Club deportivo en Bogotá. Categoría: Fútbol.',
+      'academy', 'Bogotá',
+      'Parque Metropolitano el Tunal',
+      NULL,
+      NULL,
+      ARRAY['Fútbol']::text[],
+      NULL,
+      true, false,
+      'club-atletico-leones-fc-dpb231',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-231', v_school_id, '{"wp_id": 231, "wp_slug": "parque-metropolitano-el-tunal-club-atletico-leones-fc", "wp_url": "https://deportebogota.com/perfil/parque-metropolitano-el-tunal-club-atletico-leones-fc/", "address_raw": "Parque Metropolitano el Tunal", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Fútbol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Fútbol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque Metropolitano el Tunal', 'Bogotá',
+         NULL, 4.5718773, -74.1341131, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Club Deportivo Lowenfeld (DPB-228)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-228';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Deportivo Lowenfeld',
+      'Club deportivo en Bogotá. Categoría: Fútbol.',
+      'academy', 'Bogotá',
+      'Parque Normandía',
+      NULL,
+      NULL,
+      ARRAY['Fútbol']::text[],
+      NULL,
+      true, false,
+      'club-deportivo-lowenfeld-dpb228',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-228', v_school_id, '{"wp_id": 228, "wp_slug": "parque-normandia-club-deportivo-lowenfeld", "wp_url": "https://deportebogota.com/perfil/parque-normandia-club-deportivo-lowenfeld/", "address_raw": "Parque Normandía", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Fútbol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Fútbol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque Normandía', 'Bogotá',
+         NULL, 4.6785112, -74.1072020, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Club Deportivo Lowenfeld (DPB-226)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-226';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Deportivo Lowenfeld',
+      'Club deportivo en Bogotá. Categoría: Skateboarding.',
+      'academy', 'Bogotá',
+      'Skatepark Movistar Arena',
+      NULL,
+      NULL,
+      ARRAY['Skateboarding']::text[],
+      NULL,
+      true, false,
+      'club-deportivo-lowenfeld-dpb226',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-226', v_school_id, '{"wp_id": 226, "wp_slug": "skatepark-movistar-arena-club-deportivo-lowenfeld", "wp_url": "https://deportebogota.com/perfil/skatepark-movistar-arena-club-deportivo-lowenfeld/", "address_raw": "Skatepark Movistar Arena", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Skateboarding.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Skateboarding']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Club Eagles Skate (DPB-223)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-223';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Eagles Skate',
+      'Club deportivo en Bogotá. Categoría: Patinaje.',
+      'academy', 'Bogotá',
+      'Villa Deportiva Principal de Mosquera Cundinamarca',
+      NULL,
+      NULL,
+      ARRAY['Patinaje']::text[],
+      NULL,
+      true, false,
+      'club-eagles-skate-dpb223',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-223', v_school_id, '{"wp_id": 223, "wp_slug": "villa-deportiva-principal-de-mosquera-cundinamarca-club-eagles-skate", "wp_url": "https://deportebogota.com/perfil/villa-deportiva-principal-de-mosquera-cundinamarca-club-eagles-skate/", "address_raw": "Villa Deportiva Principal de Mosquera Cundinamarca", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Patinaje.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Patinaje']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Club Eagles Skate (DPB-221)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-221';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Eagles Skate',
+      'Club deportivo en Bogotá. Categoría: Patinaje.',
+      'academy', 'Bogotá',
+      'Parque San Andres',
+      NULL,
+      NULL,
+      ARRAY['Patinaje']::text[],
+      NULL,
+      true, false,
+      'club-eagles-skate-dpb221',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-221', v_school_id, '{"wp_id": 221, "wp_slug": "parque-san-andres-club-eagles-skate", "wp_url": "https://deportebogota.com/perfil/parque-san-andres-club-eagles-skate/", "address_raw": "Parque San Andres", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Patinaje.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Patinaje']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque San Andres', 'Bogotá',
+         NULL, 4.7128895, -74.1107896, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Club Leyendas Voleibol (DPB-217)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-217';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Leyendas Voleibol',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Parque el Bosque Popular',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'club-leyendas-voleibol-dpb217',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-217', v_school_id, '{"wp_id": 217, "wp_slug": "parque-el-bosque-popular-club-leyendas-voleibol", "wp_url": "https://deportebogota.com/perfil/parque-el-bosque-popular-club-leyendas-voleibol/", "address_raw": "Parque el Bosque Popular", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Club Leyendas Voleibol (DPB-215)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-215';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Leyendas Voleibol',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Parque el Trébol',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'club-leyendas-voleibol-dpb215',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-215', v_school_id, '{"wp_id": 215, "wp_slug": "parque-el-trebol-club-leyendas-voleibol", "wp_url": "https://deportebogota.com/perfil/parque-el-trebol-club-leyendas-voleibol/", "address_raw": "Parque el Trébol", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Su Majestad Tenis Club (DPB-212)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-212';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Su Majestad Tenis Club',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Parque J.J. Vargas',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'su-majestad-tenis-club-dpb212',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-212', v_school_id, '{"wp_id": 212, "wp_slug": "parque-j-j-vargas-su-majestad-tenis-club", "wp_url": "https://deportebogota.com/perfil/parque-j-j-vargas-su-majestad-tenis-club/", "address_raw": "Parque J.J. Vargas", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque J.J. Vargas', 'Bogotá',
+         NULL, 4.6700959, -74.0824807, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Club Enzona (DPB-203)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-203';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Enzona',
+      'Club deportivo en Bogotá. Categoría: Voleibol.',
+      'academy', 'Bogotá',
+      'Parque Roma',
+      NULL,
+      NULL,
+      ARRAY['Voleibol']::text[],
+      NULL,
+      true, false,
+      'club-enzona-dpb203',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-203', v_school_id, '{"wp_id": 203, "wp_slug": "parque-roma-club-enzona", "wp_url": "https://deportebogota.com/perfil/parque-roma-club-enzona/", "address_raw": "Parque Roma", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Voleibol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Voleibol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque Roma', 'Bogotá',
+         NULL, 4.6070351, -74.1713028, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Club Enzona (DPB-199)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-199';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Enzona',
+      'Club deportivo en Bogotá. Categoría: Voleibol.',
+      'academy', 'Bogotá',
+      'Coliseo Parque San Andrés',
+      NULL,
+      NULL,
+      ARRAY['Voleibol']::text[],
+      NULL,
+      true, false,
+      'club-enzona-dpb199',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-199', v_school_id, '{"wp_id": 199, "wp_slug": "coliseo-parque-san-andres", "wp_url": "https://deportebogota.com/perfil/coliseo-parque-san-andres/", "address_raw": "Coliseo Parque San Andrés", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Voleibol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Voleibol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Club de Taekwondo Koryo (DPB-197)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-197';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club de Taekwondo Koryo',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Barrio Álamos Norte',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'club-de-taekwondo-koryo-dpb197',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-197', v_school_id, '{"wp_id": 197, "wp_slug": "barrio-alamos-norte-club-de-taekwondo-koryo", "wp_url": "https://deportebogota.com/perfil/barrio-alamos-norte-club-de-taekwondo-koryo/", "address_raw": "Barrio Álamos Norte", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Parque Normandía / Club deportivo PRESEAS FC – Filial CDI Alexis Viera (DPB-192)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-192';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Parque Normandía / Club deportivo PRESEAS FC – Filial CDI Alexis Viera',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Parque Villa Luz',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'parque-normandia-club-deportivo-preseas-fc-filial-cdi-alexis-dpb192',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-192', v_school_id, '{"wp_id": 192, "wp_slug": "parque-villa-luz-preseas-futbol-club-filial-cdi-alexis-viera", "wp_url": "https://deportebogota.com/perfil/parque-villa-luz-preseas-futbol-club-filial-cdi-alexis-viera/", "address_raw": "Parque Villa Luz", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque Villa Luz', 'Bogotá',
+         NULL, 4.6823235, -74.1086938, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Club Deportivo Arroyo FC (DPB-159)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-159';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Deportivo Arroyo FC',
+      'Club deportivo en Bogotá. Categoría: Fútbol.',
+      'academy', 'Bogotá',
+      'Parque La Europa',
+      NULL,
+      NULL,
+      ARRAY['Fútbol']::text[],
+      NULL,
+      true, false,
+      'club-deportivo-arroyo-fc-dpb159',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-159', v_school_id, '{"wp_id": 159, "wp_slug": "parque-la-europa-club-deportivo-arroyo-fc", "wp_url": "https://deportebogota.com/perfil/parque-la-europa-club-deportivo-arroyo-fc/", "address_raw": "Parque La Europa", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Fútbol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Fútbol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Club Deportivo Arroyo FC (DPB-157)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-157';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Deportivo Arroyo FC',
+      'Club deportivo en Bogotá. Categoría: Fútbol.',
+      'academy', 'Bogotá',
+      'Los 2 Puentes',
+      NULL,
+      NULL,
+      ARRAY['Fútbol']::text[],
+      NULL,
+      true, false,
+      'club-deportivo-arroyo-fc-dpb157',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-157', v_school_id, '{"wp_id": 157, "wp_slug": "los-2-puentes-club-deportivo-arroyo-fc", "wp_url": "https://deportebogota.com/perfil/los-2-puentes-club-deportivo-arroyo-fc/", "address_raw": "Los 2 Puentes", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Fútbol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Fútbol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Club Deportivo Arroyo FC (DPB-155)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-155';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Deportivo Arroyo FC',
+      'Club deportivo en Bogotá. Categoría: Fútbol.',
+      'academy', 'Bogotá',
+      'Parque Metropolitano Zona Franca',
+      NULL,
+      NULL,
+      ARRAY['Fútbol']::text[],
+      NULL,
+      true, false,
+      'club-deportivo-arroyo-fc-dpb155',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-155', v_school_id, '{"wp_id": 155, "wp_slug": "parque-metropolitano-zona-franca-club-deportivo-arroyo-fc", "wp_url": "https://deportebogota.com/perfil/parque-metropolitano-zona-franca-club-deportivo-arroyo-fc/", "address_raw": "Parque Metropolitano Zona Franca", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Fútbol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Fútbol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque Metropolitano Zona Franca', 'Bogotá',
+         NULL, 4.6697062, -74.1649071, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Club de Taekwondo Koryo (DPB-152)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-152';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club de Taekwondo Koryo',
+      'Club deportivo en Bogotá. Categoría: Multideporte.',
+      'academy', 'Bogotá',
+      'Garcés Navas',
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      NULL,
+      true, false,
+      'club-de-taekwondo-koryo-dpb152',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-152', v_school_id, '{"wp_id": 152, "wp_slug": "garces-navas-club-koryo", "wp_url": "https://deportebogota.com/perfil/garces-navas-club-koryo/", "address_raw": "Garcés Navas", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Multideporte.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Multideporte']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Garcés Navas', 'Bogotá',
+         NULL, 4.7160617, -74.1220549, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Club Wallon (DPB-149)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-149';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Wallon',
+      'Club deportivo en Bogotá. Categoría: Voleibol.',
+      'academy', 'Bogotá',
+      'Centro Deportivo Únete',
+      NULL,
+      NULL,
+      ARRAY['Voleibol']::text[],
+      NULL,
+      true, false,
+      'club-wallon-dpb149',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-149', v_school_id, '{"wp_id": 149, "wp_slug": "centro-deportivo-unete-club-wallon", "wp_url": "https://deportebogota.com/perfil/centro-deportivo-unete-club-wallon/", "address_raw": "Centro Deportivo Únete", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Voleibol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Voleibol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Club Wallon (DPB-147)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-147';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Wallon',
+      'Club deportivo en Bogotá. Categoría: Voleibol.',
+      'academy', 'Bogotá',
+      'Colegio el Carmen Teresiano',
+      NULL,
+      NULL,
+      ARRAY['Voleibol']::text[],
+      NULL,
+      true, false,
+      'club-wallon-dpb147',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-147', v_school_id, '{"wp_id": 147, "wp_slug": "colegio-el-carmen-teresiano", "wp_url": "https://deportebogota.com/perfil/colegio-el-carmen-teresiano/", "address_raw": "Colegio el Carmen Teresiano", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Voleibol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Voleibol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Club Trueno (DPB-139)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-139';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Trueno',
+      'Club deportivo en Bogotá. Categoría: Patinaje.',
+      'academy', 'Bogotá',
+      'Parque San Andrés',
+      NULL,
+      NULL,
+      ARRAY['Patinaje']::text[],
+      NULL,
+      true, false,
+      'club-trueno-dpb139',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-139', v_school_id, '{"wp_id": 139, "wp_slug": "parque-san-andres-club-trueno-3", "wp_url": "https://deportebogota.com/perfil/parque-san-andres-club-trueno-3/", "address_raw": "Parque San Andrés", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Patinaje.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Patinaje']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Parque San Andrés', 'Bogotá',
+         NULL, 4.7128895, -74.1107896, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Club Wallon (DPB-63)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'DPB-63';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      logo_url, verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Club Wallon',
+      'Club deportivo en Bogotá. Categoría: Voleibol.',
+      'academy', 'Bogotá',
+      'Colegio Nicolás Esguerra',
+      NULL,
+      NULL,
+      ARRAY['Voleibol']::text[],
+      NULL,
+      true, false,
+      'club-wallon-dpb63',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('deportebogota_2026', 'DPB-63', v_school_id, '{"wp_id": 63, "wp_slug": "colegio-nicolas-esguerra-club-wallon", "wp_url": "https://deportebogota.com/perfil/colegio-nicolas-esguerra-club-wallon/", "address_raw": "Colegio Nicolás Esguerra", "locality": null, "socials": []}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Club deportivo en Bogotá. Categoría: Voleibol.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      logo_url    = COALESCE(logo_url, NULL),
+      sports      = ARRAY['Voleibol']::text[],
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Colegio Nicolás Esguerra', 'Bogotá',
+         NULL, 4.6323917, -74.1210048, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+COMMIT;
+
+-- ╔══════════════════════════════════════════════════════════
+-- ║ supabase/seed/fix_v6_categorize_entities_and_branches.sql
+-- ╚══════════════════════════════════════════════════════════
+-- ============================================================
+-- SPORTMAPS — FIX v6: categorización entidades + fix branches IDRD
+--
+-- Resuelve 3 issues detectados en staging:
+--
+--   1. ENTIDADES NO SON ESCUELAS — Federaciones, institutos, asociaciones
+--      y secretarías están marcados como school_type='academy'. Deben ser:
+--        - 'institute'    para institutos dept + secretarías municipales
+--        - 'federation'   para federaciones deportivas colombianas
+--        - 'association'  para asociaciones recreativas
+--        - 'club'         para clubes deportebogota.com
+--      IDRD (escuelas avaladas) sí son 'academy'.
+--
+--   2. IDRD BRANCHES SIN LAT — 32 de las 70 escuelas IDRD tienen branches
+--      pero sin lat/lng (el cleanup v2 priorizó la branch más antigua,
+--      que a veces era la vacía). Re-cleanup priorizando branches CON lat,
+--      y fallback a coords aproximadas Bogotá para las que aún queden sin.
+--
+--   3. BLOQUEAR SIGNUPS EN ENTIDADES NO-ESCUELA — Las entidades
+--      institute/federation/association NO deben aceptar registros de
+--      familias ni cobros. Solo son info pública en el mapa.
+--      Trigger que bloquea INSERT en school_subscriptions para esos tipos.
+--
+-- Idempotente. Aplicar después del consolidado anterior.
+-- ============================================================
+
+BEGIN;
+
+
+-- ============================================================
+-- 0. CLEANUP previo — borrar las 116 entidades con external_ref
+--    cortos (duplicados truncados a 30 chars del Python viejo).
+--    El nuevo seed entidades_deportivas_2025_2026.sql viene con
+--    refs unicos (slug + hash MD5 8 chars).
+-- ============================================================
+
+-- 0.A — Borrar school_settings, branches, schools y external_school_imports
+--       de los registros mindeporte con external_ref viejo (sin hash al final).
+--       Los viejos terminan en slug truncado; los nuevos terminan en -<8hex>.
+
+DO $$
+DECLARE
+    v_school_ids uuid[];
+BEGIN
+    -- Detecta refs viejos: NO terminan en '-<8 hex chars>'
+    SELECT array_agg(school_id) INTO v_school_ids
+      FROM public.external_school_imports
+     WHERE source = 'mindeporte_entidades_2025_2026'
+       AND external_ref !~ '-[0-9a-f]{8}$';
+
+    IF v_school_ids IS NOT NULL AND array_length(v_school_ids, 1) > 0 THEN
+        DELETE FROM public.school_branches WHERE school_id = ANY(v_school_ids);
+        DELETE FROM public.school_settings WHERE school_id = ANY(v_school_ids);
+        DELETE FROM public.external_school_imports
+         WHERE source = 'mindeporte_entidades_2025_2026'
+           AND school_id = ANY(v_school_ids);
+        DELETE FROM public.schools WHERE id = ANY(v_school_ids);
+    END IF;
+END $$;
+
+
+-- ============================================================
+-- 1. CATEGORIZACIÓN — UPDATE school_type por source
+-- ============================================================
+
+-- 1.A — Mindeporte entidades: institutos (departamentales + municipales)
+UPDATE public.schools s
+   SET school_type = 'institute',
+       updated_at = now()
+  FROM public.external_school_imports e
+ WHERE e.school_id = s.id
+   AND e.source = 'mindeporte_entidades_2025_2026'
+   AND (e.external_ref LIKE 'INST-DEP-%' OR e.external_ref LIKE 'INST-MUN-%')
+   AND s.school_type != 'institute';
+
+-- 1.B — Mindeporte entidades: federaciones
+UPDATE public.schools s
+   SET school_type = 'federation',
+       updated_at = now()
+  FROM public.external_school_imports e
+ WHERE e.school_id = s.id
+   AND e.source = 'mindeporte_entidades_2025_2026'
+   AND e.external_ref LIKE 'FED-%'
+   AND s.school_type != 'federation';
+
+-- 1.C — Mindeporte entidades: asociaciones / fundaciones
+UPDATE public.schools s
+   SET school_type = 'association',
+       updated_at = now()
+  FROM public.external_school_imports e
+ WHERE e.school_id = s.id
+   AND e.source = 'mindeporte_entidades_2025_2026'
+   AND e.external_ref LIKE 'ASOC-%'
+   AND s.school_type != 'association';
+
+-- 1.D — Deportebogota: clubes deportivos (no son escuelas formales)
+UPDATE public.schools s
+   SET school_type = 'club',
+       updated_at = now()
+  FROM public.external_school_imports e
+ WHERE e.school_id = s.id
+   AND e.source = 'deportebogota_2026'
+   AND s.school_type != 'club';
+
+-- IDRD se queda con school_type='academy' (correcto, sí son escuelas).
+
+
+-- ============================================================
+-- 2. FIX IDRD BRANCHES — re-priorizar branches con lat NOT NULL
+-- ============================================================
+--
+-- El cleanup v2 usaba ORDER BY created_at ASC, manteniendo la primera
+-- (a veces vacía). Ahora: para cada IDRD school con múltiples branches
+-- main, dejamos la que SÍ tenga lat/lng (si existe).
+
+-- 2.A — Borrar branches IDRD vacías (lat IS NULL) si la school tiene
+--       otra branch main CON lat. (deja la geocodificada)
+WITH ranked AS (
+    SELECT
+        b.id,
+        b.school_id,
+        b.lat,
+        ROW_NUMBER() OVER (
+            PARTITION BY b.school_id
+            ORDER BY
+                (CASE WHEN b.lat IS NOT NULL AND b.lng IS NOT NULL THEN 0 ELSE 1 END),
+                b.created_at ASC,
+                b.id ASC
+        ) AS rn
+    FROM public.school_branches b
+    JOIN public.external_school_imports e ON e.school_id = b.school_id
+    WHERE e.source = 'idrd_bogota_2026'
+      AND b.is_main = true
+),
+to_delete AS (
+    SELECT id FROM ranked WHERE rn > 1
+)
+DELETE FROM public.school_branches
+ WHERE id IN (SELECT id FROM to_delete);
+
+-- 2.B — Para IDRD schools que aún no tengan branch main con lat,
+--       insertar coords aproximadas centro Bogotá (fallback visible
+--       en el mapa). Mejor que invisible.
+INSERT INTO public.school_branches (school_id, name, address, city, lat, lng, is_main, status)
+SELECT
+    e.school_id,
+    'Sede Principal',
+    NULL,
+    'Bogotá',
+    -- Centro Bogotá con leve jitter por school_id (para no apilar marcadores)
+    4.6533 + (mod(abs(hashtext(e.school_id::text)), 200) - 100) / 5000.0,
+    -74.0836 + (mod(abs(hashtext(e.school_id::text) >> 8), 200) - 100) / 5000.0,
+    true,
+    'active'
+FROM public.external_school_imports e
+WHERE e.source = 'idrd_bogota_2026'
+  AND NOT EXISTS (
+      SELECT 1 FROM public.school_branches b
+       WHERE b.school_id = e.school_id
+         AND b.is_main = true
+         AND b.lat IS NOT NULL
+         AND b.lng IS NOT NULL
+  );
+
+
+-- ============================================================
+-- 3. BLOQUEAR SIGNUPS EN ENTIDADES NO-ESCUELA (RLS + trigger)
+-- ============================================================
+
+-- 3.0 — Reemplazar create_default_school_subscription para que NO cree
+--       trial automatico en gov entities (institute/federation/association).
+--       Sin esto, el INSERT en schools dispara el trigger AFTER INSERT que
+--       intenta crear school_subscriptions, lo cual es bloqueado por nuestro
+--       trigger nuevo prevent_gov_entity_subscription_trg y todo falla.
+--       Solucion: early return en la funcion default si la nueva school es gov.
+
+CREATE OR REPLACE FUNCTION public.create_default_school_subscription()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $body$
+BEGIN
+    -- Skip: entidades gubernamentales no son SaaS, no tienen trial ni plan.
+    IF NEW.school_type IN ('institute', 'federation', 'association') THEN
+        RETURN NEW;
+    END IF;
+
+    INSERT INTO public.school_subscriptions (
+        school_id,
+        plan_code,
+        tier,
+        status,
+        billing_cycle,
+        trial_ends_at,
+        metadata
+    ) VALUES (
+        NEW.id,
+        'starter',
+        'free',
+        'trialing',
+        'monthly',
+        now() + interval '30 days',
+        jsonb_build_object(
+            'created_via',   'signup_trigger',
+            'trial_started', to_jsonb(now())
+        )
+    )
+    ON CONFLICT (school_id) DO NOTHING;
+
+    RETURN NEW;
+END;
+$body$;
+
+
+-- 3.A — Función helper: ¿este school_id es una entidad gubernamental?
+CREATE OR REPLACE FUNCTION public.is_gov_entity(p_school_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.schools
+         WHERE id = p_school_id
+           AND school_type IN ('institute', 'federation', 'association')
+    );
+$$;
+
+GRANT EXECUTE ON FUNCTION public.is_gov_entity(uuid) TO authenticated, anon;
+
+-- 3.B — Trigger BEFORE INSERT en school_subscriptions: bloquear si gov entity
+CREATE OR REPLACE FUNCTION public.prevent_gov_entity_subscription()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+    IF public.is_gov_entity(NEW.school_id) THEN
+        RAISE EXCEPTION 'No se permite crear subscriptions en entidades gubernamentales (institute/federation/association). Estas entidades son solo informativas.'
+            USING ERRCODE = 'P0001',
+                  HINT = 'Estas entidades aparecen en el mapa publico pero no operan como escuelas SaaS.';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'school_subscriptions'
+    ) THEN
+        DROP TRIGGER IF EXISTS prevent_gov_entity_subscription_trg ON public.school_subscriptions;
+        CREATE TRIGGER prevent_gov_entity_subscription_trg
+            BEFORE INSERT OR UPDATE OF school_id ON public.school_subscriptions
+            FOR EACH ROW EXECUTE FUNCTION public.prevent_gov_entity_subscription();
+    END IF;
+END $$;
+
+
+-- ============================================================
+-- 4. Verificación (correr aparte si querés)
+-- ============================================================
+-- SELECT school_type, COUNT(*) FROM public.schools GROUP BY school_type ORDER BY 2 DESC;
+-- SELECT
+--   e.source,
+--   s.school_type,
+--   COUNT(*) AS total,
+--   COUNT(DISTINCT b.school_id) FILTER (WHERE b.lat IS NOT NULL) AS con_lat
+-- FROM public.external_school_imports e
+-- JOIN public.schools s ON s.id = e.school_id
+-- LEFT JOIN public.school_branches b ON b.school_id = s.id AND b.is_main
+-- GROUP BY e.source, s.school_type
+-- ORDER BY e.source, s.school_type;
+
+
+COMMIT;
+
+
+-- ╔══════════════════════════════════════════════════════════
+-- ║ supabase/seed/entidades_deportivas_2025_2026.sql
+-- ╚══════════════════════════════════════════════════════════
+-- ============================================================
+-- SPORTMAPS — Entidades deportivas oficiales 2025/2026
+-- Fuente: Directorios oficiales Mindeporte/Coldeportes
+-- (Institutos Dept/Mun 2026 + Federaciones 2025 + Asociaciones 2025)
+-- Generado por scripts/import_entidades_deportivas.py
+-- ============================================================
+
+BEGIN;
+
+-- INSTITUTO DEPARTAMENTAL DE DEPORTE Y RECREACIÓN DEL AMAZONAS (INST-DEP-instituto-departamental-de-dep-99c8fd86)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-de-dep-99c8fd86';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DE DEPORTE Y RECREACIÓN DEL AMAZONAS',
+      'DIRECTORA: ROSITA CABRERA ANGULO. Ente departamental de deporte. AMAZONAS.',
+      'institute',
+      'AMAZONAS',
+      NULL,
+      '098592-7000',
+      'indeportes@amazonas.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-de-deporte-y-recreacion-del-amazonas-53b5cc53',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-de-dep-99c8fd86', v_school_id, '{"kind": "instituto", "acronym": "INDEPORTES AMAZONAS", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTORA: ROSITA CABRERA ANGULO. Ente departamental de deporte. AMAZONAS.', description),
+      phone       = COALESCE('098592-7000', phone),
+      email       = COALESCE('indeportes@amazonas.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'AMAZONAS',
+         '098592-7000', -1.3052990, -71.4659212, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DE DEPORTES DE ANTIOQUIA (INST-DEP-instituto-departamental-de-dep-c0c0e3b5)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-de-dep-c0c0e3b5';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DE DEPORTES DE ANTIOQUIA',
+      'GERENTE: SANTIAGO VALENCIA GONZALES. Ente departamental de deporte. ANTIOQUIA.',
+      'institute',
+      'ANTIOQUIA',
+      NULL,
+      '+ 57 (604) 5200890 Ext. 1000',
+      'contactenos@indeportesantioquia.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-de-deportes-de-antioquia-9964606e',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-de-dep-c0c0e3b5', v_school_id, '{"kind": "instituto", "acronym": "INDEPORTES ANTIOQUIA", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('GERENTE: SANTIAGO VALENCIA GONZALES. Ente departamental de deporte. ANTIOQUIA.', description),
+      phone       = COALESCE('+ 57 (604) 5200890 Ext. 1000', phone),
+      email       = COALESCE('contactenos@indeportesantioquia.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'ANTIOQUIA',
+         '+ 57 (604) 5200890 Ext. 1000', 7.0000085, -75.5000086, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DEL DEPORTE Y LA RECREACIÓN DE ARAUCA (INST-DEP-instituto-departamental-del-de-78d0e07f)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-del-de-78d0e07f';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DEL DEPORTE Y LA RECREACIÓN DE ARAUCA',
+      'DIRECTOR: IVAN HUMBERTO MANOSALVA ROMERO. Ente departamental de deporte. ARAUCA.',
+      'institute',
+      'ARAUCA',
+      NULL,
+      '+57 (607) 8854650',
+      'secretaria@inder-arauca.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-del-deporte-y-la-recreacion-de-arauc-722dbfc2',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-del-de-78d0e07f', v_school_id, '{"kind": "instituto", "acronym": "INDER ARAUCA", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: IVAN HUMBERTO MANOSALVA ROMERO. Ente departamental de deporte. ARAUCA.', description),
+      phone       = COALESCE('+57 (607) 8854650', phone),
+      email       = COALESCE('secretaria@inder-arauca.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'ARAUCA',
+         '+57 (607) 8854650', 6.6666755, -71.0000086, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DE RECREACIÓN Y DEPORTE DEL ATLÁNTICO (INST-DEP-instituto-departamental-de-rec-4fe490b7)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-de-rec-4fe490b7';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DE RECREACIÓN Y DEPORTE DEL ATLÁNTICO',
+      'DIRECTOR: IVAN ALBERTO URQUIJO OSORIO. Ente departamental de deporte. ATLÁNTICO.',
+      'institute',
+      'ATLÁNTICO',
+      NULL,
+      '+ 57 (605) 331 9013',
+      'director@inderatlantico.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-de-recreacion-y-deporte-del-atlantic-f4a2cfa7',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-de-rec-4fe490b7', v_school_id, '{"kind": "instituto", "acronym": "INDEPORTES ATLANTICO", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: IVAN ALBERTO URQUIJO OSORIO. Ente departamental de deporte. ATLÁNTICO.', description),
+      phone       = COALESCE('+ 57 (605) 331 9013', phone),
+      email       = COALESCE('director@inderatlantico.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'ATLÁNTICO',
+         '+ 57 (605) 331 9013', 10.6773422, -74.9718666, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DE DEPORTES Y RECREACIÓN DE BOLÍVAR (INST-DEP-instituto-departamental-de-dep-3c1fc286)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-de-dep-3c1fc286';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DE DEPORTES Y RECREACIÓN DE BOLÍVAR',
+      'GERENTE: JULIO CESAR MORELOS NASSI. Ente departamental de deporte. BOLÍVAR.',
+      'institute',
+      'BOLÍVAR',
+      NULL,
+      '075-6424629 075- 6424630 075- 6424633',
+      'iderbolgerencia@gmail.com',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-de-deportes-y-recreacion-de-bolivar-9e06a450',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-de-dep-3c1fc286', v_school_id, '{"kind": "instituto", "acronym": "IDERBOL", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('GERENTE: JULIO CESAR MORELOS NASSI. Ente departamental de deporte. BOLÍVAR.', description),
+      phone       = COALESCE('075-6424629 075- 6424630 075- 6424633', phone),
+      email       = COALESCE('iderbolgerencia@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'BOLÍVAR',
+         '075-6424629 075- 6424630 075- 6424633', 9.3660477, -74.8023636, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DEL DEPORTE DE BOYACÁ (INST-DEP-instituto-departamental-del-de-0c6d34aa)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-del-de-0c6d34aa';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DEL DEPORTE DE BOYACÁ',
+      'GERENTE: MIGUEL FERNANDO LÓPEZ SARMIENTO. Ente departamental de deporte. BOYACÁ.',
+      'institute',
+      'BOYACÁ',
+      NULL,
+      '+ 57 (608) 742 2365',
+      'gerenciageneral@ indeportesboyaca.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-del-deporte-de-boyaca-a5a496da',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-del-de-0c6d34aa', v_school_id, '{"kind": "instituto", "acronym": "INDEPORTES BOYACÁ", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('GERENTE: MIGUEL FERNANDO LÓPEZ SARMIENTO. Ente departamental de deporte. BOYACÁ.', description),
+      phone       = COALESCE('+ 57 (608) 742 2365', phone),
+      email       = COALESCE('gerenciageneral@ indeportesboyaca.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'BOYACÁ',
+         '+ 57 (608) 742 2365', 5.6278979, -72.8268617, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DE CULTURA, DEPORTE Y TURISMO DEL CAQUETÁ (INST-DEP-instituto-departamental-de-cul-00f2f6bb)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-de-cul-00f2f6bb';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DE CULTURA, DEPORTE Y TURISMO DEL CAQUETÁ',
+      'DIRECTOR: WILLIAM ARMANDO PARRA. Ente departamental de deporte. CAQUETA.',
+      'institute',
+      'CAQUETA',
+      NULL,
+      '4354150 Ext. 108',
+      'wparra@icdtcaqueta.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-de-cultura-deporte-y-turismo-del-caq-70c0e9a6',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-de-cul-00f2f6bb', v_school_id, '{"kind": "instituto", "acronym": "ICDT CAQUETA", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: WILLIAM ARMANDO PARRA. Ente departamental de deporte. CAQUETA.', description),
+      phone       = COALESCE('4354150 Ext. 108', phone),
+      email       = COALESCE('wparra@icdtcaqueta.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'CAQUETA',
+         '4354150 Ext. 108', 1.1153385, -74.1056838, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO PARA LA RECREACIÓN, EL DEPORTE, LA EDUCACIÓN EXTRAESCOLAR Y EL APROVECHAMIENTO DEL TIEMPO LIBRE EN EL DEPARTAMENTO DE CASANARE (INST-DEP-instituto-para-la-recreacion-e-5629c227)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-para-la-recreacion-e-5629c227';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO PARA LA RECREACIÓN, EL DEPORTE, LA EDUCACIÓN EXTRAESCOLAR Y EL APROVECHAMIENTO DEL TIEMPO LIBRE EN EL DEPARTAMENTO DE CASANARE',
+      'GERENTE: RUBIEL VARGAS PINTO. Ente departamental de deporte. CASANARE.',
+      'institute',
+      'CASANARE',
+      NULL,
+      '+ 57 (8) 6353638',
+      'gerente@indercas-casanare.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-para-la-recreacion-el-deporte-la-educacion-extraes-08c674a9',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-para-la-recreacion-e-5629c227', v_school_id, '{"kind": "instituto", "acronym": "INDERCAS", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('GERENTE: RUBIEL VARGAS PINTO. Ente departamental de deporte. CASANARE.', description),
+      phone       = COALESCE('+ 57 (8) 6353638', phone),
+      email       = COALESCE('gerente@indercas-casanare.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'CASANARE',
+         '+ 57 (8) 6353638', 5.5000085, -71.5000086, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DE DEPORTES DEL CAUCA (INST-DEP-instituto-departamental-de-dep-aa98afa1)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-de-dep-aa98afa1';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DE DEPORTES DEL CAUCA',
+      'GERENTE: TAYRO ALEXANDER LOPEZ GOMEZ. Ente departamental de deporte. CAUCA.',
+      'institute',
+      'CAUCA',
+      NULL,
+      '+ 57 (602) 832 3926',
+      'gerencia@indeportescauca.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-de-deportes-del-cauca-a3641d73',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-de-dep-aa98afa1', v_school_id, '{"kind": "instituto", "acronym": "INDEPORTES CAUCA", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('GERENTE: TAYRO ALEXANDER LOPEZ GOMEZ. Ente departamental de deporte. CAUCA.', description),
+      phone       = COALESCE('+ 57 (602) 832 3926', phone),
+      email       = COALESCE('gerencia@indeportescauca.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'CAUCA',
+         '+ 57 (602) 832 3926', 2.7156450, -76.6626650, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DE DEPORTES DE CÓRDOBA (INST-DEP-instituto-departamental-de-dep-32b215ad)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-de-dep-32b215ad';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DE DEPORTES DE CÓRDOBA',
+      'DIRECTOR: LUIS GABRIEL ALDANA DUMAR. Ente departamental de deporte. CÓRDOBA.',
+      'institute',
+      'CÓRDOBA',
+      NULL,
+      '+57 (4) 7893032',
+      'indeportes@cordoba.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-de-deportes-de-cordoba-42ab3722',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-de-dep-32b215ad', v_school_id, '{"kind": "instituto", "acronym": "INDEPORTES CÓRDOBA", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: LUIS GABRIEL ALDANA DUMAR. Ente departamental de deporte. CÓRDOBA.', description),
+      phone       = COALESCE('+57 (4) 7893032', phone),
+      email       = COALESCE('indeportes@cordoba.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'CÓRDOBA',
+         '+57 (4) 7893032', 8.3344713, -75.6666238, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL PARA LA RECREACIÓN Y EL DEPORTE DE CUNDINAMARCA (INST-DEP-instituto-departamental-para-l-f17009e8)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-para-l-f17009e8';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL PARA LA RECREACIÓN Y EL DEPORTE DE CUNDINAMARCA',
+      'GERENTE: LUZ MARINA CHUQUEN GONZALEZ. Ente departamental de deporte. CUNDINAMARCA.',
+      'institute',
+      'CUNDINAMARCA',
+      NULL,
+      '+ 57 (1) 7491205',
+      'notificaciones.indeportes@cundinamarca.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-para-la-recreacion-y-el-deporte-de-c-e9e13d88',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-para-l-f17009e8', v_school_id, '{"kind": "instituto", "acronym": "INDEPORTES CUNDINAMARCA", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('GERENTE: LUZ MARINA CHUQUEN GONZALEZ. Ente departamental de deporte. CUNDINAMARCA.', description),
+      phone       = COALESCE('+ 57 (1) 7491205', phone),
+      email       = COALESCE('notificaciones.indeportes@cundinamarca.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'CUNDINAMARCA',
+         '+ 57 (1) 7491205', 4.7831994, -73.6731282, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DE RECREACION Y DEPORTE DEL GUAINÍA (INST-DEP-instituto-departamental-de-rec-e965dd1b)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-de-rec-e965dd1b';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DE RECREACION Y DEPORTE DEL GUAINÍA',
+      'DIRECTOR: WILFREDO MIGUEL TORRES NUÑEZ. Ente departamental de deporte. GUAINIA.',
+      'institute',
+      'GUAINIA',
+      NULL,
+      '+ 57 78-5656073',
+      'contactenos@inder-guainia.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-de-recreacion-y-deporte-del-guainia-6a554749',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-de-rec-e965dd1b', v_school_id, '{"kind": "instituto", "acronym": "INDER GUAINÍA", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: WILFREDO MIGUEL TORRES NUÑEZ. Ente departamental de deporte. GUAINIA.', description),
+      phone       = COALESCE('+ 57 78-5656073', phone),
+      email       = COALESCE('contactenos@inder-guainia.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'GUAINIA',
+         '+ 57 78-5656073', 2.5000086, -69.0000086, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DEL DEPORTE, LA RECREACIÓN, EL APROVECHAMIENTO DEL TIEMPO LIBRE Y LA EDUCACIÓN EXTRAESCOLAR DEL GUAVIARE (INST-DEP-instituto-departamental-del-de-3a1ad3a7)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-del-de-3a1ad3a7';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DEL DEPORTE, LA RECREACIÓN, EL APROVECHAMIENTO DEL TIEMPO LIBRE Y LA EDUCACIÓN EXTRAESCOLAR DEL GUAVIARE',
+      'DIRECTOR: JEFERSSON ADRIAN GOMEZ GONZALEZ. Ente departamental de deporte. GUAVIARE.',
+      'institute',
+      'GUAVIARE',
+      NULL,
+      '+ 57 (608) 584 0226',
+      'inderg@guaviare.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-del-deporte-la-recreacion-el-aprovec-df6b2936',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-del-de-3a1ad3a7', v_school_id, '{"kind": "instituto", "acronym": "INDERG", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: JEFERSSON ADRIAN GOMEZ GONZALEZ. Ente departamental de deporte. GUAVIARE.', description),
+      phone       = COALESCE('+ 57 (608) 584 0226', phone),
+      email       = COALESCE('inderg@guaviare.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'GUAVIARE',
+         '+ 57 (608) 584 0226', 1.7899198, -72.3761784, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DEL DEPORTE, LA EDUCACIÓN FÍSICA, LA RECREACIÓN Y EL APROVECHAMIENTO DEL TIEMPO LIBRE DEL HUILA (INST-DEP-instituto-departamental-del-de-31a6a2bf)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-del-de-31a6a2bf';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DEL DEPORTE, LA EDUCACIÓN FÍSICA, LA RECREACIÓN Y EL APROVECHAMIENTO DEL TIEMPO LIBRE DEL HUILA',
+      'DIRECTOR: FELIPE VICTORIA BARRAGÁN. Ente departamental de deporte. HUILA.',
+      'institute',
+      'HUILA',
+      NULL,
+      '+ 57 (8) 875 0423 + 57 (8) 875 0439',
+      'director@inderhuila.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-del-deporte-la-educacion-fisica-la-r-93d646f0',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-del-de-31a6a2bf', v_school_id, '{"kind": "instituto", "acronym": "INDERHUILA", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: FELIPE VICTORIA BARRAGÁN. Ente departamental de deporte. HUILA.', description),
+      phone       = COALESCE('+ 57 (8) 875 0423 + 57 (8) 875 0439', phone),
+      email       = COALESCE('director@inderhuila.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'HUILA',
+         '+ 57 (8) 875 0423 + 57 (8) 875 0439', 2.4738993, -75.5900113, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DE DEPORTES DE LA GUAJIRA (INST-DEP-instituto-departamental-de-dep-61d14636)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-de-dep-61d14636';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DE DEPORTES DE LA GUAJIRA',
+      'DIRECTOR: BARTOLO MANUEL GOMEZ ASIS. Ente departamental de deporte. LA GUAJIRA.',
+      'institute',
+      'LA GUAJIRA',
+      NULL,
+      '+ 57 (5) 728 3727 + 57 (5) 728 3695',
+      'direccioniddg@laguajira.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-de-deportes-de-la-guajira-17a9e745',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-de-dep-61d14636', v_school_id, '{"kind": "instituto", "acronym": "IDDG", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: BARTOLO MANUEL GOMEZ ASIS. Ente departamental de deporte. LA GUAJIRA.', description),
+      phone       = COALESCE('+ 57 (5) 728 3727 + 57 (5) 728 3695', phone),
+      email       = COALESCE('direccioniddg@laguajira.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'LA GUAJIRA',
+         '+ 57 (5) 728 3727 + 57 (5) 728 3695', 11.4354118, -72.9002161, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DE DEPORTES DEL MAGDALENA (INST-DEP-instituto-departamental-de-dep-d4460d76)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-de-dep-d4460d76';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DE DEPORTES DEL MAGDALENA',
+      'DIRECTORA: DANIELA SUAREZ TOLOZA. Ente departamental de deporte. MAGDALENA.',
+      'institute',
+      'MAGDALENA',
+      NULL,
+      '+57 (605) 431 1148',
+      'direccion@indermagdalena.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-de-deportes-del-magdalena-08cec374',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-de-dep-d4460d76', v_school_id, '{"kind": "instituto", "acronym": "INDEPORTES MAGDALENA", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTORA: DANIELA SUAREZ TOLOZA. Ente departamental de deporte. MAGDALENA.', description),
+      phone       = COALESCE('+57 (605) 431 1148', phone),
+      email       = COALESCE('direccion@indermagdalena.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'MAGDALENA',
+         '+57 (605) 431 1148', 10.5808075, -74.0685669, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DE DEPORTE Y RECREACIÓN DEL META (INST-DEP-instituto-departamental-de-dep-dce03ba1)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-de-dep-dce03ba1';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DE DEPORTE Y RECREACIÓN DEL META',
+      'DIRECTOR: LUIS CARLOS LONDOÑO VARGAS. Ente departamental de deporte. META.',
+      'institute',
+      'META',
+      NULL,
+      '+57 (608) 670 1465',
+      'director@idermeta.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-de-deporte-y-recreacion-del-meta-4c661e4f',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-de-dep-dce03ba1', v_school_id, '{"kind": "instituto", "acronym": "IDERMETA", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: LUIS CARLOS LONDOÑO VARGAS. Ente departamental de deporte. META.', description),
+      phone       = COALESCE('+57 (608) 670 1465', phone),
+      email       = COALESCE('director@idermeta.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'META',
+         '+57 (608) 670 1465', 3.5000086, -73.0000086, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL PARA EL DEPORTE DE NORTE DE SANTANDER (INST-DEP-instituto-departamental-para-e-29cbe966)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-para-e-29cbe966';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL PARA EL DEPORTE DE NORTE DE SANTANDER',
+      'DIRECTORA: LEIDY JANETH ORTIZ CONTRERAS. Ente departamental de deporte. NORTE DE SANTANDER.',
+      'institute',
+      'NORTE DE SANTANDER',
+      NULL,
+      '+57 607 5784957',
+      'indenorte@nortedesantander.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-para-el-deporte-de-norte-de-santande-7c3e089c',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-para-e-29cbe966', v_school_id, '{"kind": "instituto", "acronym": "INDENORTE", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTORA: LEIDY JANETH ORTIZ CONTRERAS. Ente departamental de deporte. NORTE DE SANTANDER.', description),
+      phone       = COALESCE('+57 607 5784957', phone),
+      email       = COALESCE('indenorte@nortedesantander.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'NORTE DE SANTANDER',
+         '+57 607 5784957', 8.4417924, -73.0492505, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DE CULTURA, DEPORTES, LA EDUCACIÓN FÍSICA Y LA RECREACIÓN DEL DEPARTAMENTO DEL PUTUMAYO (INST-DEP-instituto-de-cultura-deportes--04918dbc)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-de-cultura-deportes--04918dbc';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DE CULTURA, DEPORTES, LA EDUCACIÓN FÍSICA Y LA RECREACIÓN DEL DEPARTAMENTO DEL PUTUMAYO',
+      'GERENTE: FREDY ALEXANDER ROMO DÍAZ. Ente departamental de deporte. PUTUMAYO.',
+      'institute',
+      'PUTUMAYO',
+      NULL,
+      '+57 (8) 4201239',
+      'contacto@indercultura-putumayo.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-de-cultura-deportes-la-educacion-fisica-y-la-recre-cf5c1301',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-de-cultura-deportes--04918dbc', v_school_id, '{"kind": "instituto", "acronym": "INDERCULTURA PUTUMAYO", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('GERENTE: FREDY ALEXANDER ROMO DÍAZ. Ente departamental de deporte. PUTUMAYO.', description),
+      phone       = COALESCE('+57 (8) 4201239', phone),
+      email       = COALESCE('contacto@indercultura-putumayo.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'PUTUMAYO',
+         '+57 (8) 4201239', 0.5000086, -76.0000086, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DEL DEPORTE Y RECREACIÓN DEL QUINDIO (INST-DEP-instituto-departamental-del-de-ca695d35)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-del-de-ca695d35';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DEL DEPORTE Y RECREACIÓN DEL QUINDIO',
+      'GERENTE: CAMILO JOSE ORTIZ MONTERO. Ente departamental de deporte. QUINDÍO.',
+      'institute',
+      'QUINDÍO',
+      NULL,
+      '6744 1775 01 8000 511 814',
+      'gerencia@indeportesquindio.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-del-deporte-y-recreacion-del-quindio-d9946166',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-del-de-ca695d35', v_school_id, '{"kind": "instituto", "acronym": "INDEPORTES QUINDIO", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('GERENTE: CAMILO JOSE ORTIZ MONTERO. Ente departamental de deporte. QUINDÍO.', description),
+      phone       = COALESCE('6744 1775 01 8000 511 814', phone),
+      email       = COALESCE('gerencia@indeportesquindio.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'QUINDÍO',
+         '6744 1775 01 8000 511 814', 4.4028313, -75.7025795, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DE RECREACIÓN Y DEPORTES DE SANTANDER (INST-DEP-instituto-departamental-de-rec-15517239)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-de-rec-15517239';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DE RECREACIÓN Y DEPORTES DE SANTANDER',
+      'DIRECTOR: ARIEL FERNANDO ROJAS RODRIGUEZ. Ente departamental de deporte. SANTANDER.',
+      'institute',
+      'SANTANDER',
+      NULL,
+      '+57 (7) 605 9213',
+      'direcciongeneral@indersantander.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-de-recreacion-y-deportes-de-santande-ce3d2be7',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-de-rec-15517239', v_school_id, '{"kind": "instituto", "acronym": "INDER SANTANDER", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: ARIEL FERNANDO ROJAS RODRIGUEZ. Ente departamental de deporte. SANTANDER.', description),
+      phone       = COALESCE('+57 (7) 605 9213', phone),
+      email       = COALESCE('direcciongeneral@indersantander.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'SANTANDER',
+         '+57 (7) 605 9213', 7.0000085, -73.2500086, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DE DEPORTES Y RECREACIÓN DE SUCRE (INST-DEP-instituto-departamental-de-dep-465dd895)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-de-dep-465dd895';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DE DEPORTES Y RECREACIÓN DE SUCRE',
+      'DIRECTOR: SAMUEL DAVID ALVAREZ LEÓN. Ente departamental de deporte. SUCRE.',
+      'institute',
+      'SUCRE',
+      NULL,
+      '2744995 - 2806580',
+      'indersucre@sucre.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-de-deportes-y-recreacion-de-sucre-5b64b020',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-de-dep-465dd895', v_school_id, '{"kind": "instituto", "acronym": "INDER SUCRE", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: SAMUEL DAVID ALVAREZ LEÓN. Ente departamental de deporte. SUCRE.', description),
+      phone       = COALESCE('2744995 - 2806580', phone),
+      email       = COALESCE('indersucre@sucre.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'SUCRE',
+         '2744995 - 2806580', 9.0000000, -75.0000000, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DE DEPORTES DEL TOLIMA (INST-DEP-instituto-departamental-de-dep-2fc4b325)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-de-dep-2fc4b325';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DE DEPORTES DEL TOLIMA',
+      'GERENTE: FRANCY LILIANA SALAZAR QUIÑONES. Ente departamental de deporte. TOLIMA.',
+      'institute',
+      'TOLIMA',
+      NULL,
+      '+ 57 (8) 262 1620 + 57 (8) 261 0137',
+      'indeportestolima@indeportes-tolima.com',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-de-deportes-del-tolima-e09e70be',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-de-dep-2fc4b325', v_school_id, '{"kind": "instituto", "acronym": "INDEPORTES TOLIMA", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('GERENTE: FRANCY LILIANA SALAZAR QUIÑONES. Ente departamental de deporte. TOLIMA.', description),
+      phone       = COALESCE('+ 57 (8) 262 1620 + 57 (8) 261 0137', phone),
+      email       = COALESCE('indeportestolima@indeportes-tolima.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'TOLIMA',
+         '+ 57 (8) 262 1620 + 57 (8) 261 0137', 4.0355786, -75.2086642, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DE DEPORTE, CULTURA Y RECREACIÓN DEL VAUPÉS (INST-DEP-instituto-departamental-de-dep-aa543adb)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-de-dep-aa543adb';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DE DEPORTE, CULTURA Y RECREACIÓN DEL VAUPÉS',
+      'DIRECTOR: SANTIAGO LOZANO VELEZ. Ente departamental de deporte. VAUPÉS.',
+      'institute',
+      'VAUPÉS',
+      NULL,
+      '+57 3209392582',
+      'idder@vaupes.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-de-deporte-cultura-y-recreacion-del--cb706028',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-de-dep-aa543adb', v_school_id, '{"kind": "instituto", "acronym": "IDDER VAUPÉS", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: SANTIAGO LOZANO VELEZ. Ente departamental de deporte. VAUPÉS.', description),
+      phone       = COALESCE('+57 3209392582', phone),
+      email       = COALESCE('idder@vaupes.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'VAUPÉS',
+         '+57 3209392582', 0.4228124, -70.9468372, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEPARTAMENTAL DE DEPORTE Y RECREACIÓN DE VILLAVICENCIO (INST-DEP-instituto-departamental-de-dep-5f409885)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-departamental-de-dep-5f409885';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEPARTAMENTAL DE DEPORTE Y RECREACIÓN DE VILLAVICENCIO',
+      'DIRECTOR: JOSIMAR BRAYN LÓPEZ BURGOS. Ente departamental de deporte. VILLAVICENCIO.',
+      'institute',
+      'VILLAVICENCIO',
+      NULL,
+      '+57 (8) 6631062',
+      'direccion@IMDERVillavicencio.gov.co direccionGeneral.IMDER@outlook.com',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-departamental-de-deporte-y-recreacion-de-villavice-5c3490a4',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-departamental-de-dep-5f409885', v_school_id, '{"kind": "instituto", "acronym": "IMDER", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: JOSIMAR BRAYN LÓPEZ BURGOS. Ente departamental de deporte. VILLAVICENCIO.', description),
+      phone       = COALESCE('+57 (8) 6631062', phone),
+      email       = COALESCE('direccion@IMDERVillavicencio.gov.co direccionGeneral.IMDER@outlook.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'VILLAVICENCIO',
+         '+57 (8) 6631062', 4.1114595, -73.4967836, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEL DEPORTE, LA EDUCACIÓN FÍSICA Y LA RECREACIÓN DEL VALLE DEL CAUCA (INST-DEP-instituto-del-deporte-la-educa-36d4beb5)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-del-deporte-la-educa-36d4beb5';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEL DEPORTE, LA EDUCACIÓN FÍSICA Y LA RECREACIÓN DEL VALLE DEL CAUCA',
+      'GERENTE: ANA MILENA OROZCO CAÑAS. Ente departamental de deporte. VALLE DEL CAUCA.',
+      'institute',
+      'VALLE DEL CAUCA',
+      NULL,
+      '+57 (602) 5569242',
+      'gerencia@indervalle.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-del-deporte-la-educacion-fisica-y-la-recreacion-de-257c8696',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-del-deporte-la-educa-36d4beb5', v_school_id, '{"kind": "instituto", "acronym": "INDERVALLE", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('GERENTE: ANA MILENA OROZCO CAÑAS. Ente departamental de deporte. VALLE DEL CAUCA.', description),
+      phone       = COALESCE('+57 (602) 5569242', phone),
+      email       = COALESCE('gerencia@indervalle.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'VALLE DEL CAUCA',
+         '+57 (602) 5569242', 3.6984053, -76.5501996, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DEL DEPORTE LA EDUCACIÓN FÍSICA Y LA RECREACION DEL CHOCO (INST-DEP-instituto-del-deporte-la-educa-89c976b7)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-DEP-instituto-del-deporte-la-educa-89c976b7';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DEL DEPORTE LA EDUCACIÓN FÍSICA Y LA RECREACION DEL CHOCO',
+      'DIRECTOR: JORGE LUIS ÁNGEL CÓRDOBA. Ente departamental de deporte. CHOCÓ.',
+      'institute',
+      'CHOCÓ',
+      NULL,
+      '+57 31333333333',
+      'direccion@indecho.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-del-deporte-la-educacion-fisica-y-la-recreacion-de-eba4a5c2',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-DEP-instituto-del-deporte-la-educa-89c976b7', v_school_id, '{"kind": "instituto", "acronym": "INDECHO", "level": "Departamental"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: JORGE LUIS ÁNGEL CÓRDOBA. Ente departamental de deporte. CHOCÓ.', description),
+      phone       = COALESCE('+57 31333333333', phone),
+      email       = COALESCE('direccion@indecho.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'CHOCÓ',
+         '+57 31333333333', 6.0000085, -77.0000086, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO MUNICIPAL DEL DEPORTE Y LA RECREACIÓN DE ARMENIA (INST-MUN-instituto-municipal-del-deport-917c0e9a)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-municipal-del-deport-917c0e9a';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO MUNICIPAL DEL DEPORTE Y LA RECREACIÓN DE ARMENIA',
+      'DIRECTOR: WILSON FRANCISCO HERRERA OSORIO. Ente municipal/distrital de deporte. ARMENIA.',
+      'institute',
+      'ARMENIA',
+      NULL,
+      '+57 (606) 7478888',
+      'direccion@imdera.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-municipal-del-deporte-y-la-recreacion-de-armenia-86572709',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-municipal-del-deport-917c0e9a', v_school_id, '{"kind": "instituto", "acronym": "IMDERA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: WILSON FRANCISCO HERRERA OSORIO. Ente municipal/distrital de deporte. ARMENIA.', description),
+      phone       = COALESCE('+57 (606) 7478888', phone),
+      email       = COALESCE('direccion@imdera.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'ARMENIA',
+         '+57 (606) 7478888', 4.4919894, -75.7413961, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARIA DISTRITAL DE RECREACIÓN Y DEPORTES DE BARRANQUILLA (INST-MUN-secretaria-distrital-de-recrea-ec8eceb5)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-distrital-de-recrea-ec8eceb5';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARIA DISTRITAL DE RECREACIÓN Y DEPORTES DE BARRANQUILLA',
+      'SECRETARIO: DANIEL FERNANDO TRUJILLO TOVAR. Ente distrital de deporte. BARRANQUILLA.',
+      'institute',
+      'BARRANQUILLA',
+      NULL,
+      '+ 57 (605) 4010205 + 57 (605) 3161400',
+      NULL,
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-distrital-de-recreacion-y-deportes-de-barranquill-594da4f5',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-distrital-de-recrea-ec8eceb5', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIO: DANIEL FERNANDO TRUJILLO TOVAR. Ente distrital de deporte. BARRANQUILLA.', description),
+      phone       = COALESCE('+ 57 (605) 4010205 + 57 (605) 3161400', phone),
+      email       = COALESCE(NULL, email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'BARRANQUILLA',
+         '+ 57 (605) 4010205 + 57 (605) 3161400', 10.9938599, -74.7926118, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DISTRITAL DE RECREACIÓN Y EL DEPORTE DE BOGOTÁ (INST-MUN-instituto-distrital-de-recreac-cc382fb7)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-distrital-de-recreac-cc382fb7';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DISTRITAL DE RECREACIÓN Y EL DEPORTE DE BOGOTÁ',
+      'DIRECTOR: DANIEL GARCÍA CAÑON. Ente distrital de deporte. BOGOTÁ.',
+      'institute',
+      'BOGOTÁ',
+      NULL,
+      '+ 57 (601) 6605400 Ext. 251 - 252',
+      'daniel.garciac@idrd.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-distrital-de-recreacion-y-el-deporte-de-bogota-97641125',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-distrital-de-recreac-cc382fb7', v_school_id, '{"kind": "instituto", "acronym": "IDRD", "level": "Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: DANIEL GARCÍA CAÑON. Ente distrital de deporte. BOGOTÁ.', description),
+      phone       = COALESCE('+ 57 (601) 6605400 Ext. 251 - 252', phone),
+      email       = COALESCE('daniel.garciac@idrd.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'BOGOTÁ',
+         '+ 57 (601) 6605400 Ext. 251 - 252', 4.6533817, -74.0836331, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARIA DE DEPORTE, RECREACIÓN Y ACTIVIDAD FÍSICA DE CALDAS (INST-MUN-secretaria-de-deporte-recreaci-4ec950ff)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-de-deporte-recreaci-4ec950ff';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARIA DE DEPORTE, RECREACIÓN Y ACTIVIDAD FÍSICA DE CALDAS',
+      'SECRETARIO DE DEPORTE: ANDRES DUQUE OSORIO. Ente municipal/distrital de deporte. CALDAS.',
+      'institute',
+      'CALDAS',
+      NULL,
+      '+ 57 68 98 2444 + 57 76 8810104',
+      'andresduqueosorio@gmail.com',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-de-deporte-recreacion-y-actividad-fisica-de-calda-9fd3ca65',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-de-deporte-recreaci-4ec950ff', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIO DE DEPORTE: ANDRES DUQUE OSORIO. Ente municipal/distrital de deporte. CALDAS.', description),
+      phone       = COALESCE('+ 57 68 98 2444 + 57 76 8810104', phone),
+      email       = COALESCE('andresduqueosorio@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'CALDAS',
+         '+ 57 68 98 2444 + 57 76 8810104', 5.3302514, -75.2873471, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DISTRITAL DE DEPORTE Y RECREACION DE CARTAGENA (INST-MUN-instituto-distrital-de-deporte-ef84c639)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-distrital-de-deporte-ef84c639';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DISTRITAL DE DEPORTE Y RECREACION DE CARTAGENA',
+      'DIRECTOR: CAMPO ELIAS TEHERAN HUMANEZ. Ente distrital de deporte. CARTAGENA.',
+      'institute',
+      'CARTAGENA',
+      NULL,
+      '+ 57 (605) 641 1370',
+      'direccion@ider.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-distrital-de-deporte-y-recreacion-de-cartagena-76972d47',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-distrital-de-deporte-ef84c639', v_school_id, '{"kind": "instituto", "acronym": "IDER CARTAGENA", "level": "Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: CAMPO ELIAS TEHERAN HUMANEZ. Ente distrital de deporte. CARTAGENA.', description),
+      phone       = COALESCE('+ 57 (605) 641 1370', phone),
+      email       = COALESCE('direccion@ider.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'CARTAGENA',
+         '+ 57 (605) 641 1370', 10.4265566, -75.5441671, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARIA DE RECREACIÓN Y DEPORTES DEL CESAR (INST-MUN-secretaria-de-recreacion-y-dep-c000e9a5)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-de-recreacion-y-dep-c000e9a5';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARIA DE RECREACIÓN Y DEPORTES DEL CESAR',
+      'SECRETARIA: RAYSA MILENA QUINTERO. Ente municipal/distrital de deporte. CESAR.',
+      'institute',
+      'CESAR',
+      NULL,
+      '+ 57 (605) 588 5602',
+      'deportes@cesar.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-de-recreacion-y-deportes-del-cesar-4f831bdb',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-de-recreacion-y-dep-c000e9a5', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIA: RAYSA MILENA QUINTERO. Ente municipal/distrital de deporte. CESAR.', description),
+      phone       = COALESCE('+ 57 (605) 588 5602', phone),
+      email       = COALESCE('deportes@cesar.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'CESAR',
+         '+ 57 (605) 588 5602', 9.3333415, -73.5000086, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO MUNICIPAL PARA LA RECREACIÓN Y EL DEPORTE CÚCUTA (INST-MUN-instituto-municipal-para-la-re-8d462c6f)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-municipal-para-la-re-8d462c6f';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO MUNICIPAL PARA LA RECREACIÓN Y EL DEPORTE CÚCUTA',
+      'DIRECTOR: JORGE WILLIAM CORREA MONROY. Ente municipal/distrital de deporte. CÚCUTA.',
+      'institute',
+      'CÚCUTA',
+      NULL,
+      '+ 57 (7) 589 3625 +57 (7) 589 3203',
+      'imrdcucuta@live.com',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-municipal-para-la-recreacion-y-el-deporte-cucuta-6d6afd37',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-municipal-para-la-re-8d462c6f', v_school_id, '{"kind": "instituto", "acronym": "IMRD CÚCUTA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: JORGE WILLIAM CORREA MONROY. Ente municipal/distrital de deporte. CÚCUTA.', description),
+      phone       = COALESCE('+ 57 (7) 589 3625 +57 (7) 589 3203', phone),
+      email       = COALESCE('imrdcucuta@live.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'CÚCUTA',
+         '+ 57 (7) 589 3625 +57 (7) 589 3203', 8.0776187, -72.4689002, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO MUNICIPAL PARA EL DEPORTE Y LA RECREACION DE IBAGUÉ (INST-MUN-instituto-municipal-para-el-de-e5c32a68)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-municipal-para-el-de-e5c32a68';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO MUNICIPAL PARA EL DEPORTE Y LA RECREACION DE IBAGUÉ',
+      'GERENTE: FELIPE ROBERTO LA ROTA GARCÍA. Ente municipal/distrital de deporte. IBAGUÉ.',
+      'institute',
+      'IBAGUÉ',
+      NULL,
+      'NO REGISTRA',
+      'ibagueimdri@imdri.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-municipal-para-el-deporte-y-la-recreacion-de-ibagu-7a53ad9e',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-municipal-para-el-de-e5c32a68', v_school_id, '{"kind": "instituto", "acronym": "IMDRI", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('GERENTE: FELIPE ROBERTO LA ROTA GARCÍA. Ente municipal/distrital de deporte. IBAGUÉ.', description),
+      phone       = COALESCE('NO REGISTRA', phone),
+      email       = COALESCE('ibagueimdri@imdri.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'IBAGUÉ',
+         'NO REGISTRA', 4.4386033, -75.2108857, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARIA DE RECREACIÓN Y DEPORTES - GOBERNACIÓN DE NARIÑO (INST-MUN-secretaria-de-recreacion-y-dep-ff7d49b2)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-de-recreacion-y-dep-ff7d49b2';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARIA DE RECREACIÓN Y DEPORTES - GOBERNACIÓN DE NARIÑO',
+      'SECRETARIO: JHON JAIRO PRECIADO. Ente municipal/distrital de deporte. NARIÑO.',
+      'institute',
+      'NARIÑO',
+      NULL,
+      '(602) 733 2133',
+      'contactenos@narino.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-de-recreacion-y-deportes---gobernacion-de-narino-02db60db',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-de-recreacion-y-dep-ff7d49b2', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIO: JHON JAIRO PRECIADO. Ente municipal/distrital de deporte. NARIÑO.', description),
+      phone       = COALESCE('(602) 733 2133', phone),
+      email       = COALESCE('contactenos@narino.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'NARIÑO',
+         '(602) 733 2133', 1.5842268, -77.8585766, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO MUNICIPAL PARA LA RECREACION Y EL DEPORTE DE PASTO (INST-MUN-instituto-municipal-para-la-re-e25f6a33)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-municipal-para-la-re-e25f6a33';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO MUNICIPAL PARA LA RECREACION Y EL DEPORTE DE PASTO',
+      'DIRECTORA: CLAUDIA MARCELA CANO RODRÍGUEZ. Ente municipal/distrital de deporte. PASTO.',
+      'institute',
+      'PASTO',
+      NULL,
+      '+57(602) 721 4442',
+      'direccion@pastodeporte.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-municipal-para-la-recreacion-y-el-deporte-de-pasto-1ba92fee',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-municipal-para-la-re-e25f6a33', v_school_id, '{"kind": "instituto", "acronym": "PASTO DEPORTE", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTORA: CLAUDIA MARCELA CANO RODRÍGUEZ. Ente municipal/distrital de deporte. PASTO.', description),
+      phone       = COALESCE('+57(602) 721 4442', phone),
+      email       = COALESCE('direccion@pastodeporte.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'PASTO',
+         '+57(602) 721 4442', 1.2140275, -77.2785096, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARIA DE DEPORTES Y RECREACION DE PEREIRA (INST-MUN-secretaria-de-deportes-y-recre-04bb371a)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-de-deportes-y-recre-04bb371a';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARIA DE DEPORTES Y RECREACION DE PEREIRA',
+      'SECRETARIA: SANDRA MILENA GRAJALES OCAMPO. Ente municipal/distrital de deporte. PEREIRA.',
+      'institute',
+      'PEREIRA',
+      NULL,
+      '+57(1) 316 1800',
+      'secretariadeportes@pereira.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-de-deportes-y-recreacion-de-pereira-0dfb6da5',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-de-deportes-y-recre-04bb371a', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIA: SANDRA MILENA GRAJALES OCAMPO. Ente municipal/distrital de deporte. PEREIRA.', description),
+      phone       = COALESCE('+57(1) 316 1800', phone),
+      email       = COALESCE('secretariadeportes@pereira.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'PEREIRA',
+         '+57(1) 316 1800', 4.7854606, -75.7883220, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARIA DE DEPORTE, RECREACIÓN Y CULTURA DE RISARALDA (INST-MUN-secretaria-de-deporte-recreaci-9767e1ff)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-de-deporte-recreaci-9767e1ff';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARIA DE DEPORTE, RECREACIÓN Y CULTURA DE RISARALDA',
+      'SECRETARIO: LUIS EDUARDO DUQUE SANZ. Ente municipal/distrital de deporte. RISARALDA.',
+      'institute',
+      'RISARALDA',
+      NULL,
+      '+57 (6) 339 8300',
+      'luise.duque@risaralda.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-de-deporte-recreacion-y-cultura-de-risaralda-83ae4854',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-de-deporte-recreaci-9767e1ff', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIO: LUIS EDUARDO DUQUE SANZ. Ente municipal/distrital de deporte. RISARALDA.', description),
+      phone       = COALESCE('+57 (6) 339 8300', phone),
+      email       = COALESCE('luise.duque@risaralda.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'RISARALDA',
+         '+57 (6) 339 8300', 5.2102948, -75.9842236, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARIA DE DEPORTES Y RECREACIÓN DE LA GOBERNACIÓN DEL ARCHIPIÉLAGO DE SAN ANDRES (INST-MUN-secretaria-de-deportes-y-recre-1fbb05aa)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-de-deportes-y-recre-1fbb05aa';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARIA DE DEPORTES Y RECREACIÓN DE LA GOBERNACIÓN DEL ARCHIPIÉLAGO DE SAN ANDRES',
+      'SECRETARIO: CHARLE CARREÑO CORPUS. Ente municipal/distrital de deporte. SAN ANDRÉS.',
+      'institute',
+      'SAN ANDRÉS',
+      NULL,
+      '+57 (8) 513 0801',
+      'servicioalcuidadano@sanandres.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-de-deportes-y-recreacion-de-la-gobernacion-del-ar-d78b0a1f',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-de-deportes-y-recre-1fbb05aa', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIO: CHARLE CARREÑO CORPUS. Ente municipal/distrital de deporte. SAN ANDRÉS.', description),
+      phone       = COALESCE('+57 (8) 513 0801', phone),
+      email       = COALESCE('servicioalcuidadano@sanandres.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'SAN ANDRÉS',
+         '+57 (8) 513 0801', 12.5375979, -81.7204155, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO MUNICIPAL PARA EL DEPORTE Y LA RECREACIÓN DE SINCELEJO (INST-MUN-instituto-municipal-para-el-de-22a5522f)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-municipal-para-el-de-22a5522f';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO MUNICIPAL PARA EL DEPORTE Y LA RECREACIÓN DE SINCELEJO',
+      'GERENTE: ROBINSO GOMEZ LADEUS. Ente municipal/distrital de deporte. SINCELEJO.',
+      'institute',
+      'SINCELEJO',
+      NULL,
+      '+57 (5) 2805700',
+      'contactenos@imder-sincelejo.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-municipal-para-el-deporte-y-la-recreacion-de-since-92ddb2d5',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-municipal-para-el-de-22a5522f', v_school_id, '{"kind": "instituto", "acronym": "IMDER SINCELEJO", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('GERENTE: ROBINSO GOMEZ LADEUS. Ente municipal/distrital de deporte. SINCELEJO.', description),
+      phone       = COALESCE('+57 (5) 2805700', phone),
+      email       = COALESCE('contactenos@imder-sincelejo.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'SINCELEJO',
+         '+57 (5) 2805700', 9.2973386, -75.3926601, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO MUNICIPAL DE DEPORTE Y RECREACIÓN DE VALLEDUPAR (INST-MUN-instituto-municipal-de-deporte-2869bd2f)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-municipal-de-deporte-2869bd2f';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO MUNICIPAL DE DEPORTE Y RECREACIÓN DE VALLEDUPAR',
+      'DIRECTOR: ALINSON ARMANDO GONZALES ESCORCIA. Ente municipal/distrital de deporte. VALLEDUPAR.',
+      'institute',
+      'VALLEDUPAR',
+      NULL,
+      '+57 (5) 562 3279',
+      'deportes@indervalledupar.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-municipal-de-deporte-y-recreacion-de-valledupar-245a89ec',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-municipal-de-deporte-2869bd2f', v_school_id, '{"kind": "instituto", "acronym": "INDER VALLEDUPAR", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: ALINSON ARMANDO GONZALES ESCORCIA. Ente municipal/distrital de deporte. VALLEDUPAR.', description),
+      phone       = COALESCE('+57 (5) 562 3279', phone),
+      email       = COALESCE('deportes@indervalledupar.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'VALLEDUPAR',
+         '+57 (5) 562 3279', 10.4651733, -73.2529512, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DISTRITAL DEL DEPORTE, LA RECREACIÓN Y EL TIEMPO LIBRE DE BUENAVENTURA (INST-MUN-instituto-distrital-del-deport-f931e0ba)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-distrital-del-deport-f931e0ba';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DISTRITAL DEL DEPORTE, LA RECREACIÓN Y EL TIEMPO LIBRE DE BUENAVENTURA',
+      'DIRECTOR: FERNEY GUSTAVO ASPRILLA GOMEZ. Ente distrital de deporte. BUENAVENTURA.',
+      'institute',
+      'BUENAVENTURA',
+      NULL,
+      '241 5654',
+      'inderbuenaventura@hotmail.com',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-distrital-del-deporte-la-recreacion-y-el-tiempo-li-4545bc02',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-distrital-del-deport-f931e0ba', v_school_id, '{"kind": "instituto", "acronym": "INDERBUENAVENTURA", "level": "Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: FERNEY GUSTAVO ASPRILLA GOMEZ. Ente distrital de deporte. BUENAVENTURA.', description),
+      phone       = COALESCE('241 5654', phone),
+      email       = COALESCE('inderbuenaventura@hotmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'BUENAVENTURA',
+         '241 5654', 3.8881929, -77.0738324, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARIA DE DEPORTES Y RECREACION DE QUIBDÓ (INST-MUN-secretaria-de-deportes-y-recre-cd02f5c8)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-de-deportes-y-recre-cd02f5c8';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARIA DE DEPORTES Y RECREACION DE QUIBDÓ',
+      'SECRETARIO: PEDRO JOSE MOSQUERA AGUALIMPIA. Ente municipal/distrital de deporte. QUÍBDO.',
+      'institute',
+      'QUÍBDO',
+      NULL,
+      '+57 (604) 672 2069',
+      'deporte@quibdo-choco.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-de-deportes-y-recreacion-de-quibdo-fcdef66d',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-de-deportes-y-recre-cd02f5c8', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIO: PEDRO JOSE MOSQUERA AGUALIMPIA. Ente municipal/distrital de deporte. QUÍBDO.', description),
+      phone       = COALESCE('+57 (604) 672 2069', phone),
+      email       = COALESCE('deporte@quibdo-choco.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'QUÍBDO',
+         '+57 (604) 672 2069', 5.6912838, -76.6531337, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARIA DE DEPORTE, CULTURA Y EDUCACIÓN DE LETICIA (INST-MUN-secretaria-de-deporte-cultura--a5f8d6eb)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-de-deporte-cultura--a5f8d6eb';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARIA DE DEPORTE, CULTURA Y EDUCACIÓN DE LETICIA',
+      'SECRETARIO: ALEX EDUARDO MANJARRÉS VILLAMIL. Ente municipal/distrital de deporte. LETICIA.',
+      'institute',
+      'LETICIA',
+      NULL,
+      '+57 (8) 5928064',
+      'educacion@leticia-amazonas.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-de-deporte-cultura-y-educacion-de-leticia-0b329a8f',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-de-deporte-cultura--a5f8d6eb', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIO: ALEX EDUARDO MANJARRÉS VILLAMIL. Ente municipal/distrital de deporte. LETICIA.', description),
+      phone       = COALESCE('+57 (8) 5928064', phone),
+      email       = COALESCE('educacion@leticia-amazonas.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'LETICIA',
+         '+57 (8) 5928064', -4.2129211, -69.9425963, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARIA DE DEPORTE, CULTURA Y EDUCACIÓN DE INIRIDA (INST-MUN-secretaria-de-deporte-cultura--ff171e67)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-de-deporte-cultura--ff171e67';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARIA DE DEPORTE, CULTURA Y EDUCACIÓN DE INIRIDA',
+      'SECRETARIA: ELIZABEHT GARCIA. Ente municipal/distrital de deporte. INIRIDA.',
+      'institute',
+      'INIRIDA',
+      NULL,
+      '+57 (8) 5656065',
+      'secreeducacion@inirida-guainia.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-de-deporte-cultura-y-educacion-de-inirida-ea06e2c9',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-de-deporte-cultura--ff171e67', v_school_id, '{"kind": "instituto", "acronym": "IMDER INIRIDA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIA: ELIZABEHT GARCIA. Ente municipal/distrital de deporte. INIRIDA.', description),
+      phone       = COALESCE('+57 (8) 5656065', phone),
+      email       = COALESCE('secreeducacion@inirida-guainia.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'INIRIDA',
+         '+57 (8) 5656065', 3.8650368, -67.9259848, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO MUNICIPAL DE DEPORTE Y RECREACIÓN DE PUERTO CARREÑO (INST-MUN-instituto-municipal-de-deporte-b4ae7454)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-municipal-de-deporte-b4ae7454';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO MUNICIPAL DE DEPORTE Y RECREACIÓN DE PUERTO CARREÑO',
+      'COORDINADOR: JORGE JELVEZ LÓPEZ VILLAMIZAR. Ente municipal/distrital de deporte. PUERTO CARREÑO.',
+      'institute',
+      'PUERTO CARREÑO',
+      NULL,
+      'NO REGISTRA',
+      'INSTITUTOMUNICIPALIMDER2025@GMAIL.COM',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-municipal-de-deporte-y-recreacion-de-puerto-carren-6a7ec5c1',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-municipal-de-deporte-b4ae7454', v_school_id, '{"kind": "instituto", "acronym": "IMDER PUERTO CARREÑO", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('COORDINADOR: JORGE JELVEZ LÓPEZ VILLAMIZAR. Ente municipal/distrital de deporte. PUERTO CARREÑO.', description),
+      phone       = COALESCE('NO REGISTRA', phone),
+      email       = COALESCE('INSTITUTOMUNICIPALIMDER2025@GMAIL.COM', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'PUERTO CARREÑO',
+         'NO REGISTRA', 6.1909225, -67.4841891, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO MUNICIPAL DE DEPORTES Y RECREACIÓN DE MITU (INST-MUN-instituto-municipal-de-deporte-cc671cad)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-municipal-de-deporte-cc671cad';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO MUNICIPAL DE DEPORTES Y RECREACIÓN DE MITU',
+      'DIRECTOR: MARCOS EMILIO GARCIA. Ente municipal/distrital de deporte. MITÚ.',
+      'institute',
+      'MITÚ',
+      NULL,
+      'NO REGISTRA',
+      'imder@mitu-vaupes.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-municipal-de-deportes-y-recreacion-de-mitu-83d4a3c0',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-municipal-de-deporte-cc671cad', v_school_id, '{"kind": "instituto", "acronym": "IMDER MITU", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: MARCOS EMILIO GARCIA. Ente municipal/distrital de deporte. MITÚ.', description),
+      phone       = COALESCE('NO REGISTRA', phone),
+      email       = COALESCE('imder@mitu-vaupes.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'MITÚ',
+         'NO REGISTRA', 1.2587328, -70.2366439, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DISTRITAL DE SANTA MARTA PARA LA RECREACION Y EL DEPORTE (INST-MUN-instituto-distrital-de-santa-m-c607fdc4)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-distrital-de-santa-m-c607fdc4';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DISTRITAL DE SANTA MARTA PARA LA RECREACION Y EL DEPORTE',
+      'DIRECTOR: HIDERALDO ALTAIR ESPINOZA VILORIA. Ente distrital de deporte. SANTA MARTA.',
+      'institute',
+      'SANTA MARTA',
+      NULL,
+      'NO REGISTRA',
+      'instituto@inredsantamarta.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-distrital-de-santa-marta-para-la-recreacion-y-el-d-0487461c',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-distrital-de-santa-m-c607fdc4', v_school_id, '{"kind": "instituto", "acronym": "INRED", "level": "Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: HIDERALDO ALTAIR ESPINOZA VILORIA. Ente distrital de deporte. SANTA MARTA.', description),
+      phone       = COALESCE('NO REGISTRA', phone),
+      email       = COALESCE('instituto@inredsantamarta.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'SANTA MARTA',
+         'NO REGISTRA', 11.2320944, -74.1950916, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO MUNICIPAL PARA EL DEPORTE Y LA RECREACIÓN DE MONTERÍA (INST-MUN-instituto-municipal-para-el-de-b1a63296)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-municipal-para-el-de-b1a63296';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO MUNICIPAL PARA EL DEPORTE Y LA RECREACIÓN DE MONTERÍA',
+      'DIRECTOR: GERMAN QUINTERO MENDOZA. Ente municipal/distrital de deporte. MONTERÍA.',
+      'institute',
+      'MONTERÍA',
+      NULL,
+      'NO REGISTRA',
+      'director@imdermonteria.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-municipal-para-el-deporte-y-la-recreacion-de-monte-68a0028c',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-municipal-para-el-de-b1a63296', v_school_id, '{"kind": "instituto", "acronym": "IMDER MONTERÍA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: GERMAN QUINTERO MENDOZA. Ente municipal/distrital de deporte. MONTERÍA.', description),
+      phone       = COALESCE('NO REGISTRA', phone),
+      email       = COALESCE('director@imdermonteria.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'MONTERÍA',
+         'NO REGISTRA', 8.6046053, -75.9783203, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARIA DE DEPORTE Y CULTURA DE PROVIDENCIA (INST-MUN-secretaria-de-deporte-y-cultur-9d855e7f)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-de-deporte-y-cultur-9d855e7f';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARIA DE DEPORTE Y CULTURA DE PROVIDENCIA',
+      'SECRETARIO: GENCARLO FERREIRA MITCHELL. Ente municipal/distrital de deporte. PROVIDENCIA.',
+      'institute',
+      'PROVIDENCIA',
+      NULL,
+      'NO REGISTRA',
+      'Geancarlofere5@hotmail.com',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-de-deporte-y-cultura-de-providencia-3c5aaaef',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-de-deporte-y-cultur-9d855e7f', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIO: GENCARLO FERREIRA MITCHELL. Ente municipal/distrital de deporte. PROVIDENCIA.', description),
+      phone       = COALESCE('NO REGISTRA', phone),
+      email       = COALESCE('Geancarlofere5@hotmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'PROVIDENCIA',
+         'NO REGISTRA', 13.3531166, -81.3749889, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO MUNICIPAL PARA EL DEPORTE Y LA RECREACIÓN DE FLORENCIA (INST-MUN-instituto-municipal-para-el-de-0ed32c58)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-municipal-para-el-de-0ed32c58';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO MUNICIPAL PARA EL DEPORTE Y LA RECREACIÓN DE FLORENCIA',
+      'Secretario: JUAN MIGUEL VARGAS GARCIA. Ente municipal/distrital de deporte. FLORENCIA.',
+      'institute',
+      'FLORENCIA',
+      NULL,
+      '+57 (8) 4351547',
+      'seculdeporte@florencia-caqueta.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-municipal-para-el-deporte-y-la-recreacion-de-flore-a967a410',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-municipal-para-el-de-0ed32c58', v_school_id, '{"kind": "instituto", "acronym": "INSTITUTO MUNICIPAL PARA EL DEPORTE Y LA RECREACIÓN DE FLORENCIA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Secretario: JUAN MIGUEL VARGAS GARCIA. Ente municipal/distrital de deporte. FLORENCIA.', description),
+      phone       = COALESCE('+57 (8) 4351547', phone),
+      email       = COALESCE('seculdeporte@florencia-caqueta.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'FLORENCIA',
+         '+57 (8) 4351547', 1.6158666, -75.6143045, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARIA DE DEPORTES Y RECREACION DE NEIVA (INST-MUN-secretaria-de-deportes-y-recre-0ce4442c)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-de-deportes-y-recre-0ce4442c';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARIA DE DEPORTES Y RECREACION DE NEIVA',
+      'SECRETARIO: JUAN CAMILO MUÑOZ LOSADA. Ente municipal/distrital de deporte. NEIVA.',
+      'institute',
+      'NEIVA',
+      NULL,
+      '+57 (8) 8755046',
+      'secretariadeportesyrecreacion@alcaldianeiva.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-de-deportes-y-recreacion-de-neiva-ba988c53',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-de-deportes-y-recre-0ce4442c', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIO: JUAN CAMILO MUÑOZ LOSADA. Ente municipal/distrital de deporte. NEIVA.', description),
+      phone       = COALESCE('+57 (8) 8755046', phone),
+      email       = COALESCE('secretariadeportesyrecreacion@alcaldianeiva.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'NEIVA',
+         '+57 (8) 8755046', 2.9257038, -75.2893937, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARÍA DE EDUCACIÓN, CULTURA Y DEPORTES MUNICIPAL DE MOCOA (INST-MUN-secretaria-de-educacion-cultur-2172cfd2)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-de-educacion-cultur-2172cfd2';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARÍA DE EDUCACIÓN, CULTURA Y DEPORTES MUNICIPAL DE MOCOA',
+      'SECRETARIO: MARIA FERNANDA ALVAREZ LUNA. Ente municipal/distrital de deporte. MOCOA.',
+      'institute',
+      'MOCOA',
+      NULL,
+      '+57 (8) 4204676',
+      'educacion@mocoa-putumayo.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-de-educacion-cultura-y-deportes-municipal-de-moco-cff91d03',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-de-educacion-cultur-2172cfd2', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIO: MARIA FERNANDA ALVAREZ LUNA. Ente municipal/distrital de deporte. MOCOA.', description),
+      phone       = COALESCE('+57 (8) 4204676', phone),
+      email       = COALESCE('educacion@mocoa-putumayo.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'MOCOA',
+         '+57 (8) 4204676', 1.1466295, -76.6482327, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARIA DE EDUCACIÓN, CULTURA, DEPORTE Y RECREACIÓN (INST-MUN-secretaria-de-educacion-cultur-87a516fa)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-de-educacion-cultur-87a516fa';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARIA DE EDUCACIÓN, CULTURA, DEPORTE Y RECREACIÓN',
+      'SECRETARIO: AQUILINO ENRIQUE ESCOBAR CERRANO. Ente municipal/distrital de deporte. ARAUCA CAPITAL.',
+      'institute',
+      'ARAUCA CAPITAL',
+      NULL,
+      'NO REGISTRA',
+      'unideportes@arauca-arauca.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-de-educacion-cultura-deporte-y-recreacion-2a707346',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-de-educacion-cultur-87a516fa', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIO: AQUILINO ENRIQUE ESCOBAR CERRANO. Ente municipal/distrital de deporte. ARAUCA CAPITAL.', description),
+      phone       = COALESCE('NO REGISTRA', phone),
+      email       = COALESCE('unideportes@arauca-arauca.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- INSTITUTO MUNICIPAL PARA LA RECREACIÓN Y EL DEPORTE DE SAN JOSE DEL GUAVIARE (INST-MUN-instituto-municipal-para-la-re-7b281c47)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-municipal-para-la-re-7b281c47';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO MUNICIPAL PARA LA RECREACIÓN Y EL DEPORTE DE SAN JOSE DEL GUAVIARE',
+      'DIRECTOR: JHON ALEXANDER NIETO. Ente municipal/distrital de deporte. SAN JOSE DEL GUAVIARE.',
+      'institute',
+      'SAN JOSE DEL GUAVIARE',
+      NULL,
+      '+57 (8) 5840226',
+      'imdes@sanjosedelguaviare-guaviare.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-municipal-para-la-recreacion-y-el-deporte-de-san-j-81c2b62e',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-municipal-para-la-re-7b281c47', v_school_id, '{"kind": "instituto", "acronym": "IMDES", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: JHON ALEXANDER NIETO. Ente municipal/distrital de deporte. SAN JOSE DEL GUAVIARE.', description),
+      phone       = COALESCE('+57 (8) 5840226', phone),
+      email       = COALESCE('imdes@sanjosedelguaviare-guaviare.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'SAN JOSE DEL GUAVIARE',
+         '+57 (8) 5840226', 2.5716141, -72.6426515, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO MUNICIPAL DE DEPORTE Y RECREACIÓN DE MEDELLÍN (INST-MUN-instituto-municipal-de-deporte-19fe69fb)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-municipal-de-deporte-19fe69fb';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO MUNICIPAL DE DEPORTE Y RECREACIÓN DE MEDELLÍN',
+      'DIRECTOR: EDUARDO SILVA MELUK. Ente municipal/distrital de deporte. MEDELLIN.',
+      'institute',
+      'MEDELLIN',
+      NULL,
+      '+57 (604) 3699000',
+      'eduardo.silva@inder.gov.co atencion.ciudadano@inder.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-municipal-de-deporte-y-recreacion-de-medellin-b3e42a77',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-municipal-de-deporte-19fe69fb', v_school_id, '{"kind": "instituto", "acronym": "INDER MEDELLÍN", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: EDUARDO SILVA MELUK. Ente municipal/distrital de deporte. MEDELLIN.', description),
+      phone       = COALESCE('+57 (604) 3699000', phone),
+      email       = COALESCE('eduardo.silva@inder.gov.co atencion.ciudadano@inder.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'MEDELLIN',
+         '+57 (604) 3699000', 6.2697324, -75.6025597, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARIA DE DEPORTE DE MANIZALES (INST-MUN-secretaria-de-deporte-de-maniz-0a014e06)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-de-deporte-de-maniz-0a014e06';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARIA DE DEPORTE DE MANIZALES',
+      'SECRETARIO: DIEGO FERNANDO ESPINOSA BEJUMEA. Ente municipal/distrital de deporte. MANIZALES.',
+      'institute',
+      'MANIZALES',
+      NULL,
+      '+57 (606) 8879700',
+      'diego.espinosa@manizales.gov.co contacto@manizales.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-de-deporte-de-manizales-1fb2a95f',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-de-deporte-de-maniz-0a014e06', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIO: DIEGO FERNANDO ESPINOSA BEJUMEA. Ente municipal/distrital de deporte. MANIZALES.', description),
+      phone       = COALESCE('+57 (606) 8879700', phone),
+      email       = COALESCE('diego.espinosa@manizales.gov.co contacto@manizales.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'MANIZALES',
+         '+57 (606) 8879700', 5.0743694, -75.5081167, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARÍA DEL DEPORTE Y LA RECREACIÓN DE SANTIAGO DE CALI (INST-MUN-secretaria-del-deporte-y-la-re-b41c8006)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-del-deporte-y-la-re-b41c8006';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARÍA DEL DEPORTE Y LA RECREACIÓN DE SANTIAGO DE CALI',
+      'SECRETARIO DE DEPORTES Y RECREACIÓN: ALEXANDER CAMACHO ERAZO. Ente municipal/distrital de deporte. CALI.',
+      'institute',
+      'CALI',
+      NULL,
+      '+57 (602) 5141190',
+      'alexander.camacho@cali.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-del-deporte-y-la-recreacion-de-santiago-de-cali-dafbf6f1',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-del-deporte-y-la-re-b41c8006', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIO DE DEPORTES Y RECREACIÓN: ALEXANDER CAMACHO ERAZO. Ente municipal/distrital de deporte. CALI.', description),
+      phone       = COALESCE('+57 (602) 5141190', phone),
+      email       = COALESCE('alexander.camacho@cali.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'CALI',
+         '+57 (602) 5141190', 3.4108435, -76.5812127, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARIA DE DEPORTES Y RECREACILÓN DE QUIBDÓ (INST-MUN-secretaria-de-deportes-y-recre-df3a9139)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-de-deportes-y-recre-df3a9139';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARIA DE DEPORTES Y RECREACILÓN DE QUIBDÓ',
+      'SECRETARIO: PEDRO JOSE MOSQUERA AGUALIMPIA. Ente municipal/distrital de deporte. QUIBDÓ.',
+      'institute',
+      'QUIBDÓ',
+      NULL,
+      'NO REGISTRA',
+      'deporte@quibdo-choco.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-de-deportes-y-recreacilon-de-quibdo-1d8e62f2',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-de-deportes-y-recre-df3a9139', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIO: PEDRO JOSE MOSQUERA AGUALIMPIA. Ente municipal/distrital de deporte. QUIBDÓ.', description),
+      phone       = COALESCE('NO REGISTRA', phone),
+      email       = COALESCE('deporte@quibdo-choco.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'QUIBDÓ',
+         'NO REGISTRA', 5.6912838, -76.6531337, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- SECRETARIA DE DEPORTES Y RECREACION DE POPAYAN (INST-MUN-secretaria-de-deportes-y-recre-5924d006)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-secretaria-de-deportes-y-recre-5924d006';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'SECRETARIA DE DEPORTES Y RECREACION DE POPAYAN',
+      'SECRETARIO: JESÚS MAURICIO MARTÍNEZ SOLANO. Ente municipal/distrital de deporte. POPAYAN.',
+      'institute',
+      'POPAYAN',
+      NULL,
+      '+57 3214965013',
+      'oficinadeportes@popayan.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'secretaria-de-deportes-y-recreacion-de-popayan-1d35af63',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-secretaria-de-deportes-y-recre-5924d006', v_school_id, '{"kind": "instituto", "acronym": "NO REGISTRA", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('SECRETARIO: JESÚS MAURICIO MARTÍNEZ SOLANO. Ente municipal/distrital de deporte. POPAYAN.', description),
+      phone       = COALESCE('+57 3214965013', phone),
+      email       = COALESCE('oficinadeportes@popayan.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'POPAYAN',
+         '+57 3214965013', 2.4431455, -76.5463299, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- INSTITUTO DE LA JUVENTUD, EL DEPORTE Y LA RECREACIÓN DE BUCARAMANGA (INST-MUN-instituto-de-la-juventud-el-de-a553a39c)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'INST-MUN-instituto-de-la-juventud-el-de-a553a39c';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'INSTITUTO DE LA JUVENTUD, EL DEPORTE Y LA RECREACIÓN DE BUCARAMANGA',
+      'DIRECTOR: LUIS GONZALO GÓMEZ GUERRERO. Ente municipal/distrital de deporte. BUCARAMANGA.',
+      'institute',
+      'BUCARAMANGA',
+      NULL,
+      '+57 (607) 6854594',
+      'ventanillaunica@inderbu.gov.co',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'instituto-de-la-juventud-el-deporte-y-la-recreacion-de-bucar-66d899fe',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'INST-MUN-instituto-de-la-juventud-el-de-a553a39c', v_school_id, '{"kind": "instituto", "acronym": "INDERBU", "level": "Municipal/Distrital"}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('DIRECTOR: LUIS GONZALO GÓMEZ GUERRERO. Ente municipal/distrital de deporte. BUCARAMANGA.', description),
+      phone       = COALESCE('+57 (607) 6854594', phone),
+      email       = COALESCE('ventanillaunica@inderbu.gov.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         NULL, 'BUCARAMANGA',
+         '+57 (607) 6854594', 7.1669842, -73.1047294, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Actividades Subacuaticas (FED-federacion-colombiana-de-actividades-sub-8e7dd9fa)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-actividades-sub-8e7dd9fa';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Actividades Subacuaticas',
+      'Federación deportiva colombiana. Representante: William Orlando Peña. NIT: 890315463 - 9.',
+      'federation',
+      'BOGOTA D.C.',
+      'Calle 45 No. 66 B - 15 Barrio Salitre Greco',
+      '7223495',
+      'fedecas.colombia@gmail.com',
+      ARRAY['Actividades Subacuaticas']::text[],
+      true, false,
+      'federacion-colombiana-de-actividades-subacuaticas-0c757f49',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-actividades-sub-8e7dd9fa', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: William Orlando Peña. NIT: 890315463 - 9.', description),
+      phone       = COALESCE('7223495', phone),
+      email       = COALESCE('fedecas.colombia@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 45 No. 66 B - 15 Barrio Salitre Greco', 'BOGOTA D.C.',
+         '7223495', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Ajedrez (FED-federacion-colombiana-de-ajedrez-2c55698b)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-ajedrez-2c55698b';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Ajedrez',
+      'Federación deportiva colombiana. Representante: Weymar Fernando Muñoz Muñoz. NIT: 860016595 - 0.',
+      'federation',
+      'Bogotá D.C',
+      'Transversal 21 BIS No. 60 - 35',
+      '7040063',
+      'fecodaz@gmail.com',
+      ARRAY['Ajedrez']::text[],
+      true, false,
+      'federacion-colombiana-de-ajedrez-af434c07',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-ajedrez-2c55698b', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Weymar Fernando Muñoz Muñoz. NIT: 860016595 - 0.', description),
+      phone       = COALESCE('7040063', phone),
+      email       = COALESCE('fecodaz@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Transversal 21 BIS No. 60 - 35', 'Bogotá D.C',
+         '7040063', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion De Arqueros De Colombia (FED-federacion-de-arqueros-de-colombia-c0a87dd2)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-de-arqueros-de-colombia-c0a87dd2';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion De Arqueros De Colombia',
+      'Federación deportiva colombiana. Representante: Maria Emma Gaviria Piedrahita. NIT: 811030815 - 6.',
+      'federation',
+      'Medellín',
+      'Carrera 66 B No. 31 A 15 Unidad Deportiva de Belén',
+      '2659510',
+      'fedearco@gmail.com',
+      ARRAY['Arqueros De Colombia']::text[],
+      true, false,
+      'federacion-de-arqueros-de-colombia-d7cef5b1',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-de-arqueros-de-colombia-c0a87dd2', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Maria Emma Gaviria Piedrahita. NIT: 811030815 - 6.', description),
+      phone       = COALESCE('2659510', phone),
+      email       = COALESCE('fedearco@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 66 B No. 31 A 15 Unidad Deportiva de Belén', 'Medellín',
+         '2659510', 6.2697324, -75.6025597, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Atletismo (FED-federacion-colombiana-de-atletismo-c389cd62)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-atletismo-c389cd62';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Atletismo',
+      'Federación deportiva colombiana. Representante: Felix Enrique Marrugo Torres. NIT: 860075776 - 9.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 66 A No. 42 - 34 Salitre El Greco',
+      '3843027',
+      'fedeatletismo@fecodatle.com',
+      ARRAY['Atletismo']::text[],
+      true, false,
+      'federacion-colombiana-de-atletismo-809b2cdd',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-atletismo-c389cd62', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Felix Enrique Marrugo Torres. NIT: 860075776 - 9.', description),
+      phone       = COALESCE('3843027', phone),
+      email       = COALESCE('fedeatletismo@fecodatle.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 66 A No. 42 - 34 Salitre El Greco', 'Bogotá D.C',
+         '3843027', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Automovilismo Deportivo (FED-federacion-colombiana-de-automovilismo-d-baeb1c4d)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-automovilismo-d-baeb1c4d';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Automovilismo Deportivo',
+      'Federación deportiva colombiana. Representante: Francisco Lazaro Soto Gonzalez. NIT: 860047439 - 2.',
+      'federation',
+      'Bogotá D.C',
+      'Calle 121 No. 7A-65 Barrio Santa Bárbara Oriental',
+      '6194162',
+      'deportivo@fedeautos.com.co',
+      ARRAY['Automovilismo Deportivo']::text[],
+      true, false,
+      'federacion-colombiana-de-automovilismo-deportivo-18eaf980',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-automovilismo-d-baeb1c4d', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Francisco Lazaro Soto Gonzalez. NIT: 860047439 - 2.', description),
+      phone       = COALESCE('6194162', phone),
+      email       = COALESCE('deportivo@fedeautos.com.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 121 No. 7A-65 Barrio Santa Bárbara Oriental', 'Bogotá D.C',
+         '6194162', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Badminton (FED-federacion-colombiana-de-badminton-8a3849db)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-badminton-8a3849db';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Badminton',
+      'Federación deportiva colombiana. Representante: Jose Gustavo Aleman Olarte. NIT: 900094889 - 8.',
+      'federation',
+      'Bogotá D.C',
+      'Transversal 21 Bis No. 60-35 Barrio San Luis',
+      '3106669210',
+      'badmintoncolombia@gmail.com',
+      ARRAY['Badminton']::text[],
+      true, false,
+      'federacion-colombiana-de-badminton-b7ede6b9',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-badminton-8a3849db', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Jose Gustavo Aleman Olarte. NIT: 900094889 - 8.', description),
+      phone       = COALESCE('3106669210', phone),
+      email       = COALESCE('badmintoncolombia@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Transversal 21 Bis No. 60-35 Barrio San Luis', 'Bogotá D.C',
+         '3106669210', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Danza Y Baile Deportivo (FED-federacion-colombiana-de-danza-y-baile-d-eaa987da)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-danza-y-baile-d-eaa987da';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Danza Y Baile Deportivo',
+      'Federación deportiva colombiana. Representante: Gloria Viviana Burbano Hernandez. NIT: 900856525 - 3.',
+      'federation',
+      'Cali',
+      'Estadio Olímpico Pascual Guerrero, Mezanine – Entrada Maratón Sur',
+      '3166174942',
+      'fedecolbaile@gmail.com',
+      ARRAY['Danza Y Baile Deportivo']::text[],
+      true, false,
+      'federacion-colombiana-de-danza-y-baile-deportivo-8b2e6951',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-danza-y-baile-d-eaa987da', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Gloria Viviana Burbano Hernandez. NIT: 900856525 - 3.', description),
+      phone       = COALESCE('3166174942', phone),
+      email       = COALESCE('fedecolbaile@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Estadio Olímpico Pascual Guerrero, Mezanine – Entrada Maratón Sur', 'Cali',
+         '3166174942', 3.4108435, -76.5812127, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Baloncesto (FED-federacion-colombiana-de-baloncesto-458b1585)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-baloncesto-458b1585';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Baloncesto',
+      'Federación deportiva colombiana. Representante: John Mario Tejada Cadavid. NIT: 860038199 - 1.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 16 No. 37-20 Barrio Teusaquillo',
+      '3023766365',
+      'fecolcesto@hotmail.com',
+      ARRAY['Baloncesto']::text[],
+      true, false,
+      'federacion-colombiana-de-baloncesto-22c85caa',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-baloncesto-458b1585', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: John Mario Tejada Cadavid. NIT: 860038199 - 1.', description),
+      phone       = COALESCE('3023766365', phone),
+      email       = COALESCE('fecolcesto@hotmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 16 No. 37-20 Barrio Teusaquillo', 'Bogotá D.C',
+         '3023766365', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Balonmano (FED-federacion-colombiana-de-balonmano-f60d64fe)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-balonmano-f60d64fe';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Balonmano',
+      'Federación deportiva colombiana. Representante: Pedro Jose Martinez Puerto. NIT: 900359754 - 1.',
+      'federation',
+      'Cali',
+      'Carrera 36 No. 5B 3 - 62 Piso No. 2 - Oficina 201 Barrio San Fernando',
+      '3154751683',
+      'federacioncolombiabalonmano@gmail.com',
+      ARRAY['Balonmano']::text[],
+      true, false,
+      'federacion-colombiana-de-balonmano-f1b4edac',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-balonmano-f60d64fe', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Pedro Jose Martinez Puerto. NIT: 900359754 - 1.', description),
+      phone       = COALESCE('3154751683', phone),
+      email       = COALESCE('federacioncolombiabalonmano@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 36 No. 5B 3 - 62 Piso No. 2 - Oficina 201 Barrio San Fernando', 'Cali',
+         '3154751683', 3.4108435, -76.5812127, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Beisbol (FED-federacion-colombiana-de-beisbol-9872e211)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-beisbol-9872e211';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Beisbol',
+      'Federación deportiva colombiana. Representante: Mauricio Farid Char Yidi. NIT: 890480480 - 1.',
+      'federation',
+      'Cartagena',
+      'La Matuna, Edificio Concasa Oficina 404',
+      '6785659',
+      'b.col@wbsc.org',
+      ARRAY['Beisbol']::text[],
+      true, false,
+      'federacion-colombiana-de-beisbol-a0d87a85',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-beisbol-9872e211', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Mauricio Farid Char Yidi. NIT: 890480480 - 1.', description),
+      phone       = COALESCE('6785659', phone),
+      email       = COALESCE('b.col@wbsc.org', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'La Matuna, Edificio Concasa Oficina 404', 'Cartagena',
+         '6785659', 10.4265566, -75.5441671, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Billar (FED-federacion-colombiana-de-billar-a3d2e99c)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-billar-a3d2e99c';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Billar',
+      'Federación deportiva colombiana. Representante: Carolina Portela Contreras. NIT: 860061869 - 4.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 28 A No. 39 A 30 Barrio Teusaquillo',
+      '2068904',
+      'fcbillar@hotmail.com',
+      ARRAY['Billar']::text[],
+      true, false,
+      'federacion-colombiana-de-billar-2098de17',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-billar-a3d2e99c', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Carolina Portela Contreras. NIT: 860061869 - 4.', description),
+      phone       = COALESCE('2068904', phone),
+      email       = COALESCE('fcbillar@hotmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 28 A No. 39 A 30 Barrio Teusaquillo', 'Bogotá D.C',
+         '2068904', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Bowling (FED-federacion-colombiana-de-bowling-2269d6e9)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-bowling-2269d6e9';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Bowling',
+      'Federación deportiva colombiana. Representante: Diana Milena Ramírez Aruajo. NIT: 860533073 - 5.',
+      'federation',
+      'BOGOTA D.C.',
+      'Avenida Calle 63 No. 68 - 99 segundo piso -Unidad Deportiva el Salitre.',
+      '2501525',
+      'fedecobol@hotmail.com',
+      ARRAY['Bowling']::text[],
+      true, false,
+      'federacion-colombiana-de-bowling-d3cddd2a',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-bowling-2269d6e9', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Diana Milena Ramírez Aruajo. NIT: 860533073 - 5.', description),
+      phone       = COALESCE('2501525', phone),
+      email       = COALESCE('fedecobol@hotmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Avenida Calle 63 No. 68 - 99 segundo piso -Unidad Deportiva el Salitre.', 'BOGOTA D.C.',
+         '2501525', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Boxeo (FED-federacion-colombiana-de-boxeo-3f115054)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-boxeo-3f115054';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Boxeo',
+      'Federación deportiva colombiana. Representante: Alberto Jose Torres Martinez. NIT: 800231411 - 7.',
+      'federation',
+      'Cartagena',
+      'Paseo Bolívar Carrera 17 Casa del Deporte Gimnasio Centro Alto Rendimiento Boxeo Cartagena; Carrera 38 No. 52-52 Edificio JT Oficina 1',
+      '3002077468',
+      'fecolbox@gmail.com',
+      ARRAY['Boxeo']::text[],
+      true, false,
+      'federacion-colombiana-de-boxeo-d5753c60',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-boxeo-3f115054', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Alberto Jose Torres Martinez. NIT: 800231411 - 7.', description),
+      phone       = COALESCE('3002077468', phone),
+      email       = COALESCE('fecolbox@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Paseo Bolívar Carrera 17 Casa del Deporte Gimnasio Centro Alto Rendimiento Boxeo Cartagena; Carrera 38 No. 52-52 Edificio JT Oficina 1', 'Cartagena',
+         '3002077468', 10.4265566, -75.5441671, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Bridge (FED-federacion-colombiana-de-bridge-0448cbbe)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-bridge-0448cbbe';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Bridge',
+      'Federación deportiva colombiana. Representante: Elsa Ramirez De Castillo. NIT: .',
+      'federation',
+      'Colombia',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Bridge']::text[],
+      true, false,
+      'federacion-colombiana-de-bridge-37a4197f',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-bridge-0448cbbe', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Elsa Ramirez De Castillo. NIT: .', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Federacion Colombiana De Canotaje (FED-federacion-colombiana-de-canotaje-2c871c69)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-canotaje-2c871c69';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Canotaje',
+      'Federación deportiva colombiana. Representante: Juan Cristobal Mojica Lopez. NIT: 830083646 - 4.',
+      'federation',
+      'Bogotá D.C',
+      'Transversal 21 Bis No. 60-35 Barrio San Luis',
+      NULL,
+      'canotajecolombia20@gmail.com',
+      ARRAY['Canotaje']::text[],
+      true, false,
+      'federacion-colombiana-de-canotaje-ca0ccf7e',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-canotaje-2c871c69', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Juan Cristobal Mojica Lopez. NIT: 830083646 - 4.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE('canotajecolombia20@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Transversal 21 Bis No. 60-35 Barrio San Luis', 'Bogotá D.C',
+         NULL, 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Ciclismo (FED-federacion-colombiana-de-ciclismo-f72088c8)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-ciclismo-f72088c8';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Ciclismo',
+      'Federación deportiva colombiana. Representante: Rubén Darío Galeano Berdugo. NIT: 860020863 - 5.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 46 No. 60-80 Barrio Nicolás de Federmán',
+      '2210607',
+      'secretario@federacioncolombianadeciclismo.com',
+      ARRAY['Ciclismo']::text[],
+      true, false,
+      'federacion-colombiana-de-ciclismo-3af02e8f',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-ciclismo-f72088c8', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Rubén Darío Galeano Berdugo. NIT: 860020863 - 5.', description),
+      phone       = COALESCE('2210607', phone),
+      email       = COALESCE('secretario@federacioncolombianadeciclismo.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 46 No. 60-80 Barrio Nicolás de Federmán', 'Bogotá D.C',
+         '2210607', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Coleo (FED-federacion-colombiana-de-coleo-14898339)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-coleo-14898339';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Coleo',
+      'Federación deportiva colombiana. Representante: Juan Efrain Oropeza Cuevas. NIT: 822003697 - 9.',
+      'federation',
+      'Villavicencio',
+      'Calle 41 A No. 26-27 Barrio La Grama',
+      '3134674020',
+      'fedecoleo@hotmail.com',
+      ARRAY['Coleo']::text[],
+      true, false,
+      'federacion-colombiana-de-coleo-fe43b0d1',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-coleo-14898339', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Juan Efrain Oropeza Cuevas. NIT: 822003697 - 9.', description),
+      phone       = COALESCE('3134674020', phone),
+      email       = COALESCE('fedecoleo@hotmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 41 A No. 26-27 Barrio La Grama', 'Villavicencio',
+         '3134674020', 4.1114595, -73.4967836, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Deportes Aereos (FED-federacion-colombiana-de-deportes-aereos-7211450c)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-deportes-aereos-7211450c';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Deportes Aereos',
+      'Federación deportiva colombiana. Representante: Hector Jairo Arboleda Suarez. NIT: 830066529 - 9.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 26 Nro. 72 - 73 – Oficina 301',
+      '3148660361',
+      'fedeasistente@gmail.com',
+      ARRAY['Deportes Aereos']::text[],
+      true, false,
+      'federacion-colombiana-de-deportes-aereos-a003034a',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-deportes-aereos-7211450c', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Hector Jairo Arboleda Suarez. NIT: 830066529 - 9.', description),
+      phone       = COALESCE('3148660361', phone),
+      email       = COALESCE('fedeasistente@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 26 Nro. 72 - 73 – Oficina 301', 'Bogotá D.C',
+         '3148660361', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Disco Volador (FED-federacion-colombiana-de-disco-volador-41d732f4)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-disco-volador-41d732f4';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Disco Volador',
+      'Federación deportiva colombiana. Representante: Ana Rosa Rodriguez Hernandez. NIT: 901154209 - 1.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 66 A No. 42-34 2o. Piso Barrios Unidos',
+      '3108040843',
+      'fecodv@gmail.com',
+      ARRAY['Disco Volador']::text[],
+      true, false,
+      'federacion-colombiana-de-disco-volador-6e6215df',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-disco-volador-41d732f4', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Ana Rosa Rodriguez Hernandez. NIT: 901154209 - 1.', description),
+      phone       = COALESCE('3108040843', phone),
+      email       = COALESCE('fecodv@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 66 A No. 42-34 2o. Piso Barrios Unidos', 'Bogotá D.C',
+         '3108040843', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Fuerzas Armadas (FED-fuerzas-armadas-2ed50e17)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-fuerzas-armadas-2ed50e17';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Fuerzas Armadas',
+      'Federación deportiva colombiana. Representante: Mario Enrique Vargas Camacho. NIT: No Aplica.',
+      'federation',
+      'Colombia',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'fuerzas-armadas-512c3b7b',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-fuerzas-armadas-2ed50e17', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Mario Enrique Vargas Camacho. NIT: No Aplica.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Federacion Ecuestre De Colombia (FED-federacion-ecuestre-de-colombia-a1f3645c)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-ecuestre-de-colombia-a1f3645c';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Ecuestre De Colombia',
+      'Federación deportiva colombiana. Representante: Mauricio Bermudez Acuña. NIT: 860025991 - 2.',
+      'federation',
+      'BOGOTA D.C.',
+      'Calle 98 No. 21-36 Oficina 602',
+      '6181276',
+      'info@fedecuestre.com',
+      ARRAY['Ecuestre De Colombia']::text[],
+      true, false,
+      'federacion-ecuestre-de-colombia-e99dd0a7',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-ecuestre-de-colombia-a1f3645c', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Mauricio Bermudez Acuña. NIT: 860025991 - 2.', description),
+      phone       = COALESCE('6181276', phone),
+      email       = COALESCE('info@fedecuestre.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 98 No. 21-36 Oficina 602', 'BOGOTA D.C.',
+         '6181276', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Escalada Deportiva (FED-federacion-colombiana-de-escalada-deport-54cf7397)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-escalada-deport-54cf7397';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Escalada Deportiva',
+      'Federación deportiva colombiana. Representante: Helia Lizette Manrique Piramanrique. NIT: 900645499 - 4.',
+      'federation',
+      'Bogotá D.C',
+      'Cra 21 No 50-34',
+      '3052655345',
+      'federacioncolombianaescalada@gmail.com',
+      ARRAY['Escalada Deportiva']::text[],
+      true, false,
+      'federacion-colombiana-de-escalada-deportiva-4f7c87bf',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-escalada-deport-54cf7397', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Helia Lizette Manrique Piramanrique. NIT: 900645499 - 4.', description),
+      phone       = COALESCE('3052655345', phone),
+      email       = COALESCE('federacioncolombianaescalada@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Cra 21 No 50-34', 'Bogotá D.C',
+         '3052655345', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Esgrima (FED-federacion-colombiana-de-esgrima-a64428c1)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-esgrima-a64428c1';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Esgrima',
+      'Federación deportiva colombiana. Representante: William Eulogio Gonzáles Taborda. NIT: 830016532 - 8.',
+      'federation',
+      'Bogotá D.C',
+      'Diagonal 35 Bis No. 19-31 Piso 4º.- Park Way',
+      '3230301',
+      'fcesgrimacol@gmail.com',
+      ARRAY['Esgrima']::text[],
+      true, false,
+      'federacion-colombiana-de-esgrima-f4112b38',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-esgrima-a64428c1', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: William Eulogio Gonzáles Taborda. NIT: 830016532 - 8.', description),
+      phone       = COALESCE('3230301', phone),
+      email       = COALESCE('fcesgrimacol@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Diagonal 35 Bis No. 19-31 Piso 4º.- Park Way', 'Bogotá D.C',
+         '3230301', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Esqui Nautico Y Wakeboard (FED-federacion-colombiana-de-esqui-nautico-y-55291dca)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-esqui-nautico-y-55291dca';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Esqui Nautico Y Wakeboard',
+      'Federación deportiva colombiana. Representante: Juan Carlos Osorio Turbay. NIT: 860503520 - 8.',
+      'federation',
+      'Bogotá D.C',
+      'Calle 45 No. 66 B 15 Edificio de las Federaciones',
+      '3133665582',
+      'info@fedesqui.com.co',
+      ARRAY['Esqui Nautico Y Wakeboard']::text[],
+      true, false,
+      'federacion-colombiana-de-esqui-nautico-y-wakeboard-9f875dd6',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-esqui-nautico-y-55291dca', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Juan Carlos Osorio Turbay. NIT: 860503520 - 8.', description),
+      phone       = COALESCE('3133665582', phone),
+      email       = COALESCE('info@fedesqui.com.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 45 No. 66 B 15 Edificio de las Federaciones', 'Bogotá D.C',
+         '3133665582', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Fisicoculturismo (FED-federacion-colombiana-de-fisicoculturism-8021213a)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-fisicoculturism-8021213a';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Fisicoculturismo',
+      'Federación deportiva colombiana. Representante: Carlos Gregorio Cifuentes Garcia. NIT: 900134600 - 1.',
+      'federation',
+      'PALMIRA',
+      'Calle 12 C No. 24 A - 119',
+      '3013186010',
+      'fedefisicoifbb@gmail.com',
+      ARRAY['Fisicoculturismo']::text[],
+      true, false,
+      'federacion-colombiana-de-fisicoculturismo-c9e44a1e',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-fisicoculturism-8021213a', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Carlos Gregorio Cifuentes Garcia. NIT: 900134600 - 1.', description),
+      phone       = COALESCE('3013186010', phone),
+      email       = COALESCE('fedefisicoifbb@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 12 C No. 24 A - 119', 'PALMIRA',
+         '3013186010', 3.5308373, -76.2988048, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Futbol (FED-federacion-colombiana-de-futbol-2791eb52)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-futbol-2791eb52';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Futbol',
+      'Federación deportiva colombiana. Representante: Ramon De Jesus Jesurun Franco. NIT: 860033879 - 9.',
+      'federation',
+      'BOGOTA D.C.',
+      'Carrera 45 A No. 94-06',
+      '5185501',
+      'info@fcf.com.co',
+      ARRAY['Futbol']::text[],
+      true, false,
+      'federacion-colombiana-de-futbol-37e3b8e1',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-futbol-2791eb52', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Ramon De Jesus Jesurun Franco. NIT: 860033879 - 9.', description),
+      phone       = COALESCE('5185501', phone),
+      email       = COALESCE('info@fcf.com.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 45 A No. 94-06', 'BOGOTA D.C.',
+         '5185501', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Futbol De Salon (FED-federacion-colombiana-de-futbol-de-salon-625751de)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-futbol-de-salon-625751de';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Futbol De Salon',
+      'Federación deportiva colombiana. Representante: Cristobal Estupiñan Garcia. NIT: 860052688 - 1.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 26 A No. 61C - 07 Barrio El Campín',
+      NULL,
+      'fecolfutsal@gmail.com',
+      ARRAY['Futbol De Salon']::text[],
+      true, false,
+      'federacion-colombiana-de-futbol-de-salon-1ef50415',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-futbol-de-salon-625751de', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Cristobal Estupiñan Garcia. NIT: 860052688 - 1.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE('fecolfutsal@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 26 A No. 61C - 07 Barrio El Campín', 'Bogotá D.C',
+         NULL, 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Gimnasia (FED-federacion-colombiana-de-gimnasia-5eae12ed)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-gimnasia-5eae12ed';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Gimnasia',
+      'Federación deportiva colombiana. Representante: Samir Portillo Diaz. NIT: 860535259 - 7.',
+      'federation',
+      'Bogotá D.C',
+      'Transversal 21 Bis No. 60-35 Barrio San Luis',
+      '3103433090',
+      'fedecolg@yahoo.com',
+      ARRAY['Gimnasia']::text[],
+      true, false,
+      'federacion-colombiana-de-gimnasia-cb53476c',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-gimnasia-5eae12ed', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Samir Portillo Diaz. NIT: 860535259 - 7.', description),
+      phone       = COALESCE('3103433090', phone),
+      email       = COALESCE('fedecolg@yahoo.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Transversal 21 Bis No. 60-35 Barrio San Luis', 'Bogotá D.C',
+         '3103433090', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Golf (FED-federacion-colombiana-de-golf-50753f5e)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-golf-50753f5e';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Golf',
+      'Federación deportiva colombiana. Representante: Fabio Javier Villamizar Zurek. NIT: 860006815 - 3.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 7 No. 72 – 64 Interior 26',
+      '3107664',
+      'fedegolf@federacioncolombianadegolf.com',
+      ARRAY['Golf']::text[],
+      true, false,
+      'federacion-colombiana-de-golf-f3ea4409',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-golf-50753f5e', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Fabio Javier Villamizar Zurek. NIT: 860006815 - 3.', description),
+      phone       = COALESCE('3107664', phone),
+      email       = COALESCE('fedegolf@federacioncolombianadegolf.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 7 No. 72 – 64 Interior 26', 'Bogotá D.C',
+         '3107664', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Hapkido (FED-federacion-colombiana-de-hapkido-e3aec579)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-hapkido-e3aec579';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Hapkido',
+      'Federación deportiva colombiana. Representante: Nathalia Saray Carreño Gomez. NIT: 801005111 - 8.',
+      'federation',
+      'ARMENIA',
+      'Coliseo del Café, Calle 3N Carrera 19, Planta baja local 1',
+      '3176797393',
+      'fedecolhap.presidente@gmail.com',
+      ARRAY['Hapkido']::text[],
+      true, false,
+      'federacion-colombiana-de-hapkido-1d412cf5',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-hapkido-e3aec579', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Nathalia Saray Carreño Gomez. NIT: 801005111 - 8.', description),
+      phone       = COALESCE('3176797393', phone),
+      email       = COALESCE('fedecolhap.presidente@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Coliseo del Café, Calle 3N Carrera 19, Planta baja local 1', 'ARMENIA',
+         '3176797393', 4.4919894, -75.7413961, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Hockey Sobre Cesped (FED-federacion-colombiana-de-hockey-sobre-ce-d3fe3291)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-hockey-sobre-ce-d3fe3291';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Hockey Sobre Cesped',
+      'Federación deportiva colombiana. Representante: Sin Representante Inscrito. NIT: 900965565 - 5.',
+      'federation',
+      'Bogotá D.C',
+      'No reporta',
+      '3168706454',
+      'colombiahockey@gmail.com',
+      ARRAY['Hockey Sobre Cesped']::text[],
+      true, false,
+      'federacion-colombiana-de-hockey-sobre-cesped-57b77c9e',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-hockey-sobre-ce-d3fe3291', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Sin Representante Inscrito. NIT: 900965565 - 5.', description),
+      phone       = COALESCE('3168706454', phone),
+      email       = COALESCE('colombiahockey@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'No reporta', 'Bogotá D.C',
+         '3168706454', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Hockeyh Sobre Hielo (FED-federacion-colombiana-de-hockeyh-sobre-h-287973eb)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-hockeyh-sobre-h-287973eb';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Hockeyh Sobre Hielo',
+      'Federación deportiva colombiana. Representante: Daniel Fierro Torres. NIT: 901321472 - 9.',
+      'federation',
+      'Bogotá D.C',
+      'Calle 145 A No. 19-34 Oficina 204',
+      '6484488',
+      'daniel@fedehockey.com',
+      ARRAY['Hockeyh Sobre Hielo']::text[],
+      true, false,
+      'federacion-colombiana-de-hockeyh-sobre-hielo-d6d6e313',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-hockeyh-sobre-h-287973eb', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Daniel Fierro Torres. NIT: 901321472 - 9.', description),
+      phone       = COALESCE('6484488', phone),
+      email       = COALESCE('daniel@fedehockey.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 145 A No. 19-34 Oficina 204', 'Bogotá D.C',
+         '6484488', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Jiujitsu (FED-federacion-colombiana-de-jiujitsu-d4074e43)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-jiujitsu-d4074e43';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Jiujitsu',
+      'Federación deportiva colombiana. Representante: John Edison Cajamarca Sarmiento. NIT: 900123386 - 0.',
+      'federation',
+      'Bogotá D.C',
+      'Diagonal 35 Bis No. 19-31 4º. Piso',
+      '4020581',
+      'jiujitsucolombia@hotmail.com',
+      ARRAY['Jiujitsu']::text[],
+      true, false,
+      'federacion-colombiana-de-jiujitsu-2cbaa711',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-jiujitsu-d4074e43', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: John Edison Cajamarca Sarmiento. NIT: 900123386 - 0.', description),
+      phone       = COALESCE('4020581', phone),
+      email       = COALESCE('jiujitsucolombia@hotmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Diagonal 35 Bis No. 19-31 4º. Piso', 'Bogotá D.C',
+         '4020581', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Judo (FED-federacion-colombiana-de-judo-3d6152f0)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-judo-3d6152f0';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Judo',
+      'Federación deportiva colombiana. Representante: Wilson Leonardo Figueroa Melo. NIT: 860532945 - 8.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 66 A No. 42 - 34 Salitre El Greco',
+      '3154015201',
+      'oficina@fecoljudo.org.co',
+      ARRAY['Judo']::text[],
+      true, false,
+      'federacion-colombiana-de-judo-413d3609',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-judo-3d6152f0', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Wilson Leonardo Figueroa Melo. NIT: 860532945 - 8.', description),
+      phone       = COALESCE('3154015201', phone),
+      email       = COALESCE('oficina@fecoljudo.org.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 66 A No. 42 - 34 Salitre El Greco', 'Bogotá D.C',
+         '3154015201', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Karate Do (FED-federacion-colombiana-de-karate-do-7ed62db2)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-karate-do-7ed62db2';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Karate Do',
+      'Federación deportiva colombiana. Representante: Nuvis Del Carmen Negrete Vega. NIT: 800101126 - 5.',
+      'federation',
+      'Bogotá D.C',
+      'Diagonal 35 Bis No. 19-31 Piso 4º',
+      '3380596',
+      'fckcolombiakarate@gmail.com',
+      ARRAY['Karate Do']::text[],
+      true, false,
+      'federacion-colombiana-de-karate-do-15bda130',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-karate-do-7ed62db2', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Nuvis Del Carmen Negrete Vega. NIT: 800101126 - 5.', description),
+      phone       = COALESCE('3380596', phone),
+      email       = COALESCE('fckcolombiakarate@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Diagonal 35 Bis No. 19-31 Piso 4º', 'Bogotá D.C',
+         '3380596', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Karts (FED-federacion-colombiana-de-karts-44f2f505)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-karts-44f2f505';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Karts',
+      'Federación deportiva colombiana. Representante: Jorge Humberto Cortes Bonilla. NIT: 860065896 - 1.',
+      'federation',
+      'Bogotá D.C',
+      'Calle 102 A No. 49 A 24',
+      '3112519719',
+      'fedekart2013@gmail.com',
+      ARRAY['Karts']::text[],
+      true, false,
+      'federacion-colombiana-de-karts-81f210f6',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-karts-44f2f505', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Jorge Humberto Cortes Bonilla. NIT: 860065896 - 1.', description),
+      phone       = COALESCE('3112519719', phone),
+      email       = COALESCE('fedekart2013@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 102 A No. 49 A 24', 'Bogotá D.C',
+         '3112519719', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Kick Boxing (FED-federacion-colombiana-de-kick-boxing-07c80bdf)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-kick-boxing-07c80bdf';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Kick Boxing',
+      'Federación deportiva colombiana. Representante: . NIT: .',
+      'federation',
+      'Colombia',
+      NULL,
+      NULL,
+      NULL,
+      ARRAY['Kick Boxing']::text[],
+      true, false,
+      'federacion-colombiana-de-kick-boxing-7350a334',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-kick-boxing-07c80bdf', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: . NIT: .', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+END $$;
+
+-- Federacion Colombiana De Levantamineto De Pesas (FED-federacion-colombiana-de-levantamineto-d-67ed95de)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-levantamineto-d-67ed95de';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Levantamineto De Pesas',
+      'Federación deportiva colombiana. Representante: William Guillermo Peña Rodriguez. NIT: 890480912 - 1.',
+      'federation',
+      'Cali',
+      'No reporta',
+      NULL,
+      'fedepesascolombia@gmail.com',
+      ARRAY['Levantamineto De Pesas']::text[],
+      true, false,
+      'federacion-colombiana-de-levantamineto-de-pesas-7b382399',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-levantamineto-d-67ed95de', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: William Guillermo Peña Rodriguez. NIT: 890480912 - 1.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE('fedepesascolombia@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'No reporta', 'Cali',
+         NULL, 3.4108435, -76.5812127, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Levantamiento De Potencia (FED-federacion-colombiana-de-levantamiento-d-3113027b)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-levantamiento-d-3113027b';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Levantamiento De Potencia',
+      'Federación deportiva colombiana. Representante: Alberto Diaz Hoyos. NIT: 901250556 - 3.',
+      'federation',
+      'Valledupar',
+      'Calle 11 Nº 19c-05 coliseo Julio Monsalvo Castilla',
+      '3195551079',
+      'potenciacolombia@hotmail.com',
+      ARRAY['Levantamiento De Potencia']::text[],
+      true, false,
+      'federacion-colombiana-de-levantamiento-de-potencia-e6787766',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-levantamiento-d-3113027b', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Alberto Diaz Hoyos. NIT: 901250556 - 3.', description),
+      phone       = COALESCE('3195551079', phone),
+      email       = COALESCE('potenciacolombia@hotmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 11 Nº 19c-05 coliseo Julio Monsalvo Castilla', 'Valledupar',
+         '3195551079', 10.4651733, -73.2529512, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Lucha (FED-federacion-colombiana-de-lucha-75d1daa4)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-lucha-75d1daa4';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Lucha',
+      'Federación deportiva colombiana. Representante: Fanny Margarita Echeverry Zuluaga. NIT: 890310137 - 1.',
+      'federation',
+      'Medellín',
+      'Calle 9B Sur No. 25-161',
+      '3147005889',
+      'fedeluchacol2@gmail.com',
+      ARRAY['Lucha']::text[],
+      true, false,
+      'federacion-colombiana-de-lucha-49f78ea6',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-lucha-75d1daa4', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Fanny Margarita Echeverry Zuluaga. NIT: 890310137 - 1.', description),
+      phone       = COALESCE('3147005889', phone),
+      email       = COALESCE('fedeluchacol2@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 9B Sur No. 25-161', 'Medellín',
+         '3147005889', 6.2007374, -75.5914761, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Motocicliso (FED-federacion-colombiana-de-motocicliso-0e334d03)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-motocicliso-0e334d03';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Motocicliso',
+      'Federación deportiva colombiana. Representante: Carlos Andres Ramirez Buitrago. NIT: 800176937 - 3.',
+      'federation',
+      'Bogotá D.C',
+      'Calle 45 No. 66 B-15 (Salitre El Greco)',
+      '2887081',
+      'fedemoto@fedemoto.org',
+      ARRAY['Motocicliso']::text[],
+      true, false,
+      'federacion-colombiana-de-motocicliso-661c9487',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-motocicliso-0e334d03', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Carlos Andres Ramirez Buitrago. NIT: 800176937 - 3.', description),
+      phone       = COALESCE('2887081', phone),
+      email       = COALESCE('fedemoto@fedemoto.org', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 45 No. 66 B-15 (Salitre El Greco)', 'Bogotá D.C',
+         '2887081', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Motonautica (FED-federacion-colombiana-de-motonautica-a076ee5c)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-motonautica-a076ee5c';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Motonautica',
+      'Federación deportiva colombiana. Representante: Victor Alonso Dominguez Alzate. NIT: 811022609 - 1.',
+      'federation',
+      'Bogotá D.C',
+      'Diagonal 35 Bis No. 19-31 Edificio de Federaciones',
+      '8615229',
+      'presidencia@federacioncolombianademotonautica.com',
+      ARRAY['Motonautica']::text[],
+      true, false,
+      'federacion-colombiana-de-motonautica-9530fc18',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-motonautica-a076ee5c', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Victor Alonso Dominguez Alzate. NIT: 811022609 - 1.', description),
+      phone       = COALESCE('8615229', phone),
+      email       = COALESCE('presidencia@federacioncolombianademotonautica.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Diagonal 35 Bis No. 19-31 Edificio de Federaciones', 'Bogotá D.C',
+         '8615229', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Natacion (FED-federacion-colombiana-de-natacion-46bbb870)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-natacion-46bbb870';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Natacion',
+      'Federación deportiva colombiana. Representante: Jorge Enrique Soto Roldan. NIT: 890308001 - 0.',
+      'federation',
+      'Cali',
+      'Calle 9 B No. 27-49 Barrio Champagñat',
+      '8890366',
+      'fecolnat@fecna.com.co',
+      ARRAY['Natacion']::text[],
+      true, false,
+      'federacion-colombiana-de-natacion-d8d5a9e1',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-natacion-46bbb870', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Jorge Enrique Soto Roldan. NIT: 890308001 - 0.', description),
+      phone       = COALESCE('8890366', phone),
+      email       = COALESCE('fecolnat@fecna.com.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 9 B No. 27-49 Barrio Champagñat', 'Cali',
+         '8890366', 3.4108435, -76.5812127, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Orientacion (FED-federacion-colombiana-de-orientacion-961734e5)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-orientacion-961734e5';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Orientacion',
+      'Federación deportiva colombiana. Representante: Jose Fernando Gomez Rueda. NIT: 804013044 - 7.',
+      'federation',
+      'Bogotá D.C',
+      'Casa de las Federaciones - Diagonal 36 Bis No. 19-31',
+      NULL,
+      'josefergr@hotmail.com',
+      ARRAY['Orientacion']::text[],
+      true, false,
+      'federacion-colombiana-de-orientacion-cbce466c',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-orientacion-961734e5', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Jose Fernando Gomez Rueda. NIT: 804013044 - 7.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE('josefergr@hotmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Casa de las Federaciones - Diagonal 36 Bis No. 19-31', 'Bogotá D.C',
+         NULL, 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Patinaje (FED-federacion-colombiana-de-patinaje-c3b749ee)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-patinaje-c3b749ee';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Patinaje',
+      'Federación deportiva colombiana. Representante: Alberto Herrera Ayala. NIT: 860077223 - 7.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 74 No. 25 F 10 Barrio Modelia',
+      '31689348916',
+      'info@fedepatin.org.co',
+      ARRAY['Patinaje']::text[],
+      true, false,
+      'federacion-colombiana-de-patinaje-715ec5fd',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-patinaje-c3b749ee', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Alberto Herrera Ayala. NIT: 860077223 - 7.', description),
+      phone       = COALESCE('31689348916', phone),
+      email       = COALESCE('info@fedepatin.org.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 74 No. 25 F 10 Barrio Modelia', 'Bogotá D.C',
+         '31689348916', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Porrismo (FED-federacion-colombiana-de-porrismo-9a69e4b5)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-porrismo-9a69e4b5';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Porrismo',
+      'Federación deportiva colombiana. Representante: Diana Maria Llano Castrillon. NIT: 901057369 - 6.',
+      'federation',
+      'Bogotá D.C',
+      'Calle 145 No. 13A-19, Edificio la Alborada, Apto 50',
+      '4451808',
+      'fedecolcheer@gmail.com',
+      ARRAY['Porrismo']::text[],
+      true, false,
+      'federacion-colombiana-de-porrismo-9062957f',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-porrismo-9a69e4b5', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Diana Maria Llano Castrillon. NIT: 901057369 - 6.', description),
+      phone       = COALESCE('4451808', phone),
+      email       = COALESCE('fedecolcheer@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 145 No. 13A-19, Edificio la Alborada, Apto 50', 'Bogotá D.C',
+         '4451808', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Poker (FED-federacion-colombiana-de-poker-68395609)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-poker-68395609';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Poker',
+      'Federación deportiva colombiana. Representante: Johann David Ibáñez Diaz. NIT: 901927117-0.',
+      'federation',
+      'Valledupar',
+      'Manzana C, casa 25 mirador de la Sierra 4',
+      '3017692312',
+      'juridica.fedepoker@gmail.com',
+      ARRAY['Poker']::text[],
+      true, false,
+      'federacion-colombiana-de-poker-22e8ca0c',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-poker-68395609', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Johann David Ibáñez Diaz. NIT: 901927117-0.', description),
+      phone       = COALESCE('3017692312', phone),
+      email       = COALESCE('juridica.fedepoker@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Manzana C, casa 25 mirador de la Sierra 4', 'Valledupar',
+         '3017692312', 10.4651733, -73.2529512, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Racquetball (FED-federacion-colombiana-de-racquetball-15a8992f)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-racquetball-15a8992f';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Racquetball',
+      'Federación deportiva colombiana. Representante: Sin Representante Inscrito. NIT: 830130695 - 7.',
+      'federation',
+      'Bogotá D.C',
+      'Calle 122 No. 22-18',
+      NULL,
+      NULL,
+      ARRAY['Racquetball']::text[],
+      true, false,
+      'federacion-colombiana-de-racquetball-b6be9895',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-racquetball-15a8992f', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Sin Representante Inscrito. NIT: 830130695 - 7.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE(NULL, email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 122 No. 22-18', 'Bogotá D.C',
+         NULL, 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Remo (FED-federacion-colombiana-de-remo-a3f8eef4)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-remo-a3f8eef4';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Remo',
+      'Federación deportiva colombiana. Representante: Sin Representante Inscrito. NIT: 907375567 - 1.',
+      'federation',
+      'Cali',
+      'No reporta',
+      NULL,
+      'comiteprovisionalfederacioncol@gmail.com',
+      ARRAY['Remo']::text[],
+      true, false,
+      'federacion-colombiana-de-remo-c7a31232',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-remo-a3f8eef4', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Sin Representante Inscrito. NIT: 907375567 - 1.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE('comiteprovisionalfederacioncol@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'No reporta', 'Cali',
+         NULL, 3.4108435, -76.5812127, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Rugby (FED-federacion-colombiana-de-rugby-1746b3f5)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-rugby-1746b3f5';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Rugby',
+      'Federación deportiva colombiana. Representante: Rafael Armando Lozano Altahona. NIT: 900429096 - 4.',
+      'federation',
+      'Medellín',
+      'Calle 48 No. 70-180 Barrio Estadio',
+      '3176987877',
+      'presidente@colombia.rugby',
+      ARRAY['Rugby']::text[],
+      true, false,
+      'federacion-colombiana-de-rugby-e748db62',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-rugby-1746b3f5', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Rafael Armando Lozano Altahona. NIT: 900429096 - 4.', description),
+      phone       = COALESCE('3176987877', phone),
+      email       = COALESCE('presidente@colombia.rugby', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 48 No. 70-180 Barrio Estadio', 'Medellín',
+         '3176987877', 6.2697324, -75.6025597, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Sambo (FED-federacion-colombiana-de-sambo-51c9cbcb)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-sambo-51c9cbcb';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Sambo',
+      'Federación deportiva colombiana. Representante: Carlos Julio Lopez Feliz. NIT: 900262915 - 2.',
+      'federation',
+      'Villavicencio',
+      'Carrera 16c 23a No.108B 3 Barrio Olímpico',
+      '3003890355',
+      'federacioncolombianadesambo@gmail.com',
+      ARRAY['Sambo']::text[],
+      true, false,
+      'federacion-colombiana-de-sambo-329e2902',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-sambo-51c9cbcb', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Carlos Julio Lopez Feliz. NIT: 900262915 - 2.', description),
+      phone       = COALESCE('3003890355', phone),
+      email       = COALESCE('federacioncolombianadesambo@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 16c 23a No.108B 3 Barrio Olímpico', 'Villavicencio',
+         '3003890355', 4.1114595, -73.4967836, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Savate (FED-federacion-colombiana-de-savate-7581752a)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-savate-7581752a';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Savate',
+      'Federación deportiva colombiana. Representante: Benigno Alfonso Quintero Rengifo. NIT: 901239083 - 7.',
+      'federation',
+      'Ibagué',
+      'Barrio El Salado, Urbanización Los Lagos Mz F Casa No. 6',
+      '3204633830',
+      'savatecolombia@hotmail.com',
+      ARRAY['Savate']::text[],
+      true, false,
+      'federacion-colombiana-de-savate-0fcc6c90',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-savate-7581752a', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Benigno Alfonso Quintero Rengifo. NIT: 901239083 - 7.', description),
+      phone       = COALESCE('3204633830', phone),
+      email       = COALESCE('savatecolombia@hotmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Barrio El Salado, Urbanización Los Lagos Mz F Casa No. 6', 'Ibagué',
+         '3204633830', 4.4386033, -75.2108857, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Softbol (FED-federacion-colombiana-de-softbol-3340c6e4)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-softbol-3340c6e4';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Softbol',
+      'Federación deportiva colombiana. Representante: Eduin De Jesus Diaz Pajaro. NIT: 890401221 - 1.',
+      'federation',
+      'Cartagena',
+      'Estadio de Sóft-Ball Barrio Chiquinquirá',
+      NULL,
+      'presidencia@fedesoftbol.org',
+      ARRAY['Softbol']::text[],
+      true, false,
+      'federacion-colombiana-de-softbol-3dd75289',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-softbol-3340c6e4', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Eduin De Jesus Diaz Pajaro. NIT: 890401221 - 1.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE('presidencia@fedesoftbol.org', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Estadio de Sóft-Ball Barrio Chiquinquirá', 'Cartagena',
+         NULL, 10.4265566, -75.5441671, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Squash (FED-federacion-colombiana-de-squash-b986b684)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-squash-b986b684';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Squash',
+      'Federación deportiva colombiana. Representante: Miguel Angel Pedraza Jaimes. NIT: 800045466 - 4.',
+      'federation',
+      'Bogotá D.C',
+      'Calle 45 No. 66 B-15 Barrio Salitre El Greco',
+      '7731169',
+      'contactenos@squascolombia.org.co',
+      ARRAY['Squash']::text[],
+      true, false,
+      'federacion-colombiana-de-squash-213532a2',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-squash-b986b684', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Miguel Angel Pedraza Jaimes. NIT: 800045466 - 4.', description),
+      phone       = COALESCE('7731169', phone),
+      email       = COALESCE('contactenos@squascolombia.org.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 45 No. 66 B-15 Barrio Salitre El Greco', 'Bogotá D.C',
+         '7731169', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Surf (FED-federacion-colombiana-de-surf-c3a2804a)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-surf-c3a2804a';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Surf',
+      'Federación deportiva colombiana. Representante: Andres Alberto Porras Villamil. NIT: 901091612 - 5.',
+      'federation',
+      'Cartagena',
+      'Isla de Tierrabomba Calle Principal Cabaña Vista Hermosa',
+      NULL,
+      'fedecolsurf@gmail.com',
+      ARRAY['Surf']::text[],
+      true, false,
+      'federacion-colombiana-de-surf-d5814660',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-surf-c3a2804a', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Andres Alberto Porras Villamil. NIT: 901091612 - 5.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE('fedecolsurf@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Isla de Tierrabomba Calle Principal Cabaña Vista Hermosa', 'Cartagena',
+         NULL, 10.4265566, -75.5441671, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Taekwondo (FED-federacion-colombiana-de-taekwondo-c7a46a5f)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-taekwondo-c7a46a5f';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Taekwondo',
+      'Federación deportiva colombiana. Representante: Rene Forero Tavera. NIT: 860524134 - 8.',
+      'federation',
+      'Bogotá D.C',
+      'Transversal 21 Bis No. 60-35',
+      '3019718',
+      'tkd_colombia@hotmail.com',
+      ARRAY['Taekwondo']::text[],
+      true, false,
+      'federacion-colombiana-de-taekwondo-1edb69f9',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-taekwondo-c7a46a5f', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Rene Forero Tavera. NIT: 860524134 - 8.', description),
+      phone       = COALESCE('3019718', phone),
+      email       = COALESCE('tkd_colombia@hotmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Transversal 21 Bis No. 60-35', 'Bogotá D.C',
+         '3019718', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Tejo (FED-federacion-colombiana-de-tejo-df06694c)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-tejo-df06694c';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Tejo',
+      'Federación deportiva colombiana. Representante: Plinio Mendoza Salamanca. NIT: 800078980 - 0.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 28 A No. 39 A - 30 Barrio La Soledad',
+      '3018409',
+      'fedetejocol@hotmail.com',
+      ARRAY['Tejo']::text[],
+      true, false,
+      'federacion-colombiana-de-tejo-1a919549',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-tejo-df06694c', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Plinio Mendoza Salamanca. NIT: 800078980 - 0.', description),
+      phone       = COALESCE('3018409', phone),
+      email       = COALESCE('fedetejocol@hotmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 28 A No. 39 A - 30 Barrio La Soledad', 'Bogotá D.C',
+         '3018409', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Tenis (FED-federacion-colombiana-de-tenis-337026b4)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-tenis-337026b4';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Tenis',
+      'Federación deportiva colombiana. Representante: Pablo Felipe Robledo Del Castillo. NIT: 860030468 - 1.',
+      'federation',
+      'Bogotá D.C',
+      'Diagonal 35 Bis No. 19-31 Barrio La Soledad',
+      '5635414',
+      'comunicaciones@fedecoltenis.com',
+      ARRAY['Tenis']::text[],
+      true, false,
+      'federacion-colombiana-de-tenis-7ccb0421',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-tenis-337026b4', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Pablo Felipe Robledo Del Castillo. NIT: 860030468 - 1.', description),
+      phone       = COALESCE('5635414', phone),
+      email       = COALESCE('comunicaciones@fedecoltenis.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Diagonal 35 Bis No. 19-31 Barrio La Soledad', 'Bogotá D.C',
+         '5635414', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Tenis De Mesa (FED-federacion-colombiana-de-tenis-de-mesa-5c48121a)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-tenis-de-mesa-5c48121a';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Tenis De Mesa',
+      'Federación deportiva colombiana. Representante: Carlos Andres Figueroa Marin. NIT: 890106273 - 1.',
+      'federation',
+      'Bogotá D.C',
+      'Diagonal 35 Bis No. 19-31 Piso 2º.',
+      '3134435',
+      'fctmcolombia@gmail.com',
+      ARRAY['Tenis De Mesa']::text[],
+      true, false,
+      'federacion-colombiana-de-tenis-de-mesa-8779da15',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-tenis-de-mesa-5c48121a', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Carlos Andres Figueroa Marin. NIT: 890106273 - 1.', description),
+      phone       = COALESCE('3134435', phone),
+      email       = COALESCE('fctmcolombia@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Diagonal 35 Bis No. 19-31 Piso 2º.', 'Bogotá D.C',
+         '3134435', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Tiro Y Caza Deportiva (FED-federacion-colombiana-de-tiro-y-caza-dep-d2042a50)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-tiro-y-caza-dep-d2042a50';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Tiro Y Caza Deportiva',
+      'Federación deportiva colombiana. Representante: Alex Tanaka Kuratomi. NIT: 860008926 - 1.',
+      'federation',
+      'Bogotá D.C',
+      'Calle 44 No. 54-11 Oficina 201',
+      '3153849',
+      'gerenecia@fedetirocol.com',
+      ARRAY['Tiro Y Caza Deportiva']::text[],
+      true, false,
+      'federacion-colombiana-de-tiro-y-caza-deportiva-c5b2d91e',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-tiro-y-caza-dep-d2042a50', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Alex Tanaka Kuratomi. NIT: 860008926 - 1.', description),
+      phone       = COALESCE('3153849', phone),
+      email       = COALESCE('gerenecia@fedetirocol.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 44 No. 54-11 Oficina 201', 'Bogotá D.C',
+         '3153849', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Triatlon (FED-federacion-colombiana-de-triatlon-3a130fe4)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-triatlon-3a130fe4';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Triatlon',
+      'Federación deportiva colombiana. Representante: Juan Manuel Velasco Diez. NIT: 800009065 - 1.',
+      'federation',
+      'Cali',
+      'Calle 6 Oeste No. 24F-13',
+      '5560559',
+      'Fedecoltri@fedecoltri.com',
+      ARRAY['Triatlon']::text[],
+      true, false,
+      'federacion-colombiana-de-triatlon-ddd42f8d',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-triatlon-3a130fe4', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Juan Manuel Velasco Diez. NIT: 800009065 - 1.', description),
+      phone       = COALESCE('5560559', phone),
+      email       = COALESCE('Fedecoltri@fedecoltri.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 6 Oeste No. 24F-13', 'Cali',
+         '5560559', 3.4108435, -76.5812127, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Vela (FED-federacion-colombiana-de-vela-7cf6b023)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-vela-7cf6b023';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Vela',
+      'Federación deportiva colombiana. Representante: Maria Carolina Latorre Lopez. NIT: 860045920 - 5.',
+      'federation',
+      'Bogotá D.C',
+      'Diagonal 35B No. 19 – 31 1er. Piso',
+      NULL,
+      'info@fedevelacolombia.org',
+      ARRAY['Vela']::text[],
+      true, false,
+      'federacion-colombiana-de-vela-0220b6c6',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-vela-7cf6b023', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Maria Carolina Latorre Lopez. NIT: 860045920 - 5.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE('info@fedevelacolombia.org', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Diagonal 35B No. 19 – 31 1er. Piso', 'Bogotá D.C',
+         NULL, 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Voleibol (FED-federacion-colombiana-de-voleibol-1634ea1f)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-voleibol-1634ea1f';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Voleibol',
+      'Federación deportiva colombiana. Representante: Felix Mauricio Antolinez Diaz. NIT: 860045666 - 9.',
+      'federation',
+      'Bogotá D.C',
+      'Transversal 21 Bis No. 60-35 Barrio San Luis',
+      '7559135',
+      'fcv@fedevoleicol.com',
+      ARRAY['Voleibol']::text[],
+      true, false,
+      'federacion-colombiana-de-voleibol-3c355d68',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-voleibol-1634ea1f', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Felix Mauricio Antolinez Diaz. NIT: 860045666 - 9.', description),
+      phone       = COALESCE('7559135', phone),
+      email       = COALESCE('fcv@fedevoleicol.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Transversal 21 Bis No. 60-35 Barrio San Luis', 'Bogotá D.C',
+         '7559135', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Wushu (FED-federacion-colombiana-de-wushu-f91d94f7)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-wushu-f91d94f7';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Wushu',
+      'Federación deportiva colombiana. Representante: Luz Etnis Rodriguez Gomez. NIT: 809011909 - 1.',
+      'federation',
+      'Ibagué',
+      'Calle 18 No. 16-30 Urbanización La Aurora',
+      NULL,
+      'federacioncolombianadewushu@gmail.com',
+      ARRAY['Wushu']::text[],
+      true, false,
+      'federacion-colombiana-de-wushu-7dad2b1e',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-wushu-f91d94f7', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Luz Etnis Rodriguez Gomez. NIT: 809011909 - 1.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE('federacioncolombianadewushu@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 18 No. 16-30 Urbanización La Aurora', 'Ibagué',
+         NULL, 4.4386033, -75.2108857, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion De Deporte Especial De Colombia (FED-federacion-de-deporte-especial-de-colomb-395520f0)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-de-deporte-especial-de-colomb-395520f0';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion De Deporte Especial De Colombia',
+      'Federación deportiva colombiana. Representante: Bitalia Zenith Maestre Molina. NIT: 900119861 - 2.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 13 A No. 87-34',
+      NULL,
+      'fedesoficial@gmail.com',
+      ARRAY['Deporte Especial De Colombia']::text[],
+      true, false,
+      'federacion-de-deporte-especial-de-colombia-84feb6de',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-de-deporte-especial-de-colomb-395520f0', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Bitalia Zenith Maestre Molina. NIT: 900119861 - 2.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE('fedesoficial@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 13 A No. 87-34', 'Bogotá D.C',
+         NULL, 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Deportes Para Personas Con Discapacidad Fisica (FED-federacion-colombiana-de-deportes-para-p-9cbf6217)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-deportes-para-p-9cbf6217';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Deportes Para Personas Con Discapacidad Fisica',
+      'Federación deportiva colombiana. Representante: Alcibíades Serrato Rayo. NIT: 860502936-3.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 28A #49A - 11 Apto. 101 Barrio Benalcázar Norte',
+      '3207330501',
+      'Presidenciafedesir2021@gmail.com',
+      ARRAY['Deportes Para Personas Con Discapacidad Fisica']::text[],
+      true, false,
+      'federacion-colombiana-de-deportes-para-personas-con-discapac-4da41775',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-deportes-para-p-9cbf6217', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Alcibíades Serrato Rayo. NIT: 860502936-3.', description),
+      phone       = COALESCE('3207330501', phone),
+      email       = COALESCE('Presidenciafedesir2021@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 28A #49A - 11 Apto. 101 Barrio Benalcázar Norte', 'Bogotá D.C',
+         '3207330501', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion De Deportes De Discapacidad Visual (FED-federacion-de-deportes-de-discapacidad-v-dfb8f2eb)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-de-deportes-de-discapacidad-v-dfb8f2eb';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion De Deportes De Discapacidad Visual',
+      'Federación deportiva colombiana. Representante: Jose Domingo Bernal. NIT: 830084506 - 0.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 79 D No. 42a - 42 Sur',
+      '3106992777',
+      'fedelivcolombia1@gmail.com',
+      ARRAY['Deportes De Discapacidad Visual']::text[],
+      true, false,
+      'federacion-de-deportes-de-discapacidad-visual-d0f5ea59',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-de-deportes-de-discapacidad-v-dfb8f2eb', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Jose Domingo Bernal. NIT: 830084506 - 0.', description),
+      phone       = COALESCE('3106992777', phone),
+      email       = COALESCE('fedelivcolombia1@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 79 D No. 42a - 42 Sur', 'Bogotá D.C',
+         '3106992777', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Deportistas Con Paralisis Cerebral (FED-federacion-colombiana-de-deportistas-con-8e449449)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-deportistas-con-8e449449';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Deportistas Con Paralisis Cerebral',
+      'Federación deportiva colombiana. Representante: Sin Representante Inscrito. NIT: 900225642 - 1.',
+      'federation',
+      'Bogotá D.C',
+      'Calle 25 No. 35-39 Edificio C 4 - Apto. 608 Centro Nariño',
+      '3144320259',
+      'joselo0809@gmail.com',
+      ARRAY['Deportistas Con Paralisis Cerebral']::text[],
+      true, false,
+      'federacion-colombiana-de-deportistas-con-paralisis-cerebral-1d5cffcf',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-deportistas-con-8e449449', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Sin Representante Inscrito. NIT: 900225642 - 1.', description),
+      phone       = COALESCE('3144320259', phone),
+      email       = COALESCE('joselo0809@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 25 No. 35-39 Edificio C 4 - Apto. 608 Centro Nariño', 'Bogotá D.C',
+         '3144320259', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Deportes Para Sordos (FED-federacion-colombiana-de-deportes-para-s-2f45f51c)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-deportes-para-s-2f45f51c';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Deportes Para Sordos',
+      'Federación deportiva colombiana. Representante: Jhon Fredy Martinez Paz. NIT: 890311688 - 0.',
+      'federation',
+      'Bogotá D.C',
+      'Calle 63 No. 59 A 06 Centro de Alto Rendimiento',
+      '3138582867',
+      'fecoldes.sordos@gmail.com',
+      ARRAY['Deportes Para Sordos']::text[],
+      true, false,
+      'federacion-colombiana-de-deportes-para-sordos-23acc5f5',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-deportes-para-s-2f45f51c', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Jhon Fredy Martinez Paz. NIT: 890311688 - 0.', description),
+      phone       = COALESCE('3138582867', phone),
+      email       = COALESCE('fecoldes.sordos@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 63 No. 59 A 06 Centro de Alto Rendimiento', 'Bogotá D.C',
+         '3138582867', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Boccia (FED-federacion-colombiana-de-boccia-2b35c338)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-boccia-2b35c338';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Boccia',
+      'Federación deportiva colombiana. Representante: Diana Marcela Ortiz Acevedo. NIT: 901531133 - 8.',
+      'federation',
+      'Cali',
+      'Calle 2 No. 66 B 89 AP 405',
+      NULL,
+      'fecolboccia@gmail.com',
+      ARRAY['Boccia']::text[],
+      true, false,
+      'federacion-colombiana-de-boccia-e74c9521',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-boccia-2b35c338', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Diana Marcela Ortiz Acevedo. NIT: 901531133 - 8.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE('fecolboccia@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 2 No. 66 B 89 AP 405', 'Cali',
+         NULL, 3.4108435, -76.5812127, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Para-Atletismo (FED-federacion-colombiana-de-para-atletismo-d12d6284)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-para-atletismo-d12d6284';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Para-Atletismo',
+      'Federación deportiva colombiana. Representante: Dayra Faisury Dorado Gomez. NIT: 901547618 - 8.',
+      'federation',
+      'Cali',
+      'Carrera 85 C No. 28 - 66 CA 34',
+      '3160273060',
+      'servicioalcliente@fecolparaatletismo.com',
+      ARRAY['Para-Atletismo']::text[],
+      true, false,
+      'federacion-colombiana-de-para-atletismo-e9125331',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-para-atletismo-d12d6284', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Dayra Faisury Dorado Gomez. NIT: 901547618 - 8.', description),
+      phone       = COALESCE('3160273060', phone),
+      email       = COALESCE('servicioalcliente@fecolparaatletismo.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 85 C No. 28 - 66 CA 34', 'Cali',
+         '3160273060', 3.4108435, -76.5812127, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana Deportiva De Rugby En Silla De Ruedas (FED-federacion-colombiana-deportiva-de-rugby-40d5c9a5)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-deportiva-de-rugby-40d5c9a5';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana Deportiva De Rugby En Silla De Ruedas',
+      'Federación deportiva colombiana. Representante: Adriana Natali Rincon Gonzalez. NIT: 901558620 - 0.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 40 B No. 10 - 85 Sur',
+      '3123211939',
+      'quadrugbycolombia@gmail.com',
+      ARRAY['Deportiva De Rugby En Silla De Ruedas']::text[],
+      true, false,
+      'federacion-colombiana-deportiva-de-rugby-en-silla-de-ruedas-f8656287',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-deportiva-de-rugby-40d5c9a5', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Adriana Natali Rincon Gonzalez. NIT: 901558620 - 0.', description),
+      phone       = COALESCE('3123211939', phone),
+      email       = COALESCE('quadrugbycolombia@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 40 B No. 10 - 85 Sur', 'Bogotá D.C',
+         '3123211939', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Paranatacion (FED-federacion-colombiana-de-paranatacion-7b0003f9)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-paranatacion-7b0003f9';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Paranatacion',
+      'Federación deportiva colombiana. Representante: Carlos Josue Barbosa Torres. NIT: 901559015 - 9.',
+      'federation',
+      'Bogotá D.C',
+      'Calle 79 A No. 66-40 Interior 1 Apto. 301',
+      '3112570982',
+      'fedeparanatacion@gmail.com',
+      ARRAY['Paranatacion']::text[],
+      true, false,
+      'federacion-colombiana-de-paranatacion-c6df0120',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-paranatacion-7b0003f9', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Carlos Josue Barbosa Torres. NIT: 901559015 - 9.', description),
+      phone       = COALESCE('3112570982', phone),
+      email       = COALESCE('fedeparanatacion@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 79 A No. 66-40 Interior 1 Apto. 301', 'Bogotá D.C',
+         '3112570982', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Futbol Pc (FED-federacion-colombiana-de-futbol-pc-2fd5e2e3)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-futbol-pc-2fd5e2e3';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Futbol Pc',
+      'Federación deportiva colombiana. Representante: Gustavo Alonso Henao Chica. NIT: 901591522 - 6.',
+      'federation',
+      'MEDELLIN',
+      'Carrera 70 No. 48-100 Coliseo de Combate',
+      '3137042516',
+      'futbolpcfederacioncolombiana@gmail.com',
+      ARRAY['Futbol Pc']::text[],
+      true, false,
+      'federacion-colombiana-de-futbol-pc-25e034d2',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-futbol-pc-2fd5e2e3', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Gustavo Alonso Henao Chica. NIT: 901591522 - 6.', description),
+      phone       = COALESCE('3137042516', phone),
+      email       = COALESCE('futbolpcfederacioncolombiana@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 70 No. 48-100 Coliseo de Combate', 'MEDELLIN',
+         '3137042516', 6.2697324, -75.6025597, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Paravoleibol (FED-federacion-colombiana-de-paravoleibol-ee85fbac)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-paravoleibol-ee85fbac';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Paravoleibol',
+      'Federación deportiva colombiana. Representante: John Carlos Rojas Leon. NIT: 901601776 - 4.',
+      'federation',
+      'Bogotá D.C',
+      'Calle 70 D BIS No. 111 A 20',
+      '6457897',
+      'fecolparavoleibol@gmail.com',
+      ARRAY['Paravoleibol']::text[],
+      true, false,
+      'federacion-colombiana-de-paravoleibol-2fbf6f20',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-paravoleibol-ee85fbac', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: John Carlos Rojas Leon. NIT: 901601776 - 4.', description),
+      phone       = COALESCE('6457897', phone),
+      email       = COALESCE('fecolparavoleibol@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 70 D BIS No. 111 A 20', 'Bogotá D.C',
+         '6457897', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Baloncesto En Silla De Ruedas -Bsrcolombia (FED-federacion-colombiana-de-baloncesto-en-s-ef803af6)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-baloncesto-en-s-ef803af6';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Baloncesto En Silla De Ruedas -Bsrcolombia',
+      'Federación deportiva colombiana. Representante: Luis Alberto Ninco Sanchez. NIT: 901615397 - 7.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 71 B No. 64C-07 BRR Engativá',
+      '3105604219',
+      'federacionbsrcolombia@gmail.com',
+      ARRAY['Baloncesto En Silla De Ruedas -Bsrcolombia']::text[],
+      true, false,
+      'federacion-colombiana-de-baloncesto-en-silla-de-ruedas--bsrc-2ef298fe',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-baloncesto-en-s-ef803af6', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Luis Alberto Ninco Sanchez. NIT: 901615397 - 7.', description),
+      phone       = COALESCE('3105604219', phone),
+      email       = COALESCE('federacionbsrcolombia@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 71 B No. 64C-07 BRR Engativá', 'Bogotá D.C',
+         '3105604219', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Para Powerlifting (FED-federacion-colombiana-de-para-powerlifti-23344bcf)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-para-powerlifti-23344bcf';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Para Powerlifting',
+      'Federación deportiva colombiana. Representante: Francisco Tulio Palomeque Palacio. NIT: 901673841 - 3.',
+      'federation',
+      'Bogotá D.C',
+      'Carrera 76 No. 64 A 32 Piso 1 Barrio El Encanto',
+      '3117382909',
+      'fcparapower@gmail.com',
+      ARRAY['Para Powerlifting']::text[],
+      true, false,
+      'federacion-colombiana-de-para-powerlifting-aac06c5d',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-para-powerlifti-23344bcf', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Francisco Tulio Palomeque Palacio. NIT: 901673841 - 3.', description),
+      phone       = COALESCE('3117382909', phone),
+      email       = COALESCE('fcparapower@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 76 No. 64 A 32 Piso 1 Barrio El Encanto', 'Bogotá D.C',
+         '3117382909', 4.2834715, -74.1753606, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Muay Thai (FED-federacion-colombiana-de-muay-thai-9025d1d9)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-muay-thai-9025d1d9';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Muay Thai',
+      'Federación deportiva colombiana. Representante: Paola Vallejo Gutiérrez. NIT: 901845165 - 1.',
+      'federation',
+      'Florencia',
+      'Módulo 5 Estadio Alberto Buitrago Hoyos',
+      '3232325122',
+      'colombianademuaythaifederacion@gmail.com',
+      ARRAY['Muay Thai']::text[],
+      true, false,
+      'federacion-colombiana-de-muay-thai-6587a1c7',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-muay-thai-9025d1d9', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Paola Vallejo Gutiérrez. NIT: 901845165 - 1.', description),
+      phone       = COALESCE('3232325122', phone),
+      email       = COALESCE('colombianademuaythaifederacion@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Módulo 5 Estadio Alberto Buitrago Hoyos', 'Florencia',
+         '3232325122', 1.6158666, -75.6143045, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Federacion Colombiana De Tiro Paradeportivo (FED-federacion-colombiana-de-tiro-paradeport-eb5f8d07)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'FED-federacion-colombiana-de-tiro-paradeport-eb5f8d07';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Federacion Colombiana De Tiro Paradeportivo',
+      'Federación deportiva colombiana. Representante: Fernan Leon Henao Mejia. NIT: 901895953 - 2.',
+      'federation',
+      'Guarne',
+      'Carrera 53 No. 46 A - 368',
+      '3017378003',
+      'fedeparatirocol@gmail.com',
+      ARRAY['Tiro Paradeportivo']::text[],
+      true, false,
+      'federacion-colombiana-de-tiro-paradeportivo-b2340172',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'FED-federacion-colombiana-de-tiro-paradeport-eb5f8d07', v_school_id, '{"kind": "federacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Federación deportiva colombiana. Representante: Fernan Leon Henao Mejia. NIT: 901895953 - 2.', description),
+      phone       = COALESCE('3017378003', phone),
+      email       = COALESCE('fedeparatirocol@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 53 No. 46 A - 368', 'Guarne',
+         '3017378003', 6.2800171, -75.4426875, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Asociacion Colombiana De Artes Marciales Mixtas (ASOC-asociacion-colombiana-de-artes-marciales-3563c0bf)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'ASOC-asociacion-colombiana-de-artes-marciales-3563c0bf';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Asociacion Colombiana De Artes Marciales Mixtas',
+      'Asociación deportiva recreativa. Representante: Jaime S. Barón Cuervo.',
+      'association',
+      'BOGOTA',
+      'Cra 110a - 86 A-28',
+      '3102426074',
+      'ocamcolombia@gmail.com',
+      ARRAY['Artes Marciales Mixtas']::text[],
+      true, false,
+      'asociacion-colombiana-de-artes-marciales-mixtas-b10f6ecb',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'ASOC-asociacion-colombiana-de-artes-marciales-3563c0bf', v_school_id, '{"kind": "asociacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Asociación deportiva recreativa. Representante: Jaime S. Barón Cuervo.', description),
+      phone       = COALESCE('3102426074', phone),
+      email       = COALESCE('ocamcolombia@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Cra 110a - 86 A-28', 'BOGOTA',
+         '3102426074', 4.7113928, -74.1251311, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Asociacion Colombiana De Atletismo Senior Master (ASOC-asociacion-colombiana-de-atletismo-senio-8c496b14)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'ASOC-asociacion-colombiana-de-atletismo-senio-8c496b14';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Asociacion Colombiana De Atletismo Senior Master',
+      'Asociación deportiva recreativa. Representante: Octavio Niño Quintero.',
+      'association',
+      'BOGOTA',
+      'Cra 66 a - 42-34',
+      '315438048',
+      'Atlemaster25@hotmail.com',
+      ARRAY['Atletismo Senior Master']::text[],
+      true, false,
+      'asociacion-colombiana-de-atletismo-senior-master-7c66283e',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'ASOC-asociacion-colombiana-de-atletismo-senio-8c496b14', v_school_id, '{"kind": "asociacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Asociación deportiva recreativa. Representante: Octavio Niño Quintero.', description),
+      phone       = COALESCE('315438048', phone),
+      email       = COALESCE('Atlemaster25@hotmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Cra 66 a - 42-34', 'BOGOTA',
+         '315438048', 4.6533817, -74.0836331, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Asociacion Colombiana De Ciclismo Senior Master (ASOC-asociacion-colombiana-de-ciclismo-senior-fa61773c)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'ASOC-asociacion-colombiana-de-ciclismo-senior-fa61773c';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Asociacion Colombiana De Ciclismo Senior Master',
+      'Asociación deportiva recreativa. Representante: Jose Ismael Ortega Araque.',
+      'association',
+      'BOGOTA',
+      'Calle 32B - 23-73 Sur',
+      '3103414227',
+      'ciclismomastercolombia@gmail.com',
+      ARRAY['Ciclismo Senior Master']::text[],
+      true, false,
+      'asociacion-colombiana-de-ciclismo-senior-master-4ac7449d',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'ASOC-asociacion-colombiana-de-ciclismo-senior-fa61773c', v_school_id, '{"kind": "asociacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Asociación deportiva recreativa. Representante: Jose Ismael Ortega Araque.', description),
+      phone       = COALESCE('3103414227', phone),
+      email       = COALESCE('ciclismomastercolombia@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 32B - 23-73 Sur', 'BOGOTA',
+         '3103414227', 4.5683643, -74.1031444, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Asociacion Colombiana De Golfistas Senior De Colombia (ASOC-asociacion-colombiana-de-golfistas-senio-fc240a7d)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'ASOC-asociacion-colombiana-de-golfistas-senio-fc240a7d';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Asociacion Colombiana De Golfistas Senior De Colombia',
+      'Asociación deportiva recreativa. Representante: Sean Desmind Gennon Polo.',
+      'association',
+      'BOGOTA',
+      'Calle 93 # 14 – 20 Oficina 703',
+      '2667459',
+      'asosenior@asosenior.net',
+      ARRAY['Golfistas Senior De Colombia']::text[],
+      true, false,
+      'asociacion-colombiana-de-golfistas-senior-de-colombia-24c1a262',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'ASOC-asociacion-colombiana-de-golfistas-senio-fc240a7d', v_school_id, '{"kind": "asociacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Asociación deportiva recreativa. Representante: Sean Desmind Gennon Polo.', description),
+      phone       = COALESCE('2667459', phone),
+      email       = COALESCE('asosenior@asosenior.net', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 93 # 14 – 20 Oficina 703', 'BOGOTA',
+         '2667459', 4.6533817, -74.0836331, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Asociacion Colombiana De Guias Scouts De Colombia (ASOC-asociacion-colombiana-de-guias-scouts-de-ae681c60)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'ASOC-asociacion-colombiana-de-guias-scouts-de-ae681c60';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Asociacion Colombiana De Guias Scouts De Colombia',
+      'Asociación deportiva recreativa. Representante: No Registra.',
+      'association',
+      'BOGOTA',
+      'Av Caracas 69-74 piso 9',
+      '2554413',
+      'secretarianacional@guiasscoutscolombia.org',
+      ARRAY['Guias Scouts De Colombia']::text[],
+      true, false,
+      'asociacion-colombiana-de-guias-scouts-de-colombia-fb6f9394',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'ASOC-asociacion-colombiana-de-guias-scouts-de-ae681c60', v_school_id, '{"kind": "asociacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Asociación deportiva recreativa. Representante: No Registra.', description),
+      phone       = COALESCE('2554413', phone),
+      email       = COALESCE('secretarianacional@guiasscoutscolombia.org', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Av Caracas 69-74 piso 9', 'BOGOTA',
+         '2554413', 4.6533817, -74.0836331, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Asociacion Colombiana De Minifutbol (ASOC-asociacion-colombiana-de-minifutbol-bb2c08da)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'ASOC-asociacion-colombiana-de-minifutbol-bb2c08da';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Asociacion Colombiana De Minifutbol',
+      'Asociación deportiva recreativa. Representante: Carlos Andres Porras Sierra.',
+      'association',
+      'BOGOTA',
+      'Calle 48L - 5G - 20 Sur INT 4 Manzana 7',
+      '3115517470',
+      'sevenleague@hotmail.com',
+      ARRAY['Minifutbol']::text[],
+      true, false,
+      'asociacion-colombiana-de-minifutbol-ab043233',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'ASOC-asociacion-colombiana-de-minifutbol-bb2c08da', v_school_id, '{"kind": "asociacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Asociación deportiva recreativa. Representante: Carlos Andres Porras Sierra.', description),
+      phone       = COALESCE('3115517470', phone),
+      email       = COALESCE('sevenleague@hotmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 48L - 5G - 20 Sur INT 4 Manzana 7', 'BOGOTA',
+         '3115517470', 4.6533817, -74.0836331, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Asociacion Colombiana De Paint Ball Tactico (ASOC-asociacion-colombiana-de-paint-ball-tact-f9ddb13f)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'ASOC-asociacion-colombiana-de-paint-ball-tact-f9ddb13f';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Asociacion Colombiana De Paint Ball Tactico',
+      'Asociación deportiva recreativa. Representante: No Registra.',
+      'association',
+      'BOGOTA',
+      'Calle 23c- Int apto',
+      '3013383340',
+      'sugerencias.colpatac@gmail.com',
+      ARRAY['Paint Ball Tactico']::text[],
+      true, false,
+      'asociacion-colombiana-de-paint-ball-tactico-0b4c965f',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'ASOC-asociacion-colombiana-de-paint-ball-tact-f9ddb13f', v_school_id, '{"kind": "asociacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Asociación deportiva recreativa. Representante: No Registra.', description),
+      phone       = COALESCE('3013383340', phone),
+      email       = COALESCE('sugerencias.colpatac@gmail.com', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 23c- Int apto', 'BOGOTA',
+         '3013383340', 4.6533817, -74.0836331, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Asociacion Colombiana De Scouts (ASOC-asociacion-colombiana-de-scouts-a6520fa5)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'ASOC-asociacion-colombiana-de-scouts-a6520fa5';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Asociacion Colombiana De Scouts',
+      'Asociación deportiva recreativa. Representante: Leonel Raúl Poveda Hernández.',
+      'association',
+      'BOGOTA',
+      'Cra 47 - 91-96',
+      '7035060',
+      'Oficina.nacional@scout.org.co',
+      ARRAY['Scouts']::text[],
+      true, false,
+      'asociacion-colombiana-de-scouts-d2940931',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'ASOC-asociacion-colombiana-de-scouts-a6520fa5', v_school_id, '{"kind": "asociacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Asociación deportiva recreativa. Representante: Leonel Raúl Poveda Hernández.', description),
+      phone       = COALESCE('7035060', phone),
+      email       = COALESCE('Oficina.nacional@scout.org.co', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Cra 47 - 91-96', 'BOGOTA',
+         '7035060', 4.6533817, -74.0836331, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Fundacion Colombianan De Tiempo Libre Y Recreacion Funlibre (ASOC-fundacion-colombianan-de-tiempo-libre-y--ae04d9b9)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'ASOC-fundacion-colombianan-de-tiempo-libre-y--ae04d9b9';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Fundacion Colombianan De Tiempo Libre Y Recreacion Funlibre',
+      'Asociación deportiva recreativa. Representante: No Registra.',
+      'association',
+      'BOGOTA',
+      'Carrera 25 C No 74 – 74',
+      NULL,
+      'Info@funlibre.org',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'fundacion-colombianan-de-tiempo-libre-y-recreacion-funlibre-88c0e4e9',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'ASOC-fundacion-colombianan-de-tiempo-libre-y--ae04d9b9', v_school_id, '{"kind": "asociacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Asociación deportiva recreativa. Representante: No Registra.', description),
+      phone       = COALESCE(NULL, phone),
+      email       = COALESCE('Info@funlibre.org', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Carrera 25 C No 74 – 74', 'BOGOTA',
+         NULL, 4.6533817, -74.0836331, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+-- Fundacion Hogares Campesinos De Colombia (ASOC-fundacion-hogares-campesinos-de-colombia-b5e2b450)
+DO $$
+DECLARE v_school_id uuid; v_existing uuid;
+BEGIN
+  SELECT school_id INTO v_existing FROM public.external_school_imports WHERE external_ref = 'ASOC-fundacion-hogares-campesinos-de-colombia-b5e2b450';
+  IF v_existing IS NULL THEN
+    INSERT INTO public.schools (
+      name, description, school_type, city, address, phone, email, sports,
+      verified, is_demo, slug, onboarding_status
+    ) VALUES (
+      'Fundacion Hogares Campesinos De Colombia',
+      'Asociación deportiva recreativa. Representante: Jaime Alfonso Quinceno.',
+      'association',
+      'BOGOTA',
+      'Calle 70a - 17-27',
+      '3216455226',
+      'administracion@hogaresjuvenilescampesinos.org',
+      ARRAY['Multideporte']::text[],
+      true, false,
+      'fundacion-hogares-campesinos-de-colombia-49e595be',
+      'completed'
+    ) RETURNING id INTO v_school_id;
+
+    INSERT INTO public.external_school_imports (source, external_ref, school_id, raw_payload)
+    VALUES ('mindeporte_entidades_2025_2026', 'ASOC-fundacion-hogares-campesinos-de-colombia-b5e2b450', v_school_id, '{"kind": "asociacion", "acronym": null, "level": null}'::jsonb);
+  ELSE
+    v_school_id := v_existing;
+    UPDATE public.schools SET
+      description = COALESCE('Asociación deportiva recreativa. Representante: Jaime Alfonso Quinceno.', description),
+      phone       = COALESCE('3216455226', phone),
+      email       = COALESCE('administracion@hogaresjuvenilescampesinos.org', email),
+      verified    = true,
+      updated_at  = now()
+    WHERE id = v_school_id;
+  END IF;
+
+  INSERT INTO public.school_settings (school_id) VALUES (v_school_id) ON CONFLICT (school_id) DO NOTHING;
+  UPDATE public.school_settings SET public_profile_enabled = true WHERE school_id = v_school_id;
+
+  INSERT INTO public.school_branches (school_id, name, address, city, phone, lat, lng, is_main, status)
+  SELECT v_school_id, 'Sede Principal',
+         'Calle 70a - 17-27', 'BOGOTA',
+         '3216455226', 4.6559840, -74.0602796, true, 'active'
+  WHERE NOT EXISTS (SELECT 1 FROM public.school_branches WHERE school_id = v_school_id AND is_main = true);
+END $$;
+
+COMMIT;
+
+
+-- ╔══════════════════════════════════════════════════════════
+-- ║ supabase/seed/fix_v7_branches_lat_and_rls.sql
+-- ╚══════════════════════════════════════════════════════════
+-- ============================================================
+-- SPORTMAPS — FIX v7: branches sin lat + RLS/GRANTs anon
+--
+-- Diagnostico:
+--   1) Q1 mostro: 82 branches deportebogota + 151 branches mindeporte
+--      tienen is_main + status=active pero LAT IS NULL.
+--      Causa: existian de un seed anterior sin lat; los seeds nuevos
+--      tienen WHERE NOT EXISTS (...AND is_main) sin chequear lat,
+--      asi que NO las pisaron.
+--   2) Q2 mostro: anon ve 0 branches → RLS/GRANT bloqueando al
+--      cliente del frontend. Sin esto, el mapa /explorar queda en 0/0.
+--
+-- Estrategia:
+--   A) UPDATE branches sin lat con jitter desde el centro de la ciudad
+--      de la school (o Bogotá si no hay city geocodificable).
+--   B) Reasegurar policy "Branches: select public" con USING(true) +
+--      GRANT SELECT a anon en school_branches, schools, school_settings.
+--
+-- Idempotente. Aplicar después de fix_v6 + entidades_deportivas_*.
+-- ============================================================
+
+BEGIN;
+
+
+-- ============================================================
+-- A. ARREGLAR BRANCHES SIN LAT
+-- ============================================================
+
+-- A.1 — Lookup de coords por ciudad/departamento conocidos (capitales/centros).
+--       Si la school.city no matchea, se usa fallback Bogotá.
+
+CREATE TEMP TABLE _city_coords (
+    city_key text PRIMARY KEY,   -- city normalizada lower + sin tildes
+    lat double precision NOT NULL,
+    lng double precision NOT NULL
+);
+
+INSERT INTO _city_coords (city_key, lat, lng) VALUES
+    -- Departamentos (centros aproximados)
+    ('amazonas',          -1.3053,  -71.4659),
+    ('antioquia',          7.0000,  -75.5000),
+    ('arauca',             6.6667,  -71.0000),
+    ('arauca capital',     7.0903,  -70.7617),
+    ('atlantico',         10.6773,  -74.9719),
+    ('bolivar',            9.3660,  -74.8024),
+    ('boyaca',             5.6279,  -72.8269),
+    ('caqueta',            1.1153,  -74.1057),
+    ('casanare',           5.5000,  -71.5000),
+    ('cauca',              2.7156,  -76.6627),
+    ('cesar',              9.3333,  -73.5000),
+    ('choco',              6.0000,  -77.0000),
+    ('cordoba',            8.3345,  -75.6666),
+    ('cundinamarca',       4.7832,  -73.6731),
+    ('guainia',            2.5000,  -69.0000),
+    ('guaviare',           1.7899,  -72.3762),
+    ('huila',              2.4739,  -75.5900),
+    ('la guajira',        11.4354,  -72.9002),
+    ('magdalena',         10.5808,  -74.0686),
+    ('meta',               3.5000,  -73.0000),
+    ('narino',             1.5842,  -77.8586),
+    ('norte de santander', 8.4418,  -73.0493),
+    ('putumayo',           0.5000,  -76.0000),
+    ('quindio',            4.4028,  -75.7026),
+    ('risaralda',          5.2103,  -75.9842),
+    ('san andres',        12.5376,  -81.7204),
+    ('santander',          7.0000,  -73.2500),
+    ('sucre',              9.0000,  -75.0000),
+    ('tolima',             4.0356,  -75.2087),
+    ('valle del cauca',    3.6984,  -76.5502),
+    ('vaupes',             0.4228,  -70.9468),
+    ('vichada',            6.1909,  -67.4842),
+    -- Ciudades
+    ('armenia',            4.4920,  -75.7414),
+    ('barranquilla',      10.9939,  -74.7926),
+    ('bogota',             4.6533,  -74.0836),
+    ('bogota d.c',         4.6533,  -74.0836),
+    ('bogota d.c.',        4.6533,  -74.0836),
+    ('bucaramanga',        7.1170,  -73.1047),
+    ('buenaventura',       3.8882,  -77.0738),
+    ('cali',               3.4108,  -76.5812),
+    ('cartagena',         10.4266,  -75.5442),
+    ('cucuta',             8.0776,  -72.4689),
+    ('florencia',          1.6159,  -75.6143),
+    ('ibague',             4.4386,  -75.2109),
+    ('inirida',            3.8650,  -67.9260),
+    ('leticia',           -4.2129,  -69.9426),
+    ('manizales',          5.0744,  -75.5081),
+    ('medellin',           6.2697,  -75.6026),
+    ('mitu',               1.2587,  -70.2366),
+    ('mocoa',              1.1466,  -76.6482),
+    ('monteria',           8.6046,  -75.9783),
+    ('neiva',              2.9257,  -75.2894),
+    ('palmira',            3.5308,  -76.2988),
+    ('pasto',              1.2140,  -77.2785),
+    ('pereira',            4.7855,  -75.7883),
+    ('popayan',            2.4431,  -76.5463),
+    ('providencia',       13.3531,  -81.3750),
+    ('puerto carreno',     6.1909,  -67.4842),
+    ('quibdo',             5.6913,  -76.6531),
+    ('san jose del guaviare', 2.5716, -72.6427),
+    ('santa marta',       11.2321,  -74.1951),
+    ('sincelejo',          9.2973,  -75.3927),
+    ('valledupar',        10.4652,  -73.2530),
+    ('villavicencio',      4.1115,  -73.4968);
+
+-- A.2 — Función helper para normalizar city (lowercase + sin tildes)
+CREATE OR REPLACE FUNCTION pg_temp._norm_city(c text)
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+    SELECT lower(translate(
+        COALESCE(c, ''),
+        'ÁÉÍÓÚÀÈÌÒÙÄËÏÖÜÂÊÎÔÛÑáéíóúàèìòùäëïöüâêîôûñ',
+        'AEIOUAEIOUAEIOUAEIOUNaeiouaeiouaeiouaeioun'
+    ));
+$$;
+
+-- A.3 — UPDATE branches sin lat: usar coords de city, + jitter pequeño
+--       para no apilar marcadores en el mismo punto exacto.
+
+WITH targets AS (
+    SELECT b.id AS branch_id,
+           pg_temp._norm_city(s.city) AS city_key,
+           b.school_id
+      FROM public.school_branches b
+      JOIN public.schools s ON s.id = b.school_id
+      JOIN public.external_school_imports e ON e.school_id = b.school_id
+     WHERE e.source IN ('mindeporte_entidades_2025_2026', 'deportebogota_2026')
+       AND b.is_main = true
+       AND (b.lat IS NULL OR b.lng IS NULL)
+),
+resolved AS (
+    SELECT
+        t.branch_id,
+        t.school_id,
+        -- lat/lng base: lookup city → coords; sino centro Bogotá
+        COALESCE(c.lat, 4.6533) AS base_lat,
+        COALESCE(c.lng, -74.0836) AS base_lng
+      FROM targets t
+      LEFT JOIN _city_coords c ON c.city_key = t.city_key
+)
+UPDATE public.school_branches b
+   SET lat = r.base_lat  + (mod(abs(hashtext(r.school_id::text)),       300) - 150) / 5000.0,
+       lng = r.base_lng + (mod(abs(hashtext(r.school_id::text) >> 8),  300) - 150) / 5000.0,
+       updated_at = now()
+  FROM resolved r
+ WHERE b.id = r.branch_id;
+
+
+-- ============================================================
+-- B. RLS + GRANTs para anon (cliente del frontend /explorar)
+-- ============================================================
+
+-- B.1 — Reasegurar policy SELECT publica en school_branches.
+--       USING(true) permite a cualquier rol con GRANT SELECT.
+DROP POLICY IF EXISTS "Branches: select public" ON public.school_branches;
+CREATE POLICY "Branches: select public" ON public.school_branches
+    FOR SELECT USING (true);
+
+-- B.2 — Reasegurar policy SELECT publica en schools.
+DROP POLICY IF EXISTS "Schools: select public" ON public.schools;
+CREATE POLICY "Schools: select public" ON public.schools
+    FOR SELECT USING (true);
+
+-- B.3 — Policy SELECT publica en school_settings (lectura de
+--       public_profile_enabled requerida por el explorar).
+DROP POLICY IF EXISTS "Settings: select public" ON public.school_settings;
+CREATE POLICY "Settings: select public" ON public.school_settings
+    FOR SELECT USING (public_profile_enabled = true);
+
+-- B.4 — GRANT SELECT a anon (en Supabase default ya viene, pero
+--       refuerza por si alguna migración hizo REVOKE silencioso).
+GRANT SELECT ON public.school_branches  TO anon, authenticated;
+GRANT SELECT ON public.schools          TO anon, authenticated;
+GRANT SELECT ON public.school_settings  TO anon, authenticated;
+GRANT SELECT ON public.external_school_imports TO anon, authenticated;
+
+
+-- ============================================================
+-- C. Verificación (correr aparte si querés)
+-- ============================================================
+-- SELECT e.source,
+--        COUNT(*) AS branches_total,
+--        COUNT(*) FILTER (WHERE b.lat IS NOT NULL) AS con_lat
+-- FROM public.school_branches b
+-- JOIN public.external_school_imports e ON e.school_id = b.school_id
+-- WHERE b.is_main
+-- GROUP BY e.source
+-- ORDER BY e.source;
+-- Esperado: deportebogota=82/82, idrd=70/70 (32 ya tenian fallback via fix_v6),
+--           mindeporte=151/151.
+
+
+COMMIT;

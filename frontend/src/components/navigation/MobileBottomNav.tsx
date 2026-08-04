@@ -1,17 +1,18 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { Home, Calendar, MessageSquare, User, Compass, Users, CreditCard, Baby, Settings } from 'lucide-react';
+import { Home, Calendar, MessageSquare, User, Compass, Users, CreditCard, Baby, Settings, Trophy, Activity } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
+import { SHOW_EXPLORE } from '@/lib/feature-flags';
 
 const getNavigationItemsForRole = (role: string) => {
   switch (role) {
     case 'parent':
       return [
         { href: '/dashboard', label: 'Inicio', icon: Home },
+        ...(SHOW_EXPLORE ? [{ href: '/explorar', label: 'Explorar', icon: Compass }] : []),
         { href: '/children', label: 'Hijos', icon: Baby },
         { href: '/my-payments', label: 'Pagos', icon: CreditCard },
         { href: '/messages', label: 'Chat', icon: MessageSquare },
-        { href: '/settings', label: 'Config', icon: Settings },
       ];
     case 'school':
       return [
@@ -32,15 +33,13 @@ const getNavigationItemsForRole = (role: string) => {
     case 'athlete':
       return [
         { href: '/dashboard', label: 'Inicio', icon: Home },
-        { href: '/explore', label: 'Explorar', icon: Compass },
-        { href: '/calendar', label: 'Agenda', icon: Calendar },
-        { href: '/messages', label: 'Chat', icon: MessageSquare },
+        { href: '/enrollments', label: 'Mis inscripciones', icon: Trophy },
+        { href: '/training', label: 'Entrenamientos', icon: Activity },
         { href: '/profile', label: 'Perfil', icon: User },
       ];
     default:
       return [
         { href: '/dashboard', label: 'Inicio', icon: Home },
-        { href: '/explore', label: 'Explorar', icon: Compass },
         { href: '/calendar', label: 'Calendario', icon: Calendar },
         { href: '/messages', label: 'Mensajes', icon: MessageSquare },
         { href: '/profile', label: 'Perfil', icon: User },
@@ -56,15 +55,19 @@ export function MobileBottomNav() {
     return null;
   }
 
-  // No mostrar en páginas de auth o landing
-  if (['/', '/login', '/register', '/demo-welcome'].includes(location.pathname)) {
+  // No mostrar en páginas de auth, landing o durante el onboarding/setup
+  if (
+    ['/', '/login', '/register', '/demo-welcome', '/recepcion'].includes(location.pathname) ||
+    location.pathname.includes('/onboarding') ||
+    location.pathname.includes('/setup')
+  ) {
     return null;
   }
 
   const navigationItems = getNavigationItemsForRole(profile.role);
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-background border-t border-border md:hidden safe-area-bottom">
+    <nav className="fixed bottom-0 left-0 right-0 z-30 bg-background border-t border-border md:hidden safe-area-bottom">
       <div className="flex items-center justify-around h-16 px-2">
         {navigationItems.map((item) => {
           const Icon = item.icon;

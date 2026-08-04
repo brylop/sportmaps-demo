@@ -1,0 +1,25 @@
+{
+  "name": "pago_recordatorio_previo",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Hola {{1}} 👋 La mensualidad de {{2}} en {{3}} vence el {{4}} (valor: {{5}}). Puedes pagarla en un minuto desde el botón.",
+      "example": {
+        "body_text": [["Carolina", "Samuel", "Academia Tigres FC", "5 de agosto", "$150.000"]]
+      }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "Pagar ahora",
+          "url": "https://sportmaps.co/p/{{1}}",
+          "example": ["https://sportmaps.co/p/aB3xK9mQ"]
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
+import { todayInZone } from '../utils/businessDate';
 import { z } from 'zod';
 
 const router = Router();
@@ -416,7 +417,7 @@ router.patch('/:offeringId/plans/:planId',
                 .from('attendance_sessions')
                 .delete()
                 .eq('offering_id', offeringId)
-                .gte('session_date', new Date().toISOString().split('T')[0])
+                .gte('session_date', todayInZone())
                 .eq('current_bookings', 0)
                 .eq('finalized', false);
 
@@ -514,7 +515,8 @@ router.get(
         available: (all || []).filter((s: any) => !assignedIds.has(s.id)),
       });
     } catch (err: any) {
-      return res.status(500).json({ error: err.message });
+      req.log?.error({ err }, 'offerings unhandled error');
+      return res.status(500).json({ error: 'Error interno del servidor.' });
     }
   }
 );
@@ -544,7 +546,8 @@ router.post(
       if (err.code === '23505') {
         return res.status(409).json({ error: 'El entrenador ya está asignado a este plan.' });
       }
-      return res.status(500).json({ error: err.message });
+      req.log?.error({ err }, 'offerings unhandled error');
+      return res.status(500).json({ error: 'Error interno del servidor.' });
     }
   }
 );
@@ -564,7 +567,8 @@ router.delete(
       if (error) throw error;
       return res.status(204).send();
     } catch (err: any) {
-      return res.status(500).json({ error: err.message });
+      req.log?.error({ err }, 'offerings unhandled error');
+      return res.status(500).json({ error: 'Error interno del servidor.' });
     }
   }
 );

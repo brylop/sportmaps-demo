@@ -9,3 +9,12 @@ entrypoint = "./functions/platform-admin-hook/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/platform-admin-hook/*.html" ]
+
+# wompi-sign hace su PROPIA validación de JWT adentro (rechaza sin Bearer válido).
+# verify_jwt debe ser false para que el preflight CORS (OPTIONS, sin Authorization)
+# no lo rechace la plataforma con 401 → si no, el Widget nunca obtiene la firma.
+# Requiere redeploy: supabase functions deploy wompi-sign
+[functions.wompi-sign]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/wompi-sign/index.ts"

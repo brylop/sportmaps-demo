@@ -1,12 +1,13 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatCardProps } from '@/types/dashboard';
 import { TrendingUp, TrendingDown } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
-export function StatCard({ title, value, description, icon: Icon, trend, splitValue, splitTitle, splitIcon: SplitIcon }: StatCardProps) {
+export function StatCard({ title, value, description, icon: Icon, trend, splitValue, splitTitle, splitIcon: SplitIcon, href }: StatCardProps) {
   // ── Split mode: two equal metrics side by side ──────────────────────────────
   if (splitValue !== undefined && splitTitle && SplitIcon) {
-    return (
-      <Card className="hover:shadow-performance hover:scale-105 transition-all duration-300 group h-full flex flex-col">
+    const splitCardContent = (
+      <Card className={`hover:shadow-performance hover:scale-105 transition-all duration-300 group h-full flex flex-col ${href ? 'cursor-pointer' : ''}`}>
         <CardHeader className="pb-2 pt-4 px-4">
           <CardTitle className="text-sm font-medium text-muted-foreground line-clamp-1">{title}</CardTitle>
         </CardHeader>
@@ -35,12 +36,22 @@ export function StatCard({ title, value, description, icon: Icon, trend, splitVa
         </CardContent>
       </Card>
     );
+
+    if (href) {
+      return (
+        <Link to={href} className="block h-full no-underline">
+          {splitCardContent}
+        </Link>
+      );
+    }
+
+    return splitCardContent;
   }
 
   // ── Standard mode ──────────────────────────────────────────────────────────
-  return (
+  const cardContent = (
     // h-full + flex flex-col justify-between garantiza altura uniforme en el grid
-    <Card className="hover:shadow-performance hover:scale-105 transition-all duration-300 group h-full flex flex-col justify-between">
+    <Card className={`hover:shadow-performance hover:scale-105 transition-all duration-300 group h-full flex flex-col justify-between ${href ? 'cursor-pointer' : ''}`}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium line-clamp-1">{title}</CardTitle>
         <div className="p-2 rounded-full bg-primary/10 group-hover:bg-primary/20 transition-colors shrink-0">
@@ -74,4 +85,14 @@ export function StatCard({ title, value, description, icon: Icon, trend, splitVa
       </CardContent>
     </Card>
   );
+
+  if (href) {
+    return (
+      <Link to={href} className="block h-full no-underline">
+        {cardContent}
+      </Link>
+    );
+  }
+
+  return cardContent;
 }

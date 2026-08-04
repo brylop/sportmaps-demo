@@ -56,7 +56,7 @@ router.get(
             //    Solución: filtrar por los team_ids ya obtenidos en el paso anterior.
             const teamIds = teams.map((t: any) => t.id);
 
-            const allEnrollmentsSet = new Set<string>(); // para estudiantes únicos 
+            const allEnrollmentsSet = new Set<string>(); // para deportistas únicos 
 
             const teamOccupiedMap = new Map<string, number>();
             let totalStudents = 0;
@@ -179,7 +179,8 @@ router.get(
             // 1. Students
             let studentsQuery = supabase
                 .from('children')
-                .select('id, full_name, status, created_at, team_id, branch_id')
+                // children NO tiene columna `status`; default abajo (s.status || 'active').
+                .select('id, full_name, created_at, team_id, branch_id, monthly_fee')
                 .eq('school_id', schoolId)
                 .order('created_at', { ascending: false })
                 .limit(500);
@@ -192,13 +193,18 @@ router.get(
             // Fetch team names separately to avoid join ambiguity
             const studentTeamIds = [...new Set((studentsRaw || []).map((s: any) => s.team_id).filter(Boolean))];
             const teamNameMap = new Map<string, string>();
+            const teamFeeMap = new Map<string, number>();
             if (studentTeamIds.length > 0) {
                 const { data: teamRows } = await supabase
                     .from('teams')
-                    .select('id, name, monthly_fee')
+                    // La cuota mensual del equipo es `price_monthly`; `monthly_fee`
+                    // no existe en teams (sí en children/enrollments) y hacía
+                    // fallar el select completo → 500 en todo el dashboard.
+                    .select('id, name, price_monthly')
                     .in('id', studentTeamIds);
                 (teamRows || []).forEach((t: any) => {
                     teamNameMap.set(t.id, t.name);
+                    teamFeeMap.set(t.id, Number(t.price_monthly) || 0);
                 });
             }
 
@@ -219,14 +225,22 @@ router.get(
                 team: teamNameMap.get(s.team_id) || '—',
                 sede: branchNameMap.get(s.branch_id) || 'Principal',
                 status: s.status || 'active',
-                fee: 0, // simplified
+                // Antes iba fijo en 0, así que el KPI "Ingreso Potencial Mes"
+                // salía en $0. Se toma la cuota del atleta y, si no tiene, la de
+                // su categoría.
+                fee: Number(s.monthly_fee) || teamFeeMap.get(s.team_id) || 0,
                 joined: s.created_at,
             }));
 
             // 2. Payments
+            // `payments` no tiene `payment_month` ni `student_id`: el periodo vive
+            // en period_year/period_month y el sujeto del cobro es child_id (menor),
+            // user_id/parent_id (adulto) o unregistered_athlete_id. Pedir las
+            // columnas viejas hacía fallar el select y devolvía 500 en todo el
+            // dashboard del auditor.
             let paymentsQuery = supabase
                 .from('payments')
-                .select('id, amount, status, payment_month, created_at, student_id, branch_id')
+                .select('id, amount, status, concept, due_date, period_year, period_month, created_at, child_id, user_id, parent_id, unregistered_athlete_id, branch_id')
                 .eq('school_id', schoolId)
                 .gte('created_at', since)
                 .order('created_at', { ascending: false })
@@ -237,24 +251,42 @@ router.get(
             const { data: paymentsRaw, error: paymentsErr } = await paymentsQuery;
             if (paymentsErr) throw paymentsErr;
 
-            // Fetch student names for payments
-            const payStudentIds = [...new Set((paymentsRaw || []).map((p: any) => p.student_id).filter(Boolean))];
-            const studentNameMap = new Map<string, string>();
-            if (payStudentIds.length > 0) {
-                const { data: childRows } = await supabase
-                    .from('children')
-                    .select('id, full_name')
-                    .in('id', payStudentIds);
-                (childRows || []).forEach((c: any) => studentNameMap.set(c.id, c.full_name));
-            }
+            // Nombre del deportista según las TRES identidades posibles del cobro.
+            const nameMap = new Map<string, string>();
+            const collect = async (table: string, ids: string[]) => {
+                if (!ids.length) return;
+                const { data } = await supabase.from(table).select('id, full_name').in('id', ids);
+                (data || []).forEach((r: any) => nameMap.set(r.id, r.full_name));
+            };
+            const uniq = (key: string) =>
+                [...new Set((paymentsRaw || []).map((p: any) => p[key]).filter(Boolean))] as string[];
+            await Promise.all([
+                collect('children', uniq('child_id')),
+                collect('unregistered_athletes', uniq('unregistered_athlete_id')),
+                collect('profiles', [...new Set([...uniq('user_id'), ...uniq('parent_id')])]),
+            ]);
+
+            const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+            const periodo = (p: any) => {
+                if (p.period_year && p.period_month) return `${MESES[p.period_month - 1]} ${p.period_year}`;
+                const ref = p.due_date || p.created_at;
+                if (!ref) return '—';
+                const d = new Date(ref);
+                return `${MESES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+            };
 
             const payments = (paymentsRaw || []).map((p: any) => ({
                 id: p.id,
-                student: studentNameMap.get(p.student_id) || 'Desconocido',
-                amount: p.amount || 0,
+                student: nameMap.get(p.child_id)
+                    || nameMap.get(p.unregistered_athlete_id)
+                    || nameMap.get(p.user_id)
+                    || nameMap.get(p.parent_id)
+                    || 'Desconocido',
+                amount: Number(p.amount) || 0,
                 status: p.status || 'pending',
-                month: p.payment_month || '—',
-                team: '—',
+                month: periodo(p),
+                team: p.concept || '—',
             }));
 
             // 3. Coaches — sin join ambiguo
@@ -314,8 +346,11 @@ router.get(
             // 5. Teams
             let teamsQuery = supabase
                 .from('teams')
-                .select('id, name, monthly_fee, description')
-                .eq('school_id', schoolId);
+                .select('id, name, price_monthly, description')   // monthly_fee no existe en teams
+                .eq('school_id', schoolId)
+                // La sección del panel se llama "Equipos Activos": un equipo dado
+                // de baja no debe contarse ni listarse ahí.
+                .eq('active', true);
 
             if (branchFilterId) teamsQuery = teamsQuery.eq('branch_id', branchFilterId);
 
@@ -328,12 +363,13 @@ router.get(
                         .from('children')
                         .select('id', { count: 'exact', head: true })
                         .eq('team_id', p.id);
+                    const fee = Number(p.price_monthly) || 0;
                     return {
                         id: p.id,
                         name: p.name,
                         students: count || 0,
-                        monthly_fee: p.monthly_fee || 0,
-                        revenue: (count || 0) * (p.monthly_fee || 0),
+                        monthly_fee: fee,
+                        revenue: (count || 0) * fee,
                     };
                 })
             );
@@ -377,14 +413,60 @@ router.get(
 
             if (rosterErr) throw rosterErr;
 
-            // Match results
-            const { data: results, error: resultsErr } = await supabase
-                .from('match_results')
-                .select('*')
-                .eq('team_id', teamId)
-                .order('match_date', { ascending: false });
+            // Match results — el deporte decide si usa sets (jsonb) o marcador plano (match_results)
+            let usesSets = false;
+            if (team.sport) {
+                const { data: sportCat } = await supabase
+                    .from('sports_categories')
+                    .select('uses_sets_scoring')
+                    .ilike('name', team.sport)
+                    .maybeSingle();
+                usesSets = sportCat?.uses_sets_scoring ?? false;
+            }
+            let results: any[] = [];
 
-            if (resultsErr) throw resultsErr;
+            if (usesSets) {
+                const { data: compResults, error: resultsErr } = await supabase
+                    .from('competition_results')
+                    .select('id, competition_date, result_type, result_data, opponent, notes')
+                    .eq('team_id', teamId)
+                    .order('competition_date', { ascending: false });
+
+                if (resultsErr) throw resultsErr;
+
+                results = (compResults || []).map((r: any) => {
+                    const rData = r.result_data || {};
+                    const sets = rData.sets || [];
+                    const setsWonTeam = rData.sets_won_team || 0;
+                    const setsWonOpponent = rData.sets_won_opponent || 0;
+
+                    const setsStr = sets
+                        .map((s: any) => `${s.team_score}-${s.opponent_score}`)
+                        .join(', ');
+                    const score = sets.length > 0
+                        ? `${setsWonTeam} - ${setsWonOpponent} (${setsStr})`
+                        : null;
+
+                    return {
+                        id: r.id,
+                        match_date: r.competition_date,
+                        opponent: r.opponent,
+                        result: rData.match_result || 'unknown',
+                        score,
+                        match_type: r.result_type === 'competencia_oficial' ? 'Competencia' : 'Amistoso',
+                        notes: r.notes
+                    };
+                });
+            } else {
+                const { data: matchResults, error: resultsErr } = await supabase
+                    .from('match_results')
+                    .select('*')
+                    .eq('team_id', teamId)
+                    .order('match_date', { ascending: false });
+
+                if (resultsErr) throw resultsErr;
+                results = matchResults || [];
+            }
 
             // Attendance
             const { data: attendance, error: attendanceErr } = await supabase
@@ -427,10 +509,15 @@ router.get(
                 };
             }).sort((a: any, b: any) => b.percentage - a.percentage);
 
+            const playedResults = usesSets
+                ? results.filter((r: any) => r.result !== 'unknown')
+                : results;
+
             return res.json({
                 team: { id: team.id, name: team.name, age_group: team.age_group, sport: team.sport },
                 roster: roster || [],
                 results: results || [],
+                results_played_count: playedResults.length,
                 attendance: attendanceReport,
                 scorers: [],
             });
@@ -458,7 +545,9 @@ router.get(
             // 1. Fetch children with document URL
             let childrenQuery = supabase
                 .from('children')
-                .select('id, full_name, team_id, branch_id, id_document_url, status')
+                // NOTA: children NO tiene columna `status` en la BD; el default
+                // se resuelve abajo con `child.status || 'active'`.
+                .select('id, full_name, team_id, branch_id, id_document_url')
                 .eq('school_id', schoolId)
                 .order('full_name');
 

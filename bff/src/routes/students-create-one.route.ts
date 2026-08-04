@@ -31,21 +31,30 @@ import { normalizeSchoolName } from '../utils/brandingUtils';
 
 const router = Router();
 
+// ─── Helpers de schema ─────────────────────────────────────────────────────
+// Convierte string vacío o "none" a null antes de validar el UUID
+const uuid_or_null = z
+  .union([z.string().uuid(), z.literal(''), z.literal('none')])
+  .nullable()
+  .optional()
+  .transform(v => (!v || v === '' || v === 'none') ? null : v);
+
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
 const EnrollmentBase = z.object({
-  branch_id:        z.string().uuid().nullable().optional(),
-  team_id:          z.string().uuid().nullable().optional(),
-  offering_plan_id: z.string().uuid().nullable().optional(),
-  offering_id:      z.string().uuid().nullable().optional(),
+  branch_id:        uuid_or_null,
+  team_id:          uuid_or_null,
+  offering_plan_id: uuid_or_null,
+  offering_id:      uuid_or_null,
   start_date:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   monthly_fee:      z.number().min(10000).nullable().optional(),
+  discount_pct:     z.number().min(0).max(100).optional(),
 });
 
 const ChildSchema = EnrollmentBase.extend({
   type:          z.literal('child'),
   doc_type:      z.enum(['TI', 'CC', 'CE', 'PP']).default('TI'),
-  doc_number:    z.string().min(1),
+  doc_number:    z.string().trim().min(1).nullable().optional(),   // documento opcional
   full_name:     z.string().min(2).max(150).trim(),
   date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   gender:        z.string().nullable().optional(),
@@ -59,6 +68,11 @@ const ChildSchema = EnrollmentBase.extend({
 const AdultExistingSchema = EnrollmentBase.extend({
   type:    z.literal('adult_existing'),
   user_id: z.string().uuid(),   // profiles.id
+});
+
+const ChildExistingSchema = EnrollmentBase.extend({
+  type:     z.literal('child_existing'),
+  child_id: z.string().uuid(),
 });
 
 const AdultInviteSchema = z.object({
@@ -81,6 +95,7 @@ const UnregisteredAdultSchema = EnrollmentBase.extend({
 const CreateOneSchema = z.discriminatedUnion('type', [
   ChildSchema,
   AdultExistingSchema,
+  ChildExistingSchema,
   AdultInviteSchema,
   UnregisteredAdultSchema,
 ]);
@@ -114,9 +129,10 @@ async function createEnrollment(params: {
   teamId?: string | null;
   offeringPlanId?: string | null;
   offeringId?: string | null;
+  monthlyFee?: number | null;
   log?: any;
 }): Promise<string | null> {
-  const { childId, userId, unregisteredAthleteId, schoolId, startDate, status, teamId, offeringPlanId, offeringId, log } = params;
+  const { childId, userId, unregisteredAthleteId, schoolId, startDate, status, teamId, offeringPlanId, offeringId, monthlyFee, log } = params;
 
   // Verificar si ya existe un enrollment activo igual
   let existingQuery = supabase
@@ -156,6 +172,11 @@ async function createEnrollment(params: {
     record.offering_id      = offeringId;
   }
 
+  // Cuota individual editable (fuente de verdad del monto — ver fee-source).
+  if (monthlyFee != null && monthlyFee > 0) {
+    record.monthly_fee = monthlyFee;
+  }
+
   const { data, error } = await supabase
     .from('enrollments')
     .insert(record)
@@ -174,7 +195,9 @@ async function createEnrollment(params: {
 router.post(
   '/create-one',
   requireAuth,
-  requireRole('owner', 'admin', 'super_admin', 'school_admin', 'school', 'coach', 'staff'),
+  // Alta de atletas: SOLO admin/owner de la escuela. Un coach de escuela ya
+  // no crea atletas (decisión de negocio) — solo ve/gestiona los de sus equipos.
+  requireRole('owner', 'admin', 'super_admin', 'school_admin', 'school'),
   async (req: AuthenticatedRequest, res: Response) => {
     const { schoolId } = req;
 
@@ -199,25 +222,36 @@ router.post(
       const cutoffDay      = settings?.payment_cutoff_day || 10;
       const requireProof   = settings?.require_payment_proof ?? true;
 
-      const origin = process.env.CORS_ORIGIN || 'https://app.sportmaps.com';
+      // Fuente del link de invitacion, en orden de preferencia:
+      //   1. Origin del request (dominio desde donde se invita: stg / dev / app).
+      //   2. FRONTEND_URL del entorno como failsafe.
+      //   3. Fallback a app.sportmaps.co (TLD corregido; antes decia .com).
+      // El CORS middleware ya valida que Origin sea *.sportmaps.co / vercel.app,
+      // asi que no hay riesgo de spoof de un dominio arbitrario.
+      const requestOrigin =
+        (req.headers.origin as string | undefined) ||
+        (req.headers.referer as string | undefined)?.replace(/\/$/, '');
+      const origin = requestOrigin || process.env.FRONTEND_URL || 'https://app.sportmaps.co';
 
       // ══════════════════════════════════════════════════════════════════════
       // FLUJO A — Menor de edad
       // ══════════════════════════════════════════════════════════════════════
       if (data.type === 'child') {
-        // 1. Verificar duplicado por doc_number en esta escuela
-        const { data: existing } = await supabase
-          .from('children')
-          .select('id')
-          .eq('school_id', schoolId)
-          .eq('doc_number', data.doc_number)
-          .maybeSingle();
+        // 1. Verificar duplicado por doc_number en esta escuela (solo si hay documento)
+        if (data.doc_number) {
+          const { data: existing } = await supabase
+            .from('children')
+            .select('id')
+            .eq('school_id', schoolId)
+            .eq('doc_number', data.doc_number)
+            .maybeSingle();
 
-        if (existing) {
-          return res.status(409).json({
-            error: `Ya existe un menor con el documento ${data.doc_number} en esta escuela.`,
-            existing_id: existing.id,
-          });
+          if (existing) {
+            return res.status(409).json({
+              error: `Ya existe un menor con el documento ${data.doc_number} en esta escuela.`,
+              existing_id: existing.id,
+            });
+          }
         }
 
         // 2. INSERT children
@@ -226,7 +260,7 @@ router.post(
           .insert({
             full_name:         data.full_name,
             doc_type:          data.doc_type,
-            doc_number:        data.doc_number,
+            doc_number:        data.doc_number || null,
             date_of_birth:     data.date_of_birth     || null,
             gender:            data.gender             || null,
             grade:             data.grade              || null,
@@ -253,84 +287,71 @@ router.post(
         const childId = child.id;
         let enrollmentsCreated = 0;
 
-        // 3a. Enrollment de EQUIPO (si aplica — independiente)
-        let teamName = 'Equipo';
+        // ── UN atleta = UNA inscripción = UN cobro ─────────────────────────────
+        // El equipo es roster; el plan es lo que se cobra. Cuota efectiva:
+        // monthly_fee editado > precio del plan > precio del equipo.
+        const hasPlan = !!(data.offering_plan_id && data.offering_id);
+
+        let teamName = 'Equipo'; let teamPrice: number | null = null;
         if (data.team_id) {
-          const { data: team } = await supabase.from('teams').select('name').eq('id', data.team_id).single();
-          if (team) teamName = team.name;
+          const { data: team } = await supabase.from('teams').select('name, price_monthly').eq('id', data.team_id).single();
+          if (team) { teamName = team.name; teamPrice = team.price_monthly != null ? Number(team.price_monthly) : null; }
+        }
+        let planName: string | null = null; let planPrice: number | null = null;
+        if (hasPlan) {
+          const { data: plan } = await supabase.from('offering_plans').select('price, name').eq('id', data.offering_plan_id).single();
+          if (plan) { planName = plan.name; planPrice = plan.price != null ? Number(plan.price) : null; }
+        }
 
+        // plan manda si hay plan; si no, equipo. monthly_fee editado tiene prioridad.
+        const baseFee: number | null =
+          (data.monthly_fee && data.monthly_fee > 0) ? data.monthly_fee
+          : hasPlan ? planPrice
+          : teamPrice;
+
+        // UNA sola inscripción con equipo (roster) y/o plan (cobro) referenciados.
+        if (data.team_id || hasPlan) {
           const eid = await createEnrollment({
             childId, schoolId,
             status: 'active',
             startDate: data.start_date,
-            teamId: data.team_id,
+            teamId: data.team_id || null,
+            offeringPlanId: hasPlan ? data.offering_plan_id : null,
+            offeringId: hasPlan ? data.offering_id : null,
+            monthlyFee: baseFee,
             log: req.log,
           });
           if (eid) enrollmentsCreated++;
         }
 
-        // 3b. Enrollment de PLAN (si aplica — independiente)
-        if (data.offering_plan_id && data.offering_id) {
-          const eid = await createEnrollment({
-            childId, schoolId,
-            status: 'active',
-            startDate: data.start_date,
-            offeringPlanId: data.offering_plan_id,
-            offeringId: data.offering_id,
-            log: req.log,
-          });
-          if (eid) enrollmentsCreated++;
-        }
-
-        // 4. Pagos proporcionales
+        // UN solo cobro proporcional = cuota efectiva.
         let paymentCreated = false;
-        // Pago del equipo
-        if (data.team_id && data.monthly_fee && data.monthly_fee >= 10000) {
-          const payCalc = calcFirstPayment(data.start_date, data.monthly_fee, cycleType, cutoffDay);
+        if (baseFee && baseFee >= 10000) {
+          const effectiveFee = data.discount_pct
+            ? Math.round(baseFee * (1 - data.discount_pct / 100))
+            : baseFee;
+          const payCalc = calcFirstPayment(data.start_date, effectiveFee, cycleType, cutoffDay);
+          const conceptName = planName ? `Plan ${planName}` : `Equipo ${teamName}`;
           const { error: payErr } = await supabase.from('payments').insert({
-            child_id:     childId,
-            school_id:    schoolId,
-            branch_id:    data.branch_id || null,
-            team_id:      data.team_id,
-            amount:       payCalc.amount,
-            concept:      `Equipo ${teamName} — ${payCalc.description} — ${data.full_name}`,
-            due_date:     payCalc.dueDate,
-            status:       'pending',
-            payment_type: 'subscription',
+            child_id:         childId,
+            school_id:        schoolId,
+            branch_id:        data.branch_id || null,
+            team_id:          data.team_id || null,
+            offering_plan_id: hasPlan ? data.offering_plan_id : null,
+            amount:           payCalc.amount,
+            concept:          `${conceptName} — ${payCalc.description} — ${data.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
+            due_date:         payCalc.dueDate,
+            status:           'pending',
+            payment_type:     'subscription',
           });
           if (!payErr) paymentCreated = true;
-          else req.log?.error({ err: payErr }, 'Error creando pago equipo menor');
-        }
-
-        // Pago del plan (precio viene de offering_plans.price)
-        if (data.offering_plan_id && data.offering_id) {
-          const { data: plan } = await supabase
-            .from('offering_plans')
-            .select('price, name')
-            .eq('id', data.offering_plan_id)
-            .single();
-
-          if (plan && plan.price >= 10000) {
-            const payCalc = calcFirstPayment(data.start_date, Number(plan.price), cycleType, cutoffDay);
-            const { error: payErr } = await supabase.from('payments').insert({
-              child_id:     childId,
-              school_id:    schoolId,
-              branch_id:    data.branch_id || null,
-              offering_plan_id: data.offering_plan_id,
-              amount:       payCalc.amount,
-              concept:      `Plan ${plan.name} — ${payCalc.description} — ${data.full_name}`,
-              due_date:     payCalc.dueDate,
-              status:       'pending',
-              payment_type: 'subscription',
-            });
-            if (!payErr) paymentCreated = true;
-            else req.log?.error({ err: payErr }, 'Error creando pago plan menor');
-          }
+          else req.log?.error({ err: payErr }, 'Error creando pago menor');
         }
 
 
         // 5. Invitación al acudiente
         let invitationSent = false;
+        let invite: any = null;
         const { data: existingInvite } = await supabase
           .from('invitations')
           .select('id')
@@ -340,32 +361,49 @@ router.post(
           .maybeSingle();
 
         if (!existingInvite) {
-          const { data: invite, error: invErr } = await supabase
+          const { data: inviteData, error: invErr } = await supabase
             .from('invitations')
             .insert({
-              email:          data.parent_email,
-              school_id:      schoolId,
-              role_to_assign: 'parent',
-              invited_by:     req.user?.id || null,
-              status:         'pending',
-              child_name:     data.full_name,
-              monthly_fee:    data.monthly_fee || null,
+              email:            data.parent_email,
+              school_id:        schoolId,
+              role_to_assign:   'parent',
+              invited_by:       req.user?.id || null,
+              status:           'pending',
+              child_name:       data.full_name,
+              team_id:          data.team_id          || null,
+              offering_plan_id: data.offering_plan_id || null,
+              monthly_fee:      data.monthly_fee      || null,
             })
             .select('id')
             .single();
 
-          if (!invErr && invite) {
+          if (!invErr && inviteData) {
+            invite = inviteData;
             invitationSent = true;
             const { emailClient } = await import('../utils/emailClient');
-            const { EmailTemplates } = await import('../utils/emailTemplates');
+            const { BrandedEmailTemplates } = await import('../utils/emailTemplates');
             const link = `${origin}/register?email=${encodeURIComponent(data.parent_email)}&role=parent&invite=${invite.id}`;
-            emailClient.send({
-              to: data.parent_email,
-              subject: `Invitación a SportMaps — ${schoolName}`,
-              html: EmailTemplates.invitation(data.parent_name, data.full_name, schoolName, link),
-            }).catch((e: any) => req.log?.error({ email: data.parent_email, err: e }, 'Fallo email'));
+            try {
+              const tpl = await BrandedEmailTemplates.invitation({
+                parentName: data.parent_name,
+                childName: data.full_name,
+                schoolId,
+                inviteLink: link,
+              });
+              emailClient.send({
+                to: data.parent_email,
+                subject: tpl.subject,
+                html: tpl.html,
+              }).catch((e: any) => req.log?.error({ email: data.parent_email, err: e }, 'Fallo email'));
+            } catch (e: any) {
+              req.log?.error({ email: data.parent_email, err: e }, 'Fallo template branded');
+            }
           }
         }
+
+        const registrationLink = invitationSent
+          ? `${origin}/register?email=${encodeURIComponent(data.parent_email)}&role=parent&invite=${invite?.id ?? ''}`
+          : null;
 
         return res.status(201).json({
           success: true,
@@ -373,6 +411,8 @@ router.post(
           enrollments_created: enrollmentsCreated,
           payment_created: paymentCreated,
           invitation_sent: invitationSent,
+          registration_link: registrationLink,
+          parent_phone: data.parent_phone ?? null,
           message: `Menor registrado. ${enrollmentsCreated} inscripción(es) creada(s).${invitationSent ? ` Invitación enviada a ${data.parent_email}.` : ''}`,
         });
       }
@@ -418,80 +458,62 @@ router.post(
           }
         }
 
-        // 3a. Enrollment de EQUIPO (independiente)
+        // ── UN atleta = UNA inscripción = UN cobro (plan manda; equipo = roster) ─
         let enrollmentsCreated = 0;
-        let teamName = 'Equipo';
+        const hasPlan = !!(data.offering_plan_id && data.offering_id);
+
+        let teamName = 'Equipo'; let teamPrice: number | null = null;
         if (data.team_id) {
-          const { data: team } = await supabase.from('teams').select('name').eq('id', data.team_id).single();
-          if (team) teamName = team.name;
+          const { data: team } = await supabase.from('teams').select('name, price_monthly').eq('id', data.team_id).single();
+          if (team) { teamName = team.name; teamPrice = team.price_monthly != null ? Number(team.price_monthly) : null; }
+        }
+        let planName: string | null = null; let planPrice: number | null = null;
+        if (hasPlan) {
+          const { data: plan } = await supabase.from('offering_plans').select('price, name').eq('id', data.offering_plan_id).single();
+          if (plan) { planName = plan.name; planPrice = plan.price != null ? Number(plan.price) : null; }
+        }
 
+        const baseFee: number | null =
+          (data.monthly_fee && data.monthly_fee > 0) ? data.monthly_fee
+          : hasPlan ? planPrice
+          : teamPrice;
+
+        if (data.team_id || hasPlan) {
           const eid = await createEnrollment({
             userId, schoolId,
             status: 'active',
             startDate: data.start_date,
-            teamId: data.team_id,
+            teamId: data.team_id || null,
+            offeringPlanId: hasPlan ? data.offering_plan_id : null,
+            offeringId: hasPlan ? data.offering_id : null,
+            monthlyFee: baseFee,
             log: req.log,
           });
           if (eid) enrollmentsCreated++;
         }
 
-        // 3b. Enrollment de PLAN (independiente)
-        if (data.offering_plan_id && data.offering_id) {
-          const eid = await createEnrollment({
-            userId, schoolId,
-            status: 'active',
-            startDate: data.start_date,
-            offeringPlanId: data.offering_plan_id,
-            offeringId: data.offering_id,
-            log: req.log,
-          });
-          if (eid) enrollmentsCreated++;
-        }
-
-        // 4. Pagos proporcionales
+        // UN solo cobro proporcional = cuota efectiva.
         let paymentCreated = false;
-        // Pago del equipo
-        if (data.team_id && data.monthly_fee && data.monthly_fee >= 10000) {
-          const payCalc = calcFirstPayment(data.start_date, data.monthly_fee, cycleType, cutoffDay);
+        if (baseFee && baseFee >= 10000) {
+          const effectiveFee = data.discount_pct
+            ? Math.round(baseFee * (1 - data.discount_pct / 100))
+            : baseFee;
+          const payCalc = calcFirstPayment(data.start_date, effectiveFee, cycleType, cutoffDay);
+          const conceptName = planName ? `Plan ${planName}` : `Equipo ${teamName}`;
           const { error: payErr } = await supabase.from('payments').insert({
-            user_id:      userId,
-            school_id:    schoolId,
-            branch_id:    data.branch_id || null,
-            team_id:      data.team_id,
-            amount:       payCalc.amount,
-            concept:      `Equipo ${teamName} — ${payCalc.description} — ${profile.full_name}`,
-            due_date:     payCalc.dueDate,
-            status:       'pending',
-            payment_type: 'subscription',
+            user_id:          userId,
+            school_id:        schoolId,
+            branch_id:        data.branch_id || null,
+            team_id:          data.team_id || null,
+            offering_plan_id: hasPlan ? data.offering_plan_id : null,
+            amount:           payCalc.amount,
+            concept:          `${conceptName} — ${payCalc.description} — ${profile.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
+            due_date:         payCalc.dueDate,
+            status:           'pending',
+            payment_type:     'subscription',
           });
           if (!payErr) paymentCreated = true;
-          else req.log?.error({ err: payErr }, 'Error creando pago equipo adulto');
-        }
-
-        // Pago del plan
-        if (data.offering_plan_id && data.offering_id) {
-          const { data: plan } = await supabase
-            .from('offering_plans')
-            .select('price, name')
-            .eq('id', data.offering_plan_id)
-            .single();
-
-          if (plan && plan.price >= 10000) {
-            const payCalc = calcFirstPayment(data.start_date, Number(plan.price), cycleType, cutoffDay);
-            const { error: payErr } = await supabase.from('payments').insert({
-              user_id:      userId,
-              school_id:    schoolId,
-              branch_id:    data.branch_id || null,
-              offering_plan_id: data.offering_plan_id,
-              amount:       payCalc.amount,
-              concept:      `Plan ${plan.name} — ${payCalc.description} — ${profile.full_name}`,
-              due_date:     payCalc.dueDate,
-              status:       'pending',
-              payment_type: 'subscription',
-            });
-            if (!payErr) paymentCreated = true;
-            else req.log?.error({ err: payErr }, 'Error creando pago plan adulto');
-          }
+          else req.log?.error({ err: payErr }, 'Error creando pago adulto');
         }
 
 
@@ -501,6 +523,72 @@ router.post(
           enrollments_created: enrollmentsCreated,
           payment_created: paymentCreated,
           message: `${profile.full_name} inscrito correctamente. ${enrollmentsCreated} inscripción(es) creada(s).`,
+        });
+      }
+
+      // ══════════════════════════════════════════════════════════════════════
+      // FLUJO E — Menor ya registrado en children
+      // ══════════════════════════════════════════════════════════════════════
+      if (data.type === 'child_existing') {
+        const { child_id } = data;
+
+        // 1. Verificar que el menor exista
+        const { data: child } = await supabase
+          .from('children')
+          .select('id, full_name, school_id')
+          .eq('id', child_id)
+          .maybeSingle();
+
+        if (!child) {
+          return res.status(404).json({ error: 'No se encontró el registro del menor.' });
+        }
+
+        // UNA sola inscripción con equipo (roster) y/o plan (cobro).
+        let enrollmentsCreated = 0;
+        const hasPlan = !!(data.offering_plan_id && data.offering_id);
+        if (data.team_id || hasPlan) {
+          const eid = await createEnrollment({
+            childId: child_id, schoolId,
+            status: 'active',
+            startDate: data.start_date,
+            teamId: data.team_id || null,
+            offeringPlanId: hasPlan ? data.offering_plan_id : null,
+            offeringId: hasPlan ? data.offering_id : null,
+            monthlyFee: (data.monthly_fee && data.monthly_fee > 0) ? data.monthly_fee : null,
+            log: req.log,
+          });
+          if (eid) enrollmentsCreated++;
+        }
+
+        // 4. UN solo cobro proporcional (ya era único aquí).
+        let paymentCreated = false;
+        if (data.monthly_fee && data.monthly_fee >= 10000) {
+          const effectiveFee = data.discount_pct
+            ? Math.round(data.monthly_fee * (1 - data.discount_pct / 100))
+            : data.monthly_fee;
+
+          const payCalc = calcFirstPayment(data.start_date, effectiveFee, cycleType, cutoffDay);
+          const { error: payErr } = await supabase.from('payments').insert({
+            child_id:     child_id,
+            school_id:    schoolId,
+            branch_id:    data.branch_id || null,
+            team_id:      data.team_id || null,
+            offering_plan_id: data.offering_plan_id || null,
+            amount:       payCalc.amount,
+            concept:      `Suscripción — ${payCalc.description} — ${child.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
+            due_date:     payCalc.dueDate,
+            status:       'pending',
+            payment_type: 'subscription',
+          });
+          if (!payErr) paymentCreated = true;
+        }
+
+        return res.status(201).json({
+          success: true,
+          child_id: child_id,
+          enrollments_created: enrollmentsCreated,
+          payment_created: paymentCreated,
+          message: `${child.full_name} inscrito correctamente. ${enrollmentsCreated} inscripción(es) creada(s).`,
         });
       }
 
@@ -539,19 +627,30 @@ router.post(
           return res.status(500).json({ error: invErr?.message || 'Error creando invitación.' });
         }
 
-        // Fire-and-forget email
+        // Fire-and-forget email branded por escuela
         const { emailClient } = await import('../utils/emailClient');
-        const { EmailTemplates } = await import('../utils/emailTemplates');
+        const { BrandedEmailTemplates } = await import('../utils/emailTemplates');
         const link = `${origin}/register?email=${encodeURIComponent(data.email)}&role=athlete&invite=${invite.id}`;
-        emailClient.send({
-          to:      data.email,
-          subject: `Invitación a SportMaps — ${schoolName}`,
-          html:    EmailTemplates.invitation(data.email.split('@')[0], '', schoolName, link),
-        }).catch((e: any) => req.log?.error({ email: data.email, err: e }, 'Fallo email invitación'));
+        try {
+          const tpl = await BrandedEmailTemplates.invitation({
+            parentName: data.email.split('@')[0],
+            childName: '',
+            schoolId,
+            inviteLink: link,
+          });
+          emailClient.send({
+            to: data.email,
+            subject: tpl.subject,
+            html: tpl.html,
+          }).catch((e: any) => req.log?.error({ email: data.email, err: e }, 'Fallo email invitación'));
+        } catch (e: any) {
+          req.log?.error({ email: data.email, err: e }, 'Fallo template branded');
+        }
 
         return res.status(201).json({
           success: true,
           invitation_id: invite.id,
+          registration_link: link,
           message: `Invitación enviada a ${data.email}. Una vez se registre podrás inscribirlo.`,
         });
       }
@@ -582,92 +681,118 @@ router.post(
         const uaId = ua.id;
         let enrollmentsCreated = 0;
 
-        let teamName = 'Equipo';
-        if (data.team_id) {
-          const { data: team } = await supabase.from('teams').select('name').eq('id', data.team_id).single();
-          if (team) teamName = team.name;
+        // ── UN atleta = UNA inscripción = UN cobro (plan manda; equipo = roster) ─
+        const hasPlan = !!(data.offering_plan_id && data.offering_id);
 
-          const eid = await createEnrollment({
-            unregisteredAthleteId: uaId, schoolId,
-            status: 'active',
-            startDate: data.start_date, teamId: data.team_id, log: req.log,
-          });
-          if (eid) enrollmentsCreated++;
+        let teamName = 'Equipo'; let teamPrice: number | null = null;
+        if (data.team_id) {
+          const { data: team } = await supabase.from('teams').select('name, price_monthly').eq('id', data.team_id).single();
+          if (team) { teamName = team.name; teamPrice = team.price_monthly != null ? Number(team.price_monthly) : null; }
+        }
+        let planName: string | null = null; let planPrice: number | null = null;
+        if (hasPlan) {
+          const { data: plan } = await supabase.from('offering_plans').select('price, name').eq('id', data.offering_plan_id).single();
+          if (plan) { planName = plan.name; planPrice = plan.price != null ? Number(plan.price) : null; }
         }
 
-        if (data.offering_plan_id && data.offering_id) {
+        const baseFee: number | null =
+          (data.monthly_fee && data.monthly_fee > 0) ? data.monthly_fee
+          : hasPlan ? planPrice
+          : teamPrice;
+
+        if (data.team_id || hasPlan) {
           const eid = await createEnrollment({
             unregisteredAthleteId: uaId, schoolId,
             status: 'active',
             startDate: data.start_date,
-            offeringPlanId: data.offering_plan_id,
-            offeringId: data.offering_id, log: req.log,
+            teamId: data.team_id || null,
+            offeringPlanId: hasPlan ? data.offering_plan_id : null,
+            offeringId: hasPlan ? data.offering_id : null,
+            monthlyFee: baseFee,
+            log: req.log,
           });
           if (eid) enrollmentsCreated++;
         }
 
-        // Pago proporcional
-        if (data.monthly_fee && data.monthly_fee >= 10000) {
-          const payCalc = calcFirstPayment(data.start_date, data.monthly_fee, cycleType, cutoffDay);
+        // UN solo cobro proporcional = cuota efectiva.
+        if (baseFee && baseFee >= 10000) {
+          const effectiveFee = data.discount_pct
+            ? Math.round(baseFee * (1 - data.discount_pct / 100))
+            : baseFee;
+          const payCalc = calcFirstPayment(data.start_date, effectiveFee, cycleType, cutoffDay);
+          const conceptName = planName ? `Plan ${planName}` : `Equipo ${teamName}`;
           await supabase.from('payments').insert({
             school_id: schoolId, branch_id: data.branch_id || null,
             unregistered_athlete_id: uaId,
             team_id: data.team_id || null,
+            offering_plan_id: hasPlan ? data.offering_plan_id : null,
             amount: payCalc.amount,
-            concept: `Equipo ${teamName} — ${payCalc.description} — ${data.full_name}`,
+            concept: `${conceptName} — ${payCalc.description} — ${data.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
             due_date: payCalc.dueDate, status: 'pending', payment_type: 'subscription',
           });
         }
 
-        // Pago del plan
-        if (data.offering_plan_id && data.offering_id) {
-          const { data: plan } = await supabase
-            .from('offering_plans')
-            .select('price, name')
-            .eq('id', data.offering_plan_id)
-            .single();
-
-          if (plan && plan.price >= 10000) {
-            const payCalc = calcFirstPayment(data.start_date, Number(plan.price), cycleType, cutoffDay);
-            await supabase.from('payments').insert({
-              school_id: schoolId, branch_id: data.branch_id || null,
-              unregistered_athlete_id: uaId,
-              offering_plan_id: data.offering_plan_id,
-              amount: payCalc.amount,
-              concept: `Plan ${plan.name} — ${payCalc.description} — ${data.full_name}`,
-              due_date: payCalc.dueDate, status: 'pending', payment_type: 'subscription',
-            });
-          }
-        }
-
 
         let invitationSent = false;
+        let invite: any = null;
         if (data.send_invite && data.email) {
           const { data: existingInv } = await supabase.from('invitations').select('id')
             .eq('school_id', schoolId).eq('email', data.email)
             .in('status', ['pending', 'accepted']).maybeSingle();
 
           if (!existingInv) {
-            const { data: invite } = await supabase.from('invitations')
+            // Calcular el monto efectivo descontado para guardarlo en la invitación
+            let invMonthlyFee: number | null = null;
+            if (data.offering_plan_id && data.offering_id) {
+              const { data: plan } = await supabase
+                .from('offering_plans').select('price').eq('id', data.offering_plan_id).single();
+              if (plan) {
+                invMonthlyFee = data.discount_pct
+                  ? Math.round(Number(plan.price) * (1 - data.discount_pct / 100))
+                  : Number(plan.price);
+              }
+            } else if (data.monthly_fee) {
+              invMonthlyFee = data.discount_pct
+                ? Math.round(data.monthly_fee * (1 - data.discount_pct / 100))
+                : data.monthly_fee;
+            }
+
+            const { data: inviteData } = await supabase.from('invitations')
               .insert({
                 email: data.email, school_id: schoolId,
                 role_to_assign: 'athlete', invited_by: req.user?.id || null, status: 'pending',
+                offering_plan_id: data.offering_plan_id || null,
+                team_id: data.team_id || null,
+                monthly_fee: invMonthlyFee,
+                parent_phone: data.phone || null,
               })
               .select('id').single();
 
-            if (invite) {
+            if (inviteData) {
+              invite = inviteData;
               // Vincular invitación al registro
               await supabase.from('unregistered_athletes')
                 .update({ invitation_id: invite.id }).eq('id', uaId);
 
               invitationSent = true;
-              const { emailClient }    = await import('../utils/emailClient');
-              const { EmailTemplates } = await import('../utils/emailTemplates');
+              const { emailClient }          = await import('../utils/emailClient');
+              const { BrandedEmailTemplates } = await import('../utils/emailTemplates');
               const link = `${origin}/register?email=${encodeURIComponent(data.email)}&role=athlete&invite=${invite.id}`;
-              emailClient.send({
-                to: data.email, subject: `Invitación a SportMaps — ${schoolName}`,
-                html: EmailTemplates.invitation(data.full_name, '', schoolName, link),
-              }).catch((e: any) => req.log?.error({ err: e }, 'Fallo email'));
+              try {
+                const tpl = await BrandedEmailTemplates.invitation({
+                  parentName: data.full_name,
+                  childName: '',
+                  schoolId,
+                  inviteLink: link,
+                });
+                emailClient.send({
+                  to: data.email,
+                  subject: tpl.subject,
+                  html: tpl.html,
+                }).catch((e: any) => req.log?.error({ err: e }, 'Fallo email'));
+              } catch (e: any) {
+                req.log?.error({ err: e }, 'Fallo template branded');
+              }
             }
           }
         }
@@ -677,13 +802,17 @@ router.post(
           unregistered_athlete_id: uaId,
           enrollments_created: enrollmentsCreated,
           invitation_sent: invitationSent,
+          registration_link: invitationSent && data.email
+            ? `${origin}/register?email=${encodeURIComponent(data.email)}&role=athlete&invite=${invite?.id ?? ''}`
+            : null,
+          phone: data.phone ?? null,
           message: `${data.full_name} registrado.${invitationSent ? ` Invitación enviada a ${data.email}.` : ''}`,
         });
       }
 
     } catch (err: any) {
       req.log?.error({ err: err.message || err }, 'Error inesperado en create-one');
-      return res.status(500).json({ error: err.message || 'Error interno del servidor.' });
+      return res.status(500).json({ error: 'Error interno del servidor.' });
     }
   }
 );

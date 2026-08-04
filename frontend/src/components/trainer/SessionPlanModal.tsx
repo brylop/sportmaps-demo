@@ -5,12 +5,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import { BlockBuilder } from './BlockBuilder';
 import { Loader2, Calendar, ClipboardCheck, Sparkles, Plus } from 'lucide-react';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/contexts/AuthContext';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 const BFF_URL = import.meta.env.VITE_BFF_URL || 'http://localhost:3000';
 
@@ -34,15 +37,17 @@ export function SessionPlanModal({
   const [routines, setRoutines] = useState<any[]>([]);
   const [loadingRoutines, setLoadingRoutines] = useState(false);
   const [selectedRoutineId, setSelectedRoutineId] = useState<string>(initialRoutineId || '');
-  
+
+  const todayCO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+
   const [scratchData, setScratchData] = useState({
     name: '',
-    session_date: new Date().toISOString().split('T')[0],
+    session_date: todayCO,
     blocks: [],
     custom_notes: '',
   });
 
-  const [templateDate, setTemplateDate] = useState(new Date().toISOString().split('T')[0]);
+  const [templateDate, setTemplateDate] = useState(todayCO);
 
   useEffect(() => {
     if (open && activeTab === 'template') {
@@ -125,12 +130,36 @@ export function SessionPlanModal({
               <TabsContent value="template" className="mt-0 space-y-6">
                 <div className="space-y-4">
                   <Label className="text-xs font-bold uppercase tracking-wider">1. Seleccionar Fecha</Label>
-                  <Input 
-                    type="date" 
-                    value={templateDate} 
-                    onChange={(e) => setTemplateDate(e.target.value)}
-                    className="max-w-[200px]"
-                  />
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="max-w-[220px] justify-start text-left font-normal">
+                        {format(new Date(templateDate + 'T12:00:00'), 'PPP', { locale: es })}
+                        <Calendar className="ml-auto h-4 w-4 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <CalendarPicker
+                        mode="single"
+                        selected={new Date(templateDate + 'T12:00:00')}
+                        onSelect={(date) => { if (date) setTemplateDate(format(date, 'yyyy-MM-dd')); }}
+                        locale={es}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  {templateDate > todayCO && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 max-w-sm">
+                      <Calendar className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                      <p className="text-[11px] text-amber-700 font-medium">
+                        Esta rutina será visible para {clientName.split(' ')[0]} a partir del{' '}
+                        <span className="font-black">
+                          {new Date(templateDate + 'T12:00:00').toLocaleDateString('es-CO', {
+                            weekday: 'short', day: 'numeric', month: 'short'
+                          })}
+                        </span>
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-4">
@@ -190,11 +219,36 @@ export function SessionPlanModal({
                   </div>
                   <div className="space-y-2">
                     <Label className="text-xs font-bold uppercase tracking-wider">Fecha de Sesión</Label>
-                    <Input 
-                      type="date" 
-                      value={scratchData.session_date}
-                      onChange={(e) => setScratchData({ ...scratchData, session_date: e.target.value })}
-                    />
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-full justify-start text-left font-normal">
+                          {format(new Date(scratchData.session_date + 'T12:00:00'), 'PPP', { locale: es })}
+                          <Calendar className="ml-auto h-4 w-4 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <CalendarPicker
+                          mode="single"
+                          selected={new Date(scratchData.session_date + 'T12:00:00')}
+                          onSelect={(date) => { if (date) setScratchData({ ...scratchData, session_date: format(date, 'yyyy-MM-dd') }); }}
+                          locale={es}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    {scratchData.session_date > todayCO && (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                        <Calendar className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                        <p className="text-[11px] text-amber-700 font-medium">
+                          Esta rutina será visible para {clientName.split(' ')[0]} a partir del{' '}
+                          <span className="font-black">
+                            {new Date(scratchData.session_date + 'T12:00:00').toLocaleDateString('es-CO', {
+                              weekday: 'short', day: 'numeric', month: 'short'
+                            })}
+                          </span>
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 

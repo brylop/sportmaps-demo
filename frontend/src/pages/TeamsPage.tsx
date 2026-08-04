@@ -24,12 +24,34 @@ import {
   LayoutGrid,
   List as ListIcon,
   Pencil,
-  UserPlus
+  UserPlus,
+  MoreVertical,
+  Archive,
+  Trash2,
+  RotateCcw
 } from 'lucide-react';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { PermissionGate } from '@/components/PermissionGate';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { CreateTeamModal } from '@/components/teams/CreateTeamModal';
 import { EnrollTeamStudentModal } from '@/components/teams/EnrollTeamStudentModal';
 import { useToast } from '@/hooks/use-toast';
@@ -77,9 +99,13 @@ export default function TeamsPage() {
   const [editingTeam, setEditingTeam] = useState<TeamWithRelations | null>(null);
   const [selectedTeamForEnroll, setSelectedTeamForEnroll] = useState<TeamWithRelations | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
+  const [showArchived, setShowArchived] = useState(false);
+  const [teamToArchive, setTeamToArchive] = useState<TeamWithRelations | null>(null);
+  const [teamToDelete, setTeamToDelete] = useState<TeamWithRelations | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
   // Fetch teams with relations
-  const { data: teams = [], isLoading, refetch } = useQuery({
+  const { data: teams = [], isLoading, isFetching, refetch } = useQuery({
     queryKey: ['teams', schoolId, activeBranchId, currentUserRole],
     queryFn: async () => {
       if (!schoolId) return [];
@@ -212,8 +238,18 @@ export default function TeamsPage() {
       : 0
   };
 
+  const archivedCount = teams.filter((t) => t.status === 'inactive').length;
+
   // Filtered teams
   const filteredTeams = teams.filter((team) => {
+    // 0. Archivados: por defecto ocultos. El toggle "Ver archivados" muestra SOLO esos.
+    const isArchived = team.status === 'inactive';
+    if (showArchived) {
+      if (!isArchived) return false;
+    } else if (isArchived) {
+      return false;
+    }
+
     // 1. Search Filter
     const matchesSearch =
       team.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -241,6 +277,120 @@ export default function TeamsPage() {
       description: 'La lista de equipos se ha refrescado correctamente.',
     });
   };
+
+  // Archivar: soft-delete reversible (status inactive). No toca inscritos ni pagos.
+  const handleArchive = async (team: TeamWithRelations) => {
+    try {
+      setActionLoading(true);
+      const { error } = await (supabase as any)
+        .from('teams')
+        .update({ status: 'inactive' })
+        .eq('id', team.id);
+      if (error) throw error;
+      toast({ title: 'Equipo archivado', description: `"${team.name}" se movió a archivados. Puedes reactivarlo cuando quieras.` });
+      setTeamToArchive(null);
+      refetch();
+    } catch (err: any) {
+      toast({ title: 'No se pudo archivar', description: err.message, variant: 'destructive' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleReactivate = async (team: TeamWithRelations) => {
+    try {
+      setActionLoading(true);
+      const { error } = await (supabase as any)
+        .from('teams')
+        .update({ status: 'active' })
+        .eq('id', team.id);
+      if (error) throw error;
+      toast({ title: 'Equipo reactivado', description: `"${team.name}" vuelve a estar activo.` });
+      refetch();
+    } catch (err: any) {
+      toast({ title: 'No se pudo reactivar', description: err.message, variant: 'destructive' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Eliminar permanente: SOLO si el equipo está vacío (sin deportistas/inscripciones).
+  // Si tiene datos, se bloquea y se sugiere archivar.
+  const handleDelete = async (team: TeamWithRelations) => {
+    try {
+      setActionLoading(true);
+
+      const [{ count: enrollCount }, { count: childCount }] = await Promise.all([
+        supabase.from('enrollments').select('id', { count: 'exact', head: true }).eq('team_id', team.id),
+        supabase.from('children').select('id', { count: 'exact', head: true }).eq('team_id', team.id),
+      ]);
+      const total = (enrollCount || 0) + (childCount || 0);
+      if (total > 0) {
+        toast({
+          title: 'No se puede eliminar',
+          description: `"${team.name}" tiene ${total} deportista(s)/inscripción(es) asociada(s). Archívalo en su lugar para conservar el historial.`,
+          variant: 'destructive',
+        });
+        setTeamToDelete(null);
+        return;
+      }
+
+      const { error } = await (supabase as any).from('teams').delete().eq('id', team.id);
+      if (error) {
+        // 23503 = foreign_key_violation → tiene registros relacionados (partidos, asistencia, etc.)
+        if ((error as any).code === '23503') {
+          toast({
+            title: 'No se puede eliminar',
+            description: `"${team.name}" tiene registros asociados. Archívalo en su lugar.`,
+            variant: 'destructive',
+          });
+        } else {
+          throw error;
+        }
+        setTeamToDelete(null);
+        return;
+      }
+
+      toast({ title: 'Equipo eliminado', description: `"${team.name}" se eliminó permanentemente.` });
+      setTeamToDelete(null);
+      refetch();
+    } catch (err: any) {
+      toast({ title: 'Error al eliminar', description: err.message, variant: 'destructive' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Menú de acciones (⋯) reutilizable en tabla y grid.
+  const renderActionsMenu = (team: TeamWithRelations) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Más acciones">
+          <MoreVertical className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {team.status === 'inactive' ? (
+          <DropdownMenuItem onClick={() => handleReactivate(team)}>
+            <RotateCcw className="h-4 w-4 mr-2" />
+            Reactivar
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem onClick={() => setTeamToArchive(team)}>
+            <Archive className="h-4 w-4 mr-2" />
+            Archivar
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem
+          className="text-destructive focus:text-destructive"
+          onClick={() => setTeamToDelete(team)}
+        >
+          <Trash2 className="h-4 w-4 mr-2" />
+          Eliminar permanente
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-10">
@@ -281,76 +431,18 @@ export default function TeamsPage() {
         </div>
       </div>
 
-      {/* Stats Cards - Replicating screenshot */}
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
-        <Card
-          className={`transition-all border-l-4 border-l-primary cursor-pointer hover:shadow-md ${statusFilter === 'all' ? 'ring-2 ring-primary ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
-          onClick={() => setStatusFilter(statusFilter === 'all' ? 'all' : 'all')}
-        >
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Total Equipos
-              </CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
-          </CardContent>
-        </Card>
-
-        <Card
-          className={`transition-all border-l-4 border-l-orange-500 cursor-pointer hover:shadow-md ${statusFilter === 'with_students' ? 'ring-2 ring-orange-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
-          onClick={() => setStatusFilter(statusFilter === 'with_students' ? 'all' : 'with_students')}
-        >
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Deportistas
-              </CardTitle>
-              <Star className="h-4 w-4 text-orange-500" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.athletes}</div>
-          </CardContent>
-        </Card>
-
-        <Card
-          className={`transition-all border-l-4 border-l-green-500 cursor-pointer hover:shadow-md ${statusFilter === 'with_wins' ? 'ring-2 ring-green-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
-          onClick={() => setStatusFilter(statusFilter === 'with_wins' ? 'all' : 'with_wins')}
-        >
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Victorias
-              </CardTitle>
-              <Trophy className="h-4 w-4 text-green-500" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.victories}</div>
-          </CardContent>
-        </Card>
-
-        <Card
-          className={`transition-all border-l-4 border-l-blue-500 cursor-pointer hover:shadow-md ${statusFilter === 'top_rate' ? 'ring-2 ring-blue-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
-          onClick={() => setStatusFilter(statusFilter === 'top_rate' ? 'all' : 'top_rate')}
-        >
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                % Victoria
-              </CardTitle>
-              <TrendingUp className="h-4 w-4 text-blue-500" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{stats.winRate}%</div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Stats Cards — tarjetas que filtran el listado al hacer clic */}
+      <StatFilterBar
+        columns={4}
+        value={statusFilter === 'all' ? null : statusFilter}
+        onChange={(v) => setStatusFilter(v ?? 'all')}
+        items={[
+          { key: null, label: 'Total Equipos', value: stats.total, tone: 'neutral' },
+          { key: 'with_students', label: 'Deportistas', value: stats.athletes, tone: 'orange' },
+          { key: 'with_wins', label: 'Victorias', value: stats.victories, tone: 'emerald' },
+          { key: 'top_rate', label: '% Victoria', value: `${stats.winRate}%`, tone: 'blue' },
+        ]}
+      />
 
       {/* Filters & Search Like Invitations */}
       <Card className="bg-card/50 border-dashed shadow-none">
@@ -387,6 +479,17 @@ export default function TeamsPage() {
                 <SelectItem value="members">Más alumnos</SelectItem>
               </SelectContent>
             </Select>
+
+            <Button
+              variant={showArchived ? 'secondary' : 'outline'}
+              size="sm"
+              className="h-10 gap-2"
+              onClick={() => setShowArchived((v) => !v)}
+              title="Ver equipos archivados"
+            >
+              <Archive className="h-4 w-4" />
+              {showArchived ? 'Ver activos' : `Archivados${archivedCount ? ` (${archivedCount})` : ''}`}
+            </Button>
 
             <div className="border rounded-md p-1 flex bg-muted/20">
               <Button
@@ -459,7 +562,7 @@ export default function TeamsPage() {
                 </CardDescription>
               </div>
               <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50 px-3 py-1">
-                {schoolStudents.length} Estudiantes
+                {schoolStudents.length} Deportistas
               </Badge>
             </div>
           </CardHeader>
@@ -472,8 +575,8 @@ export default function TeamsPage() {
             ) : schoolStudents.length === 0 ? (
               <div className="text-center py-12 border-2 border-dashed rounded-xl">
                 <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4 opacity-20" />
-                <p className="text-muted-foreground font-medium">No se encontraron estudiantes registrados</p>
-                <p className="text-xs text-muted-foreground">Vincula alumnos a la escuela desde el módulo de Estudiantes.</p>
+                <p className="text-muted-foreground font-medium">No se encontraron deportistas registrados</p>
+                <p className="text-xs text-muted-foreground">Vincula alumnos a la escuela desde el módulo de Deportistas.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -661,7 +764,7 @@ export default function TeamsPage() {
                         <Button
                           variant="ghost" size="icon" className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
                           onClick={() => { setSelectedTeamForEnroll(team); setIsEnrollModalOpen(true); }}
-                          title="Gestionar Estudiantes"
+                          title="Gestionar Deportistas"
                         >
                           <UserPlus className="h-4 w-4" />
                         </Button>
@@ -674,12 +777,25 @@ export default function TeamsPage() {
                             <Pencil className="h-4 w-4" />
                           </Button>
                         </PermissionGate>
+                        <PermissionGate permission="teams:edit">
+                          {renderActionsMenu(team)}
+                        </PermissionGate>
                       </div>
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+            <TableRefreshBar
+              className="-mx-6 -mb-6 mt-2 rounded-b-lg"
+              onRefresh={handleRefresh}
+              loading={isFetching}
+              summary={
+                filteredTeams.length === teams.length
+                  ? `${teams.length} equipo(s)`
+                  : `${filteredTeams.length} de ${teams.length} equipo(s)`
+              }
+            />
           </CardContent>
         </Card>
       ) : (
@@ -711,7 +827,7 @@ export default function TeamsPage() {
                           setSelectedTeamForEnroll(team);
                           setIsEnrollModalOpen(true);
                         }}
-                        title="Gestionar Estudiantes"
+                        title="Gestionar Deportistas"
                       >
                         <UserPlus className="h-4 w-4" />
                       </Button>
@@ -728,6 +844,9 @@ export default function TeamsPage() {
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
+                      </PermissionGate>
+                      <PermissionGate permission="teams:edit">
+                        {renderActionsMenu(team)}
                       </PermissionGate>
                     </div>
                   </div>
@@ -798,20 +917,32 @@ export default function TeamsPage() {
                     className="h-8 px-2 gap-1 text-xs"
                     size="sm"
                     title="Copiar link para invitar padres"
-                    onClick={async () => {
+                    onClick={() => {
                       const link = `${window.location.origin}/join-team/${team.id}`;
-                      try {
-                        await navigator.clipboard.writeText(link);
-                        toast({
-                          title: '🔗 Link copiado',
-                          description: `Comparte con los padres de ${team.name}: ${link}`,
-                        });
-                      } catch {
-                        toast({
-                          title: 'Link de invitacion',
-                          description: link,
-                        });
-                      }
+                      const waText = encodeURIComponent(`Únete al equipo ${team.name} en SportMaps: ${link}`);
+                      toast({
+                        title: `🔗 Invitar al equipo ${team.name}`,
+                        description: (
+                          <div className="flex gap-2 mt-2 flex-wrap">
+                            <a
+                              href={`https://wa.me/?text=${waText}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-[#25D366] text-white hover:bg-[#1ebe59] transition-colors"
+                            >
+                              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 fill-current" xmlns="http://www.w3.org/2000/svg"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                              WhatsApp
+                            </a>
+                            <button
+                              onClick={() => navigator.clipboard.writeText(link)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-border bg-background hover:bg-muted transition-colors"
+                            >
+                              <Copy className="h-3 w-3" />
+                              Copiar
+                            </button>
+                          </div>
+                        ) as any,
+                      });
                     }}
                   >
                     <Copy className="h-3.5 w-3.5" />
@@ -821,6 +952,20 @@ export default function TeamsPage() {
               </CardContent>
             </Card>
           ))}
+          <div className="md:col-span-2 lg:col-span-3">
+            <Card className="overflow-hidden">
+              <TableRefreshBar
+                onRefresh={handleRefresh}
+                loading={isFetching}
+                summary={
+                  filteredTeams.length === teams.length
+                    ? `${teams.length} equipo(s)`
+                    : `${filteredTeams.length} de ${teams.length} equipo(s)`
+                }
+                className="border-t-0"
+              />
+            </Card>
+          </div>
         </div>
       )}
 
@@ -851,6 +996,51 @@ export default function TeamsPage() {
         }}
         team={selectedTeamForEnroll}
       />
+
+      {/* Confirmar archivar */}
+      <AlertDialog open={!!teamToArchive} onOpenChange={(o) => !o && setTeamToArchive(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Archivar "{teamToArchive?.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              El equipo se ocultará de la lista activa pero se conserva junto con sus deportistas,
+              inscripciones y pagos. Podrás reactivarlo en cualquier momento desde "Archivados".
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={actionLoading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); if (teamToArchive) handleArchive(teamToArchive); }}
+              disabled={actionLoading}
+            >
+              {actionLoading ? 'Archivando...' : 'Archivar'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirmar eliminar permanente */}
+      <AlertDialog open={!!teamToDelete} onOpenChange={(o) => !o && setTeamToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar "{teamToDelete?.name}" permanentemente?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. Solo funciona si el equipo está vacío
+              (sin deportistas ni inscripciones). Si tiene datos asociados, usa "Archivar" en su lugar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={actionLoading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => { e.preventDefault(); if (teamToDelete) handleDelete(teamToDelete); }}
+              disabled={actionLoading}
+            >
+              {actionLoading ? 'Eliminando...' : 'Eliminar permanente'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

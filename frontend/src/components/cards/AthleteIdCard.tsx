@@ -1,0 +1,371 @@
+import { forwardRef } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
+import { ShieldCheck, AlertTriangle, XCircle, CalendarDays, Hash, MapPin, Users, Heart, Phone, Shirt, User } from 'lucide-react';
+
+export type CardData = {
+  found: boolean;
+  status: 'active' | 'revoked' | 'expired' | string;
+  card_id?: string;
+  qr_token?: string;
+  issued_at?: string;
+  valid_until?: string;
+  version?: number;
+  school?: {
+    id: string;
+    name: string;
+    slug?: string | null;
+    logo_url?: string | null;
+    branding_settings?: any;
+  };
+  template?: {
+    id: string;
+    name: string;
+    accent_color?: string | null;
+    header_text?: string | null;
+    footer_text?: string | null;
+    show_fields?: Record<string, boolean>;
+  } | null;
+  athlete?: {
+    kind: 'child' | 'profile';
+    full_name: string;
+    avatar_url?: string | null;
+    doc_type?: string | null;
+    doc_number?: string | null;
+    date_of_birth?: string | null;
+    blood_type?: string | null;
+    eps_name?: string | null;
+    tshirt_size?: string | null;
+    emergency_contact?: string | null;
+    gender?: string | null;
+    role?: string | null;
+  };
+  branch_name?: string | null;
+  team_name?: string | null;
+  monthly_fee?: number | null;
+  fee_status?: 'paid' | 'due_soon' | 'overdue' | 'no_payments' | 'unknown';
+  last_paid_at?: string | null;
+  next_due?: string | null;
+  last_payment?: {
+    concept?: string | null;
+    amount?: number | null;
+    amount_paid?: number | null;
+    payment_date?: string | null;
+    created_at?: string | null;
+    provider_reference?: string | null;
+    payment_method?: string | null;
+  } | null;
+  revoked_at?: string;
+  reason?: string;
+};
+
+const FEE_BADGE: Record<string, { label: string; bg: string; fg: string; icon: typeof ShieldCheck }> = {
+  paid:        { label: 'Cuota al día',       bg: '#16a34a', fg: '#ffffff', icon: ShieldCheck },
+  due_soon:    { label: 'Próxima a vencer',   bg: '#eab308', fg: '#1f2937', icon: AlertTriangle },
+  overdue:     { label: 'Cuota vencida',      bg: '#dc2626', fg: '#ffffff', icon: XCircle },
+  no_payments: { label: 'Sin pagos',          bg: '#6b7280', fg: '#ffffff', icon: AlertTriangle },
+  unknown:     { label: 'Estado desconocido', bg: '#6b7280', fg: '#ffffff', icon: AlertTriangle },
+};
+
+interface Props {
+  data: CardData;
+  publicUrl: string;
+  className?: string;
+  /** Cara a mostrar. 'back' muestra datos de emergencia/médicos. Default 'front'. */
+  face?: 'front' | 'back';
+}
+
+export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUrl, className = '', face = 'front' }, ref) => {
+  const branding = data.school?.branding_settings || {};
+  const primaryColor: string = data.template?.accent_color || branding.primary_color || '#0ea5e9';
+  const secondaryColor: string = branding.secondary_color || '#1e40af';
+  const showWatermark: boolean = branding.show_sportmaps_watermark !== false;
+
+  // Auto-contraste: si el gradiente de la marca es claro (amarillo/lima/pastel),
+  // el texto pasa a oscuro para que se lea. Antes era siempre blanco → ilegible
+  // sobre marcas claras. Se evalúa el promedio de los dos colores del gradiente.
+  const darkText = isLightColor(primaryColor, secondaryColor);
+  const ink = (a: number) => darkText ? `rgba(20,20,20,${a})` : `rgba(255,255,255,${a})`;
+  const inkColor = darkText ? '#141414' : '#ffffff';
+  const logoBg = darkText ? 'rgba(0,0,0,0.86)' : 'rgba(255,255,255,0.95)';
+  const logoFg = darkText ? '#ffffff' : primaryColor;
+  const initials = getInitials(data.athlete?.full_name);
+  const show = data.template?.show_fields || {
+    photo: true, doc_number: true, team: true, branch: true, plan: true,
+    valid_until: true, fee_status: true, blood_type: false,
+    emergency_contact: false, eps: false, tshirt_size: false,
+  };
+
+  const feeKey = data.fee_status || 'unknown';
+  const feeBadge = FEE_BADGE[feeKey] || FEE_BADGE.unknown;
+  const FeeIcon = feeBadge.icon;
+
+  const isInactive = data.status === 'revoked' || data.status === 'expired';
+
+  return (
+    <div
+      ref={ref}
+      className={`relative w-[340px] h-[540px] rounded-2xl overflow-hidden shadow-2xl ${className}`}
+      style={{
+        background: `linear-gradient(160deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+      }}
+    >
+      {/* Banda lateral derecha decorativa */}
+      <div
+        className="absolute top-0 right-0 w-1/3 h-full opacity-15"
+        style={{
+          background: `repeating-linear-gradient(45deg, ${primaryColor}, ${primaryColor} 10px, transparent 10px, transparent 20px)`,
+        }}
+      />
+
+      {/* Header */}
+      <div className="relative px-5 pt-5 pb-3 flex items-center gap-3" style={{ borderBottom: `1px solid ${ink(0.2)}` }}>
+        {data.school?.logo_url ? (
+          <img
+            src={data.school.logo_url}
+            alt=""
+            className="h-12 w-12 rounded-lg object-contain p-1"
+            style={{ background: 'rgba(255,255,255,0.95)' }}
+            crossOrigin="anonymous"
+          />
+        ) : (
+          <div className="h-12 w-12 rounded-lg flex items-center justify-center text-xl font-bold" style={{ background: logoBg, color: logoFg }}>
+            {data.school?.name?.[0] || '?'}
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] uppercase tracking-wider font-medium" style={{ color: ink(0.7) }}>
+            {data.template?.header_text || 'Carnet deportivo'}
+          </p>
+          <h3 className="font-bold text-base leading-tight truncate" style={{ color: inkColor }}>
+            {data.school?.name}
+          </h3>
+        </div>
+      </div>
+
+      {face === 'front' && (<>
+      {/* Foto + nombre */}
+      <div className="relative px-5 pt-4 flex flex-col items-center text-center">
+        {show.photo && (
+          <div className="mb-3 rounded-2xl overflow-hidden" style={{ width: 110, height: 110, background: 'rgba(255,255,255,0.95)', boxShadow: `0 0 0 4px ${ink(0.35)}` }}>
+            {data.athlete?.avatar_url ? (
+              <img src={data.athlete.avatar_url} alt={data.athlete.full_name} className="w-full h-full object-cover" crossOrigin="anonymous" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center font-extrabold" style={{ fontSize: 40, color: primaryColor }}>
+                {initials || <User className="h-12 w-12 text-gray-400" />}
+              </div>
+            )}
+          </div>
+        )}
+
+        <p className="font-bold text-lg leading-tight max-w-full break-words" style={{ color: inkColor }}>
+          {data.athlete?.full_name || '—'}
+        </p>
+
+        {show.doc_number && data.athlete?.doc_number && (
+          <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: ink(0.85) }}>
+            <Hash className="h-3 w-3" />
+            {data.athlete.doc_type || 'CC'} {data.athlete.doc_number}
+          </p>
+        )}
+      </div>
+
+      {/* Datos */}
+      <div className="relative px-5 mt-3 space-y-1.5">
+        {show.branch && data.branch_name && (
+          <Row icon={MapPin} label="Sede" value={data.branch_name} ink={ink} inkColor={inkColor} />
+        )}
+        {show.team && data.team_name && (
+          <Row icon={Users} label="Equipo" value={data.team_name} ink={ink} inkColor={inkColor} />
+        )}
+        {show.blood_type && data.athlete?.blood_type && (
+          <Row icon={Heart} label="RH" value={data.athlete.blood_type} ink={ink} inkColor={inkColor} />
+        )}
+        {show.eps && data.athlete?.eps_name && (
+          <Row icon={Heart} label="EPS" value={data.athlete.eps_name} ink={ink} inkColor={inkColor} />
+        )}
+        {show.tshirt_size && data.athlete?.tshirt_size && (
+          <Row icon={Shirt} label="Talla" value={data.athlete.tshirt_size} ink={ink} inkColor={inkColor} />
+        )}
+        {show.emergency_contact && data.athlete?.emergency_contact && (
+          <Row icon={Phone} label="Emergencia" value={data.athlete.emergency_contact} ink={ink} inkColor={inkColor} />
+        )}
+      </div>
+
+      {/* Bottom: QR + estado */}
+      <div className="absolute left-0 right-0 bottom-0 px-5 pb-4 pt-3 backdrop-blur-[1px]" style={{ background: darkText ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.18)' }}>
+        {show.fee_status && data.last_payment && (feeKey === 'paid' || feeKey === 'due_soon' || feeKey === 'overdue') && (
+          <div className="mb-2 rounded-md px-2 py-1 text-[10px] leading-tight" style={{ background: ink(0.15), color: ink(0.95) }}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate font-medium">
+                {data.last_payment.concept || 'Último pago'}
+              </span>
+              {typeof (data.last_payment.amount_paid ?? data.last_payment.amount) === 'number' && (
+                <span className="font-semibold tabular-nums">
+                  {formatCop(data.last_payment.amount_paid ?? data.last_payment.amount!)}
+                </span>
+              )}
+            </div>
+            {(data.last_payment.payment_date || data.last_payment.created_at) && (
+              <p className="text-[9px] mt-0.5" style={{ color: ink(0.7) }}>
+                Pagado {new Date((data.last_payment.payment_date || data.last_payment.created_at)!).toLocaleDateString('es-CO')}
+              </p>
+            )}
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-3">
+          <div className="bg-white p-1.5 rounded-lg">
+            <QRCodeSVG value={publicUrl} size={72} level="M" />
+          </div>
+          <div className="flex-1 text-right">
+            {show.fee_status && (
+              <div
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold mb-1"
+                style={{ backgroundColor: feeBadge.bg, color: feeBadge.fg }}
+              >
+                <FeeIcon className="h-3 w-3" />
+                {feeBadge.label}
+              </div>
+            )}
+            {show.valid_until && data.valid_until && (
+              <p className="text-[11px] flex items-center justify-end gap-1" style={{ color: ink(0.85) }}>
+                <CalendarDays className="h-3 w-3" />
+                Vence {new Date(data.valid_until).toLocaleDateString('es-CO')}
+              </p>
+            )}
+            {data.version && data.version > 1 && (
+              <p className="text-[10px] mt-0.5" style={{ color: ink(0.6) }}>v{data.version}</p>
+            )}
+          </div>
+        </div>
+
+        {data.template?.footer_text && (
+          <p className="text-[9px] text-center mt-2 leading-tight" style={{ color: ink(0.6) }}>
+            {data.template.footer_text}
+          </p>
+        )}
+      </div>
+      </>)}
+
+      {face === 'back' && (
+        <BackFace data={data} publicUrl={publicUrl} ink={ink} inkColor={inkColor} />
+      )}
+
+      {/* Watermark SportMaps si la escuela no es paid-tier */}
+      {showWatermark && (
+        <div className="absolute bottom-1 right-2 text-[8px] select-none" style={{ color: ink(0.4) }}>
+          SportMaps
+        </div>
+      )}
+
+      {/* Overlay si revocado/expirado */}
+      {isInactive && (
+        <div className="absolute inset-0 bg-black/55 flex flex-col items-center justify-center z-10">
+          <XCircle className="h-12 w-12 text-red-400 mb-2" />
+          <p className="text-white font-bold uppercase tracking-wider">
+            {data.status === 'revoked' ? 'Carnet revocado' : 'Carnet vencido'}
+          </p>
+          {data.reason && <p className="text-white/80 text-xs mt-1 px-6 text-center">{data.reason}</p>}
+        </div>
+      )}
+    </div>
+  );
+});
+
+AthleteIdCard.displayName = 'AthleteIdCard';
+
+function formatCop(amount: number): string {
+  try {
+    return new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `$${Math.round(amount).toLocaleString('es-CO')}`;
+  }
+}
+
+function Row({ icon: Icon, label, value, ink, inkColor }: { icon: typeof ShieldCheck; label: string; value: string; ink: (a: number) => string; inkColor: string }) {
+  return (
+    <div className="flex items-center gap-2" style={{ color: inkColor }}>
+      <div className="p-1 rounded" style={{ background: ink(0.2) }}>
+        <Icon className="h-3 w-3" />
+      </div>
+      <span className="text-[10px] uppercase tracking-wider w-16" style={{ color: ink(0.7) }}>{label}</span>
+      <span className="text-xs font-medium truncate flex-1">{value}</span>
+    </div>
+  );
+}
+
+// Reverso del carnet: datos médicos / de emergencia + QR + términos.
+function BackFace({ data, publicUrl, ink, inkColor }: { data: CardData; publicUrl: string; ink: (a: number) => string; inkColor: string }) {
+  const a = data.athlete;
+  const rows: [string, string | null | undefined][] = [
+    ['Contacto de emergencia', a?.emergency_contact],
+    ['EPS', a?.eps_name],
+    ['RH', a?.blood_type],
+    ['Talla', a?.tshirt_size],
+  ];
+  const shown = rows.filter(([, v]) => !!v);
+  return (
+    <div className="relative px-5 pt-4 pb-4 flex flex-col" style={{ color: inkColor, height: 464 }}>
+      <p className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: ink(0.75) }}>
+        Datos de emergencia
+      </p>
+      <div className="mt-3 space-y-3">
+        {shown.length > 0 ? (
+          shown.map(([k, v]) => (
+            <div key={k}>
+              <div className="text-[9px] uppercase tracking-wider" style={{ color: ink(0.6) }}>{k}</div>
+              <div className="text-sm font-semibold">{v}</div>
+            </div>
+          ))
+        ) : (
+          <p className="text-xs" style={{ color: ink(0.6) }}>
+            Sin datos médicos configurados en la plantilla de este carnet.
+          </p>
+        )}
+      </div>
+
+      <div className="my-4" style={{ borderTop: `1px solid ${ink(0.2)}` }} />
+
+      <div className="flex items-center gap-3">
+        <div className="bg-white p-1.5 rounded-lg"><QRCodeSVG value={publicUrl} size={54} level="M" /></div>
+        <p className="text-[10px] leading-snug" style={{ color: ink(0.85) }}>
+          Escanea para <strong>validar este carnet</strong> en línea. Estado en tiempo real.
+        </p>
+      </div>
+
+      <p className="text-[9px] leading-relaxed mt-auto" style={{ color: ink(0.6) }}>
+        {data.template?.footer_text
+          || 'Documento de identificación deportiva. Válido solo con foto y QR legibles. En caso de pérdida, la escuela puede revocarlo y reemitir una nueva versión.'}
+      </p>
+    </div>
+  );
+}
+
+// Iniciales del atleta (primeras letras de las 2 primeras palabras del nombre).
+function getInitials(name?: string): string {
+  if (!name) return '';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '';
+  const first = parts[0][0] || '';
+  const second = parts.length > 1 ? parts[parts.length - 1][0] || '' : '';
+  return (first + second).toUpperCase();
+}
+
+// ¿El gradiente de la marca es "claro"? Promedia la luminancia relativa de los
+// dos colores; si supera el umbral, el texto debe ir oscuro para ser legible.
+function isLightColor(c1: string, c2: string): boolean {
+  const lum = (hex: string): number => {
+    const h = hex.replace('#', '').trim();
+    const full = h.length === 3 ? h.split('').map((x) => x + x).join('') : h;
+    const r = parseInt(full.slice(0, 2), 16) || 0;
+    const g = parseInt(full.slice(2, 4), 16) || 0;
+    const b = parseInt(full.slice(4, 6), 16) || 0;
+    // luminancia perceptual (0..255)
+    return 0.299 * r + 0.587 * g + 0.114 * b;
+  };
+  const avg = (lum(c1) + lum(c2)) / 2;
+  return avg > 165; // umbral: marcas claras (amarillo/lima/pastel) → texto oscuro
+}

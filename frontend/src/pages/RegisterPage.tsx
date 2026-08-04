@@ -6,6 +6,7 @@ import { Link, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PhoneInput } from '@/components/ui/phone-input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,10 +26,33 @@ import { useInvitationBranding } from '@/hooks/useInvitationBranding';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
 import { SPORTS_LIST, SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
+import { GoogleSignInButton, AuthDivider } from '@/components/auth/GoogleSignInButton';
 
 const sports = SPORTS_LIST;
 // Roles que representan instituciones/negocios (no personas físicas)
-const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'organizer', 'personal_trainer'];
+const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'external_vendor', 'organizer', 'personal_trainer'];
+
+// Edad mínima para abrir cuenta propia. Los menores NO tienen cuenta en
+// SportMaps: el acudiente los registra como hijos bajo su propio perfil
+// (ver la Política de Privacidad, sección de menores de edad). Esto sostiene
+// la declaración de "público objetivo: adultos" en Google Play y App Store —
+// si un menor pudiera auto-registrarse, aplicaría la Families Policy.
+const MIN_SELF_SIGNUP_AGE = 18;
+
+/** Edad cumplida a hoy según una fecha ISO (yyyy-mm-dd). null si no parsea. */
+function ageFromDateOfBirth(iso: string | undefined): number | null {
+  if (!iso || iso.trim() === '') return null;
+  const dob = new Date(iso);
+  if (Number.isNaN(dob.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDiff = today.getMonth() - dob.getMonth();
+  // Aún no ha llegado el cumpleaños de este año.
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+    age -= 1;
+  }
+  return age;
+}
 
 const registerSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -54,6 +78,16 @@ const registerSchema = z.object({
   return true;
 }, {
   message: 'La fecha de nacimiento es requerida',
+  path: ['dateOfBirth'],
+}).refine((data) => {
+  // Gate de edad: solo personas físicas mayores de edad abren cuenta propia.
+  if (INSTITUTION_ROLES.includes(data.role)) return true;
+  const age = ageFromDateOfBirth(data.dateOfBirth);
+  if (age === null) return true; // el refine anterior ya exige la fecha
+  return age >= MIN_SELF_SIGNUP_AGE;
+}, {
+  message:
+    'Debes ser mayor de edad para crear una cuenta. Si eres menor, pídele a tu padre, madre o acudiente que cree su cuenta y te registre como deportista a su cargo.',
   path: ['dateOfBirth'],
 }).refine((data) => {
   if (data.role === 'school' && (!data.schoolName || data.schoolName.trim() === '')) {
@@ -92,6 +126,8 @@ const ROLE_DISPLAY_NAMES: Record<string, string> = {
   admin: '🛡️ Administrador',
   super_admin: '🛡️ Super Administrador',
   wellness_professional: '💚 Profesional Bienestar',
+  personal_trainer: '🏋️ Entrenador Personal',
+  external_vendor: '🛍️ Vendedor / Marca',
   store_owner: '🏪 Dueño de Tienda',
   organizer: '📋 Organizador',
 };
@@ -166,6 +202,14 @@ export default function RegisterPage() {
     }
     if (inviteEmail) {
       setValue('email', inviteEmail);
+    }
+    const invitePhone = searchParams.get('phone');
+    if (invitePhone) {
+      setValue('phone', invitePhone);
+    }
+    const inviteName = searchParams.get('name');
+    if (inviteName) {
+      setValue('fullName', inviteName);
     }
   }, [searchParams, setValue, inviteEmail]);
 
@@ -571,27 +615,33 @@ export default function RegisterPage() {
 
               {/* Phone */}
               <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">Teléfono</label>
-                <div className="relative group">
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
-                    <Phone className="w-4 h-4 text-[#4a5246] group-focus-within:text-[#2ea82d] transition-colors" />
-                  </div>
-                  <input
-                    {...register('phone')}
-                    type="tel"
-                    placeholder="+57..."
-                    className="w-full bg-[#0f2614] border border-white/5 rounded-xl py-3.5 pl-11 pr-4 text-sm focus:outline-none focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all placeholder:text-[#4a5246]"
-                  />
-                </div>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">WhatsApp</label>
+                <Controller
+                  name="phone"
+                  control={control}
+                  render={({ field }) => (
+                    <PhoneInput
+                      value={field.value || ''}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
               </div>
 
               {/* Role Selection */}
               <div className="space-y-3 md:col-span-2 mt-4">
                 <label className="text-[10px] font-bold uppercase tracking-widest text-[#4a5246]">Soy...</label>
+                {!inviteRole && (
+                  <p className="text-[11px] text-[#8a9186] leading-snug px-1">
+                    <span className="text-[#d4d8d0] font-semibold">Atleta:</span> me inscribo yo mismo, soy mayor de edad.{' '}
+                    <span className="text-[#d4d8d0] font-semibold">Acudiente:</span> inscribo a un menor de edad a mi cargo
+                    (la cuenta va a tu nombre y tú pagas).
+                  </p>
+                )}
                 <div className="role-card-grid">
                   {[
-                    { id: 'athlete', icon: '⚽', label: 'Atleta' },
-                    { id: 'parent', icon: '👨‍👩‍👧', label: 'Padre' },
+                    { id: 'athlete', icon: '⚽', label: 'Atleta 18+' },
+                    { id: 'parent', icon: '👨‍👩‍👧', label: 'Acudiente' },
                     { id: 'coach', icon: '📋', label: 'Coach' },
                     { id: 'school', icon: '🏫', label: 'Escuela' },
                     { id: 'wellness_professional', icon: '💚', label: 'Profesional' },
@@ -622,8 +672,14 @@ export default function RegisterPage() {
               {showDateOfBirth && (
                 <div className="space-y-2 md:col-span-2 animate-in slide-in-from-top-2 duration-300">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">
-                    Fecha de Nacimiento
+                    {roleValue === 'parent' ? 'Tu fecha de nacimiento (acudiente)' : 'Tu fecha de nacimiento'}
                   </label>
+                  {roleValue === 'athlete' && (
+                    <p className="text-[11px] text-[#8a9186] leading-snug px-1">
+                      La tuya, la del atleta. Si el atleta es menor de edad, la cuenta la debe crear
+                      su acudiente con el rol <span className="text-[#d4d8d0] font-semibold">Acudiente</span>.
+                    </p>
+                  )}
                   <Controller
                     name="dateOfBirth"
                     control={control}
@@ -781,6 +837,10 @@ export default function RegisterPage() {
               {isLoading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <ArrowRight className="w-5 h-5 mr-1 group-hover:translate-x-1 transition-transform" />}
               Crear mi cuenta
             </Button>
+
+            <AuthDivider text="o regístrate con" />
+            {/* OAuth no recoge rol → el usuario lo elige en /onboarding/role */}
+            <GoogleSignInButton redirectTo="/dashboard" label="Registrarme con Google" />
 
             <div className="text-center pt-2">
               <p className="text-sm text-[#8a9186]">

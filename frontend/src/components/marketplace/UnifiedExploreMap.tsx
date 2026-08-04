@@ -3,14 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Navigation, Stethoscope, Trophy, GraduationCap } from 'lucide-react';
+import { Loader2, Navigation, Stethoscope, Trophy, GraduationCap, Dumbbell } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import type { ExploreCategory } from '@/hooks/useExplorarGlobal';
 import 'leaflet/dist/leaflet.css';
 
 interface MapMarker {
   id: string;
-  item_type: 'service' | 'event' | 'school';
+  item_type: 'service' | 'trainer' | 'event' | 'school';
   name: string;
   lat: number;
   lng: number;
@@ -38,6 +38,12 @@ interface MapMarker {
   review_count?: number;
   logo_url?: string;
   verified?: boolean;
+  // Trainer fields
+  trainer_user_id?: string;
+  primary_sport?: string;
+  modality?: string;
+  specialties?: string[];
+  experience_years?: number;
 }
 
 interface UnifiedExploreMapProps {
@@ -49,15 +55,15 @@ interface UnifiedExploreMapProps {
   onServiceClick?: (marker: MapMarker) => void;
 }
 
-// Marker colors per type
 const MARKER_COLORS = {
   service: { bg: '#10b981', border: '#059669', emoji: '🩺' },  // emerald
+  trainer: { bg: '#8b5cf6', border: '#7c3aed', emoji: '💪' },  // violet
   event:   { bg: '#f59e0b', border: '#d97706', emoji: '🏆' },  // amber
   school:  { bg: '#3b82f6', border: '#2563eb', emoji: '🎓' },  // blue
 };
 
 const formatPrice = (price: number) => {
-  if (price === 0) return 'Gratis';
+  if (!price || price === 0) return 'Gratis';
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(price);
 };
 
@@ -71,74 +77,52 @@ export function UnifiedExploreMap({
   const [isMapReady, setIsMapReady] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
 
-  // Layer visibility
   const [layers, setLayers] = useState({
     services: true,
+    trainers: true,
     events: true,
     schools: true,
   });
 
-  // Fetch map markers from existing tables (events have lat/lng)
+  // Fetch map markers from the search_explore_map RPC (real data + public_profile opt-in)
   const { data: mapData, isLoading } = useQuery({
     queryKey: ['explore-map', category, query, city, sport, serviceType],
     queryFn: async () => {
-      const markers: MapMarker[] = [];
-      const counts = { services: 0, events: 0, schools: 0 };
+      const { data, error } = await supabase.rpc('search_explore_map', {
+        p_category: category,
+        p_query: query || null,
+        p_city: city || null,
+        p_sport: sport || null,
+        p_service_type: serviceType || null,
+      } as any);
 
-      // Events — have lat/lng columns
-      if (category === 'all' || category === 'events') {
-        let eventsQ = supabase
-          .from('events')
-          .select('id, title, lat, lng, price, event_date, start_time, event_type, sport, city, capacity, slug, registrations_open')
-          .eq('status', 'active')
-          .not('lat', 'is', null)
-          .not('lng', 'is', null);
-
-        if (query) eventsQ = eventsQ.or(`title.ilike.%${query}%,description.ilike.%${query}%`);
-        if (city) eventsQ = eventsQ.ilike('city', `%${city}%`);
-        if (sport) eventsQ = eventsQ.ilike('sport', `%${sport}%`);
-
-        const { data: events } = await eventsQ.limit(200);
-
-        if (events) {
-          for (const e of events) {
-            markers.push({
-              id: e.id,
-              item_type: 'event',
-              name: e.title,
-              lat: e.lat!,
-              lng: e.lng!,
-              price: e.price ?? 0,
-              event_date: e.event_date,
-              event_time: e.start_time,
-              event_type: e.event_type,
-              sport: e.sport,
-              city: e.city,
-              capacity: e.capacity ?? undefined,
-              slug: e.slug,
-              registrations_open: e.registrations_open ?? undefined,
-            });
-          }
-          counts.events = events.length;
-        }
+      if (error) {
+        console.error('[search_explore_map]', error);
+        return { markers: [] as MapMarker[], counts: { services: 0, trainers: 0, events: 0, schools: 0 } };
       }
 
-      // Schools — no lat/lng in the current schema, skip map markers
-      // counts.schools stays 0 until geolocation migration is deployed
-
-      return { markers, counts };
+      const payload = (data as any) || {};
+      return {
+        markers: (payload.markers || []) as MapMarker[],
+        counts: {
+          services: payload.counts?.services ?? 0,
+          trainers: payload.counts?.trainers ?? 0,
+          events: payload.counts?.events ?? 0,
+          schools: payload.counts?.schools ?? 0,
+        },
+      };
     },
     staleTime: 3 * 60 * 1000,
   });
 
   const markers: MapMarker[] = mapData?.markers || [];
-  const counts = mapData?.counts || { services: 0, events: 0, schools: 0 };
+  const counts = mapData?.counts || { services: 0, trainers: 0, events: 0, schools: 0 };
 
   // Get user location
   useEffect(() => {
     navigator.geolocation?.getCurrentPosition(
       (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => {}, // silently ignore errors
+      () => {},
       { timeout: 5000 }
     );
   }, []);
@@ -175,7 +159,6 @@ export function UnifiedExploreMap({
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       }).addTo(map);
 
-      // User location marker
       if (userLocation) {
         const userIcon = L.divIcon({
           className: 'user-location-marker',
@@ -219,12 +202,12 @@ export function UnifiedExploreMap({
     const updateMarkers = async () => {
       const L = await import('leaflet');
 
-      // Clear old markers
       markersRef.current.forEach(m => m.remove());
       markersRef.current = [];
 
       const visibleMarkers = markers.filter(m => {
         if (m.item_type === 'service' && !layers.services) return false;
+        if (m.item_type === 'trainer' && !layers.trainers) return false;
         if (m.item_type === 'event' && !layers.events) return false;
         if (m.item_type === 'school' && !layers.schools) return false;
         return true;
@@ -256,7 +239,6 @@ export function UnifiedExploreMap({
         const marker = L.marker([item.lat, item.lng], { icon })
           .addTo(mapInstanceRef.current);
 
-        // Build popup per type
         let popupHtml = '';
 
         if (item.item_type === 'service') {
@@ -278,6 +260,33 @@ export function UnifiedExploreMap({
               <button onclick="window.dispatchEvent(new CustomEvent('exploreMapAction', { detail: JSON.stringify({type:'service', id:'${item.id}'}) }))"
                 style="width:100%;padding:6px;background:${colors.bg};color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:500;">
                 Reservar cita
+              </button>
+            </div>`;
+        } else if (item.item_type === 'trainer') {
+          const modalityLabel = item.modality === 'presencial' ? 'Presencial'
+            : item.modality === 'virtual' ? 'Virtual'
+            : item.modality === 'ambas' ? 'Presencial y Virtual'
+            : '';
+          popupHtml = `
+            <div style="min-width: 200px; font-family: system-ui, sans-serif; padding: 4px;">
+              <div style="display: flex; gap: 8px; align-items: start; margin-bottom: 6px;">
+                ${item.vendor_logo
+                  ? `<img src="${item.vendor_logo}" style="width:36px;height:36px;border-radius:8px;object-fit:cover;" />`
+                  : `<div style="width:36px;height:36px;border-radius:8px;background:${colors.bg}20;display:flex;align-items:center;justify-content:center;">💪</div>`
+                }
+                <div>
+                  <h4 style="font-weight:600;font-size:13px;margin:0;">${item.name}</h4>
+                  ${modalityLabel ? `<span style="font-size:10px;color:${colors.bg};font-weight:600;">${modalityLabel}</span>` : ''}
+                </div>
+              </div>
+              ${item.primary_sport ? `<p style="font-size:11px;color:#666;margin:2px 0;">🏅 ${item.primary_sport}</p>` : ''}
+              ${item.vendor_city ? `<p style="font-size:11px;color:#666;margin:2px 0;">📍 ${item.vendor_city}</p>` : ''}
+              ${item.experience_years ? `<p style="font-size:11px;color:#666;margin:2px 0;">🎓 ${item.experience_years} años exp.</p>` : ''}
+              ${item.rating ? `<p style="font-size:11px;margin:2px 0;">⭐ ${Number(item.rating).toFixed(1)} ${item.review_count ? `(${item.review_count})` : ''}</p>` : ''}
+              ${item.price ? `<p style="font-size:13px;font-weight:600;color:${colors.bg};margin:6px 0;">${formatPrice(item.price)} / sesión</p>` : ''}
+              <button onclick="window.dispatchEvent(new CustomEvent('exploreMapAction', { detail: JSON.stringify({type:'trainer', userId:'${item.trainer_user_id || ''}'}) }))"
+                style="width:100%;padding:6px;background:${colors.bg};color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:500;margin-top:6px;">
+                Ver perfil
               </button>
             </div>`;
         } else if (item.item_type === 'event') {
@@ -326,7 +335,6 @@ export function UnifiedExploreMap({
         markersRef.current.push(marker);
       });
 
-      // Fit bounds
       if (visibleMarkers.length > 0) {
         const L2 = await import('leaflet');
         const bounds = L2.latLngBounds(
@@ -347,12 +355,14 @@ export function UnifiedExploreMap({
         if (detail.type === 'service') {
           const item = markers.find(m => m.id === detail.id);
           if (item && onServiceClick) onServiceClick(item);
+        } else if (detail.type === 'trainer') {
+          if (detail.userId) navigate(`/entrenador/${detail.userId}`);
         } else if (detail.type === 'event') {
           navigate(`/event/${detail.slug}`);
         } else if (detail.type === 'school') {
           navigate(`/schools/${detail.id}`);
         }
-      } catch { /* ignore parse errors */ }
+      } catch { /* ignore */ }
     };
 
     window.addEventListener('exploreMapAction', handleAction as EventListener);
@@ -365,10 +375,8 @@ export function UnifiedExploreMap({
 
   return (
     <div className="relative rounded-xl overflow-hidden border border-border shadow-lg">
-      {/* Map container */}
       <div ref={mapContainerRef} className="h-[500px] w-full" />
 
-      {/* Loading overlay */}
       {(isLoading || !isMapReady) && (
         <div className="absolute inset-0 bg-muted/60 flex items-center justify-center z-[500]">
           <div className="text-center space-y-2">
@@ -378,7 +386,6 @@ export function UnifiedExploreMap({
         </div>
       )}
 
-      {/* Layer toggles (top-right) */}
       {isMapReady && (
         <div className="absolute top-3 right-3 z-[1000] flex flex-col gap-1.5">
           <button
@@ -390,6 +397,16 @@ export function UnifiedExploreMap({
             <Stethoscope className="h-3.5 w-3.5" />
             Profesionales
             <Badge variant="secondary" className="h-4 px-1 text-[10px] bg-white/20">{counts.services}</Badge>
+          </button>
+          <button
+            onClick={() => toggleLayer('trainers')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium shadow-md border transition-all ${
+              layers.trainers ? 'bg-violet-500 text-white border-violet-600' : 'bg-white/90 text-muted-foreground border-border'
+            }`}
+          >
+            <Dumbbell className="h-3.5 w-3.5" />
+            Entrenadores
+            <Badge variant="secondary" className="h-4 px-1 text-[10px] bg-white/20">{counts.trainers}</Badge>
           </button>
           <button
             onClick={() => toggleLayer('events')}
@@ -414,7 +431,6 @@ export function UnifiedExploreMap({
         </div>
       )}
 
-      {/* "Near me" button (bottom-left) */}
       {isMapReady && !userLocation && (
         <div className="absolute bottom-3 left-3 z-[1000]">
           <Button
@@ -437,11 +453,11 @@ export function UnifiedExploreMap({
         </div>
       )}
 
-      {/* Legend (bottom-right) */}
       {isMapReady && markers.length > 0 && (
         <div className="absolute bottom-3 right-3 z-[1000] bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm rounded-lg p-2.5 shadow-lg border text-[11px]">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <span className="flex items-center gap-1"><span style={{ color: MARKER_COLORS.service.bg }}>●</span> Profesional</span>
+            <span className="flex items-center gap-1"><span style={{ color: MARKER_COLORS.trainer.bg }}>●</span> Entrenador</span>
             <span className="flex items-center gap-1"><span style={{ color: MARKER_COLORS.event.bg }}>●</span> Evento</span>
             <span className="flex items-center gap-1"><span style={{ color: MARKER_COLORS.school.bg }}>●</span> Escuela</span>
           </div>

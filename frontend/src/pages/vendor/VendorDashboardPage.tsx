@@ -126,7 +126,7 @@ export default function VendorDashboardPage() {
                   <BarChart3 className="h-5 w-5" />
                   <span className="text-xs">Inventario</span>
                 </Button>
-                <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" onClick={() => navigate('/promotions')}>
+                <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" onClick={() => navigate('/vendor/promotions')}>
                   <DollarSign className="h-5 w-5" />
                   <span className="text-xs">Promociones</span>
                 </Button>

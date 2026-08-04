@@ -18,8 +18,11 @@ import { supabase } from '@/integrations/supabase/client';
 
 /**
  * Resuelve la URL del BFF en runtime.
- * En producción/staging siempre usa sportmaps-bff.onrender.com,
- * evitando el problema de env vars mal configuradas en el build de Vercel.
+ * Mapea según hostname:
+ *   - localhost/127.0.0.1 → http://localhost:3000
+ *   - dev.sportmaps.co → sportmaps-bff-dev.onrender.com
+ *   - resto → sportmaps-bff.onrender.com (prod)
+ * VITE_BFF_URL override esta logica.
  */
 function resolveBffUrl(): string {
     const configured = import.meta.env.VITE_BFF_URL;
@@ -30,9 +33,13 @@ function resolveBffUrl(): string {
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
         return 'http://localhost:3000';
     }
+    // dev.sportmaps.co (develop branch) → BFF dev
+    if (hostname === 'dev.sportmaps.co' || hostname.startsWith('dev.') || hostname.includes('preview') || hostname.includes('vercel.app')) {
+        return 'https://sportmaps-bff-dev.onrender.com';
+    }
     return 'https://sportmaps-bff.onrender.com';
 }
-const BFF_URL = resolveBffUrl();
+export const BFF_URL = resolveBffUrl();
 
 // ── Estado interno del módulo ─────────────────────────────────────────────────
 // Se persiste a nivel de módulo — sobrevive re-renders sin React context.
@@ -50,23 +57,41 @@ class BFFError extends Error {
     }
 }
 
-async function buildHeaders(customHeaders?: Record<string, string>): Promise<Record<string, string>> {
-    const { data: { session } } = await supabase.auth.getSession();
+/**
+ * Modo de autenticacion para una llamada al BFF:
+ *  - 'required': debe haber sesion Supabase, si no, lanza 401 (default)
+ *  - 'optional': adjunta JWT si hay sesion, no falla si no la hay (links publicos
+ *                que tambien funcionan logueado, ej. confirmar asistencia)
+ *  - 'public':   no toca auth (link 100% anonimo, ej. leer encuesta publica)
+ */
+export type AuthMode = 'required' | 'optional' | 'public';
 
-    if (!session?.access_token) {
-        throw new BFFError(401, 'No hay sesión activa. Por favor inicia sesión.');
-    }
-
+async function buildHeaders(
+    customHeaders?: Record<string, string>,
+    authMode: AuthMode = 'required',
+): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
     };
 
-    // CRÍTICO: el authMiddleware del BFF busca al miembro en school_members
-    // filtrando por school_id. Sin este header, toma el primer registro activo
-    // del usuario (puede ser incorrecto) o falla si hay ambigüedad.
-    if (_schoolId) {
-        headers['x-school-id'] = _schoolId;
+    if (authMode !== 'public') {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (!session?.access_token) {
+            if (authMode === 'required') {
+                throw new BFFError(401, 'No hay sesión activa. Por favor inicia sesión.');
+            }
+            // 'optional' sin sesion: continuar sin Authorization
+        } else {
+            headers['Authorization'] = `Bearer ${session.access_token}`;
+
+            // CRÍTICO: el authMiddleware del BFF busca al miembro en school_members
+            // filtrando por school_id. Sin este header, toma el primer registro activo
+            // del usuario (puede ser incorrecto) o falla si hay ambigüedad.
+            if (_schoolId) {
+                headers['x-school-id'] = _schoolId;
+            }
+        }
     }
 
     if (customHeaders) {
@@ -81,8 +106,9 @@ async function request<T>(
     path: string,
     body?: unknown,
     customHeaders?: Record<string, string>,
+    authMode: AuthMode = 'required',
 ): Promise<T> {
-    const headers = await buildHeaders(customHeaders);
+    const headers = await buildHeaders(customHeaders, authMode);
 
     const response = await fetch(`${BFF_URL}${path}`, {
         method,
@@ -130,20 +156,20 @@ export const bffClient = {
         return _schoolId;
     },
 
-    get: <T>(path: string, headers?: Record<string, string>) =>
-        request<T>('GET', path, undefined, headers),
+    get: <T>(path: string, headers?: Record<string, string>, authMode: AuthMode = 'required') =>
+        request<T>('GET', path, undefined, headers, authMode),
 
-    post: <T>(path: string, body: unknown, headers?: Record<string, string>) =>
-        request<T>('POST', path, body, headers),
+    post: <T>(path: string, body: unknown, headers?: Record<string, string>, authMode: AuthMode = 'required') =>
+        request<T>('POST', path, body, headers, authMode),
 
-    put: <T>(path: string, body: unknown, headers?: Record<string, string>) =>
-        request<T>('PUT', path, body, headers),
+    put: <T>(path: string, body: unknown, headers?: Record<string, string>, authMode: AuthMode = 'required') =>
+        request<T>('PUT', path, body, headers, authMode),
 
-    patch: <T>(path: string, body: unknown, headers?: Record<string, string>) =>
-        request<T>('PATCH', path, body, headers),
+    patch: <T>(path: string, body: unknown, headers?: Record<string, string>, authMode: AuthMode = 'required') =>
+        request<T>('PATCH', path, body, headers, authMode),
 
-    delete: <T>(path: string, headers?: Record<string, string>) =>
-        request<T>('DELETE', path, undefined, headers),
+    delete: <T>(path: string, headers?: Record<string, string>, authMode: AuthMode = 'required') =>
+        request<T>('DELETE', path, undefined, headers, authMode),
 
     request,
 };

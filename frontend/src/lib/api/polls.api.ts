@@ -82,7 +82,7 @@ export const pollsApi = {
   },
 
   getPublic: (pollId: string) =>
-    bffClient.get<AttendancePoll>(`/api/v1/polls/${pollId}/public`, undefined, true),
+    bffClient.get<AttendancePoll>(`/api/v1/polls/${pollId}/public`, undefined, 'public'),
 
   getResults: (pollId: string) =>
     bffClient.get<AttendancePoll>(`/api/v1/polls/${pollId}/results`),
@@ -97,7 +97,7 @@ export const pollsApi = {
     bffClient.delete(`/api/v1/polls/${pollId}`),
 
   confirmAttendance: (pollId: string, payload: ConfirmAttendancePayload) =>
-    bffClient.post(`/api/v1/polls/${pollId}/confirm`, payload, undefined, true),
+    bffClient.post(`/api/v1/polls/${pollId}/confirm`, payload, undefined, 'optional'),
 
   addManualConfirmation: (
     pollId: string,

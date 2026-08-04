@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CreditCard, Clock, CheckCircle2, XCircle, AlertCircle, Download, Loader2, DollarSign, Building2, Plus, Check, Calendar, Trophy, Zap, User } from 'lucide-react';
+import { CreditCard, Clock, CheckCircle2, XCircle, AlertCircle, Download, Loader2, DollarSign, Building2, Plus, Check, Calendar, Trophy, Zap, User, FileText } from 'lucide-react';
 import { getAthletePayments, submitAthleteInstallment, getAthleteEnrollments, AthleteEnrollment } from '@/lib/athlete/queries';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -18,6 +18,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { CheckCircle2 as CheckCircle, Loader2 as Loader, CreditCard as CardIcon } from 'lucide-react';
 import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { todayColombia } from '@/lib/dateUtils';
+import { calcEarlyPaymentDiscount } from '@/lib/earlyPaymentDiscount';
 
 interface Payment {
   id: string;
@@ -43,14 +44,18 @@ interface Payment {
   plan_name?: string;
   child_name?: string;
   program_sport?: string;
+  early_payment_discount_applied?: number | null;
+  early_payment_discount_enabled?: boolean;
+  early_payment_discount_days?: number;
+  early_payment_discount_percentage?: number;
 }
 
 const statusConfig: Record<string, { label: string; icon: any; color: string }> = {
-  pending:    { label: 'Pendiente',   icon: Clock,       color: 'bg-amber-100 text-amber-700 border-amber-200' },
-  processing: { label: 'Procesando', icon: Loader2,     color: 'bg-blue-100 text-blue-700 border-blue-200' },
-  approved:   { label: 'Aprobado',   icon: CheckCircle2, color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-  rejected:   { label: 'Rechazado',  icon: XCircle,     color: 'bg-red-100 text-red-700 border-red-200' },
-  refunded:   { label: 'Reembolsado', icon: AlertCircle, color: 'bg-purple-100 text-purple-700 border-purple-200' },
+  pending:    { label: 'Pendiente',   icon: Clock,       color: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800' },
+  processing: { label: 'Procesando', icon: Loader2,     color: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800' },
+  approved:   { label: 'Aprobado',   icon: CheckCircle2, color: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800' },
+  rejected:   { label: 'Rechazado',  icon: XCircle,     color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800' },
+  refunded:   { label: 'Reembolsado', icon: AlertCircle, color: 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800' },
 };
 
 export default function AthletePaymentsPage() {
@@ -77,6 +82,24 @@ export default function AthletePaymentsPage() {
   // State for selection and modal
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
 
+  // Facturas electrónicas emitidas, por payment_id (RLS deja al atleta pagador
+  // leer la factura de su propio pago). Muestra el botón "Factura".
+  const [invoiceMap, setInvoiceMap] = useState<Record<string, { number: string | null; public_url: string | null }>>({});
+
+  const unpaidGroups = new Map<string, string[]>();
+  (payments || []).forEach((p: any) => {
+    if (['pending', 'overdue', 'partial'].includes(p.status)) {
+      const key = `${p.school_id}|${p.child_id ?? p.user_id}`;
+      if (!unpaidGroups.has(key)) unpaidGroups.set(key, []);
+      unpaidGroups.get(key)!.push(p.created_at);
+    }
+  });
+  const hasEarlierUnpaidFor = (schoolId?: string, childId?: string | null, userId?: string | null, createdAt?: string) => {
+    if (!schoolId || !createdAt) return false;
+    const key = `${schoolId}|${childId ?? userId}`;
+    return (unpaidGroups.get(key) || []).some(d => d < createdAt);
+  };
+
   useEffect(() => {
     if (user && profile) {
       if (profile.role !== 'athlete') {
@@ -86,7 +109,7 @@ export default function AthletePaymentsPage() {
       fetchPayments();
       setSelectedPayment(null);
     }
-  }, [user, profile, activeTab]);
+  }, [user?.id, profile?.role, activeTab]);
 
   const fetchPayments = async () => {
     try {
@@ -100,6 +123,23 @@ export default function AthletePaymentsPage() {
       });
       setPayments(result.data || []);
       setSummary(result.summary);
+
+      // Facturas electrónicas emitidas para estos pagos.
+      const ids = (result.data || []).map((p: Payment) => p.id).filter(Boolean);
+      if (ids.length > 0) {
+        const { data: invRows } = await supabase
+          .from('electronic_invoices')
+          .select('payment_id, number, public_url, status')
+          .in('payment_id', ids)
+          .in('status', ['accepted', 'sent']);
+        setInvoiceMap(
+          Object.fromEntries(
+            (invRows || [])
+              .filter((r: any) => r.payment_id)
+              .map((r: any) => [r.payment_id, { number: r.number, public_url: r.public_url }]),
+          ),
+        );
+      }
     } catch (err) {
       console.error('Error fetching payments:', err);
     } finally {
@@ -159,6 +199,12 @@ export default function AthletePaymentsPage() {
 
   const handleShowProof = async (receiptUrl: string, concept: string, amount: number) => {
     if (!receiptUrl) return;
+
+    // ✅ Short-circuit si ya es URL pública directa
+    if (receiptUrl.startsWith('http')) {
+      setViewingProof({ open: true, url: receiptUrl, concept, amount });
+      return;
+    }
 
     try {
       const cleanPath = normalizeReceiptUrl(receiptUrl);
@@ -222,21 +268,39 @@ export default function AthletePaymentsPage() {
         </CardContent>
       </Card>
     );
-    return list.map(payment => (
-      <PaymentCard
-        key={payment.id}
-        payment={payment}
-        formatCurrency={formatCurrencyLocal}
-        formatDate={formatDate}
-        onRefresh={fetchPayments}
-        isSelected={selectedPayment?.id === payment.id}
-        onShowProof={handleShowProof}
-        onSelect={payment.status === 'pending'
-          ? (p) => setSelectedPayment(prev => prev?.id === p.id ? null : p)
-          : undefined
-        }
-      />
-    ));
+    return list.map(payment => {
+      const earlierUnpaid = hasEarlierUnpaidFor(payment.school_id, payment.child_id, payment.user_id, payment.created_at);
+      const discount = calcEarlyPaymentDiscount(payment.amount, {
+        createdAt: payment.created_at,
+        config: {
+          enabled: !!payment.early_payment_discount_enabled,
+          days: payment.early_payment_discount_days || 5,
+          percentage: payment.early_payment_discount_percentage || 0,
+        },
+        hasEarlierUnpaid: earlierUnpaid,
+        alreadyAppliedAmount: payment.early_payment_discount_applied,
+      });
+
+      return (
+        <PaymentCard
+          key={payment.id}
+          payment={payment}
+          invoice={invoiceMap[payment.id]}
+          formatCurrency={formatCurrencyLocal}
+          formatDate={formatDate}
+          onRefresh={fetchPayments}
+          isSelected={selectedPayment?.id === payment.id}
+          onShowProof={handleShowProof}
+          discountAmount={discount.discountAmount}
+          discountEligible={discount.eligible}
+          discountValidUntil={discount.validUntil}
+          onSelect={payment.status !== 'approved'
+            ? (p) => setSelectedPayment(prev => prev?.id === p.id ? null : p)
+            : undefined
+          }
+        />
+      );
+    });
   };
 
   if (loading && payments.length === 0) {
@@ -265,38 +329,38 @@ export default function AthletePaymentsPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardContent className="p-4 flex items-center gap-4">
-            <div className="h-12 w-12 rounded-xl bg-amber-100 flex items-center justify-center">
-              <Clock className="h-6 w-6 text-amber-600" />
+            <div className="h-12 w-12 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+              <Clock className="h-6 w-6 text-amber-600 dark:text-amber-400" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Pendientes</p>
-              <p className="text-xl font-bold">{pendingPaymentsCount}</p>
+              <p className="text-xl font-bold text-foreground">{pendingPaymentsCount}</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardContent className="p-4 flex items-center gap-4">
-            <div className="h-12 w-12 rounded-xl bg-amber-50 flex items-center justify-center">
-              <CreditCard className="h-6 w-6 text-amber-500" />
+            <div className="h-12 w-12 rounded-xl bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center">
+              <CreditCard className="h-6 w-6 text-amber-500 dark:text-amber-400" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Monto pendiente</p>
-              <p className="text-xl font-bold">${totalPending.toLocaleString('es-CO')}</p>
+              <p className="text-xl font-bold text-foreground">${totalPending.toLocaleString('es-CO')}</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardContent className="p-4 flex items-center gap-4">
-            <div className="h-12 w-12 rounded-xl bg-emerald-100 flex items-center justify-center">
-              <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+            <div className="h-12 w-12 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+              <CheckCircle2 className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Pagos realizados</p>
-              <p className="text-xl font-bold">{totalApprovedCount}</p>
+              <p className="text-xl font-bold text-foreground">{totalApprovedCount}</p>
             </div>
           </CardContent>
         </Card>
@@ -357,13 +421,13 @@ export default function AthletePaymentsPage() {
                     key={enrollment.id}
                     onClick={() => handleSelectEnrollment(enrollment)}
                     className="w-full text-left p-4 rounded-xl border hover:border-emerald-500 
-                               hover:bg-emerald-50/10 transition-all group"
+                               hover:bg-emerald-50/10 dark:hover:bg-emerald-900/10 transition-all group bg-background"
                   >
                     <div className="flex items-start gap-3">
                       <div className={`h-11 w-11 rounded-lg flex items-center justify-center shrink-0
                         ${isEquipo 
-                          ? 'bg-blue-100 text-blue-600 group-hover:bg-blue-200' 
-                          : 'bg-purple-100 text-purple-600 group-hover:bg-purple-200'
+                          ? 'bg-blue-100 text-blue-600 group-hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-400' 
+                          : 'bg-purple-100 text-purple-600 group-hover:bg-purple-200 dark:bg-purple-900/40 dark:text-purple-400'
                         }`}
                       >
                         {isEquipo 
@@ -467,7 +531,7 @@ export default function AthletePaymentsPage() {
 
       {/* Barra de acción flotante */}
       {selectedPayment && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-2xl bg-slate-900 text-white p-4 rounded-xl shadow-2xl flex items-center justify-between z-50 animate-in fade-in slide-in-from-bottom-5 duration-300">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-2xl bg-zinc-900 dark:bg-zinc-950 text-white p-4 rounded-xl shadow-2xl flex items-center justify-between z-50 animate-in fade-in slide-in-from-bottom-5 duration-300 border border-white/10">
           <div className="flex flex-col">
             <span className="text-slate-400 text-[10px] uppercase tracking-wider font-bold">
               {selectedPayment.child_name 
@@ -475,7 +539,7 @@ export default function AthletePaymentsPage() {
                 : selectedPayment.program_name || selectedPayment.team_name
               }
             </span>
-            <span className="font-bold text-lg">
+            <span className="font-bold text-lg text-emerald-400">
               {formatCurrencyLocal(selectedPayment.amount)}
             </span>
           </div>
@@ -483,13 +547,13 @@ export default function AthletePaymentsPage() {
           <div className="flex items-center gap-3">
             <Button 
               variant="ghost" 
-              className="text-slate-300 hover:text-white hover:bg-slate-800"
+              className="text-slate-300 hover:text-white hover:bg-zinc-800 hidden sm:flex"
               onClick={() => setSelectedPayment(null)}
             >
               Cancelar
             </Button>
             <Button 
-              className="bg-emerald-500 hover:bg-emerald-600 text-white px-8 font-bold shadow-lg shadow-emerald-500/20"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 font-bold shadow-lg shadow-emerald-500/20"
               onClick={() => setShowPayModal(true)}
             >
               Generar pago
@@ -514,7 +578,7 @@ export default function AthletePaymentsPage() {
                 {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(viewingProof.amount)}
               </span>
             </div>
-            <div className="border rounded-md overflow-hidden bg-slate-50 min-h-[200px] flex items-center justify-center">
+            <div className="border rounded-md overflow-hidden bg-muted/30 min-h-[200px] flex items-center justify-center">
               {viewingProof.url ? (
                 <img
                   src={viewingProof.url}
@@ -548,7 +612,7 @@ export default function AthletePaymentsPage() {
   );
 }
 
-function PaymentCard({ payment, formatCurrency, formatDate, onRefresh, onSelect, onShowProof, isSelected }: {
+function PaymentCard({ payment, formatCurrency, formatDate, onRefresh, onSelect, onShowProof, isSelected, invoice, discountAmount, discountEligible, discountValidUntil }: {
   payment: Payment;
   formatCurrency: (val: number) => string;
   formatDate: (dateStr: string) => string;
@@ -556,6 +620,10 @@ function PaymentCard({ payment, formatCurrency, formatDate, onRefresh, onSelect,
   onSelect?: (payment: Payment) => void;
   onShowProof?: (url: string, concept: string, amount: number) => void;
   isSelected: boolean;
+  invoice?: { number: string | null; public_url: string | null };
+  discountAmount?: number;
+  discountEligible?: boolean;
+  discountValidUntil?: string | null;
 }) {
   const config = statusConfig[payment.status] || statusConfig.pending;
   const StatusIcon = config.icon;
@@ -618,14 +686,30 @@ function PaymentCard({ payment, formatCurrency, formatDate, onRefresh, onSelect,
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-bold text-base sm:text-lg text-foreground">
-                {formatCurrency(payment.amount)}
-              </p>
+              {discountEligible && (discountAmount ?? 0) > 0 && ['pending', 'processing', 'partial'].includes(payment.status) ? (
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-xs text-muted-foreground line-through font-normal">
+                    {formatCurrency(payment.amount)}
+                  </span>
+                  <span className="font-bold text-base sm:text-lg text-primary">
+                    {formatCurrency(payment.amount - discountAmount!)}
+                  </span>
+                </div>
+              ) : (
+                <p className="font-bold text-base sm:text-lg text-foreground">
+                  {formatCurrency(payment.amount)}
+                </p>
+              )}
               <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-5 
                                                    border-none ${config.color}`}>
                 {config.label}
               </Badge>
             </div>
+            {discountEligible && (discountAmount ?? 0) > 0 && ['pending', 'processing', 'partial'].includes(payment.status) && (
+              <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold leading-none">
+                Ahorra {formatCurrency(discountAmount!)} pagando antes del {discountValidUntil}
+              </p>
+            )}
 
             {/* Fila 3: Metadatos */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 
@@ -660,23 +744,41 @@ function PaymentCard({ payment, formatCurrency, formatDate, onRefresh, onSelect,
             )}
           </div>
 
-          {/* Botón comprobante */}
-          {payment.receipt_url && (
-            <Button
-              variant="outline" size="sm"
-              className="h-8 text-xs bg-background shrink-0 self-center"
-              onClick={(e) => {
-                e.stopPropagation();
-                onShowProof?.(
-                  payment.receipt_url!, 
-                  payment.program_name || payment.team_name || payment.concept || 'Pago', 
-                  payment.amount
-                );
-              }}
-            >
-              <Download className="h-3 w-3 mr-1" />
-              <span className="hidden sm:inline">Comprobante</span>
-            </Button>
+          {/* Acciones: factura electrónica + comprobante */}
+          {(invoice?.public_url || payment.receipt_url) && (
+            <div className="flex flex-col gap-2 shrink-0 self-center">
+              {invoice?.public_url && (
+                <Button
+                  variant="outline" size="sm"
+                  className="h-8 text-xs bg-background text-emerald-600 hover:text-emerald-700 border-emerald-200"
+                  title={invoice.number ? `Factura ${invoice.number}` : 'Factura electrónica'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.open(invoice.public_url!, '_blank', 'noopener,noreferrer');
+                  }}
+                >
+                  <FileText className="h-3 w-3 mr-1" />
+                  <span className="hidden sm:inline">Factura</span>
+                </Button>
+              )}
+              {payment.receipt_url && (
+                <Button
+                  variant="outline" size="sm"
+                  className="h-8 text-xs bg-background"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onShowProof?.(
+                      payment.receipt_url!,
+                      payment.program_name || payment.team_name || payment.concept || 'Pago',
+                      payment.amount
+                    );
+                  }}
+                >
+                  <Download className="h-3 w-3 mr-1" />
+                  <span className="hidden sm:inline">Comprobante</span>
+                </Button>
+              )}
+            </div>
           )}
 
         </div>

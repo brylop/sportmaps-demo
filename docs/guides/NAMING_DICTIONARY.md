@@ -1,16 +1,16 @@
 # 📖 Diccionario de Naming — SportMaps MVP
 
 > **Fuente de verdad** para nombres de tablas, columnas y conceptos.  
-> Última actualización: 2026-02-16 | Branch: `develop`
+> Última actualización: 2026-05-12 | Branch: `develop`
 
-## Decisión Clave: La tabla es `children`, la UI dice "Estudiantes"
+## Decisión Clave: La tabla es `children`, la UI dice "Deportistas"
 
 | Contexto | Término UI (español) | Tabla Supabase | VIEW disponible |
 |----------|---------------------|---------------|-----------------|
 | Padre registra un hijo | "Mi hijo/a" | `children` | — |
-| Escuela gestiona estudiantes | "Estudiante" | `children` | `students` |
-| Coach ve su grupo | "Alumno" | `children` | `students` |
-| Admin ve reportes | "Estudiante" | `children` | `students` |
+| Escuela gestiona deportistas | "Deportista" | `children` | `students` |
+| Coach ve su grupo | "Deportista" | `children` | `students` |
+| Admin ve reportes | "Deportista" | `children` | `students` |
 
 **¿Por qué no renombrar la tabla?**
 - La tabla `children` ya existe en producción con datos reales
@@ -30,7 +30,7 @@
 | Escuela | `schools` | `owner_id` (uuid → auth.users) | — |
 | Miembro de escuela | `school_members` | `profile_id` (uuid → auth.users) | — |
 | Programa/Actividad | `programs` | `school_id` (uuid → schools) | `price_monthly` (numeric) |
-| Estudiante/Hijo | `children` | `parent_id` (uuid → auth.users) | — |
+| Deportista/Hijo | `children` | `parent_id` (uuid → auth.users) | — |
 | Inscripción | `enrollments` | `user_id` (uuid → profiles) | — |
 | Pago | `payments` | `parent_id` (uuid → auth.users) | `amount` (numeric) |
 | Staff de escuela | `school_staff` | `school_id` (uuid → schools) | — |
@@ -87,7 +87,7 @@
 ## Frontend: Qué usar dónde
 
 ```typescript
-// ✅ CORRECTO: Operaciones CRUD de hijos/estudiantes
+// ✅ CORRECTO: Operaciones CRUD de hijos/deportistas
 const { data } = await supabase.from('children').select('*').eq('school_id', schoolId);
 
 // ✅ CORRECTO: Consultas enriquecidas para reportes de escuela

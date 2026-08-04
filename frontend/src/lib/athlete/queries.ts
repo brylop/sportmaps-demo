@@ -306,3 +306,167 @@ export function getAgeCategory(dob: string | Date): string {
   if (age >= 16 && age <= 17) return 'Senior';
   return 'Open';
 }
+
+// ─── BFF — Athlete Training (PT Sessions) ───────────────────
+import { bffClient } from '@/lib/api/bffClient';
+
+export interface PtSessionToday {
+  id: string;
+  name: string;
+  status: 'assigned' | 'in_progress' | 'completed';
+  session_date: string;
+  custom_notes: string | null;
+  blocks: any[];
+  trainer_profiles: {
+    display_name: string;
+    avatar_url: string | null;
+  } | null;
+  assignment_source?: string | null;
+}
+
+export interface TrainingTodayResponse {
+  date: string;
+  pt_sessions: PtSessionToday[];
+  free_activity: any[]; // Using any to avoid conflict with local TrainingLog if types differ slightly
+}
+
+export interface UnifiedStats {
+  sessions_total: number;
+  sessions_pt: number;
+  sessions_school: number;
+  sessions_free: number;
+  total_minutes: number;
+  minutes_pt: number;
+  minutes_school: number;
+  minutes_free: number;
+  total_calories: number;
+  calories_pt: number;
+  calories_free: number;
+  period_days: number;
+  context: string;
+}
+
+export interface StatSource {
+  type: 'pt' | 'school';
+  school_id: string;
+  name: string;
+}
+
+export interface ExerciseResult {
+  exercise_key: string;
+  exercise_name: string;
+  set_number: number;
+  reps_completed?: number | null;
+  weight_kg?: number | null;
+  duration_seconds?: number | null;
+  distance_m?: number | null;
+  rpe?: number | null;
+  notes?: string | null;
+}
+
+export async function getAthleteTrainingToday(): Promise<TrainingTodayResponse> {
+  return bffClient.get<TrainingTodayResponse>('/api/v1/athlete/training/today');
+}
+
+export async function getAthleteTrainingHistory(limit = 20): Promise<any[]> {
+  const data = await bffClient.get<any[]>(
+    `/api/v1/athlete/training/history?limit=${limit}`
+  );
+  return data ?? [];
+}
+
+export async function getAthleteUnifiedStats(
+  context: 'all' | 'pt' | 'school' | 'free' = 'all',
+  sourceId?: string,
+  days = 30,
+): Promise<UnifiedStats> {
+  const params = new URLSearchParams({ context, days: String(days) });
+  if (sourceId) params.set('source_id', sourceId);
+  return bffClient.get<UnifiedStats>(`/api/v1/athlete/stats?${params}`);
+}
+
+export async function getAthleteStatSources(): Promise<StatSource[]> {
+  return bffClient.get<StatSource[]>('/api/v1/athlete/stats/sources');
+}
+
+export async function postSessionExerciseResults(
+  planId: string,
+  results: ExerciseResult[],
+): Promise<void> {
+  await bffClient.post(`/api/v1/athlete/training/session/${planId}/exercise-results`, { results });
+}
+
+export async function getBodyMetrics(limit = 30, clientId?: string) {
+  const url = clientId 
+    ? `/api/v1/trainer/clients/${clientId}/body-metrics?limit=${limit}`
+    : `/api/v1/athlete/training/body-metrics?limit=${limit}`;
+  return bffClient.get<any[]>(url);
+}
+
+export async function postBodyMetrics(data: {
+  measured_at: string;
+  weight_kg?: number | null;
+  height_cm?: number | null;
+  body_fat_pct?: number | null;
+  muscle_mass_kg?: number | null;
+  waist_cm?: number | null;
+  hip_cm?: number | null;
+  chest_cm?: number | null;
+  arm_cm?: number | null;
+  thigh_cm?: number | null;
+  back_cm?:  number | null;
+  notes?:    string | null;
+}, clientId?: string) {
+  const url = clientId
+    ? `/api/v1/trainer/clients/${clientId}/body-metrics`
+    : '/api/v1/athlete/training/body-metrics';
+  return bffClient.post(url, data);
+}
+
+// ─── Exercise Stats (PRs + evolución por categoría) ──────────────────────
+export interface ExercisePR {
+  stat_type:    string;
+  category:     'strength' | 'cardio' | 'hiit' | 'flexibility' | 'warmup' | 'rpe' | 'other';
+  display_name: string;
+  best_value:   number;
+  unit:         string;
+  pr_date:      string;
+  total_sets:   number;
+}
+
+export interface ExerciseStats {
+  prs:         ExercisePR[];
+  evolution:   Record<string, { date: string; value: number; unit: string }[]>;
+  period_days: number;
+}
+
+export async function getAthleteExerciseStats(
+  days = 90,
+  schoolId?: string
+): Promise<ExerciseStats> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('No autenticado');
+
+  const { data, error } = await (supabase as any).rpc('get_athlete_exercise_stats', {
+    p_athlete_id: user.id,
+    p_days:       days,
+    p_school_id:  schoolId ?? null,
+  });
+  if (error) throw error;
+  return data as ExerciseStats;
+}
+
+// ─── Child Exercise Stats (PRs + evolución para hijos) ───────────────────
+export async function getChildExerciseStats(
+  childId: string,
+  days = 90,
+  schoolId?: string
+): Promise<ExerciseStats> {
+  const { data, error } = await (supabase as any).rpc('get_child_exercise_stats', {
+    p_child_id:  childId,
+    p_days:      days,
+    p_school_id: schoolId ?? null,
+  });
+  if (error) throw error;
+  return data as ExerciseStats;
+}

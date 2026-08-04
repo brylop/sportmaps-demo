@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react';
 import React from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { emailClient } from '@/lib/email-client';
 import { bffClient } from '@/lib/api/bffClient';
@@ -25,6 +26,7 @@ export interface SchoolRole {
     branchId: string | null;
     isGlobal?: boolean; // If true, the user has school-wide access
     onboardingStatus?: 'pending' | 'in_progress' | 'completed';
+    schoolType?: string;
 }
 
 /**
@@ -109,9 +111,14 @@ function useSchoolContextManager(): SchoolContext {
     const [isGlobalAdmin, setIsGlobalAdmin] = useState(false);
     const [totalBranchesCount, setTotalBranchesCount] = useState(0);
     const [branches, setBranches] = useState<{ id: string; name: string }[]>([]);
+    const [resolveCounter, setResolveCounter] = useState(0);
+
+    const queryClient = useQueryClient();
 
     // Track the current user ID to detect user changes
     const currentUserIdRef = useRef<string | null>(null);
+    // Track the previous school ID so we can invalidate stale caches on switch
+    const previousSchoolIdRef = useRef<string | null>(null);
 
     // Reset all school state (called on sign-out or user change)
     const resetState = useCallback(() => {
@@ -130,7 +137,12 @@ function useSchoolContextManager(): SchoolContext {
         setBranches([]);
         setError(null);
         currentUserIdRef.current = null;
-    }, []);
+        previousSchoolIdRef.current = null;
+        // Defensive: clear module-level BFF header and query cache so
+        // subsequent renders never hit the previous user's tenant.
+        bffClient.setSchoolId(null);
+        queryClient.clear();
+    }, [queryClient]);
 
     // 1. Initial Load: Resolve User & Memberships
     useEffect(() => {
@@ -182,7 +194,7 @@ function useSchoolContextManager(): SchoolContext {
                 // Fetch memberships
                 const { data: memberships, error: memberError } = await supabase
                     .from('school_members')
-                    .select('school_id, role, branch_id, schools(id, name, onboarding_status)')
+                    .select('school_id, role, branch_id, schools(id, name, onboarding_status, school_type)')
                     .eq('profile_id', user.id)
                     .eq('status', 'active');
 
@@ -198,6 +210,7 @@ function useSchoolContextManager(): SchoolContext {
                         return {
                             schoolId: m.school_id,
                             schoolName: m.schools?.name || 'Escuela sin nombre',
+                            schoolType: m.schools?.school_type || 'academy',
                             // Forzamos el rol "parent" si el perfil del usuario es padre, 
                             // para evitar que membresías erróneas de "athlete" sobrescriban su Dashboard.
                             role: (userProfile?.role === 'parent') ? 'parent' : (m.role as SchoolRole['role']),
@@ -217,7 +230,30 @@ function useSchoolContextManager(): SchoolContext {
                     if (found) {
                         selectSchool(found);
                     } else {
-                        selectSchool(mappedSchools[0]);
+                        // Selección inicial determinista (sin localStorage previo).
+                        // La query de school_members no garantiza orden, así que
+                        // NO tomar "la primera" al azar: se ordena por criterio.
+                        //  1) Rol: donde el usuario administra (owner/admin) pesa más
+                        //     que donde solo participa (parent/athlete). Evita caer en
+                        //     una escuela ajena/demo cuando el usuario es dueño de otra.
+                        //  2) Academia antes que otros tipos (preserva "academia > PT"
+                        //     para atletas con doble membresía).
+                        //  3) Nombre como desempate estable (determinista entre requests).
+                        const ROLE_PRIORITY: Record<string, number> = {
+                            owner: 0, super_admin: 1, school_admin: 2, admin: 3,
+                            coach: 4, reporter: 5, viewer: 6, parent: 7, athlete: 8,
+                        };
+                        const rank = (r: string) => ROLE_PRIORITY[r] ?? 99;
+                        const preferredSchool =
+                            [...mappedSchools].sort((a, b) => {
+                                const byRole = rank(a.role) - rank(b.role);
+                                if (byRole !== 0) return byRole;
+                                const aAcademy = a.schoolType === 'academy' ? 0 : 1;
+                                const bAcademy = b.schoolType === 'academy' ? 0 : 1;
+                                if (aAcademy !== bAcademy) return aAcademy - bAcademy;
+                                return a.schoolName.localeCompare(b.schoolName);
+                            })[0] ?? mappedSchools[0];
+                        selectSchool(preferredSchool);
                     }
                 } else {
                     // Authenticated but no memberships
@@ -251,7 +287,7 @@ function useSchoolContextManager(): SchoolContext {
 
         resolveUserContext();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [resolveCounter]);
 
     // 1b. Listen for auth changes to reset state on sign-out / re-resolve on new sign-in
     useEffect(() => {
@@ -262,8 +298,9 @@ function useSchoolContextManager(): SchoolContext {
                 // Only re-resolve if the user actually changed
                 if (currentUserIdRef.current !== session.user.id) {
                     currentUserIdRef.current = session.user.id;
-                    // Reset first, then the initial effect will handle re-resolving
-                    // via a full page navigation (signOut redirects to login)
+                    // Mostrar spinner y re-resolver contexto para el nuevo usuario
+                    setLoading(true);
+                    setResolveCounter(c => c + 1);
                 }
             }
         });
@@ -273,11 +310,33 @@ function useSchoolContextManager(): SchoolContext {
 
 
     const selectSchool = useCallback(async (school: SchoolRole) => {
+        const previousSchoolId = previousSchoolIdRef.current;
+        const isSwitch = previousSchoolId && previousSchoolId !== school.schoolId;
+
+        // Update BFF header synchronously so any query fired mid-render hits
+        // the right tenant (don't wait for the useEffect on activeSchoolId).
+        bffClient.setSchoolId(school.schoolId);
+
         setActiveSchoolId(school.schoolId);
         setActiveSchoolName(school.schoolName);
         setCurrentUserRole(school.role);
         setActiveBranchId(school.branchId);
         setIsGlobalAdmin(!!school.isGlobal);
+
+        // When switching to a different school, purge any cached query whose
+        // key references the old schoolId. Prevents the UI from flashing stale
+        // data for a few ms while the new queries refetch.
+        if (isSwitch) {
+            queryClient.removeQueries({
+                predicate: (query) => query.queryKey.some(
+                    (k) => typeof k === 'string' && k === previousSchoolId
+                ),
+            });
+            // Force refetch of active school-scoped queries so data appears ASAP.
+            queryClient.invalidateQueries({ refetchType: 'active' });
+        }
+
+        previousSchoolIdRef.current = school.schoolId;
 
         // Fetch branch count and data (for display purposes)
         const { data: branchesData, count } = await supabase
@@ -299,7 +358,7 @@ function useSchoolContextManager(): SchoolContext {
         // Clear branding when switching schools to avoid "flash" of previous branding
         setSchoolBranding(null);
         localStorage.setItem(STORAGE_KEY_ACTIVE_SCHOOL, school.schoolId);
-    }, []);
+    }, [queryClient]);
 
     const switchSchool = (schoolId: string, branchId: string | null = null) => {
         // First try exact match
@@ -325,9 +384,14 @@ function useSchoolContextManager(): SchoolContext {
         if (anyInSchool) selectSchool(anyInSchool);
     };
 
+    // OJO: NO tocar `loading` aquí. `loading` es el gate de <ProtectedRoute>, que
+    // desmonta TODO el árbol autenticado mientras esté en true. Como este fetch
+    // corre en un efecto DESPUÉS de que resolveUserContext ya puso loading=false,
+    // ponerlo en true otra vez desmontaba y remontaba AuthLayout entero: cada
+    // query y cada efecto de la app se disparaba dos veces por login.
+    // `loading` = "aún no resolví el contexto base", nada más.
     const fetchTeams = useCallback(async (id: string, branchId: string | null = null) => {
         if (!id || id === "") return;
-        setLoading(true);
         try {
             let query = supabase
                 .from('teams')
@@ -345,7 +409,10 @@ function useSchoolContextManager(): SchoolContext {
                     teamsData.map((p: any) => ({
                         id: p.id,
                         name: p.name,
-                        monthly_fee: p.price_monthly || DEFAULT_MONTHLY_FEE,
+                        // Equipo sin precio configurado = cuota 0. Antes caía en
+                        // DEFAULT_MONTHLY_FEE e inyectaba una mensualidad
+                        // fantasma en inscripciones e invitaciones.
+                        monthly_fee: p.price_monthly ?? 0,
                         sport_type: p.sport,
                         branch_id: p.branch_id
                     }))
@@ -355,8 +422,6 @@ function useSchoolContextManager(): SchoolContext {
             }
         } catch (e) {
             console.error(e);
-        } finally {
-            setLoading(false);
         }
     }, []);
 
@@ -520,12 +585,12 @@ export function useSchoolContext(): SchoolContext {
 }
 
 /**
- * Helper: Crea un estudiante y su pago pendiente de forma atómica.
+ * Helper: Crea un deportista y su pago pendiente de forma atómica.
  * Reutilizable desde cualquier flujo (modal, CSV, invitación).
  * 
- * @param params Objeto con la información del estudiante y del padre.
- * @returns Un objeto con el ID del estudiante creado y estados de éxito de las inserciones.
- * @throws Error si la creación del estudiante falla.
+ * @param params Objeto con la información del deportista y del padre.
+ * @returns Un objeto con el ID del deportista creado y estados de éxito de las inserciones.
+ * @throws Error si la creación del deportista falla.
  */
 export async function createStudentWithPendingPayment(params: {
     fullName: string;
@@ -580,7 +645,7 @@ export async function createStudentWithPendingPayment(params: {
     // For production: throw error if insert fails
     if (childError) {
         console.error('Child insert failed:', childError.message);
-        throw new Error(childError.message || 'Error al crear el estudiante');
+        throw new Error(childError.message || 'Error al crear el deportista');
     }
 
     const childId = child.id;
@@ -589,24 +654,29 @@ export async function createStudentWithPendingPayment(params: {
     const dueDate = new Date();
     dueDate.setMonth(dueDate.getMonth() + 1);
 
-    const { error: paymentError } = await supabase
-        .from('payments')
-        .insert({
-            parent_id: null,
-            child_id: childId,
-            school_id: schoolId,
-            branch_id: params.branchId || null,
-            amount: monthlyFee,
-            concept: `Mensualidad ${params.teamName || 'Equipo'} - ${params.fullName}`,
-            due_date: dueDate.toISOString().split('T')[0],
-            status: 'pending',
-            payment_type: 'monthly',
-        });
+    let paymentError: any = null;
 
-    if (paymentError) {
-        console.error('Payment insert failed:', paymentError.message);
-        // We might want to allow this if the student was created, but for consistency let's throw
-        // throw new Error(paymentError.message || 'Error al crear el pago del estudiante');
+    // Solo se genera cobro si hay cuota (constraint payments_amount_positive: amount > 0)
+    if (monthlyFee && monthlyFee > 0) {
+        const { error } = await supabase
+            .from('payments')
+            .insert({
+                parent_id: null,
+                child_id: childId,
+                school_id: schoolId,
+                branch_id: params.branchId || null,
+                amount: monthlyFee,
+                concept: `Mensualidad ${params.teamName || 'Equipo'} - ${params.fullName}`,
+                due_date: dueDate.toISOString().split('T')[0],
+                status: 'pending',
+                // 'one_time'|'subscription' (payments_payment_type_check); 'monthly' rompía el INSERT
+                payment_type: 'one_time',
+            });
+        paymentError = error;
+
+        if (paymentError) {
+            console.error('Payment insert failed:', paymentError.message);
+        }
     }
 
     // 3. Send Invitation and Record in DB if parent email provided

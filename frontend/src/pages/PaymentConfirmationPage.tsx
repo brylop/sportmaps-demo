@@ -1,15 +1,15 @@
 /**
- * PaymentConfirmationPage — Página pública post-checkout de ePayco
+ * PaymentConfirmationPage — Página pública post-checkout de Wompi
  *
- * Ruta: /pagos/confirmacion?ref_payco=xxx
+ * Ruta: /pagos/confirmacion?id=<wompi_tx_id>
  *
  * Flujo:
- * 1. ePayco redirige aquí tras completar el pago
- * 2. Lee los query params de ePayco (ref_payco, etc.)
+ * 1. Wompi redirige aquí tras completar el pago (con `id` y `env` query params)
+ * 2. Lee los query params de Wompi
  * 3. Consulta al BFF GET /api/v1/payments/link/:token para obtener la data
  * 4. Muestra el resultado: éxito, pendiente o error
  *
- * IMPORTANTE: Esta página es PÚBLICA (sin AuthGuard) porque ePayco redirige
+ * IMPORTANTE: Esta página es PÚBLICA (sin AuthGuard) porque Wompi redirige
  * aquí y el usuario puede no estar autenticado en ese momento.
  */
 
@@ -30,7 +30,8 @@ const formatCurrency = (amount: number) =>
     }).format(amount);
 
 interface PaymentLinkData {
-    linkStatus: 'pending' | 'paid' | 'expired' | 'cancelled';
+    linkStatus: 'pending' | 'paid' | 'expired' | 'cancelled' | 'declined';
+    wompiReference: string | null;
     grossAmount: number;
     baseAmount: number;
     sportmapsFee: number;
@@ -47,6 +48,11 @@ interface PaymentLinkData {
 type PageState = 'loading' | 'success' | 'pending' | 'error' | 'not_found';
 
 function resolveBffUrl(): string {
+    // Prioriza la env var (igual que el resto del código). Imprescindible en
+    // nativo: en Capacitor el WebView sirve desde hostname 'localhost', y sin
+    // esto la app apuntaría a http://localhost:3000 (roto en el dispositivo).
+    const envUrl = import.meta.env.VITE_BFF_URL || import.meta.env.VITE_API_URL;
+    if (envUrl) return envUrl as string;
     if (typeof window === 'undefined') return 'http://localhost:3000';
     const { hostname } = window.location;
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
@@ -59,16 +65,16 @@ export default function PaymentConfirmationPage() {
     const [searchParams] = useSearchParams();
     const [state, setState] = useState<PageState>('loading');
     const [data, setData] = useState<PaymentLinkData | null>(null);
-    const [epaycoRef, setEpaycoRef] = useState<string | null>(null);
+    const [wompiTxId, setWompiTxId] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchPaymentData = async () => {
             try {
-                // ePayco redirige con varios query params. Intentamos obtener
-                // el ref_payco o el token que pasamos como extra.
-                const refPayco = searchParams.get('ref_payco') || searchParams.get('x_ref_payco');
+                // Wompi redirige con `id` (transaction id) y opcional `env`.
+                // Aceptamos tambien `token` legacy + reference para compatibilidad.
+                const txId = searchParams.get('id') || searchParams.get('transaction_id');
                 const token = searchParams.get('token');
-                setEpaycoRef(refPayco);
+                setWompiTxId(txId);
 
                 // Si tenemos token, lo usamos directamente
                 if (token) {
@@ -91,8 +97,8 @@ export default function PaymentConfirmationPage() {
                     return;
                 }
 
-                // Si no hay token, mostramos un estado basado en lo que ePayco nos dió
-                if (refPayco) {
+                // Si no hay token, mostramos un estado basado en lo que Wompi nos dio
+                if (txId) {
                     // El webhook puede tardar unos segundos en procesarse.
                     // Mostrar estado "pendiente" es lo más seguro.
                     setState('pending');
@@ -180,11 +186,11 @@ export default function PaymentConfirmationPage() {
                                     <span className="text-muted-foreground">Monto pagado</span>
                                     <span className="font-bold text-lg">{formatCurrency(data.grossAmount)}</span>
                                 </div>
-                                {epaycoRef && (
+                                {(data.wompiReference || wompiTxId) && (
                                     <div className="flex justify-between text-sm">
                                         <span className="text-muted-foreground">Referencia</span>
                                         <Badge variant="outline" className="font-mono text-xs">
-                                            {epaycoRef}
+                                            {data.wompiReference || wompiTxId}
                                         </Badge>
                                     </div>
                                 )}
@@ -224,7 +230,7 @@ export default function PaymentConfirmationPage() {
                             </div>
                             <CardTitle className="text-2xl text-amber-600">Pago en proceso</CardTitle>
                             <CardDescription>
-                                Estamos verificando tu pago con ePayco. Esto puede tardar unos segundos.
+                                Estamos verificando tu pago con Wompi. Esto puede tardar unos segundos.
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
@@ -233,12 +239,12 @@ export default function PaymentConfirmationPage() {
                                 <span>Verificando automáticamente...</span>
                             </div>
 
-                            {epaycoRef && (
+                            {wompiTxId && (
                                 <div className="bg-muted/50 rounded-lg p-4">
                                     <div className="flex justify-between text-sm">
-                                        <span className="text-muted-foreground">Referencia ePayco</span>
+                                        <span className="text-muted-foreground">Transacción Wompi</span>
                                         <Badge variant="outline" className="font-mono text-xs">
-                                            {epaycoRef}
+                                            {wompiTxId}
                                         </Badge>
                                     </div>
                                 </div>

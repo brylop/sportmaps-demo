@@ -18,6 +18,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import { InstallBanner } from "./pwa/InstallBanner";
 import { UpdateBanner } from "./pwa/UpdateBanner";
 import { IdleTimer } from "@/components/auth/IdleTimer";
+import { IdleConfigProvider } from "@/contexts/IdleConfigContext";
 
 
 // ─── Skeleton de carga global ─────────────────────────────────────────────────
@@ -34,10 +35,12 @@ const PageLoader = () => (
 const Index = lazy(() => import("./pages/Index"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const RegisterPage = lazy(() => import("./pages/RegisterPage"));
+const OnboardingRolePage = lazy(() => import("./pages/OnboardingRolePage"));
 const JoinTeamPage = lazy(() => import("./pages/JoinTeamPage"));
+const JoinPlanPage = lazy(() => import("./pages/JoinPlanPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
-const ExplorePage = lazy(() => import("./pages/ExplorePage"));
+const AccountDeletionPage = lazy(() => import("./pages/AccountDeletionPage"));
 const SchoolDetailPage = lazy(() => import("./pages/SchoolDetailPage"));
 const UnauthorizedPage = lazy(() => import("./pages/UnauthorizedPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -47,12 +50,16 @@ const PaymentResultPage = lazy(() => import("./pages/PaymentResultPage"));
 const PaymentConfirmationPage = lazy(() => import("./pages/PaymentConfirmationPage"));
 const PublicSchoolPage = lazy(() => import("./pages/PublicSchoolPage"));
 const SchoolProfilePage = lazy(() => import("./pages/SchoolProfilePage"));
+const SchoolPublicProfilePage = lazy(() => import("./pages/school/SchoolPublicProfilePage"));
+const VendorPublicProfilePage = lazy(() => import("./pages/vendor/VendorPublicProfilePage"));
+const MyAppointmentsPage = lazy(() => import("./pages/wellness/MyAppointmentsPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
-const ExploreTrainers = lazy(() => import("./pages/explore/ExploreTrainers"));
+const RecepcionPage = lazy(() => import("./pages/recepcion/RecepcionPage"));
 
 // ─── Events (public, lazy) ────────────────────────────────────────────────────
 const EventsMapPage = lazy(() => import("./pages/events/EventsMapPage"));
 const EventPublicPage = lazy(() => import("./pages/events/EventPublicPage"));
+const PublicFacilityBookingPage = lazy(() => import("./pages/booking/PublicFacilityBookingPage"));
 const EventIndividualRegisterPage = lazy(() => import("./pages/events/EventIndividualRegisterPage"));
 const MyEventRegistrationsPage = lazy(() => import("./pages/events/MyEventRegistrationsPage"));
 
@@ -93,15 +100,23 @@ const AnnouncementsPage = lazy(() => import("./pages/AnnouncementsPage"));
 
 // ─── School pages (lazy) ──────────────────────────────────────────────────────
 const SchoolStudentsManagementPage = lazy(() => import("./pages/SchoolStudentsManagementPage"));
+const MiPlanPage = lazy(() => import("./pages/MiPlanPage"));
+const AdminUpgradeRequestsPage = lazy(() => import("./pages/AdminUpgradeRequestsPage"));
 const StaffPage = lazy(() => import("./pages/StaffPage"));
 const ProgramsManagementPage = lazy(() => import("./pages/ProgramsManagementPage"));
 const AttendanceSupervisionPage = lazy(() => import("./pages/AttendanceSupervisionPage"));
 const ResultsOverviewPage = lazy(() => import("./pages/ResultsOverviewPage"));
 const FinancesPage = lazy(() => import("./pages/FinancesPage"));
+const AccountingPage = lazy(() => import("./pages/AccountingPage"));
+const AccountingSuppliersPage = lazy(() => import("./pages/AccountingSuppliersPage"));
+const PayrollPage = lazy(() => import("./pages/PayrollPage"));
+const AccountingReportsPage = lazy(() => import("./pages/AccountingReportsPage"));
+const AccountingBudgetPage = lazy(() => import("./pages/AccountingBudgetPage"));
 const PaymentsAutomationPage = lazy(() => import("./pages/PaymentsAutomationPage"));
 const PaymentRemindersPage = lazy(() => import("./pages/PaymentRemindersPage"));
 const MessageTemplatesPage = lazy(() => import("./pages/MessageTemplatesPage"));
 const ReportsPage = lazy(() => import("./pages/ReportsPage"));
+const MonthlyReportsPage = lazy(() => import("./pages/MonthlyReportsPage"));
 const SchoolFacilitiesPage = lazy(() => import("./pages/SchoolFacilitiesPage"));
 const SchoolBranchesManagementPage = lazy(() => import("./pages/SchoolBranchesManagementPage"));
 const SchoolSettingsPage = lazy(() => import("./pages/SchoolSettingsPage"));
@@ -126,28 +141,63 @@ const WellnessPatientsPage = lazy(() => import("./pages/WellnessPatientsPage"));
 const MedicalHistoryPage = lazy(() => import("./pages/MedicalHistoryPage"));
 const NutritionPage = lazy(() => import("./pages/NutritionPage"));
 const SchoolSetupPage = lazy(() => import("./pages/SchoolSetupPage"));
+const SchoolOnboardingPage = lazy(() => import("./pages/SchoolOnboardingPage"));
+const AthleteOnboarding = lazy(() => import("./pages/onboarding/AthleteOnboarding"));
+const ParentOnboarding = lazy(() => import("./pages/onboarding/ParentOnboarding"));
+const CoachOnboarding = lazy(() => import("./pages/onboarding/CoachOnboarding"));
+const WellnessOnboarding = lazy(() => import("./pages/onboarding/WellnessOnboarding"));
 
 // ─── Admin pages (lazy) ───────────────────────────────────────────────────────
+const AdminPanelPage = lazy(() => import("./pages/AdminPanelPage"));
 const AdminAnalyticsPage = lazy(() => import("./pages/AdminAnalyticsPage"));
 const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
 const AdminClubsPage = lazy(() => import("./pages/AdminClubsPage"));
+const AdminSchoolsGlobalPage = lazy(() => import("./pages/AdminSchoolsGlobalPage"));
+const AdminSubscriptionsPage = lazy(() => import("./pages/AdminSubscriptionsPage"));
+const AdminActivityLogsPage = lazy(() => import("./pages/AdminActivityLogsPage"));
+const PayrollConfigPage = lazy(() => import("./pages/admin/PayrollConfigPage"));
+const AdminAccessLogsPage = lazy(() => import("./pages/AdminAccessLogsPage"));
+const AthleteCardPublicPage = lazy(() => import("./pages/AthleteCardPublicPage"));
+const SchoolCardsAdminPage = lazy(() => import("./pages/SchoolCardsAdminPage"));
+const SchoolCertificatesAdminPage = lazy(() => import("./pages/SchoolCertificatesAdminPage"));
+const CertificateTemplatesPage = lazy(() => import("./pages/CertificateTemplatesPage"));
+const MyCertificatesPage = lazy(() => import("./pages/MyCertificatesPage"));
+const MyAthleteCardsPage = lazy(() => import("./pages/MyAthleteCardsPage"));
+const CertificateVerifyPublicPage = lazy(() => import("./pages/CertificateVerifyPublicPage"));
+const JoinSchoolPublicPage = lazy(() => import("./pages/JoinSchoolPublicPage"));
+const SchoolJoinQRsPage = lazy(() => import("./pages/SchoolJoinQRsPage"));
 
 // ─── Vendor/Marketplace pages (lazy) ─────────────────────────────────────────
 const MarketplacePage = lazy(() => import("./pages/MarketplacePage"));
 const MarketplaceDetailPage = lazy(() => import("./pages/MarketplaceDetailPage"));
 const ExplorarGlobalPage = lazy(() => import("./pages/ExplorarGlobalPage"));
+const TiendaPublicaPage = lazy(() => import("./pages/TiendaPublicaPage"));
+const MiTiendaPage = lazy(() => import("./pages/MiTiendaPage"));
 const VendorGuard = lazy(() => import("@/components/vendor/VendorGuard").then(module => ({ default: module.VendorGuard })));
 const VendorOnboardingPage = lazy(() => import("./pages/vendor/VendorOnboardingPage"));
 const VendorDashboardPage = lazy(() => import("./pages/vendor/VendorDashboardPage"));
+const VendorPromotionsPage = lazy(() => import("./pages/vendor/VendorPromotionsPage"));
 const VendorServicesPage = lazy(() => import("./pages/vendor/VendorServicesPage"));
 const VendorAppointmentsPage = lazy(() => import("./pages/vendor/VendorAppointmentsPage"));
 const VendorProductsPage = lazy(() => import("./pages/vendor/VendorProductsPage"));
+const ProductWizardPage = lazy(() => import("./components/vendor/product-wizard/ProductWizard").then(m => ({ default: m.ProductWizard })));
+const AdminMarketplaceModerationPage = lazy(() => import("./pages/admin/AdminMarketplaceModerationPage"));
+const AdminPayoutsPage = lazy(() => import("./pages/admin/AdminPayoutsPage"));
+const VendorInboxPage = lazy(() => import("./pages/vendor/VendorInboxPage"));
+const VendorPayoutsPage = lazy(() => import("./pages/vendor/VendorPayoutsPage"));
+const VendorSubscribersPage = lazy(() => import("./pages/vendor/VendorSubscribersPage"));
+const VendorShippingSettingsPage = lazy(() => import("./pages/vendor/VendorShippingSettingsPage"));
 
 const OrganizerGuard = lazy(() => import("@/components/organizer/OrganizerGuard").then(module => ({ default: module.OrganizerGuard })));
 const OrganizerOnboardingPage = lazy(() => import("./pages/organizer/OrganizerOnboardingPage"));
 const OrganizerDashboardPage = lazy(() => import("./pages/organizer/OrganizerDashboardPage"));
 const OrganizerProfilePage = lazy(() => import("./pages/organizer/OrganizerProfilePage"));
 const CreateEventPage = lazy(() => import("./pages/organizer/CreateEventPage"));
+const SchoolTournamentsPage = lazy(() => import("./pages/school/SchoolTournamentsPage"));
+const SchoolEquipmentPage = lazy(() => import("./pages/school/SchoolEquipmentPage"));
+const CoachEquipmentPage = lazy(() => import("./pages/coach/CoachEquipmentPage"));
+const SchoolTournamentDetailPage = lazy(() => import("./pages/school/SchoolTournamentDetailPage"));
+const CreateTournamentPage = lazy(() => import("./pages/school/CreateTournamentPage"));
 const EventManagementPage = lazy(() => import("./pages/organizer/EventManagementPage"));
 const OrganizerEventsPage = lazy(() => import("./pages/organizer/OrganizerEventsPage"));
 const OrganizerFinancesPage = lazy(() => import("./pages/organizer/OrganizerFinancesPage"));
@@ -157,6 +207,8 @@ const OrganizerSettingsPage = lazy(() => import("./pages/organizer/OrganizerSett
 const EventEnrollmentPage = lazy(() => import("./pages/school/EventEnrollmentPage"));
 const SchoolDelegationsPage = lazy(() => import("./pages/school/SchoolDelegationsPage"));
 const SchoolDelegationDetailPage = lazy(() => import("./pages/school/SchoolDelegationDetailPage"));
+const AccessControlPage = lazy(() => import('./pages/school/AccessControlPage'));
+const SchoolRoutines = lazy(() => import("./pages/school/SchoolRoutines"));
 
 // ─── Trainer pages (lazy) ────────────────────────────────────────────────────
 const TrainerOnboarding = lazy(() => import("./pages/trainer/TrainerOnboarding"));
@@ -216,9 +268,10 @@ const AuthenticatedLayout = () => (
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <AuthProvider>
-        <IdleTimer />
-        <SchoolProvider>
+      <IdleConfigProvider>
+        <AuthProvider>
+          <IdleTimer />
+          <SchoolProvider>
 
           <ThemeProvider>
             <ErrorBoundary>
@@ -239,13 +292,41 @@ const App = () => (
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/reset-password" element={<ResetPasswordPage />} />
                     <Route path="/register" element={<RegisterPage />} />
+                    <Route path="/onboarding/role" element={
+                      <ProtectedRoute skipOnboardingCheck><OnboardingRolePage /></ProtectedRoute>
+                    } />
                     <Route path="/join-team/:teamId" element={<JoinTeamPage />} />
+                    <Route path="/join-plan/:planId" element={<JoinPlanPage />} />
+                    <Route path="/c/:qrToken" element={<AthleteCardPublicPage />} />
+                    <Route path="/cert/:folio" element={<CertificateVerifyPublicPage />} />
+                    <Route path="/join/:slug" element={<JoinSchoolPublicPage />} />
+                    <Route path="/agendar/:slug" element={<PublicFacilityBookingPage />} />
                     <Route path="/terminos-y-condiciones" element={<TermsPage />} />
                     <Route path="/terms" element={<Navigate to="/terminos-y-condiciones" replace />} />
                     <Route path="/politica-de-privacidad" element={<PrivacyPage />} />
                     <Route path="/privacy" element={<Navigate to="/politica-de-privacidad" replace />} />
+                    {/* Publica a proposito: Google Play exige una URL de eliminacion de
+                        cuenta accesible sin instalar la app ni iniciar sesion. Se declara
+                        en Play Console -> Contenido de la app -> Eliminacion de datos. */}
+                    <Route path="/eliminar-cuenta" element={<AccountDeletionPage />} />
+                    <Route path="/delete-account" element={<Navigate to="/eliminar-cuenta" replace />} />
                     <Route path="/checkout" element={
                       <ProtectedRoute><CheckoutPage /></ProtectedRoute>
+                    } />
+                    <Route path="/onboarding/school" element={
+                      <ProtectedRoute><SchoolOnboardingPage /></ProtectedRoute>
+                    } />
+                    <Route path="/onboarding/athlete" element={
+                      <ProtectedRoute><AthleteOnboarding /></ProtectedRoute>
+                    } />
+                    <Route path="/onboarding/parent" element={
+                      <ProtectedRoute><ParentOnboarding /></ProtectedRoute>
+                    } />
+                    <Route path="/onboarding/coach" element={
+                      <ProtectedRoute><CoachOnboarding /></ProtectedRoute>
+                    } />
+                    <Route path="/onboarding/wellness" element={
+                      <ProtectedRoute><WellnessOnboarding /></ProtectedRoute>
                     } />
                     <Route path="/setup/school" element={
                       <ProtectedRoute><SchoolSetupPage /></ProtectedRoute>
@@ -269,10 +350,18 @@ const App = () => (
                     <Route path="/explorar" element={<ExplorarGlobalPage />} />
                     <Route path="/marketplace" element={<MarketplacePage />} />
                     <Route path="/marketplace/:type/:id" element={<MarketplaceDetailPage />} />
+                    <Route path="/tienda/:slug" element={<TiendaPublicaPage />} />
 
                     {/* Public trainer profile — no auth required */}
                     <Route path="/entrenador/:userId" element={<TrainerPublicProfile />} />
-                    <Route path="/explore/trainers" element={<ExploreTrainers />} />
+
+                    {/* Modo Recepción (F-R) — kiosko full-screen para el admin/recepción.
+                        No usa AuthLayout (sin chrome). SchoolProvider ya vive en la raíz. */}
+                    <Route path="/recepcion" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'reporter']}>
+                        <RecepcionPage />
+                      </ProtectedRoute>
+                    } />
 
                     {/* ── Rutas autenticadas — SchoolProvider vive aquí ── */}
                     <Route element={
@@ -313,18 +402,24 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="my-payments" element={
-                        <ProtectedRoute allowedRoles={['parent']}>
+                        <ProtectedRoute allowedRoles={['parent', 'athlete']}>
                           <MyPaymentsPage />
                         </ProtectedRoute>
                       } />
+                      <Route path="mi-tienda" element={
+                        <ProtectedRoute allowedRoles={['parent', 'athlete']}>
+                          <MiTiendaPage />
+                        </ProtectedRoute>
+                      } />
+
                       <Route path="children/:id/progress" element={
                         <ProtectedRoute allowedRoles={['parent']}>
-                          <ChildProgressPage />
+                          <AcademicProgressPage />
                         </ProtectedRoute>
                       } />
                       <Route path="children/:id/attendance" element={
                         <ProtectedRoute allowedRoles={['parent']}>
-                          <ChildAttendancePage />
+                          <AttendancePage />
                         </ProtectedRoute>
                       } />
                       <Route path="academic-progress" element={
@@ -362,14 +457,66 @@ const App = () => (
                           <SchoolDelegationsPage />
                         </ProtectedRoute>
                       } />
+                      <Route path="school/tournaments" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
+                          <SchoolTournamentsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school/tournaments/new" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
+                          <CreateTournamentPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school/tournaments/:id" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
+                          <SchoolTournamentDetailPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school/equipment" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
+                          <SchoolEquipmentPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school/dotacion" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
+                          <SchoolEquipmentPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="coach/dotacion" element={
+                        <ProtectedRoute allowedRoles={['coach', 'school', 'admin', 'school_admin']}>
+                          <CoachEquipmentPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="school/delegations/:id" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
                           <SchoolDelegationDetailPage />
                         </ProtectedRoute>
                       } />
+                      <Route path="school/routines" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
+                          <SchoolRoutines />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school/routines/:routineId" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
+                          <TrainerRoutineDetail />
+                        </ProtectedRoute>
+                      } />
                       <Route path="students" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
                           <SchoolStudentsManagementPage />
+                        </ProtectedRoute>
+                      } />
+                      {/* El plan lo ve SOLO quien lo paga. Estar asociado a una entidad no
+                          alcanza: 'parent', 'athlete' y 'coach' estaban en esta lista y podían
+                          abrir la facturación de la escuela — un padre veía el tier, los precios
+                          y los 397 alumnos activos del club de sus hijos.
+                          'personal_trainer' se queda: es dueño de su propia entidad y ve SU plan.
+                          El filtro fino vive en MiPlanPage (rol dentro de la entidad activa);
+                          esta lista es solo el primer tamiz. */}
+                      <Route path="mi-plan" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'wellness_professional', 'store_owner', 'organizer', 'reporter', 'personal_trainer']}>
+                          <MiPlanPage />
                         </ProtectedRoute>
                       } />
                       <Route path="invitations" element={
@@ -402,9 +549,64 @@ const App = () => (
                           <FinancesPage />
                         </ProtectedRoute>
                       } />
+                      <Route path="accounting" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <AccountingPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="accounting/suppliers" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <AccountingSuppliersPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="accounting/payroll" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <PayrollPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="accounting/reports" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <AccountingReportsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="accounting/budget" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <AccountingBudgetPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="payments-automation" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <PaymentsAutomationPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="cards" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <SchoolCardsAdminPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="certificates" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <SchoolCertificatesAdminPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="cards/templates/certificates" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <CertificateTemplatesPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="my-certificates" element={
+                        <ProtectedRoute>
+                          <MyCertificatesPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="my-cards" element={
+                        <ProtectedRoute>
+                          <MyAthleteCardsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="qr-signup" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <SchoolJoinQRsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="payment-reminders" element={
@@ -420,6 +622,11 @@ const App = () => (
                       <Route path="reporter-dashboard" element={
                         <ProtectedRoute allowedRoles={['reporter']}>
                           <ReporterDashboardPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="informe-mensual" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
+                          <MonthlyReportsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="school-reports" element={
@@ -440,6 +647,26 @@ const App = () => (
                       <Route path="school-config" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <SchoolSettingsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school/public-profile" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <SchoolPublicProfilePage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school/access-control" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <AccessControlPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="vendor/public-profile" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional', 'store_owner']}>
+                          <VendorPublicProfilePage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="wellness/appointments" element={
+                        <ProtectedRoute>
+                          <MyAppointmentsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="pickup" element={
@@ -534,6 +761,13 @@ const App = () => (
                         <Route path="vendor/services" element={<VendorServicesPage />} />
                         <Route path="vendor/appointments" element={<VendorAppointmentsPage />} />
                         <Route path="vendor/products" element={<VendorProductsPage />} />
+                        <Route path="vendor/products/new" element={<ProductWizardPage />} />
+                        <Route path="vendor/products/:id/edit" element={<ProductWizardPage />} />
+                        <Route path="vendor/inbox" element={<VendorInboxPage />} />
+                        <Route path="vendor/payouts" element={<VendorPayoutsPage />} />
+                        <Route path="vendor/subscribers" element={<VendorSubscribersPage />} />
+                        <Route path="vendor/shipping" element={<VendorShippingSettingsPage />} />
+                        <Route path="vendor/promotions" element={<VendorPromotionsPage />} />
                       </Route>
 
                       {/* Organizer routes */}
@@ -568,6 +802,11 @@ const App = () => (
 
 
                       {/* Admin routes */}
+                      <Route path="admin" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminPanelPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="admin/users" element={
                         <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
                           <AdminUsersPage />
@@ -576,6 +815,21 @@ const App = () => (
                       <Route path="admin/clubs" element={
                         <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
                           <AdminClubsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/schools" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminSchoolsGlobalPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/upgrade-requests" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminUpgradeRequestsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/subscriptions" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminSubscriptionsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/reports" element={
@@ -593,9 +847,34 @@ const App = () => (
                           <SettingsPage />
                         </ProtectedRoute>
                       } />
+                      <Route path="admin/payroll-config" element={
+                        <ProtectedRoute allowedRoles={['super_admin']}>
+                          <PayrollConfigPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="admin/logs" element={
                         <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
                           <NotificationsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/activity-logs" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminActivityLogsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/access-logs" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminAccessLogsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/marketplace/moderation" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminMarketplaceModerationPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/payouts" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminPayoutsPage />
                         </ProtectedRoute>
                       } />
                     </Route>
@@ -612,9 +891,10 @@ const App = () => (
           </ErrorBoundary>
         </ThemeProvider>
       </SchoolProvider>
-    </AuthProvider>
-  </TooltipProvider>
-</QueryClientProvider>
+        </AuthProvider>
+      </IdleConfigProvider>
+    </TooltipProvider>
+  </QueryClientProvider>
 );
 
 export default App;

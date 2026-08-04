@@ -1,11 +1,17 @@
 /**
  * SportMapsPaySettings — Configuración de pagos online para owners/admins
  *
+ * MODELO DE COBRO (importante para no volver a escribir copy engañoso):
+ * el recargo por pago online es de la ESCUELA. El padre lo paga sumado a la
+ * mensualidad, el bruto entra completo a la cuenta de la escuela en la pasarela,
+ * y sirve para cubrirle la comisión que la pasarela le descuenta al liquidar.
+ * SportMaps NO participa de la transacción ni retiene nada: su ingreso es el
+ * addon de integración, que se cobra por fuera del flujo de pago.
+ *
  * Lee y actualiza school_settings para controlar:
- * - Activación/desactivación de ePayco
- * - Porcentaje de fee
- * - Quién paga el fee (parent/school/split)
- * - Día de transferencia a la escuela
+ * - Activación/desactivación de Wompi
+ * - Porcentaje del recargo por pago online
+ * - Quién asume el recargo (parent/school/split)
  * - Aceptación de términos de SportMaps Pay
  */
 
@@ -26,7 +32,7 @@ import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface PaySettings {
-    epayco_enabled: boolean;
+    wompi_enabled: boolean;
     online_fee_pct: number;
     fee_payer: 'parent' | 'school' | 'split';
     transfer_day: string;
@@ -34,15 +40,9 @@ interface PaySettings {
     sportmaps_pay_terms_accepted_by: string | null;
 }
 
-const TRANSFER_DAYS = [
-    { value: 'monday', label: 'Lunes' },
-    { value: 'wednesday', label: 'Miércoles' },
-    { value: 'friday', label: 'Viernes' },
-];
-
 const FEE_PAYERS = [
-    { value: 'parent', label: 'Padre/Atleta (recomendado)', description: 'El fee se suma al monto del pago' },
-    { value: 'school', label: 'Escuela', description: 'El fee se descuenta del monto recibido' },
+    { value: 'parent', label: 'Padre/Atleta (recomendado)', description: 'El recargo se suma al monto del pago' },
+    { value: 'school', label: 'Escuela', description: 'El recargo se descuenta del monto recibido' },
     { value: 'split', label: 'Compartido 50/50', description: 'Mitad para cada parte' },
 ];
 
@@ -72,7 +72,7 @@ export function SportMapsPaySettings() {
             setLoading(true);
             const { data, error } = await supabase
                 .from('school_settings')
-                .select('epayco_enabled, online_fee_pct, fee_payer, transfer_day, sportmaps_pay_terms_accepted_at, sportmaps_pay_terms_accepted_by')
+                .select('wompi_enabled, online_fee_pct, fee_payer, transfer_day, sportmaps_pay_terms_accepted_at, sportmaps_pay_terms_accepted_by')
                 .eq('school_id', schoolId)
                 .single();
 
@@ -80,7 +80,7 @@ export function SportMapsPaySettings() {
 
             const s = data as any;
             setSettings({
-                epayco_enabled: s?.epayco_enabled ?? false,
+                wompi_enabled: s?.wompi_enabled ?? false,
                 online_fee_pct: Number(s?.online_fee_pct ?? 3),
                 fee_payer: s?.fee_payer ?? 'parent',
                 transfer_day: s?.transfer_day ?? 'monday',
@@ -103,14 +103,14 @@ export function SportMapsPaySettings() {
             setSaving(true);
 
             const updateData: Record<string, any> = {
-                epayco_enabled: settings.epayco_enabled,
+                wompi_enabled: settings.wompi_enabled,
                 online_fee_pct: settings.online_fee_pct,
                 fee_payer: settings.fee_payer,
                 transfer_day: settings.transfer_day,
             };
 
             // Si es la primera vez que activa y acepta términos
-            if (settings.epayco_enabled && !settings.sportmaps_pay_terms_accepted_at && termsAccepted) {
+            if (settings.wompi_enabled && !settings.sportmaps_pay_terms_accepted_at && termsAccepted) {
                 updateData.sportmaps_pay_terms_accepted_at = new Date().toISOString();
                 updateData.sportmaps_pay_terms_accepted_by = user?.id;
             }
@@ -155,7 +155,7 @@ export function SportMapsPaySettings() {
                 <CardTitle className="flex items-center gap-2">
                     <CreditCard className="h-5 w-5 text-primary" />
                     SportMaps Pay
-                    {settings.epayco_enabled ? (
+                    {settings.wompi_enabled ? (
                         <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs">
                             Activo
                         </Badge>
@@ -164,7 +164,7 @@ export function SportMapsPaySettings() {
                     )}
                 </CardTitle>
                 <CardDescription>
-                    Permite a tus padres y atletas pagar online con tarjeta, PSE o Nequi a través de ePayco.
+                    Permite a tus padres y atletas pagar online con tarjeta, PSE o Nequi a través de Wompi.
                 </CardDescription>
             </CardHeader>
 
@@ -172,7 +172,7 @@ export function SportMapsPaySettings() {
                 {/* ── Toggle principal ──────────────────────────────────── */}
                 <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                        <Label htmlFor="epayco-toggle" className="text-base font-medium">
+                        <Label htmlFor="wompi-toggle" className="text-base font-medium">
                             Activar pagos online
                         </Label>
                         <p className="text-sm text-muted-foreground">
@@ -180,22 +180,26 @@ export function SportMapsPaySettings() {
                         </p>
                     </div>
                     <Switch
-                        id="epayco-toggle"
-                        checked={settings.epayco_enabled}
-                        onCheckedChange={(checked) => setSettings({ ...settings, epayco_enabled: checked })}
+                        id="wompi-toggle"
+                        checked={settings.wompi_enabled}
+                        onCheckedChange={(checked) => setSettings({ ...settings, wompi_enabled: checked })}
                     />
                 </div>
 
                 <Separator />
 
                 {/* ── Configuración (solo si está activo o se va a activar) ── */}
-                {(settings.epayco_enabled || settings.sportmaps_pay_terms_accepted_at) && (
+                {(settings.wompi_enabled || settings.sportmaps_pay_terms_accepted_at) && (
                     <>
                         {/* Fee */}
                         <div className="space-y-3">
                             <Label htmlFor="fee-pct" className="text-sm font-medium">
-                                Porcentaje de procesamiento
+                                Recargo por pago online
                             </Label>
+                            <p className="text-xs text-muted-foreground">
+                                Se suma a la mensualidad y lo recibes tú, junto con el resto del pago.
+                                Sirve para cubrir la comisión que Wompi te descuenta por cada transacción.
+                            </p>
                             <div className="flex items-center gap-3">
                                 <Input
                                     id="fee-pct"
@@ -218,7 +222,7 @@ export function SportMapsPaySettings() {
                                     <span>{formatCurrency(exampleBase)}</span>
                                 </div>
                                 <div className="flex justify-between text-amber-600">
-                                    <span>Fee ({settings.online_fee_pct}%)</span>
+                                    <span>Recargo ({settings.online_fee_pct}%)</span>
                                     <span>+{formatCurrency(exampleFee)}</span>
                                 </div>
                                 <div className="flex justify-between font-bold border-t pt-1">
@@ -226,9 +230,13 @@ export function SportMapsPaySettings() {
                                     <span>{formatCurrency(exampleTotal)}</span>
                                 </div>
                                 <div className="flex justify-between text-green-600 text-xs mt-1">
-                                    <span>Tu escuela recibe</span>
-                                    <span>{formatCurrency(exampleBase)}</span>
+                                    <span>Entra a tu cuenta Wompi</span>
+                                    <span>{formatCurrency(exampleTotal)}</span>
                                 </div>
+                                <p className="text-[11px] text-muted-foreground pt-1">
+                                    Wompi descuenta su comisión de ese total al liquidarte. El recargo
+                                    está para compensarla; el porcentaje exacto lo ves en tu dashboard de Wompi.
+                                </p>
                             </div>
                         </div>
 
@@ -255,25 +263,18 @@ export function SportMapsPaySettings() {
                             </Select>
                         </div>
 
-                        {/* Día de transferencia */}
+                        {/* Liquidación — la hace la pasarela, no SportMaps.
+                            Antes acá había un selector de "día de transferencia" que decía
+                            que SportMaps giraba los fondos acumulados a la cuenta bancaria
+                            de la escuela. Eso nunca fue cierto: el dinero entra directo al
+                            comercio de la escuela y SportMaps no lo toca en ningún momento. */}
                         <div className="space-y-2">
-                            <Label className="text-sm font-medium">Día de transferencia</Label>
+                            <Label className="text-sm font-medium">¿Cuándo recibes el dinero?</Label>
                             <p className="text-xs text-muted-foreground">
-                                Día en que SportMaps transfiere los fondos acumulados a tu cuenta bancaria.
+                                Los pagos entran directo a tu cuenta de Wompi, y Wompi te liquida a tu
+                                cuenta bancaria según los tiempos de tu contrato con ellos. SportMaps no
+                                retiene ni intermedia esos fondos.
                             </p>
-                            <Select
-                                value={settings.transfer_day}
-                                onValueChange={(v) => setSettings({ ...settings, transfer_day: v })}
-                            >
-                                <SelectTrigger className="w-48">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {TRANSFER_DAYS.map(({ value, label }) => (
-                                        <SelectItem key={value} value={value}>{label}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
                         </div>
 
                         <Separator />
@@ -287,7 +288,7 @@ export function SportMapsPaySettings() {
                                     {new Date(settings.sportmaps_pay_terms_accepted_at).toLocaleDateString('es-CO')}
                                 </span>
                             </div>
-                        ) : settings.epayco_enabled ? (
+                        ) : settings.wompi_enabled ? (
                             <Alert>
                                 <AlertTriangle className="h-4 w-4" />
                                 <AlertDescription className="text-sm">
@@ -300,7 +301,10 @@ export function SportMapsPaySettings() {
                                         />
                                         <span>
                                             Acepto los términos y condiciones de SportMaps Pay.
-                                            Entiendo que SportMaps cobrará un {settings.online_fee_pct}% por cada transacción procesada online.
+                                            Entiendo que el {settings.online_fee_pct}% se suma a cada pago online y entra
+                                            a mi cuenta de Wompi junto con la mensualidad, para compensar la comisión que
+                                            Wompi me descuenta al liquidar. SportMaps no retiene ningún porcentaje de las
+                                            transacciones: la integración de pagos se cobra aparte, en el plan.
                                         </span>
                                     </label>
                                 </AlertDescription>
@@ -310,7 +314,7 @@ export function SportMapsPaySettings() {
                         {/* ── Seguridad ─────────────────────────────────────── */}
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <Shield className="h-4 w-4 text-green-600" />
-                            <span>Pagos procesados de forma segura por ePayco. SportMaps nunca ve los datos de tarjeta.</span>
+                            <span>Pagos procesados de forma segura por Wompi (Bancolombia). SportMaps nunca ve los datos de tarjeta.</span>
                         </div>
                     </>
                 )}
@@ -318,7 +322,7 @@ export function SportMapsPaySettings() {
                 {/* ── Botón guardar ─────────────────────────────────────── */}
                 <Button
                     onClick={handleSave}
-                    disabled={saving || (settings.epayco_enabled && !settings.sportmaps_pay_terms_accepted_at && !termsAccepted)}
+                    disabled={saving || (settings.wompi_enabled && !settings.sportmaps_pay_terms_accepted_at && !termsAccepted)}
                     className="w-full"
                 >
                     {saving ? (

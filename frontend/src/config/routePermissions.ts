@@ -13,7 +13,7 @@ import { Permission } from '@/lib/permissions';
 type UserRole =
     | 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin'
     | 'super_admin' | 'wellness_professional' | 'store_owner'
-    | 'admin' | 'organizer' | 'reporter';
+    | 'admin' | 'organizer' | 'reporter' | 'personal_trainer';
 
 export interface RoutePermission {
     /** Roles que pueden acceder. Si vacío, cualquier autenticado puede acceder. */
@@ -78,7 +78,7 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
 
     // ── Parent ──
     '/children': { allowedRoles: ['parent'], description: 'Mis hijos' },
-    '/my-payments': { allowedRoles: ['parent'], description: 'Mis pagos' },
+    '/my-payments': { allowedRoles: ['parent', 'athlete'], description: 'Mis pagos' },
     '/children/:id/progress': { allowedRoles: ['parent'], description: 'Progreso del hijo' },
     '/children/:id/attendance': { allowedRoles: ['parent'], description: 'Asistencia del hijo' },
     '/academic-progress': { allowedRoles: ['parent'], description: 'Progreso deportivo' },
@@ -88,7 +88,7 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     '/coach-attendance': { allowedRoles: ['coach'], requiredPermission: 'calendar:edit', description: 'Asistencias (coach)' },
     '/coach-plans': { allowedRoles: ['coach'], description: 'Planes del coach' },
     '/results': { allowedRoles: ['coach'], description: 'Resultados' },
-    '/training-plans': { allowedRoles: ['coach'], description: 'Planes de entrenamiento' },
+    '/training-plans': { allowedRoles: ['coach', 'school', 'admin', 'school_admin', 'super_admin'], description: 'Métricas y rendimiento' },
     '/coach-reports': { allowedRoles: ['coach'], requiredPermission: 'reports:create', description: 'Reportes (coach)' },
     '/evaluations': { allowedRoles: ['coach'], description: 'Evaluaciones' },
     '/announcements': { allowedRoles: ['coach'], description: 'Anuncios' },
@@ -101,7 +101,8 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     '/school/enroll/:eventId': { allowedRoles: ['school', 'admin', 'school_admin'], description: 'Inscripción a evento' },
     '/school/delegations': { allowedRoles: ['school', 'admin', 'school_admin'], description: 'Delegaciones de escuela' },
     '/school/delegations/:id': { allowedRoles: ['school', 'admin', 'school_admin'], description: 'Detalle de delegación' },
-    '/students': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin', 'coach'], requiredPermission: 'students:view', description: 'Gestión de estudiantes' },
+    '/school/routines': { allowedRoles: ['school', 'school_admin', 'admin', 'super_admin', 'coach'], description: 'Biblioteca de rutinas del gimnasio' },
+    '/students': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin', 'coach'], requiredPermission: 'students:view', description: 'Gestión de deportistas' },
     '/invitations': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin', 'coach'], description: 'Gestión de invitaciones' },
     '/staff': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Gestión de entrenadores' },
     '/offerings': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Planes y ofertas' },
@@ -109,6 +110,11 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     '/attendance-supervision': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Supervisión de asistencias' },
     '/results-overview': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Resumen de resultados' },
     '/finances': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Finanzas' },
+    '/accounting': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Contabilidad' },
+    '/accounting/suppliers': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Proveedores y cuentas por pagar' },
+    '/accounting/payroll': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Nómina' },
+    '/accounting/reports': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Estado de resultados' },
+    '/accounting/budget': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Presupuesto' },
     '/payments-automation': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:manage', description: 'Automatización de pagos' },
     '/payment-reminders': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:manage', description: 'Recordatorios de pago' },
     '/message-templates': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Plantillas de mensaje' },
@@ -164,9 +170,11 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     // ── Admin ──
     '/admin/users': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:users', description: 'Gestión de usuarios' },
     '/admin/clubs': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:all', description: 'Gestión de clubes' },
+    '/admin/schools': { allowedRoles: ['admin', 'super_admin'], requiredPermission: 'admin:all', description: 'Vista global de escuelas' },
     '/admin/reports': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:all', description: 'Reportes admin' },
     '/admin/analytics': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:all', description: 'Analytics admin' },
     '/admin/config': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:system', description: 'Configuración admin' },
+    '/admin/payroll-config': { allowedRoles: ['super_admin'], requiredPermission: 'admin:system', description: 'Parámetros de nómina (Colombia)' },
     '/admin/logs': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:system', description: 'Logs del sistema' },
 };
 

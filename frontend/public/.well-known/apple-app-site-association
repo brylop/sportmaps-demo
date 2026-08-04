@@ -1,0 +1,27 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "TEAMID.co.sportmaps.app",
+        "paths": [
+          "/login",
+          "/register",
+          "/reset-password",
+          "/payment-result",
+          "/payment-callback",
+          "/pagos/confirmacion",
+          "/invitations/*",
+          "/c/*",
+          "/cert/*",
+          "/join-team/*",
+          "/join-plan/*",
+          "/join/*"
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["TEAMID.co.sportmaps.app"]
+  }
+}

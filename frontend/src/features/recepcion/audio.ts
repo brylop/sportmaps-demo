@@ -1,0 +1,178 @@
+// Modo Recepción (F-R) — audio: tonos por WebAudio (sin archivos) + cola FIFO
+// de voz (speechSynthesis). Maneja el gotcha de autoplay: nada suena hasta que
+// arm() corre dentro de un gesto del usuario (tap en la pantalla de activación).
+
+import type { SoundName } from './config';
+
+let ctx: AudioContext | null = null;
+let armed = false;
+
+function getCtx(): AudioContext | null {
+    if (typeof window === 'undefined') return null;
+    if (!ctx) {
+        const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+        if (!AC) return null;
+        ctx = new AC();
+    }
+    return ctx;
+}
+
+/** Debe llamarse DENTRO de un gesto del usuario. Desbloquea audio + voz. */
+export async function armAudio(): Promise<void> {
+    const c = getCtx();
+    if (c && c.state === 'suspended') { try { await c.resume(); } catch { /* noop */ } }
+    armed = true;
+    // Desbloqueo de voz: en iOS un utterance VACÍO/volumen 0 no siempre habilita
+    // los speak() posteriores (los disparados por eventos en vivo, sin gesto).
+    // Hablar una frase REAL dentro del gesto desbloquea el motor y de paso
+    // confirma al usuario que el audio funciona.
+    try {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.resume();
+            const u = new SpeechSynthesisUtterance('Recepción activada');
+            const v = pickVoice(null);
+            if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'es-ES'; }
+            u.volume = 1;
+            u.rate = 0.95;
+            window.speechSynthesis.speak(u);
+        }
+    } catch { /* noop */ }
+}
+
+/** Mantiene "vivo" el motor de voz (Chrome/iOS lo pausan al estar inactivo). */
+export function keepSpeechWarm(): void {
+    if (!armed || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    try {
+        // resume() es no-op si no está pausado; barato y evita que se "duerma".
+        if (!window.speechSynthesis.speaking) window.speechSynthesis.resume();
+    } catch { /* noop */ }
+}
+
+export function isArmed(): boolean {
+    return armed;
+}
+
+// ── Tonos ────────────────────────────────────────────────────────────────────
+// Secuencias [frecuenciaHz, duraciónSeg] concatenadas.
+const SEQUENCES: Record<Exclude<SoundName, 'none'>, [number, number][]> = {
+    chime_up: [[660, 0.12], [880, 0.12], [1175, 0.18]],
+    chime_short: [[880, 0.1], [1175, 0.12]],
+    chime_double: [[988, 0.1], [0, 0.05], [988, 0.14]],
+    fanfare: [[523, 0.12], [659, 0.12], [784, 0.12], [1047, 0.22]],
+    tone_neutral: [[520, 0.16]],
+    tone_soft_low: [[300, 0.22]],
+    tick: [[1200, 0.05]],
+    attention: [[440, 0.15], [0, 0.06], [440, 0.15], [0, 0.06], [440, 0.2]],
+    none: [],
+};
+
+/** Reproduce un tono corto. No-op si no está armado o sin WebAudio. */
+export function playSound(name: SoundName, volume = 1): void {
+    if (!armed || name === 'none') return;
+    const c = getCtx();
+    if (!c) return;
+    if (c.state === 'suspended') { void c.resume(); } // iOS suspende al ocultar la pestaña
+    const seq = SEQUENCES[name] || [];
+    let t = c.currentTime;
+    for (const [freq, dur] of seq) {
+        if (freq > 0) {
+            const osc = c.createOscillator();
+            const gain = c.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            // envolvente suave para evitar clicks
+            gain.gain.setValueAtTime(0.0001, t);
+            gain.gain.exponentialRampToValueAtTime(Math.max(0.02, 0.22 * volume), t + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+            osc.connect(gain).connect(c.destination);
+            osc.start(t);
+            osc.stop(t + dur);
+        }
+        t += dur;
+    }
+}
+
+// ── Cola FIFO de voz ──────────────────────────────────────────────────────────
+interface VoiceItem { text: string; rate: number; volume: number; voiceURI: string | null }
+const queue: VoiceItem[] = [];
+let speaking = false;
+
+let cachedVoices: SpeechSynthesisVoice[] = [];
+export function listVoices(): SpeechSynthesisVoice[] {
+    if (!('speechSynthesis' in window)) return [];
+    const v = window.speechSynthesis.getVoices();
+    if (v.length) cachedVoices = v;
+    return cachedVoices;
+}
+if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    // getVoices() es asíncrono en Chrome: se pobla con 'voiceschanged'.
+    window.speechSynthesis.onvoiceschanged = () => { cachedVoices = window.speechSynthesis.getVoices(); };
+}
+
+/** Elige una voz es-* (es-CO es raro; cae a es-MX/es-US/cualquier es). */
+function pickVoice(uri: string | null): SpeechSynthesisVoice | undefined {
+    const voices = listVoices();
+    if (uri) {
+        const exact = voices.find((v) => v.voiceURI === uri);
+        if (exact) return exact;
+    }
+    return (
+        voices.find((v) => /es[-_]CO/i.test(v.lang)) ||
+        voices.find((v) => /es[-_]MX/i.test(v.lang)) ||
+        voices.find((v) => /es[-_]US/i.test(v.lang)) ||
+        voices.find((v) => /^es/i.test(v.lang))
+    );
+}
+
+function drain() {
+    const synth = typeof window !== 'undefined' ? window.speechSynthesis : null;
+    if (!synth) { queue.length = 0; return; }
+    // Desincronía: si creemos que hablamos pero el motor ya no habla (iOS suele
+    // "tragarse" el utterance sin disparar onend), destrabamos.
+    if (speaking && !synth.speaking && !synth.pending) speaking = false;
+    if (speaking || queue.length === 0) return;
+
+    const item = queue.shift()!;
+    const u = new SpeechSynthesisUtterance(item.text.slice(0, 200)); // Chrome corta largos
+    u.rate = item.rate;
+    u.volume = item.volume;
+    const v = pickVoice(item.voiceURI);
+    if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'es-ES'; }
+
+    speaking = true;
+    let done = false;
+    let watchdog: ReturnType<typeof setTimeout>;
+    const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(watchdog);
+        speaking = false;
+        drain();
+    };
+    u.onend = finish;
+    u.onerror = finish;
+    // Watchdog: si onend/onerror no llegan (bug iOS/Safari), no dejamos la cola
+    // trabada — liberamos y seguimos con el siguiente anuncio.
+    watchdog = setTimeout(finish, Math.max(4000, u.text.length * 130));
+
+    try {
+        synth.resume();  // Chrome/iOS a veces quedan en pausa tras backgrounding
+        synth.speak(u);
+    } catch {
+        finish();
+    }
+}
+
+/** Encola una frase (una a la vez, FIFO). No-op si no está armado. */
+export function enqueueVoice(text: string, opts: { rate?: number; volume?: number; voiceURI?: string | null } = {}) {
+    if (!armed || !text) return;
+    queue.push({ text, rate: opts.rate ?? 0.95, volume: opts.volume ?? 1, voiceURI: opts.voiceURI ?? null });
+    drain();
+}
+
+export function clearVoiceQueue() {
+    queue.length = 0;
+    try { window.speechSynthesis?.cancel(); } catch { /* noop */ }
+    speaking = false;
+}

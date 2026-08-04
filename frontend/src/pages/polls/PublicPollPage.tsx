@@ -3,12 +3,14 @@ import { useParams } from 'react-router-dom';
 import { Clock, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PhoneInput } from '@/components/ui/phone-input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePublicPoll, useConfirmAttendance } from '@/hooks/usePolls';
 import { useAuth } from '@/contexts/AuthContext';
 import { PollSession } from '@/lib/api/polls.api';
+import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -30,7 +32,7 @@ export default function PublicPollPage() {
   const { user } = useAuth();
   const { activePlan: enrollment } = useMyPlan();
   const { data: poll, isLoading, isError } = usePublicPoll(pollId!);
-  const { mutate: confirm, isPending }  = useConfirmAttendance(pollId!);
+  const { mutateAsync: confirm, isPending } = useConfirmAttendance(pollId!);
 
   const [selected, setSelected]         = useState<Set<string>>(new Set());
   const [guestName, setGuestName]        = useState('');
@@ -53,31 +55,40 @@ export default function PublicPollPage() {
     });
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!poll || selected.size === 0) return;
 
     const sessionsToConfirm = [...selected];
-    let completed = 0;
 
-    sessionsToConfirm.forEach((sessionId) => {
-      const payload = isRegistered
-        ? { session_id: sessionId, user_id: user.id, enrollment_id: enrollment?.enrollmentId }
-        : { session_id: sessionId, guest_name: guestName, guest_phone: guestPhone, poll_token: pollToken };
+    const results = await Promise.allSettled(
+      sessionsToConfirm.map((sessionId) => {
+        const payload = isRegistered
+          ? { session_id: sessionId, user_id: user.id, enrollment_id: enrollment?.enrollmentId }
+          : { session_id: sessionId, guest_name: guestName, guest_phone: guestPhone, poll_token: pollToken };
+        return confirm(payload);
+      })
+    );
 
-      confirm(payload, {
-        onSuccess: () => {
-          completed++;
-          if (completed === sessionsToConfirm.length) {
-            const sessions = poll.attendance_sessions.filter((s) => selected.has(s.id));
-            setConfirmedSessions(sessions);
-            setConfirmed(true);
-          }
-        },
-      });
-    });
+    const successfulIds = sessionsToConfirm.filter(
+      (_, i) => results[i].status === 'fulfilled'
+    );
+
+    if (successfulIds.length === 0) return; // useConfirmAttendance ya mostro el toast
+
+    const sessions = poll.attendance_sessions.filter((s) => successfulIds.includes(s.id));
+    setConfirmedSessions(sessions);
+    setConfirmed(true);
+
+    if (successfulIds.length < sessionsToConfirm.length) {
+      toast.warning(
+        `Se confirmaron ${successfulIds.length} de ${sessionsToConfirm.length} clases. Revisa las restantes.`
+      );
+    }
   };
 
-  const canConfirm = selected.size > 0 && (isRegistered || (guestName.trim().length > 0));
+  const canConfirm =
+    selected.size > 0 &&
+    (isRegistered || (guestName.trim().length > 0 && guestPhone.trim().length > 0));
 
   if (isLoading) return <PublicPollSkeleton />;
 
@@ -276,13 +287,8 @@ export default function PublicPollPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-sm">Teléfono (WhatsApp)</Label>
-                <Input
-                  type="tel"
-                  value={guestPhone}
-                  onChange={(e) => setGuestPhone(e.target.value)}
-                  placeholder="+57 300 000 0000"
-                />
+                <Label className="text-sm">WhatsApp</Label>
+                <PhoneInput value={guestPhone} onChange={setGuestPhone} />
               </div>
             </div>
           </div>

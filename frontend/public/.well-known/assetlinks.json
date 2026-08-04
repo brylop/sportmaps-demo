@@ -1,0 +1,16 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "co.sportmaps.app",
+      "sha256_cert_fingerprints": [
+        "39:0E:B1:F3:C6:4E:55:41:16:F7:4F:07:52:A9:4A:6E:16:0E:04:69:DF:76:CD:2E:32:77:D8:64:F8:2C:00:56",
+        "12:7D:F2:0A:11:24:E5:B4:99:89:10:C0:63:B5:DE:9D:2F:66:97:75:74:95:33:8E:F3:4A:B2:C3:FF:0C:1D:F8"
+      ]
+    }
+  }
+]

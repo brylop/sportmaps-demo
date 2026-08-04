@@ -178,12 +178,23 @@ export function useDashboardStats(role?: UserRole) {
 
       // Default/Athlete role specific
       if (effectiveRole === 'athlete') {
-        const { count: enrollmentCount } = await supabase
-          .from('enrollments')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-          .eq('status', 'active');
-        stats.activeEnrollments = enrollmentCount || 0;
+        try {
+          const { data: athleteStats, error } = await supabase
+            .rpc('get_athlete_dashboard_stats');
+
+          if (error) throw error;
+
+          if (athleteStats) {
+            const s = athleteStats as any;
+            stats.activeEnrollments   = s.active_enrollments   ?? 0;
+            stats.completedActivities = s.trainings_this_month ?? 0;
+            stats.upcomingEvents      = s.upcoming_sessions     ?? 0;
+            stats.payments            = s.total_payments        ?? 0;
+            stats.pendingPayments     = s.pending_payments      ?? 0;
+          }
+        } catch (error) {
+          console.warn('[dashboard] Error fetching athlete stats:', error);
+        }
       }
 
       return stats;

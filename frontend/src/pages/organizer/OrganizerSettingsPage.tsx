@@ -196,8 +196,7 @@ export default function OrganizerSettingsPage() {
             <CardContent className="space-y-4">
               {[
                 { id: 'bank_transfer', label: 'Transferencia Bancaria', desc: 'Transferencia manual con comprobante' },
-                { id: 'wompi', label: 'Wompi', desc: 'Tarjetas de crédito/débito y PSE' },
-                { id: 'epayco', label: 'ePayco', desc: 'Tarjetas, PSE, efectivo' },
+                { id: 'wompi', label: 'Wompi', desc: 'Tarjetas, PSE, Nequi, Bancolombia' },
                 { id: 'cash', label: 'Efectivo', desc: 'Pago presencial el día del evento' },
               ].map(method => (
                 <div key={method.id} className="flex items-center justify-between p-4 rounded-lg border">

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,17 +8,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Plus, Search, Edit, Trash2, Package, Loader2, AlertCircle } from 'lucide-react';
 import { useStoreProducts } from '@/hooks/useStoreData';
 
-import { ProductFormDialog } from '@/components/store/ProductFormDialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
 export default function StoreProductsPage() {
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
-  const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
-  const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
 
-  const { products, isLoading, createProduct, updateProduct, deleteProduct } = useStoreProducts();
+  const { products, isLoading, deleteProduct } = useStoreProducts();
 
   // Clean MVP: Only real data
   const displayProducts = products;
@@ -28,33 +27,11 @@ export default function StoreProductsPage() {
     product.category.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleCreate = () => {
-    setSelectedProduct(null);
-    setFormMode('create');
-    setIsFormOpen(true);
-  };
-
-  const handleEdit = (product: any) => {
-    setSelectedProduct(product);
-    setFormMode('edit');
-    setIsFormOpen(true);
-  };
-
+  const handleCreate = () => navigate('/vendor/products/new');
+  const handleEdit   = (product: any) => navigate(`/vendor/products/${product.id}/edit`);
   const handleDelete = (product: any) => {
     setSelectedProduct(product);
     setIsDeleteOpen(true);
-  };
-
-  const handleFormSubmit = (data: any) => {
-    if (formMode === 'create') {
-      createProduct.mutate(data, {
-        onSuccess: () => setIsFormOpen(false),
-      });
-    } else if (selectedProduct) {
-      updateProduct.mutate({ id: selectedProduct.id, ...data }, {
-        onSuccess: () => setIsFormOpen(false),
-      });
-    }
   };
 
   const handleConfirmDelete = () => {
@@ -185,15 +162,7 @@ export default function StoreProductsPage() {
         </CardContent>
       </Card>
 
-      {/* Product Form Dialog */}
-      <ProductFormDialog
-        open={isFormOpen}
-        onOpenChange={setIsFormOpen}
-        onSubmit={handleFormSubmit}
-        initialData={selectedProduct}
-        isLoading={createProduct.isPending || updateProduct.isPending}
-        mode={formMode}
-      />
+      {/* Form dialog removed — usa /vendor/products/new y /vendor/products/:id/edit */}
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>

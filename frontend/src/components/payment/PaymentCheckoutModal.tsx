@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, Building2, Smartphone, Loader2, CheckCircle2, XCircle, Info, Clock, AlertTriangle, Globe } from 'lucide-react';
+import { CreditCard, Building2, Smartphone, Loader2, CheckCircle2, XCircle, Info, Clock, AlertTriangle, Globe, Download, Maximize2, Percent, Copy } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,14 +13,41 @@ const formatCurrency = (amount: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount);
 
 import { FileUpload } from '@/components/common/FileUpload';
+import type { ReceiptValidationResult } from '@/hooks/useReceiptValidator';
+import { calcEarlyPaymentDiscount, hasEarlierUnpaidPayment, type EarlyPaymentDiscountConfig } from '@/lib/earlyPaymentDiscount';
+
+/** Intenta parsear un string como JSON; devuelve null si no es JSON valido. */
+function safeParseJson(s: string): unknown | null {
+  try { return JSON.parse(s); } catch { return null; }
+}
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { emailClient } from '@/lib/email-client';
 import { getPaymentPayload, SchoolAthlete } from '@/lib/athleteUtils';
 import { PaymentConfirmModal } from '@/components/payment/PaymentConfirmModal';
-import { useEPaycoCheckout } from '@/hooks/useEPaycoCheckout';
+import { useWompiCheckout, type ServerQuote } from '@/hooks/useWompiCheckout';
+import { blockPwaReload, unblockPwaReload } from '@/pwa/reloadGuard';
+import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
+import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
+import { autoEvaluate as autoEvaluateGlosa } from '@/lib/api/glosas';
+import {
+  useNextUnpaidPeriod,
+  fetchPeriodStatus,
+  isPeriodActive,
+  type PeriodStatus,
+} from '@/hooks/usePaymentPeriod';
 
 interface PaymentCheckoutModalProps {
   open: boolean;
@@ -41,14 +68,21 @@ interface PaymentCheckoutModalProps {
 export function PaymentCheckoutModal({
   open, onOpenChange, studentId, schoolId, paymentId, teamId, childId, childName, branchId, amount, concept, mode = 'update', onSuccess
 }: PaymentCheckoutModalProps) {
-  const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | 'online' | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | 'online' | 'mercadopago' | null>(null);
+  const [mpReference, setMpReference] = useState<string>('');
   const [showOnlineConfirm, setShowOnlineConfirm] = useState(false);
-  const [epaycoEnabled, setEpaycoEnabled] = useState(false);
+  const [wompiEnabled, setWompiEnabled] = useState(false);
   const [onlineFeePct, setOnlineFeePct] = useState(3);
+  const [allowInstallments, setAllowInstallments] = useState(false);
+  const [minInstallmentAmount, setMinInstallmentAmount] = useState(0);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
+  // Resultado del OCR del comprobante manual. Se persiste en el pago para que
+  // el admin vea el monto detectado y la alerta de discrepancia en Cobros por
+  // Aprobar (igual que el flujo QR / ParentCheckoutPage).
+  const [ocrResult, setOcrResult] = useState<ReceiptValidationResult | null>(null);
   const [processing, setProcessing] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'processing' | 'success' | 'error' | 'awaiting_approval'>('idle');
-  
+
   // Custom Payment Fields
   const [conceptType, setConceptType] = useState<'mensualidad' | 'inscripcion_fija' | 'inscripcion_variable' | 'otro'>('mensualidad');
   const [customAmount, setCustomAmount] = useState((amount || 0).toString());
@@ -62,33 +96,123 @@ export function PaymentCheckoutModal({
   const [hasCompleteDianData, setHasCompleteDianData] = useState<boolean>(true);
   const [checkingDian, setCheckingDian] = useState<boolean>(true);
   const [bankDetails, setBankDetails] = useState<any>(null);
+  const [showFullQr, setShowFullQr] = useState(false);
+
+  // Montos que devolvió `create-session`. Mandan sobre los que estima este componente:
+  // el Widget cobra SIEMPRE el gross del servidor, así que si difieren mostramos el suyo
+  // y pedimos confirmar de nuevo en vez de cobrar algo distinto a lo que el padre aceptó.
+  const [serverQuote, setServerQuote] = useState<ServerQuote | null>(null);
+  // Cobro creado por este modal en modo 'create', para no duplicarlo si se reintenta.
+  const [createdPaymentId, setCreatedPaymentId] = useState<string | null>(null);
+
+  const [discountConfig, setDiscountConfig] = useState<EarlyPaymentDiscountConfig>({ enabled: false, days: 5, percentage: 0 });
+  const [paymentCreatedAt, setPaymentCreatedAt] = useState<string | null>(null);
+  const [alreadyAppliedDiscount, setAlreadyAppliedDiscount] = useState<number | null>(null);
+  const [hasEarlierUnpaid, setHasEarlierUnpaid] = useState(false);
+
+  // Mientras el modal de pago esté abierto, bloqueamos la auto-recarga del PWA:
+  // si un SW nuevo toma control justo cuando el usuario ya subió el comprobante,
+  // el reload borraría todo. La recarga queda pendiente y se aplica al cerrar.
+  useEffect(() => {
+    if (!open) return;
+    blockPwaReload();
+    return () => unblockPwaReload();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (mode === 'update' && paymentId) {
+      supabase.from('payments')
+        .select('created_at, early_payment_discount_applied, child_id, parent_id')
+        .eq('id', paymentId).maybeSingle()
+        .then(async ({ data }) => {
+          if (!data) return;
+          setPaymentCreatedAt(data.created_at);
+          setAlreadyAppliedDiscount(data.early_payment_discount_applied ?? null);
+          const unpaid = await hasEarlierUnpaidPayment(supabase, {
+            schoolId, childId: data.child_id, parentId: data.parent_id,
+            excludePaymentId: paymentId, beforeCreatedAt: data.created_at,
+          });
+          setHasEarlierUnpaid(unpaid);
+        });
+    } else {
+      // mode='create': el pago nace ahora mismo — dia 0 de la ventana.
+      const now = new Date().toISOString();
+      setPaymentCreatedAt(now);
+      setAlreadyAppliedDiscount(null);
+      if (childId) {
+        hasEarlierUnpaidPayment(supabase, { schoolId, childId, beforeCreatedAt: now }).then(setHasEarlierUnpaid);
+      }
+    }
+  }, [open, mode, paymentId, schoolId, childId]);
+
+  // ── Periodo (mes/año) que cubre este pago ────────────────────────────────
+  // Calculado por la RPC `next_unpaid_period`. Se usa para marcar el pago
+  // con period_year/period_month y para preguntar al padre si quiere
+  // adelantar cuando el mes sugerido ya esta cubierto.
+  const { period: nextPeriod } = useNextUnpaidPeriod(
+    open && conceptType === 'mensualidad' ? childId ?? null : null,
+  );
+  const [advancedPeriod, setAdvancedPeriod] = useState<{ year: number; month: number; label: string } | null>(null);
+  const [confirmAdvanceOpen, setConfirmAdvanceOpen] = useState(false);
+
+  // Periodo efectivo que se va a cobrar (posiblemente adelantado).
+  const effectivePeriod = advancedPeriod ?? (nextPeriod
+    ? { year: nextPeriod.year, month: nextPeriod.month, label: nextPeriod.label }
+    : null);
 
   useEffect(() => {
     if (open && schoolId) {
       supabase.from('school_settings')
-        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url, epayco_enabled, online_fee_pct')
+        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, breb_number, transfer_key, bank_titular_name, bank_titular_id, payment_qr_url, wompi_enabled, online_fee_pct, allow_installments, min_installment_amount, early_payment_discount_enabled, early_payment_discount_days, early_payment_discount_percentage')
         .eq('school_id', schoolId).single()
         .then(({ data }) => {
           setBankDetails(data);
-          setEpaycoEnabled(!!(data as any)?.epayco_enabled);
+          setWompiEnabled(!!(data as any)?.wompi_enabled);
           setOnlineFeePct(Number((data as any)?.online_fee_pct ?? 3));
+          setAllowInstallments(!!(data as any)?.allow_installments);
+          setMinInstallmentAmount(Number((data as any)?.min_installment_amount) || 0);
+          setDiscountConfig({
+            enabled: !!(data as any)?.early_payment_discount_enabled,
+            days: Number((data as any)?.early_payment_discount_days) || 5,
+            percentage: Number((data as any)?.early_payment_discount_percentage) || 0,
+          });
         });
     }
   }, [open, schoolId]);
 
-  // ── ePayco checkout hook ──────────────────────────────────────────────────
+  // ── Wompi checkout hook ──────────────────────────────────────────────────
   const finalAmount = mode === 'create' && !['mensualidad', 'inscripcion_fija'].includes(conceptType) ? (parseFloat(customAmount) || 0) : amount;
-  const finalConcept = mode === 'create' && conceptType !== 'mensualidad' 
-    ? (conceptType.startsWith('inscripcion') ? 'Inscripción Anual' : customConcept || 'Pago / Abono') 
-    : concept;
+  const finalConcept = mode === 'create' && conceptType !== 'mensualidad'
+    ? (conceptType.startsWith('inscripcion') ? 'Inscripción Anual' : customConcept || 'Pago / Abono')
+    : (effectivePeriod ? `Mensualidad ${effectivePeriod.label}` : concept);
 
-  const sportmapsFee = Math.round(finalAmount * (onlineFeePct / 100));
-  const grossAmount = finalAmount + sportmapsFee;
+  const discountResult = paymentCreatedAt
+    ? calcEarlyPaymentDiscount(finalAmount, {
+      createdAt: paymentCreatedAt,
+      config: discountConfig,
+      hasEarlierUnpaid,
+      alreadyAppliedAmount: alreadyAppliedDiscount,
+    })
+    : { eligible: false, discountAmount: 0, finalAmount, validUntil: null };
 
-  const { openCheckout, loading: epaycoLoading } = useEPaycoCheckout({
-    paymentId: paymentId || '',
+  const chargeAmount = discountResult.eligible ? discountResult.finalAmount : finalAmount;
+
+  // Estimación local, solo para previsualizar antes de pedirle la sesión al servidor.
+  const estimatedFee = Math.round(chargeAmount * (onlineFeePct / 100));
+  const estimatedGross = chargeAmount + estimatedFee;
+
+  // Lo que se MUESTRA: el servidor si ya respondió, la estimación mientras tanto.
+  // `create-session` es la única autoridad sobre el monto — recalcula el fee con la
+  // tarifa vigente y es lo que termina en la firma de integridad y en el Widget.
+  const displayedBase = serverQuote?.baseAmount ?? chargeAmount;
+  const sportmapsFee = serverQuote?.sportmapsFee ?? estimatedFee;
+  const grossAmount = serverQuote?.grossAmount ?? estimatedGross;
+  const displayedFeePct = serverQuote?.feePct ?? onlineFeePct;
+
+  const { startSchoolPayment, loading: wompiLoading } = useWompiCheckout({
     onSuccess: () => {
-      toast({ title: '¡Pago iniciado!', description: 'Estamos verificando tu pago con ePayco.' });
+      toast({ title: '¡Pago iniciado!', description: 'Estamos verificando tu pago con Wompi.' });
       onSuccess?.();
       onOpenChange(false);
     },
@@ -99,6 +223,105 @@ export function PaymentCheckoutModal({
       setShowOnlineConfirm(false);
     },
   });
+
+  const openCheckout = async () => {
+    // `createdPaymentId` recuerda el cobro que creamos en un intento anterior de ESTA
+    // sesión del modal. Sin él, un segundo clic (p.ej. tras confirmar un monto corregido)
+    // volvería a insertar en `payments`: con mensualidad lo frena el índice único de
+    // período, pero un abono u otro concepto sí quedaría duplicado.
+    let effectivePaymentId = paymentId || createdPaymentId || undefined;
+
+    // En modo "create" todavia NO existe una fila en `payments` (a diferencia de
+    // MercadoPago, que la inserta en handleMpSuccess). startSchoolPayment necesita
+    // un paymentId para pedirle la sesion al BFF, asi que primero creamos un cobro
+    // 'pending' con provider wompi. El estado real llega despues por el webhook.
+    if (!effectivePaymentId) {
+      try {
+        const periodYear  = conceptType === 'mensualidad' && effectivePeriod ? effectivePeriod.year  : null;
+        const periodMonth = conceptType === 'mensualidad' && effectivePeriod ? effectivePeriod.month : null;
+        const reference = `SCH-WOMPI-${Date.now().toString(36).toUpperCase()}`;
+        const { data: inserted, error: insertError } = await supabase.from('payments').insert({
+          parent_id: user?.id,
+          child_id: childId || null,
+          team_id: (teamId && teamId !== '') ? teamId : null,
+          school_id: (schoolId && schoolId !== '') ? schoolId : null,
+          branch_id: branchId || null,
+          amount: finalAmount,
+          concept: finalConcept,
+          status: 'pending',
+          // 'online' NO es un pay_method válido (pse|card|transfer|cash|other) → rompía
+          // payments_payment_method_check. La pasarela resuelve el instrumento real por webhook.
+          payment_method: 'other',
+          payment_provider: 'wompi',
+          provider_reference: reference,
+          payment_type: 'one_time',
+          due_date: new Date().toISOString().split('T')[0],
+          period_year:  periodYear,
+          period_month: periodMonth,
+        } as any).select('id').single();
+        if (insertError) {
+          // 23505 en uniq_payment_active_period_per_child: ya existe un cobro activo
+          // para este child+período. En vez de duplicar, reutilizamos el existente
+          // (el pago online se aplica sobre ese cobro).
+          if ((insertError as any).code === '23505' && childId) {
+            let q = supabase.from('payments').select('id')
+              .eq('school_id', schoolId)
+              .eq('child_id', childId)
+              .in('status', ['pending', 'awaiting_approval', 'overdue', 'partial'])
+              .order('created_at', { ascending: false })
+              .limit(1);
+            if (periodYear != null && periodMonth != null) {
+              q = q.eq('period_year', periodYear).eq('period_month', periodMonth);
+            }
+            const { data: existing } = await q;
+            effectivePaymentId = existing?.[0]?.id;
+            if (!effectivePaymentId) throw insertError;
+          } else {
+            throw insertError;
+          }
+        } else {
+          effectivePaymentId = inserted?.id;
+        }
+      } catch (err: any) {
+        toast({ title: 'Error iniciando el pago', description: err?.message || 'No se pudo crear el cobro.', variant: 'destructive' });
+        setShowOnlineConfirm(false);
+        return;
+      }
+    }
+
+    if (!effectivePaymentId) return;
+    setCreatedPaymentId(effectivePaymentId);
+
+    // Monto que el padre tiene en pantalla en ESTE intento.
+    const acceptedGross = Math.round(grossAmount);
+
+    return startSchoolPayment({
+      paymentId: effectivePaymentId,
+      schoolId,
+      studentName: childName,
+      confirmQuote: (quote) => {
+        // El servidor calculó otro total (tarifa cambiada, descuento, link recreado).
+        // No abrimos el Widget: sus montos pasan a ser los que se muestran y el padre
+        // confirma de nuevo sobre el valor real. Antes esto se cobraba en silencio.
+        if (Math.round(quote.grossAmount) !== acceptedGross) {
+          setServerQuote(quote);
+          toast({
+            title: 'El monto se actualizó',
+            description: `El total a pagar es ${formatCurrency(quote.grossAmount)}. Revisa el desglose y confirma de nuevo.`,
+          });
+          return false;
+        }
+
+        // Cerramos NUESTRO modal antes de abrir el Widget de Wompi. El Dialog de
+        // Radix aplica aria-hidden + pointer-events:none + scroll-lock al resto de
+        // la página; el Widget de Wompi se monta como overlay aparte y, con el modal
+        // abierto, queda recortado y peleando el foco ("Blocked aria-hidden…").
+        setShowOnlineConfirm(false);
+        onOpenChange(false);
+        return true;
+      },
+    });
+  };
 
   useEffect(() => {
     if (open && user?.id) {
@@ -114,8 +337,19 @@ export function PaymentCheckoutModal({
     }
   }, [open, user?.id]);
 
+  // Guard legacy: bloquea si ya hay un pago `awaiting_approval`.
+  // Para MENSUALIDADES con periodo conocido, este guard se delega al
+  // flujo nuevo (next_unpaid_period + AlertDialog "¿adelantar siguiente mes?").
+  // Asi el padre puede pagar Junio aunque Mayo este pendiente de validacion.
+  // Para inscripcion / abono / otros conceptos, mantenemos el bloqueo total
+  // porque no hay periodo y no podemos distinguir duplicados.
   useEffect(() => {
     if (!open || !studentId) return;
+    if (conceptType === 'mensualidad') {
+      setPendingPaymentDate(null);
+      setCheckingPending(false);
+      return;
+    }
     const checkPendingPayment = async () => {
       setCheckingPending(true);
       setPendingPaymentDate(null);
@@ -124,13 +358,15 @@ export function PaymentCheckoutModal({
         const idColumn = effectiveChildId ? 'child_id' : 'user_id';
         const idValue = effectiveChildId || studentId;
 
-        const query = (supabase as any).from('payments').select('id, payment_date, created_at')
+        let query = supabase.from('payments').select('id, payment_date, created_at')
           .eq(idColumn, idValue)
           .eq('status', 'awaiting_approval')
           .limit(1);
-        
-        if (mode === 'update' && paymentId) query.neq('id', paymentId);
-        
+
+        if (mode === 'update' && paymentId) {
+          query = query.neq('id', paymentId);
+        }
+
         const { data, error } = await query;
         if (error) { console.error('[PaymentCheckoutModal]', error); return; }
         if (data && data.length > 0) {
@@ -142,34 +378,138 @@ export function PaymentCheckoutModal({
       }
     };
     checkPendingPayment();
-  }, [open, studentId, paymentId, mode]);
+  }, [open, studentId, paymentId, mode, conceptType, childId]);
 
   useEffect(() => {
     if (!open) {
       setPaymentStatus('idle');
       setSelectedMethod(null);
       setProofUrl(null);
+      setOcrResult(null);
       setPendingPaymentDate(null);
       setShowOnlineConfirm(false);
+      setAdvancedPeriod(null);
+      setConfirmAdvanceOpen(false);
+      setMpReference('');
+      setServerQuote(null);
+      setCreatedPaymentId(null);
     }
   }, [open]);
 
+  const mpEnabled = !!import.meta.env.VITE_MP_PUBLIC_KEY_DEFAULT;
+
   const paymentMethods = [
-    // ── Pago online (solo si la escuela lo tiene habilitado) ──────────────
-    ...(epaycoEnabled ? [{
+    // ── Pago online Wompi (solo si la escuela lo tiene habilitado) ────────
+    ...(wompiEnabled ? [{
       id: 'online' as const,
-      name: 'Pagar online',
+      name: 'Pagar online (Wompi)',
       description: `Tarjeta, PSE o Nequi — inmediato y seguro`,
       icon: Globe,
       popular: true,
       enabled: true,
-      badge: `+${formatCurrency(sportmapsFee)} fee`,
+      badge: `+${formatCurrency(sportmapsFee)} recargo`,
+    }] : []),
+    // ── MercadoPago (cuando la escuela / global tiene MP configurado) ─────
+    ...(mpEnabled ? [{
+      id: 'mercadopago' as const,
+      name: 'MercadoPago',
+      description: 'Tarjeta, PSE, Efecty o wallet MP',
+      icon: CreditCard,
+      popular: !wompiEnabled,
+      enabled: true,
+      badge: `+${formatCurrency(sportmapsFee)} recargo`,
     }] : []),
     // ── Pago manual (siempre disponible) ──────────────────────────────────
-    { id: 'transfer' as const, name: 'Transferencia / Nequi / Daviplata', description: 'Nequi, Daviplata o transferencia bancaria', icon: Smartphone, popular: !epaycoEnabled, enabled: true },
-    { id: 'pse' as const, name: 'PSE', description: 'Pago con débito bancario', icon: Building2, popular: false, enabled: false },
-    { id: 'card' as const, name: 'Tarjeta', description: 'Visa o Mastercard', icon: CreditCard, popular: false, enabled: false },
+    { id: 'transfer' as const, name: 'Transferencia / Nequi / Daviplata', description: 'Nequi, Daviplata o transferencia bancaria', icon: Smartphone, popular: !wompiEnabled && !mpEnabled, enabled: true },
   ];
+
+  // Generar reference MP una sola vez cuando MP esta habilitado para esta
+  // sesion del modal. NO regenera al cambiar de metodo (sino el Brick perderia
+  // datos cada vez que el usuario regresa a MP). Se limpia al cerrar el modal.
+  useEffect(() => {
+    if (mpEnabled && !mpReference) {
+      const ref = `SCH-MP-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+      setMpReference(ref);
+    }
+  }, [mpEnabled, mpReference]);
+
+  // Handler de éxito del Brick MP — actualiza/crea el payment row
+  const handleMpSuccess = async (result: MpCreatePaymentResult) => {
+    setProcessing(true);
+    setPaymentStatus('processing');
+    try {
+      const periodYear = conceptType === 'mensualidad' && effectivePeriod ? effectivePeriod.year : null;
+      const periodMonth = conceptType === 'mensualidad' && effectivePeriod ? effectivePeriod.month : null;
+      const reference = mpReference || `SCH-MP-${Date.now().toString(36).toUpperCase()}`;
+      // Mapeo de status MP → status interno SportMaps:
+      //   approved → paid (caso ideal)
+      //   pending  → pending (MP esta revisando antifraude; el webhook actualizara
+      //              cuando MP confirme. NO va a 'awaiting_approval' porque eso es
+      //              para comprobantes manuales que la escuela debe validar)
+      //   rejected → declined
+      const internalStatus =
+        result.internalStatus === 'paid' ? 'paid'
+          : result.internalStatus === 'rejected' ? 'declined'
+            : 'pending';
+
+      if (mode === 'update' && paymentId) {
+        const { error: updateError } = await supabase.from('payments').update({
+          status: internalStatus,
+          payment_method: 'card',
+          payment_provider: 'mercadopago',
+          provider_reference: reference,
+          provider_transaction_id: String(result.paymentId),
+          payment_date: new Date().toISOString().split('T')[0],
+          receipt_number: reference,
+          period_year: periodYear,
+          period_month: periodMonth,
+          early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
+          updated_at: new Date().toISOString(),
+        } as any).eq('id', paymentId);
+        if (updateError) throw updateError;
+      } else {
+        const payloadChildId: string | null = childId || null;
+        const payloadBranchId: string | null = branchId || null;
+        const { error: insertError } = await supabase.from('payments').insert({
+          parent_id: user?.id,
+          child_id: payloadChildId,
+          team_id: (teamId && teamId !== '') ? teamId : null,
+          school_id: (schoolId && schoolId !== '') ? schoolId : null,
+          branch_id: payloadBranchId,
+          amount: finalAmount,
+          concept: finalConcept,
+          status: internalStatus,
+          payment_method: 'card',
+          payment_provider: 'mercadopago',
+          provider_reference: reference,
+          provider_transaction_id: String(result.paymentId),
+          payment_type: 'one_time',
+          payment_date: new Date().toISOString().split('T')[0],
+          due_date: new Date().toISOString().split('T')[0],
+          receipt_number: reference,
+          period_year: periodYear,
+          period_month: periodMonth,
+          early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
+        } as any);
+        if (insertError) throw insertError;
+      }
+
+      setPaymentStatus(internalStatus === 'paid' ? 'success' : 'awaiting_approval');
+      toast({
+        title: internalStatus === 'paid' ? '¡Pago exitoso!' : 'Pago en proceso',
+        description: internalStatus === 'paid'
+          ? `Procesado con MercadoPago — ${formatCurrency(chargeAmount)}`
+          : `Estado: ${result.statusDetail}. Te notificaremos cuando se confirme.`,
+      });
+      setTimeout(() => { onSuccess?.(); onOpenChange(false); }, 2500);
+    } catch (error: any) {
+      setPaymentStatus('error');
+      toast({ title: 'Error registrando el pago', description: error?.message ?? 'Error desconocido', variant: 'destructive' });
+      setTimeout(() => setPaymentStatus('idle'), 2000);
+    } finally {
+      setProcessing(false);
+    }
+  };
 
   const processPayment = async () => {
     if (processing) return;
@@ -183,18 +523,55 @@ export function PaymentCheckoutModal({
       const payloadChildId: string | null = childId || null;
       const payloadBranchId: string | null = branchId || null;
 
-      // Duplicate check (already handled via checkPendingPayment but double check here)
+      // Duplicate check.
+      //  - Mensualidad: bloquea solo si hay otro pago activo del MISMO mes.
+      //    El unique index `uniq_payment_active_period_per_child` (migracion
+      //    20260503000004) ya garantiza esto a nivel BD; aqui damos el error
+      //    amigable antes del INSERT.
+      //  - Inscripcion / abono / otros: bloquea cualquier awaiting_approval
+      //    para ese hijo, como antes.
       const idColumn = payloadChildId ? 'child_id' : 'user_id';
       const idValue = payloadChildId || user.id;
 
-      const duplicateQuery = (supabase as any).from('payments').select('id')
+      // Si ya existe un cobro IMPAGO (pending/overdue) del mismo periodo, se
+      // REUTILIZA (se le adjunta el comprobante) en vez de insertar otro — un
+      // INSERT nuevo choca con el unique index uniq_payment_active_period_per_child
+      // (error 23505 "duplicate key ..."). Los estados en validacion/pagado sí bloquean.
+      let reuseId: string | null = null;
+
+      let duplicateQuery = supabase.from('payments').select('id, period_year, period_month, status')
         .eq(idColumn, idValue)
-        .eq('status', 'awaiting_approval').limit(1);
-      if (mode === 'update' && paymentId) duplicateQuery.neq('id', paymentId);
+        .in('status', ['pending', 'overdue', 'awaiting_approval', 'paid', 'approved', 'partial']).limit(50);
+      if (mode === 'update' && paymentId) {
+        duplicateQuery = duplicateQuery.neq('id', paymentId);
+      }
       const { data: pendingPayments, error: pendingError } = await duplicateQuery;
       if (pendingError) throw pendingError;
-      if (pendingPayments && pendingPayments.length > 0)
-        throw new Error('Ya existe un pago pendiente de aprobación para este estudiante.');
+
+      const REUSABLE = ['pending', 'overdue'];
+      const BLOCKING = ['awaiting_approval', 'paid', 'approved', 'partial'];
+
+      if (conceptType === 'mensualidad' && effectivePeriod) {
+        const samePeriod = (pendingPayments || []).find((p: any) =>
+          p.period_year === effectivePeriod.year && p.period_month === effectivePeriod.month,
+        );
+        if (samePeriod) {
+          if (REUSABLE.includes(samePeriod.status)) {
+            reuseId = samePeriod.id;              // adjuntar comprobante a ESTE
+          } else {
+            throw new Error(`Ya existe un pago activo para ${effectivePeriod.label}.`);
+          }
+        }
+      } else if (conceptType !== 'mensualidad') {
+        // No-mensualidad (inscripcion / abono): reutilizar cualquier impago sin
+        // periodo; si hay uno en validacion/pagado, bloquear (legacy).
+        const reusable = (pendingPayments || []).find((p: any) =>
+          !p.period_year && !p.period_month && REUSABLE.includes(p.status));
+        const blocking = (pendingPayments || []).find((p: any) =>
+          !p.period_year && !p.period_month && BLOCKING.includes(p.status));
+        if (reusable) reuseId = reusable.id;
+        else if (blocking) throw new Error('Ya existe un pago pendiente de aprobación para este deportista.');
+      }
 
       if (mode === 'update' && paymentId && paymentId !== '') {
         const { data: existingPayment, error: fetchError } = await supabase.from('payments').select('school_id, status').eq('id', paymentId).single();
@@ -202,68 +579,158 @@ export function PaymentCheckoutModal({
         if (existingPayment.status === 'paid') throw new Error('Este pago ya fue procesado.');
       }
 
+      // Periodo a registrar cuando es mensualidad (NULL en otros conceptos
+      // como inscripcion / abono libre).
+      const periodYear = conceptType === 'mensualidad' && effectivePeriod ? effectivePeriod.year : null;
+      const periodMonth = conceptType === 'mensualidad' && effectivePeriod ? effectivePeriod.month : null;
+
+      // Objetivo de UPDATE compartido por TODOS los métodos: el pago de
+      // mode='update' o el impago del mismo periodo a reutilizar (reuseId).
+      // Si es null → se hace INSERT. Evita el 23505 del unique index de periodo.
+      const targetId = (mode === 'update' && paymentId) ? paymentId : reuseId;
+
       if (selectedMethod === 'transfer') {
         if (!proofUrl) throw new Error('Debes subir un comprobante de pago');
-        if (mode === 'update' && paymentId) {
-          const { error: updateError } = await supabase.from('payments').update({ 
-            status: 'awaiting_approval', 
-            payment_method: 'transfer', 
-            payment_date: new Date().toISOString().split('T')[0], 
-            receipt_url: proofUrl, 
-            updated_at: new Date().toISOString() 
-          }).eq('id', paymentId);
+        // Campos OCR + veredicto (modo sombra) del comprobante, comunes a insert/update.
+        const receiptOcrFields = {
+          ocr_amount: ocrResult?.extractedAmount ?? null,
+          ocr_currency: ocrResult?.extractedCurrency ?? null,
+          ocr_date: ocrResult?.extractedDate ?? null,
+          ocr_bank: ocrResult?.extractedBank ?? null,
+          ocr_reference: ocrResult?.extractedReference ?? null,
+          ocr_provider: ocrResult?.provider ?? null,
+          ocr_destination: ocrResult?.extractedDestination ?? null,
+          ocr_destination_name: ocrResult?.extractedDestinationName ?? null,
+          ocr_origin_name: ocrResult?.extractedOriginName ?? null,
+          ocr_time: ocrResult?.extractedTime ?? null,
+          ocr_raw_response: ocrResult?.rawResponse
+            ? safeParseJson(ocrResult.rawResponse) ?? ocrResult.rawResponse
+            : null,
+          // Veredicto de reglas: se guarda pero NO cambia el status (sombra).
+          receipt_verdict: ocrResult?.verdict ?? null,
+          receipt_verdict_reasons: ocrResult?.verdictReasons ?? null,
+          receipt_reference_norm: ocrResult?.referenceNorm ?? null,
+          receipt_image_sha256: ocrResult?.imageSha256 ?? null,
+          receipt_image_sha256_source: ocrResult?.imageSha256Source ?? null,
+          receipt_verdict_at: ocrResult?.verdict ? new Date().toISOString() : null,
+        };
+        let glosaPaymentId: string | null = targetId;
+        if (targetId) {
+          const { error: updateError } = await supabase.from('payments').update({
+            status: 'awaiting_approval',
+            payment_method: 'transfer',
+            payment_date: new Date().toISOString().split('T')[0],
+            receipt_url: proofUrl,
+            period_year: periodYear,
+            period_month: periodMonth,
+            early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
+            ...receiptOcrFields,
+            updated_at: new Date().toISOString()
+          } as any).eq('id', targetId);
           if (updateError) throw updateError;
         } else {
-          const { error: insertError } = await supabase.from('payments').insert({ 
-            parent_id: user?.id, 
-            child_id: payloadChildId, 
+          const ins = await supabase.from('payments').insert({
+            parent_id: user?.id,
+            child_id: payloadChildId,
             team_id: (teamId && teamId !== '') ? teamId : null,
-            school_id: (schoolId && schoolId !== '') ? schoolId : null, 
-            branch_id: payloadBranchId, 
-            amount: finalAmount, 
-            concept: finalConcept, 
-            status: 'awaiting_approval', 
-            payment_method: 'transfer', 
+            school_id: (schoolId && schoolId !== '') ? schoolId : null,
+            branch_id: payloadBranchId,
+            amount: finalAmount,
+            concept: finalConcept,
+            status: 'awaiting_approval',
+            payment_method: 'transfer',
             payment_type: 'one_time',
-            payment_date: new Date().toISOString().split('T')[0], 
-            due_date: new Date().toISOString().split('T')[0], 
+            payment_date: new Date().toISOString().split('T')[0],
+            due_date: new Date().toISOString().split('T')[0],
             receipt_url: proofUrl,
+            period_year: periodYear,
+            period_month: periodMonth,
+            early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
+            ...receiptOcrFields,
             reference: `TRF-${Date.now().toString(36).toUpperCase()}`
-          });
-          if (insertError) throw insertError;
+          } as any).select('id').single();
+          if (ins.error) throw ins.error;
+          glosaPaymentId = ins.data?.id ?? null;
         }
+        // Evaluación post-insert (Fase 5). Fire-and-forget: el BFF auto-aprueba (verde) /
+        // abre glosa (amarillo) / deja manual, server-authoritative.
+        if (glosaPaymentId && (ocrResult?.verdict === 'verde' || ocrResult?.verdict === 'amarillo')) {
+          autoEvaluateGlosa(glosaPaymentId).catch(() => { /* dormant/no-op tolerado */ });
+        }
+        // Notificar al owner de la escuela con el mes especifico
+        // (fire-and-forget; un fallo aqui no debe romper el flujo del padre).
+        if (schoolId) {
+          void (async () => {
+            try {
+              const { data: schoolRow } = await supabase
+                .from('schools')
+                .select('owner_id')
+                .eq('id', schoolId)
+                .maybeSingle();
+              const ownerId = schoolRow?.owner_id;
+              if (!ownerId) return;
+              const periodLabel = effectivePeriod?.label;
+              const studentLabel = childName ?? 'un deportista';
+              await supabase.rpc('notify_user', {
+                p_user_id: ownerId,
+                p_title: periodLabel
+                  ? `Comprobante por validar — ${periodLabel}`
+                  : 'Comprobante por validar',
+                p_message: periodLabel
+                  ? `${studentLabel} envió comprobante de ${formatCurrency(chargeAmount)} para ${periodLabel}.`
+                  : `${studentLabel} envió un comprobante de ${formatCurrency(chargeAmount)}.`,
+                p_type: 'payment',
+                p_link: '/finances',
+              });
+            } catch {
+              /* silencio: notificacion no debe interrumpir flujo */
+            }
+          })();
+        }
+
         setPaymentStatus('awaiting_approval');
-        toast({ title: "Pago registrado", description: "Tu cupo ha sido reservado. Validaremos tu comprobante pronto." });
+        toast({
+          title: "Pago registrado",
+          description: effectivePeriod
+            ? `Comprobante de ${effectivePeriod.label} enviado. La escuela lo validará pronto.`
+            : "Tu cupo ha sido reservado. Validaremos tu comprobante pronto.",
+        });
         setTimeout(() => { onSuccess?.(); onOpenChange(false); }, 3000);
         return;
       }
 
       const receiptNumber = `MAN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
       let error = null;
-      if (mode === 'update' && paymentId) {
-        const { error: updateError } = await supabase.from('payments').update({ 
-          status: 'paid', 
-          payment_method: selectedMethod, 
-          payment_date: new Date().toISOString().split('T')[0], 
-          receipt_number: receiptNumber, 
-          updated_at: new Date().toISOString() 
-        }).eq('id', paymentId);
+      if (targetId) {
+        const { error: updateError } = await supabase.from('payments').update({
+          status: 'paid',
+          payment_method: selectedMethod,
+          payment_date: new Date().toISOString().split('T')[0],
+          receipt_number: receiptNumber,
+          period_year: periodYear,
+          period_month: periodMonth,
+          early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
+          updated_at: new Date().toISOString()
+        }).eq('id', targetId);
         error = updateError;
       } else {
-        const { error: insertError } = await supabase.from('payments').insert({ 
-          parent_id: user?.id, 
-          child_id: payloadChildId, 
-          team_id: (teamId && teamId !== '') ? teamId : null, 
-          school_id: (schoolId && schoolId !== '') ? schoolId : null, 
-          branch_id: payloadBranchId, 
-          amount: finalAmount, 
-          concept: finalConcept, 
-          status: 'paid', 
-          payment_method: selectedMethod, 
+        const { error: insertError } = await supabase.from('payments').insert({
+          parent_id: user?.id,
+          child_id: payloadChildId,
+          team_id: (teamId && teamId !== '') ? teamId : null,
+          school_id: (schoolId && schoolId !== '') ? schoolId : null,
+          branch_id: payloadBranchId,
+          amount: finalAmount,
+          concept: finalConcept,
+          status: 'paid',
+          payment_method: selectedMethod,
           payment_type: 'one_time',
-          payment_date: new Date().toISOString().split('T')[0], 
-          due_date: new Date().toISOString().split('T')[0], 
-          receipt_number: receiptNumber 
+          payment_date: new Date().toISOString().split('T')[0],
+          due_date: new Date().toISOString().split('T')[0],
+          receipt_number: receiptNumber,
+          period_year: periodYear,
+          period_month: periodMonth,
+          early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
         });
         error = insertError;
       }
@@ -277,7 +744,7 @@ export function PaymentCheckoutModal({
           to: parentEmail,
           data: {
             studentName: childName || (childId ? 'tu hijo' : 'tu cuenta'),
-            amount: formatCurrency(finalAmount),
+            amount: formatCurrency(chargeAmount),
             concept: finalConcept,
             paymentMethod: selectedMethod === 'pse' ? 'PSE' : (selectedMethod === 'card' ? 'Tarjeta' : 'Transferencia'),
           },
@@ -285,12 +752,22 @@ export function PaymentCheckoutModal({
       }
 
       setPaymentStatus('success');
-      toast({ title: "¡Pago exitoso!", description: `Tu pago de ${formatCurrency(finalAmount)} fue procesado correctamente` });
+      toast({ title: "¡Pago exitoso!", description: `Tu pago de ${formatCurrency(chargeAmount)} fue procesado correctamente` });
       setTimeout(() => { onSuccess?.(); onOpenChange(false); setPaymentStatus('idle'); setSelectedMethod(null); }, 2000);
     } catch (error: unknown) {
-      const err = error as { message?: string };
+      const err = error as { message?: string; code?: string };
       setPaymentStatus('error');
-      toast({ title: "Error en el pago", description: err.message || "No se pudo procesar tu pago.", variant: "destructive" });
+      // 23505 = comprobante ya usado (unique index de referencia o de hash de imagen).
+      const dupMsg = err.message?.toLowerCase() ?? '';
+      const isDuplicate = err.code === '23505'
+        && (dupMsg.includes('ocr_reference') || dupMsg.includes('receipt_hash') || dupMsg.includes('receipt_image_sha256'));
+      toast({
+        title: isDuplicate ? "Comprobante ya usado" : "Error en el pago",
+        description: isDuplicate
+          ? "Este comprobante ya está vinculado a otro pago en esta escuela. Si crees que es un error, contacta a la administración."
+          : (err.message || "No se pudo procesar tu pago."),
+        variant: "destructive",
+      });
       setTimeout(() => setPaymentStatus('idle'), 2000);
     } finally {
       setProcessing(false);
@@ -299,295 +776,574 @@ export function PaymentCheckoutModal({
 
   const handleClose = () => { if (!processing) onOpenChange(false); };
 
+  // ── Handler que decide si abre el AlertDialog "¿adelantar siguiente mes?"
+  // antes de procesar el pago. Solo aplica al concepto 'mensualidad'.
+  const handlePayClick = () => {
+    if (processing) return;
+    if (!selectedMethod) return;
+
+    // No-mensualidad o sin info de periodo → flujo directo
+    if (conceptType !== 'mensualidad' || !nextPeriod || !childId) {
+      void processPayment();
+      return;
+    }
+
+    // El mes sugerido todavia esta libre → cobramos ese mes
+    if (!isPeriodActive(nextPeriod.current_status as PeriodStatus)) {
+      void processPayment();
+      return;
+    }
+
+    // El mes sugerido ya tiene un pago activo → preguntamos si adelantar
+    setConfirmAdvanceOpen(true);
+  };
+
+  // Calcula el mes siguiente al sugerido y verifica que tampoco este pagado.
+  // Si tambien esta pagado, salta al siguiente y asi sucesivamente (max 12
+  // saltos para evitar loops). Setea advancedPeriod y dispara processPayment.
+  const handleConfirmAdvance = async () => {
+    if (!nextPeriod || !childId) {
+      setConfirmAdvanceOpen(false);
+      return;
+    }
+    let y = nextPeriod.year;
+    let m = nextPeriod.month + 1;
+    if (m > 12) { m = 1; y += 1; }
+
+    // Saltar meses que ya esten cubiertos (si el padre adelanto varios)
+    for (let i = 0; i < 12; i++) {
+      try {
+        const result = await fetchPeriodStatus(childId, y, m);
+        if (!isPeriodActive(result.status)) break;
+      } catch {
+        break;
+      }
+      m += 1;
+      if (m > 12) { m = 1; y += 1; }
+    }
+
+    setAdvancedPeriod({
+      year: y,
+      month: m,
+      label: `${[
+        'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+        'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+      ][m - 1]} ${y}`,
+    });
+    setConfirmAdvanceOpen(false);
+    // Defer al siguiente tick para que finalConcept use el nuevo periodo
+    setTimeout(() => { void processPayment(); }, 0);
+  };
+
   return (
     <>
-    <Dialog open={open} onOpenChange={handleClose}>
-      {/*
+      <Dialog open={open} onOpenChange={handleClose}>
+        {/*
         RESPONSIVE KEY:
         - Mobile (<sm): w-[100vw] h-[100dvh] rounded-none → full screen sheet
         - sm+: max-w-md centrado con border-radius normal
         El dvh (dynamic viewport height) evita el problema del teclado virtual en iOS
       */}
-      <DialogContent className="
+        <DialogContent
+          className="
         w-[100vw] h-[100dvh] max-h-[100dvh] rounded-none overflow-y-auto p-4
         sm:w-full sm:max-w-md sm:h-auto sm:max-h-[90vh] sm:rounded-lg sm:p-6
-      ">
-        <DialogHeader className="text-left">
-          <DialogTitle className="text-xl sm:text-2xl">Realizar Pago</DialogTitle>
-          <DialogDescription>Selecciona tu método de pago preferido</DialogDescription>
-        </DialogHeader>
+        "
+          onPointerDownOutside={(e) => {
+            // Si MP brick esta montado con datos posibles, prevenir cierre por
+            // click fuera (el iframe MP no permite recuperar los datos).
+            if (mpReference) e.preventDefault();
+          }}
+          onEscapeKeyDown={(e) => {
+            if (mpReference) e.preventDefault();
+          }}
+        >
+          <DialogHeader className="text-left">
+            <DialogTitle className="text-xl sm:text-2xl">
+              {conceptType === 'mensualidad' && effectivePeriod
+                ? `Mensualidad ${effectivePeriod.label}`
+                : 'Realizar Pago'}
+            </DialogTitle>
+            <DialogDescription>
+              {conceptType === 'mensualidad' && effectivePeriod && childName
+                ? `Pago para ${childName} — ${effectivePeriod.label}`
+                : 'Selecciona tu método de pago preferido'}
+            </DialogDescription>
+          </DialogHeader>
 
-        {/* Estado 1: Verificando */}
-        {checkingPending && (
-          <div className="py-12 text-center space-y-4">
-            <Loader2 className="h-10 w-10 mx-auto text-muted-foreground animate-spin" />
-            <p className="text-sm text-muted-foreground">Verificando pagos pendientes...</p>
-          </div>
-        )}
-
-        {/* Estado 2: Bloqueado */}
-        {!checkingPending && pendingPaymentDate !== null && paymentStatus === 'idle' && (
-          <div className="py-8 text-center space-y-5">
-            <div className="w-16 h-16 mx-auto bg-amber-100 rounded-full flex items-center justify-center">
-              <AlertTriangle className="h-9 w-9 text-amber-500" />
+          {/* Estado 1: Verificando */}
+          {checkingPending && (
+            <div className="py-12 text-center space-y-4">
+              <Loader2 className="h-10 w-10 mx-auto text-muted-foreground animate-spin" />
+              <p className="text-sm text-muted-foreground">Verificando pagos pendientes...</p>
             </div>
-            <div className="space-y-2">
-              <h3 className="text-lg font-semibold text-amber-600">Pago en espera de validación</h3>
-              <p className="text-sm text-muted-foreground px-4">
-                Ya existe un comprobante enviado el <span className="font-medium text-foreground">{pendingPaymentDate}</span> pendiente de aprobación.
-              </p>
-              <p className="text-xs text-muted-foreground px-6">
-                No puedes registrar un nuevo pago hasta que ese comprobante sea aprobado o rechazado.
-              </p>
-            </div>
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Entendido</Button>
-          </div>
-        )}
+          )}
 
-        {/* Estado 3: Formulario */}
-        {!checkingPending && pendingPaymentDate === null && paymentStatus === 'idle' && (
-          <div className="space-y-5 py-2">
-            {/* Resumen */}
-            <div className="bg-primary/5 rounded-lg p-4 space-y-4">
-              {mode === 'create' ? (
-                <>
-                  <div className="space-y-2">
-                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tipo de Pago</Label>
-                    <Select value={conceptType} onValueChange={(v: any) => setConceptType(v)}>
-                      <SelectTrigger className="bg-white">
-                        <SelectValue placeholder="Concepto" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="mensualidad">Mensualidad ({concept})</SelectItem>
-                        <SelectItem value="inscripcion_fija">Inscripción Anual (Monto Fijo)</SelectItem>
-                        <SelectItem value="inscripcion_variable">Inscripción Anual (Monto Variable)</SelectItem>
-                        <SelectItem value="otro">Otro Concepto / Abono libre</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {conceptType === 'otro' && (
+          {/* Estado 2: Bloqueado */}
+          {!checkingPending && pendingPaymentDate !== null && paymentStatus === 'idle' && (
+            <div className="py-8 text-center space-y-5">
+              <div className="w-16 h-16 mx-auto bg-amber-100 rounded-full flex items-center justify-center">
+                <AlertTriangle className="h-9 w-9 text-amber-500" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold text-amber-600">Pago en espera de validación</h3>
+                <p className="text-sm text-muted-foreground px-4">
+                  Ya existe un comprobante enviado el <span className="font-medium text-foreground">{pendingPaymentDate}</span> pendiente de aprobación.
+                </p>
+                <p className="text-xs text-muted-foreground px-6">
+                  No puedes registrar un nuevo pago hasta que ese comprobante sea aprobado o rechazado.
+                </p>
+              </div>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>Entendido</Button>
+            </div>
+          )}
+
+          {/* Estado 3: Formulario */}
+          {!checkingPending && pendingPaymentDate === null && paymentStatus === 'idle' && (
+            <div className="space-y-5 py-2">
+              {/* Resumen */}
+              <div className="bg-primary/5 rounded-lg p-4 space-y-4">
+                {mode === 'create' ? (
+                  <>
                     <div className="space-y-2">
-                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Descripción del Pago</Label>
-                      <Input placeholder="Ej. Uniforme, Aporte especial..." value={customConcept} onChange={(e) => setCustomConcept(e.target.value)} className="bg-white" />
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tipo de Pago</Label>
+                      <Select value={conceptType} onValueChange={(v: any) => setConceptType(v)}>
+                        <SelectTrigger className="bg-white text-gray-900 border-gray-300 data-[placeholder]:text-gray-500">
+                          <SelectValue placeholder="Concepto" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-white text-gray-900">
+                          <SelectItem value="mensualidad" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Mensualidad ({concept})</SelectItem>
+                          <SelectItem value="inscripcion_fija" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Inscripción Anual (Monto Fijo)</SelectItem>
+                          <SelectItem value="inscripcion_variable" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Inscripción Anual (Monto Variable)</SelectItem>
+                          <SelectItem value="otro" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Otro Concepto / Abono libre</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
-                  )}
-                  <div className="space-y-2">
-                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Monto ($ COP)</Label>
-                    {['mensualidad', 'inscripcion_fija'].includes(conceptType) ? (
-                      <div className="flex items-baseline gap-2">
-                        <p className="text-2xl sm:text-3xl font-bold text-primary">{formatCurrency(amount)}</p>
-                        <p className="text-sm text-muted-foreground">/ {conceptType === 'mensualidad' ? 'mes' : 'tarifa plan'}</p>
-                      </div>
-                    ) : (
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-semibold">$</span>
-                        <Input type="number" min="0" value={customAmount} onChange={(e) => setCustomAmount(e.target.value)} className="bg-white pl-7 text-lg font-bold text-primary" placeholder="Ej. 150000" />
+                    {conceptType === 'otro' && (
+                      <div className="space-y-2">
+                        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Descripción del Pago</Label>
+                        <Input placeholder="Ej. Uniforme, Aporte especial..." value={customConcept} onChange={(e) => setCustomConcept(e.target.value)} className="bg-white" />
                       </div>
                     )}
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Monto ($ COP)</Label>
+                      {['mensualidad', 'inscripcion_fija'].includes(conceptType) ? (
+                        <div className="flex items-baseline gap-2">
+                          {discountResult.eligible && discountResult.discountAmount > 0 ? (
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="text-sm text-muted-foreground line-through font-normal">
+                                {formatCurrency(amount)}
+                              </span>
+                              <span className="text-2xl sm:text-3xl font-bold text-primary">
+                                {formatCurrency(chargeAmount)}
+                              </span>
+                            </div>
+                          ) : (
+                            <p className="text-2xl sm:text-3xl font-bold text-primary">{formatCurrency(amount)}</p>
+                          )}
+                          <p className="text-sm text-muted-foreground">/ {conceptType === 'mensualidad' ? 'mes' : 'tarifa plan'}</p>
+                        </div>
+                      ) : (
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-semibold">$</span>
+                          <Input type="number" min="0" value={customAmount} onChange={(e) => setCustomAmount(e.target.value)} className="bg-white pl-7 text-lg font-bold text-primary" placeholder="Ej. 150000" />
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Concepto</p>
+                    <p className="font-semibold text-base leading-tight">{concept}</p>
+                    <div className="flex items-baseline gap-2">
+                      {discountResult.eligible && discountResult.discountAmount > 0 ? (
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-sm text-muted-foreground line-through font-normal">
+                            {formatCurrency(amount)}
+                          </span>
+                          <span className="text-2xl sm:text-3xl font-bold text-primary">
+                            {formatCurrency(chargeAmount)}
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="text-2xl sm:text-3xl font-bold text-primary">{formatCurrency(amount)}</p>
+                      )}
+                      <p className="text-sm text-muted-foreground">cobro pendiente</p>
+                    </div>
                   </div>
-                </>
-              ) : (
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Concepto</p>
-                  <p className="font-semibold text-base leading-tight">{concept}</p>
-                  <div className="flex items-baseline gap-2">
-                    <p className="text-2xl sm:text-3xl font-bold text-primary">{formatCurrency(amount)}</p>
-                    <p className="text-sm text-muted-foreground">cobro pendiente</p>
+                )}
+                {discountResult.eligible && discountResult.discountAmount > 0 && (
+                  <div className="rounded-lg border border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 p-3 flex items-start gap-2">
+                    <Percent className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div className="text-sm">
+                      <p className="font-semibold text-emerald-700 dark:text-emerald-400">
+                        Descuento por pronto pago: −{formatCurrency(discountResult.discountAmount)}
+                      </p>
+                      <p className="text-xs text-emerald-700/80 dark:text-emerald-400/80">
+                        Pagas {formatCurrency(chargeAmount)} en vez de {formatCurrency(finalAmount)}
+                        {discountResult.validUntil ? ` · válido hasta ${discountResult.validUntil}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Métodos */}
+              <div className="space-y-3">
+                <p className="font-medium text-sm">Método de pago:</p>
+                {paymentMethods.map((method) => {
+                  const Icon = method.icon;
+                  const isSelected = selectedMethod === method.id;
+                  const isDisabled = !method.enabled;
+                  return (
+                    <button
+                      key={method.id}
+                      onClick={() => !isDisabled && setSelectedMethod(method.id)}
+                      disabled={isDisabled}
+                      className={`w-full flex items-center gap-3 p-3 sm:p-4 border-2 rounded-lg transition-all text-left ${isDisabled ? 'border-border/50 opacity-50 cursor-not-allowed bg-muted/30'
+                        : isSelected ? 'border-primary bg-primary/5' : 'border-border hover:border-primary'
+                        }`}
+                    >
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isDisabled ? 'bg-muted/50' : isSelected ? 'bg-primary text-white' : 'bg-muted'}`}>
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-semibold text-sm">{method.name}</p>
+                          {method.popular && method.enabled && <Badge variant="secondary" className="text-xs">Recomendado</Badge>}
+                          {isDisabled && <Badge variant="outline" className="text-xs text-muted-foreground">Próximamente</Badge>}
+                          {(method as any).badge && <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">{(method as any).badge}</Badge>}
+                        </div>
+                        <p className="text-xs text-muted-foreground">{method.description}</p>
+                      </div>
+                      {isSelected && !isDisabled && <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Formulario DIAN si falta */}
+              {selectedMethod && !checkingDian && !hasCompleteDianData && (
+                <div className="pt-4 border-t">
+                  <BillingDetailsForm onComplete={() => setHasCompleteDianData(true)} />
+                </div>
+              )}
+
+              {/* Datos bancarios */}
+              {selectedMethod === 'transfer' && hasCompleteDianData && (
+                <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                  <Alert variant="default" className="bg-primary/5 border-primary/20">
+                    <Info className="h-4 w-4 text-primary shrink-0" />
+                    <AlertTitle className="text-primary font-bold text-sm">Información de Transferencia</AlertTitle>
+                    <AlertDescription className="space-y-2 mt-2">
+                      <p className="text-sm">Realiza tu transferencia a la siguiente cuenta:</p>
+                      {bankDetails ? (
+                        <div className="bg-background/80 p-3 rounded border space-y-1.5 text-xs break-all">
+                          {([
+                            bankDetails.bank_name && { label: 'Banco', value: `${bankDetails.bank_name}${bankDetails.bank_account_type ? ` (${bankDetails.bank_account_type})` : ''}`, copy: false },
+                            bankDetails.bank_account_number && { label: 'Número', value: bankDetails.bank_account_number, copy: true },
+                            bankDetails.transfer_key && { label: 'Llave de Transferencia', value: bankDetails.transfer_key, copy: true },
+                            bankDetails.nequi_number && { label: 'Nequi', value: bankDetails.nequi_number, copy: true },
+                            bankDetails.daviplata_number && { label: 'Daviplata', value: bankDetails.daviplata_number, copy: true },
+                            bankDetails.breb_number && { label: 'Bre-B', value: bankDetails.breb_number, copy: true },
+                            bankDetails.bank_titular_name && { label: 'Titular', value: bankDetails.bank_titular_name, copy: false },
+                            bankDetails.bank_titular_id && { label: 'NIT/CC', value: bankDetails.bank_titular_id, copy: true },
+                          ].filter(Boolean) as { label: string; value: string; copy: boolean }[]).map((f, i) => (
+                            <div key={i} className="flex items-center justify-between gap-2">
+                              <span className="font-mono"><strong className="font-sans">{f.label}:</strong> {f.value}</span>
+                              {f.copy && (
+                                <button
+                                  type="button"
+                                  aria-label={`Copiar ${f.label}`}
+                                  className="shrink-0 text-primary hover:text-primary/70 p-1"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const text = String(f.value);
+                                    if (navigator.clipboard?.writeText) {
+                                      navigator.clipboard.writeText(text).then(
+                                        () => toast({ title: 'Copiado', description: `${f.label} copiado.` }),
+                                        () => toast({ title: 'No se pudo copiar', description: text }),
+                                      );
+                                    } else {
+                                      toast({ title: `${f.label}`, description: `Cópialo manualmente: ${text}` });
+                                    }
+                                  }}
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs italic text-muted-foreground">La escuela no ha configurado sus datos bancarios aún.</p>
+                      )}
+                      {bankDetails?.payment_qr_url && (
+                        <div className="mt-3 text-center flex flex-col items-center">
+                          <p className="text-xs font-semibold mb-2 text-muted-foreground">O escanea este QR:</p>
+                          <div
+                            className="relative group cursor-pointer overflow-hidden rounded-lg border shadow-sm transition-all duration-300 hover:shadow-md hover:scale-[1.02]"
+                            onClick={(e) => { e.stopPropagation(); setShowFullQr(true); }}
+                          >
+                            <img
+                              src={bankDetails.payment_qr_url}
+                              alt="QR de Pago"
+                              className="w-28 h-28 sm:w-32 sm:h-32 object-cover"
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <span className="text-[10px] text-white font-medium bg-black/60 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                <Maximize2 className="h-3 w-3" /> Ampliar
+                              </span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground mt-1 block">Clic para ampliar 🔍</span>
+                        </div>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                  <div className="space-y-2">
+                    <p className="font-medium text-sm">Sube tu comprobante:</p>
+                    <FileUpload
+                      bucket="payment-receipts"
+                      accept="image/*,application/pdf"
+                      validateReceipt={true}
+                      schoolId={schoolId || undefined}
+                      paymentId={mode === 'update' ? (paymentId || undefined) : undefined}
+                      onUploadComplete={(url) => setProofUrl(url)}
+                      onValidationResult={(r) => setOcrResult(r)}
+                      expectedAmount={chargeAmount}
+                      // Bloqueo estricto solo en concept fijo (mensualidad/inscripcion fija).
+                      // Para abono / inscripcion variable / otros, OCR es advisory.
+                      conceptKind={
+                        conceptType === 'mensualidad' || conceptType === 'inscripcion_fija'
+                          ? 'fixed'
+                          : 'lenient'
+                      }
+                      allowPartial={allowInstallments}
+                      minPartialAmount={minInstallmentAmount}
+                    />
+                    {proofUrl && (
+                      <p className="text-xs text-green-600 flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3" /> Comprobante cargado correctamente
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
-            </div>
 
-            {/* Métodos */}
-            <div className="space-y-3">
-              <p className="font-medium text-sm">Método de pago:</p>
-              {paymentMethods.map((method) => {
-                const Icon = method.icon;
-                const isSelected = selectedMethod === method.id;
-                const isDisabled = !method.enabled;
-                return (
-                  <button
-                    key={method.id}
-                    onClick={() => !isDisabled && setSelectedMethod(method.id)}
-                    disabled={isDisabled}
-                    className={`w-full flex items-center gap-3 p-3 sm:p-4 border-2 rounded-lg transition-all text-left ${isDisabled ? 'border-border/50 opacity-50 cursor-not-allowed bg-muted/30'
-                      : isSelected ? 'border-primary bg-primary/5' : 'border-border hover:border-primary'
-                      }`}
-                  >
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isDisabled ? 'bg-muted/50' : isSelected ? 'bg-primary text-white' : 'bg-muted'}`}>
-                      <Icon className="h-5 w-5" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-semibold text-sm">{method.name}</p>
-                        {method.popular && method.enabled && <Badge variant="secondary" className="text-xs">Recomendado</Badge>}
-                        {isDisabled && <Badge variant="outline" className="text-xs text-muted-foreground">Próximamente</Badge>}
-                        {(method as any).badge && <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">{(method as any).badge}</Badge>}
-                      </div>
-                      <p className="text-xs text-muted-foreground">{method.description}</p>
-                    </div>
-                    {isSelected && !isDisabled && <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Formulario DIAN si falta */}
-            {selectedMethod && !checkingDian && !hasCompleteDianData && (
-              <div className="pt-4 border-t">
-                <BillingDetailsForm onComplete={() => setHasCompleteDianData(true)} />
-              </div>
-            )}
-
-            {/* Datos bancarios */}
-            {selectedMethod === 'transfer' && hasCompleteDianData && (
-              <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-                <Alert variant="default" className="bg-primary/5 border-primary/20">
-                  <Info className="h-4 w-4 text-primary shrink-0" />
-                  <AlertTitle className="text-primary font-bold text-sm">Información de Transferencia</AlertTitle>
-                  <AlertDescription className="space-y-2 mt-2">
-                    <p className="text-sm">Realiza tu transferencia a la siguiente cuenta:</p>
-                    {bankDetails ? (
-                      <div className="bg-background/80 p-3 rounded border space-y-1 font-mono text-xs break-all">
-                        {bankDetails.bank_name && <p><strong>Banco:</strong> {bankDetails.bank_name} ({bankDetails.bank_account_type})</p>}
-                        {bankDetails.bank_account_number && <p><strong>Número:</strong> {bankDetails.bank_account_number}</p>}
-                        {bankDetails.nequi_number && <p><strong>Nequi:</strong> {bankDetails.nequi_number}</p>}
-                        {bankDetails.daviplata_number && <p><strong>Daviplata:</strong> {bankDetails.daviplata_number}</p>}
-                        {bankDetails.bank_titular_name && <p><strong>Titular:</strong> {bankDetails.bank_titular_name}</p>}
-                        {bankDetails.bank_titular_id && <p><strong>NIT/CC:</strong> {bankDetails.bank_titular_id}</p>}
-                      </div>
-                    ) : (
-                      <p className="text-xs italic text-muted-foreground">La escuela no ha configurado sus datos bancarios aún.</p>
-                    )}
-                    {bankDetails?.payment_qr_url && (
-                      <div className="mt-3 text-center flex flex-col items-center">
-                        <p className="text-xs font-semibold mb-2">O escanea este QR:</p>
-                        <img src={bankDetails.payment_qr_url} alt="QR de Pago" className="w-28 h-28 sm:w-32 sm:h-32 rounded-lg object-cover shadow-sm border" />
-                      </div>
-                    )}
-                  </AlertDescription>
-                </Alert>
-                <div className="space-y-2">
-                  <p className="font-medium text-sm">Sube tu comprobante:</p>
-                  <FileUpload bucket="payment-receipts" accept="image/*,application/pdf" validateReceipt={true} onUploadComplete={(url) => setProofUrl(url)} />
-                  {proofUrl && (
-                    <p className="text-xs text-green-600 flex items-center gap-1">
-                      <CheckCircle2 className="h-3 w-3" /> Comprobante cargado correctamente
-                    </p>
-                  )}
+              {/* Brick MercadoPago — solo se monta cuando el usuario selecciona MP.
+                IMPORTANT: NO usar display:none para ocultarlo cuando otro metodo
+                esta seleccionado, porque el SDK MP mide el contenedor durante
+                .render() y con display:none queda con width/height=0, lo que
+                causa errores 'Could not find container' y SVG vacios. */}
+              {hasCompleteDianData && mpReference && mpEnabled && selectedMethod === 'mercadopago' && (
+                <div className="space-y-2 pt-2 animate-in fade-in slide-in-from-top-2">
+                  <MercadoPagoBrick
+                    key={mpReference}
+                    publicKey={import.meta.env.VITE_MP_PUBLIC_KEY_DEFAULT}
+                    sandbox={false}
+                    transactionAmount={chargeAmount}
+                    externalReference={mpReference}
+                    payerEmail={user?.email || 'demo@sportmaps.co'}
+                    payerFirstName={(user?.user_metadata?.full_name || 'Padre').split(' ')[0]}
+                    payerLastName={(user?.user_metadata?.full_name || '').split(' ').slice(1).join(' ') || 'Demo'}
+                    description={`${finalConcept} — ${childName ?? 'deportista'}`}
+                    schoolId={schoolId}
+                    onSuccess={handleMpSuccess}
+                    onPending={handleMpSuccess}
+                    onError={(err) => toast({ title: 'Error en MercadoPago', description: err.message, variant: 'destructive' })}
+                  />
+                  <Button variant="outline" className="w-full" onClick={handleClose} disabled={processing}>Cancelar</Button>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Botones acción */}
-            {hasCompleteDianData && selectedMethod !== 'online' && (
-              <div className="space-y-2 pt-2">
-                <Button className="w-full" size="lg" disabled={!selectedMethod || processing} onClick={processPayment}>
-                  {processing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Procesando...</> : `Pagar ${formatCurrency(finalAmount)}`}
-                </Button>
-                <Button variant="outline" className="w-full" onClick={handleClose} disabled={processing}>Cancelar</Button>
-              </div>
-            )}
+              {/* Botones acción para los demás métodos (no online ni MP) */}
+              {hasCompleteDianData && selectedMethod !== 'online' && selectedMethod !== 'mercadopago' && (
+                <div className="space-y-2 pt-2">
+                  <Button className="w-full" size="lg" disabled={!selectedMethod || processing} onClick={handlePayClick}>
+                    {processing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Procesando...</> : `Pagar ${formatCurrency(chargeAmount)}`}
+                  </Button>
+                  <Button variant="outline" className="w-full" onClick={handleClose} disabled={processing}>Cancelar</Button>
+                </div>
+              )}
 
-            {/* Botón online → abre PaymentConfirmModal */}
-            {selectedMethod === 'online' && (
-              <div className="space-y-2 pt-2">
-                <Button
-                  className="w-full bg-green-600 hover:bg-green-700"
-                  size="lg"
-                  disabled={epaycoLoading}
-                  onClick={() => setShowOnlineConfirm(true)}
-                >
-                  {epaycoLoading ? (
-                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Conectando...</>
-                  ) : (
-                    `Pagar online ${formatCurrency(grossAmount)}`
-                  )}
-                </Button>
-                <Button variant="outline" className="w-full" onClick={handleClose}>Cancelar</Button>
-              </div>
-            )}
+              {/* Botón online → abre PaymentConfirmModal */}
+              {selectedMethod === 'online' && (
+                <div className="space-y-2 pt-2">
+                  <Button
+                    className="w-full bg-green-600 hover:bg-green-700"
+                    size="lg"
+                    disabled={wompiLoading}
+                    onClick={() => setShowOnlineConfirm(true)}
+                  >
+                    {wompiLoading ? (
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Conectando...</>
+                    ) : (
+                      `Pagar online ${formatCurrency(grossAmount)}`
+                    )}
+                  </Button>
+                  <Button variant="outline" className="w-full" onClick={handleClose}>Cancelar</Button>
+                </div>
+              )}
 
-            <p className="text-xs text-center text-muted-foreground">
-              {selectedMethod === 'transfer'
-                ? "El comprobante será revisado por la administración antes de validarse."
-                : selectedMethod === 'online'
-                  ? `Incluye ${formatCurrency(sportmapsFee)} de procesamiento. Tu escuela recibe ${formatCurrency(finalAmount)} completos.`
-                  : "🔒 Pago 100% seguro."}
-            </p>
-          </div>
-        )}
-
-        {/* Estado: Procesando */}
-        {paymentStatus === 'processing' && (
-          <div className="py-12 text-center space-y-4">
-            <Loader2 className="h-16 w-16 mx-auto text-primary animate-spin" />
-            <div>
-              <h3 className="text-lg font-semibold">Procesando tu pago...</h3>
-              <p className="text-sm text-muted-foreground">Esto puede tomar unos segundos</p>
-            </div>
-          </div>
-        )}
-
-        {/* Estado: Éxito */}
-        {paymentStatus === 'success' && (
-          <div className="py-12 text-center space-y-4">
-            <div className="w-16 h-16 mx-auto bg-green-100 rounded-full flex items-center justify-center">
-              <CheckCircle2 className="h-10 w-10 text-green-600" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-green-600">¡Pago exitoso!</h3>
-              <p className="text-sm text-muted-foreground">Tu pago de {formatCurrency(finalAmount)} fue procesado correctamente</p>
-            </div>
-          </div>
-        )}
-
-        {/* Estado: En verificación */}
-        {paymentStatus === 'awaiting_approval' && (
-          <div className="py-12 text-center space-y-4">
-            <div className="w-16 h-16 mx-auto bg-blue-100 rounded-full flex items-center justify-center">
-              <Clock className="h-10 w-10 text-blue-600" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-blue-600">Pago en Verificación</h3>
-              <p className="text-sm text-muted-foreground px-4">
-                Hemos recibido tu comprobante. Será validado pronto por la escuela.
+              <p className="text-xs text-center text-muted-foreground">
+                {selectedMethod === 'transfer'
+                  ? "El comprobante será revisado por la administración antes de validarse."
+                  : selectedMethod === 'online'
+                    ? `Incluye ${formatCurrency(sportmapsFee)} de recargo por pago online. Tu escuela recibe la mensualidad completa de ${formatCurrency(displayedBase)}.`
+                    : "🔒 Pago 100% seguro."}
               </p>
             </div>
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Entendido</Button>
-          </div>
-        )}
+          )}
 
-        {/* Estado: Error */}
-        {paymentStatus === 'error' && (
-          <div className="py-12 text-center space-y-4">
-            <div className="w-16 h-16 mx-auto bg-red-100 rounded-full flex items-center justify-center">
-              <XCircle className="h-10 w-10 text-red-600" />
+          {/* Estado: Procesando */}
+          {paymentStatus === 'processing' && (
+            <div className="py-12 text-center space-y-4">
+              <Loader2 className="h-16 w-16 mx-auto text-primary animate-spin" />
+              <div>
+                <h3 className="text-lg font-semibold">Procesando tu pago...</h3>
+                <p className="text-sm text-muted-foreground">Esto puede tomar unos segundos</p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-lg font-semibold text-red-600">Pago rechazado</h3>
-              <p className="text-sm text-muted-foreground">No se pudo procesar tu pago. Por favor, inténtalo de nuevo.</p>
-            </div>
-            <Button onClick={() => setPaymentStatus('idle')}>Intentar de nuevo</Button>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+          )}
 
-    {/* ── Modal de confirmación de pago online (ePayco) ────────────────────── */}
-    <PaymentConfirmModal
-      open={showOnlineConfirm}
-      onOpenChange={setShowOnlineConfirm}
-      baseAmount={finalAmount}
-      grossAmount={grossAmount}
-      sportmapsFee={sportmapsFee}
-      feePct={onlineFeePct}
-      concept={finalConcept}
-      childName={childName}
-      loading={epaycoLoading}
-      onConfirm={openCheckout}
-      onBack={() => setShowOnlineConfirm(false)}
-    />
+          {/* Estado: Éxito */}
+          {paymentStatus === 'success' && (
+            <div className="py-12 text-center space-y-4">
+              <div className="w-16 h-16 mx-auto bg-green-100 rounded-full flex items-center justify-center">
+                <CheckCircle2 className="h-10 w-10 text-green-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-green-600">¡Pago exitoso!</h3>
+                <p className="text-sm text-muted-foreground">Tu pago de {formatCurrency(chargeAmount)} fue procesado correctamente</p>
+              </div>
+            </div>
+          )}
+
+          {/* Estado: En verificación */}
+          {paymentStatus === 'awaiting_approval' && (
+            <div className="py-12 text-center space-y-4">
+              <div className="w-16 h-16 mx-auto bg-blue-100 rounded-full flex items-center justify-center">
+                <Clock className="h-10 w-10 text-blue-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-blue-600">Pago en Verificación</h3>
+                <p className="text-sm text-muted-foreground px-4">
+                  Hemos recibido tu comprobante. Será validado pronto por la escuela.
+                </p>
+              </div>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>Entendido</Button>
+            </div>
+          )}
+
+          {/* Estado: Error */}
+          {paymentStatus === 'error' && (
+            <div className="py-12 text-center space-y-4">
+              <div className="w-16 h-16 mx-auto bg-red-100 rounded-full flex items-center justify-center">
+                <XCircle className="h-10 w-10 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-red-600">Pago rechazado</h3>
+                <p className="text-sm text-muted-foreground">No se pudo procesar tu pago. Por favor, inténtalo de nuevo.</p>
+              </div>
+              <Button onClick={() => setPaymentStatus('idle')}>Intentar de nuevo</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal de confirmación de pago online (Wompi) ────────────────────── */}
+      <PaymentConfirmModal
+        open={showOnlineConfirm}
+        onOpenChange={setShowOnlineConfirm}
+        baseAmount={displayedBase}
+        grossAmount={grossAmount}
+        sportmapsFee={sportmapsFee}
+        feePct={displayedFeePct}
+        concept={finalConcept}
+        childName={childName}
+        loading={wompiLoading}
+        onConfirm={openCheckout}
+        onBack={() => setShowOnlineConfirm(false)}
+      />
+
+      {/* ── Confirmacion: ¿adelantar el siguiente mes? ──────────────────────── */}
+      <AlertDialog open={confirmAdvanceOpen} onOpenChange={setConfirmAdvanceOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {nextPeriod && `${nextPeriod.label} ya tiene un pago activo`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {nextPeriod?.current_status === 'paid' || nextPeriod?.current_status === 'approved'
+                ? `Ya pagaste ${nextPeriod.label} para ${childName ?? 'este deportista'}.`
+                : nextPeriod?.current_status === 'awaiting_approval'
+                  ? `Hay un comprobante de ${nextPeriod?.label} esperando validacion de la escuela.`
+                  : `Ya hay un cobro registrado para ${nextPeriod?.label}.`}
+              {' '}¿Deseas adelantar el siguiente mes?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={() => { void handleConfirmAdvance(); }}>
+              Sí, adelantar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={showFullQr} onOpenChange={setShowFullQr}>
+        <DialogContent className="sm:max-w-md max-w-[90vw] rounded-xl p-6 flex flex-col items-center justify-center bg-background/95 backdrop-blur-md border border-primary/20 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+          <DialogHeader className="w-full text-center mb-2">
+            <DialogTitle className="text-lg font-bold text-foreground">QR de Pago</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Escanea este código desde la app de tu banco para realizar la transferencia a la escuela
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="bg-white p-4 rounded-xl border shadow-inner flex items-center justify-center max-w-full max-h-[60vh] overflow-hidden">
+            <img
+              src={bankDetails?.payment_qr_url || ''}
+              alt="Código QR de Pago Completo"
+              className="max-w-full max-h-[50vh] object-contain rounded-lg transition-transform duration-300 hover:scale-105"
+            />
+          </div>
+
+          <div className="flex gap-3 w-full mt-6">
+            <Button
+              variant="outline"
+              className="flex-1 border-primary/20 hover:bg-primary/5 text-xs h-9"
+              onClick={async () => {
+                try {
+                  const response = await fetch(bankDetails?.payment_qr_url || '');
+                  const blob = await response.blob();
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `qr-pago-${(concept || 'pago').toLowerCase().replace(/\s+/g, '-')}.png`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  window.URL.revokeObjectURL(url);
+                  toast({ title: "Código QR descargado" });
+                } catch (e) {
+                  window.open(bankDetails?.payment_qr_url || '', '_blank');
+                }
+              }}
+            >
+              <Download className="h-4 w-4 mr-2 text-primary" /> Descargar QR
+            </Button>
+            <Button
+              className="flex-1 text-xs h-9"
+              onClick={() => setShowFullQr(false)}
+            >
+              Cerrar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

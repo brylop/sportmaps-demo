@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
-import { Plus, Calendar, User, AlertTriangle, School, Pencil, FileText } from 'lucide-react';
+import { Plus, Calendar, User, AlertTriangle, School, Pencil, FileText, Trophy } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { AddChildDialog } from '@/components/children/AddChildDialog';
@@ -87,147 +87,135 @@ export default function MyChildrenPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Mis Hijos</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Familia SportMaps</h1>
           <p className="text-muted-foreground mt-1">
-            Gestiona la información de tus hijos y sus actividades deportivas
+            Gestión centralizada de tus hijos y su desarrollo deportivo
           </p>
         </div>
-        <Button onClick={() => setShowAddDialog(true)}>
+        <Button onClick={() => setShowAddDialog(true)} className="rounded-xl shadow-lg hover:shadow-primary/20 transition-all">
           <Plus className="w-4 h-4 mr-2" />
-          Añadir Hijo
+          Registrar Hijo
         </Button>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {displayChildren?.map((child: any) => (
-          <Card key={child.id} className="hover:shadow-lg transition-shadow">
-            <CardHeader className="pb-4">
+          <Card key={child.id} className="group relative overflow-hidden border-border/50 hover:border-primary/30 hover:shadow-2xl hover:shadow-primary/5 transition-all duration-300 rounded-2xl">
+            {/* Gradient Header Decoration */}
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary/40 via-primary to-primary/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+            
+            <CardHeader className="pb-4 relative">
               <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <Avatar className="w-12 h-12 border border-primary/10">
-                    <AvatarImage src={child.avatar_url || ''} className="object-cover" />
-                    <AvatarFallback className="bg-gradient-to-br from-primary to-primary/60 text-white font-semibold text-lg">
-                      {child.full_name.charAt(0)}
-                    </AvatarFallback>
-                  </Avatar>
+                <div className="flex items-center gap-4">
+                  <div className="relative">
+                    <Avatar className="w-16 h-16 border-2 border-background shadow-xl scale-100 group-hover:scale-105 transition-transform duration-500">
+                      <AvatarImage src={child.avatar_url || ''} className="object-cover" />
+                      <AvatarFallback className="bg-gradient-to-br from-primary to-primary/60 text-white font-bold text-xl">
+                        {child.full_name.charAt(0)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-green-500 border-2 border-background shadow-sm" title="Activo" />
+                  </div>
                   <div>
-                    <CardTitle className="text-lg">{child.full_name}</CardTitle>
-                    <p className="text-sm text-muted-foreground">
+                    <CardTitle className="text-xl font-bold tracking-tight group-hover:text-primary transition-colors">{child.full_name}</CardTitle>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1 font-medium italic">
+                      <Calendar className="h-3 w-3" />
                       {child.date_of_birth
                         ? new Date(child.date_of_birth + 'T00:00:00').toLocaleDateString('es-CO', {
                           year: 'numeric',
                           month: 'long',
-                          day: 'numeric',
                         })
-                        : 'Sin fecha de nacimiento'}
-                    </p>
+                        : 'Sin fecha'}
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {/* Allergy Icon */}
+                
+                <div className="flex flex-col items-end gap-2">
                   <MedicalAlertBadge medicalInfo={child.medical_info} />
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                    className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full"
                     onClick={() => setEditingChild(child)}
-                    title="Editar información"
                   >
                     <Pencil className="w-4 h-4" />
                   </Button>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="space-y-2">
+            
+            <CardContent className="space-y-5">
+              {/* Información Académica/Equipo */}
+              <div className="bg-muted/30 dark:bg-muted/10 rounded-xl p-3 border border-border/40">
                 {(() => {
-                  const activeEnrollment = child.enrollments?.find((e: any) => e.status === 'active');
-
-                  // Caso equipo — directo en children o via enrollment
+                  const enrollments = child.enrollments || [];
+                  const activeEnrollment = enrollments.find((e: any) => 
+                    ['active', 'activo'].includes(e.status?.toLowerCase())
+                  );
+                  
+                  // Intentar obtener el equipo desde el enrollment o directamente del hijo
                   const team = activeEnrollment?.teams || child.teams;
-
-                  // Caso plan — solo si no hay equipo
                   const plan = !team ? activeEnrollment?.offering_plans : null;
                   const offering = plan?.offerings;
 
                   if (team) {
                     return (
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 text-sm font-medium">
-                          <School className="w-4 h-4 text-muted-foreground" />
-                          <span>{team.name} {team.level ? `(${team.level})` : ''}</span>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-bold">
+                          <School className="w-4 h-4 text-primary" />
+                          <span>{team.name}</span>
+                          <Badge variant="outline" className="text-[9px] py-0 h-4 border-primary/20 text-primary uppercase">
+                            {team.level || 'General'}
+                          </Badge>
                         </div>
-                        {team.coach?.full_name && (
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground ml-6">
-                            <User className="w-3 h-3" />
-                            <span>Entrenador: {team.coach.full_name}</span>
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                          <div className="text-[10px] text-muted-foreground">
+                            <p className="uppercase tracking-tighter font-bold">Deporte</p>
+                            <p className="text-foreground font-medium">{team.sport || 'N/A'}</p>
                           </div>
-                        )}
-                        {team.sport && (
-                          <div className="ml-6 mt-1">
-                            <Badge variant="secondary" className="text-[10px] px-2 py-0 h-5">
-                              {team.sport}
-                            </Badge>
+                          <div className="text-[10px] text-muted-foreground">
+                            <p className="uppercase tracking-tighter font-bold">Entrenador</p>
+                            <p className="text-foreground font-medium text-truncate">{team.coach?.full_name?.split(' ')[0] || 'Asignando...'}</p>
                           </div>
-                        )}
+                        </div>
                       </div>
                     );
                   }
 
                   if (plan) {
                     return (
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 text-sm font-medium">
-                          <School className="w-4 h-4 text-muted-foreground" />
-                          <span>{offering?.name || 'Plan'}</span>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-bold">
+                          <School className="w-4 h-4 text-primary" />
+                          <span>{offering?.name || 'Inscripción'}</span>
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground ml-6">
-                          <span>{plan.name}</span>
-                        </div>
-                        {plan.price && (
-                          <div className="ml-6 mt-1">
-                            <Badge variant="secondary" className="text-[10px] px-2 py-0 h-5">
-                              {new Intl.NumberFormat('es-CO', {
-                                style: 'currency', currency: 'COP', minimumFractionDigits: 0
-                              }).format(plan.price)}/mes
-                            </Badge>
-                          </div>
-                        )}
+                        <p className="text-xs text-muted-foreground font-medium">{plan.name}</p>
                       </div>
                     );
                   }
 
-                  return null;
+                  return (
+                    <div className="text-xs text-muted-foreground italic flex items-center gap-2">
+                      <AlertTriangle className="h-3 w-3" />
+                      No hay inscripciones activas
+                    </div>
+                  );
                 })()}
-
-                {child.schools?.name && (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span role="img" aria-label="academia">🏫</span>
-                    <span>{child.schools.name}</span>
-                  </div>
-                )}
-
-                {child.monthly_fee != null && child.monthly_fee > 0 && (
-                  <div className="flex items-center gap-2 text-sm font-bold text-green-600 dark:text-green-500 pt-1">
-                    <span role="img" aria-label="pago">💰</span>
-                    <span>Mensualidad: {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(child.monthly_fee)}</span>
-                  </div>
-                )}
               </div>
 
-              <div className="pt-3 space-y-2">
-                <Link to={`/children/${child.id}/progress`}>
-                  <Button variant="outline" size="sm" className="w-full">
-                    <User className="w-4 h-4 mr-2" />
-                    Ver Progreso
+              <div className="grid grid-cols-2 gap-3">
+                <Link to={`/academic-progress?childId=${child.id}`} className="flex-1">
+                  <Button variant="outline" className="w-full h-11 rounded-xl border-border/60 hover:border-primary/40 hover:bg-primary/5 hover:text-primary transition-all group/btn shadow-sm font-bold text-xs uppercase tracking-wider">
+                    <Trophy className="w-4 h-4 mr-2 group-hover/btn:scale-110 transition-transform" />
+                    Progreso
                   </Button>
                 </Link>
-                <Link to={`/children/${child.id}/attendance`}>
-                  <Button variant="outline" size="sm" className="w-full">
-                    <Calendar className="w-4 h-4 mr-2" />
-                    Ver Asistencias
+                <Link to={`/parent-attendance?childId=${child.id}`} className="flex-1">
+                  <Button variant="outline" className="w-full h-11 rounded-xl border-border/60 hover:border-primary/40 hover:bg-primary/5 hover:text-primary transition-all group/btn shadow-sm font-bold text-xs uppercase tracking-wider">
+                    <Calendar className="w-4 h-4 mr-2 group-hover/btn:scale-110 transition-transform" />
+                    Asistencia
                   </Button>
                 </Link>
                 <Button

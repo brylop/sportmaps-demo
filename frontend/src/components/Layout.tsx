@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Menu, X, ArrowLeft } from "lucide-react";
 import { useState } from "react";
 import Logo from "@/components/Logo";
+import { SHOW_EXPLORE } from "@/lib/feature-flags";
 
 interface LayoutProps {
   children: ReactNode;
@@ -60,13 +61,15 @@ const Layout = ({
             >
               Ecosistema
             </button>
-            <button 
-              className="text-left text-lg font-medium hover:text-primary transition-colors"
-              onClick={() => handleNavigation("explore")}
-            >
-              Explorar
-            </button>
-            <button 
+            {SHOW_EXPLORE && (
+              <button
+                className="text-left text-lg font-medium hover:text-primary transition-colors"
+                onClick={() => handleNavigation("explore")}
+              >
+                Explorar
+              </button>
+            )}
+            <button
               className="text-left text-lg font-medium hover:text-primary transition-colors"
               onClick={() => handleNavigation("about")}
             >
@@ -140,13 +143,15 @@ const Layout = ({
                 >
                   Ecosistema
                 </button>
-                <button 
-                  className="font-medium hover:text-primary transition-colors"
-                  onClick={() => handleNavigation("explore")}
-                >
-                  Explorar
-                </button>
-                <button 
+                {SHOW_EXPLORE && (
+                  <button
+                    className="font-medium hover:text-primary transition-colors"
+                    onClick={() => handleNavigation("explore")}
+                  >
+                    Explorar
+                  </button>
+                )}
+                <button
                   className="font-medium hover:text-primary transition-colors"
                   onClick={() => handleNavigation("about")}
                 >

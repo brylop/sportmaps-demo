@@ -13,12 +13,18 @@ import {
   UserPlus, Search, X as XIcon, Clock, Check,
   Copy, MessageCircle, Send, Link as LinkIcon, Mail,
   Users, CreditCard, ChevronDown, Ban, Gift, Building2,
+  Pencil, RefreshCw,
 } from 'lucide-react';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { PhoneInput } from '@/components/ui/phone-input';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { dbErrorMessage } from '@/lib/errors/dbErrorMessage';
+import { invitationEmailPayload } from '@/lib/email/invitationEmail';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -65,11 +71,19 @@ export default function InvitationsManagementPage() {
     offeringPlanId: '',  // → p_offering_plan_id (plan de sesiones)
     monthlyFee: defaultMonthlyFee,
     role: 'parent' as 'parent' | 'coach' | 'athlete' | 'referral' | 'school_admin' | 'reporter',
+    unregisteredAthleteId: '',  // ← PATCH: ID del unregistered_athlete del bulk upload
   });
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
+
+  // ── Asignar equipo/plan/mensualidad a invitacion existente ──────────────────
+  const [editingInv, setEditingInv] = useState<Invitation | null>(null);
+  const [editForm, setEditForm] = useState<{ teamId: string; offeringPlanId: string; monthlyFee: number }>(
+    { teamId: '', offeringPlanId: '', monthlyFee: 0 }
+  );
+
   const [suggestedContacts, setSuggestedContacts] = useState<
     { name: string; email: string; phone?: string; childName?: string; teamId?: string }[]
   >([]);
@@ -116,21 +130,71 @@ export default function InvitationsManagementPage() {
 
   // ── Leer URL params al abrir ─────────────────────────────────────────────────
   useEffect(() => {
-    const email = searchParams.get('email');
-    const child = searchParams.get('child');
-    const program = searchParams.get('program');
-    const phone = searchParams.get('phone');
-    if (email || child || program || phone) {
+    const email          = searchParams.get('email');
+    const child          = searchParams.get('child');
+    const program        = searchParams.get('program');
+    const phone          = searchParams.get('phone');
+    const unregisteredId = searchParams.get('unregisteredId');
+    const roleParam      = searchParams.get('role');
+    const branchParam    = searchParams.get('branch');
+    const planIdParam    = searchParams.get('planId');
+
+    if (email || child || program || phone || unregisteredId) {
       setFormData(prev => ({
         ...prev,
-        parentEmail: email || prev.parentEmail,
-        childName: child || prev.childName,
-        teamId: program || prev.teamId,
-        parentPhone: phone || prev.parentPhone,
+        parentEmail:           email          || prev.parentEmail,
+        childName:             child          || prev.childName,
+        teamId:                program        || prev.teamId,
+        parentPhone:           phone          || prev.parentPhone,
+        unregisteredAthleteId: unregisteredId || prev.unregisteredAthleteId,
+        role:                  (roleParam as typeof prev.role) || prev.role,
+        offeringPlanId:        planIdParam    || prev.offeringPlanId,
       }));
+
+      // Pre-seleccionar sede si viene en el param
+      if (branchParam) {
+        (setFormData as any)(prev => ({ ...prev, selectedBranchId: branchParam }));
+      }
+
       setDialogOpen(true);
     }
   }, [searchParams]);
+
+  // ── Ajustar precio real (con descuento) si hay plan y atleta ───────────────
+  useEffect(() => {
+    const planIdParam = searchParams.get('planId');
+    const unregisteredId = searchParams.get('unregisteredId');
+
+    if (unregisteredId && planIdParam) {
+      // Buscar el pago real del atleta para este plan
+      supabase
+        .from('payments')
+        .select('amount, concept')
+        .eq('unregistered_athlete_id', unregisteredId)
+        .eq('offering_plan_id', planIdParam)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        .then(({ data: payment }) => {
+          if (payment?.amount) {
+            setFormData(prev => ({
+              ...prev,
+              monthlyFee: payment.amount,
+            }));
+          } else {
+            const plan = offeringPlans.find(p => p.id === planIdParam);
+            if (plan) {
+              setFormData(prev => ({ ...prev, monthlyFee: plan.price }));
+            }
+          }
+        });
+    } else if (planIdParam) {
+      const plan = offeringPlans.find(p => p.id === planIdParam);
+      if (plan) {
+        setFormData(prev => ({ ...prev, monthlyFee: plan.price }));
+      }
+    }
+  }, [searchParams, offeringPlans]);
 
   // Al abrir el dialog, preseleccionar la sede activa
   useEffect(() => {
@@ -180,7 +244,7 @@ export default function InvitationsManagementPage() {
   }, [schoolId, formData.role]);
 
   // ── Query invitaciones ───────────────────────────────────────────────────────
-  const { data: invitations = [], isLoading } = useQuery<Invitation[]>({
+  const { data: invitations = [], isLoading, isFetching, refetch } = useQuery<Invitation[]>({
     queryKey: ['invitations', schoolId, activeBranchId],
     queryFn: async () => {
       if (!schoolId) return [];
@@ -332,6 +396,7 @@ export default function InvitationsManagementPage() {
     });
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
+
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);
 
@@ -355,10 +420,19 @@ export default function InvitationsManagementPage() {
     const role = invitation.role_to_assign || formData.role;
     const phone = (invitation.parent_phone || formData.parentPhone).replace(/\D/g, '');
 
+    if (phone.length < 8) {
+      toast({ 
+        title: 'Sin número', 
+        description: 'No hay teléfono registrado para esta invitación.', 
+        variant: 'destructive' 
+      });
+      return;
+    }
+
     const messages: Record<string, string> = {
-      parent: `¡Hola! Te invitamos a inscribir a ${invitation.child_name || formData.childName} en ${schoolName}. Completa el registro aquí: ${link}`,
+      parent: `¡Hola! Te invitamos a inscribir a ${invitation.child_name || formData.childName} en ${schoolName}. Crea tu cuenta como acudiente y completa el registro del menor aquí: ${link}`,
       coach: `¡Hola! Te invitamos a unirte como entrenador en ${schoolName}. Completa tu registro aquí: ${link}`,
-      athlete: `¡Hola! Te invitamos a unirte como atleta en ${schoolName}. Completa tu registro aquí: ${link}`,
+      athlete: `¡Hola! Te invitamos a unirte como atleta a ${schoolName}. Este registro es para ti (atleta mayor de edad), no para un acudiente: ${link}`,
       school_admin: `¡Hola! Te invitamos a administrar una sede en ${schoolName}. Completa tu registro aquí: ${link}`,
       reporter: `¡Hola! Te invitamos a acceder como súper usuario en ${schoolName}. Completa tu registro aquí: ${link}`,
       guest: `¡Hola! Te invitamos a conocer ${schoolName}. Completa tu registro aquí: ${link}`,
@@ -379,11 +453,13 @@ export default function InvitationsManagementPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
-        body: JSON.stringify({
-          type: 'parent_invitation',
+        body: JSON.stringify(invitationEmailPayload({
+          role: invitation.role_to_assign,
           to: invitation.invited_email,
-          data: { schoolName, childName: invitation.child_name || '', registrationUrl: link },
-        }),
+          name: invitation.child_name,
+          registrationUrl: link,
+          schoolName,
+        })),
       });
       toast({ title: '📧 Correo reenviado', description: `Email enviado a ${invitation.invited_email}` });
     } catch {
@@ -405,12 +481,18 @@ export default function InvitationsManagementPage() {
       const { data: inviteId, error } = await (supabase.rpc as any)('create_invitation', {
         p_email: data.parentEmail,
         p_role: data.role,
-        p_child_name: data.role === 'parent' ? data.childName : null,
+        // child_name guarda el nombre de la persona invitada, no solo del menor:
+        // es el campo que las plantillas de correo leen al reenviar. Se guarda para
+        // los roles que tienen campo de nombre en el form. (Para atleta es seguro:
+        // accept_invitation_pro empareja unregistered_athletes por invitation_id y
+        // por email, nunca por child_name.)
+        p_child_name: ['parent', 'coach', 'athlete'].includes(data.role) ? (data.childName || null) : null,
         p_team_id: ['parent', 'athlete', 'coach'].includes(data.role) ? (data.teamId || null) : null,
         p_monthly_fee: ['parent', 'athlete'].includes(data.role) ? fee : null,
-        p_parent_phone: data.parentPhone || null,
+        p_parent_phone: data.parentPhone.replace(/\D/g, '').length >= 8 ? data.parentPhone : null,
         p_branch_id: (formData as any).selectedBranchId || activeBranchId || null,
         p_offering_plan_id: data.offeringPlanId || null,
+        p_unregistered_athlete_id: data.unregisteredAthleteId || null,  // ← PATCH
       });
       if (error) throw error;
 
@@ -422,11 +504,15 @@ export default function InvitationsManagementPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
-        body: JSON.stringify({
-          type: 'parent_invitation',
-          to: data.parentEmail,
-          data: { schoolName, childName: data.childName || '', registrationUrl: registration_link },
-        }),
+        body: JSON.stringify(
+          invitationEmailPayload({
+            role: data.role,
+            to: data.parentEmail,
+            name: data.childName,
+            registrationUrl: registration_link,
+            schoolName,
+          })
+        ),
       }).catch(err => console.warn('Email send failed:', err));
 
       return { id: inviteId, registration_link };
@@ -439,7 +525,7 @@ export default function InvitationsManagementPage() {
       const phone = formData.parentPhone.replace(/\D/g, '');
       const role = formData.role;
 
-      setFormData({ parentEmail: '', parentPhone: '+57', childName: '', teamId: '', offeringPlanId: '', monthlyFee: defaultMonthlyFee, role: 'parent' });
+      setFormData({ parentEmail: '', parentPhone: '+57', childName: '', teamId: '', offeringPlanId: '', monthlyFee: defaultMonthlyFee, role: 'parent', unregisteredAthleteId: '' });
       (formData as any).selectedBranchId = activeBranchId || '';
 
       toast({
@@ -452,11 +538,11 @@ export default function InvitationsManagementPage() {
         toast({ title: '📋 Link copiado automáticamente', description: 'Compártelo por WhatsApp o email.' });
 
         // Si hay teléfono, abrir WhatsApp automáticamente con el link real
-        if (phone.length >= 7) {
+        if (phone.length >= 8) {
           const messages: Record<string, string> = {
-            parent: `¡Hola! Te invitamos a inscribir a ${formData.childName} en ${schoolName}. Regístrate aquí: ${result.registration_link}`,
+            parent: `¡Hola! Te invitamos a inscribir a ${formData.childName} en ${schoolName}. Regístrate como su acudiente aquí: ${result.registration_link}`,
             coach: `¡Hola! Te invitamos como entrenador en ${schoolName}: ${result.registration_link}`,
-            athlete: `¡Hola! Te invitamos como atleta en ${schoolName}: ${result.registration_link}`,
+            athlete: `¡Hola! Te invitamos como atleta (mayor de edad) a ${schoolName}. Regístrate tú mismo aquí: ${result.registration_link}`,
             school_admin: `¡Hola! Te invitamos a administrar una sede en ${schoolName}: ${result.registration_link}`,
             reporter: `¡Hola! Te invitamos como súper usuario en ${schoolName}: ${result.registration_link}`,
           };
@@ -470,12 +556,78 @@ export default function InvitationsManagementPage() {
       }
     },
     onError: (error: unknown) => {
-      const message = error instanceof Error ? error.message
-        : (typeof error === 'object' && error !== null && 'message' in error)
-          ? String((error as any).message) : String(error);
-      toast({ title: '❌ Error', description: `No se pudo enviar la invitación: ${message}`, variant: 'destructive' });
+      toast({
+        title: '❌ No se pudo crear la invitación',
+        description: dbErrorMessage(error, 'No se pudo crear la invitación. Intenta de nuevo.'),
+        variant: 'destructive',
+      });
     },
   });
+
+  // ── Mutación asignar equipo/plan/mensualidad a invitación existente ─────────
+  const updateInvitationMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingInv) throw new Error('No invitation selected');
+      if (!editForm.teamId && !editForm.offeringPlanId) {
+        throw new Error('Selecciona un equipo o un plan de sesiones.');
+      }
+      if (!editForm.monthlyFee || editForm.monthlyFee <= 0) {
+        throw new Error('La mensualidad debe ser mayor a $0.');
+      }
+      const { error } = await (supabase.from('invitations') as any)
+        .update({
+          team_id: editForm.teamId || null,
+          offering_plan_id: editForm.offeringPlanId || null,
+          monthly_fee: editForm.monthlyFee,
+        })
+        .eq('id', editingInv.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invitations'] });
+      queryClient.refetchQueries({ queryKey: ['invitations', schoolId, activeBranchId] });
+      setEditingInv(null);
+      toast({ title: '✅ Asignación guardada', description: 'Equipo, plan y mensualidad actualizados.' });
+    },
+    onError: (error: unknown) => {
+      toast({
+        title: '❌ No se pudo guardar',
+        description: dbErrorMessage(error, 'No se pudo guardar la asignación.'),
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const openEditDialog = (inv: Invitation) => {
+    setEditingInv(inv);
+    const team = teams.find(t => t.id === inv.team_id);
+    const plan = offeringPlans.find(op => op.id === inv.offering_plan_id);
+    setEditForm({
+      teamId: inv.team_id || '',
+      offeringPlanId: inv.offering_plan_id || '',
+      monthlyFee: inv.monthly_fee ?? plan?.price ?? team?.monthly_fee ?? defaultMonthlyFee ?? 0,
+    });
+  };
+
+  const handleEditTeamChange = (val: string) => {
+    const teamId = val === 'none' ? '' : val;
+    const t = teams.find(p => p.id === teamId);
+    setEditForm(prev => ({
+      ...prev,
+      teamId,
+      monthlyFee: t?.monthly_fee || prev.monthlyFee,
+    }));
+  };
+
+  const handleEditPlanChange = (val: string) => {
+    const planId = val === 'none' ? '' : val;
+    const p = offeringPlans.find(op => op.id === planId);
+    setEditForm(prev => ({
+      ...prev,
+      offeringPlanId: planId,
+      monthlyFee: p?.price || prev.monthlyFee,
+    }));
+  };
 
   // ── Mutación cancelar invitación ──────────────────────────────────────────────
   const cancelInvitationMutation = useMutation({
@@ -490,8 +642,11 @@ export default function InvitationsManagementPage() {
       toast({ title: 'Invitación cancelada', description: 'La invitación fue cancelada correctamente.' });
     },
     onError: (error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      toast({ title: '❌ Error', description: `No se pudo cancelar: ${message}`, variant: 'destructive' });
+      toast({
+        title: '❌ No se pudo cancelar',
+        description: dbErrorMessage(error, 'No se pudo cancelar la invitación.'),
+        variant: 'destructive',
+      });
     },
   });
 
@@ -551,6 +706,22 @@ export default function InvitationsManagementPage() {
       });
       return;
     }
+    if (['parent', 'athlete'].includes(formData.role) && !formData.teamId && !formData.offeringPlanId) {
+      toast({
+        title: 'Falta equipo o plan',
+        description: 'Selecciona un equipo o un plan de sesiones para poder calcular la mensualidad.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (['parent', 'athlete'].includes(formData.role) && (!formData.monthlyFee || formData.monthlyFee <= 0)) {
+      toast({
+        title: 'Mensualidad requerida',
+        description: 'La mensualidad debe ser mayor a $0 antes de enviar la invitación.',
+        variant: 'destructive',
+      });
+      return;
+    }
     sendInvitationMutation.mutate(formData);
   };
 
@@ -588,6 +759,49 @@ export default function InvitationsManagementPage() {
     expired: invitations.filter(i => i.status === 'expired').length,
   };
 
+  // ── Envío masivo de invitaciones ─────────────────────────────────────────────
+  // El envío uno por uno choca con el rate limit de Resend y no deja rastro de
+  // quién recibió qué. El BFF agrupa en lotes de 100 y registra cada destinatario
+  // en email_sends, para poder reintentar SOLO los que fallaron.
+  const { data: sendStatus, refetch: refetchSendStatus } = useQuery({
+    queryKey: ['invitations-send-status', schoolId],
+    queryFn: async () => {
+      const { bffClient } = await import('@/lib/api/bffClient');
+      return bffClient.get<{ pendientes: number; enviadas: number; fallidas: number; sin_intentar: number }>(
+        '/api/v1/invitations/send-status'
+      );
+    },
+    enabled: !!schoolId,
+  });
+
+  const bulkSendMutation = useMutation({
+    mutationFn: async (filter: 'unsent' | 'pending') => {
+      const { bffClient } = await import('@/lib/api/bffClient');
+      return bffClient.post<{ message: string; total: number; sent: number; failed: number; aborted: boolean }>(
+        '/api/v1/invitations/bulk-send',
+        { filter }
+      );
+    },
+    onSuccess: (result) => {
+      refetchSendStatus();
+      queryClient.invalidateQueries({ queryKey: ['invitations'] });
+      toast({
+        title: result.aborted ? '⚠️ Envío detenido' : '📧 Envío completado',
+        description: result.aborted
+          ? `${result.message} Enviados: ${result.sent}.`
+          : `Enviados: ${result.sent} · Fallidos: ${result.failed} de ${result.total}.`,
+        variant: result.aborted || result.failed > 0 ? 'destructive' : undefined,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Error en el envío masivo',
+        description: error?.message || 'No se pudo completar el envío',
+        variant: 'destructive',
+      });
+    },
+  });
+
   // ── Etiqueta de asignación para la tabla ─────────────────────────────────────
   const getAssignmentLabel = (inv: Invitation) => {
     const teamName = teams.find(p => p.id === inv.team_id)?.name;
@@ -605,6 +819,43 @@ export default function InvitationsManagementPage() {
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div className="container mx-auto p-6 space-y-6">
+
+      {/* ── Envío masivo ──────────────────────────────────────────────────── */}
+      {!!sendStatus && sendStatus.pendientes > 0 && (
+        <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-card p-4 rounded-lg border shadow-sm">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+            <span className="font-medium">
+              {sendStatus.pendientes} invitación{sendStatus.pendientes === 1 ? '' : 'es'} pendiente{sendStatus.pendientes === 1 ? '' : 's'}
+            </span>
+            <span className="text-muted-foreground">Correo enviado: <strong>{sendStatus.enviadas}</strong></span>
+            {sendStatus.fallidas > 0 && (
+              <span className="text-destructive">Fallidos: <strong>{sendStatus.fallidas}</strong></span>
+            )}
+            {sendStatus.sin_intentar > 0 && (
+              <span className="text-muted-foreground">Sin intentar: <strong>{sendStatus.sin_intentar}</strong></span>
+            )}
+          </div>
+
+          <div className="flex gap-2 w-full md:w-auto">
+            <Button
+              variant="outline"
+              disabled={bulkSendMutation.isPending || (sendStatus.fallidas + sendStatus.sin_intentar) === 0}
+              onClick={() => bulkSendMutation.mutate('unsent')}
+            >
+              <Send className="w-4 h-4 mr-2" />
+              Enviar a los que faltan ({sendStatus.fallidas + sendStatus.sin_intentar})
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={bulkSendMutation.isPending}
+              onClick={() => bulkSendMutation.mutate('pending')}
+              title="Reenvía a TODAS las pendientes, incluso a las que ya recibieron el correo"
+            >
+              Reenviar a todas
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* ── Barra superior ────────────────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-card p-4 rounded-lg border shadow-sm">
@@ -641,6 +892,10 @@ export default function InvitationsManagementPage() {
               Limpiar filtros
             </Button>
           )}
+          <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
+            Actualizar
+          </Button>
           <Button onClick={() => setDialogOpen(true)}>
             <UserPlus className="w-4 h-4 mr-2" />
             Nueva Invitación
@@ -649,26 +904,20 @@ export default function InvitationsManagementPage() {
       </div>
 
       {/* ── Stats ─────────────────────────────────────────────────────────── */}
-      <div className="grid gap-4 md:grid-cols-5">
-        {[
-          { label: 'Total', value: stats.total, filter: 'all', color: 'primary' },
-          { label: 'Aceptadas', value: stats.accepted, filter: 'accepted', color: 'green-500' },
-          { label: 'Pendientes', value: stats.pending, filter: 'pending', color: 'yellow-500' },
-          { label: 'Rechazadas', value: stats.rejected, filter: 'rejected', color: 'red-500' },
-          { label: 'Expiradas', value: stats.expired, filter: 'expired', color: 'orange-500' },
-        ].map(s => (
-          <Card key={s.filter}
-            className={`cursor-pointer transition-all hover:ring-2 hover:ring-${s.color}/20 ${statusFilter === s.filter ? `ring-2 ring-${s.color} ring-offset-2` : 'opacity-80 hover:opacity-100'}`}
-            onClick={() => setStatusFilter(s.filter)}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">{s.label}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold ${s.color !== 'primary' ? `text-${s.color}` : ''}`}>{s.value}</div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* Antes las clases de color se armaban interpolando (`ring-${color}`) y
+          Tailwind no las generaba: las tarjetas nunca se veían resaltadas. */}
+      <StatFilterBar
+        columns={5}
+        value={statusFilter === 'all' ? null : statusFilter}
+        onChange={(v) => setStatusFilter(v ?? 'all')}
+        items={[
+          { key: null, label: 'Total', value: stats.total, tone: 'neutral' },
+          { key: 'accepted', label: 'Aceptadas', value: stats.accepted, tone: 'emerald' },
+          { key: 'pending', label: 'Pendientes', value: stats.pending, tone: 'yellow' },
+          { key: 'rejected', label: 'Rechazadas', value: stats.rejected, tone: 'rose' },
+          { key: 'expired', label: 'Expiradas', value: stats.expired, tone: 'orange' },
+        ]}
+      />
 
       {/* ── Tabla ─────────────────────────────────────────────────────────── */}
       <Card>
@@ -681,7 +930,7 @@ export default function InvitationsManagementPage() {
               <TableRow>
                 <TableHead>Email / Rol</TableHead>
                 <TableHead>Sede</TableHead>
-                <TableHead>Hijo / Equipo / Plan</TableHead>
+                <TableHead>Atleta / Equipo / Plan</TableHead>
                 <TableHead>Mensualidad</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead>Fecha</TableHead>
@@ -700,9 +949,9 @@ export default function InvitationsManagementPage() {
                           <span className="text-sm">{inv.invited_email}</span>
                         </div>
                         <Badge variant="secondary" className="w-fit text-[10px] capitalize font-normal">
-                          {inv.role_to_assign === 'parent' ? 'Padre' :
+                          {inv.role_to_assign === 'parent' ? 'Acudiente' :
                             inv.role_to_assign === 'coach' ? 'Entrenador' :
-                              inv.role_to_assign === 'athlete' ? 'Atleta' :
+                              inv.role_to_assign === 'athlete' ? 'Atleta 18+' :
                                 inv.role_to_assign === 'school_admin' ? 'Admin Sede' :
                                   inv.role_to_assign === 'reporter' ? 'Súper Usuario' : 'Invitado'}
                         </Badge>
@@ -752,6 +1001,16 @@ export default function InvitationsManagementPage() {
 
                     <TableCell className="text-right">
                       <div className="flex gap-1 justify-end">
+                        {['parent', 'athlete'].includes(inv.role_to_assign || '') && (
+                          <Button
+                            variant="ghost" size="sm"
+                            className={inv.monthly_fee == null ? 'text-orange-600 hover:text-orange-700 hover:bg-orange-50' : ''}
+                            onClick={() => openEditDialog(inv)}
+                            title={inv.monthly_fee == null ? 'Asignar equipo/plan/mensualidad' : 'Editar equipo/plan/mensualidad'}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                        )}
                         <Button variant="ghost" size="sm" onClick={() => copyLinkToClipboard(inv)} title="Copiar link">
                           <Copy className="w-4 h-4" />
                         </Button>
@@ -794,6 +1053,16 @@ export default function InvitationsManagementPage() {
               )}
             </TableBody>
           </Table>
+          <TableRefreshBar
+            className="-mx-6 -mb-6 mt-2 rounded-b-lg"
+            onRefresh={refetch}
+            loading={isFetching}
+            summary={
+              filteredInvitations.length === invitations.length
+                ? `${invitations.length} invitación(es)`
+                : `${filteredInvitations.length} de ${invitations.length} invitación(es)`
+            }
+          />
         </CardContent>
       </Card>
 
@@ -810,7 +1079,9 @@ export default function InvitationsManagementPage() {
               </DialogTitle>
               <DialogDescription className="text-sm">
                 {formData.role === 'parent'
-                  ? 'Invita a un padre para inscribir a su hijo en un equipo o plan.'
+                  ? 'Invita al acudiente de un atleta menor de edad: él crea la cuenta, inscribe al menor y paga.'
+                  : formData.role === 'athlete'
+                    ? 'Invita a un atleta mayor de edad: se registra él mismo, sin acudiente, y paga su propio plan.'
                   : formData.role === 'coach'
                     ? 'Invita un entrenador a unirse a tu academia.'
                     : formData.role === 'school_admin'
@@ -833,9 +1104,9 @@ export default function InvitationsManagementPage() {
               </Label>
               <div className="grid grid-cols-3 gap-1.5">
                 {[
-                  { id: 'parent', label: '👨‍👩‍👧 Padre/Madre' },
+                  { id: 'parent', label: '👨‍👩‍👧 Acudiente' },
                   { id: 'coach', label: '🏋️ Entrenador' },
-                  { id: 'athlete', label: '⚽ Atleta' },
+                  { id: 'athlete', label: '⚽ Atleta 18+' },
                   { id: 'school_admin', label: '🔑 Administrador' },
                   { id: 'reporter', label: '📊 Súper Usuario' },
                   { id: 'referral', label: '🏫 Referencia' },
@@ -944,17 +1215,16 @@ export default function InvitationsManagementPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="parentPhone" className="text-sm font-medium">Teléfono / WhatsApp</Label>
-                  <Input
-                    id="parentPhone" type="tel" placeholder="300..."
-                    value={formData.parentPhone} className="h-10"
-                    onChange={e => setFormData({ ...formData, parentPhone: e.target.value })}
+                  <Label className="text-sm font-medium">WhatsApp</Label>
+                  <PhoneInput
+                    value={formData.parentPhone}
+                    onChange={(v) => setFormData({ ...formData, parentPhone: v })}
                   />
                 </div>
 
                 {formData.role === 'parent' && (
                   <div className="space-y-1.5">
-                    <Label htmlFor="childName" className="text-sm font-medium">Nombre del hijo/a *</Label>
+                    <Label htmlFor="childName" className="text-sm font-medium">Nombre del menor a inscribir *</Label>
 
                     {/* Si el equipo tiene atletas registrados, mostrar dropdown para elegir */}
                     {formData.teamId && teamChildren.length > 0 && (
@@ -999,6 +1269,26 @@ export default function InvitationsManagementPage() {
                   </div>
                 )}
 
+                {/* Nombre para los roles que no son acudiente. Sin esto el correo
+                    saludaba "Hola entrenador," en vez de usar su nombre; se guarda
+                    en child_name, que es el campo que las plantillas leen. */}
+                {['coach', 'athlete'].includes(formData.role) && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="inviteeName" className="text-sm font-medium">
+                      {formData.role === 'coach' ? 'Nombre del entrenador' : 'Nombre del atleta'}{' '}
+                      <span className="font-normal text-muted-foreground">(opcional)</span>
+                    </Label>
+                    <Input
+                      id="inviteeName" placeholder="Nombre completo" className="h-10"
+                      value={formData.childName}
+                      onChange={e => setFormData({ ...formData, childName: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Se usa para personalizar el correo de invitación.
+                    </p>
+                  </div>
+                )}
+
                 {branches.length > 1 && (
                   <div className="space-y-1.5">
                     <Label className="text-sm font-medium">Sede de la invitación</Label>
@@ -1016,7 +1306,12 @@ export default function InvitationsManagementPage() {
 
                 {['parent', 'athlete', 'coach'].includes(formData.role) && (
                   <div className="space-y-1.5">
-                    <Label className="text-sm font-medium">Equipo / Grupo</Label>
+                    <Label className="text-sm font-medium">
+                      Equipo / Grupo
+                      {['parent', 'athlete'].includes(formData.role) && (
+                        <span className="text-muted-foreground font-normal ml-1">(equipo o plan requerido)</span>
+                      )}
+                    </Label>
                     <Select value={formData.teamId || 'none'} onValueChange={handleTeamChange}>
                       <SelectTrigger className="h-10"><SelectValue placeholder="Seleccionar equipo" /></SelectTrigger>
                       <SelectContent>
@@ -1029,7 +1324,10 @@ export default function InvitationsManagementPage() {
 
                 {['parent', 'athlete'].includes(formData.role) && (
                   <div className="space-y-1.5">
-                    <Label className="text-sm font-medium">Plan de sesiones</Label>
+                    <Label className="text-sm font-medium">
+                      Plan de sesiones
+                      <span className="text-muted-foreground font-normal ml-1">(equipo o plan requerido)</span>
+                    </Label>
                     <Select value={formData.offeringPlanId || 'none'} onValueChange={handlePlanChange}>
                       <SelectTrigger className="h-10"><SelectValue placeholder="Seleccionar plan" /></SelectTrigger>
                       <SelectContent>
@@ -1047,7 +1345,7 @@ export default function InvitationsManagementPage() {
                 {['parent', 'athlete'].includes(formData.role) && (
                   <div className="space-y-1.5 p-3 rounded-lg bg-primary/5 border border-primary/10 transition-all">
                     <Label className="text-sm font-semibold flex items-center justify-between">
-                      Mensualidad / Cobro inicial
+                      Mensualidad / Cobro inicial *
                       <Badge variant="secondary" className="font-normal text-[10px]">COP</Badge>
                     </Label>
                     <div className="relative">
@@ -1111,6 +1409,86 @@ export default function InvitationsManagementPage() {
               )}
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog editar asignación de invitación ───────────────────────── */}
+      <Dialog open={!!editingInv} onOpenChange={(open) => !open && setEditingInv(null)}>
+        <DialogContent className="max-w-md p-0 overflow-hidden">
+          <div className="px-6 pt-6 pb-4 border-b bg-gradient-to-b from-primary/5 to-transparent">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                <Pencil className="w-5 h-5 text-primary" />
+                Asignar equipo y mensualidad
+              </DialogTitle>
+              <DialogDescription className="text-sm">
+                {editingInv?.invited_email}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+
+          <div className="px-6 pb-6 pt-4 space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">
+                Equipo / Grupo
+                <span className="text-muted-foreground font-normal ml-1">(equipo o plan requerido)</span>
+              </Label>
+              <Select value={editForm.teamId || 'none'} onValueChange={handleEditTeamChange}>
+                <SelectTrigger className="h-10"><SelectValue placeholder="Seleccionar equipo" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin equipo</SelectItem>
+                  {teams.map(p => (<SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">
+                Plan de sesiones
+                <span className="text-muted-foreground font-normal ml-1">(equipo o plan requerido)</span>
+              </Label>
+              <Select value={editForm.offeringPlanId || 'none'} onValueChange={handleEditPlanChange}>
+                <SelectTrigger className="h-10"><SelectValue placeholder="Seleccionar plan" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin plan</SelectItem>
+                  {offeringPlans.map(op => (
+                    <SelectItem key={op.id} value={op.id} className="text-xs">
+                      {op.name} ({formatCurrency(op.price)})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5 p-3 rounded-lg bg-primary/5 border border-primary/10">
+              <Label className="text-sm font-semibold flex items-center justify-between">
+                Mensualidad *
+                <Badge variant="secondary" className="font-normal text-[10px]">COP</Badge>
+              </Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                <Input
+                  type="number" value={editForm.monthlyFee || ''}
+                  className="pl-7 h-10 font-bold text-primary"
+                  onChange={e => setEditForm(prev => ({ ...prev, monthlyFee: Number(e.target.value) }))}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-2 border-t">
+              <Button type="button" variant="ghost" onClick={() => setEditingInv(null)}>
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                disabled={updateInvitationMutation.isPending}
+                onClick={() => updateInvitationMutation.mutate()}
+                className="px-6"
+              >
+                {updateInvitationMutation.isPending ? 'Guardando...' : 'Guardar'}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

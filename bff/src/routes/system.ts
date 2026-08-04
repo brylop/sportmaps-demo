@@ -29,7 +29,7 @@ router.post('/cleanup', requireAuth, requireRole('admin', 'super_admin'), async 
         });
     } catch (err: any) {
         req.log?.error({ err }, 'Error en cleanup manual');
-        return res.status(500).json({ error: err.message });
+        return res.status(500).json({ error: 'Error interno del servidor.' });
     }
 });
 

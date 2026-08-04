@@ -9,6 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { Trophy, Plus, TrendingUp, Minus, Equal, Trash2 } from 'lucide-react';
 import { MatchResultFormDialog } from '@/components/coach/MatchResultFormDialog';
+import { CompetitionResultFormDialog } from '@/components/coach/CompetitionResultFormDialog';
+import { CompetitionResultsList } from '@/components/coach/CompetitionResultsList';
 import { useToast } from '@/hooks/use-toast';
 import {
   AlertDialog,
@@ -29,6 +31,7 @@ export default function ResultsPage() {
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [competitionDialogOpen, setCompetitionDialogOpen] = useState(false);
 
   const { schoolId, activeBranchId, currentUserRole } = useSchoolContext();
 
@@ -91,6 +94,25 @@ export default function ResultsPage() {
     enabled: !!schoolId && !!user?.id,
   });
 
+  const selectedTeam = teams?.find((t: any) => t.id === selectedTeamId);
+
+  const { data: setsSportsData } = useQuery({
+    queryKey: ['sports-with-sets-scoring'],
+    queryFn: async (): Promise<string[]> => {
+      const { data, error } = await (supabase as any)
+        .from('sports_categories')
+        .select('name')
+        .eq('uses_sets_scoring', true);
+      if (error) throw error;
+      return (data || []).map((s: any) => s.name as string);
+    },
+    staleTime: 1000 * 60 * 60, // 1h — el catálogo de deportes casi no cambia
+  });
+
+  const usesSets = selectedTeam
+    ? (setsSportsData ?? []).some((name) => name.toLowerCase() === selectedTeam.sport?.toLowerCase())
+    : false;
+
   // Fetch match results
   const { data: results, isLoading } = useQuery({
     queryKey: ['match-results', selectedTeamId],
@@ -103,7 +125,7 @@ export default function ResultsPage() {
       if (error) throw error;
       return data;
     },
-    enabled: !!selectedTeamId,
+    enabled: !!selectedTeamId && !usesSets,
   });
 
   // Create result mutation
@@ -185,7 +207,7 @@ export default function ResultsPage() {
         </div>
         <Button
           className="gap-2"
-          onClick={() => setDialogOpen(true)}
+          onClick={() => (usesSets ? setCompetitionDialogOpen(true) : setDialogOpen(true))}
           disabled={!selectedTeamId}
         >
           <Plus className="w-4 h-4" />
@@ -213,7 +235,7 @@ export default function ResultsPage() {
         </CardContent>
       </Card>
 
-      {selectedTeamId && stats && (
+      {selectedTeamId && !usesSets && stats && (
         <>
           <Card className="bg-gradient-to-br from-primary/10 to-primary/5">
             <CardContent className="pt-6">
@@ -318,6 +340,10 @@ export default function ResultsPage() {
         </>
       )}
 
+      {selectedTeamId && usesSets && (
+        <CompetitionResultsList teamId={selectedTeamId} />
+      )}
+
       {!selectedTeamId && teams && teams.length > 0 && (
         <Card>
           <CardContent className="pt-6 text-center">
@@ -342,13 +368,21 @@ export default function ResultsPage() {
         </Card>
       )}
 
-      {selectedTeamId && (
+      {selectedTeamId && !usesSets && (
         <MatchResultFormDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           onSubmit={createMutation.mutate}
           teamId={selectedTeamId}
           isLoading={createMutation.isPending}
+        />
+      )}
+
+      {selectedTeamId && usesSets && (
+        <CompetitionResultFormDialog
+          open={competitionDialogOpen}
+          onOpenChange={setCompetitionDialogOpen}
+          teamId={selectedTeamId}
         />
       )}
 

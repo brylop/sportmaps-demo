@@ -58,7 +58,7 @@ export function NumberStepper({
             <button
                 type="button"
                 onClick={handleDecrement}
-                className="h-full w-10 flex items-center justify-center border-r border-border/40 hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground shrink-0"
+                className="h-full w-8 flex items-center justify-center border-r border-border/40 hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground shrink-0"
             >
                 <Minus className="h-4 w-4" />
             </button>
@@ -68,7 +68,7 @@ export function NumberStepper({
                     type="text"
                     className={cn(
                         "border-0 bg-transparent text-center font-bold text-sm focus-visible:ring-0 focus-visible:ring-offset-0 h-full no-spinners w-full px-2",
-                        unit ? "pr-10" : "px-2"
+                        unit ? "pr-6" : "px-2"
                     )}
                     value={displayValue}
                     onChange={handleChange}
@@ -83,7 +83,7 @@ export function NumberStepper({
             <button
                 type="button"
                 onClick={handleIncrement}
-                className="h-full w-10 flex items-center justify-center border-l border-border/40 hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground shrink-0"
+                className="h-full w-8 flex items-center justify-center border-l border-border/40 hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground shrink-0"
             >
                 <Plus className="h-4 w-4" />
             </button>

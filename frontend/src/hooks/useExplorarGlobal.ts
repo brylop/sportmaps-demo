@@ -7,6 +7,7 @@ import { supabase } from '@/integrations/supabase/client';
 export type ExploreCategory =
   | 'all'
   | 'services'
+  | 'trainers'
   | 'events'
   | 'schools'
   | 'products';
@@ -39,7 +40,7 @@ export interface ExploreFilters {
 
 export interface ExploreItem {
   id: string;
-  item_type: 'service' | 'event' | 'school' | 'product';
+  item_type: 'service' | 'trainer' | 'event' | 'school' | 'product';
   name: string;
   description: string | null;
   price: number;
@@ -58,10 +59,18 @@ export interface ExploreItem {
   registrations_count?: number;
   registrations_open?: boolean;
 
-  // School-specific
+  // School-specific / Trainer-specific shared
   sports?: string[];
   rating?: number;
   review_count?: number;
+
+  // Trainer-specific
+  tagline?: string | null;
+  primary_sport?: string | null;
+  modality?: 'presencial' | 'virtual' | 'ambas';
+  experience_years?: number | null;
+  specialties?: string[] | null;
+  trainer_user_id?: string;
 
   // Product-specific
   stock?: number;
@@ -95,8 +104,64 @@ async function fetchExploreGlobal(filters: ExploreFilters): Promise<ExploreResul
   const limit = filters.limit;
   const offset = (filters.page - 1) * limit;
 
-  // Services: requires service_listings table (marketplace migration).
-  // Skipped until the migration is deployed to Supabase.
+  // Fetch services (wellness, fisio, nutricion, psicologia, entrenamiento)
+  // Se une service_listings con vendor_profiles. RLS publica exige
+  // is_active=true en ambos + visibility='public' en service_listings.
+  if (filters.category === 'all' || filters.category === 'services') {
+    const svcLimit = filters.category === 'services' ? limit : 6;
+    let servicesQuery = supabase
+      .from('service_listings')
+      .select(`
+        id, name, description, service_type, price, currency, duration_minutes,
+        image_url, is_active, visibility, has_variations, created_at,
+        vendor_profile:vendor_profiles!inner(
+          id, display_name, slug, city, logo_url, verification_status, is_active
+        )
+      `)
+      .eq('is_active', true)
+      .eq('visibility', 'public');
+
+    if (filters.q) {
+      servicesQuery = servicesQuery.or(`name.ilike.%${filters.q}%,description.ilike.%${filters.q}%`);
+    }
+    if (filters.service_type) servicesQuery = servicesQuery.eq('service_type', filters.service_type);
+    if (filters.price_max) servicesQuery = servicesQuery.lte('price', filters.price_max);
+
+    servicesQuery = servicesQuery
+      .order('created_at', { ascending: false })
+      .range(0, svcLimit - 1);
+
+    const { data: services, error: svcErr } = await servicesQuery;
+    if (svcErr) console.error('[useExplorarGlobal] services', svcErr);
+
+    if (services) {
+      for (const raw of services as any[]) {
+        const vp = Array.isArray(raw.vendor_profile) ? raw.vendor_profile[0] : raw.vendor_profile;
+        if (!vp || !vp.is_active) continue;
+        // Filtro de ciudad sobre el vendor (la columna city esta en vendor_profiles)
+        if (filters.city && !(vp.city ?? '').toLowerCase().includes(filters.city.toLowerCase())) continue;
+        items.push({
+          id: raw.id,
+          item_type: 'service',
+          name: raw.name,
+          description: raw.description,
+          price: raw.price ?? 0,
+          currency: raw.currency ?? 'COP',
+          image_url: raw.image_url || vp.logo_url,
+          service_type: raw.service_type,
+          duration_minutes: raw.duration_minutes,
+          has_variants: raw.has_variations,
+          vendor_name: vp.display_name,
+          vendor_slug: vp.slug,
+          vendor_city: vp.city,
+          vendor_verified: vp.verification_status === 'verified',
+          vendor_logo: vp.logo_url,
+          vendor_id: vp.id,
+          created_at: raw.created_at,
+        });
+      }
+    }
+  }
 
   // Fetch events (open for individual registration)
   if (filters.category === 'all' || filters.category === 'events') {
@@ -146,42 +211,92 @@ async function fetchExploreGlobal(filters: ExploreFilters): Promise<ExploreResul
     }
   }
 
-  // Fetch schools
+  // Fetch schools usando la RPC search_schools (SECURITY DEFINER bypasea RLS de
+  // school_settings y ya enforza public_profile_enabled=true). Antes hacia query
+  // directa con !inner pero la policy de select en school_settings es
+  // staff-only, asi que el join devolvia 0 filas y la escuela jamas aparecia.
   if (filters.category === 'all' || filters.category === 'schools') {
-    let schoolsQuery = supabase
-      .from('schools')
-      .select('id, name, description, logo_url, cover_image_url, city, address, sports, verified, rating, review_count, created_at', { count: 'exact' });
+    const schoolsLimit = filters.category === 'schools' ? limit : 6;
+    const { data: rpcData, error: rpcErr } = await supabase.rpc('search_schools', {
+      p_page: 1,
+      p_limit: schoolsLimit,
+      p_order_by: 'rating',
+      p_query: filters.q ?? null,
+      p_city: filters.city ?? null,
+      p_sport: filters.sport ?? null,
+      p_price_max: filters.price_max ?? null,
+    } as any);
+
+    if (rpcErr) {
+      console.error('[useExplorarGlobal] search_schools', rpcErr);
+    }
+
+    const schools = (rpcData as any)?.data ?? [];
+    for (const s of schools as any[]) {
+      items.push({
+        id: s.id,
+        item_type: 'school',
+        name: s.name,
+        description: null,
+        price: s.min_price ?? 0,
+        currency: 'COP',
+        image_url: s.cover_image_url || s.logo_url,
+        sports: s.program_sports ?? [],
+        rating: s.avg_rating ?? 0,
+        review_count: s.review_count ?? 0,
+        vendor_name: s.name,
+        vendor_city: s.city,
+        vendor_verified: s.verified || false,
+        vendor_logo: s.logo_url,
+        created_at: new Date().toISOString(),
+      });
+    }
+  }
+
+  // Fetch trainers (published profiles)
+  if (filters.category === 'all' || filters.category === 'trainers') {
+    const trnLimit = filters.category === 'trainers' ? limit : 6;
+    let trainersQuery = (supabase as any)
+      .from('trainer_profiles')
+      .select('id, user_id, display_name, tagline, avatar_url, primary_sport, city, modality, rate_per_session, rate_currency, rating, review_count, specialties, experience_years, created_at')
+      .eq('is_published', true);
 
     if (filters.q) {
-      schoolsQuery = schoolsQuery.or(`name.ilike.%${filters.q}%,description.ilike.%${filters.q}%`);
+      trainersQuery = trainersQuery.or(`display_name.ilike.%${filters.q}%,tagline.ilike.%${filters.q}%`);
     }
-    if (filters.city) schoolsQuery = schoolsQuery.ilike('city', `%${filters.city}%`);
-    if (filters.sport) schoolsQuery = schoolsQuery.contains('sports', [filters.sport]);
+    if (filters.city) trainersQuery = trainersQuery.ilike('city', `%${filters.city}%`);
+    if (filters.sport) trainersQuery = trainersQuery.ilike('primary_sport', `%${filters.sport}%`);
+    if (filters.price_max) trainersQuery = trainersQuery.lte('rate_per_session', filters.price_max);
 
-    schoolsQuery = schoolsQuery
+    trainersQuery = trainersQuery
       .order('rating', { ascending: false, nullsFirst: false })
-      .range(0, (filters.category === 'schools' ? limit : 6) - 1);
+      .range(0, trnLimit - 1);
 
-    const { data: schools } = await schoolsQuery;
+    const { data: trainers } = await trainersQuery;
 
-    if (schools) {
-      for (const s of schools) {
+    if (trainers) {
+      for (const t of trainers as any[]) {
         items.push({
-          id: s.id,
-          item_type: 'school',
-          name: s.name,
-          description: s.description,
-          price: 0, // schools show "desde $X" separately
-          currency: 'COP',
-          image_url: s.cover_image_url || s.logo_url,
-          sports: s.sports,
-          rating: s.rating,
-          review_count: s.review_count,
-          vendor_name: s.name,
-          vendor_city: s.city,
-          vendor_verified: s.verified || false,
-          vendor_logo: s.logo_url,
-          created_at: s.created_at,
+          id: t.id,
+          item_type: 'trainer',
+          name: t.display_name || 'Entrenador',
+          description: t.tagline,
+          price: t.rate_per_session || 0,
+          currency: t.rate_currency || 'COP',
+          image_url: t.avatar_url,
+          tagline: t.tagline,
+          primary_sport: t.primary_sport,
+          modality: t.modality,
+          experience_years: t.experience_years,
+          specialties: t.specialties,
+          rating: t.rating || 0,
+          review_count: t.review_count || 0,
+          trainer_user_id: t.user_id,
+          vendor_name: t.display_name || '',
+          vendor_city: t.city,
+          vendor_verified: false,
+          vendor_logo: t.avatar_url,
+          created_at: t.created_at || new Date().toISOString(),
         });
       }
     }

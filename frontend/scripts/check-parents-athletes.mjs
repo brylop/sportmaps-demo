@@ -1,9 +1,14 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = 'https://luebjarufsiadojhvxgi.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://luebjarufsiadojhvxgi.supabase.co';
 // Using Service Role Key to bypass RLS for administrative check (from existing scripts)
-const SERVICE_ROLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx1ZWJqYXJ1ZnNpYWRvamh2eGdpIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODkxNTY1OCwiZXhwIjoyMDc0NDkxNjU4fQ.UxkAmsGSCkbmlg5q2ip7RTSW8L4SGAytWL23ZXmWHro';
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!SERVICE_ROLE_KEY) {
+    console.error('❌ Falta SUPABASE_SERVICE_ROLE_KEY. Ej: SUPABASE_SERVICE_ROLE_KEY=sb_secret_... node scripts/check-parents-athletes.mjs');
+    process.exit(1);
+}
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 

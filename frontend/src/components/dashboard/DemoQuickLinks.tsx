@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Smartphone, Store, MapPin, CreditCard } from 'lucide-react';
 import { MobileAppPreviewModal } from '@/components/modals/MobileAppPreviewModal';
 import { useNavigate } from 'react-router-dom';
+import { SHOW_EXPLORE } from '@/lib/feature-flags';
 
 export function DemoQuickLinks() {
   const [showMobileModal, setShowMobileModal] = useState(false);
@@ -34,15 +35,17 @@ export function DemoQuickLinks() {
             <span className="text-xs text-center">App para Padres</span>
           </Button>
           
-          <Button
-            variant="outline"
-            className="h-auto flex-col gap-2 p-4"
-            onClick={() => navigate('/explore')}
-          >
-            <MapPin className="h-6 w-6 text-primary" />
-            <span className="text-xs text-center">Tu Perfil Público</span>
-          </Button>
-          
+          {SHOW_EXPLORE && (
+            <Button
+              variant="outline"
+              className="h-auto flex-col gap-2 p-4"
+              onClick={() => navigate('/explorar')}
+            >
+              <MapPin className="h-6 w-6 text-primary" />
+              <span className="text-xs text-center">Tu Perfil Público</span>
+            </Button>
+          )}
+
           <Button
             variant="outline"
             className="h-auto flex-col gap-2 p-4"

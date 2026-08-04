@@ -238,7 +238,7 @@ const SchoolSearch = ({ onNavigate }: SchoolSearchProps) => {
               </div>
               <div>
                 <p className="text-2xl font-bold">5,000+</p>
-                <p className="text-sm text-muted-foreground">Estudiantes</p>
+                <p className="text-sm text-muted-foreground">Deportistas</p>
               </div>
             </div>
           </Card>
@@ -367,7 +367,7 @@ const SchoolSearch = ({ onNavigate }: SchoolSearchProps) => {
                     </div>
                     <div className="flex items-center gap-1 text-sm">
                       <Users className="h-4 w-4 text-primary" />
-                      <span>{school.students} estudiantes</span>
+                      <span>{school.students} deportistas</span>
                     </div>
                   </div>
                   <p className="text-sm text-muted-foreground mb-4">{school.description}</p>
@@ -454,7 +454,7 @@ const SchoolSearch = ({ onNavigate }: SchoolSearchProps) => {
             <Trophy className="h-16 w-16 text-primary mx-auto mb-4" />
             <h3 className="text-3xl font-bold mb-3">¿Diriges una escuela o academia?</h3>
             <p className="text-muted-foreground mb-6 text-lg max-w-2xl mx-auto">
-              Únete a SportMaps y conecta con miles de estudiantes buscando programas deportivos de calidad
+              Únete a SportMaps y conecta con miles de deportistas buscando programas deportivos de calidad
             </p>
             <div className="flex flex-wrap gap-4 justify-center">
               <Button size="lg" onClick={() => onNavigate("register")}>

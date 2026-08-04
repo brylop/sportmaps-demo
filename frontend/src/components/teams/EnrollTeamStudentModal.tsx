@@ -18,7 +18,7 @@ import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { studentsAPI, Student } from '@/lib/api/students';
 import { classesAPI } from '@/lib/api/classes';
 import { supabase } from '@/integrations/supabase/client';
-import { Search, Loader2, UserPlus, Check, Users, X } from 'lucide-react';
+import { Search, Loader2, UserPlus, Check, Users, X, Wallet } from 'lucide-react';
 
 interface Team {
     id: string;
@@ -42,14 +42,37 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
     const [loading, setLoading] = useState(false);
     const [enrolling, setEnrolling] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [teamFee, setTeamFee] = useState<number | null>(null);
     const { toast } = useToast();
 
     useEffect(() => {
         if (open && team) {
             loadStudents();
             loadEnrolledStudents();
+            loadTeamFee();
         }
     }, [open, team]);
+
+    /**
+     * La mensualidad del equipo, para poder advertirla ANTES de inscribir.
+     *
+     * Inscribir a un atleta en un equipo con precio le genera un cobro, pero no
+     * en el momento: `open_month` resuelve el monto con
+     * COALESCE(enrollments.monthly_fee, offering_plans.price, teams.price_monthly,
+     * children.monthly_fee) y toma cualquier inscripción activa con monto > 0.
+     * El cobro nace en la apertura del mes, así que nada en la pantalla delataba
+     * el efecto económico de un clic. Se avisa para todos los roles, no solo
+     * para el entrenador: el admin también se enteraba solo al abrir el mes.
+     */
+    const loadTeamFee = async () => {
+        if (!team?.id) return;
+        const { data } = await supabase
+            .from('teams')
+            .select('price_monthly')
+            .eq('id', team.id)
+            .maybeSingle();
+        setTeamFee(Number((data as any)?.price_monthly) || null);
+    };
 
     const loadStudents = async () => {
         if (!team?.school_id) return;
@@ -67,7 +90,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
         } catch (error: any) {
             console.error('Error loading students:', error);
             toast({
-                title: 'Error al cargar estudiantes',
+                title: 'Error al cargar deportistas',
                 description: error.message,
                 variant: 'destructive',
             });
@@ -110,7 +133,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
             });
 
             toast({
-                title: '¡Estudiante inscrito!',
+                title: '¡Deportista inscrito!',
                 description: `${student.full_name} ha sido inscrito en ${team.name}`,
             });
 
@@ -142,14 +165,21 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                 .maybeSingle();
 
             if (enrollment?.id) {
-                await supabase
+                // El error se tiene que propagar. RLS solo deja escribir
+                // enrollments a owner/admin, así que a un entrenador esta
+                // actualización le falla — y antes el resultado se descartaba y
+                // el toast de éxito salía igual: la UI decía "removido" y el
+                // atleta seguía en el equipo.
+                const { error: cancelError } = await supabase
                     .from('enrollments')
                     .update({ status: 'cancelled' })
                     .eq('id', enrollment.id);
+
+                if (cancelError) throw cancelError;
             }
 
             toast({
-                title: 'Estudiante removido',
+                title: 'Deportista removido',
                 description: `${student.full_name} ha sido removido del equipo ${team.name}`,
             });
 
@@ -166,22 +196,35 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
         }
     };
 
-    const filteredStudents = students.filter(s =>
-        s.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (s.email?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-        (s.grade?.toLowerCase() || '').includes(searchQuery.toLowerCase())
-    );
-
     const isEnrolled = (studentId: string) => enrolledStudentIds.includes(studentId);
+
+    const matchesSearch = (s: Student) => {
+        const q = searchQuery.toLowerCase();
+        return (
+            s.full_name.toLowerCase().includes(q) ||
+            (s.email?.toLowerCase() || '').includes(q) ||
+            (s.grade?.toLowerCase() || '').includes(q)
+        );
+    };
+
+    // Inscritos arriba y no inscritos abajo. Ambas listas respetan la búsqueda:
+    // con query vacío matchesSearch devuelve true, así que se muestran todos.
+    const enrolledList = students
+        .filter(s => isEnrolled(s.id) && matchesSearch(s))
+        .sort((a, b) => a.full_name.localeCompare(b.full_name));
+    const availableList = students
+        .filter(s => !isEnrolled(s.id) && matchesSearch(s))
+        .sort((a, b) => a.full_name.localeCompare(b.full_name));
+    const filteredStudents = [...enrolledList, ...availableList];
     const isFull = team ? enrolledStudentIds.length >= (team.max_students || 20) : false;
 
     return (
         <Dialog open={open} onOpenChange={onClose}>
-            <DialogContent className="max-w-2xl max-h-[90vh]">
+            <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <UserPlus className="h-5 w-5 text-primary" />
-                        Inscribir Estudiantes
+                        Inscribir Deportistas
                     </DialogTitle>
                     <DialogDescription asChild>
                         <div className="flex flex-col gap-2">
@@ -196,34 +239,55 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                                     </Badge>
                                 </div>
                             )}
+                            {teamFee !== null && teamFee > 0 && (
+                                <div className="flex items-start gap-2 rounded-lg border border-amber-500/30
+                                                bg-amber-500/[0.07] px-3 py-2 mt-1">
+                                    <Wallet
+                                        className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5"
+                                        aria-hidden="true"
+                                    />
+                                    <span className="text-xs leading-relaxed">
+                                        Este equipo tiene una mensualidad de{' '}
+                                        <strong className="font-semibold tabular-nums">
+                                            {teamFee.toLocaleString('es-CO', {
+                                                style: 'currency',
+                                                currency: 'COP',
+                                                maximumFractionDigits: 0,
+                                            })}
+                                        </strong>
+                                        . Al inscribir, el cobro se genera en la apertura del mes
+                                        (o la cuota propia del atleta, si tiene una asignada).
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-4">
-                    <div className="relative">
+                <div className="space-y-4 flex-1 min-h-0 flex flex-col">
+                    <div className="relative shrink-0">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
-                            placeholder="Buscar estudiante por nombre, email o grado..."
+                            placeholder="Buscar deportista por nombre, email o grado..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="pl-10"
                         />
                     </div>
 
-                    <ScrollArea className="h-[400px] pr-4">
+                    <ScrollArea className="flex-1 min-h-0 pr-4">
                         {loading ? (
                             <div className="flex flex-col items-center justify-center py-12">
                                 <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
-                                <p className="text-muted-foreground">Cargando estudiantes...</p>
+                                <p className="text-muted-foreground">Cargando deportistas...</p>
                             </div>
                         ) : filteredStudents.length === 0 ? (
                             <div className="text-center py-12">
                                 <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                                 <p className="text-muted-foreground">
                                     {searchQuery
-                                        ? 'No se encontraron estudiantes con esa búsqueda'
-                                        : 'No hay estudiantes registrados o vinculados a esta escuela aún.'
+                                        ? 'No se encontraron deportistas con esa búsqueda'
+                                        : 'No hay deportistas registrados o vinculados a esta escuela aún.'
                                     }
                                 </p>
                             </div>
@@ -310,7 +374,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                     </ScrollArea>
                 </div>
 
-                <DialogFooter>
+                <DialogFooter className="shrink-0">
                     <div className="flex w-full justify-between items-center">
                         <p className="text-sm text-muted-foreground">
                             {enrolledStudentIds.length} inscrito{enrolledStudentIds.length !== 1 ? 's' : ''} en este grupo

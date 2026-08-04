@@ -1,0 +1,94 @@
+-- =============================================================================
+-- 20260803153549_fecha_de_negocio_en_hora_colombia.sql
+-- Autor: brylop   Fecha: 2026-08-03   Versión anterior: 20260803150126
+-- Objetivo: que `CURRENT_DATE` signifique "hoy en Colombia" y no "hoy en UTC".
+-- =============================================================================
+-- Recordatorios (CLAUDE.md):
+--   · Inmutable: una vez commiteada no se edita ni se borra. Un fix va en una
+--     migración NUEVA con timestamp posterior.
+--   · Toda CREATE FUNCTION lleva SET search_path = pg_catalog, public, pg_temp.
+--   · GRANT EXECUTE explícito por RPC (SECURITY DEFINER no exime al caller).
+--   · Estados/enums en tablas nuevas: text + CHECK, no CREATE TYPE.
+--   · Policies de RLS: nunca SELECT sobre la misma tabla en el USING.
+-- =============================================================================
+--
+-- EL PROBLEMA
+--
+-- La base corre con `TimeZone = UTC` (verificado 2026-08-03) y Colombia es UTC-5.
+-- Entre las **19:00 y la medianoche hora Colombia**, UTC ya está en el día siguiente,
+-- así que `CURRENT_DATE` devuelve MAÑANA. Hay **56 migraciones** que lo usan.
+--
+-- Para una escuela deportiva esa no es una franja marginal: es la principal. Un
+-- entrenamiento de las 8 p.m. se registraba con la fecha del día siguiente, y como el
+-- crédito de sesión es máximo uno por atleta por día, la cuenta se descuadraba.
+--
+-- QUÉ CAMBIA Y QUÉ NO
+--
+-- NO se reescribe ningún dato. Los `timestamptz` ya se guardan en UTC internamente;
+-- lo único que cambia es cómo se castean a `date` y qué devuelven `CURRENT_DATE` y
+-- `now()::date`. Las columnas `date` ya escritas quedan como están — incluidas las que
+-- se escribieron corridas un día, que esta migración NO corrige.
+--
+-- Las 11 migraciones que ya usan `AT TIME ZONE 'America/Bogota'` explícito **no se ven
+-- afectadas**: esa conversión es independiente del huso de la sesión, así que no hay
+-- doble conversión.
+--
+-- SOLO APLICA A SESIONES NUEVAS
+--
+-- `ALTER DATABASE … SET` no toca las conexiones abiertas. El pool de PostgREST y el BFF
+-- van a seguir en UTC hasta reciclar conexiones. Para forzarlo: reiniciar el proyecto
+-- desde el dashboard de Supabase, o esperar al reciclado natural del pool.
+--
+-- CUÁNDO APLICARLA — IMPORTA
+--
+-- **Entre las 00:00 y las 18:59 hora Colombia.** En esa franja UTC y Colombia caen en
+-- la misma fecha, así que el cambio no mueve el día de nada que esté en vuelo.
+-- Aplicarla entre las 19:00 y la medianoche es el peor momento posible: es exactamente
+-- cuando las dos interpretaciones difieren, y una operación a medias podría quedar con
+-- una fecha antes del cambio y otra después.
+--
+-- VA DE LA MANO CON EL DESPLIEGUE DEL BFF
+--
+-- El BFF tenía 15 lugares que derivaban "hoy" de UTC; ahora pasan todos por
+-- `todayInZone()` (bff/src/utils/businessDate.ts). Si se aplica esta migración SIN
+-- desplegar ese cambio, el BFF sigue escribiendo fechas UTC contra una base que ya
+-- piensa en Colombia: se cambia un desalineamiento por otro. Aplicar juntos.
+--
+-- MULTI-PAÍS
+--
+-- `schools` no tiene columna de zona horaria (verificado). Todas las escuelas son
+-- colombianas hoy. Cuando llegue multi-país, la conversión explícita por escuela manda
+-- sobre este default — que pasa a ser solo el fallback.
+
+-- Sin BEGIN/COMMIT a propósito: es una sola sentencia de configuración y no hay nada
+-- que agrupar. `current_database()` en vez del nombre literal para que no dependa de
+-- cómo se llame la base en cada proyecto.
+DO $mig$
+BEGIN
+    EXECUTE format('ALTER DATABASE %I SET timezone TO %L', current_database(), 'America/Bogota');
+END $mig$;
+
+-- ── Verificación después de aplicar ────────────────────────────────────────
+--
+-- 1) El default quedó guardado (esto se ve YA, sin reconectar):
+--
+--    SELECT datname, setconfig FROM pg_db_role_setting s
+--      JOIN pg_database d ON d.oid = s.setdatabase
+--     WHERE datname = current_database()
+--
+--    Esperado: setconfig contiene 'TimeZone=America/Bogota'.
+--
+-- 2) En una sesión NUEVA (pestaña nueva del editor, o después de reiniciar el
+--    proyecto) las dos fechas deben coincidir:
+--
+--    SELECT current_setting('TimeZone')                  AS tz_sesion,
+--           CURRENT_DATE                                 AS hoy_segun_pg,
+--           (now() AT TIME ZONE 'America/Bogota')::date  AS hoy_en_colombia
+--
+--    Esperado: tz_sesion = America/Bogota y las dos fechas iguales. Si tz_sesion
+--    sigue en UTC, la sesión es vieja: abrí una nueva.
+--
+-- 3) La prueba real, después de las 7 p.m. hora Colombia: tomar asistencia y
+--    confirmar que `attendance.date` es el día en curso y no el siguiente.
+--
+-- Vuelta atrás: la misma sentencia con 'UTC'.

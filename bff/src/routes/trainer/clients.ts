@@ -3,44 +3,8 @@ import { supabase } from '../../config/supabase';
 
 const router = Router();
 
-// ==========================================
-//  GET /api/v1/trainer/search-profile
-// ==========================================
-router.get('/search-profile', async (req: Request, res: Response) => {
-  try {
-    const q = (req.query.q as string)?.trim();
-    if (!q) return res.status(400).json({ error: 'Parámetro q requerido.' });
-
-    const isEmail = q.includes('@');
-
-    // Solo email o teléfono — sin documento
-    if (!isEmail && !/^\+?\d{7,15}$/.test(q.replace(/\s/g, ''))) {
-      return res.status(400).json({ 
-        error: 'Ingresa un email o número de teléfono válido.' 
-      });
-    }
-
-    const cleanPhone = q.replace(/\s/g, '').replace(/^\+57/, '');
-
-    const { data, error } = isEmail
-      ? await supabase
-          .from('profiles')
-          .select('id, full_name, email, phone')
-          .eq('email', q.toLowerCase())
-          .maybeSingle()
-      : await supabase
-          .from('profiles')
-          .select('id, full_name, email, phone')
-          .or(`phone.eq.${cleanPhone},phone.eq.+57${cleanPhone}`)
-          .maybeSingle();
-
-    if (error) throw error;
-    res.json(data ?? null);
-  } catch (err) {
-    (req as any).log?.error({ err }, 'Error searching profile');
-    res.status(500).json({ error: 'Error al buscar atleta.' });
-  }
-});
+// NOTE: search-profile was moved to trainer/profile.ts 
+// to be accessible by school admins without requireTrainerAuth.
 
 // ==========================================
 //  GET /api/v1/trainer/clients
@@ -159,8 +123,10 @@ router.get('/clients/:clientId', async (req: Request, res: Response) => {
     
     const athleteColumn = type === 'adult' ? 'user_id' : type === 'child' ? 'child_id' : 'unregistered_athlete_id';
 
+    const todayBogota = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+
     // Execute all flat queries in parallel
-    const [enrollResult, paymentsResult, attendanceResult, statsResult, goalsResult] = await Promise.all([
+    const [enrollResult, paymentsResult, attendanceResult, statsResult, goalsResult, nextSessionResult, recentSessionsResult] = await Promise.all([
       enrollmentQuery.order('created_at', { ascending: false }).limit(1).maybeSingle(),
       
       supabase.from('payments')
@@ -178,16 +144,35 @@ router.get('/clients/:clientId', async (req: Request, res: Response) => {
         .order('attendance_date', { ascending: false })
         .limit(10),
         
-      supabase.from('athlete_stats')
-        .select('*')
-        .eq('athlete_id', clientId)
-        .order('stat_date', { ascending: false })
-        .limit(30),
+      type === 'child'
+        ? Promise.all([
+            supabase.from('athlete_stats').select('*').eq('athlete_id', clientId).order('stat_date', { ascending: false }).limit(100),
+            supabase.from('children_stats').select('id, child_id as athlete_id, stat_type, value, unit, stat_date, notes, school_id, created_at, updated_at').eq('child_id', clientId).order('stat_date', { ascending: false }).limit(100),
+          ]).then(([a, c]) => ({ data: [...(a.data ?? []), ...(c.data ?? [])].sort((x, y) => y.stat_date.localeCompare(x.stat_date)), error: a.error ?? c.error }))
+        : supabase.from('athlete_stats').select('*').eq('athlete_id', clientId).order('stat_date', { ascending: false }).limit(100),
         
       supabase.from('athlete_goals')
         .select('*')
         .eq('athlete_id', clientId)
-        .order('target_date', { ascending: true })
+        .order('target_date', { ascending: true }),
+
+      supabase.from('trainer_session_plans')
+        .select('id, name, status, session_date, session_time')
+        .eq('client_id', clientId)
+        .eq('school_id', schoolId)
+        .eq('status', 'assigned')
+        .gte('session_date', todayBogota)
+        .order('session_date', { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+
+      supabase.from('trainer_session_plans')
+        .select('id, name, status, session_date, session_time')
+        .eq('client_id', clientId)
+        .eq('school_id', schoolId)
+        .in('status', ['completed', 'assigned', 'cancelled'])
+        .order('session_date', { ascending: false })
+        .limit(8)
     ]);
 
     console.log('PAYMENTS DEBUG:', JSON.stringify(paymentsResult.data, null, 2));
@@ -200,11 +185,11 @@ router.get('/clients/:clientId', async (req: Request, res: Response) => {
     // Resolve profile/child/plan separately
     const [profileRes, planRes] = await Promise.all([
       enrollment?.user_id
-        ? supabase.from('profiles').select('full_name, email, phone, avatar_url, date_of_birth').eq('id', enrollment.user_id).maybeSingle()
+        ? supabase.from('profiles').select('full_name, email, phone, avatar_url, date_of_birth, gender').eq('id', enrollment.user_id).maybeSingle()
         : enrollment?.child_id
-          ? supabase.from('children').select('full_name, date_of_birth, avatar_url').eq('id', enrollment.child_id).maybeSingle()
+          ? supabase.from('children').select('full_name, date_of_birth, avatar_url, gender, doc_type, doc_number, grade').eq('id', enrollment.child_id).maybeSingle()
           : enrollment?.unregistered_athlete_id
-            ? supabase.from('unregistered_athletes').select('full_name, email, phone, date_of_birth').eq('id', enrollment.unregistered_athlete_id).maybeSingle()
+            ? supabase.from('unregistered_athletes').select('full_name, email, phone, date_of_birth, gender, doc_type, doc_number').eq('id', enrollment.unregistered_athlete_id).maybeSingle()
             : Promise.resolve({ data: null }),
       enrollment?.offering_plan_id
         ? supabase.from('offering_plans').select('name, duration_days, price, max_sessions, metadata, currency').eq('id', enrollment.offering_plan_id).maybeSingle()
@@ -224,9 +209,91 @@ router.get('/clients/:clientId', async (req: Request, res: Response) => {
       attendance: attendanceResult.data || [],
       stats: statsResult.data || [],
       goals: goalsResult.data || [],
+      next_session: nextSessionResult.data ?? null,
+      recent_sessions: recentSessionsResult.data ?? [],
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+
+// ==========================================
+//  PUT /api/v1/trainer/clients/:clientId
+//  Editar datos básicos del cliente
+// ==========================================
+router.put('/clients/:clientId', async (req: Request, res: Response) => {
+  try {
+    const { clientId } = req.params;
+    const type = req.query.type as string; // 'adult' | 'child' | 'unregistered'
+    const schoolId = req.schoolId;
+
+    if (!type || !['adult', 'child', 'unregistered'].includes(type)) {
+      return res.status(400).json({ error: 'Parámetro type requerido (adult/child/unregistered)' });
+    }
+
+    // Verificar que el cliente tiene enrollment activo en esta escuela (autorización)
+    let enrollmentQuery = supabase
+      .from('enrollments')
+      .select('id')
+      .eq('school_id', schoolId)
+      .eq('status', 'active');
+
+    if (type === 'adult')        enrollmentQuery = enrollmentQuery.eq('user_id', clientId).is('child_id', null);
+    if (type === 'child')        enrollmentQuery = enrollmentQuery.eq('child_id', clientId);
+    if (type === 'unregistered') enrollmentQuery = enrollmentQuery.eq('unregistered_athlete_id', clientId);
+
+    const { data: enrollment } = await enrollmentQuery.maybeSingle();
+    if (!enrollment) {
+      return res.status(403).json({ error: 'Cliente no encontrado en tu academia.' });
+    }
+
+    const { full_name, phone, date_of_birth, gender, doc_type, doc_number, grade, email } = req.body;
+
+    let updateData: Record<string, any> = {};
+    let table = '';
+
+    if (type === 'unregistered') {
+      table = 'unregistered_athletes';
+      if (full_name)     updateData.full_name     = full_name.trim();
+      if (email !== undefined) updateData.email    = email?.trim() || null;
+      if (phone !== undefined) updateData.phone    = phone?.trim() || null;
+      if (date_of_birth !== undefined) updateData.date_of_birth = date_of_birth || null;
+      if (gender !== undefined) updateData.gender  = gender || null;
+      if (doc_type)      updateData.doc_type       = doc_type;
+      if (doc_number !== undefined) updateData.doc_number = doc_number?.trim() || null;
+    } else if (type === 'child') {
+      table = 'children';
+      if (full_name)     updateData.full_name      = full_name.trim();
+      if (date_of_birth !== undefined) updateData.date_of_birth = date_of_birth || null;
+      if (gender !== undefined) updateData.gender  = gender || null;
+      if (doc_type)      updateData.doc_type       = doc_type;
+      if (doc_number !== undefined) updateData.doc_number = doc_number?.trim() || null;
+      if (grade !== undefined)    updateData.grade = grade?.trim() || null;
+    } else if (type === 'adult') {
+      // profiles: solo campos seguros (no email — eso es de auth)
+      table = 'profiles';
+      if (full_name)     updateData.full_name      = full_name.trim();
+      if (phone !== undefined) updateData.phone    = phone?.trim() || null;
+      if (date_of_birth !== undefined) updateData.date_of_birth = date_of_birth || null;
+      if (gender !== undefined) updateData.gender  = gender || null;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ error: 'No se enviaron campos a actualizar.' });
+    }
+
+    const { data, error } = await supabase
+      .from(table)
+      .update(updateData)
+      .eq('id', clientId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -237,14 +304,15 @@ router.post('/clients/:clientId/stats', async (req: Request, res: Response) => {
   try {
     const { clientId } = req.params;
     const { stat_type, value, unit, notes, stat_date } = req.body;
-    
-    // NOTA: Como la tabla de stats no tiene school_id, dependemos de que clientId sea válido. 
-    // Para simplificar asuminos que si llega acá el trainer lo conoce (podrías validar el enrollment como en GET).
-    
+    const clientType = req.query.type as string; // 'adult' | 'child' | 'unregistered'
+
+    const table  = clientType === 'child' ? 'children_stats' : 'athlete_stats';
+    const idCol  = clientType === 'child' ? 'child_id'       : 'athlete_id';
+
     const { data, error } = await supabase
-      .from('athlete_stats')
+      .from(table)
       .insert({
-        athlete_id: clientId,
+        [idCol]: clientId,
         stat_type, value, unit, notes, stat_date
       })
       .select()
@@ -259,12 +327,15 @@ router.put('/clients/:clientId/stats/:statId', async (req: Request, res: Respons
   try {
     const { clientId, statId } = req.params;
     const { value, notes } = req.body;
-    
+    const clientType = req.query.type as string;
+    const table = clientType === 'child' ? 'children_stats' : 'athlete_stats';
+    const idCol = clientType === 'child' ? 'child_id' : 'athlete_id';
+
     const { data, error } = await supabase
-      .from('athlete_stats')
+      .from(table)
       .update({ value, notes })
       .eq('id', statId)
-      .eq('athlete_id', clientId)
+      .eq(idCol, clientId)
       .select()
       .single();
       
@@ -276,11 +347,15 @@ router.put('/clients/:clientId/stats/:statId', async (req: Request, res: Respons
 router.delete('/clients/:clientId/stats/:statId', async (req: Request, res: Response) => {
   try {
     const { clientId, statId } = req.params;
+    const clientType = req.query.type as string;
+    const table = clientType === 'child' ? 'children_stats' : 'athlete_stats';
+    const idCol = clientType === 'child' ? 'child_id' : 'athlete_id';
+
     const { error } = await supabase
-      .from('athlete_stats')
+      .from(table)
       .delete()
       .eq('id', statId)
-      .eq('athlete_id', clientId);
+      .eq(idCol, clientId);
       
     if (error) throw error;
     res.json({ success: true });
@@ -443,6 +518,150 @@ router.put('/clients/:clientId/progress/:progressId', async (req: Request, res: 
     if (error) throw error;
     res.json(data);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ==========================================
+//  BODY METRICS — /api/v1/trainer/clients/:clientId/body-metrics
+// ==========================================
+router.get('/clients/:clientId/body-metrics', async (req: Request, res: Response) => {
+  try {
+    const { clientId } = req.params;
+    const { data, error } = await supabase
+      .from('body_metrics')
+      .select('*')
+      .eq('client_id', clientId)
+      .order('measured_at', { ascending: false });
+
+    if (error) throw error;
+    res.json(data);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/clients/:clientId/body-metrics', async (req: Request, res: Response) => {
+  try {
+    const { clientId } = req.params;
+    const { 
+      client_type, weight_kg, height_cm, body_fat_pct, muscle_mass_kg, 
+      waist_cm, hip_cm, chest_cm, arm_cm, thigh_cm, back_cm, notes, measured_at 
+    } = req.body;
+
+    const { data, error } = await supabase
+      .from('body_metrics')
+      .insert({
+        client_id: clientId,
+        client_type,
+        weight_kg, height_cm, body_fat_pct, muscle_mass_kg, 
+        waist_cm, hip_cm, chest_cm, arm_cm, thigh_cm, back_cm,
+        notes,
+        measured_at: measured_at || new Date().toISOString(),
+        recorded_by: req.user.id,
+        source: 'trainer',
+        school_id: req.schoolId
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.put('/clients/:clientId/body-metrics/:metricId', async (req: Request, res: Response) => {
+  try {
+    const { metricId } = req.params;
+    const updates = req.body;
+    delete updates.id;
+    delete updates.client_id;
+    delete updates.recorded_by;
+
+    const { data, error } = await supabase
+      .from('body_metrics')
+      .update(updates)
+      .eq('id', metricId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/clients/:clientId/body-metrics/:metricId', async (req: Request, res: Response) => {
+  try {
+    const { metricId } = req.params;
+    const { error } = await supabase
+      .from('body_metrics')
+      .delete()
+      .eq('id', metricId);
+
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ==========================================
+//  GET /api/v1/trainer/clients/:id/summary
+// ==========================================
+// ==========================================
+//  GET /api/v1/trainer/clients/:clientId/summary
+//  Resumen PT del cliente usando get_pt_client_summary
+// ==========================================
+router.get('/clients/:clientId/summary', async (req: Request, res: Response) => {
+  try {
+    const { clientId } = req.params;
+    const schoolId     = req.schoolId;
+    const type         = req.query.type as string ?? 'adult';
+
+    // Buscar el enrollment activo de este cliente en la escuela del PT
+    let enrollmentQuery = supabase
+      .from('enrollments')
+      .select('id')
+      .eq('school_id', schoolId)
+      .eq('status', 'active');
+
+    if (type === 'child') {
+      enrollmentQuery = enrollmentQuery.eq('child_id', clientId);
+    } else if (type === 'unregistered') {
+      enrollmentQuery = enrollmentQuery.eq('unregistered_athlete_id', clientId);
+    } else {
+      enrollmentQuery = enrollmentQuery.eq('user_id', clientId).is('child_id', null);
+    }
+
+    const { data: enrollment, error: enrErr } = await enrollmentQuery
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (enrErr) throw enrErr;
+
+    // Si no tiene enrollment, retornar resumen vacío sin error
+    if (!enrollment) {
+      return res.json({
+        enrollment_id:       null,
+        plan_name:           null,
+        price:               null,
+        max_sessions:        null,
+        sessions_used:       0,
+        sessions_completed:  0,
+        sessions_scheduled:  0,
+        sessions_available:  null,
+        is_unlimited:        false,
+        start_date:          null,
+        end_date:            null,
+        status:              null,
+      });
+    }
+
+    const { data, error } = await supabase.rpc('get_pt_client_summary', {
+      p_enrollment_id: enrollment.id,
+    });
+
+    if (error) throw error;
+
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

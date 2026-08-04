@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PhoneInput } from '@/components/ui/phone-input';
 import { Label } from '@/components/ui/label';
 import {
   Dialog, DialogContent, DialogHeader,
@@ -56,13 +57,8 @@ export function AddConfirmationDialog({ poll, session, onClose }: Props) {
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Teléfono (opcional)</Label>
-            <Input
-              type="tel"
-              value={guestPhone}
-              onChange={(e) => setGuestPhone(e.target.value)}
-              placeholder="+57 300 000 0000"
-            />
+            <Label>WhatsApp (opcional)</Label>
+            <PhoneInput value={guestPhone} onChange={setGuestPhone} />
           </div>
         </div>
 

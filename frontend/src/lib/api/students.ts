@@ -1,5 +1,5 @@
 // Students API service — uses Supabase directly (table: children)
-// Per NAMING_DICTIONARY.md: tabla=children, UI=estudiantes
+// Per NAMING_DICTIONARY.md: tabla=children, UI=deportistas
 //
 // MIGRACIÓN BFF (Feb 2026):
 //   - Lecturas (GET):  siguen via Supabase SDK directo ← sin cambios
@@ -96,9 +96,9 @@ export interface BulkUploadResponse {
 }
 
 export interface BulkUploadOptions {
-  /** Si true, actualiza estudiantes con document_id existente. Default: false */
+  /** Si true, actualiza deportistas con document_id existente. Default: false */
   upsert?: boolean;
-  /** Branch ID por defecto para estudiantes sin columna 'sede' en el CSV */
+  /** Branch ID por defecto para deportistas sin columna 'sede' en el CSV */
   defaultBranchId?: string | null;
 }
 
@@ -124,10 +124,15 @@ export interface StudentViewRow {
   team_sport?: string;
   price_monthly?: number;
   monthly_fee?: number;
+  enrollment_start_date?: string | null;
+  plan_start_date?: string | null;
+  team_monthly_fee?: number | null;
+  plan_monthly_fee?: number | null;
   branch_name?: string;
   medical_info?: string | null;
   display_parent_name?: string;
   status?: 'active' | 'inactive' | 'suspended';
+  is_active?: boolean;
   doc_type?: string | null;
   doc_number?: string | null;
   tshirt_size?: string | null;
@@ -191,29 +196,79 @@ class StudentsAPI {
   }
 
   /**
-   * Get enriched students data for School Management UI (uses 'students' VIEW)
+   * Get enriched students data for School Management UI (uses 'school_athletes' view).
+   * Acepta filtros opcionales por team o branch. Pasar un string sigue funcionando
+   * como filtro por teamId (compat), pero lo ideal es usar el objeto.
    */
-  async getSchoolView(schoolId: string, teamId?: string) {
+  async getSchoolView(
+    schoolId: string,
+    filter?: string | { teamId?: string | null; branchId?: string | null; includeInactive?: boolean }
+  ) {
+    const { teamId, branchId, includeInactive } =
+      typeof filter === 'string'
+        ? { teamId: filter, branchId: undefined, includeInactive: false }
+        : { teamId: filter?.teamId, branchId: filter?.branchId, includeInactive: filter?.includeInactive ?? false };
+
     let query = supabase
       .from('school_athletes' as any)
       .select('*')
-      .eq('school_id', schoolId)
-      .eq('is_active', true);
+      .eq('school_id', schoolId);
 
-    if (teamId) {
-      query = query.eq('enrolled_team_id', teamId);
+    if (!includeInactive) {
+      query = query.eq('is_active', true);
     }
 
-    const { data, error } = await query;
+    if (teamId) query = query.eq('enrolled_team_id', teamId);
+    if (branchId) query = query.eq('branch_id', branchId);
+
+    const { data: ownAthletes, error } = await query;
     if (error) throw error;
-    return data ?? [];
+
+    // Complemento multi-school — children enrollados en esta escuela
+    // pero cuyo children.school_id apunta a otra escuela
+    const { data: crossEnrollments } = await supabase
+      .from('enrollments')
+      .select('child_id')
+      .eq('school_id', schoolId)
+      .eq('status', 'active')
+      .not('child_id', 'is', null);
+
+    const ownIds = new Set((ownAthletes ?? []).map((a: any) => a.id));
+    const crossIds = (crossEnrollments ?? [])
+      .map((e: any) => e.child_id)
+      .filter((id: string) => !ownIds.has(id));
+
+    if (crossIds.length === 0) return ownAthletes ?? [];
+
+    const crossData = await bffClient.post<any[]>(
+      `/api/v1/students/children-by-ids`,
+      { ids: crossIds },
+      { 'x-school-id': schoolId }
+    );
+
+    // Normalizar al shape de school_athletes para que el modal los trate igual
+    const extra = (crossData ?? []).map((c: any) => ({
+      id: c.id,
+      full_name: c.full_name,
+      date_of_birth: c.date_of_birth,
+      avatar_url: c.avatar_url,
+      school_id: schoolId,
+      athlete_type: 'child',
+      is_active: true,
+      email: null,
+      parent_email: null,
+      medical_info: c.medical_info ?? null,
+      enrolled_team_id: null,
+    }));
+
+    return [...(ownAthletes ?? []), ...extra];
   }
 
   /**
    * Lista atletas de un equipo específico.
    */
   async getByTeam(schoolId: string, teamId: string) {
-    return this.getSchoolView(schoolId, teamId);
+    return this.getSchoolView(schoolId, { teamId });
   }
 
   /**
@@ -310,13 +365,69 @@ class StudentsAPI {
   /**
    * Update a student
    */
-  async updateStudent(id: string, updates: StudentUpdate): Promise<Student> {
+  async updateStudent(
+    id: string,
+    updates: StudentUpdate & { athlete_type?: 'child' | 'adult' | 'unregistered' }
+  ): Promise<any> {
+    const status = updates.status;
+    const athleteType = updates.athlete_type;
+    const schoolId = updates.school_id;
+
+    // 1. Si es Adulto
+    if (athleteType === 'adult') {
+      if (!schoolId) {
+        throw new Error('School ID is required to update adult status');
+      }
+      
+      const dbStatus = status === 'active' ? 'active' : 'inactive';
+      
+      const { data, error } = await supabase
+        .from('school_members')
+        .update({
+          status: dbStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('profile_id', id)
+        .eq('school_id', schoolId)
+        .eq('role', 'athlete')
+        .select()
+        .maybeSingle();
+
+      if (error) {
+        throw new Error(error.message || 'Failed to update adult athlete status');
+      }
+      
+      return data;
+    }
+
+    // 2. Si es Unregistered
+    if (athleteType === 'unregistered') {
+      const { data, error } = await supabase
+        .from('unregistered_athletes')
+        .update({
+          is_active: status === 'active',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error || !data) {
+        throw new Error(error?.message || 'Failed to update unregistered athlete status');
+      }
+      return data;
+    }
+
+    // 3. Si es Child (comportamiento original)
     const dbUpdates: any = {
       ...updates,
       updated_at: new Date().toISOString(),
     };
 
-    // Mapear status a is_active para la BD
+    // Remover campos que no pertenecen a la tabla 'children'
+    delete dbUpdates.athlete_type;
+    delete dbUpdates.school_id;
+
     if (updates.status !== undefined) {
       dbUpdates.is_active = updates.status === 'active';
       delete dbUpdates.status;
@@ -391,7 +502,15 @@ class StudentsAPI {
     // Normaliza notas_medicas a JSON válido con has_allergies (P4)
     const normalizeMedicalInfo = (val: string): string | undefined => {
       if (!val) return undefined;
-      try { JSON.parse(val); return val; } catch { /* no es JSON */ }
+      try {
+        const parsed = JSON.parse(val);
+        // El BFF exige has_allergies:boolean. Si el JSON del CSV trae otros
+        // campos (eps, rh, …) pero no has_allergies, lo agregamos sin perderlos.
+        if (typeof parsed?.has_allergies !== 'boolean') {
+          return JSON.stringify({ ...parsed, has_allergies: false });
+        }
+        return val;
+      } catch { /* no es JSON */ }
       const lower = val.trim().toLowerCase();
       if (/^(ninguna?|none|no|-)$/.test(lower)) return JSON.stringify({ has_allergies: false });
       if (lower.includes('alergia') || lower.includes('allerg')) {
@@ -414,7 +533,7 @@ class StudentsAPI {
       if (!firstName && !lastName) {
         const fullName = row['full_name'] || row['nombre_completo'] || '';
         if (!fullName) {
-          parseErrors.push({ row: i + 1, error: 'Falta nombre del estudiante' });
+          parseErrors.push({ row: i + 1, error: 'Falta nombre del deportista' });
           continue;
         }
         if (!docId) {
@@ -551,7 +670,7 @@ class StudentsAPI {
     if (uniqueStudents.length === 0) {
       return {
         success: false,
-        message: `No se pudo parsear ningún estudiante. ${parseErrors.length} errores.`,
+        message: `No se pudo parsear ningún deportista. ${parseErrors.length} errores.`,
         summary: { total: 0, inserted: 0, updated: 0, skipped: parseErrors.length },
         skipped: [],
         failed: parseErrors.length,

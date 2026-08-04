@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth, requireRole } from '../middlewares/authMiddleware';
+import { requireAuth, requireRole, optionalAuth } from '../middlewares/authMiddleware';
 import { pollsController } from '../controllers/polls.controller';
 
 const router = Router();
@@ -18,6 +18,6 @@ router.delete('/:pollId/sessions/:sessionId/confirmations/:bookingId', requireAu
 
 // ── Rutas públicas (sin auth) ───────────────────────────────────────────────
 router.get('/:pollId/public', pollsController.getPublicPoll);
-router.post('/:pollId/confirm', pollsController.confirmAttendance);
+router.post('/:pollId/confirm', optionalAuth, pollsController.confirmAttendance);
 
 export default router;

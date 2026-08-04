@@ -14,15 +14,25 @@ type EmailType =
     | "welcome_school"
     | "parent_invitation"
     | "coach_invitation"
+    | "athlete_invitation"
+    | "staff_invitation"
     | "payment_reminder";
 
-interface EmailPayload {
+interface EmailItem {
     type?: EmailType;
     to: string;
     data?: Record<string, string>;
     subject?: string;
     html?: string;
 }
+
+interface EmailPayload extends Partial<EmailItem> {
+    // Envío masivo: hasta 100 destinatarios en UNA sola llamada a Resend.
+    // 394 invitaciones = 4 requests en vez de 394 (y sin chocar el rate limit).
+    batch?: EmailItem[];
+}
+
+const RESEND_BATCH_LIMIT = 100;
 
 // ─── Shared Layout (matches Supabase Auth templates) ───
 const wrapTemplate = (body: string): string => `
@@ -157,6 +167,48 @@ function getSubjectAndHtml(type: EmailType, d: Record<string, string>): { subjec
         `),
             };
 
+        // Atleta mayor de edad: se registra él mismo, no un acudiente. Antes le
+        // llegaba parent_invitation hablándole de "tu hijo(a)".
+        case "athlete_invitation":
+            return {
+                subject: `${d.schoolName} te invita a entrenar en SportMaps`,
+                html: wrapTemplate(`
+          <h2 style="color: #248223; margin-top: 0;">¡Te esperamos en la cancha!</h2>
+          <p style="color: #4a4a4a; line-height: 1.6;">
+            Hola${d.athleteName ? ` <strong>${d.athleteName}</strong>` : ""}, la academia <strong>${d.schoolName}</strong> te invitó a unirte a SportMaps como deportista.
+          </p>
+          <p style="color: #4a4a4a; line-height: 1.6;">
+            Crea tu cuenta para ver tus horarios, tus pagos y tu evolución deportiva. Este registro es para ti: no necesitas un acudiente.
+          </p>
+          ${orangeButton(d.registrationUrl || "https://app.sportmaps.co/register?role=athlete", "Crear mi Cuenta")}
+          <p style="color: #888; font-size: 12px; margin-top: 20px;">
+            Si el botón no funciona, copia y pega este enlace:<br>
+            <span style="color: #248223; word-break: break-all;">${d.registrationUrl || "https://app.sportmaps.co/register?role=athlete"}</span>
+          </p>
+        `),
+            };
+
+        // Administrador de sede y súper usuario. `roleLabel` viene del llamador
+        // para no tener una plantilla por cada rol administrativo.
+        case "staff_invitation":
+            return {
+                subject: `${d.schoolName} te dio acceso como ${d.roleLabel || "miembro del equipo"}`,
+                html: wrapTemplate(`
+          <h2 style="color: #248223; margin-top: 0;">Tienes un nuevo acceso</h2>
+          <p style="color: #4a4a4a; line-height: 1.6;">
+            Hola${d.staffName ? ` <strong>${d.staffName}</strong>` : ""}, la academia <strong>${d.schoolName}</strong> te dio acceso a SportMaps como <strong>${d.roleLabel || "miembro del equipo"}</strong>.
+          </p>
+          <p style="color: #4a4a4a; line-height: 1.6;">
+            Crea tu cuenta para entrar al panel de la academia.
+          </p>
+          ${orangeButton(d.registrationUrl || "https://app.sportmaps.co/register", "Crear mi Cuenta")}
+          <p style="color: #888; font-size: 12px; margin-top: 20px;">
+            Si el botón no funciona, copia y pega este enlace:<br>
+            <span style="color: #248223; word-break: break-all;">${d.registrationUrl || "https://app.sportmaps.co/register"}</span>
+          </p>
+        `),
+            };
+
         case "payment_reminder":
             return {
                 subject: `Recordatorio de Pago — ${d.schoolName}`,
@@ -196,7 +248,90 @@ Deno.serve(async (req: Request) => {
 
     try {
         const payload: EmailPayload = await req.json();
-        const { type, to, data, subject: rawSubject, html: rawHtml } = payload;
+        const { type, to, data, subject: rawSubject, html: rawHtml, batch } = payload;
+
+        // ── Envío masivo (POST /emails/batch) ──────────────────────────────
+        if (Array.isArray(batch)) {
+            if (batch.length === 0) {
+                return new Response(
+                    JSON.stringify({ error: "'batch' vacío" }),
+                    { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                );
+            }
+            if (batch.length > RESEND_BATCH_LIMIT) {
+                return new Response(
+                    JSON.stringify({ error: `'batch' admite máximo ${RESEND_BATCH_LIMIT} destinatarios por llamada` }),
+                    { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                );
+            }
+
+            let emails;
+            try {
+                emails = batch.map((item) => {
+                    if (!item.to) throw new Error("Falta 'to' en un elemento del batch");
+                    const built = item.type
+                        ? getSubjectAndHtml(item.type, item.data || {})
+                        : { subject: item.subject!, html: item.html! };
+                    if (!built.subject || !built.html) {
+                        throw new Error(`Elemento sin 'type' ni ('subject' y 'html'): ${item.to}`);
+                    }
+                    return {
+                        from: "SportMaps <noreply@sportmaps.co>",
+                        to: [item.to],
+                        subject: built.subject,
+                        html: built.html,
+                    };
+                });
+            } catch (buildErr) {
+                return new Response(
+                    JSON.stringify({ error: (buildErr as Error).message }),
+                    { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                );
+            }
+
+            if (!RESEND_API_KEY) {
+                console.error("RESEND_API_KEY not configured");
+                return new Response(
+                    JSON.stringify({ success: true, simulated: true, count: emails.length }),
+                    { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                );
+            }
+
+            const batchRes = await fetch("https://api.resend.com/emails/batch", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${RESEND_API_KEY}`,
+                },
+                body: JSON.stringify(emails),
+            });
+
+            const batchText = await batchRes.text();
+
+            if (!batchRes.ok) {
+                console.error("Resend batch error:", batchRes.status, batchText);
+                // 429 (rate limit) y 4xx de cuota se devuelven tal cual para que
+                // el BFF distinga "reintentable" de "se acabó el plan".
+                return new Response(
+                    JSON.stringify({ error: `Resend error: ${batchRes.status}`, details: batchText }),
+                    { status: batchRes.status === 429 ? 429 : 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                );
+            }
+
+            // Resend devuelve { data: [{ id }, ...] } en el MISMO orden del request.
+            const parsed = JSON.parse(batchText);
+            const ids: string[] = (parsed?.data || []).map((d: { id: string }) => d?.id);
+            console.log(`Batch enviado: ${ids.length}/${emails.length}`);
+
+            return new Response(
+                JSON.stringify({
+                    success: true,
+                    count: ids.length,
+                    results: batch.map((item, i) => ({ to: item.to, id: ids[i] ?? null })),
+                }),
+                { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+        }
 
         if (!to) {
             return new Response(

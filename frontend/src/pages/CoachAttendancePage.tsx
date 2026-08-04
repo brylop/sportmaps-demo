@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -13,7 +14,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import {
   CheckCircle2, XCircle, Clock, AlertCircle, Users, Lock, Edit2,
   Flag, CalendarCheck, Search, UserX, CreditCard, AlertTriangle, ChevronRight, Trophy, Zap, Target, Star, Dumbbell, Layers,
-  Calendar as CalendarIcon, TrendingUp
+  Calendar as CalendarIcon, TrendingUp, Activity
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -21,6 +22,9 @@ import { getSportVisual } from '@/lib/sportVisuals';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useCoachStaffId } from '@/hooks/useCoachStaffId';
+import { useUpdatePTAttendance, useHandleNoShow } from '@/hooks/useAthleteSessionBookings';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { useActiveWorkPage } from '@/hooks/useActiveWorkPage';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
@@ -44,6 +48,11 @@ interface PlanInfo {
   price: number | null;
   currency: string | null;
 }
+/** Reserva del atleta para hoy. Si existe, pasar lista NO le descuenta otra clase. */
+interface BookingToday {
+  start_time: string | null;
+  status: string;
+}
 interface RosterItem {
   id: string;
   full_name: string;
@@ -54,8 +63,59 @@ interface RosterItem {
   parent_phone?: string | null;
   enrollment_id?: string | null;
   plan: PlanInfo | null;
+  booking_today?: BookingToday | null;
   is_booking?: boolean;
   payment: { status: string; due_date: string | null } | null;
+}
+
+/** Resultado del movimiento de crédito que devuelve el BFF por atleta. */
+type CreditOutcome =
+  | 'deducted' | 'covered_by_booking' | 'returned' | 'booking_released'
+  | 'no_plan' | 'no_credits' | 'expired' | 'unchanged';
+
+type CreditTally = {
+  deducted: number;
+  returned: number;
+  noPlan: number;
+  covered: string[];
+  noCredits: string[];
+};
+
+function newTally(): CreditTally {
+  return { deducted: 0, returned: 0, noPlan: 0, covered: [], noCredits: [] };
+}
+
+function addOutcome(t: CreditTally, outcome: CreditOutcome | undefined, name: string) {
+  switch (outcome) {
+    case 'deducted':           t.deducted++; break;
+    case 'returned':
+    case 'booking_released':   t.returned++; break;
+    case 'covered_by_booking': t.covered.push(name); break;
+    case 'no_plan':            t.noPlan++; break;
+    case 'no_credits':
+    case 'expired':            t.noCredits.push(name); break;
+    default: break;
+  }
+}
+
+/** El entrenador tiene que entender por qué se descontó o por qué no. */
+function describeCredits(t: CreditTally): string | undefined {
+  const parts: string[] = [];
+  if (t.deducted) parts.push(`se descontó 1 clase a ${t.deducted} atleta${t.deducted > 1 ? 's' : ''}`);
+  if (t.covered.length) parts.push(`${t.covered.join(', ')} ya tenía reserva para hoy: no se le descontó`);
+  if (t.returned) parts.push(`${t.returned} clase${t.returned > 1 ? 's' : ''} devuelta${t.returned > 1 ? 's' : ''}`);
+  if (t.noCredits.length) parts.push(`${t.noCredits.join(', ')} sin clases disponibles en el plan`);
+  if (t.noPlan) parts.push(`${t.noPlan} sin plan de clases`);
+  return parts.length ? parts.join(' · ') : undefined;
+}
+
+function formatHour(t: string | null): string | null {
+  if (!t) return null;
+  const [h, m] = t.split(':');
+  const hour = Number(h);
+  const suffix = hour >= 12 ? 'pm' : 'am';
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12}:${m ?? '00'} ${suffix}`;
 }
 interface AttendanceSession {
   id: string;
@@ -185,16 +245,24 @@ function PlanInfoCard({ plan }: { plan: PlanInfo }) {
 }
 
 // ── Componente principal ──────────────────────────────────────────────────────
-export default function CoachAttendancePage() {
+export default function CoachAttendancePage({ showPlanSessions = true }: { showPlanSessions?: boolean }) {
+  useActiveWorkPage();
   const { user, profile } = useAuth();
   const { schoolId } = useSchoolContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { mutate: updatePTAttendance, isPending: updatingPT } = useUpdatePTAttendance();
 
   const [selectedItem, setSelectedItem] = useState<string>('');
   const [isSecondary, setIsSecondary] = useState(false);
   const [attendanceState, setAttendanceState] = useState<Record<string, AttendanceStatus>>({});
   const [finalizeDialogOpen, setFinalizeDialogOpen] = useState(false);
+  const [noShowDialog, setNoShowDialog] = useState<{ open: boolean; session: any | null }>({
+    open: false,
+    session: null,
+  });
+  const { mutate: handleNoShow, isPending: processingNoShow } = useHandleNoShow();
 
   // Walk-in state
   const [walkInSearch, setWalkInSearch] = useState('');
@@ -286,6 +354,26 @@ export default function CoachAttendancePage() {
     },
     enabled: !!schoolId && (!!user?.id || !!staffId),
   });
+
+  // ── 3b. Sesiones PT Personalizadas ─────────────────────────────────────
+  const { data: ptSchedule, isLoading: loadingPT } = useQuery({
+    queryKey: ['coach-pt-sessions', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const token = await getBearerToken();
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+      const res = await fetch(`${BFF_URL}/api/v1/trainer/availability/schedule?date=${today}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!user?.id,
+  });
+
+  const ptSessions     = ptSchedule?.sessions ?? [];
+  const ptAvailSlots   = ptSchedule?.availability_slots ?? [];
+  const hasAvailability = ptSchedule?.has_availability ?? false;
 
   // ── 4. Roster unificado (via BFF) ───────────────────────────────────────
   const {
@@ -412,6 +500,7 @@ export default function CoachAttendancePage() {
       const presentEntries = Object.entries(attendanceState).filter(([, s]) => s === 'present');
       const otherEntries   = Object.entries(attendanceState).filter(([, s]) => s !== 'present');
       const walkInErrors: string[] = [];
+      const tally = newTally();
 
       // Presentes → walk-in con descuento
       for (const [id] of presentEntries) {
@@ -430,15 +519,17 @@ export default function CoachAttendancePage() {
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify(payload),
         });
+        const body = await res.json();
         if (!res.ok) {
-          const body = await res.json();
+          // Falta de saldo y plan vencido ya NO fallan: la asistencia se registra
+          // y el motivo viene en `credit_outcome`. Acá solo quedan errores reales.
           const msgs: Record<string, string> = {
-            expired:              `${a.full_name}: plan vencido`,
-            no_credits:           `${a.full_name}: sin clases disponibles`,
-            no_secondary_credits: `${a.full_name}: sin clases secundarias`,
-            not_found:            `${a.full_name}: sin plan activo`,
+            not_found: `${a.full_name}: sin inscripción activa`,
+            no_session: `${a.full_name}: no hay sesión activa`,
           };
           walkInErrors.push(msgs[body.reason] || `${a.full_name}: ${body.error}`);
+        } else {
+          addOutcome(tally, body.credit_outcome, a.full_name);
         }
       }
 
@@ -464,7 +555,13 @@ export default function CoachAttendancePage() {
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             body: JSON.stringify(sessionPayload),
           });
-          if (!res.ok) { const b = await res.json(); throw new Error(b.error); }
+          const b = await res.json();
+          if (!res.ok) throw new Error(b.error);
+          // Esta ruta ahora también mueve créditos (devolución al corregir a
+          // ausente, y descuento cuando la pantalla marca presente por acá).
+          for (const [id, outcome] of Object.entries(b.credit_outcomes ?? {})) {
+            addOutcome(tally, outcome as CreditOutcome, athletes.find((x) => x.id === id)?.full_name ?? 'Atleta');
+          }
 
         } else if (isOffering) {
           // Offering → walk-in por cada atleta (sin descuento porque status != present)
@@ -486,22 +583,25 @@ export default function CoachAttendancePage() {
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
               body: JSON.stringify(payload),
             });
-            // Ignorar errores de plan en estados no-present
+            const b = await res.json();
             if (!res.ok) {
-              const b = await res.json();
               if (!['expired', 'no_credits', 'no_session'].includes(b.reason)) {
                 throw new Error(b.error);
               }
+            } else {
+              addOutcome(tally, b.credit_outcome, a?.full_name ?? 'Atleta');
             }
           }
         }
       }
 
       if (walkInErrors.length) throw new Error(walkInErrors.join('\n'));
+      return tally;
     },
-    onSuccess: () => {
+    onSuccess: (t) => {
       queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedItem] });
-      toast({ title: '✅ Asistencia guardada' });
+      queryClient.invalidateQueries({ queryKey: ['attendance-roster', contextType, contextId] });
+      toast({ title: '✅ Asistencia guardada', description: describeCredits(t) });
     },
     onError: (e: any) => toast({ title: 'Algunos registros no se guardaron', description: e.message, variant: 'destructive' }),
   });
@@ -529,7 +629,7 @@ export default function CoachAttendancePage() {
 
   const handleWalkIn = async (athlete: RosterItem) => {
     if (!athlete.enrollment_id) {
-      toast({ title: 'Sin plan activo', description: `${athlete.full_name} no tiene un plan activo.`, variant: 'destructive' });
+      toast({ title: 'Sin inscripción activa', description: `${athlete.full_name} no tiene una inscripción activa en esta escuela.`, variant: 'destructive' });
       return;
     }
     setWalkInProcessing(true);
@@ -554,7 +654,17 @@ export default function CoachAttendancePage() {
       queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedItem] });
       queryClient.invalidateQueries({ queryKey: ['attendance-roster', contextType, contextId] });
 
-      toast({ title: `✅ ${athlete.full_name} registrado`, description: 'Asistencia registrada y crédito descontado.' });
+      const walkInMsg: Record<string, string> = {
+        deducted:           'Asistencia registrada · se descontó 1 clase del plan.',
+        covered_by_booking: 'Asistencia registrada · ya tenía reserva para hoy, no se descontó otra clase.',
+        no_plan:            'Asistencia registrada · no maneja plan de clases.',
+        no_credits:         'Asistencia registrada · el plan no tiene clases disponibles.',
+        expired:            'Asistencia registrada · el plan está vencido.',
+      };
+      toast({
+        title: `✅ ${athlete.full_name} registrado`,
+        description: walkInMsg[body.credit_outcome] ?? 'Asistencia registrada.',
+      });
       setWalkInOpen(false);
       setWalkInSearch('');
       setWalkInAthlete(null);
@@ -582,7 +692,7 @@ export default function CoachAttendancePage() {
 
   const markedCount = Object.keys(attendanceState).length;
   const isBusy = saveMutation.isPending || finalizeMutation.isPending;
-  const isLoading = loadingTeams || loadingOfferings || loadingPlans;
+  const isLoading = loadingTeams || loadingOfferings || loadingPlans || loadingPT;
 
   return (
     <div className="space-y-6 pb-24 sm:pb-6 animate-in fade-in duration-500">
@@ -684,8 +794,151 @@ export default function CoachAttendancePage() {
             </div>
           )}
 
+          {/* Reservas del día (Solo para PT) */}
+          {ptSessions.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between px-1">
+                <div className="flex items-center gap-2">
+                  <CalendarIcon className="w-5 h-5 text-indigo-600" />
+                  <h2 className="text-sm font-black uppercase tracking-wider text-foreground">
+                    Reservas del día
+                  </h2>
+                </div>
+                <Badge variant="outline" className="text-[10px] font-bold py-0 h-5 border-indigo-200 text-indigo-600 bg-indigo-50">
+                  PT Sessions
+                </Badge>
+              </div>
+
+              <div className="space-y-3">
+                {ptSessions.map((sess: any) => {
+                  const isCompleted = sess.status === 'completed';
+                  return (
+                    <Card key={sess.id} className="overflow-hidden border-border/40 hover:border-indigo-200 transition-all bg-card/60 backdrop-blur-sm">
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-4">
+                          {/* Avatar del Cliente */}
+                          <Avatar className="h-12 w-12 border-2 border-indigo-100/50 shadow-sm shrink-0">
+                            <AvatarImage src={sess.client?.avatar_url || ''} />
+                            <AvatarFallback className="bg-indigo-50 text-indigo-600 text-xs font-bold">
+                              {sess.client?.full_name?.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'C'}
+                            </AvatarFallback>
+                          </Avatar>
+
+                          {/* Info de la Sesión */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <h4 className="text-sm font-bold truncate text-foreground">
+                                {sess.client?.full_name || 'Nuevo Cliente'}
+                              </h4>
+                              {isCompleted ? (
+                                <Badge className="bg-green-500/10 text-green-600 border-green-500/20 text-[10px] py-0 h-4">Asistió</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-[10px] py-0 h-4 opacity-50">Pendiente</Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                              <span className="flex items-center gap-1 font-medium bg-muted/50 px-1.5 py-0.5 rounded-md">
+                                <Clock className="w-3 h-3" />
+                                {sess.session_time?.substring(0, 5)}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Activity className="w-3 h-3 text-indigo-400" />
+                                Sesión PT
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Acciones */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {/* Advertencia sin rutina */}
+                            {!isCompleted && sess.status !== 'no_show' && (!sess.blocks || sess.blocks?.length === 0) && (
+                              <div title="Sin rutina asignada" className="h-7 w-7 flex items-center justify-center rounded-full bg-amber-500/10 border border-amber-500/20">
+                                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                              </div>
+                            )}
+
+                            {/* Botón Asistió */}
+                            <Button
+                              size="sm"
+                              disabled={updatingPT || sess.status === 'no_show'}
+                              variant={isCompleted ? 'secondary' : 'default'}
+                              className={`h-8 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+                                isCompleted
+                                  ? 'bg-green-100 text-green-700 hover:bg-green-200 border-none'
+                                  : sess.status === 'no_show'
+                                    ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                                    : 'bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-500/20'
+                              }`}
+                              onClick={() => {
+                                if (isCompleted || sess.status === 'no_show') return;
+                                if (!sess.blocks || sess.blocks?.length === 0) {
+                                  toast({
+                                    title: '⚠️ Sin rutina asignada',
+                                    description: 'Esta sesión no tiene rutina. Puedes continuar o asignarla desde el perfil del cliente.',
+                                  });
+                                }
+                                updatePTAttendance(
+                                  { sessionId: sess.id, status: 'completed' },
+                                  { onSuccess: () => toast({ title: '✅ Marcado como Asistió' }) }
+                                );
+                              }}
+                            >
+                              <CheckCircle2 className="w-3 h-3 mr-1" />
+                              {isCompleted ? 'Asistió' : sess.status === 'no_show' ? 'No asistió' : 'Asistió'}
+                            </Button>
+
+                            {/* Botón No asistió */}
+                            {!isCompleted && sess.status !== 'no_show' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={updatingPT}
+                                className="h-8 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400"
+                                onClick={() => setNoShowDialog({ open: true, session: sess })}
+                              >
+                                <XCircle className="w-3 h-3 mr-1" />
+                                No asistió
+                              </Button>
+                            )}
+
+                            {/* Botón cancelar sesión (PT cancela) */}
+                            {!isCompleted && sess.status !== 'no_show' && sess.status !== 'cancelled' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={updatingPT}
+                                className="h-8 w-8 p-0 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                title="Cancelar sesión"
+                                onClick={async () => {
+                                  try {
+                                    const token = await getBearerToken();
+                                    const res = await fetch(`${BFF_URL}/api/v1/trainer/availability/session/${sess.id}`, {
+                                      method: 'DELETE',
+                                      headers: { Authorization: `Bearer ${token}` },
+                                    });
+                                    if (!res.ok) throw new Error((await res.json()).error);
+                                    toast({ title: '🚫 Sesión cancelada', description: 'El crédito fue devuelto al cliente.' });
+                                    queryClient.invalidateQueries({ queryKey: ['coach-pt-sessions'] });
+                                  } catch (err: any) {
+                                    toast({ title: 'Error', description: err.message, variant: 'destructive' });
+                                  }
+                                }}
+                              >
+                                <XCircle className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Sesiones de hoy */}
-          {planSessions.length > 0 && (
+          {showPlanSessions && planSessions.length > 0 && (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
                 <CalendarCheck className="w-5 h-5 text-muted-foreground" />
@@ -708,7 +961,7 @@ export default function CoachAttendancePage() {
                           <h4 className="text-lg font-black leading-tight truncate uppercase tracking-tighter">{ps.name}</h4>
                           <div className="flex items-center gap-2 mt-3">
                             <div className="flex items-center gap-1.5 px-2 py-0 h-5 bg-white/10 rounded-full border border-white/20 text-[10px] font-bold">
-                              {ps.start_time.substring(0, 5)} – {ps.end_time.substring(0, 5)}
+                              {ps.start_time?.substring(0, 5) ?? 'S/H'} – {ps.end_time?.substring(0, 5) ?? 'S/H'}
                             </div>
                           </div>
                         </div>
@@ -801,7 +1054,15 @@ export default function CoachAttendancePage() {
                               )}
                             </div>
                             {student.plan ? <PlanInfoCard plan={student.plan} /> : (
-                              <p className="text-[11px] text-muted-foreground mt-1">Sin plan activo</p>
+                              <p className="text-[11px] text-muted-foreground mt-1">No maneja plan de clases</p>
+                            )}
+                            {student.booking_today && (
+                              <p className="text-[11px] mt-1 flex items-center gap-1 text-blue-600 font-medium">
+                                <Clock className="w-3 h-3 shrink-0" />
+                                {student.booking_today.status === 'attended'
+                                  ? `Reserva de hoy ya usada${formatHour(student.booking_today.start_time) ? ` (${formatHour(student.booking_today.start_time)})` : ''}`
+                                  : `Ya reservó hoy${formatHour(student.booking_today.start_time) ? ` (${formatHour(student.booking_today.start_time)})` : ''} — no se descuenta otra clase`}
+                              </p>
                             )}
                           </div>
 
@@ -908,6 +1169,108 @@ export default function CoachAttendancePage() {
             <Button variant="outline" onClick={() => setWalkInOpen(false)}>Cancelar</Button>
             <Button disabled={!walkInAthlete || walkInProcessing} onClick={() => walkInAthlete && handleWalkIn(walkInAthlete)}>
               {walkInProcessing ? 'Registrando...' : 'Registrar entrada'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: No asistió */}
+      <Dialog
+        open={noShowDialog.open}
+        onOpenChange={(open) => !open && setNoShowDialog({ open: false, session: null })}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-500" />
+              ¿Qué hacer con la sesión?
+            </DialogTitle>
+            <DialogDescription>
+              <span className="font-semibold text-foreground">
+                {noShowDialog.session?.client?.full_name}
+              </span>{' '}
+              no asistió a la sesión de las{' '}
+              <span className="font-semibold">
+                {noShowDialog.session?.session_time?.substring(0, 5)}
+              </span>.
+              ¿Deseas devolver el crédito o descontarlo?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            {/* Devolver crédito */}
+            <button
+              disabled={processingNoShow}
+              onClick={() =>
+                handleNoShow(
+                  { sessionId: noShowDialog.session.id, action: 'return_credit' },
+                  {
+                    onSuccess: () => {
+                      toast({
+                        title: '↩️ Crédito devuelto',
+                        description: 'La sesión fue cancelada y el crédito restaurado al cliente.',
+                      });
+                      setNoShowDialog({ open: false, session: null });
+                    },
+                    onError: (e: any) =>
+                      toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+                  }
+                )
+              }
+              className="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 hover:border-blue-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                <CreditCard className="w-5 h-5 text-blue-600" />
+              </div>
+              <span className="text-xs font-black uppercase tracking-wider text-blue-700">
+                Devolver crédito
+              </span>
+              <span className="text-[10px] text-blue-500 text-center leading-tight">
+                Cancela la sesión y restaura el crédito al cliente
+              </span>
+            </button>
+
+            {/* Descontar crédito */}
+            <button
+              disabled={processingNoShow}
+              onClick={() =>
+                handleNoShow(
+                  { sessionId: noShowDialog.session.id, action: 'deduct' },
+                  {
+                    onSuccess: () => {
+                      toast({
+                        title: '✂️ Crédito descontado',
+                        description: 'La sesión fue marcada como inasistencia.',
+                      });
+                      setNoShowDialog({ open: false, session: null });
+                    },
+                    onError: (e: any) =>
+                      toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+                  }
+                )
+              }
+              className="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-red-200 bg-red-50 hover:bg-red-100 hover:border-red-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                <XCircle className="w-5 h-5 text-red-600" />
+              </div>
+              <span className="text-xs font-black uppercase tracking-wider text-red-700">
+                Descontar crédito
+              </span>
+              <span className="text-[10px] text-red-500 text-center leading-tight">
+                Marca inasistencia sin devolver el crédito
+              </span>
+            </button>
+          </div>
+
+          <DialogFooter className="mt-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={processingNoShow}
+              onClick={() => setNoShowDialog({ open: false, session: null })}
+            >
+              Cancelar
             </Button>
           </DialogFooter>
         </DialogContent>

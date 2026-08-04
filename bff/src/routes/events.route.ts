@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
+import { todayInZone } from '../utils/businessDate';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 
 const router = Router();
@@ -220,6 +221,1045 @@ router.post('/', requireAuth, requireRole('organizer'), async (req: Authenticate
         return res.status(201).json(newEvent);
     } catch (err: any) {
         req.log?.error({ err }, 'Error inesperado creando evento');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/v1/events/school-tournament — Crear torneo propiedad de una ESCUELA
+// ------------------------------------------------------------------------------
+// Endpoint aislado (NO reusa el POST '/' del organizador, que está desincronizado
+// con el esquema real). Escribe contra las columnas reales de la DB:
+//   events.creator_role='school', school_id, organizer_id=NULL.
+// Gate: addon 'tournaments' (v_school_entitlements.has_tournaments).
+// Mapeo de casos: interno=school_only, externo privado=invited_only, externo público=public.
+// ─────────────────────────────────────────────────────────────────────────────
+const SchoolTournamentSchema = z.object({
+    title: z.string().min(1, 'El título es requerido'),
+    sport: z.string().min(1, 'El deporte es requerido'),
+    description: z.string().optional().nullable(),
+    event_date: z.string().min(1, 'La fecha es requerida'),
+    start_time: z.string().min(1, 'La hora de inicio es requerida'),
+    end_time: z.string().optional().nullable(),
+    address: z.string().min(1, 'La dirección es requerida'),
+    city: z.string().min(1, 'La ciudad es requerida'),
+    lat: z.number().optional().nullable(),
+    lng: z.number().optional().nullable(),
+    capacity: z.number().int().positive().optional(),
+    image_url: z.string().optional().nullable(),
+    banner_url: z.string().optional().nullable(),
+
+    // Torneo de escuela
+    tournament_scope: z.enum(['internal', 'external']),
+    // Visibilidad real de la DB. Default según scope si no viene.
+    visibility: z.enum(['public', 'invited_only', 'school_only']).optional(),
+    registration_type: z.enum(['individual', 'delegation']).optional().default('delegation'),
+    payer_mode: z.enum(['school', 'parent', 'flexible']).optional().default('school'),
+    payment_gates_approval: z.boolean().optional().default(true),
+    allow_individual_registration: z.boolean().optional().default(false),
+    invited_schools: z.array(z.string().uuid()).optional(),
+
+    registration_deadline: z.string().optional().nullable(),
+    payment_deadline: z.string().optional().nullable(),
+    correction_deadline: z.string().optional().nullable(),
+    crossover_allowed: z.boolean().optional().default(false),
+    payment_methods: z.array(z.string()).optional(),
+
+    // Sub-recursos (columnas reales)
+    categories: z.array(z.any()).optional(),
+    price_phases: z.array(z.any()).optional(),
+});
+
+function slugifyTitle(title: string): string {
+    const base = title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '')
+        .slice(0, 60);
+    const suffix = Math.random().toString(36).slice(2, 8);
+    return `${base || 'torneo'}-${suffix}`;
+}
+
+router.post('/school-tournament', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const userId = req.user!.id;
+        const schoolId = req.schoolId;
+        if (!schoolId) {
+            return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        }
+
+        // Gate: addon 'tournaments' activo para la escuela
+        const { data: ent, error: entErr } = await supabase
+            .from('v_school_entitlements')
+            .select('has_tournaments')
+            .eq('school_id', schoolId)
+            .maybeSingle();
+        if (entErr) {
+            req.log?.error({ err: entErr }, 'Error consultando entitlements de torneos');
+            return res.status(500).json({ error: 'Error verificando el módulo de torneos.' });
+        }
+        if (!ent?.has_tournaments) {
+            return res.status(403).json({
+                error: 'El módulo de Torneos no está activo para esta escuela.',
+                hint: 'Actívalo desde Mi Plan.',
+            });
+        }
+
+        const parsed = SchoolTournamentSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+        }
+        const p = parsed.data;
+
+        // Visibilidad por defecto según el alcance
+        const visibility = p.visibility
+            ?? (p.tournament_scope === 'internal' ? 'school_only' : 'public');
+
+        // 1. Insert Event (columnas reales; creator_role='school', organizer_id NULL)
+        const { data: newEvent, error: eventError } = await supabase
+            .from('events')
+            .insert({
+                creator_id: userId,
+                creator_role: 'school',
+                school_id: schoolId,
+                organizer_id: null,
+                title: p.title,
+                sport: p.sport,
+                description: p.description ?? null,
+                event_type: 'tournament',
+                event_date: p.event_date,
+                start_time: p.start_time,
+                end_time: p.end_time ?? null,
+                address: p.address,
+                city: p.city,
+                lat: p.lat ?? null,
+                lng: p.lng ?? null,
+                capacity: p.capacity ?? 50,
+                image_url: p.image_url ?? null,
+                banner_url: p.banner_url ?? null,
+                slug: slugifyTitle(p.title),
+                status: 'draft',
+                tournament_scope: p.tournament_scope,
+                visibility,
+                registration_type: p.registration_type,
+                payer_mode: p.payer_mode,
+                payment_gates_approval: p.payment_gates_approval,
+                allow_individual_registration: p.allow_individual_registration,
+                invited_schools: p.invited_schools ?? [],
+                registration_deadline: p.registration_deadline ?? null,
+                payment_deadline: p.payment_deadline ?? null,
+                correction_deadline: p.correction_deadline ?? null,
+                crossover_allowed: p.crossover_allowed,
+                payment_methods: p.payment_methods ?? [],
+            })
+            .select()
+            .single();
+
+        if (eventError) {
+            req.log?.error({ err: eventError }, 'Error insertando torneo de escuela');
+            return res.status(500).json({ error: 'Error al crear el torneo' });
+        }
+
+        // 2. Categorías (columnas reales: age_min/age_max/team_min/team_max)
+        if (Array.isArray(p.categories) && p.categories.length > 0) {
+            const rows = p.categories.map((c: any, i: number) => ({
+                event_id: newEvent.id,
+                division: c.division || 'General',
+                level: c.level || '1',
+                category: c.category || 'Open',
+                rama: c.rama || 'Mixto',
+                age_min: c.age_min ?? null,
+                age_max: c.age_max ?? null,
+                birth_year_min: c.birth_year_min ?? null,
+                birth_year_max: c.birth_year_max ?? null,
+                team_min: c.team_min ?? 10,
+                team_max: c.team_max ?? 30,
+                routine_max_seconds: c.routine_max_seconds ?? null,
+                scoring_system: c.scoring_system ?? null,
+                crossover_allowed: c.crossover_allowed ?? true,
+                active: c.active ?? true,
+                sort_order: c.sort_order ?? i,
+            }));
+            const { error: catErr } = await supabase.from('event_categories_config').insert(rows);
+            if (catErr) req.log?.warn({ err: catErr }, 'Error insertando categorías (torneo creado igual)');
+        }
+
+        // 3. Fases de precio (columnas reales: price_pkg1.., deposit_percent)
+        if (Array.isArray(p.price_phases) && p.price_phases.length > 0) {
+            const rows = p.price_phases.map((ph: any, i: number) => ({
+                event_id: newEvent.id,
+                phase_name: ph.phase_name || `Fase ${i + 1}`,
+                valid_until: ph.valid_until,
+                kit_type: ph.kit_type || 'gold',
+                deposit_percent: ph.deposit_percent ?? 30,
+                price_pkg1: ph.price_pkg1 ?? 0,
+                price_pkg2: ph.price_pkg2 ?? 0,
+                price_pkg3: ph.price_pkg3 ?? 0,
+                price_solo: ph.price_solo ?? 0,
+                sort_order: ph.sort_order ?? i,
+            }));
+            const { error: phErr } = await supabase.from('event_price_phases').insert(rows);
+            if (phErr) req.log?.warn({ err: phErr }, 'Error insertando fases de precio (torneo creado igual)');
+        }
+
+        return res.status(201).json(newEvent);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado creando torneo de escuela');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/school-tournaments — Torneos creados por la escuela (host)
+router.get('/school-tournaments', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+
+        const { data, error } = await supabase
+            .from('events')
+            .select(`
+                id, title, sport, event_date, city, slug, status, visibility,
+                tournament_scope, payer_mode, image_url, created_at,
+                delegations:event_delegations(count)
+            `)
+            .eq('school_id', schoolId)
+            .eq('creator_role', 'school')
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            req.log?.error({ err: error }, 'Error listando torneos de la escuela');
+            return res.status(500).json({ error: 'Error al listar torneos' });
+        }
+        return res.status(200).json(data || []);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado listando torneos de escuela');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/school-tournaments/:id — Detalle (dueño), cualquier status
+router.get('/school-tournaments/:id', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const { id } = req.params;
+
+        const { data, error } = await supabase
+            .from('events')
+            .select(`
+                *,
+                categories:event_categories_config(*),
+                phases:event_price_phases(*),
+                delegations:event_delegations(count)
+            `)
+            .eq('id', id)
+            .eq('school_id', schoolId)
+            .eq('creator_role', 'school')
+            .maybeSingle();
+
+        if (error) {
+            req.log?.error({ err: error }, 'Error obteniendo torneo de escuela');
+            return res.status(500).json({ error: 'Error al obtener el torneo' });
+        }
+        if (!data) return res.status(404).json({ error: 'Torneo no encontrado' });
+        return res.status(200).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado obteniendo torneo de escuela');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// POST /api/v1/events/school-tournaments/:id/publish — Publicar (draft → active)
+router.post('/school-tournaments/:id/publish', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const { id } = req.params;
+
+        // Verificar propiedad
+        const { data: ev } = await supabase
+            .from('events')
+            .select('id')
+            .eq('id', id)
+            .eq('school_id', schoolId)
+            .eq('creator_role', 'school')
+            .maybeSingle();
+        if (!ev) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const { data, error } = await supabase
+            .from('events')
+            .update({ status: 'active', registrations_open: true, updated_at: new Date().toISOString() })
+            .eq('id', id)
+            .eq('school_id', schoolId)
+            .select()
+            .single();
+
+        if (error) {
+            req.log?.error({ err: error }, 'Error publicando torneo de escuela');
+            return res.status(500).json({ error: 'Error al publicar el torneo' });
+        }
+        return res.status(200).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado publicando torneo de escuela');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// Helper: verifica que el torneo pertenezca a la escuela del usuario
+async function assertOwnedSchoolTournament(eventId: string, schoolId: string): Promise<boolean> {
+    const { data } = await supabase
+        .from('events')
+        .select('id')
+        .eq('id', eventId)
+        .eq('school_id', schoolId)
+        .eq('creator_role', 'school')
+        .maybeSingle();
+    return !!data;
+}
+
+// PATCH /api/v1/events/school-tournaments/:id — editar campos básicos
+const PatchTournamentSchema = z.object({
+    title: z.string().min(1).optional(),
+    description: z.string().nullable().optional(),
+    event_date: z.string().optional(),
+    start_time: z.string().optional(),
+    end_time: z.string().nullable().optional(),
+    address: z.string().optional(),
+    city: z.string().optional(),
+    capacity: z.number().int().positive().nullable().optional(),
+    visibility: z.enum(['public', 'invited_only', 'school_only']).optional(),
+    payer_mode: z.enum(['school', 'parent', 'flexible']).optional(),
+    payment_gates_approval: z.boolean().optional(),
+    registration_deadline: z.string().nullable().optional(),
+    payment_deadline: z.string().nullable().optional(),
+    correction_deadline: z.string().nullable().optional(),
+    crossover_allowed: z.boolean().optional(),
+});
+router.patch('/school-tournaments/:id', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const { id } = req.params;
+        if (!(await assertOwnedSchoolTournament(String(id), schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const parsed = PatchTournamentSchema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+
+        const { data, error } = await supabase
+            .from('events')
+            .update({ ...parsed.data, updated_at: new Date().toISOString() })
+            .eq('id', id)
+            .eq('school_id', schoolId)
+            .select()
+            .single();
+        if (error) { req.log?.error({ err: error }, 'Error editando torneo'); return res.status(500).json({ error: 'Error al editar el torneo' }); }
+        return res.status(200).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado editando torneo');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// PUT /api/v1/events/school-tournaments/:id/categories — reemplaza categorías
+router.put('/school-tournaments/:id/categories', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const { id } = req.params;
+        if (!(await assertOwnedSchoolTournament(String(id), schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const cats = Array.isArray(req.body?.categories) ? req.body.categories : [];
+        await supabase.from('event_categories_config').delete().eq('event_id', id);
+        if (cats.length > 0) {
+            const rows = cats.map((c: any, i: number) => ({
+                event_id: id,
+                division: c.division || 'General',
+                level: c.level || '1',
+                category: c.category || 'Open',
+                rama: c.rama || 'Mixto',
+                age_min: c.age_min ?? null,
+                age_max: c.age_max ?? null,
+                birth_year_min: c.birth_year_min ?? null,
+                birth_year_max: c.birth_year_max ?? null,
+                team_min: c.team_min ?? 1,
+                team_max: c.team_max ?? 30,
+                routine_max_seconds: c.routine_max_seconds ?? null,
+                scoring_system: c.scoring_system ?? null,
+                crossover_allowed: c.crossover_allowed ?? true,
+                active: c.active ?? true,
+                sort_order: c.sort_order ?? i,
+            }));
+            const { error } = await supabase.from('event_categories_config').insert(rows);
+            if (error) { req.log?.error({ err: error }, 'Error guardando categorías'); return res.status(500).json({ error: 'Error al guardar categorías' }); }
+        }
+        const { data } = await supabase.from('event_categories_config').select('*').eq('event_id', id).order('sort_order');
+        return res.status(200).json(data || []);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado guardando categorías');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// PUT /api/v1/events/school-tournaments/:id/price-phases — reemplaza fases de precio
+router.put('/school-tournaments/:id/price-phases', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const { id } = req.params;
+        if (!(await assertOwnedSchoolTournament(String(id), schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const phases = Array.isArray(req.body?.phases) ? req.body.phases : [];
+        await supabase.from('event_price_phases').delete().eq('event_id', id);
+        if (phases.length > 0) {
+            const rows = phases.map((p: any, i: number) => ({
+                event_id: id,
+                phase_name: p.phase_name || `Fase ${i + 1}`,
+                valid_until: p.valid_until,
+                kit_type: p.kit_type || 'gold',
+                deposit_percent: p.deposit_percent ?? 30,
+                price_pkg1: p.price_pkg1 ?? 0,
+                price_pkg2: p.price_pkg2 ?? 0,
+                price_pkg3: p.price_pkg3 ?? 0,
+                price_solo: p.price_solo ?? 0,
+                sort_order: p.sort_order ?? i,
+            }));
+            const { error } = await supabase.from('event_price_phases').insert(rows);
+            if (error) { req.log?.error({ err: error }, 'Error guardando fases'); return res.status(500).json({ error: 'Error al guardar fases de precio' }); }
+        }
+        const { data } = await supabase.from('event_price_phases').select('*').eq('event_id', id).order('sort_order');
+        return res.status(200).json(data || []);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado guardando fases');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/school-tournaments/:id/delegations — inscritos + estado de pago
+router.get('/school-tournaments/:id/delegations', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const { id } = req.params;
+        if (!(await assertOwnedSchoolTournament(String(id), schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const { data, error } = await supabase
+            .from('event_delegations')
+            .select(`
+                id, status, total_owed, total_paid, contact_name, contact_email,
+                submitted_at, created_at,
+                school:schools(id, name, city),
+                teams:event_teams(count),
+                members:event_team_members(count),
+                payments:event_delegation_payments(id, amount, status, payment_method, proof_url, created_at)
+            `)
+            .eq('event_id', id)
+            .order('created_at', { ascending: false });
+        if (error) { req.log?.error({ err: error }, 'Error listando inscritos'); return res.status(500).json({ error: 'Error al listar inscritos' }); }
+        return res.status(200).json(data || []);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado listando inscritos');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// PATCH /api/v1/events/school-tournaments/:id/delegations/:delId — aprobar/rechazar (host)
+router.patch('/school-tournaments/:id/delegations/:delId', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        const delId = String(req.params.delId);
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const action = req.body?.action as string;
+        if (!['approve', 'reject'].includes(action)) return res.status(400).json({ error: 'Acción inválida' });
+
+        const { data: del } = await supabase
+            .from('event_delegations')
+            .select('id, status, total_owed, total_paid')
+            .eq('id', delId).eq('event_id', eventId).maybeSingle();
+        if (!del) return res.status(404).json({ error: 'Delegación no encontrada' });
+
+        if (action === 'approve') {
+            const { data: ev } = await supabase.from('events').select('payment_gates_approval').eq('id', eventId).single();
+            if (ev?.payment_gates_approval && Number(del.total_paid || 0) < Number(del.total_owed || 0)) {
+                return res.status(400).json({ error: 'La delegación no ha cubierto el pago. Registra el pago antes de aprobar (o desactiva el gate de pago).' });
+            }
+            const { data, error } = await supabase.from('event_delegations')
+                .update({ status: 'confirmed', confirmed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+                .eq('id', delId).select().single();
+            if (error) return res.status(500).json({ error: 'Error al aprobar' });
+            return res.status(200).json(data);
+        }
+        // reject
+        const { data, error } = await supabase.from('event_delegations')
+            .update({ status: 'rejected', rejection_reason: req.body?.rejection_reason ?? null, updated_at: new Date().toISOString() })
+            .eq('id', delId).select().single();
+        if (error) return res.status(500).json({ error: 'Error al rechazar' });
+        return res.status(200).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado aprobando/rechazando delegación');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// POST /api/v1/events/school-tournaments/:id/delegations/:delId/record-payment — pago manual (host)
+router.post('/school-tournaments/:id/delegations/:delId/record-payment', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        const delId = String(req.params.delId);
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const amount = Number(req.body?.amount);
+        const method = (req.body?.payment_method as string) || 'cash';
+        if (!amount || amount <= 0) return res.status(400).json({ error: 'Monto inválido' });
+
+        const { data: del } = await supabase
+            .from('event_delegations')
+            .select('id, school_id, total_paid')
+            .eq('id', delId).eq('event_id', eventId).maybeSingle();
+        if (!del) return res.status(404).json({ error: 'Delegación no encontrada' });
+
+        // Registrar el pago (host-registrado = aprobado)
+        const { error: payErr } = await supabase.from('event_delegation_payments').insert({
+            delegation_id: delId, event_id: eventId, school_id: del.school_id,
+            amount, currency: 'COP', payment_method: method, status: 'approved',
+            reviewed_by: req.user!.id, reviewed_at: new Date().toISOString(),
+            notes: req.body?.notes ?? null,
+        });
+        if (payErr) { req.log?.error({ err: payErr }, 'Error registrando pago'); return res.status(500).json({ error: 'Error al registrar el pago' }); }
+
+        const newPaid = Number(del.total_paid || 0) + amount;
+        const { data, error } = await supabase.from('event_delegations')
+            .update({ total_paid: newPaid, updated_at: new Date().toISOString() })
+            .eq('id', delId).select().single();
+        if (error) return res.status(500).json({ error: 'Error al actualizar el saldo' });
+        return res.status(200).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado registrando pago');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// POST /api/v1/events/:eventId/delegations/mine/payment — el PARTICIPANTE declara un pago (comprobante)
+// Crea event_delegation_payments status='pending' para SU delegación; el host lo verifica luego.
+router.post('/:eventId/delegations/mine/payment', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.eventId);
+
+        const amount = Number(req.body?.amount);
+        const method = (req.body?.payment_method as string) || 'transfer';
+        if (!amount || amount <= 0) return res.status(400).json({ error: 'Monto inválido' });
+
+        // La delegación de ESTA escuela en ESTE evento
+        const { data: del } = await supabase
+            .from('event_delegations')
+            .select('id, school_id')
+            .eq('event_id', eventId).eq('school_id', schoolId).maybeSingle();
+        if (!del) return res.status(404).json({ error: 'No tienes una delegación inscrita en este torneo.' });
+
+        const { data, error } = await supabase.from('event_delegation_payments').insert({
+            delegation_id: del.id, event_id: eventId, school_id: schoolId,
+            amount, currency: 'COP', payment_method: method, status: 'pending',
+            proof_url: req.body?.proof_url ?? null, notes: req.body?.notes ?? null,
+        }).select().single();
+        if (error) { req.log?.error({ err: error }, 'Error registrando pago participante'); return res.status(500).json({ error: 'Error al registrar el pago' }); }
+        return res.status(201).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado pago participante');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// PATCH /api/v1/events/school-tournaments/:id/delegations/:delId/payments/:payId — host verifica/rechaza un pago
+router.patch('/school-tournaments/:id/delegations/:delId/payments/:payId', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        const delId = String(req.params.delId);
+        const payId = String(req.params.payId);
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const action = req.body?.action as string;
+        if (!['verify', 'reject'].includes(action)) return res.status(400).json({ error: 'Acción inválida' });
+
+        const { data: pay } = await supabase
+            .from('event_delegation_payments')
+            .select('id, amount, status, delegation_id')
+            .eq('id', payId).eq('event_id', eventId).eq('delegation_id', delId).maybeSingle();
+        if (!pay) return res.status(404).json({ error: 'Pago no encontrado' });
+        if (pay.status !== 'pending') return res.status(409).json({ error: 'Este pago ya fue procesado.' });
+
+        if (action === 'reject') {
+            const { data, error } = await supabase.from('event_delegation_payments')
+                .update({ status: 'rejected', reviewed_by: req.user!.id, reviewed_at: new Date().toISOString(), rejection_reason: req.body?.rejection_reason ?? null, updated_at: new Date().toISOString() })
+                .eq('id', payId).select().single();
+            if (error) return res.status(500).json({ error: 'Error al rechazar el pago' });
+            return res.status(200).json(data);
+        }
+
+        // verify → aprobar + sumar a total_paid
+        const { error: upPayErr } = await supabase.from('event_delegation_payments')
+            .update({ status: 'approved', reviewed_by: req.user!.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+            .eq('id', payId).eq('status', 'pending');
+        if (upPayErr) return res.status(500).json({ error: 'Error al verificar el pago' });
+
+        const { data: del } = await supabase.from('event_delegations').select('total_paid').eq('id', delId).single();
+        const newPaid = Number(del?.total_paid || 0) + Number(pay.amount);
+        const { data, error } = await supabase.from('event_delegations')
+            .update({ total_paid: newPaid, updated_at: new Date().toISOString() })
+            .eq('id', delId).select().single();
+        if (error) return res.status(500).json({ error: 'Error al actualizar el saldo' });
+        return res.status(200).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado verificando pago');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/category-templates?sport=xxx — sugerencias de categorías por deporte
+router.get('/category-templates', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const sport = String(req.query.sport || '').trim().toLowerCase();
+        if (!sport) return res.status(200).json([]);
+        const { data, error } = await supabase
+            .from('sport_category_templates')
+            .select('sport, archetype, division, category, rama, level, age_min, age_max, team_min, team_max, sort_order')
+            .eq('is_active', true)
+            .ilike('sport', sport)
+            .order('sort_order');
+        if (error) { req.log?.error({ err: error }, 'Error plantillas de categorías'); return res.status(500).json({ error: 'Error al cargar plantillas' }); }
+        return res.status(200).json(data || []);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado plantillas de categorías');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/:id/enroll-info — datos para inscribir (participante)
+router.get('/:id/enroll-info', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const eventId = String(req.params.id);
+        const { data, error } = await supabase
+            .from('events')
+            .select(`
+                id, title, sport, city, address, event_date, status, visibility, tournament_scope,
+                registrations_open, registration_deadline, payer_mode, crossover_allowed,
+                categories:event_categories_config(*),
+                phases:event_price_phases(*)
+            `)
+            .eq('id', eventId)
+            .maybeSingle();
+        if (error) { req.log?.error({ err: error }, 'Error enroll-info'); return res.status(500).json({ error: 'Error al cargar el torneo' }); }
+        if (!data) return res.status(404).json({ error: 'Torneo no encontrado' });
+        return res.status(200).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado enroll-info');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// POST /api/v1/events/school-tournaments/:id/enroll — inscribir delegación (participante)
+// Escuela participante (req.schoolId) inscribe su delegación en un torneo externo publicado.
+// Correcto contra el esquema real: event_delegations.total_owed/total_paid, event_teams,
+// event_team_members(full_name/document_number/birth_year). Idempotente: re-enviar reemplaza roster.
+const EnrollSchema = z.object({
+    price_phase_id: z.string().uuid().optional().nullable(),
+    contact_name: z.string().optional().nullable(),
+    contact_email: z.string().optional().nullable(),
+    contact_phone: z.string().optional().nullable(),
+    whatsapp: z.string().optional().nullable(),
+    teams: z.array(z.object({
+        category_id: z.string().uuid().optional().nullable(),
+        team_name: z.string().min(1, 'Nombre de equipo requerido'),
+        package_type: z.enum(['pkg1', 'pkg2', 'pkg3', 'solo']).optional().default('solo'),
+        accommodation: z.enum(['cuadruple', 'triple', 'doble', 'sencilla']).optional().default('cuadruple'),
+        members: z.array(z.object({
+            full_name: z.string().min(1),
+            document_number: z.string().optional().nullable(),
+            birth_year: z.number().int().optional().nullable(),
+            shirt_size: z.string().optional().nullable(),
+            profile_id: z.string().uuid().optional().nullable(),
+            child_id: z.string().uuid().optional().nullable(),
+        })).optional().default([]),
+    })).min(1, 'Agrega al menos un equipo'),
+});
+
+function priceForPackage(phase: any, pkg: string): number {
+    if (!phase) return 0;
+    switch (pkg) {
+        case 'pkg1': return Number(phase.price_pkg1 || 0);
+        case 'pkg2': return Number(phase.price_pkg2 || 0);
+        case 'pkg3': return Number(phase.price_pkg3 || 0);
+        default: return Number(phase.price_solo || 0);
+    }
+}
+
+router.post('/school-tournaments/:id/enroll', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+
+        // 1. Evento válido para inscripción
+        const { data: ev } = await supabase
+            .from('events')
+            .select('id, status, tournament_scope, visibility, registrations_open, invited_schools')
+            .eq('id', eventId)
+            .maybeSingle();
+        if (!ev) return res.status(404).json({ error: 'Torneo no encontrado' });
+        if (ev.tournament_scope === 'internal') return res.status(400).json({ error: 'Un torneo interno no admite inscripción de delegaciones externas.' });
+        if (ev.status !== 'active' || ev.registrations_open === false) return res.status(400).json({ error: 'Las inscripciones no están abiertas.' });
+        if (ev.visibility === 'invited_only' && !(ev.invited_schools || []).includes(schoolId)) {
+            return res.status(403).json({ error: 'Este torneo es solo por invitación.' });
+        }
+
+        const parsed = EnrollSchema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+        const p = parsed.data;
+
+        // 2. Fase de precio (la indicada o la primera vigente por fecha)
+        const { data: phases } = await supabase
+            .from('event_price_phases')
+            .select('*')
+            .eq('event_id', eventId)
+            .order('sort_order');
+        let phase = null as any;
+        if (p.price_phase_id) phase = (phases || []).find((x) => x.id === p.price_phase_id) || null;
+        if (!phase) {
+            const today = todayInZone();
+            phase = (phases || []).find((x) => x.valid_until >= today) || (phases || [])[0] || null;
+        }
+
+        // 3. Delegación (upsert por event_id+school_id — UNIQUE)
+        const { data: existing } = await supabase
+            .from('event_delegations')
+            .select('id, status')
+            .eq('event_id', eventId)
+            .eq('school_id', schoolId)
+            .maybeSingle();
+
+        let delegationId: string;
+        if (existing) {
+            if (['confirmed', 'closed'].includes(existing.status)) {
+                return res.status(409).json({ error: 'Tu delegación ya fue confirmada; no se puede reeditar.' });
+            }
+            delegationId = existing.id;
+            // Reemplazar roster previo (cascade borra members)
+            await supabase.from('event_teams').delete().eq('delegation_id', delegationId);
+        } else {
+            const { data: del, error: delErr } = await supabase
+                .from('event_delegations')
+                .insert({
+                    event_id: eventId, school_id: schoolId, status: 'draft',
+                    price_phase_id: phase?.id ?? null,
+                    contact_name: p.contact_name ?? null, contact_email: p.contact_email ?? null,
+                    contact_phone: p.contact_phone ?? null, whatsapp: p.whatsapp ?? null,
+                    total_owed: 0, total_paid: 0,
+                })
+                .select('id')
+                .single();
+            if (delErr || !del) { req.log?.error({ err: delErr }, 'Error creando delegación'); return res.status(500).json({ error: 'Error al crear la delegación' }); }
+            delegationId = del.id;
+        }
+
+        // 4. Equipos + integrantes; acumular total
+        let totalOwed = 0;
+        for (const team of p.teams) {
+            const unitPrice = priceForPackage(phase, team.package_type);
+            totalOwed += unitPrice;
+            const { data: teamRow, error: teamErr } = await supabase
+                .from('event_teams')
+                .insert({
+                    delegation_id: delegationId, event_id: eventId,
+                    category_id: team.category_id ?? null, team_name: team.team_name,
+                    package_type: team.package_type, accommodation: team.accommodation,
+                    status: 'submitted', locked_price: unitPrice,
+                })
+                .select('id')
+                .single();
+            if (teamErr || !teamRow) { req.log?.error({ err: teamErr }, 'Error creando equipo'); return res.status(500).json({ error: 'Error al crear equipo' }); }
+
+            if (team.members.length > 0) {
+                const memberRows = team.members.map((m) => ({
+                    team_id: teamRow.id, delegation_id: delegationId,
+                    full_name: m.full_name, document_number: m.document_number ?? null,
+                    birth_year: m.birth_year ?? null, shirt_size: m.shirt_size ?? null,
+                    profile_id: m.profile_id ?? null, child_id: m.child_id ?? null,
+                }));
+                const { error: memErr } = await supabase.from('event_team_members').insert(memberRows);
+                if (memErr) { req.log?.error({ err: memErr }, 'Error creando integrantes'); return res.status(500).json({ error: 'Error al crear integrantes' }); }
+            }
+        }
+
+        // 5. Actualizar delegación: total + estado submitted
+        const { data: finalDel, error: updErr } = await supabase
+            .from('event_delegations')
+            .update({
+                total_owed: totalOwed, status: 'submitted', submitted_at: new Date().toISOString(),
+                price_phase_id: phase?.id ?? null,
+                contact_name: p.contact_name ?? undefined, contact_email: p.contact_email ?? undefined,
+                contact_phone: p.contact_phone ?? undefined, whatsapp: p.whatsapp ?? undefined,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', delegationId)
+            .select()
+            .single();
+        if (updErr) { req.log?.error({ err: updErr }, 'Error finalizando delegación'); return res.status(500).json({ error: 'Error al finalizar la inscripción' }); }
+
+        return res.status(201).json(finalDel);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado inscribiendo delegación');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// ── Resultados de torneo (Liga) ──────────────────────────────────────────────
+// Round-robin (método del círculo). Devuelve jornadas → pares [local, visitante].
+function roundRobinRounds(ids: string[]): Array<Array<[string, string]>> {
+    const teams: (string | null)[] = [...ids];
+    if (teams.length % 2 !== 0) teams.push(null); // bye
+    const n = teams.length;
+    const rounds: Array<Array<[string, string]>> = [];
+    for (let r = 0; r < n - 1; r++) {
+        const pairs: Array<[string, string]> = [];
+        for (let i = 0; i < n / 2; i++) {
+            const a = teams[i], b = teams[n - 1 - i];
+            if (a && b) pairs.push(r % 2 === 0 ? [a, b] : [b, a]); // alterna localía
+        }
+        rounds.push(pairs);
+        teams.splice(1, 0, teams.pop()!); // rota dejando el primero fijo
+    }
+    return rounds;
+}
+
+// Copa: avanza el ganador de (round,slot) a la ronda siguiente (slot padre = ceil(slot/2); local si slot impar).
+async function advanceWinner(eventId: string, catId: string, round: number, slot: number, winnerId: string) {
+    const parentSlot = Math.ceil(slot / 2);
+    const isHome = slot % 2 === 1;
+    const { data: parent } = await supabase.from('tournament_matches')
+        .select('id').eq('event_id', eventId).eq('category_id', catId).eq('round', round + 1).eq('slot', parentSlot).maybeSingle();
+    if (!parent) return;
+    await supabase.from('tournament_matches')
+        .update(isHome ? { home_team_id: winnerId } : { away_team_id: winnerId })
+        .eq('id', parent.id);
+}
+// Copa: los partidos de ronda 1 con un solo equipo (bye) avanzan automáticamente.
+async function advanceByes(eventId: string, catId: string) {
+    const { data: r1 } = await supabase.from('tournament_matches')
+        .select('id, slot, home_team_id, away_team_id').eq('event_id', eventId).eq('category_id', catId).eq('round', 1);
+    for (const m of (r1 || [])) {
+        const h = m.home_team_id as string | null, a = m.away_team_id as string | null;
+        if (h && !a) { await supabase.from('tournament_matches').update({ status: 'walkover', home_score: 1, away_score: 0 }).eq('id', m.id); await advanceWinner(eventId, catId, 1, m.slot, h); }
+        else if (!h && a) { await supabase.from('tournament_matches').update({ status: 'walkover', home_score: 0, away_score: 1 }).eq('id', m.id); await advanceWinner(eventId, catId, 1, m.slot, a); }
+    }
+}
+
+// POST /api/v1/events/school-tournaments/:id/categories/:catId/generate-fixtures
+router.post('/school-tournaments/:id/categories/:catId/generate-fixtures', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        const catId = String(req.params.catId);
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const { data: teams } = await supabase
+            .from('event_teams')
+            .select('id')
+            .eq('event_id', eventId).eq('category_id', catId)
+            .neq('status', 'rejected');
+        const ids = (teams || []).map((t) => t.id);
+        if (ids.length < 2) return res.status(400).json({ error: 'Se necesitan al menos 2 equipos en la categoría.' });
+
+        const format = (req.body?.format as string) === 'copa' ? 'copa' : 'liga';
+        // Borrar partidos aún no jugados de esta categoría (regenerar)
+        await supabase.from('tournament_matches').delete().eq('event_id', eventId).eq('category_id', catId).eq('status', 'scheduled');
+
+        const rows: any[] = [];
+        if (format === 'liga') {
+            const rounds = roundRobinRounds(ids);
+            rounds.forEach((pairs, ri) => pairs.forEach((pair, si) => rows.push({
+                event_id: eventId, category_id: catId, round: ri + 1, slot: si + 1,
+                home_team_id: pair[0], away_team_id: pair[1], status: 'scheduled',
+            })));
+        } else {
+            // Copa: eliminación simple. Sembrar a potencia de 2 con byes (1vsN, 2vsN-1…).
+            let size = 1; while (size < ids.length) size *= 2;
+            const seeded: (string | null)[] = [...ids];
+            while (seeded.length < size) seeded.push(null);
+            const totalRounds = Math.round(Math.log2(size));
+            for (let i = 0; i < size / 2; i++) {
+                rows.push({ event_id: eventId, category_id: catId, round: 1, slot: i + 1, home_team_id: seeded[i], away_team_id: seeded[size - 1 - i], status: 'scheduled' });
+            }
+            for (let r = 2; r <= totalRounds; r++) {
+                const count = size / Math.pow(2, r);
+                for (let s = 0; s < count; s++) rows.push({ event_id: eventId, category_id: catId, round: r, slot: s + 1, home_team_id: null, away_team_id: null, status: 'scheduled' });
+            }
+        }
+        if (rows.length > 0) {
+            const { error } = await supabase.from('tournament_matches').insert(rows);
+            if (error) { req.log?.error({ err: error }, 'Error generando fixtures'); return res.status(500).json({ error: 'Error al generar el calendario' }); }
+        }
+        await supabase.from('events').update({ competition_format: format, updated_at: new Date().toISOString() }).eq('id', eventId);
+        if (format === 'copa') await advanceByes(eventId, catId);
+        return res.status(201).json({ matches: rows.length, format });
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado generando fixtures');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/school-tournaments/:id/matches?category_id=
+router.get('/school-tournaments/:id/matches', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        let q = supabase.from('tournament_matches')
+            .select('id, category_id, round, slot, home_team_id, away_team_id, home_score, away_score, status, scheduled_at, home:home_team_id(team_name), away:away_team_id(team_name)')
+            .eq('event_id', eventId).order('round').order('slot');
+        if (req.query.category_id) q = q.eq('category_id', String(req.query.category_id));
+        const { data, error } = await q;
+        if (error) return res.status(500).json({ error: 'Error al listar partidos' });
+        return res.status(200).json(data || []);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado listando partidos');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// PATCH /api/v1/events/school-tournaments/:id/matches/:matchId — cargar resultado
+router.patch('/school-tournaments/:id/matches/:matchId', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        const matchId = String(req.params.matchId);
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const hs = Number(req.body?.home_score);
+        const as = Number(req.body?.away_score);
+        if (!Number.isInteger(hs) || !Number.isInteger(as) || hs < 0 || as < 0) return res.status(400).json({ error: 'Marcador inválido' });
+
+        const { data: match } = await supabase.from('tournament_matches')
+            .select('id, round, slot, category_id, home_team_id, away_team_id')
+            .eq('id', matchId).eq('event_id', eventId).maybeSingle();
+        if (!match) return res.status(404).json({ error: 'Partido no encontrado' });
+
+        const { data, error } = await supabase.from('tournament_matches')
+            .update({ home_score: hs, away_score: as, status: 'played', updated_at: new Date().toISOString() })
+            .eq('id', matchId).select().single();
+        if (error) return res.status(500).json({ error: 'Error al guardar el resultado' });
+
+        // Copa: avanzar al ganador a la ronda siguiente (empates no avanzan)
+        const { data: evFmt } = await supabase.from('events').select('competition_format').eq('id', eventId).single();
+        if (evFmt?.competition_format === 'copa' && hs !== as && match.category_id) {
+            const winner = hs > as ? match.home_team_id : match.away_team_id;
+            if (winner) await advanceWinner(eventId, String(match.category_id), match.round, match.slot, winner as string);
+        }
+
+        // Goles opcionales: [{ team_id, member_id?, minute? }]
+        const goals = Array.isArray(req.body?.goals) ? req.body.goals : [];
+        if (goals.length > 0) {
+            await supabase.from('tournament_match_events').delete().eq('match_id', matchId).eq('type', 'goal');
+            const rows = goals.filter((g: any) => g.team_id).map((g: any) => ({
+                match_id: matchId, event_id: eventId, team_id: g.team_id,
+                member_id: g.member_id ?? null, type: 'goal', minute: g.minute ?? null,
+            }));
+            if (rows.length > 0) await supabase.from('tournament_match_events').insert(rows);
+        }
+        return res.status(200).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado guardando resultado');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/school-tournaments/:id/matches/:matchId/rosters — jugadores de los 2 equipos (goleadores)
+router.get('/school-tournaments/:id/matches/:matchId/rosters', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        const matchId = String(req.params.matchId);
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const { data: m } = await supabase.from('tournament_matches')
+            .select('home_team_id, away_team_id, home:home_team_id(team_name), away:away_team_id(team_name)')
+            .eq('id', matchId).eq('event_id', eventId).maybeSingle();
+        if (!m) return res.status(404).json({ error: 'Partido no encontrado' });
+
+        const teamIds = [m.home_team_id, m.away_team_id].filter(Boolean) as string[];
+        const { data: members } = teamIds.length
+            ? await supabase.from('event_team_members').select('id, full_name, team_id').in('team_id', teamIds)
+            : { data: [] as any[] };
+
+        const byTeam = (tid: string | null) => (members || []).filter((x: any) => x.team_id === tid).map((x: any) => ({ id: x.id, full_name: x.full_name }));
+        return res.status(200).json({
+            home: { team_id: m.home_team_id, team_name: (m as any).home?.team_name ?? null, members: byTeam(m.home_team_id) },
+            away: { team_id: m.away_team_id, team_name: (m as any).away?.team_name ?? null, members: byTeam(m.away_team_id) },
+        });
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado rosters de partido');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/school-tournaments/:id/standings?category_id= — tabla + goleadores
+router.get('/school-tournaments/:id/standings', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        const catId = req.query.category_id ? String(req.query.category_id) : null;
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        // Equipos de la categoría
+        let teamsQ = supabase.from('event_teams').select('id, team_name').eq('event_id', eventId).neq('status', 'rejected');
+        if (catId) teamsQ = teamsQ.eq('category_id', catId);
+        const { data: teams } = await teamsQ;
+        const table: Record<string, any> = {};
+        (teams || []).forEach((t) => { table[t.id] = { team_id: t.id, team_name: t.team_name, P: 0, W: 0, D: 0, L: 0, GF: 0, GA: 0, GD: 0, Pts: 0 }; });
+
+        // Partidos jugados
+        let mQ = supabase.from('tournament_matches').select('home_team_id, away_team_id, home_score, away_score').eq('event_id', eventId).eq('status', 'played');
+        if (catId) mQ = mQ.eq('category_id', catId);
+        const { data: matches } = await mQ;
+        (matches || []).forEach((m) => {
+            const h = table[m.home_team_id!], a = table[m.away_team_id!];
+            if (!h || !a) return;
+            const hs = Number(m.home_score), as = Number(m.away_score);
+            h.P++; a.P++; h.GF += hs; h.GA += as; a.GF += as; a.GA += hs;
+            if (hs > as) { h.W++; a.L++; h.Pts += 3; }
+            else if (hs < as) { a.W++; h.L++; a.Pts += 3; }
+            else { h.D++; a.D++; h.Pts++; a.Pts++; }
+        });
+        const standings = Object.values(table).map((r: any) => ({ ...r, GD: r.GF - r.GA }))
+            .sort((a: any, b: any) => b.Pts - a.Pts || b.GD - a.GD || b.GF - a.GF);
+
+        // Goleadores
+        let gQ = supabase.from('tournament_match_events').select('member_id, team_id, scorer:member_id(full_name)').eq('event_id', eventId).eq('type', 'goal');
+        if (catId) gQ = gQ; // los goles ya cuelgan del evento; filtrar por categoría requeriría join a match — se omite en MVP
+        const { data: goals } = await gQ;
+        const scorerMap: Record<string, any> = {};
+        (goals || []).forEach((g: any) => {
+            const key = g.member_id || 'sin';
+            if (!scorerMap[key]) scorerMap[key] = { member_id: g.member_id, name: g.scorer?.full_name ?? 'Sin registrar', goals: 0 };
+            scorerMap[key].goals++;
+        });
+        const scorers = Object.values(scorerMap).sort((a: any, b: any) => b.goals - a.goals).slice(0, 20);
+
+        return res.status(200).json({ standings, scorers });
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado calculando tabla');
         return res.status(500).json({ error: 'Error interno del servidor' });
     }
 });

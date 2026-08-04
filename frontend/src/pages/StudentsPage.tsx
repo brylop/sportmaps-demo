@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { normalizeText } from '@/lib/normalizeText';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,11 +19,14 @@ import { getUserFriendlyError } from '@/lib/error-translator';
 
 import { EnrollStudentModal } from '@/components/enrollment/EnrollStudentModal';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 
 export default function StudentsPage() {
   const { profile } = useAuth();
   const { schoolId, schoolName } = useSchoolContext();
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [showCreateChildModal, setShowCreateChildModal] = useState(false);
@@ -98,7 +102,7 @@ export default function StudentsPage() {
     } catch (error: any) {
       console.error('Error loading students:', error);
       toast({
-        title: 'Error al cargar estudiantes',
+        title: 'Error al cargar deportistas',
         description: getUserFriendlyError(error),
         variant: 'destructive',
       });
@@ -113,15 +117,26 @@ export default function StudentsPage() {
     setRefreshing(false);
     toast({
       title: 'Lista actualizada',
-      description: 'Los estudiantes se han actualizado correctamente',
+      description: 'Los deportistas se han actualizado correctamente',
     });
   };
 
-  const filteredStudents = students.filter((student: any) =>
-    student.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (student.parent_name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-    (student.parent_email?.toLowerCase() || '').includes(searchQuery.toLowerCase())
-  );
+  const filteredStudents = students.filter((student: any) => {
+    if (statusFilter && student.status !== statusFilter) return false;
+    const q = normalizeText(searchQuery);
+    if (!q) return true;
+    return (
+      normalizeText(student.full_name).includes(q) ||
+      normalizeText(student.parent_name).includes(q) ||
+      normalizeText(student.parent_email).includes(q)
+    );
+  });
+
+  const statusCounts = {
+    active: students.filter(s => s.status === 'active').length,
+    inactive: students.filter(s => s.status === 'inactive').length,
+    suspended: students.filter(s => s.status === 'suspended').length,
+  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -147,7 +162,7 @@ export default function StudentsPage() {
       <div className="container mx-auto p-6 flex items-center justify-center min-h-[400px]">
         <div className="text-center space-y-4">
           <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-          <p className="text-muted-foreground">Cargando estudiantes...</p>
+          <p className="text-muted-foreground">Cargando deportistas...</p>
         </div>
       </div>
     );
@@ -157,7 +172,7 @@ export default function StudentsPage() {
     <div className="container mx-auto p-3 md:p-6 space-y-4 md:space-y-6 max-w-full overflow-x-hidden animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3 md:gap-0">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Estudiantes</h1>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Deportistas</h1>
           <p className="text-sm md:text-base text-muted-foreground">
             Base de datos completa de alumnos ({students.length})
           </p>
@@ -222,47 +237,18 @@ export default function StudentsPage() {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-        <Card>
-          <CardHeader className="p-3 md:p-6">
-            <CardTitle className="text-sm md:text-base">Total</CardTitle>
-          </CardHeader>
-          <CardContent className="p-3 md:p-6 pt-0">
-            <div className="text-xl md:text-2xl font-bold">{students.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="p-3 md:p-6">
-            <CardTitle className="text-sm md:text-base">Activos</CardTitle>
-          </CardHeader>
-          <CardContent className="p-3 md:p-6 pt-0">
-            <div className="text-xl md:text-2xl font-bold text-green-600">
-              {students.filter(s => s.status === 'active').length}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="p-3 md:p-6">
-            <CardTitle className="text-sm md:text-base">Inactivos</CardTitle>
-          </CardHeader>
-          <CardContent className="p-3 md:p-6 pt-0">
-            <div className="text-xl md:text-2xl font-bold text-gray-600">
-              {students.filter(s => s.status === 'inactive').length}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="p-3 md:p-6">
-            <CardTitle className="text-sm md:text-base">Suspendidos</CardTitle>
-          </CardHeader>
-          <CardContent className="p-3 md:p-6 pt-0">
-            <div className="text-xl md:text-2xl font-bold text-red-600">
-              {students.filter(s => s.status === 'suspended').length}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Stats Cards — ahora filtran la tabla al hacer clic */}
+      <StatFilterBar
+        columns={4}
+        value={statusFilter}
+        onChange={setStatusFilter}
+        items={[
+          { key: null, label: 'Total', value: students.length, tone: 'neutral' },
+          { key: 'active', label: 'Activos', value: statusCounts.active, tone: 'emerald' },
+          { key: 'inactive', label: 'Inactivos', value: statusCounts.inactive, tone: 'neutral' },
+          { key: 'suspended', label: 'Suspendidos', value: statusCounts.suspended, tone: 'rose' },
+        ]}
+      />
 
       {/* Search */}
       <Card>
@@ -285,12 +271,12 @@ export default function StudentsPage() {
           {filteredStudents.length === 0 ? (
             <div className="p-8 text-center">
               <p className="text-muted-foreground mb-4">
-                {searchQuery ? 'No se encontraron estudiantes con esa búsqueda' : 'No hay estudiantes registrados aún'}
+                {searchQuery ? 'No se encontraron deportistas con esa búsqueda' : 'No hay deportistas registrados aún'}
               </p>
               {!searchQuery && (
                 <Button onClick={() => setShowImportModal(true)}>
                   <FileUp className="h-4 w-4 mr-2" />
-                  Importar Estudiantes
+                  Importar Deportistas
                 </Button>
               )}
             </div>
@@ -348,6 +334,16 @@ export default function StudentsPage() {
               </Table>
             </div>
           )}
+          <TableRefreshBar
+            className="-mx-3 -mb-3 md:-mx-6 md:-mb-6 mt-2 rounded-b-lg"
+            onRefresh={handleRefresh}
+            loading={refreshing || loading}
+            summary={
+              filteredStudents.length === students.length
+                ? `${students.length} deportista(s)`
+                : `${filteredStudents.length} de ${students.length} deportista(s)`
+            }
+          />
         </CardContent>
       </Card>
 

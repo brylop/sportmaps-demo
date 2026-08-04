@@ -1,0 +1,52 @@
+# PENDIENTE — fix del torniquete con atletas multideporte
+#
+# NO forma parte de la demo. Se separó a propósito: es el único cambio de los de
+# hoy que altera el comportamiento de un tenant real en producción (GYM RM), y la
+# demo del biométrico no lo necesita.
+#
+# QUÉ ARREGLA
+#   validateAccess() resolvía la inscripción activa con .maybeSingle(), que con
+#   2+ filas devuelve error y deja data=null → el torniquete niega la entrada con
+#   'no_enrollment'. Cualquier atleta inscrito en dos disciplinas/planes de la
+#   misma escuela queda bloqueado aunque esté al día.
+#
+# RADIO DE IMPACTO (medido 2026-08-03)
+#   Escuelas con lector: GYM RM (JJA1254900898/899) y Dreamers Gymnastics
+#   (CEZU214960067, sin huellas mapeadas → 0 afectados).
+#   En GYM RM: 122 huellas mapeadas, 2 personas con 2+ inscripciones activas, de
+#   las cuales 1 tiene huella → hoy es rechazada por este bug y pasaría a entrar
+#   si está al día. No relaja ningún control: sigue exigiendo inscripción activa
+#   y que el último cobro no esté 'overdue'.
+#
+# CÓMO APLICARLO
+#   git apply scripts/demo-club-campestre/pendiente-fix-torniquete-multideporte.patch
+#   cd bff && npx tsc --noEmit    # typechea limpio
+#   Probar con: PIN de un atleta con 2 inscripciones activas y al día.
+#
+diff --git a/bff/src/routes/access-adms.ts b/bff/src/routes/access-adms.ts
+index 2735716..e4617f3 100644
+--- a/bff/src/routes/access-adms.ts
++++ b/bff/src/routes/access-adms.ts
+@@ -243,10 +243,19 @@ async function validateAccess(schoolId: string, zkPin: string): Promise<{
+     .eq('school_id', schoolId)
+     .eq('status', 'active');
+ 
+-  const { data: enrollment } = await (isRegistered
+-    ? enrollQuery.eq('user_id', mapping.userId).maybeSingle()
+-    : enrollQuery.eq('unregistered_athlete_id', mapping.unregisteredAthleteId).maybeSingle()
++  // Un atleta multideporte tiene VARIAS inscripciones activas en la misma
++  // escuela (una por disciplina/plan). Esto usaba .maybeSingle(), que con 2+
++  // filas devuelve error y deja data=null → el torniquete le negaba la entrada
++  // con 'no_enrollment' aunque estuviera al día. Basta UNA inscripción vigente.
++  const { data: enrollmentRows } = await (isRegistered
++    ? enrollQuery.eq('user_id', mapping.userId)
++    : enrollQuery.eq('unregistered_athlete_id', mapping.unregisteredAthleteId)
+   );
++  const activeList = enrollmentRows ?? [];
++  const enrollment =
++    activeList.find((e) => !e.expires_at || e.expires_at >= today)   // vigente
++    ?? activeList[0]                                                 // todas vencidas
++    ?? null;
+ 
+   if (!enrollment) {
+     return {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import {
   ArrowLeft,
   CreditCard,
@@ -17,38 +18,64 @@ import {
   Download,
   Shield,
   Users,
-  Upload
+  Upload,
+  MapPin
 } from 'lucide-react';
 import { useCart } from '@/contexts/CartContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
-import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
-import { checkoutAPI } from '@/lib/api/checkout';
-import { transactionsAPI } from '@/lib/api/transactions';
+import { usePdfBranding } from '@/hooks/usePdfBranding';
+import { transactionsAPI, type ShippingInfo } from '@/lib/api/transactions';
 import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
 import { getUserFriendlyError } from '@/lib/error-translator';
+import { ShippingSelector } from '@/components/checkout/ShippingSelector';
+import type { QuoteOption } from '@/hooks/useShipping';
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
   const { items, getTotal, clearCart } = useCart();
   const { user } = useAuth();
+  const { schoolBranding } = useSchoolContext();
+  const { toast } = useToast();
+
+  const [paymentFlow, setPaymentFlow] = useState<'wompi' | 'manual'>('wompi');
+  const [processing, setProcessing] = useState(false);
+  // Guard SINCRONO contra doble-clic: el estado `processing` recien deshabilita
+  // el boton tras el re-render, dejando una ventana para 2 clics rapidos. Este
+  // ref bloquea reingresos en el mismo tick. Ver auditoria H-02.
+  const inFlightRef = useRef(false);
+  const [success, setSuccess] = useState(false);
+  const [receiptNumber, setReceiptNumber] = useState('');
+  const [wompiTransactionId, setWompiTransactionId] = useState('');
+  const [paymentMethodUsed, setPaymentMethodUsed] = useState('');
+
+  // Shipping (solo aplica si hay productos)
+  const [shippingLine, setShippingLine] = useState('');
+  const [shippingCity, setShippingCity] = useState('');
+  const [shippingDept, setShippingDept] = useState('');
+  const [shippingPhone, setShippingPhone] = useState('');
+  const [shippingOption, setShippingOption] = useState<QuoteOption | null>(null);
+  const [shippingQuoteId, setShippingQuoteId] = useState<string | null>(null);
+
+  const enrollments = items.filter((i) => i.type === 'enrollment');
+  const products = items.filter((i) => i.type === 'product');
+  const appointments = items.filter((i) => i.type === 'appointment');
+
+  const hasProducts = products.length > 0;
+
+  // Peso total estimado para la cotizacion (500 g por unidad por defecto)
+  const estimatedWeightGrams = useMemo(
+    () => Math.max(products.reduce((acc, p) => acc + 500 * p.quantity, 0), 100),
+    [products],
+  );
 
   // Guest flow: si no esta autenticado, redirigir a login con redirect de vuelta
   if (!user) {
     navigate('/login?redirect=/checkout', { replace: true });
     return null;
   }
-  const { schoolBranding } = useSchoolContext();
-  const { toast } = useToast();
-
-  const [paymentFlow, setPaymentFlow] = useState<'wompi' | 'manual'>('wompi');
-  const [processing, setProcessing] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [receiptNumber, setReceiptNumber] = useState('');
-  const [wompiTransactionId, setWompiTransactionId] = useState('');
-  const [paymentMethodUsed, setPaymentMethodUsed] = useState('');
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('es-CO', {
@@ -58,9 +85,22 @@ export default function CheckoutPage() {
     }).format(price);
   };
 
-  const enrollments = items.filter((i) => i.type === 'enrollment');
-  const products = items.filter((i) => i.type === 'product');
-  const appointments = items.filter((i) => i.type === 'appointment');
+  // Vendor primario (el primer producto define la zona de origen)
+  const primaryVendorProfileId = products[0]?.metadata?.vendorProfileId;
+  const productsSubtotal = products.reduce((t, i) => t + i.price * i.quantity, 0);
+
+  const shippingCost = shippingOption?.cost ?? 0;
+  const itemsTotal = getTotal();
+  const grandTotal = itemsTotal + shippingCost;
+
+  const shippingAddressReady =
+    hasProducts &&
+    shippingLine.trim().length > 0 &&
+    shippingCity.trim().length > 0 &&
+    shippingDept.trim().length > 0 &&
+    shippingPhone.trim().length >= 7;
+
+  const canPay = !processing && (!hasProducts || (shippingAddressReady && shippingOption !== null));
 
   /**
    * After a successful payment (Wompi callback or manual confirmation),
@@ -68,12 +108,29 @@ export default function CheckoutPage() {
    * WHO paid, for WHICH program/team
    */
   const processPostPayment = async (reference: string, transactionId?: string) => {
+    const shipping: ShippingInfo | undefined = hasProducts && shippingOption
+      ? {
+          address: {
+            line1: shippingLine.trim(),
+            city: shippingCity.trim(),
+            department: shippingDept.trim(),
+            country: 'CO',
+          },
+          contactPhone: shippingPhone.trim(),
+          contactEmail: user!.email || '',
+          customerName: user!.user_metadata?.full_name || user!.email || 'Cliente',
+          quote: shippingOption,
+          quoteId: shippingQuoteId,
+        }
+      : undefined;
+
     const result = await transactionsAPI.processPurchase({
       userId: user!.id,
       email: user!.email || '',
       items,
       paymentMethod: paymentMethodUsed || paymentFlow,
       reference,
+      shipping,
     });
 
     if (!result.success) {
@@ -98,7 +155,7 @@ export default function CheckoutPage() {
     try {
       const customerName = user.user_metadata?.full_name || user.email || 'Cliente';
       const customerEmail = user.email || 'demo@sportmaps.co';
-      const totalCents = getTotal() * 100;
+      const totalCents = grandTotal * 100;
 
       const transaction = await openWompiCheckout({
         reference,
@@ -169,15 +226,22 @@ export default function CheckoutPage() {
   };
 
   const handlePayment = () => {
+    // Reingreso síncrono: bloquea el 2º clic aunque `processing` aún no haya
+    // re-renderizado el botón. Se libera al terminar (éxito o error).
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    const release = () => { inFlightRef.current = false; };
     if (paymentFlow === 'wompi') {
-      handleWompiPayment();
+      handleWompiPayment().finally(release);
     } else {
-      handleManualPayment();
+      handleManualPayment().finally(release);
     }
   };
 
-  const handleDownloadReceipt = () => {
-    downloadReceipt({
+  const pdfBranding = usePdfBranding();
+
+  const handleDownloadReceipt = async () => {
+    await downloadReceipt({
       receiptNumber,
       date: new Date().toLocaleDateString('es-CO'),
       customerName: user?.user_metadata?.full_name || 'Cliente',
@@ -186,10 +250,12 @@ export default function CheckoutPage() {
       amount: getTotal(),
       paymentMethod: paymentMethodUsed || paymentFlow,
       paymentType: 'one_time',
-      schoolName: items[0]?.metadata.schoolName,
+      // Prioridad: schoolName del item (puede ser diferente al activo si compraron a otra escuela)
+      schoolName: items[0]?.metadata.schoolName ?? pdfBranding.schoolName ?? undefined,
       teamName: items[0]?.name,
-      logoUrl: schoolBranding?.logo_url,
-      brandingSettings: schoolBranding?.branding_settings,
+      // Feature gate aplicado en usePdfBranding (free -> null + defaults)
+      logoUrl: pdfBranding.logoUrl,
+      brandingSettings: pdfBranding.brandingSettings,
     });
   };
 
@@ -340,6 +406,77 @@ export default function CheckoutPage() {
               </CardContent>
             </Card>
 
+            {/* Shipping — solo si hay productos */}
+            {hasProducts && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <MapPin className="h-5 w-5" />
+                    Dirección de envío
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="md:col-span-2">
+                      <Label htmlFor="ship-line">Dirección *</Label>
+                      <Input
+                        id="ship-line"
+                        placeholder="Calle 123 #45-67, Apto 802"
+                        value={shippingLine}
+                        onChange={(e) => setShippingLine(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="ship-city">Ciudad *</Label>
+                      <Input
+                        id="ship-city"
+                        placeholder="Bogotá"
+                        value={shippingCity}
+                        onChange={(e) => setShippingCity(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="ship-dept">Departamento *</Label>
+                      <Input
+                        id="ship-dept"
+                        placeholder="Cundinamarca"
+                        value={shippingDept}
+                        onChange={(e) => setShippingDept(e.target.value)}
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <Label htmlFor="ship-phone">Teléfono de contacto *</Label>
+                      <Input
+                        id="ship-phone"
+                        placeholder="+57 300 000 0000"
+                        value={shippingPhone}
+                        onChange={(e) => setShippingPhone(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {shippingAddressReady && (
+                    <ShippingSelector
+                      origin={{ address_line: '', city: 'Bogotá', country: 'CO' }}
+                      destination={{
+                        address_line: shippingLine,
+                        city: shippingCity,
+                        state: shippingDept,
+                        country: 'CO',
+                      }}
+                      weightGrams={estimatedWeightGrams}
+                      declaredValue={productsSubtotal}
+                      vendorProfileId={primaryVendorProfileId}
+                      onSelect={(opt, quoteId) => {
+                        setShippingOption(opt);
+                        setShippingQuoteId(quoteId);
+                      }}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
             {/* Payment Method — Dual: Wompi OR Manual */}
             <Card>
               <CardHeader>
@@ -432,17 +569,25 @@ export default function CheckoutPage() {
                     <span>{formatPrice(appointments.reduce((t, i) => t + i.price, 0))}</span>
                   </div>
                 )}
+                {hasProducts && (
+                  <div className="flex justify-between text-sm">
+                    <span>Envío</span>
+                    <span>
+                      {shippingOption ? formatPrice(shippingCost) : <span className="text-muted-foreground">—</span>}
+                    </span>
+                  </div>
+                )}
                 <Separator />
                 <div className="flex justify-between font-bold text-lg">
                   <span>Total</span>
-                  <span className="text-primary">{formatPrice(getTotal())}</span>
+                  <span className="text-primary">{formatPrice(grandTotal)}</span>
                 </div>
 
                 <Button
                   className="w-full"
                   size="lg"
                   onClick={handlePayment}
-                  disabled={processing}
+                  disabled={!canPay}
                 >
                   {processing ? (
                     <>
@@ -452,10 +597,20 @@ export default function CheckoutPage() {
                   ) : (
                     <>
                       <CreditCard className="h-4 w-4 mr-2" />
-                      Pagar {formatPrice(getTotal())}
+                      Pagar {formatPrice(grandTotal)}
                     </>
                   )}
                 </Button>
+                {hasProducts && !shippingAddressReady && (
+                  <p className="text-xs text-center text-amber-600">
+                    Completa la dirección de envío para continuar
+                  </p>
+                )}
+                {hasProducts && shippingAddressReady && !shippingOption && (
+                  <p className="text-xs text-center text-amber-600">
+                    Selecciona una opción de envío
+                  </p>
+                )}
 
                 <p className="text-xs text-center text-muted-foreground">
                   Al continuar aceptas los términos y condiciones

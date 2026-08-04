@@ -2,7 +2,9 @@
 // Lo asignamos a self para evitar que el minificador (esbuild) lo borre
 self.__precacheManifest = [].concat(self.__WB_MANIFEST || []);
 
-const CACHE_NAME = 'sportmaps-v1'
+// IMPORTANTE: subir esta versión purga caches viejos (incluido el shell HTML
+// y assets envenenados con text/html) en el evento 'activate'.
+const CACHE_NAME = 'sportmaps-v3'
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -63,6 +65,14 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
+  // No interceptar peticiones cross-origin (BFF en onrender, Google, etc.).
+  // El SW solo gestiona assets/navegación de ESTE origen; meterse con APIs de
+  // terceros puede fabricar 503 sintéticos si el fetch falla un instante.
+  // (Supabase ya se manejó arriba con su propia estrategia.)
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
   // Assets estáticos → cache first
   if (event.request.destination === 'image' ||
       event.request.destination === 'font'  ||
@@ -74,29 +84,79 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Rutas de la app → network first con fallback a cache
+  // JS / CSS / módulos / assets con hash → network only, SIN fallback al shell.
+  // Servir index.html (text/html) para un <script> produce el error de MIME
+  // "Expected a JavaScript-or-Wasm module script ... text/html" y rompe los
+  // imports dinámicos (lazy) tras un redeploy con hashes nuevos. Preferimos un
+  // 503 (que dispara vite:preloadError → reload) antes que devolver HTML.
+  if (
+    event.request.destination === 'script' ||
+    event.request.destination === 'style'  ||
+    event.request.destination === 'worker' ||
+    url.pathname.startsWith('/assets/')
+  ) {
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          // No cachear respuestas que no sean OK ni HTML servido por el rewrite SPA
+          const ct = response.headers.get('content-type') || ''
+          if (response.ok && !ct.includes('text/html')) {
+            const clone = response.clone()
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone))
+          }
+          return response
+        })
+        .catch(async () => {
+          const cached = await caches.match(event.request)
+          return cached || new Response('Asset no disponible', {
+            status: 503,
+            headers: { 'Content-Type': 'text/plain' },
+          })
+        })
+    )
+    return
+  }
+
+  // Navegaciones (documentos HTML) → network first, fallback al shell offline.
+  // Solo aquí es correcto devolver index.html.
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          if (response.ok) {
+            const clone = response.clone()
+            caches.open(CACHE_NAME).then(cache => cache.put('/index.html', clone))
+          }
+          return response
+        })
+        .catch(async () => {
+          const shell = await caches.match('/index.html')
+          return shell || new Response('Sin conexión', {
+            status: 503,
+            headers: { 'Content-Type': 'text/plain' },
+          })
+        })
+    )
+    return
+  }
+
+  // Resto de peticiones GET → network first con cache, SIN fallback al shell.
   event.respondWith(
     fetch(event.request)
       .then(response => {
-        if (response.ok && event.request.method === 'GET') {
+        if (response.ok) {
           const clone = response.clone()
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone))
         }
         return response
       })
       .catch(async () => {
-        const cached = await caches.match(event.request);
-        if (cached) return cached;
-        
-        const shell = await caches.match('/index.html');
-        if (shell) return shell;
-
-        // Si nada funciona, devolver una respuesta de error válida en lugar de undefined
-        return new Response('Network error occurred', {
+        const cached = await caches.match(event.request)
+        return cached || new Response('Network error occurred', {
           status: 503,
           statusText: 'Service Unavailable',
-          headers: new Headers({ 'Content-Type': 'text/plain' })
-        });
+          headers: new Headers({ 'Content-Type': 'text/plain' }),
+        })
       })
   )
 })
@@ -104,7 +164,12 @@ self.addEventListener('fetch', (event) => {
 // ─── Push Notifications ───────────────────────────────────────────────────────
 
 self.addEventListener('push', (event) => {
-  const data = event.data?.json() ?? {}
+  // Tolerante: payload JSON (BFF) o texto plano (botón Push de DevTools).
+  let data = {}
+  if (event.data) {
+    try { data = event.data.json() }
+    catch { data = { body: event.data.text() } }
+  }
   const { title = 'SportMaps', body = '', url = '/', type = 'default' } = data
 
   const iconMap = {

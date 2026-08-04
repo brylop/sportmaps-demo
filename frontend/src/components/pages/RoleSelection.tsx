@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Users, GraduationCap, School, Check, User, Activity, ShoppingBag, CalendarDays, Loader2 } from "lucide-react";
+import { Users, GraduationCap, School, Check, User, Activity, ShoppingBag, CalendarDays, Loader2, Dumbbell, Store } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -18,6 +18,19 @@ interface RoleOption {
   bgColor: string;
   iconColor: string;
 }
+
+// Fallback usado si la tabla `roles` esta vacia o la consulta falla.
+// Refleja el seed de migracion 20260511000002.
+const FALLBACK_ROLES: RoleOption[] = [
+  { id: "athlete",              title: "Deportista",              description: "Reservas y tienda",                            icon: Users,         bgColor: "bg-primary/10",    iconColor: "text-primary" },
+  { id: "parent",               title: "Padre / Madre",           description: "Gestión de hijos y pagos",                     icon: User,          bgColor: "bg-emerald-50",    iconColor: "text-emerald-600" },
+  { id: "coach",                title: "Entrenador",              description: "Clases, agenda y pagos",                       icon: GraduationCap, bgColor: "bg-secondary/10",  iconColor: "text-secondary" },
+  { id: "personal_trainer",     title: "Entrenador Personal",     description: "Sesiones, planes y asesorías",                 icon: Dumbbell,      bgColor: "bg-red-50",        iconColor: "text-red-500" },
+  { id: "school_admin",         title: "Escuela / Centro",        description: "Entrenadores, agenda y cobros",                icon: School,        bgColor: "bg-orange-50",     iconColor: "text-orange-500" },
+  { id: "wellness_professional",title: "Profesional de Bienestar",description: "Fisioterapia, nutrición, psicología",          icon: Activity,      bgColor: "bg-green-50",      iconColor: "text-green-500" },
+  { id: "external_vendor",      title: "Vendedor / Marca",        description: "Tienda, marca o distribuidor deportivo",       icon: Store,         bgColor: "bg-purple-50",     iconColor: "text-purple-600" },
+  { id: "organizer",            title: "Organizador de Eventos",  description: "Torneos y eventos",                            icon: CalendarDays,  bgColor: "bg-yellow-50",     iconColor: "text-yellow-500" },
+];
 
 const RoleSelection = ({ onNavigate, onRoleSelect }: RoleSelectionProps) => {
   const [selectedRole, setSelectedRole] = useState<string>("athlete");
@@ -39,6 +52,10 @@ const RoleSelection = ({ onNavigate, onRoleSelect }: RoleSelectionProps) => {
         return { icon: User, bgColor: "bg-emerald-50", iconColor: "text-emerald-600", route: "athlete-register" };
       case "wellness_professional":
         return { icon: Activity, bgColor: "bg-green-50", iconColor: "text-green-500", route: "wellness-register" };
+      case "personal_trainer":
+        return { icon: Dumbbell, bgColor: "bg-red-50", iconColor: "text-red-500", route: "trainer-register" };
+      case "external_vendor":
+        return { icon: Store, bgColor: "bg-purple-50", iconColor: "text-purple-600", route: "vendor-register" };
       case "store_owner":
         return { icon: ShoppingBag, bgColor: "bg-purple-50", iconColor: "text-purple-500", route: "store-register" };
       case "organizer":
@@ -79,29 +96,13 @@ const RoleSelection = ({ onNavigate, onRoleSelect }: RoleSelectionProps) => {
         } else {
           // Fallback si la tabla está vacía o no existe aún
           console.warn("No roles found in DB, using default roles");
-          setRoles([
-            { id: "athlete", title: "Deportista", description: "Reservas y tienda", icon: Users, bgColor: "bg-primary/10", iconColor: "text-primary" },
-            { id: "parent", title: "Padre / Madre", description: "Gestión de hijos y pagos", icon: User, bgColor: "bg-blue-50", iconColor: "text-blue-500" },
-            { id: "coach", title: "Entrenador", description: "Clases, agenda y pagos", icon: GraduationCap, bgColor: "bg-secondary/10", iconColor: "text-secondary" },
-            { id: "school_admin", title: "Escuela / Centro", description: "Entrenadores, agenda y cobros", icon: School, bgColor: "bg-orange-50", iconColor: "text-orange-500" },
-            { id: "wellness_professional", title: "Profesional de Bienestar", description: "Salud y nutrición", icon: Activity, bgColor: "bg-green-50", iconColor: "text-green-500" },
-            { id: "store_owner", title: "Dueño de Tienda", description: "Venta de productos", icon: ShoppingBag, bgColor: "bg-purple-50", iconColor: "text-purple-500" },
-            { id: "organizer", title: "Organizador de Eventos", description: "Torneos y eventos", icon: CalendarDays, bgColor: "bg-yellow-50", iconColor: "text-yellow-500" }
-          ]);
+          setRoles(FALLBACK_ROLES);
         }
 
       } catch (err: unknown) {
         console.error("Error fetching roles:", err);
         // Fallback silencioso para no bloquear al usuario
-        setRoles([
-          { id: "athlete", title: "Deportista", description: "Reservas y tienda", icon: Users, bgColor: "bg-primary/10", iconColor: "text-primary" },
-          { id: "parent", title: "Padre / Madre", description: "Gestión de hijos y pagos", icon: User, bgColor: "bg-emerald-50", iconColor: "text-emerald-600" },
-          { id: "coach", title: "Entrenador", description: "Clases, agenda y pagos", icon: GraduationCap, bgColor: "bg-secondary/10", iconColor: "text-secondary" },
-          { id: "school_admin", title: "Escuela / Centro", description: "Entrenadores, agenda y cobros", icon: School, bgColor: "bg-orange-50", iconColor: "text-orange-500" },
-          { id: "wellness_professional", title: "Profesional de Bienestar", description: "Salud y nutrición", icon: Activity, bgColor: "bg-green-50", iconColor: "text-green-500" },
-          { id: "store_owner", title: "Dueño de Tienda", description: "Venta de productos", icon: ShoppingBag, bgColor: "bg-purple-50", iconColor: "text-purple-500" },
-          { id: "organizer", title: "Organizador de Eventos", description: "Torneos y eventos", icon: CalendarDays, bgColor: "bg-yellow-50", iconColor: "text-yellow-500" }
-        ]);
+        setRoles(FALLBACK_ROLES);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if ((err as any).code !== '42P01') { // Ignore "relation does not exist" if migration not run
           toast({ title: "Aviso", description: "Usando configuración local de roles.", variant: "default" });
@@ -127,9 +128,14 @@ const RoleSelection = ({ onNavigate, onRoleSelect }: RoleSelectionProps) => {
       onNavigate("coach-register");
     } else if (selectedRole === "athlete" || selectedRole === "parent") {
       onNavigate("athlete-register");
+    } else if (selectedRole === "personal_trainer") {
+      onNavigate("trainer-register");
+    } else if (selectedRole === "external_vendor" || selectedRole === "store_owner") {
+      onNavigate("vendor-register");
+    } else if (selectedRole === "wellness_professional") {
+      onNavigate("wellness-register");
     } else {
-      // Para nuevos roles, por ahora enviamos a un registro genérico o mostramos alerta
-      // Idealmente habría un "GenericRegister"
+      // Roles sin pantalla dedicada — registro genérico
       onNavigate("athlete-register");
     }
   };

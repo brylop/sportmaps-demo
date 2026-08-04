@@ -1,9 +1,10 @@
-import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { emailClient } from '@/lib/email-client';
+import { bffClient } from '@/lib/api/bffClient';
 import { Database } from '@/integrations/supabase/types';
 import { getUserFriendlyError } from '@/lib/error-translator';
 
@@ -22,6 +23,7 @@ interface UserProfile {
   school_name?: string;
   onboarding_completed?: boolean;
   onboarding_started?: boolean;
+  needs_role_selection?: boolean;
   preferences?: any;
   created_at: string;
   updated_at: string;
@@ -37,6 +39,7 @@ interface AuthContextType {
   trainerOnboardingStatus: string | null;
   signUp: (email: string, password: string, userData: Partial<UserProfile>) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
+  signInWithGoogle: (redirectTo?: string) => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>, options?: { silent?: boolean }) => Promise<void>;
 }
@@ -53,6 +56,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [trainerOnboardingStatus, setTrainerOnboardingStatus] = useState<string | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Usuario cuyo perfil ya cargamos (o estamos cargando). Evita el trabajo
+  // duplicado entre las DOS rutas que arrancan sesión: getSession() y
+  // onAuthStateChange (que dispara INITIAL_SESSION de inmediato). Las dos hacían
+  // fetchProfile + fetchTrainerContext para el mismo usuario = 4 round-trips
+  // donde bastan 2. También corta el refetch en TOKEN_REFRESHED, que reemplazaba
+  // el objeto `profile` cada ~50 min y en cada vuelta a la pestaña, disparando
+  // en cascada todo lo que depende de su identidad.
+  const profileLoadedForRef = useRef<string | null>(null);
 
   const fetchProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
     try {
@@ -89,12 +101,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const { data } = await supabase
+      // Resilient to users with multiple PT workspaces: pick the oldest.
+      // .maybeSingle() would error if more than one row matches.
+      const { data: rows } = await supabase
         .from('schools')
         .select('id, school_type, onboarding_status, onboarding_step')
         .eq('owner_id', userId)
         .eq('school_type', 'personal_trainer')
-        .maybeSingle();
+        .order('created_at', { ascending: true })
+        .limit(1);
+
+      const data = rows?.[0];
 
       if (data && data.school_type === 'personal_trainer') {
         setIsPersonalTrainer(true);
@@ -143,12 +160,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           bio: null,
           date_of_birth: userData.date_of_birth || null,
           sportmaps_points: 0,
-          subscription_tier: 'free'
+          subscription_tier: 'free',
+          // Si no se proporcionó rol explícito (p. ej. login OAuth donde el
+          // trigger aún no creó el perfil), marcar para forzar selección de rol.
+          needs_role_selection: !userData.role,
         })
         .select()
         .maybeSingle();
 
       if (error) throw error;
+      // Si el INSERT chocó con el perfil que el trigger ya creó, `data` puede
+      // venir null. Releemos para no dejar el perfil en null (limbo OAuth).
+      if (!data) {
+        return await fetchProfile(userId);
+      }
       return data;
     } catch (error) {
       console.error('Error creating profile:', error);
@@ -168,6 +193,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (session?.user) {
         try {
+          profileLoadedForRef.current = session.user.id;
           const userProfile = await fetchProfile(session.user.id);
           if (mounted) {
             if (userProfile) {
@@ -176,7 +202,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               const created = await createProfile(session.user.id, {
                 full_name: session.user.user_metadata?.full_name || 'Usuario',
                 email: session.user.email || '',
-                role: session.user.user_metadata?.role || 'athlete',
+                // NO forzar 'athlete': si no hay rol (OAuth/Google), dejarlo
+                // undefined para que createProfile marque needs_role_selection=true
+                // y el usuario pase por /onboarding/role en vez de quedar atleta.
+                role: session.user.user_metadata?.role,
               });
               setProfile(created as UserProfile);
             }
@@ -186,6 +215,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             await fetchTrainerContext(session.user.id, resolvedRole);
           }
         } catch (error) {
+          // Si falló, liberar el guard para que la otra ruta sí lo reintente.
+          profileLoadedForRef.current = null;
           console.error('Failed to load/create profile:', error);
         }
       }
@@ -218,6 +249,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // Defer Supabase fetches to avoid deadlocks
         if (session?.user) {
+          // Ya cargamos (o estamos cargando) el perfil de ESTE usuario: no repetir.
+          // Un usuario distinto sí debe re-resolver todo.
+          if (profileLoadedForRef.current === session.user.id) {
+            setLoading(false);
+            return;
+          }
+          profileLoadedForRef.current = session.user.id;
+
           setTimeout(async () => {
             try {
               const userProfile = await fetchProfile(session.user!.id);
@@ -238,12 +277,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 await fetchTrainerContext(session.user!.id, resolvedRole2);
               }
             } catch (error) {
+              profileLoadedForRef.current = null;
               console.error('Deferred profile load/create failed:', error);
             } finally {
               if (mounted) setLoading(false);
             }
           }, 0);
         } else {
+          profileLoadedForRef.current = null;
           setProfile(null);
           setIsPersonalTrainer(false);
           setTrainerSchoolId(null);
@@ -335,8 +376,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signOut = async () => {
+  const signInWithGoogle = async (redirectTo: string = '/dashboard') => {
     try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}${redirectTo}`,
+          queryParams: {
+            // Forzar selector de cuenta para evitar reusar sesión Google anterior.
+            prompt: 'select_account',
+          },
+        },
+      });
+
+      if (error) throw error;
+      // En éxito el navegador navega a Google; el resto del flujo lo maneja
+      // onAuthStateChange al volver a la app.
+    } catch (error: unknown) {
+      console.error('Error with Google sign-in:', error);
+      throw error;
+    }
+  };
+
+  const signOut = async () => {
+    const cleanupClientState = () => {
       // Clear demo session storage
       sessionStorage.removeItem('demo_mode');
       sessionStorage.removeItem('demo_role');
@@ -354,8 +417,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem('sportmaps_welcome_dismissed');
       localStorage.removeItem('pending_invite_id');
 
+      // Reset BFF module-level school header so the next user doesn't inherit it.
+      bffClient.setSchoolId(null);
+
       // Clear React Query cache so the next user doesn't see stale data
       queryClient.clear();
+    };
+
+    try {
+      cleanupClientState();
 
       // Regular Supabase signout
       const { data: { session: currentSession } } = await supabase.auth.getSession();
@@ -370,10 +440,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(null);
       setProfile(null);
 
-      toast({
-        title: "Sesión cerrada",
-        description: "Has cerrado sesión exitosamente",
-      });
+      // Hard-reload to /login. Without this, providers stay mounted and
+      // module-level state (query cache, context refs) can leak across users.
+      window.location.replace('/login');
     } catch (error: unknown) {
       const err = error as Error;
       console.error('Error signing out:', error);
@@ -381,9 +450,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       setSession(null);
       setProfile(null);
-
-      // Still clear caches on error to prevent data leaking
-      queryClient.clear();
+      cleanupClientState();
 
       // Only show error if it's not a session missing error
       if (!err.message?.includes('session')) {
@@ -392,13 +459,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           description: getUserFriendlyError(err),
           variant: "destructive",
         });
-      } else {
-        // Session was already gone, treat as success
-        toast({
-          title: "Sesión cerrada",
-          description: "Has cerrado sesión exitosamente",
-        });
       }
+
+      window.location.replace('/login');
     }
   };
 
@@ -444,6 +507,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     trainerOnboardingStatus,
     signUp,
     signIn,
+    signInWithGoogle,
     signOut,
     updateProfile,
   }), [user, profile, session, loading, isPersonalTrainer, trainerSchoolId, trainerOnboardingStatus]);

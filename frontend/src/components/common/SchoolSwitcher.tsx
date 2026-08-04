@@ -1,108 +1,95 @@
-import React from 'react';
 import { useSchoolContext } from "@/hooks/useSchoolContext";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Building2, MapPin } from "lucide-react";
+import { Building2 } from "lucide-react";
 
+/**
+ * ⚠️ DESACTIVADO EN TODA LA APP (2026-04-21).
+ *
+ * Este componente NO esta montado en ningun layout. El import en
+ * AppSidebar.tsx esta comentado. Ver el comentario alli para contexto.
+ *
+ * Razon: el schema actual no tiene enrollments.branch_id y varios
+ * enrollments (planes sin team) no se pueden scopear a una sede
+ * concreta. Exponer un switch de escuela/sede que no filtra bien es
+ * peor que no ofrecerlo — los roles sin multiples escuelas (atletas,
+ * padres) ven una opcion que no tiene sentido para ellos.
+ *
+ * Para reactivar:
+ *   1. Aplicar migracion que agregue enrollments.branch_id con
+ *      backfill desde teams.branch_id / school_members.branch_id.
+ *   2. Confirmar que la columna esta en BD con information_schema.
+ *   3. Descomentar el import y el bloque <SchoolSwitcher /> en
+ *      AppSidebar.tsx.
+ *   4. Ajustar los filtros del BFF en bff/src/routes/session-bookings.ts
+ *      para usar enrollments.branch_id directo (hoy usan teams.branch_id
+ *      via join, que no aplica a planes sin team).
+ *
+ * Solo cambia entre schoolIds distintos. Al conmutar pasa branchId=null
+ * para que el contexto resuelva la sede natural del usuario.
+ */
 export const SchoolSwitcher = () => {
-    const { schoolId, activeBranchId, availableSchools, switchSchool, loading, totalBranches, isGlobalAdmin, branches } = useSchoolContext();
+    const { schoolId, availableSchools, switchSchool, loading } = useSchoolContext();
 
     if (loading) {
         return <div className="h-9 w-full animate-pulse rounded-md bg-muted" />;
     }
 
-    if (!availableSchools || availableSchools.length === 0 || (availableSchools.length === 1 && totalBranches <= 1)) return null;
+    // Deduplicar por schoolId: un mismo colegio puede tener varias filas
+    // en school_members (owner + branches, etc). Nos quedamos con la
+    // entrada mas "global" (branchId=null cuando exista).
+    const uniqueSchools = Array.from(
+        availableSchools.reduce((map, s) => {
+            const existing = map.get(s.schoolId);
+            if (!existing || (!s.branchId && existing.branchId)) {
+                map.set(s.schoolId, s);
+            }
+            return map;
+        }, new Map<string, typeof availableSchools[number]>()).values(),
+    );
 
-    // Use a composite key to handle same school with different branches
-    const currentKey = `${schoolId}:${activeBranchId || 'all'}`;
+    if (uniqueSchools.length === 0) return null;
 
-    const handleValueChange = (value: string) => {
-        const [targetSchoolId, targetBranchId] = value.split(':');
-        switchSchool(targetSchoolId, targetBranchId === 'all' ? null : targetBranchId);
-    };
-
-    if (availableSchools.length === 1 && totalBranches <= 1) {
-        const current = availableSchools[0];
+    // Mono-escuela: mostramos una card estatica (no hay nada que switchear).
+    if (uniqueSchools.length === 1) {
+        const current = uniqueSchools[0];
         return (
             <div className="flex flex-col gap-1 w-full border rounded-lg p-2 bg-background/50">
                 <div className="flex items-center gap-2 text-sm font-semibold">
                     <Building2 className="h-4 w-4 text-primary" />
                     <span className="truncate">{current.schoolName}</span>
                 </div>
-                {current.branchId && (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground ml-6">
-                        <MapPin className="h-3 w-3" />
-                        <span>Sede: {current.branchId.slice(0, 8)}...</span>
-                    </div>
-                )}
             </div>
         );
     }
 
+    const handleValueChange = (value: string) => {
+        // Siempre conmutamos al contexto global del colegio (branchId=null).
+        switchSchool(value, null);
+    };
+
+    const activeSchoolName = uniqueSchools.find(s => s.schoolId === schoolId)?.schoolName ?? "Seleccionar";
+
     return (
-        <Select value={currentKey} onValueChange={handleValueChange}>
+        <Select value={schoolId ?? undefined} onValueChange={handleValueChange}>
             <SelectTrigger className="w-full h-auto py-2">
                 <div className="flex items-center gap-2 text-left">
                     <Building2 className="h-4 w-4 shrink-0 text-primary" />
-                    <div className="flex flex-col min-w-0">
-                        <span className="font-semibold text-sm truncate">
-                            {availableSchools.find(s => s.schoolId === schoolId)?.schoolName || "Seleccionar"}
-                        </span>
-                        {activeBranchId && (
-                            <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                                <MapPin className="h-2 w-2" />
-                                Sede activa
-                            </span>
-                        )}
-                    </div>
+                    <span className="font-semibold text-sm truncate">
+                        {activeSchoolName}
+                    </span>
                 </div>
             </SelectTrigger>
             <SelectContent>
-                {availableSchools.map((s) => {
-                    // Para global admins con múltiples sedes: solo mostrar sedes individuales (sin Admin General)
-                    if (s.schoolId === schoolId && isGlobalAdmin && totalBranches > 1) {
-                        return (
-                            <React.Fragment key={s.schoolId}>
-                                {branches.map(b => (
-                                    <SelectItem key={`${s.schoolId}:${b.id}`} value={`${s.schoolId}:${b.id}`}>
-                                        <div className="flex flex-col items-start py-0.5">
-                                            <span className="font-medium text-sm">{b.name}</span>
-                                            <div className="flex items-center gap-1 text-[10px] uppercase text-muted-foreground font-bold tracking-tight">
-                                                <span className="text-primary flex items-center gap-0.5">
-                                                    <MapPin className="h-2 w-2" />
-                                                    Sede
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </SelectItem>
-                                ))}
-                            </React.Fragment>
-                        );
-                    }
-
-                    // Comportamiento normal para otras escuelas o cuando no es global admin
-                    return (
-                        <SelectItem
-                            key={`${s.schoolId}:${s.branchId || 'all'}`}
-                            value={`${s.schoolId}:${s.branchId || 'all'}`}
-                        >
-                            <div className="flex flex-col items-start py-0.5">
-                                <span className="font-medium text-sm">{s.schoolName}</span>
-                                <div className="flex items-center gap-1 text-[10px] uppercase text-muted-foreground font-bold tracking-tight">
-                                    <span>{s.role}</span>
-                                    {s.branchId && (
-                                        <>
-                                            <span>•</span>
-                                            <span className="text-primary flex items-center gap-0.5">
-                                                <MapPin className="h-2 w-2" />
-                                                SEDE
-                                            </span>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                        </SelectItem>
-                    );
-                })}
+                {uniqueSchools.map((s) => (
+                    <SelectItem key={s.schoolId} value={s.schoolId}>
+                        <div className="flex flex-col items-start py-0.5">
+                            <span className="font-medium text-sm">{s.schoolName}</span>
+                            <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-tight">
+                                {s.role}
+                            </span>
+                        </div>
+                    </SelectItem>
+                ))}
             </SelectContent>
         </Select>
     );

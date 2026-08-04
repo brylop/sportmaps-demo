@@ -1,16 +1,40 @@
 import { Request, Response, NextFunction } from 'express';
 import { supabase } from '../config/supabase';
+import { getCachedUser, getCachedMembership, type CachedUser } from '../utils/authCache';
+
+/**
+ * Valida el Bearer token contra Supabase, con cache de TTL corto.
+ * Ver utils/authCache.ts para el porque y las garantias de seguridad.
+ */
+async function resolveUser(token: string): Promise<CachedUser | null> {
+    return getCachedUser(token, async () => {
+        const { data: { user }, error } = await supabase.auth.getUser(token);
+        if (error || !user) return null;
+        return {
+            id: user.id,
+            email: user.email!,
+            user_metadata: user.user_metadata,
+        };
+    });
+}
 
 // ── Augmentar el tipo global de Express.Request ───────────────────────────────
 declare global {
     namespace Express {
         interface Request {
-            user: { id: string; email: string };
+            user: { 
+                id: string; 
+                email: string;
+                user_metadata?: {
+                    full_name?: string;
+                    [key: string]: any;
+                };
+            };
             schoolId: string;
             branchId: string | null;
             role: 'owner' | 'admin' | 'super_admin' | 'auditor' | 'reporter'
             | 'school_admin' | 'school' | 'coach' | 'parent' | 'athlete' | 'staff' | 'organizer'
-            | 'store_owner' | 'wellness_professional' | 'personal_trainer';
+            | 'store_owner' | 'external_vendor' | 'wellness_professional' | 'personal_trainer';
             log: import('pino').Logger;
             id: string;
         }
@@ -119,6 +143,8 @@ rolePermissions['super_admin'] = rolePermissions.admin;
 rolePermissions['owner'] = rolePermissions.admin;
 rolePermissions['staff'] = rolePermissions.coach;
 rolePermissions['personal_trainer'] = rolePermissions.coach;
+// external_vendor reemplaza a store_owner como rol explícito de vendedor puro
+rolePermissions['external_vendor'] = rolePermissions.store_owner;
 
 // ─────────────────────────────────────────────────────────────────────────────
 export const requireBasicAuth = async (
@@ -156,38 +182,74 @@ export const requireAuth = async (
         }
 
         const token = authHeader.split(' ')[1];
-        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+        const user = await resolveUser(token);
 
-        if (authError || !user) {
+        if (!user) {
             return res.status(401).json({ error: 'Token inválido o expirado.' });
         }
 
-        // 2. Leer el schoolId del header (enviado por bffClient)
-        //    NOTA: tabla school_members solo tiene `profile_id` (no `user_id`)
+        // 2. Escape hatch para roles de plataforma (super_admin / admin global).
+        //    Esos usuarios no necesitan estar en school_members — su rol vive
+        //    en profiles. Sin esto, cualquier endpoint que use requireAuth
+        //    rechaza al super_admin con 403 "No tienes permisos para acceder
+        //    a esta escuela", incluso si el router montado siguiente no
+        //    necesita contexto de escuela (ej. marketplaceAdminRouter que va
+        //    montado en /api/v1/admin junto a adminPayoutsRouter).
         const targetSchoolId = req.headers['x-school-id'] as string | undefined;
 
-        let q = supabase
-            .from('school_members')
-            .select('school_id, role, branch_id')
-            .eq('profile_id', user.id)
-            .eq('status', 'active');
+        // Rol + escuela van juntos en una sola entrada de cache: son las dos
+        // consultas que corrian en CADA request. Solo se resuelven en miss.
+        const membership = await getCachedMembership(user.id, targetSchoolId, token, async () => {
+            const { data: platformProfile } = await supabase
+                .from('profiles')
+                .select('role')
+                .eq('id', user.id)
+                .maybeSingle();
 
-        // Si el frontend envió x-school-id, filtrar por esa escuela exacta.
-        // De lo contrario, tomar el primer registro activo del usuario.
-        if (targetSchoolId) {
-            q = q.eq('school_id', targetSchoolId);
-        }
+            const platformRole = (platformProfile as any)?.role as string | undefined;
+            if (platformRole === 'super_admin' || platformRole === 'admin') {
+                return {
+                    schoolId: targetSchoolId || '',
+                    branchId: null,
+                    role: platformRole,
+                };
+            }
 
-        const { data: members, error: memberErr } = await q
-            .order('joined_at', { ascending: false })
-            .limit(1);
+            // 3. Resto de usuarios: validar contra school_members
+            let q = supabase
+                .from('school_members')
+                .select('school_id, role, branch_id')
+                .eq('profile_id', user.id)
+                .eq('status', 'active');
 
-        if (memberErr) {
-            req.log?.error({ err: memberErr }, 'Error consultando school_members');
-            return res.status(500).json({ error: 'Error interno verificando permisos.' });
-        }
+            // Si el frontend envió x-school-id, filtrar por esa escuela exacta.
+            // De lo contrario, tomar el primer registro activo del usuario.
+            if (targetSchoolId) {
+                q = q.eq('school_id', targetSchoolId);
+            }
 
-        if (!members || members.length === 0) {
+            const { data: members, error: memberErr } = await q
+                .order('joined_at', { ascending: false })
+                .limit(1);
+
+            // Error de BD: se propaga para que NO se cachee un fallo transitorio
+            // como si fuera "sin permisos".
+            if (memberErr) {
+                req.log?.error({ err: memberErr }, 'Error consultando school_members');
+                throw new Error('Error interno verificando permisos.');
+            }
+
+            if (!members || members.length === 0) return null;
+
+            const member = members[0] as any;
+            return {
+                schoolId: member.school_id,
+                branchId: member.branch_id ?? null,
+                role: member.role,
+            };
+        });
+
+        if (!membership) {
             return res.status(403).json({
                 error: 'No tienes permisos para acceder a esta escuela.',
                 detail: `profile_id=${user.id} no encontrado en school_members con status=active`
@@ -195,12 +257,14 @@ export const requireAuth = async (
             });
         }
 
-        const member = members[0] as any;
-
-        req.user = { id: user.id, email: user.email! };
-        req.schoolId = member.school_id;
-        req.branchId = member.branch_id ?? null;
-        req.role = member.role;
+        req.user = {
+            id: user.id,
+            email: user.email!,
+            user_metadata: user.user_metadata,
+        };
+        req.schoolId = membership.schoolId;
+        req.branchId = membership.branchId;
+        req.role = membership.role as Request['role'];
 
         next();
     } catch (err) {
@@ -224,6 +288,60 @@ export const requireRole = (...roles: Request['role'][]) => {
         }
 
         next();
+    };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// requireVendorProfile — Autoriza por capability de vendor_profile,
+// NO por role. Reemplaza a requireRole para rutas de venta.
+//
+// Uso:
+//   router.use(requireMarketplaceAuth);
+//   router.use(requireVendorProfile('can_sell_products'));
+//
+// Reglas:
+//  - admin/super_admin/owner: pasan automáticamente.
+//  - Resto: requieren vendor_profile.is_active = true Y la capability solicitada = true.
+//  - El user_id se toma de req.user.id (debe haber pasado por un auth middleware).
+//  - La verificación usa la función SQL has_vendor_capability(uuid, text)
+//    creada en la migración 20260511000002.
+// ─────────────────────────────────────────────────────────────────────────────
+type VendorCapability = 'can_sell_products' | 'can_sell_services';
+
+export const requireVendorProfile = (capability: VendorCapability) => {
+    return async (req: Request, res: Response, next: NextFunction) => {
+        // Privilegios siempre pasan
+        if ((PRIVILEGED_ROLES as readonly string[]).includes(req.role)) {
+            return next();
+        }
+
+        if (!req.user?.id) {
+            return res.status(401).json({ error: 'No autenticado.' });
+        }
+
+        try {
+            const { data, error } = await supabase.rpc('has_vendor_capability', {
+                p_user_id:    req.user.id,
+                p_capability: capability,
+            });
+
+            if (error) {
+                req.log?.error({ err: error, capability }, 'Error verificando capability de vendor');
+                return res.status(500).json({ error: 'Error interno verificando permisos de vendedor.' });
+            }
+
+            if (data !== true) {
+                return res.status(403).json({
+                    error: 'Tu cuenta no tiene activada esta capacidad de venta.',
+                    capability,
+                    hint: 'Activa Mi Tienda desde tu dashboard para empezar a vender.',
+                });
+            }
+
+            next();
+        } catch (err) {
+            next(err);
+        }
     };
 };
 
@@ -370,9 +488,9 @@ export const requireMarketplaceAuth = async (
         }
 
         const token = authHeader.split(' ')[1];
-        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+        const user = await resolveUser(token);
 
-        if (authError || !user) {
+        if (!user) {
             return res.status(401).json({ error: 'Token inválido o expirado.' });
         }
 
@@ -388,7 +506,11 @@ export const requireMarketplaceAuth = async (
             return res.status(500).json({ error: 'Error interno verificando permisos.' });
         }
 
-        req.user = { id: user.id, email: user.email! };
+        req.user = { 
+            id: user.id, 
+            email: user.email!, 
+            user_metadata: user.user_metadata 
+        };
         req.role = (profile?.role as Request['role']) || 'athlete';
         // schoolId y branchId no aplican para vendor routes
         req.schoolId = '';
@@ -415,9 +537,9 @@ export const requireTrainerAuth = async (
         }
 
         const token = authHeader.split(' ')[1];
-        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+        const user = await resolveUser(token);
 
-        if (authError || !user) {
+        if (!user) {
             return res.status(401).json({ error: 'Token inválido o expirado.' });
         }
 
@@ -449,14 +571,22 @@ export const requireTrainerAuth = async (
                 });
             }
 
-            req.user     = { id: user.id, email: user.email! };
+            req.user     = { 
+                id: user.id, 
+                email: user.email!, 
+                user_metadata: user.user_metadata 
+            };
             req.schoolId = '';
             req.branchId = null;
             req.role     = 'owner' as Request['role'];
             return next();
         }
 
-        req.user     = { id: user.id, email: user.email! };
+        req.user     = { 
+            id: user.id, 
+            email: user.email!, 
+            user_metadata: user.user_metadata 
+        };
         req.schoolId = school.id;
         req.branchId = null;
         req.role     = 'owner' as Request['role'];
@@ -485,18 +615,95 @@ export const optionalAuth = async (
         }
 
         const token = authHeader.split(' ')[1];
-        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+        const user = await resolveUser(token);
 
-        if (authError || !user) {
+        if (!user) {
+            // El caller envio un Authorization header pero el token es invalido.
+            // Antes esto pasaba silencioso y el atacante podia probar tokens sin
+            // dejar rastro. Logueamos para que aparezca en metricas de seguridad
+            // y se pueda correlacionar con ataques.
+            req.log?.warn(
+                {
+                    err: 'token rechazado por Supabase',
+                    ua: req.headers['user-agent'],
+                    ip: req.ip,
+                },
+                'optionalAuth: JWT presente pero invalido — continuando como anon',
+            );
             (req as any).user = null;
             return next();
         }
 
-        req.user = { id: user.id, email: user.email! };
+        req.user = {
+            id: user.id,
+            email: user.email!,
+            user_metadata: user.user_metadata,
+        };
 
         next();
     } catch (err) {
+        // Igual que el caso de JWT invalido pero por error inesperado del SDK.
+        req.log?.warn(
+            { err: (err as any)?.message ?? err, ua: req.headers['user-agent'], ip: req.ip },
+            'optionalAuth: error inesperado validando JWT — continuando como anon',
+        );
         (req as any).user = null;
         next();
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// requireAthleteAuth — Middleware para atletas y padres (self-service).
+// No requiere school_members si solo accede a su propia información de perfil.
+// ─────────────────────────────────────────────────────────────────────────────
+export const requireAthleteAuth = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader?.startsWith('Bearer ')) {
+            return res.status(401).json({ error: 'Token de autorización requerido.' });
+        }
+
+        const token = authHeader.split(' ')[1];
+        const user = await resolveUser(token);
+
+        if (!user) {
+            return res.status(401).json({ error: 'Token inválido o expirado.' });
+        }
+
+        // Leer perfil para confirmar rol
+        const { data: profile, error: profileErr } = await supabase
+            .from('profiles')
+            .select('id, role')
+            .eq('id', user.id)
+            .maybeSingle();
+
+        if (profileErr) {
+            req.log?.error({ err: profileErr }, 'Error consultando profile para athlete auth');
+            return res.status(500).json({ error: 'Error interno verificando permisos.' });
+        }
+
+        const role = profile?.role as string;
+        if (!['athlete', 'parent', 'owner', 'personal_trainer'].includes(role)) {
+            return res.status(403).json({
+                error: 'Acceso denegado. Se requiere rol de atleta o padre.',
+            });
+        }
+
+        req.user     = { 
+            id: user.id, 
+            email: user.email!, 
+            user_metadata: user.user_metadata 
+        };
+        req.role     = role as Request['role'];
+        req.schoolId = ''; // No aplica contexto de escuela obligatoria
+        req.branchId = null;
+
+        next();
+    } catch (err) {
+        next(err);
     }
 };

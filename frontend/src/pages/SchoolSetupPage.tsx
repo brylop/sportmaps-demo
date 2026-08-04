@@ -24,7 +24,11 @@ export default function SchoolSetupPage() {
 
         setIsLoading(true);
         try {
-            // 1. Crear Escuela
+            // 1. Crear Escuela.
+            //    El trigger `on_school_created` (handle_new_school) crea
+            //    AUTOMÁTICAMENTE al insertar en schools: school_settings,
+            //    la "Sede Principal" y la membresía 'owner'. NO los insertamos
+            //    aquí de nuevo o chocamos con UNIQUE(school_id, profile_id) → 23505.
             const { data: school, error: schoolError } = await supabase
                 .from('schools')
                 .insert({
@@ -39,29 +43,19 @@ export default function SchoolSetupPage() {
 
             if (schoolError) throw schoolError;
 
-            // 2. Vincular como dueño (FIRST — needed for branch RLS)
+            // 2. Red de seguridad idempotente: garantiza la membresía 'owner'
+            //    por si el trigger no estuviera activo en este entorno.
+            //    ignoreDuplicates evita el 23505 cuando el trigger ya la creó.
             const { error: memberError } = await supabase
                 .from('school_members')
-                .insert({
+                .upsert({
                     profile_id: user.id,
                     school_id: school.id,
                     role: 'owner',
                     status: 'active'
-                });
+                }, { onConflict: 'school_id,profile_id', ignoreDuplicates: true });
 
             if (memberError) throw memberError;
-
-            // 3. Crear Sede Principal (AFTER membership exists)
-            const { error: branchError } = await supabase
-                .from('school_branches')
-                .insert({
-                    school_id: school.id,
-                    name: 'Sede Principal',
-                    is_main: true,
-                    status: 'active'
-                });
-
-            if (branchError) throw branchError;
 
             toast({
                 title: "¡Academia registrada!",
