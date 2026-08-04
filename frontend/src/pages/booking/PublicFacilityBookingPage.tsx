@@ -42,7 +42,7 @@ interface Slot {
 // El teléfono, verificado en el backend, sigue siendo la única fuente de verdad.
 type Step =
   | 'welcome' | 'facility' | 'slots' | 'phone'
-  | 'email_needed' | 'new_details' | 'code' | 'success' | 'pending';
+  | 'email_needed' | 'new_details' | 'code' | 'success' | 'pending' | 'already_registered';
 
 async function api(path: string, opts: RequestInit = {}) {
   const res = await fetch(`${BFF_URL}/api/v1/public/booking${path}`, {
@@ -64,6 +64,20 @@ function fmtDate(d: string) {
   return new Date(d + 'T12:00:00').toLocaleDateString('es-CO', {
     weekday: 'long', day: 'numeric', month: 'short',
   });
+}
+
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-left flex items-start gap-3 animate-in fade-in slide-in-from-top-2 duration-200 shadow-sm">
+      <div className="p-1.5 bg-red-500/20 rounded-lg shrink-0 mt-0.5">
+        <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+      </div>
+      <div className="flex-1 text-xs">
+        <p className="font-bold text-red-900 dark:text-red-200">No fue posible continuar</p>
+        <p className="text-red-700 dark:text-red-300 mt-0.5 leading-relaxed">{message}</p>
+      </div>
+    </div>
+  );
 }
 
 // ── Componente principal ────────────────────────────────────────────────────────
@@ -90,6 +104,8 @@ export default function PublicFacilityBookingPage() {
   const [verificationId, setVerificationId] = useState<string | null>(null);
   const [maskedEmail, setMaskedEmail] = useState<string | null>(null);
   const [bookingToken, setBookingToken] = useState<string | null>(null);
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [resolvedKind, setResolvedKind] = useState<'new' | 'enrolled_unregistered' | null>(null);
 
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
@@ -172,6 +188,11 @@ export default function PublicFacilityBookingPage() {
         body: JSON.stringify({ school_id: schoolInfo.school.id, phone, ...(extra || {}) }),
       });
 
+       if (data.scenario === 'already_registered') {
+        setRegisteredEmail(data.email || '');
+        setStep('already_registered');
+        return;
+      }
       if (data.scenario === 'enrolled_needs_email') {
         setStep('email_needed');
         return;
@@ -199,6 +220,9 @@ export default function PublicFacilityBookingPage() {
         }
 
         setBookingToken(verifyData.booking_token);
+        setResolvedKind(verifyData.scenario);
+        if (verifyData.email) setEmail(verifyData.email);
+        if (verifyData.fullName) setFullName(verifyData.fullName);
         await handleConfirm(verifyData.booking_token);
         return;
       }
@@ -247,6 +271,9 @@ export default function PublicFacilityBookingPage() {
       }
 
       setBookingToken(data.booking_token);
+      setResolvedKind(data.scenario);
+      if (data.email) setEmail(data.email);
+      if (data.fullName) setFullName(data.fullName);
       // Ya identificado y con el slot elegido antes → confirmar directo
       await handleConfirm(data.booking_token);
     } catch (err: any) {
@@ -295,6 +322,18 @@ export default function PublicFacilityBookingPage() {
       setBusy(false);
     }
   }
+
+  const handleBackFromCode = () => {
+    setCode('');
+    setErrorMsg(null);
+    if (fullName && email) {
+      setStep('new_details');
+    } else if (email) {
+      setStep('email_needed');
+    } else {
+      setStep('phone');
+    }
+  };
 
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -379,6 +418,13 @@ export default function PublicFacilityBookingPage() {
             {/* ── Paso: elegir instalación ── */}
             {step === 'facility' && (
               <div className="space-y-3">
+                <button
+                  onClick={() => { setStep('welcome'); setErrorMsg(null); }}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mb-4"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  <span>Volver</span>
+                </button>
                 <p className="text-sm font-semibold text-muted-foreground mb-3">Elige la instalación</p>
                 {schoolInfo.facilities.map((f) => (
                   <button
@@ -399,22 +445,32 @@ export default function PublicFacilityBookingPage() {
             {/* ── Paso: elegir horario (SIN identificarse todavía) ── */}
             {step === 'slots' && (
               <div className="space-y-4">
+                <button
+                  onClick={() => {
+                    if (schoolInfo.facilities.length > 1) {
+                      setStep('facility');
+                    } else {
+                      setStep('welcome');
+                    }
+                    setErrorMsg(null);
+                  }}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mb-4"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  <span>Volver</span>
+                </button>
+
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
                     <Calendar className="h-5 w-5 text-primary" />
                     <h2 className="font-bold text-lg">{selectedFacility?.name}</h2>
                   </div>
-                  {schoolInfo.facilities.length > 1 && (
-                    <button onClick={() => setStep('facility')} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">
-                      <ArrowLeft className="h-3 w-3" /> Cambiar
-                    </button>
-                  )}
                 </div>
 
                 {loadingSlots ? (
                   <div className="py-10 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" /></div>
                 ) : errorMsg ? (
-                  <p className="text-sm text-red-600 text-center py-6">{errorMsg}</p>
+                  <div className="py-2"><ErrorBanner message={errorMsg} /></div>
                 ) : availableDates.length === 0 ? (
                   <div className="py-10 text-center text-muted-foreground">
                     <Calendar className="h-10 w-10 mx-auto mb-2 opacity-30" />
@@ -467,8 +523,12 @@ export default function PublicFacilityBookingPage() {
             {/* ── Paso: teléfono (ya con el horario elegido, copy según la bienvenida) ── */}
             {step === 'phone' && (
               <div className="space-y-5">
-                <button onClick={() => { setStep('slots'); setPendingSlot(null); }} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary">
-                  <ArrowLeft className="h-3 w-3" /> Cambiar horario
+                <button
+                  onClick={() => { setStep('slots'); setPendingSlot(null); setErrorMsg(null); }}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mb-4"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  <span>Volver</span>
                 </button>
 
                 {pendingSlot && (
@@ -497,7 +557,7 @@ export default function PublicFacilityBookingPage() {
                     className="h-12 text-center text-lg tracking-wide"
                   />
                 </div>
-                {errorMsg && <p className="text-sm text-red-600 text-center">{errorMsg}</p>}
+                {errorMsg && <ErrorBanner message={errorMsg} />}
                 <Button
                   onClick={() => handleStartVerification()}
                   disabled={busy || phone.replace(/\D/g, '').length < 7}
@@ -512,6 +572,13 @@ export default function PublicFacilityBookingPage() {
             {/* ── Paso: email para inscrito sin cuenta (Escenario 2) ── */}
             {step === 'email_needed' && (
               <div className="space-y-5">
+                <button
+                  onClick={() => { setStep('phone'); setErrorMsg(null); }}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mb-4"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  <span>Volver</span>
+                </button>
                 <div className="text-center">
                   <Mail className="h-8 w-8 text-primary mx-auto mb-2" />
                   <h2 className="font-bold text-lg">¡Ya tienes una inscripción!</h2>
@@ -521,7 +588,7 @@ export default function PublicFacilityBookingPage() {
                   <Label>Correo electrónico</Label>
                   <Input type="email" placeholder="tu@correo.com" value={email} onChange={(e) => setEmail(e.target.value)} className="h-12" />
                 </div>
-                {errorMsg && <p className="text-sm text-red-600 text-center">{errorMsg}</p>}
+                {errorMsg && <ErrorBanner message={errorMsg} />}
                 <Button onClick={handleSubmitEmailForEnrolled} disabled={busy || !email.includes('@')} className="w-full h-12 gap-2">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                   Enviar código
@@ -532,6 +599,13 @@ export default function PublicFacilityBookingPage() {
             {/* ── Paso: datos de persona nueva (Escenario 1 — cortesía) ── */}
             {step === 'new_details' && (
               <div className="space-y-5">
+                <button
+                  onClick={() => { setStep('phone'); setErrorMsg(null); }}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mb-4"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  <span>Volver</span>
+                </button>
                 <div className="text-center">
                   <Sparkles className="h-8 w-8 text-amber-500 mx-auto mb-2" />
                   <h2 className="font-bold text-lg">¡Tienes una clase de cortesía!</h2>
@@ -553,7 +627,7 @@ export default function PublicFacilityBookingPage() {
                     </div>
                   </div>
                 </div>
-                {errorMsg && <p className="text-sm text-red-600 text-center">{errorMsg}</p>}
+                {errorMsg && <ErrorBanner message={errorMsg} />}
                 <Button onClick={handleSubmitNewDetails} disabled={busy} className="w-full h-12 gap-2">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                   Enviar código de verificación
@@ -564,6 +638,13 @@ export default function PublicFacilityBookingPage() {
             {/* ── Paso: código OTP ── */}
             {step === 'code' && (
               <div className="space-y-5">
+                <button
+                  onClick={handleBackFromCode}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mb-4"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  <span>Volver</span>
+                </button>
                 <div className="text-center">
                   <ShieldCheck className="h-8 w-8 text-primary mx-auto mb-2" />
                   <h2 className="font-bold text-lg">Ingresa el código</h2>
@@ -577,12 +658,12 @@ export default function PublicFacilityBookingPage() {
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
                   className="h-14 text-center text-2xl tracking-[0.5em] font-bold"
                 />
-                {errorMsg && <p className="text-sm text-red-600 text-center">{errorMsg}</p>}
+                {errorMsg && <ErrorBanner message={errorMsg} />}
                 <Button onClick={handleVerifyCode} disabled={busy || code.length !== 6} className="w-full h-12 gap-2">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                   Verificar y confirmar reserva
                 </Button>
-                <button onClick={() => { setStep('phone'); setCode(''); setErrorMsg(null); }} className="w-full text-xs text-muted-foreground hover:text-primary">
+                <button onClick={handleBackFromCode} className="w-full text-xs text-muted-foreground hover:text-primary">
                   ¿No te llegó? Volver a empezar
                 </button>
               </div>
@@ -590,28 +671,163 @@ export default function PublicFacilityBookingPage() {
 
             {/* ── Éxito ── */}
             {step === 'success' && (
-              <div className="text-center py-6 space-y-4">
-                <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="h-8 w-8 text-emerald-600 dark:text-emerald-500" />
+              <div className="text-center py-4 space-y-6 animate-in fade-in zoom-in-95 duration-200">
+                <div className="space-y-3">
+                  <div className="w-16 h-16 bg-emerald-500/10 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/20 shadow-sm">
+                    <CheckCircle2 className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 mb-2">
+                      Reserva Confirmada
+                    </Badge>
+                    <h2 className="font-bold text-xl text-foreground">¡Te esperamos en la clase!</h2>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="font-bold text-lg">¡Reserva confirmada!</h2>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Te esperamos en {selectedFacility?.name} el {pendingSlot && fmtDate(pendingSlot.date)}.
-                  </p>
-                </div>
+
+                {pendingSlot && (
+                  <div className="rounded-2xl border border-border bg-muted/20 p-4 text-left shadow-xs space-y-2.5">
+                    <div className="flex items-center justify-between pb-2 border-b border-border/50">
+                      <span className="text-xs text-muted-foreground font-medium">Instalación</span>
+                      <span className="text-xs font-bold text-foreground">{selectedFacility?.name}</span>
+                    </div>
+                    <div className="flex items-center justify-between pb-2 border-b border-border/50">
+                      <span className="text-xs text-muted-foreground font-medium">Fecha</span>
+                      <span className="text-xs font-semibold text-foreground capitalize">{fmtDate(pendingSlot.date)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground font-medium">Horario</span>
+                      <span className="text-xs font-semibold text-primary">{fmtTime(pendingSlot.start_time)} — {fmtTime(pendingSlot.end_time)}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Llamado a crear cuenta para no registrados / cortesías */}
+                {(resolvedKind === 'new' || resolvedKind === 'enrolled_unregistered') && (
+                  <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5 text-left space-y-4 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-primary/10 rounded-xl shrink-0 mt-0.5">
+                        <Sparkles className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-foreground">¡Crea tu cuenta de SportMaps!</h4>
+                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                          Para ver el historial de tus clases, gestionar tus reservas y pagos de forma sencilla, te invitamos a activar tu cuenta ahora.
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={() => {
+                        const targetEmail = email;
+                        const targetName = fullName;
+                        const targetPhone = phone;
+                        window.location.href = `/register?email=${encodeURIComponent(targetEmail)}&phone=${encodeURIComponent(targetPhone)}&name=${encodeURIComponent(targetName)}&role=athlete`;
+                      }}
+                      className="w-full h-11 text-xs gap-2 font-semibold shadow-sm"
+                      variant="default"
+                    >
+                      Crear mi cuenta gratis
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
 
             {/* ── Pendiente de aprobación ── */}
             {step === 'pending' && (
-              <div className="text-center py-6 space-y-4">
-                <div className="w-16 h-16 bg-yellow-500/10 rounded-full flex items-center justify-center mx-auto">
-                  <Clock className="h-8 w-8 text-yellow-600 dark:text-yellow-500" />
+              <div className="text-center py-4 space-y-6 animate-in fade-in zoom-in-95 duration-200">
+                <div className="space-y-3">
+                  <div className="w-16 h-16 bg-amber-500/10 rounded-2xl flex items-center justify-center mx-auto border border-amber-500/20 shadow-sm">
+                    <Clock className="h-8 w-8 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div>
+                    <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 mb-2">
+                      Pendiente de Aprobación
+                    </Badge>
+                    <h2 className="font-bold text-xl text-foreground">Solicitud Recibida</h2>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="font-bold text-lg">Solicitud enviada</h2>
-                  <p className="text-sm text-muted-foreground mt-1">{pendingApprovalMsg}</p>
+
+                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-left text-xs leading-relaxed text-amber-900 dark:text-amber-200">
+                  {pendingApprovalMsg || 'Tu solicitud de clase quedó registrada. La escuela debe aprobarla antes de confirmarse.'}
+                </div>
+
+                {(resolvedKind === 'new' || resolvedKind === 'enrolled_unregistered') && (
+                  <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5 text-left space-y-4 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-primary/10 rounded-xl shrink-0 mt-0.5">
+                        <Sparkles className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-foreground">¡Crea tu cuenta de SportMaps!</h4>
+                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                          Para ver el historial de tus clases, gestionar tus reservas y pagos de forma sencilla, te invitamos a activar tu cuenta ahora.
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={() => {
+                        const targetEmail = email;
+                        const targetName = fullName;
+                        const targetPhone = phone;
+                        window.location.href = `/register?email=${encodeURIComponent(targetEmail)}&phone=${encodeURIComponent(targetPhone)}&name=${encodeURIComponent(targetName)}&role=athlete`;
+                      }}
+                      className="w-full h-11 text-xs gap-2 font-semibold shadow-sm"
+                      variant="default"
+                    >
+                      Crear mi cuenta gratis
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Paso: Ya registrado (redirigir a login con contraseña) ── */}
+            {step === 'already_registered' && (
+              <div className="space-y-6 text-center py-4 animate-in fade-in zoom-in-95 duration-200">
+                <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mx-auto border border-blue-500/20 shadow-sm">
+                  <ShieldCheck className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div className="space-y-2">
+                  <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30">
+                    Cuenta Detectada
+                  </Badge>
+                  <h2 className="font-bold text-xl text-foreground">¡Ya eres parte de nuestra plataforma!</h2>
+                </div>
+
+                <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4 text-left space-y-3">
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Identificamos que tu número de celular está vinculado a la cuenta:
+                  </p>
+                  <div className="p-3 bg-background rounded-xl border border-border font-mono text-xs font-bold text-foreground text-center shadow-xs">
+                    {registeredEmail}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Por seguridad y para cargar directamente tus inscripciones activas, ingresa con tu correo y contraseña.
+                  </p>
+                </div>
+
+                <div className="space-y-3 pt-1">
+                  <Button
+                    onClick={() => {
+                      window.location.href = `/login?email=${encodeURIComponent(registeredEmail)}&redirectTo=${encodeURIComponent('/enrollments')}`;
+                    }}
+                    className="w-full h-12 gap-2 text-sm font-semibold shadow-md"
+                  >
+                    Iniciar sesión en mi cuenta
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                  <button
+                    onClick={() => {
+                      setStep('phone');
+                      setErrorMsg(null);
+                    }}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mx-auto pt-1"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    <span>Usar otro número</span>
+                  </button>
                 </div>
               </div>
             )}

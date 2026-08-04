@@ -61,9 +61,11 @@ export default function LoginPage() {
     }
   });
 
+  const redirectTo = searchParams.get('redirectTo');
+
   // Redirect if already logged in
   if (user) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={redirectTo || "/dashboard"} replace />;
   }
 
   const onSubmit = async (data: LoginFormData) => {

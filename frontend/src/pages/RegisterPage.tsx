@@ -203,6 +203,14 @@ export default function RegisterPage() {
     if (inviteEmail) {
       setValue('email', inviteEmail);
     }
+    const invitePhone = searchParams.get('phone');
+    if (invitePhone) {
+      setValue('phone', invitePhone);
+    }
+    const inviteName = searchParams.get('name');
+    if (inviteName) {
+      setValue('fullName', inviteName);
+    }
   }, [searchParams, setValue, inviteEmail]);
 
   useEffect(() => {

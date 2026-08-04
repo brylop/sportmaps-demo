@@ -122,33 +122,10 @@ router.post('/start-verification', otpStartLimiter, async (req: Request, res: Re
         });
       }
 
-      const code = generateCode();
-      const { data: verif, error } = await supabase
-        .from('public_booking_verifications')
-        .insert({
-          school_id, phone: cleanPhone,
-          otp_hash: hashOtp(code),
-          resolved_email: targetEmail,
-          resolved_kind: 'registered',
-          resolved_user_id: profileMatch?.id ?? null,
-          resolved_child_id: childMatch?.id ?? null,
-          expires_at: new Date(Date.now() + OTP_TTL_MIN * 60_000).toISOString(),
-        })
-        .select('id').single();
-      if (error) throw error;
-
-      await emailClient.send({
-        to: targetEmail,
-        subject: 'Tu código para agendar en SportMaps',
-        html: `<p>Tu código de verificación es:</p><h2 style="letter-spacing:3px">${code}</h2><p>Vence en ${OTP_TTL_MIN} minutos.</p>`,
-        text: `Tu código de verificación es ${code} (vence en ${OTP_TTL_MIN} min).`,
-      });
-
       return res.json({
-        verification_id: verif.id,
-        scenario: 'registered',
-        masked_email: maskEmail(targetEmail),
-        ...(process.env.NODE_ENV !== 'production' ? { debug_code: code } : {}),
+        scenario: 'already_registered',
+        email: targetEmail,
+        message: 'Ya tienes una cuenta registrada. Por seguridad, debes iniciar sesión con tu correo y contraseña.',
       });
     }
 
@@ -324,7 +301,7 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
       const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
         type: 'magiclink',
         email: verif.resolved_email!,
-        options: { redirectTo: `${process.env.FRONTEND_URL || 'https://app.sportmaps.co'}/my-enrollments` },
+        options: { redirectTo: `${process.env.FRONTEND_URL || 'https://app.sportmaps.co'}/enrollments` },
       });
 
       if (linkErr || !linkData) {
@@ -344,7 +321,22 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
       .update({ verified_at: new Date().toISOString(), booking_token: bookingToken })
       .eq('id', verification_id);
 
-    return res.json({ scenario: verif.resolved_kind, booking_token: bookingToken });
+    let resolvedName = verif.full_name || '';
+    if (verif.resolved_unregistered_id) {
+      const { data: unreg } = await supabase
+        .from('unregistered_athletes')
+        .select('full_name')
+        .eq('id', verif.resolved_unregistered_id)
+        .maybeSingle();
+      if (unreg) resolvedName = unreg.full_name;
+    }
+
+    return res.json({
+      scenario: verif.resolved_kind,
+      booking_token: bookingToken,
+      email: verif.resolved_email,
+      fullName: resolvedName,
+    });
   } catch (err: any) {
     req.log?.error({ err }, 'public-booking verify-otp error');
     return res.status(500).json({ error: 'Error interno del servidor.' });
@@ -425,9 +417,8 @@ router.get('/slots', async (req: Request, res: Response) => {
 
       for (const avail of (availData || []).filter((a: any) => a.day_of_week === dbDay)) {
         const slotStart = avail.start_time.substring(0, 5);
-        const slotDateTimeCO = new Date(`${dateStr}T${avail.start_time.substring(0, 8)}`);
-        const slotUTC = new Date(slotDateTimeCO.getTime() + 5 * 60 * 60 * 1000);
-        if (slotUTC.getTime() - nowMs < advanceMs) continue;
+        const slotMs = new Date(`${dateStr}T${avail.start_time.substring(0, 8)}-05:00`).getTime();
+        if (slotMs - nowMs < advanceMs) continue;
 
         const key = `${avail.id}_${dateStr}`;
         const cap = capMap[key];
@@ -480,9 +471,8 @@ router.post('/confirm', async (req: Request, res: Response) => {
 
     // Revalidar ventana de anticipación en servidor
     const advanceHours = (avail as any).facility?.min_booking_advance_hours ?? 0;
-    const slotDateTimeCO = new Date(`${date}T${avail.start_time.substring(0, 8)}`);
-    const slotUTC = new Date(slotDateTimeCO.getTime() + 5 * 60 * 60 * 1000);
-    const hoursUntil = (slotUTC.getTime() - Date.now()) / 3_600_000;
+    const slotMs = new Date(`${date}T${avail.start_time.substring(0, 8)}-05:00`).getTime();
+    const hoursUntil = (slotMs - Date.now()) / 3_600_000;
     if (hoursUntil < advanceHours) {
       return res.status(400).json({ error: `Este horario requiere ${advanceHours}h de anticipación.`, reason: 'outside_booking_advance_window' });
     }
@@ -496,6 +486,27 @@ router.post('/confirm', async (req: Request, res: Response) => {
       if (!verif.resolved_enrollment_id) return res.status(422).json({ error: 'No se encontró tu inscripción.' });
       enrollmentId = verif.resolved_enrollment_id;
       unregisteredAthleteId = verif.resolved_unregistered_id;
+
+      // El trigger de BD (fn_process_session_booking) NO valida esto porque
+      // session_bookings.enrollment_id queda NULL para no-registrados.
+      // Hay que replicar aquí la misma validación que el trigger hace para
+      // reservas normales: plan activo, no vencido, con crédito disponible.
+      const { data: enr } = await supabase
+        .from('enrollments')
+        .select('status, expires_at, sessions_used, offering_plans!enrollments_offering_plan_id_fkey(max_sessions)')
+        .eq('id', enrollmentId)
+        .single();
+
+      if (!enr || enr.status !== 'active') {
+        return res.status(422).json({ error: 'Tu inscripción no está activa.', reason: 'enrollment_not_active' });
+      }
+      if (enr.expires_at && enr.expires_at < todayStr()) {
+        return res.status(422).json({ error: `Tu plan venció el ${enr.expires_at}.`, reason: 'plan_expired' });
+      }
+      const maxSess = (enr as any).offering_plans?.max_sessions;
+      if (maxSess !== null && maxSess !== undefined && (enr.sessions_used ?? 0) >= maxSess) {
+        return res.status(422).json({ error: 'Ya no tienes clases disponibles en tu plan.', reason: 'no_credits' });
+      }
     } else if (verif.resolved_kind === 'new') {
       // Crear unregistered_athlete + enrollment de cortesía (idempotente por verification_id)
       const { data: courtesySettings } = await supabase
