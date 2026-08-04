@@ -62,6 +62,40 @@ interface Transaction {
 
 const TX_PAGE_SIZE = 10;
 
+/** Lo mínimo que hay que saber de un cobro para clasificarlo como vencido o por vencer. */
+type ChargeState = {
+  status: string;
+  due_date: string;
+  period_year?: number | null;
+  period_month?: number | null;
+};
+
+/**
+ * Un cobro de un mes que todavía no empieza NO está vencido, aunque su `due_date`
+ * ya haya pasado. Salía "Mensualidad Septiembre 2026 · 2 días vencido" el 4 de
+ * agosto, porque el QR estampaba el período de septiembre pero el vencimiento del
+ * día en que se generó el cobro. Espejo del cinturón que lleva `apply_late_fees`
+ * en la migración 20260804125644.
+ */
+const isFuturePeriod = (p: ChargeState): boolean => {
+  if (!p.period_year || !p.period_month) return false;
+  const [y, m] = todayColombia().split('-').map(Number);
+  return p.period_year * 12 + p.period_month > y * 12 + m;
+};
+
+const isUnpaid = (p: ChargeState): boolean => p.status === 'pending' || p.status === 'overdue';
+
+/** Vencido de verdad: impago, de un período ya empezado, y con el plazo cumplido. */
+const isOverdueCharge = (p: ChargeState): boolean =>
+  isUnpaid(p) && !isFuturePeriod(p) && (p.status === 'overdue' || p.due_date < todayColombia());
+
+/**
+ * Impago que aún no vence. Incluye a propósito los `overdue` de período futuro:
+ * si solo se los quitáramos de "vencido" sin recogerlos acá, esa plata
+ * desaparecería de las dos tarjetas — el mismo fallo silencioso que F-01.
+ */
+const isUpcomingCharge = (p: ChargeState): boolean => isUnpaid(p) && !isOverdueCharge(p);
+
 export default function FinancesPage() {
   const { toast } = useToast();
   const { schoolId, activeBranchId } = useSchoolContext();
@@ -96,6 +130,8 @@ export default function FinancesPage() {
           wompi_transaction_id,
           provider_transaction_id,
           qr_id,
+          period_year,
+          period_month,
           student:children(full_name),
           parent:profiles!payments_parent_id_fkey(full_name)
         `)
@@ -117,12 +153,12 @@ export default function FinancesPage() {
   // Calculate Aggregates
   const financialSummary = {
     totalIncome: payments?.filter(p => p.status === 'paid').reduce((sum, p) => sum + Number(p.amount), 0) || 0,
-    totalOverdue: payments?.filter(p => p.status === 'overdue' || (p.status === 'pending' && p.due_date < todayColombia())).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
-    pendingPayments: payments?.filter(p => p.status === 'pending' && p.due_date >= todayColombia()).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
+    totalOverdue: payments?.filter(isOverdueCharge).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
+    pendingPayments: payments?.filter(isUpcomingCharge).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
   };
 
   // Map Overdue Accounts
-  const accountsData = payments?.filter(p => p.status === 'overdue' || (p.status === 'pending' && p.due_date < todayColombia())) || [];
+  const accountsData = payments?.filter(isOverdueCharge) || [];
 
   const [overdueAccounts, setOverdueAccounts] = useState<OverdueAccount[]>([]);
 
