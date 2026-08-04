@@ -89,7 +89,13 @@ const getPaymentState = (student: any): PaymentState => {
   const ps  = student.payment_status;
   const due = student.payment_due_date;
   if (!ps) return 'none';
-  if (ps === 'paid') return 'paid';
+  // Estados terminales = no hay nada que cobrar, NO una categoría propia. La vista
+  // school_athletes ya los excluye (mig 20260804125913), pero antes su cobro
+  // anulado era el más reciente y caía en 'other': al anular 5 duplicados el
+  // contador "OTROS" saltó de 1 a 6 con atletas que no debían nada. Defensa en
+  // profundidad: si otra vía los reintroduce, no vuelven a inventar un bucket.
+  if (ps === 'cancelled' || ps === 'rejected' || ps === 'failed') return 'none';
+  if (ps === 'paid' || ps === 'approved') return 'paid';
   if (ps === 'overdue' || ((ps === 'pending' || ps === 'awaiting_approval') && due && new Date(due) < new Date()))
     return 'overdue';
   if (ps === 'pending' || ps === 'awaiting_approval') return 'pending';
