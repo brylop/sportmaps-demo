@@ -343,6 +343,12 @@ router.post(
             due_date:         payCalc.dueDate,
             status:           'pending',
             payment_type:     'subscription',
+            // Explícito, NO derivado del due_date por trg_payments_fill_period:
+            // ese camino mandaba el cobro al mes siguiente y dejaba el mes de
+            // entrada sin facturar. Además, sin periodo el cobro se escapa de
+            // uniq_payment_active_period_* y se puede duplicar el mes.
+            period_year:      payCalc.periodYear,
+            period_month:     payCalc.periodMonth,
           });
           if (!payErr) paymentCreated = true;
           else req.log?.error({ err: payErr }, 'Error creando pago menor');
@@ -511,6 +517,8 @@ router.post(
             due_date:         payCalc.dueDate,
             status:           'pending',
             payment_type:     'subscription',
+            period_year:      payCalc.periodYear,
+            period_month:     payCalc.periodMonth,
           });
           if (!payErr) paymentCreated = true;
           else req.log?.error({ err: payErr }, 'Error creando pago adulto');
@@ -579,6 +587,8 @@ router.post(
             due_date:     payCalc.dueDate,
             status:       'pending',
             payment_type: 'subscription',
+            period_year:  payCalc.periodYear,
+            period_month: payCalc.periodMonth,
           });
           if (!payErr) paymentCreated = true;
         }
@@ -729,6 +739,7 @@ router.post(
             amount: payCalc.amount,
             concept: `${conceptName} — ${payCalc.description} — ${data.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
             due_date: payCalc.dueDate, status: 'pending', payment_type: 'subscription',
+            period_year: payCalc.periodYear, period_month: payCalc.periodMonth,
           });
         }
 
