@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { todayColombia } from '@/lib/dateUtils';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -252,7 +253,7 @@ export function useWellnessStats() {
   const { evaluations } = useWellnessEvaluations();
   const { records } = useHealthRecords();
   
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayColombia();
   
   return {
     totalPatients: new Set(records.map(r => r.athlete_id)).size,

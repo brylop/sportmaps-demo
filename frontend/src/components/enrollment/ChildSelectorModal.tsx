@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Dialog,
@@ -111,7 +112,7 @@ export function ChildSelectorModal({
                 throw new Error('El nombre del hijo es requerido');
             }
 
-            const dobValue = newChildDob || new Date().toISOString().split('T')[0];
+            const dobValue = newChildDob || todayColombia();
 
             const { data, error } = await supabase
                 .from('children')

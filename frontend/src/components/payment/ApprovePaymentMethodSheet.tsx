@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -113,7 +114,7 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
         status: isAbono ? 'partial' : 'paid',
         payment_method: method,
         payment_channel: method === 'cash' ? 'cash' : 'transfer',
-        payment_date: new Date().toISOString().split('T')[0],
+        payment_date: todayColombia(),
         approved_by: user.id,
         approved_at: new Date().toISOString(),
         amount_paid: newAmountPaid,

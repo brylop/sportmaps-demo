@@ -3,6 +3,22 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const wompiSecret = Deno.env.get('WOMPI_INTEGRITY_SECRET') ?? ''
 
+/**
+ * 'YYYY-MM-DD' de hoy en hora Colombia. La edge function corre con el reloj en
+ * UTC, así que `new Date().toISOString().split('T')[0]` devolvía MAÑANA para
+ * cualquier pago aprobado entre las 7 p.m. y la medianoche — la franja donde
+ * más pagan las familias. Espejo de `todayInZone()` del BFF (utils/businessDate).
+ */
+const BUSINESS_TZ = 'America/Bogota'
+function todayInZone(timeZone: string = BUSINESS_TZ): string {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(new Date())
+}
+
 serve(async (req: Request) => {
     try {
         const { method } = req
@@ -45,7 +61,7 @@ serve(async (req: Request) => {
                 .from('payments')
                 .update({
                     status: 'paid',
-                    payment_date: new Date().toISOString().split('T')[0],
+                    payment_date: todayInZone(),
                     wompi_id: transaction.id,
                     amount_paid: transaction.amount_in_cents / 100
                 })

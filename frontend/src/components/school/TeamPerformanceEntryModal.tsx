@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import {
   Dialog,
   DialogContent,
@@ -82,7 +83,7 @@ export function TeamPerformanceEntryModal({
   const createEntries = useCreatePerformanceEntries();
 
   const [values, setValues] = useState<GridValues>({});
-  const [recordedAt, setRecordedAt] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [recordedAt, setRecordedAt] = useState<string>(todayColombia());
   const [activeSubcategory, setActiveSubcategory] = useState<string | null>(null);
 
   const allMetrics = data?.metrics.filter((m) => m.is_active) ?? [];
@@ -115,7 +116,7 @@ export function TeamPerformanceEntryModal({
 
   const handleClose = () => {
     setValues({});
-    setRecordedAt(new Date().toISOString().split('T')[0]);
+    setRecordedAt(todayColombia());
     setActiveSubcategory(null);
     onClose();
   };

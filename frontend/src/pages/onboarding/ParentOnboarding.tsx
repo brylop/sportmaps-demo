@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -120,7 +121,7 @@ export default function ParentOnboarding() {
             </div>
             <div className="space-y-2">
               <Label>Fecha de nacimiento</Label>
-              <Input type="date" value={dob ?? ''} onChange={(e) => setDob(e.target.value)} max={new Date().toISOString().split('T')[0]} />
+              <Input type="date" value={dob ?? ''} onChange={(e) => setDob(e.target.value)} max={todayColombia()} />
             </div>
           </div>
         </div>

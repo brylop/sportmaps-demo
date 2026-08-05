@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -293,7 +294,7 @@ export default function ParentCheckoutPage() {
     const mutableFields = {
       // Manual paga "awaiting_approval" (admin valida); Wompi paga "paid" directo
       status: paymentFlow === 'manual' ? 'awaiting_approval' : 'paid',
-      payment_date: new Date().toISOString().split('T')[0],
+      payment_date: todayColombia(),
       receipt_number: reference,
       payment_method: paymentFlow === 'wompi' ? 'card' : 'transfer',
       receipt_url: manualReceiptUrl,
@@ -337,7 +338,7 @@ export default function ParentCheckoutPage() {
         // Si tenemos label del periodo, usarlo en lugar del concept libre del
         // query string (mas consistente con la fuente de verdad de la BD).
         concept: periodLabel ? `Mensualidad ${periodLabel}` : concept,
-        due_date: new Date().toISOString().split('T')[0],
+        due_date: todayColombia(),
         payment_type: 'one_time',
         school_id: schoolId,
         // El período solo se estampa al CREAR el cobro (no al actualizar uno del QR).

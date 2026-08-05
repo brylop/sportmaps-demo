@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -255,7 +256,7 @@ export function PaymentCheckoutModal({
           payment_provider: 'wompi',
           provider_reference: reference,
           payment_type: 'one_time',
-          due_date: new Date().toISOString().split('T')[0],
+          due_date: todayColombia(),
           period_year:  periodYear,
           period_month: periodMonth,
         } as any).select('id').single();
@@ -459,7 +460,7 @@ export function PaymentCheckoutModal({
           payment_provider: 'mercadopago',
           provider_reference: reference,
           provider_transaction_id: String(result.paymentId),
-          payment_date: new Date().toISOString().split('T')[0],
+          payment_date: todayColombia(),
           receipt_number: reference,
           period_year: periodYear,
           period_month: periodMonth,
@@ -484,8 +485,8 @@ export function PaymentCheckoutModal({
           provider_reference: reference,
           provider_transaction_id: String(result.paymentId),
           payment_type: 'one_time',
-          payment_date: new Date().toISOString().split('T')[0],
-          due_date: new Date().toISOString().split('T')[0],
+          payment_date: todayColombia(),
+          due_date: todayColombia(),
           receipt_number: reference,
           period_year: periodYear,
           period_month: periodMonth,
@@ -619,7 +620,7 @@ export function PaymentCheckoutModal({
           const { error: updateError } = await supabase.from('payments').update({
             status: 'awaiting_approval',
             payment_method: 'transfer',
-            payment_date: new Date().toISOString().split('T')[0],
+            payment_date: todayColombia(),
             receipt_url: proofUrl,
             period_year: periodYear,
             period_month: periodMonth,
@@ -640,8 +641,8 @@ export function PaymentCheckoutModal({
             status: 'awaiting_approval',
             payment_method: 'transfer',
             payment_type: 'one_time',
-            payment_date: new Date().toISOString().split('T')[0],
-            due_date: new Date().toISOString().split('T')[0],
+            payment_date: todayColombia(),
+            due_date: todayColombia(),
             receipt_url: proofUrl,
             period_year: periodYear,
             period_month: periodMonth,
@@ -705,7 +706,7 @@ export function PaymentCheckoutModal({
         const { error: updateError } = await supabase.from('payments').update({
           status: 'paid',
           payment_method: selectedMethod,
-          payment_date: new Date().toISOString().split('T')[0],
+          payment_date: todayColombia(),
           receipt_number: receiptNumber,
           period_year: periodYear,
           period_month: periodMonth,
@@ -725,8 +726,8 @@ export function PaymentCheckoutModal({
           status: 'paid',
           payment_method: selectedMethod,
           payment_type: 'one_time',
-          payment_date: new Date().toISOString().split('T')[0],
-          due_date: new Date().toISOString().split('T')[0],
+          payment_date: todayColombia(),
+          due_date: todayColombia(),
           receipt_number: receiptNumber,
           period_year: periodYear,
           period_month: periodMonth,

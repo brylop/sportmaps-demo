@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -293,7 +294,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
   const [selectedOfferingId, setSelectedOfferingId] = useState(''); // offerings.id
   const [selectedPlanPrice, setSelectedPlanPrice] = useState(0);
   // Fecha y mensualidad (para el pago proporcional)
-  const [startDate, setStartDate]   = useState(() => new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate]   = useState(() => todayColombia());
   const [monthlyFee, setMonthlyFee] = useState('');
   const [discountPct, setDiscountPct] = useState(0);
 
@@ -386,7 +387,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
     setParentName(''); setParentEmail(''); setParentPhone('+57');
     setBranchId('none'); setTeamId('none');
     setSelectedPlanId('none'); setSelectedOfferingId(''); setSelectedPlanPrice(0);
-    setStartDate(new Date().toISOString().split('T')[0]); setMonthlyFee('');
+    setStartDate(todayColombia()); setMonthlyFee('');
     setDiscountPct(0);
     setParentSearchQuery(''); setSearchDone(false); setParentFound(null);
     setParentChildren([]); setSelectedChildId(null);

@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import {
   Dialog,
   DialogContent,
@@ -286,7 +287,7 @@ export function CSVImportModal({
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = students && students.length > 0 ? `deportistas_${new Date().toISOString().split('T')[0]}.csv` : 'plantilla_deportistas.csv';
+    a.download = students && students.length > 0 ? `deportistas_${todayColombia()}.csv` : 'plantilla_deportistas.csv';
     a.click();
     window.URL.revokeObjectURL(url);
 

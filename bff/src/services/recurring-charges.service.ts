@@ -27,6 +27,7 @@ import {
     copToCents,
 } from './wompi.service';
 import { resolveProvider, type PaymentProvider } from './payment-provider.resolver';
+import { todayInZone } from '../utils/businessDate';
 
 const MP_NOTIFICATION_URL = process.env.MP_NOTIFICATION_URL
     ?? `${process.env.BFF_PUBLIC_URL ?? ''}/api/v1/webhooks/mercadopago`;
@@ -140,8 +141,11 @@ async function insertRecurringLedgerRow(args: {
                 concept: sub.concept,
                 amount: sub.amount,
                 amount_paid: status === 'paid' ? sub.amount : null,
-                due_date: new Date().toISOString().slice(0, 10),
-                payment_date: status === 'paid' ? new Date().toISOString().slice(0, 10) : null,
+                // Hora Colombia, no UTC: el cron de autopay corre en Render con el
+                // reloj en UTC, así que un cobro después de las 7 p.m. quedaba
+                // fechado MAÑANA. Ver utils/businessDate.
+                due_date: todayInZone(),
+                payment_date: status === 'paid' ? todayInZone() : null,
                 status,
                 payment_type: 'subscription',
                 payment_method: 'card',

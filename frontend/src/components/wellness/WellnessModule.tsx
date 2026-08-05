@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -62,7 +63,7 @@ function trend(current: number | null, previous: number | null) {
 
 // ── Formulario vacío ─────────────────────────────────────────
 const emptyForm = {
-  measured_at: new Date().toISOString().split('T')[0],
+  measured_at: todayColombia(),
   weight_kg: '', height_cm: '', body_fat_pct: '',
   muscle_mass_kg: '', waist_cm: '', hip_cm: '',
   chest_cm: '', arm_cm: '', thigh_cm: '',

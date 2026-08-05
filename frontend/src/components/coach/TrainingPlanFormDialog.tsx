@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -53,7 +54,7 @@ export function TrainingPlanFormDialog({
   const form = useForm<PlanFormData>({
     resolver: zodResolver(planSchema),
     defaultValues: {
-      plan_date: new Date().toISOString().split('T')[0],
+      plan_date: todayColombia(),
       objectives: '',
       warmup: '',
       materials: '',
