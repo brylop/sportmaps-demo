@@ -196,7 +196,7 @@ export default function SchoolRoutines() {
             <Dumbbell className="h-6 w-6 text-primary" />
           </div>
           <div>
-            <h1 className="text-3xl font-black tracking-tighter">Rutinas del Gimnasio</h1>
+            <h1 className="text-3xl font-black tracking-tighter">Gestión de Rutinas</h1>
             <p className="text-xs text-muted-foreground font-bold uppercase tracking-widest opacity-80">
               Biblioteca compartida entre dueño y coaches
             </p>
