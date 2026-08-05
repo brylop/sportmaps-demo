@@ -162,6 +162,8 @@ SELECT '1. periodo vence antes de empezar'         AS chequeo,
        pay.id                                      AS ref
   FROM pay, vivos
  WHERE pay.status = ANY (vivos.st)
+   AND pay.status <> 'paid'   -- un cobro ya pagado no puede entrar en mora: la
+                              -- incoherencia es cosmetica y no hay que perseguirla
    AND pay.period_year IS NOT NULL AND pay.period_month IS NOT NULL
    AND pay.due_date < make_date(pay.period_year, pay.period_month, 1)
 
@@ -250,15 +252,17 @@ UNION ALL
 --    pagar este registro" al propio acudiente. Solo afecta a menores: para un
 --    adulto, user_id ES el pagador.
 -- ─────────────────────────────────────────────────────────────────────────────
-SELECT '5. cobro sin pagador (impagable online)',
-       'media',
-       COALESCE(pay.atleta, '(sin nombre)'),
-       pay.concept || ' · $' || pay.amount || ' · vence ' || pay.due_date,
-       pay.id
+SELECT '5. cobros sin pagador (impagables online)',
+       'alta',
+       count(*) || ' cobros · ' || count(DISTINCT pay.atleta_id) || ' atletas',
+       'total $' || sum(pay.amount) || ' que NADIE puede pagar online. El detalle,'
+         || ' en la consulta del encabezado.',
+       (array_agg(pay.id ORDER BY pay.id))[1]
   FROM pay
  WHERE pay.status IN ('pending','awaiting_approval','overdue','partial','glosado')
    AND pay.parent_id IS NULL
    AND pay.user_id   IS NULL
+HAVING count(*) > 0
 
 UNION ALL
 -- ─────────────────────────────────────────────────────────────────────────────
