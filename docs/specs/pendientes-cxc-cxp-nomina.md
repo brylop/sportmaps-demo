@@ -184,9 +184,81 @@ Esto entra en `ERP-1` (quick wins) y encaja con las primitivas de [`UX-1`](../RO
 
 ---
 
-## 7. Modelo propuesto (opción A)
+## 7. Modelo propuesto (con libro mayor)
 
 Nombres en inglés y `snake_case`, como el resto del esquema. Estados con `text + CHECK`.
+
+### 7.0 El libro mayor
+
+```sql
+-- Plan de cuentas. Semilla global + subconjunto por escuela (ver D-PUC).
+CREATE TABLE public.chart_of_accounts (
+  code        text PRIMARY KEY,               -- '1305', '2205', '5105'…
+  name        text NOT NULL,
+  kind        text NOT NULL CHECK (kind IN ('asset','liability','equity','income','expense')),
+  parent_code text REFERENCES public.chart_of_accounts(code),
+  is_postable boolean NOT NULL DEFAULT true   -- las cuentas de agrupación no reciben asientos
+);
+
+-- El asiento. Toda obligación, movimiento, cruce y reverso tiene el suyo.
+CREATE TABLE public.journal_entries (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id     uuid NOT NULL REFERENCES public.schools(id),
+  entry_date    date NOT NULL,
+  period_year   smallint NOT NULL,
+  period_month  smallint NOT NULL,
+  source_kind   text NOT NULL CHECK (source_kind IN ('obligation','movement','settlement',
+                                                     'payment','opening_balance','reversal','manual')),
+  source_id     uuid,
+  description   text NOT NULL,
+  reversal_of   uuid REFERENCES public.journal_entries(id),
+  reversal_reason text,                       -- obligatorio si reversal_of no es NULL, mín. 10 chars
+  created_by uuid, created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE public.journal_lines (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  entry_id   uuid NOT NULL REFERENCES public.journal_entries(id),
+  account_code text NOT NULL REFERENCES public.chart_of_accounts(code),
+  debit      numeric(18,2) NOT NULL DEFAULT 0 CHECK (debit  >= 0),
+  credit     numeric(18,2) NOT NULL DEFAULT 0 CHECK (credit >= 0),
+  party_type text, party_id uuid,
+  CONSTRAINT one_side_only CHECK ((debit = 0) <> (credit = 0))
+);
+
+-- Períodos contables. Un asiento no puede caer en un mes cerrado.
+CREATE TABLE public.accounting_periods (
+  school_id    uuid NOT NULL REFERENCES public.schools(id),
+  period_year  smallint NOT NULL,
+  period_month smallint NOT NULL CHECK (period_month BETWEEN 1 AND 12),
+  status       text NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+  closed_by uuid, closed_at timestamptz,
+  PRIMARY KEY (school_id, period_year, period_month)
+);
+
+-- Mapeo de cuentas por escuela. SIN ESTO NO SE PUEDE POSTEAR NADA.
+CREATE TABLE public.school_account_mappings (
+  school_id    uuid NOT NULL REFERENCES public.schools(id),
+  flow_key     text NOT NULL,     -- 'income.tuition', 'asset.bank', 'liability.payable', 'expense.payroll'…
+  account_code text NOT NULL REFERENCES public.chart_of_accounts(code),
+  PRIMARY KEY (school_id, flow_key)
+);
+```
+
+**El cuadre débito = crédito no se puede expresar con un `CHECK`**: es una invariante entre filas, y un
+`CHECK` solo ve la fila. Se implementa con un **`CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED`**
+que verifica al `COMMIT` que cada asiento cuadra, más la regla de que las escrituras solo entran por
+RPC. El trigger es el backstop; la RPC es la puerta.
+
+**Inmutabilidad:** `journal_entries` y `journal_lines` no otorgan `UPDATE` ni `DELETE` a ningún rol, y
+un trigger levanta excepción si se intentan. Hay precedente en el repo: `audit_log_clinical` ya es
+inmutable por diseño. Corregir = asiento de reverso con `reversal_of` y motivo obligatorio.
+
+**Capa de posteo:** una RPC `post_*` por tipo de evento (obligación creada, cruce aplicado, pago
+recibido, gasto aprobado, nómina cerrada), cada una el **único** escritor de su asiento. Es lo que
+permite que `payments` siga sin migrarse y el mayor quede completo (§5).
+
+### 7.1 Obligación, movimiento y cruce
 
 ```sql
 -- La obligación. CxC no se migra: para tipo 'receivable' esta tabla no se usa en v1 (§5).
@@ -202,7 +274,7 @@ CREATE TABLE public.obligations (
   source_kind       text NOT NULL CHECK (source_kind IN ('expense','payroll_run','manual')),
   source_id         uuid,                    -- expenses.id | payroll_runs.id | NULL
   concept           text NOT NULL,
-  account_code      text,                    -- clasificador opcional, NO plan de cuentas (§4)
+  account_code      text NOT NULL REFERENCES public.chart_of_accounts(code),  -- cuenta real (§7.0)
   issued_on         date NOT NULL,
   due_on            date NOT NULL,           -- obligatorio en payable y payroll
   total_amount      numeric(18,2) NOT NULL CHECK (total_amount > 0),
@@ -271,13 +343,16 @@ una policy. Misma lección que ya costó el módulo de informes.
 
 Ninguna se resuelve desde el código.
 
+**Resuelta:** **D-PD** — partida doble completa desde el inicio (2026-08-01, §4).
+
 | # | Decisión | Por qué importa |
 |---|---|---|
-| **D-PD** | Partida doble: opción A, B o C de §4 | Cambia el tamaño del módulo por un factor de 3 |
+| **D-PUC** | ¿Qué plan de cuentas? PUC Colombia (Decreto 2650) **completo**, o un catálogo **reducido** con las cuentas que una escuela deportiva realmente usa | El completo son ~2.000 cuentas que nadie en la escuela sabe elegir, y vuelve inusable el selector; el reducido exige decidir cuáles y deja fuera casos raros |
+| **D-CORTE** | Fecha de corte del mayor y cómo se calculan los **saldos de apertura** | Sin esto no se puede postear la primera fila. Y define si el mayor arranca limpio o arrastra historia |
 | **D-T** | Tercero: ¿tabla `parties` unificada, o eje polimórfico `party_type + party_id` (propuesto)? | Una tabla unificada obliga a migrar `suppliers` y `payroll_employees`; el eje polimórfico no, pero pierde la FK |
-| **D-CXC** | ¿Se acepta que CxC siga siendo `payments` y Pendientes solo lo lea (§5)? | Si la respuesta es no, el módulo pasa de 3 semanas a 8 y toca el flujo con más dinero |
-| **D-MIG** | Los `expenses` ya pagados: ¿se migran como obligación `settled` con cruce sintético marcado «migración», o se dejan donde están y el módulo arranca solo con lo nuevo? | Arrancar limpio es mucho más barato; migrar da continuidad de reportes |
-| **D-CUADRE** | ¿Se exige que la suma de saldos de Pendientes cuadre contra algo? Con opción A no hay saldo contable contra el cual cuadrar (CA-13 del spec externo asume partida doble) | Sin punto de comparación, el criterio de aceptación de la migración hay que reescribirlo |
+| **D-CXC** | ¿Se acepta que CxC siga siendo `payments`, que Pendientes lo **lea** y una capa de posteo lleve sus eventos al mayor (§5)? | Si la respuesta es no, el módulo crece varias semanas y toca el flujo con más dinero. Con partida doble ya no basta con leerlo: hay que postearlo, o el mayor no incluye el ingreso principal |
+| **D-MIG** | Los `expenses` ya pagados: ¿se migran como obligación `settled` con cruce sintético marcado «migración», o el módulo arranca solo con lo nuevo? | Arrancar limpio es mucho más barato; migrar da continuidad de reportes. Interactúa con D-CORTE |
+| **D-CUADRE** | El criterio de aceptación de la migración: ¿contra qué cuadra la suma de saldos? | Con libro mayor **sí** hay contra qué cuadrar: el saldo de la cuenta de CxP del mayor. Definir la tolerancia y qué pasa si no cuadra (¿bloquea la salida a producción?) |
 | **D-ROL** | La matriz Auxiliar / Contador / Administrador del spec → roles reales. SportMaps tiene `school_admin`, `coach`, `reporter` y el helper `can_manage_finances` | Hay dos matrices de permisos de coach que ya son código muerto ([`SEG-4`](../ROADMAP.md#seg--seguridad-rls-y-permisos)) — no crear una tercera |
 | **D-NOM** | ¿La obligación de nómina nace al cerrar `payroll_runs`, o se registra a mano? El motor existe; hay que decidir si se le engancha un trigger o una RPC explícita | Un trigger que genere obligaciones al cerrar la liquidación es cómodo y difícil de deshacer |
 
@@ -290,11 +365,11 @@ Adaptadas del §15 del spec externo. Cada fase con revisión entre medias y una 
 | Fase | Contenido | Depende de |
 |---|---|---|
 | **ERP-1 · Quick wins** | Ícono Ojo / Lupa, ocultar Editar en vez de deshabilitar, orden cronológico estable en movimientos, formulario de tercero natural/jurídica, y documentar en pantalla qué asiento produce «Registrar gasto» | Nada. Encaja con [`UX-1`](../ROADMAP.md#ux--interfaz-navegación-y-densidad) |
-| **ERP-2 · Núcleo CxP** | `obligations` + `cash_movements` + `obligation_settlements`, máquina de estados, RPCs de cruce con lock, pago parcial, multi-factura, anulación con reverso, pestaña «Por pagar» | D-PD, D-T, D-CXC · [`MOD-5`](../ROADMAP.md#mod--módulos-de-producto) fase 1 |
-| **ERP-3 · Nómina** | Obligación por empleado al cerrar la liquidación, pestaña Nómina agrupada por período, pago del período completo con un egreso | ERP-2 en producción · D-NOM |
-| **ERP-4 · CxC de lectura** | Pestaña «Por cobrar» que lee `payments` sin migrarlo, totales y posición neta unificados | ERP-2 · [`DIN-1`](../plan-f0-generacion-de-mes-y-cobros-duplicados.md) cerrado |
-| **ERP-5 · Menú y retiro de nombres viejos** | «Finanzas» y «Proveedores» dejan de existir como módulos; queda `Pendientes · Movimientos · Contabilidad` | ERP-2..4 · se entrega **junto** con [`UX-4`](../ROADMAP.md#ux--interfaz-navegación-y-densidad) |
-| **ERP-6 · Libro mayor** *(opcional)* | Solo si D-PD elige B o si una escuela real lo pide: `journal_entries` + `journal_lines` + PUC, generados desde las obligaciones y cruces ya existentes (opción C de §4) | Demanda real, no anticipación |
+| **ERP-2 · Libro mayor + núcleo CxP** | `chart_of_accounts` + `journal_entries` + `journal_lines` con cuadre diferido, inmutabilidad y reverso · `school_account_mappings` · saldos de apertura · capa de posteo · `obligations` + `cash_movements` + `obligation_settlements` · máquina de estados · RPCs de cruce con lock pesimista · pago parcial y multi-factura · pestaña «Por pagar» | D-PUC, D-CORTE, D-T, D-MIG · **`CONC-1`** (idempotencia) es prerrequisito |
+| **ERP-3 · Períodos contables** | `accounting_periods` + rechazo de asientos en período cerrado. Es la bisagra con el ciclo de mes | ERP-2 |
+| **ERP-4 · Nómina** | Obligación por empleado al cerrar la liquidación, pestaña agrupada por período, pago del período completo con un egreso, posteo al mayor | ERP-2 en producción · D-NOM |
+| **ERP-5 · CxC: lectura + posteo** | Pestaña «Por cobrar» que lee `payments` sin migrarlo, **y** capa de posteo que lleva sus eventos al mayor (cobro emitido → CxC/Ingreso; pago recibido → Banco/CxC). Sin esto el mayor no incluye el ingreso principal de la escuela | ERP-2 · D-CXC · [`DIN-1`](../plan-f0-generacion-de-mes-y-cobros-duplicados.md) cerrado |
+| **ERP-6 · Menú y retiro de nombres viejos** | «Finanzas» y «Proveedores» dejan de existir como módulos; queda `Pendientes · Movimientos · Contabilidad` | ERP-2..5 · se entrega **junto** con [`UX-4`](../ROADMAP.md#ux--interfaz-navegación-y-densidad) |
 
 **Lo que este módulo NO cubre:** el cierre de período y el snapshot congelado — eso es el
 [ciclo de mes](month-close-module.md) F1+, y son complementarios: Pendientes da el libro de
