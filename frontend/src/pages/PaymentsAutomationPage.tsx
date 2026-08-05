@@ -25,7 +25,7 @@ import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { emailClient } from '@/lib/email-client';
 import { ReviewInstallmentModal } from '@/components/payment/ReviewInstallmentModal';
 import { InstallmentsConfigCard } from '@/components/payment/InstallmentsConfigCard';
-import { todayColombia } from '@/lib/dateUtils';
+import { todayColombia, formatDayCO } from '@/lib/dateUtils';
 import { SportMapsPaySettings } from '@/components/settings/SportMapsPaySettings';
 import { RegisterCashPaymentModal } from '@/components/payment/RegisterCashPaymentModal';
 import { ApprovePaymentMethodSheet } from '@/components/payment/ApprovePaymentMethodSheet';
@@ -753,12 +753,35 @@ export default function PaymentsAutomationPage() {
 
   const handleExportCSV = () => {
     if (payments.length === 0) { toast({ title: 'No hay datos', description: 'No hay transacciones para exportar.' }); return; }
-    const headers = ['Fecha', 'Padre', 'Deportista', 'Monto', 'Estado', 'Concepto', 'Tipo'];
+    // Un campo con coma, comilla o salto de línea tiene que ir entrecomillado o
+    // corre las columnas del resto de la fila. No es teórico: hay conceptos como
+    // "Mensualidad 10/2026 - VIOLETA (pago adelantado del 31/07, ref TRF-...)",
+    // y esas filas salían descuadradas del archivo.
+    const csvCell = (v: unknown): string => {
+      const s = v == null ? '' : String(v);
+      return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const headers = ['Fecha de pago', 'Fecha de emisión', 'Acudiente', 'Deportista', 'Monto', 'Estado', 'Concepto', 'Tipo'];
     const rows = payments.map(p => {
       const cfg = STATUS_CONFIG[p.status];
-      return [new Date(p.created_at).toLocaleDateString(), p.parent?.full_name || 'Desconocido', p.child?.full_name || 'Desconocido', p.amount, cfg?.label ?? p.status, p.concept, p.payment_type || 'N/A'];
+      return [
+        // La fecha del movimiento es cuándo se pagó. Con `created_at` el reporte
+        // fechaba los pagos el día en que se EMITIÓ el cobro (para una mensualidad
+        // de agosto cobrada el 30 de julio, un mes antes del pago real).
+        formatDayCO(p.payment_date || p.created_at),
+        formatDayCO(p.created_at),
+        // Los nombres ya resueltos: `parent`/`child` son null para atletas adultos
+        // y sin cuenta, y el CSV los exportaba todos como "Desconocido" aunque la
+        // tabla en pantalla sí mostrara el nombre.
+        (p as any).parent_responsible || p.parent?.full_name || '—',
+        (p as any).athlete_name || p.child?.full_name || 'Sin nombre',
+        p.status === 'partial' ? (p.amount_paid ?? 0) : p.amount,
+        cfg?.label ?? p.status,
+        p.concept,
+        p.payment_type || 'N/A',
+      ];
     });
-    const csvContent = [headers, ...rows].map(e => e.join(',')).join('\n');
+    const csvContent = [headers, ...rows].map(e => e.map(csvCell).join(',')).join('\n');
     const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');

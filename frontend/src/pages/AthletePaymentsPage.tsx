@@ -17,7 +17,7 @@ import { FileUpload } from '@/components/common/FileUpload';
 import { supabase } from '@/integrations/supabase/client';
 import { CheckCircle2 as CheckCircle, Loader2 as Loader, CreditCard as CardIcon } from 'lucide-react';
 import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
-import { todayColombia } from '@/lib/dateUtils';
+import { todayColombia, formatDayCO } from '@/lib/dateUtils';
 import { calcEarlyPaymentDiscount } from '@/lib/earlyPaymentDiscount';
 
 interface Payment {
@@ -190,12 +190,9 @@ export default function AthletePaymentsPage() {
   const formatCurrencyLocal = (val: number) =>
     `$${Math.round(val).toLocaleString('es-CO')}`;
 
-  const formatDate = (dateStr: string) =>
-    new Date(dateStr).toLocaleDateString('es-CO', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
+  // `due_date` y `payment_date` son columnas `date`: `new Date('2026-08-04')` se
+  // parsea como medianoche UTC y en Colombia imprimía el día anterior.
+  const formatDate = (dateStr: string) => formatDayCO(dateStr);
 
   const handleShowProof = async (receiptUrl: string, concept: string, amount: number) => {
     if (!receiptUrl) return;
@@ -237,15 +234,22 @@ export default function AthletePaymentsPage() {
     }
     const rows = payments.map(p => [
       p.due_date ? formatDate(p.due_date) : '—',
+      p.payment_date ? formatDate(p.payment_date) : '—',
       p.team_name || p.concept || '—',
       p.school_name || '—',
       formatCurrencyLocal(p.amount),
       p.status,
     ]);
+    // Entrecomillado obligatorio: los conceptos traen comas ("(pago adelantado
+    // del 31/07, ref TRF-...)") y sin escapar corren las columnas de la fila.
+    const csvCell = (v: unknown) => {
+      const s = v == null ? '' : String(v);
+      return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
     const csv = [
-      ['Fecha Vence', 'Concepto', 'Escuela', 'Monto', 'Estado'],
+      ['Fecha Vence', 'Fecha de pago', 'Concepto', 'Escuela', 'Monto', 'Estado'],
       ...rows
-    ].map(r => r.join(',')).join('\n');
+    ].map(r => r.map(csvCell).join(',')).join('\n');
 
     const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);

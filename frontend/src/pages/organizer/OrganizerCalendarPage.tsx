@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { todayColombia, dayToLocalDate } from '@/lib/dateUtils';
 import { useNavigate } from 'react-router-dom';
 import { bffClient } from '@/lib/api/bffClient';
 import { useToast } from '@/hooks/use-toast';
@@ -93,7 +94,7 @@ export default function OrganizerCalendarPage() {
   const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
   const goToday = () => setCurrentDate(new Date());
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayColombia();
 
   // Events in the selected month
   const monthEvents = events.filter(e => {
@@ -217,7 +218,8 @@ export default function OrganizerCalendarPage() {
                       <p className="font-medium text-sm line-clamp-1">{ev.title}</p>
                       <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                         <Calendar className="h-3 w-3" />
-                        {new Date(ev.event_date).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
+                        {/* `event_date` es `date`: con `new Date()` el evento se veía un día antes. */}
+                        {dayToLocalDate(ev.event_date).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
                       </div>
                       <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
                         <MapPin className="h-3 w-3" />

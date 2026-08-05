@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { bffClient } from '@/lib/api/bffClient';
+import { dayToLocalDate } from '@/lib/dateUtils';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -900,7 +901,8 @@ export default function AccessControlPage() {
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate">{o.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      PIN {o.zk_pin} · Vence {new Date(o.due_date).toLocaleDateString('es-CO')} · ${Number(o.amount).toLocaleString('es-CO')}
+                      {/* `due_date` es `date`: con `new Date()` vencía un día antes. */}
+                      PIN {o.zk_pin} · Vence {dayToLocalDate(o.due_date).toLocaleDateString('es-CO')} · ${Number(o.amount).toLocaleString('es-CO')}
                     </p>
                   </div>
                   {o.blocked ? (

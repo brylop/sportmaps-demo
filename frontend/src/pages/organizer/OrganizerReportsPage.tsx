@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { todayColombia, formatDayCO } from '@/lib/dateUtils';
 import { useNavigate } from 'react-router-dom';
 import { bffClient } from '@/lib/api/bffClient';
 import { useToast } from '@/hooks/use-toast';
@@ -65,15 +66,16 @@ export default function OrganizerReportsPage() {
   const formatPrice = (amount: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);
 
-  const formatDate = (dateStr: string) =>
-    new Date(dateStr).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' });
+  // `event_date` es una columna `date`: `new Date('2026-08-04')` se parsea como
+  // medianoche UTC y en Colombia imprimía el día anterior.
+  const formatDate = (dateStr: string) => formatDayCO(dateStr);
 
   const exportCSV = () => {
     if (events.length === 0) return;
 
     const headers = ['Evento', 'Fecha', 'Ciudad', 'Deporte', 'Estado', 'Delegaciones', 'Esperado', 'Recaudado', 'Pendiente'];
     const rows = events.map(e => [
-      `"${e.title}"`,
+      e.title,
       e.event_date,
       e.city,
       e.sport,
@@ -84,12 +86,18 @@ export default function OrganizerReportsPage() {
       e.total_expected - e.total_paid,
     ]);
 
-    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    // Solo el título iba entrecomillado, y a mano: una ciudad o un deporte con
+    // coma corría las columnas de la fila. Se escapa toda celda.
+    const csvCell = (v: unknown) => {
+      const s = v == null ? '' : String(v);
+      return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = [headers.map(csvCell).join(','), ...rows.map(r => r.map(csvCell).join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `reporte-eventos-${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `reporte-eventos-${todayColombia()}.csv`;
     link.click();
     URL.revokeObjectURL(url);
     toast({ title: 'CSV exportado', description: 'El archivo se descargó exitosamente' });
