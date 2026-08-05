@@ -37,6 +37,8 @@ interface AthleteRow {
   id: string;
   athlete_type: 'child' | 'adult' | 'unregistered';
   full_name: string;
+  /** Otros nombres de la misma persona: la escuela la busca como la precargó. */
+  aliases?: string[];
   contexts: string[];
   present: number;
   absent: number;
@@ -170,7 +172,12 @@ export default function AttendanceHistoryPage() {
   const athletes = useMemo(() => {
     const rows = data?.athletes ?? [];
     const q = search.trim().toLowerCase();
-    return q ? rows.filter(a => a.full_name.toLowerCase().includes(q)) : rows;
+    if (!q) return rows;
+    // Busca también por el nombre con que la escuela precargó a la persona: si la
+    // cuenta dice "Dai Vázquez", escribir "DAIMARIS" tiene que encontrarla igual.
+    return rows.filter(a =>
+      a.full_name.toLowerCase().includes(q)
+      || (a.aliases ?? []).some(n => n.toLowerCase().includes(q)));
   }, [data, search]);
 
   const days = data?.days ?? [];
@@ -180,9 +187,9 @@ export default function AttendanceHistoryPage() {
   // ── Exportes ─────────────────────────────────────────────────────────────
   const exportByAthlete = () => {
     downloadCsv(`asistencia-${month}-por-atleta.csv`, [
-      ['Atleta', 'Equipos / Planes', 'Presentes', 'Tarde', 'Excusadas', 'Ausentes', 'Registros', '% Asistencia'],
+      ['Atleta', 'Otros nombres', 'Equipos / Planes', 'Presentes', 'Tarde', 'Excusadas', 'Ausentes', 'Registros', '% Asistencia'],
       ...athletes.map(a => [
-        a.full_name, a.contexts.join(' · '),
+        a.full_name, (a.aliases ?? []).join(' · '), a.contexts.join(' · '),
         a.present, a.late, a.excused, a.absent, a.total, `${a.rate}%`,
       ]),
     ]);
@@ -382,6 +389,12 @@ export default function AttendanceHistoryPage() {
                               {a.full_name}
                               {a.athlete_type === 'unregistered' && (
                                 <Badge variant="outline" className="ml-2 text-[10px]">Sin cuenta</Badge>
+                              )}
+                              {!!a.aliases?.length && (
+                                <span className="block text-[11px] font-normal text-muted-foreground"
+                                  title="Nombre con que la escuela la tenía precargada">
+                                  antes: {a.aliases.join(' · ')}
+                                </span>
                               )}
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground max-w-[260px] truncate">
