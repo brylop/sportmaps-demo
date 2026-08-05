@@ -55,6 +55,19 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
   const [amount, setAmount] = useState<number | ''>(0);
   const [paymentDate, setPaymentDate] = useState<Date>(new Date());
 
+  /**
+   * El día que la escuela eligió en el calendario, tal cual.
+   *
+   * Antes se guardaba con `paymentDate.toISOString().split('T')[0]`, y
+   * `toISOString()` pasa la fecha LOCAL a UTC: registrar un pago pasadas las
+   * 7 p.m. hora
+   * Colombia guardaba el día SIGUIENTE — el calendario mostraba "4 de agosto"
+   * (se pinta con `format`, local) y en la base quedaba `2026-08-05`. 28 pagos
+   * desde julio quedaron así, 13 con fecha de pago en el futuro, y en Finanzas
+   * se iban al tope del listado como si fueran los más recientes.
+   */
+  const pickedDay = () => format(paymentDate, 'yyyy-MM-dd');
+
   // Soporte de la transferencia (comprobante que la familia envio por WhatsApp).
   // Solo aplica a paymentMethod === 'transfer'; opcional, porque la escuela
   // tambien concilia contra el extracto bancario sin tener la imagen.
@@ -287,7 +300,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
             amount: numericAmount,
             payment_method: paymentMethod === 'cash' ? 'cash' : 'transfer',
             payment_channel: paymentMethod === 'cash' ? 'cash' : 'transfer',
-            payment_date: paymentDate.toISOString().split('T')[0],
+            payment_date: pickedDay(),
             approved_by: user.id,
             approved_at: new Date().toISOString(),
             reference,
@@ -311,8 +324,8 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
           payment_method: paymentMethod === 'cash' ? 'cash' : 'transfer',
           payment_channel: paymentMethod === 'cash' ? 'cash' : 'transfer',
           payment_type: 'one_time',
-          payment_date: paymentDate.toISOString().split('T')[0],
-          due_date: paymentDate.toISOString().split('T')[0],
+          payment_date: pickedDay(),
+          due_date: pickedDay(),
           approved_by: user.id,
           approved_at: new Date().toISOString(),
           reference,
@@ -356,7 +369,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
                 amount: numericAmount,
                 payment_method: paymentMethod === 'cash' ? 'cash' : 'transfer',
                 payment_channel: paymentMethod === 'cash' ? 'cash' : 'transfer',
-                payment_date: paymentDate.toISOString().split('T')[0],
+                payment_date: pickedDay(),
                 approved_by: user.id,
                 approved_at: new Date().toISOString(),
                 reference,

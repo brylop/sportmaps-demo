@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -47,7 +48,7 @@ export default function VendorAppointmentsPage() {
     fetchAppointments();
   }, [user]);
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayColombia();
   const upcoming = appointments.filter(a => a.appointment_date >= today && a.status !== 'cancelled');
   const past = appointments.filter(a => a.appointment_date < today || a.status === 'cancelled');
 

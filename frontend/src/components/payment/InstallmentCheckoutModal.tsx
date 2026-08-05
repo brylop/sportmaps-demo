@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,7 +32,7 @@ export function InstallmentCheckoutModal({
   onSuccess
 }: InstallmentCheckoutModalProps) {
   const [amount, setAmount] = useState<string>('');
-  const [receiptDate, setReceiptDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [receiptDate, setReceiptDate] = useState<string>(todayColombia());
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [notes, setNotes] = useState<string>('');
   const [processing, setProcessing] = useState(false);
@@ -244,7 +245,7 @@ export function InstallmentCheckoutModal({
                   type="date"
                   value={receiptDate}
                   onChange={(e) => setReceiptDate(e.target.value)}
-                  max={new Date().toISOString().split('T')[0]}
+                  max={todayColombia()}
                   className={ocrData?.date && isDateMatch ? "border-green-500" : ""}
                   required
                 />

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import {
   Dialog,
   DialogContent,
@@ -89,14 +90,14 @@ export function PerformanceEntryModal({
   const createEntries = useCreatePerformanceEntries();
 
   const [values, setValues] = useState<Record<string, number | ''>>({});
-  const [recordedAt, setRecordedAt] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [recordedAt, setRecordedAt] = useState<string>(todayColombia());
   const [notes, setNotes] = useState('');
 
   useEffect(() => {
     if (open) {
       setValues({});
       setNotes('');
-      setRecordedAt(new Date().toISOString().split('T')[0]);
+      setRecordedAt(todayColombia());
     }
   }, [open, subjectId]);
 

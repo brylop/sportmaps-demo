@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -194,7 +195,7 @@ export default function EventDocumentsTab({ eventId }: { eventId: string }) {
 
     try {
       const content = await zip.generateAsync({ type: 'blob' });
-      const date = new Date().toISOString().split('T')[0];
+      const date = todayColombia();
       saveAs(content, `documentos-evento-${date}.zip`);
     } catch (err) {
       console.error('Error generating ZIP:', err);

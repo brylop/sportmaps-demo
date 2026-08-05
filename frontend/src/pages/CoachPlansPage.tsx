@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -35,7 +36,7 @@ export default function CoachPlansPage() {
     queryKey: ['coach-school-appointments', staffId, schoolId],
     queryFn: async () => {
       if (!staffId || !schoolId) return [];
-      const today = new Date().toISOString().split('T')[0];
+      const today = todayColombia();
 
       const { data, error } = await supabase
         .from('session_bookings')

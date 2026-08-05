@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -97,7 +98,7 @@ export function useEvents() {
         .eq('status', 'active')
         .eq('visibility', 'public')
         .eq('registrations_open', true)
-        .gte('event_date', new Date().toISOString().split('T')[0]);
+        .gte('event_date', todayColombia());
 
       if (filters?.sport) query = query.eq('sport', filters.sport);
       if (filters?.city) query = query.eq('city', filters.city);

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -28,7 +29,7 @@ export function CompetitionResultFormDialog({ open, onOpenChange, teamId }: Comp
   const createResult = useCreateCompetitionResult();
 
   const [opponent, setOpponent] = useState('');
-  const [competitionDate, setCompetitionDate] = useState(new Date().toISOString().split('T')[0]);
+  const [competitionDate, setCompetitionDate] = useState(todayColombia());
   const [resultType, setResultType] = useState<ResultType>('preparatorio');
   const [matchFormat, setMatchFormat] = useState<MatchFormat>('bo3');
   const [competitionName, setCompetitionName] = useState('');
@@ -40,7 +41,7 @@ export function CompetitionResultFormDialog({ open, onOpenChange, teamId }: Comp
 
   const reset = () => {
     setOpponent('');
-    setCompetitionDate(new Date().toISOString().split('T')[0]);
+    setCompetitionDate(todayColombia());
     setResultType('preparatorio');
     setMatchFormat('bo3');
     setCompetitionName('');

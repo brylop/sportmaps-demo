@@ -1,4 +1,5 @@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { todayColombia } from '@/lib/dateUtils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -59,7 +60,7 @@ export function MatchResultFormDialog({
   const form = useForm<ResultFormData>({
     resolver: zodResolver(resultSchema),
     defaultValues: {
-      match_date: new Date().toISOString().split('T')[0],
+      match_date: todayColombia(),
       opponent: '',
       home_score: '0',
       away_score: '0',

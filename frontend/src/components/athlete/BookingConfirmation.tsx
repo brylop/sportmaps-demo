@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { SlotPicker } from './SlotPicker';
 import { TrialConfirmation } from './TrialConfirmation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -92,7 +93,7 @@ export function BookingConfirmation({
           amount_cents: programPrice * 100,
           currency: 'COP',
           status: 'pending',
-          due_date: new Date().toISOString().split('T')[0],
+          due_date: todayColombia(),
         });
 
       if (paymentError) throw paymentError;

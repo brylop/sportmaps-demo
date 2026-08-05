@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -193,7 +194,7 @@ export default function DocumentsReportTab() {
           ? plans.find(p => p.id === filterPlan)?.name || 'plan'
           : 'todos';
       const safeName = label.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').trim();
-      const date = new Date().toISOString().split('T')[0];
+      const date = todayColombia();
       saveAs(content, `documentos-${safeName}-${date}.zip`);
     } catch (err) {
       console.error('Error generating ZIP:', err);
