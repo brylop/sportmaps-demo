@@ -427,3 +427,94 @@ ejecuta las escrituras**.
 - **Multi-categoría** (`MOD-3`): el `409` de B1 es deliberadamente estricto hasta entonces.
 - **H3** más allá de declararlo (§3.6).
 - **Anulación de cobros ya emitidos**: se listan, las ejecuta el usuario.
+
+---
+
+## 11. Verificación contra el código y los datos — 2026-08-01
+
+Se auditó el plan línea por línea contra el repo y la base. **Los cuatro defectos de §3 están
+confirmados**: la ventana intra-sentencia, el advisory lock que no la cubre, el hueco de vía A y
+el `UPDATE` de vía B. Lo que sigue son tres correcciones de alcance y la medición del impacto real.
+
+### 11.1 El cron también cae, y falla peor que el botón
+
+§3.1 dice que el síntoma es «la apertura de mes falla para toda la escuela». Es correcto para el
+botón, pero incompleto: desde
+[`20260724000003`](../supabase/migrations/20260724000003_generate_monthly_charges_delegates.sql)
+**el cron ya no tiene lógica propia — delega en `open_month`** por cada escuela con
+`auto_generate_payments`, dentro de un `BEGIN … EXCEPTION WHEN OTHERS` que solo emite `WARNING`.
+
+| Vía | Con dos inscripciones activas |
+|---|---|
+| Botón | `23505` → error visible, la escuela queda sin generar |
+| Cron | Mismo `23505`, atrapado por escuela → **la salta en silencio** y reporta éxito global |
+
+El caso del cron es el más peligroso de los dos: no hay error que nadie vea, la escuela
+simplemente no factura ese mes y el `RETURN` del cron dice que todo salió bien. Cualquier alerta
+que se monte sobre esto tiene que mirar el `WARNING`, no el valor de retorno.
+
+### 11.2 Por qué el bug no se manifiesta hoy: el 23505 se traga en la vía por atleta
+
+Dato que reconcilia «el bug es real» con «no está pasando nada»:
+[`enrollmentBilling.createPendingPayment`](../bff/src/services/enrollmentBilling.ts#L96) absorbe el
+`23505` explícitamente (`if (error.code === '23505') return`). Esa es la vía **por atleta** —
+editor, alta, asignación de plan— y es idempotente por diseño.
+
+⇒ El defecto solo muerde en la vía **masiva**. Mientras los cobros se generen atleta por atleta,
+no se nota; el día que alguien pulse «abrir mes» con deriva presente, revienta.
+
+### 11.3 `DISTINCT ON` necesita cinturón: `ON CONFLICT DO NOTHING`
+
+M1 resuelve el caso conocido. Pero `DISTINCT ON` deduplica por la clave que uno **elige**, y basta
+una vía futura que produzca un choque no contemplado para volver a abortar un lote de 400 cobros.
+Añadir `ON CONFLICT DO NOTHING` al `INSERT` convierte ese fallo en «se salta esa fila».
+
+No falsea el contador: el `RETURNING 1` que alimenta `count(*) FROM ins` no devuelve las filas que
+chocan, así que `generados` sigue siendo el número de cobros realmente creados.
+
+### 11.4 Impacto medido (2026-08-01)
+
+Atletas con 2+ inscripciones activas:
+
+| Escuela | Atletas | Filas activas | `auto_generate_payments` |
+|---|---|---|---|
+| DYNASTY VOLLEY CLUB | 75 | 154 | `false` |
+| SOLO MILLOS LOKA | 7 | 14 | **`true`** ⚠️ |
+| MMA BLAIR TEAM | 3 | 6 | `false` |
+| ACADEMIA SUPERIOR BOGOTA | 2 | 4 | `false` |
+| GYM RM | 2 | 4 | `false` |
+
+**SOLO MILLOS es la única expuesta al fallo silencioso** del cron (§11.1). Las demás solo fallan
+si alguien pulsa el botón.
+
+**Agosto de Dynasty ya está generado y sano** — no hay presión de calendario:
+
+| Estado | Cobros | Menores | Monto |
+|---|---|---|---|
+| `pending` | 345 | 345 | $52.820.000 |
+| `paid` | 26 | 26 | $4.040.000 |
+| `cancelled` | 137 | 131 | $21.560.000 |
+
+345 pendientes para 345 menores es **1:1 — cero duplicados vivos**: el índice único está haciendo
+su trabajo. Los 137 `cancelled` son residuo de las limpiezas de julio; no afectan la facturación
+pero inflan cualquier reporte que sume sin filtrar por estado.
+
+### 11.5 Corrección al orden de ejecución de §7
+
+Con el reloj apagado (agosto generado), conviene **cerrar los productores antes de limpiar**:
+
+1. **B1** — el guard de vía A. Mientras esté abierto, las filas que se mergeen se vuelven a acumular.
+2. **B2** — `students.ts:829`, que sigue fabricando huérfanas.
+3. **M1 + `ON CONFLICT DO NOTHING`** — `open_month` a prueba de deriva.
+4. Recién entonces **M3** (merge), las huérfanas y **M2** (el `CHECK`, con `NOT VALID`).
+
+Limpiar primero, con los tres productores abiertos, es trapear con la llave abierta. El único
+matiz: si SOLO MILLOS importara como negocio, su cron le está costando un mes sin facturar hoy —
+pero es escuela de pruebas, así que no altera el orden.
+
+### 11.6 Lo que `DISTINCT ON` decide por nosotros
+
+Para los 75 atletas de Dynasty con dos inscripciones, M1 genera **un** cobro y elige el del plan.
+Si alguno debiera pagar por dos conceptos (dos categorías), queda **sub-facturado** y el código no
+puede saberlo. Esa es exactamente la deuda que salda M3, y el motivo por el que M3 no es opcional
+aunque M1 haga que el mes abra sin errores.
