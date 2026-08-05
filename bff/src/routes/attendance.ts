@@ -1103,6 +1103,278 @@ router.get('/rate/:teamId', requireAuth, requireRole('owner', 'super_admin', 'ad
   }
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /history?month=YYYY-MM[&teamId=&offeringId=]
+//
+// Histórico de asistencia de la escuela para un mes. Devuelve las tres vistas
+// que necesita el panel en una sola llamada: consolidado por atleta, consolidado
+// por día, y la matriz atleta × día. Solo lectura: no toca créditos ni sesiones.
+//
+// El rol coach queda fuera a propósito: esto es el mes completo de TODA la
+// escuela, no de sus equipos.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type HistoryRecord = {
+  attendance_date: string;
+  status: string;
+  child_id: string | null;
+  user_id: string | null;
+  unregistered_athlete_id: string | null;
+  team_id: string | null;
+  session_id: string | null;
+};
+
+/** El cliente de Supabase corta en 1000 filas: un mes de una escuela grande son más. */
+async function fetchAllAttendanceRecords(
+  schoolId: string, from: string, to: string,
+): Promise<HistoryRecord[]> {
+  const PAGE = 1000;
+  const out: HistoryRecord[] = [];
+
+  for (let page = 0; ; page++) {
+    const { data, error } = await supabase
+      .from('attendance_records')
+      .select('attendance_date, status, child_id, user_id, unregistered_athlete_id, team_id, session_id')
+      .eq('school_id', schoolId)
+      .gte('attendance_date', from)
+      .lte('attendance_date', to)
+      // `id` como desempate: sin orden único, dos páginas pueden repetir o
+      // saltarse filas del mismo día y el consolidado sale mal.
+      .order('attendance_date', { ascending: true })
+      .order('id', { ascending: true })
+      .range(page * PAGE, page * PAGE + PAGE - 1);
+
+    if (error) throw error;
+    out.push(...((data || []) as HistoryRecord[]));
+    if (!data || data.length < PAGE) return out;
+  }
+}
+
+/** id → full_name, en lotes, para no armar un `in()` de miles de ids. */
+async function fetchNames(table: string, ids: string[]): Promise<Record<string, string>> {
+  const map: Record<string, string> = {};
+  const CHUNK = 300;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const { data, error } = await supabase
+      .from(table).select('id, full_name').in('id', ids.slice(i, i + CHUNK));
+    if (error) throw error;
+    for (const row of data || []) map[(row as any).id] = (row as any).full_name;
+  }
+  return map;
+}
+
+// El % de asistencia cuenta `present` + `late` como asistió, igual que /rate y
+// el reporte del coach, para que los tres números coincidan entre pantallas.
+
+/** Un atleta puede tener dos registros el mismo día (equipo + instalación). */
+const STATUS_RANK: Record<string, number> = { present: 4, late: 3, excused: 2, absent: 1 };
+
+/**
+ * El enum `attend_status` trae 'justified' además de 'excused', y la UI solo
+ * ofrece los cuatro estados de siempre. Sin normalizar, las columnas no suman
+ * el total y la falta justificada vieja desaparece del informe.
+ */
+type NormalStatus = 'present' | 'absent' | 'late' | 'excused';
+const normalizeStatus = (s: string): NormalStatus =>
+  s === 'present' ? 'present'
+    : s === 'late' ? 'late'
+      : s === 'excused' || s === 'justified' ? 'excused'
+        : 'absent';
+
+router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin', 'school_admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { schoolId } = req;
+      if (!schoolId) return res.status(400).json({ error: 'Falta el contexto de escuela.' });
+
+      const monthParam = (req.query.month as string) ?? '';
+      const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(monthParam)
+        ? monthParam
+        : todayString().slice(0, 7);
+
+      const [year, mon] = month.split('-').map(Number);
+      const lastDay = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+      const from = `${month}-01`;
+      const to = `${month}-${String(lastDay).padStart(2, '0')}`;
+
+      const teamFilter = (req.query.teamId as string) || null;
+      const offeringFilter = (req.query.offeringId as string) || null;
+
+      let records = await fetchAllAttendanceRecords(schoolId, from, to);
+
+      // ── Contexto de cada registro ────────────────────────────────────────
+      // team_id viene directo en el registro; las asistencias de planes e
+      // instalaciones solo se pueden ubicar a través de su sesión.
+      const sessionIds = [...new Set(records.map(r => r.session_id).filter(Boolean))] as string[];
+      const sessionCtx: Record<string, { team_id: string | null; offering_id: string | null; facility_id: string | null }> = {};
+
+      if (sessionIds.length) {
+        const CHUNK = 300;
+        for (let i = 0; i < sessionIds.length; i += CHUNK) {
+          const { data, error } = await supabase
+            .from('attendance_sessions')
+            .select('id, team_id, offering_id, facility_id')
+            .in('id', sessionIds.slice(i, i + CHUNK));
+          if (error) throw error;
+          for (const s of data || []) {
+            sessionCtx[(s as any).id] = {
+              team_id: (s as any).team_id ?? null,
+              offering_id: (s as any).offering_id ?? null,
+              facility_id: (s as any).facility_id ?? null,
+            };
+          }
+        }
+      }
+
+      const ctxOf = (r: HistoryRecord) => {
+        const s = r.session_id ? sessionCtx[r.session_id] : undefined;
+        return {
+          teamId: r.team_id ?? s?.team_id ?? null,
+          offeringId: s?.offering_id ?? null,
+          facilityId: s?.facility_id ?? null,
+        };
+      };
+
+      if (teamFilter) records = records.filter(r => ctxOf(r).teamId === teamFilter);
+      if (offeringFilter) records = records.filter(r => ctxOf(r).offeringId === offeringFilter);
+
+      // ── Nombres (atletas y contextos) ────────────────────────────────────
+      const childIds = [...new Set(records.map(r => r.child_id).filter(Boolean))] as string[];
+      const userIds = [...new Set(records.map(r => r.user_id).filter(Boolean))] as string[];
+      const unregIds = [...new Set(records.map(r => r.unregistered_athlete_id).filter(Boolean))] as string[];
+
+      const teamIds = [...new Set(records.map(r => ctxOf(r).teamId).filter(Boolean))] as string[];
+      const offeringIds = [...new Set(records.map(r => ctxOf(r).offeringId).filter(Boolean))] as string[];
+      const facilityIds = [...new Set(records.map(r => ctxOf(r).facilityId).filter(Boolean))] as string[];
+
+      const [childNames, userNames, unregNames, teamNames, offeringNames, facilityNames] = await Promise.all([
+        childIds.length ? fetchNames('children', childIds) : Promise.resolve({} as Record<string, string>),
+        userIds.length ? fetchNames('profiles', userIds) : Promise.resolve({} as Record<string, string>),
+        unregIds.length ? fetchNames('unregistered_athletes', unregIds) : Promise.resolve({} as Record<string, string>),
+        teamIds.length
+          ? supabase.from('teams').select('id, name').in('id', teamIds)
+              .then(({ data }) => Object.fromEntries((data || []).map((t: any) => [t.id, t.name])))
+          : Promise.resolve({} as Record<string, string>),
+        offeringIds.length
+          ? supabase.from('offerings').select('id, name').in('id', offeringIds)
+              .then(({ data }) => Object.fromEntries((data || []).map((o: any) => [o.id, o.name])))
+          : Promise.resolve({} as Record<string, string>),
+        facilityIds.length
+          ? supabase.from('facilities').select('id, name').in('id', facilityIds)
+              .then(({ data }) => Object.fromEntries((data || []).map((f: any) => [f.id, f.name])))
+          : Promise.resolve({} as Record<string, string>),
+      ]);
+
+      // ── Agregación ───────────────────────────────────────────────────────
+      type AthleteRow = {
+        id: string; athlete_type: 'child' | 'adult' | 'unregistered'; full_name: string;
+        contexts: string[]; present: number; absent: number; late: number; excused: number;
+        total: number; rate: number; by_day: Record<string, string>;
+      };
+
+      const athletes = new Map<string, AthleteRow & { _ctx: Set<string> }>();
+      const days = new Map<string, {
+        date: string; present: number; absent: number; late: number; excused: number;
+        total: number; athletes: number; rate: number; _athletes: Set<string>;
+      }>();
+
+      for (const r of records) {
+        const id = r.child_id ?? r.user_id ?? r.unregistered_athlete_id;
+        if (!id) continue;
+
+        const athleteType = r.child_id ? 'child' : r.user_id ? 'adult' : 'unregistered';
+        const fullName = (r.child_id ? childNames[r.child_id]
+          : r.user_id ? userNames[r.user_id]
+          : unregNames[r.unregistered_athlete_id as string]) ?? 'Sin nombre';
+
+        const ctx = ctxOf(r);
+        const ctxLabel = (ctx.teamId && teamNames[ctx.teamId])
+          || (ctx.offeringId && offeringNames[ctx.offeringId])
+          || (ctx.facilityId && facilityNames[ctx.facilityId])
+          || null;
+
+        let row = athletes.get(id);
+        if (!row) {
+          row = {
+            id, athlete_type: athleteType, full_name: fullName, contexts: [],
+            present: 0, absent: 0, late: 0, excused: 0, total: 0, rate: 0,
+            by_day: {}, _ctx: new Set<string>(),
+          };
+          athletes.set(id, row);
+        }
+        if (ctxLabel) row._ctx.add(ctxLabel);
+
+        let day = days.get(r.attendance_date);
+        if (!day) {
+          day = {
+            date: r.attendance_date, present: 0, absent: 0, late: 0, excused: 0,
+            total: 0, athletes: 0, rate: 0, _athletes: new Set<string>(),
+          };
+          days.set(r.attendance_date, day);
+        }
+        day._athletes.add(id);
+
+        const status = normalizeStatus(r.status);
+        row[status] += 1;
+        day[status] += 1;
+        row.total += 1;
+        day.total += 1;
+
+        // En la matriz manda el mejor estado del día: quien faltó a un equipo
+        // pero entrenó en la instalación asistió ese día.
+        const prev = row.by_day[r.attendance_date];
+        if (!prev || STATUS_RANK[status] > (STATUS_RANK[prev] ?? 0)) {
+          row.by_day[r.attendance_date] = status;
+        }
+      }
+
+      const athleteRows: AthleteRow[] = [...athletes.values()]
+        .map(({ _ctx, ...row }) => ({
+          ...row,
+          contexts: [..._ctx].sort(),
+          rate: row.total > 0 ? Math.round(((row.present + row.late) / row.total) * 100) : 0,
+        }))
+        .sort((a, b) => a.full_name.localeCompare(b.full_name, 'es'));
+
+      const dayRows = [...days.values()]
+        .map(({ _athletes, ...day }) => ({
+          ...day,
+          athletes: _athletes.size,
+          rate: day.total > 0 ? Math.round(((day.present + day.late) / day.total) * 100) : 0,
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      const totals = athleteRows.reduce(
+        (acc, a) => ({
+          records: acc.records + a.total,
+          present: acc.present + a.present,
+          absent: acc.absent + a.absent,
+          late: acc.late + a.late,
+          excused: acc.excused + a.excused,
+        }),
+        { records: 0, present: 0, absent: 0, late: 0, excused: 0 },
+      );
+
+      return res.json({
+        month, from, to,
+        days: dayRows,
+        athletes: athleteRows,
+        totals: {
+          ...totals,
+          rate: totals.records > 0
+            ? Math.round(((totals.present + totals.late) / totals.records) * 100)
+            : 0,
+          athletes: athleteRows.length,
+          days: dayRows.length,
+        },
+      });
+    } catch (err: any) {
+      req.log?.error({ err: err.message || err }, 'Error obteniendo histórico de asistencia');
+      return res.status(500).json({ error: 'Error interno obteniendo el histórico de asistencia.' });
+    }
+  }
+);
+
 // GET /school-roster?search=nombre — busca cualquier atleta con enrollment activo
 // en la escuela, sin importar el plan/offering. Usado por el walk-in de instalaciones,
 // donde cualquier persona con crédito primario puede aparecer en cualquier bloque.

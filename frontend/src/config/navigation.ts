@@ -33,7 +33,8 @@ import {
   Truck,
   ShieldCheck,
   CreditCard,
-  MonitorSpeaker
+  MonitorSpeaker,
+  History
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 import { SHOW_EXPLORE } from '@/lib/feature-flags';
@@ -273,6 +274,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             icon: BarChart3,
             submenu: [
               { title: 'Supervisión', href: '/attendance-supervision', icon: BarChart3 },
+              { title: 'Histórico', href: '/attendance-history', icon: History },
               { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
             ],
           },
@@ -505,6 +507,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             icon: BarChart3,
             submenu: [
               { title: 'Supervisión', href: '/attendance-supervision', icon: BarChart3 },
+              { title: 'Histórico', href: '/attendance-history', icon: History },
               { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
             ],
           },
