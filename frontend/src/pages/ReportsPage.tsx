@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -103,19 +104,33 @@ async function fetchReportsFromSupabase(
     .sort((a, b) => a[1].sortKey - b[1].sortKey)
     .map(([month, d]) => ({ month, nuevos: d.nuevos, retiros: d.retiros }));
 
-  // 3. Pagos confirmados
-  let payQ = supabase
-    .from('payments')
-    .select('amount, concept')
-    .eq('school_id', schoolId)
-    .eq('status', 'paid');
-  if (branchId) payQ = payQ.eq('branch_id', branchId);
-  const { data: payments } = await payQ;
+  // 3. Pagos confirmados. Paginado: PostgREST corta en 1000 filas en silencio,
+  //    y un total de ingresos incompleto no se distingue de uno correcto.
+  //    `partial` cuenta por lo abonado, no por el total del cobro.
+  const PAGE = 1000;
+  const payments: any[] = [];
+  for (let from = 0; ; from += PAGE) {
+    let payQ = supabase
+      .from('payments')
+      .select('amount, amount_paid, status, concept')
+      .eq('school_id', schoolId)
+      .in('status', ['paid', 'partial'])
+      // Orden fijo, o dos páginas pueden repetir o saltarse filas.
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1);
+    // branch_id NULL = cobro sin sede asignada, no de otra sede: con `.eq()` se
+    // caían 44 de los 89 pagos de agosto de Dynasty y el ingreso salía a la mitad.
+    if (branchId) payQ = payQ.or(`branch_id.is.null,branch_id.eq.${branchId}`);
+    const { data: page, error } = await payQ;
+    if (error) throw error;
+    payments.push(...(page || []));
+    if ((page || []).length < PAGE) break;
+  }
 
   let totalRevenue = 0;
   const revMap = new Map<string, number>();
   (payments || []).forEach((p: any) => {
-    const amt = Number(p.amount) || 0;
+    const amt = Number(p.status === 'partial' ? (p.amount_paid ?? 0) : p.amount) || 0;
     totalRevenue += amt;
     const concept = p.concept?.split('-')[0]?.trim() || 'General';
     revMap.set(concept, (revMap.get(concept) || 0) + amt);
@@ -165,7 +180,7 @@ export default function ReportsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${filename}-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `${filename}-${todayColombia()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -201,7 +216,7 @@ export default function ReportsPage() {
       `Ocupación Global,${summary.occupancyRate}%`,
       `Total Deportistas,${summary.totalStudents}`,
       `Capacidad Total,${summary.totalCapacity}`,
-      `Ingresos Confirmados,${formatCurrency(summary.totalRevenue)}`,
+      `Ingresos Confirmados (acumulado histórico),${formatCurrency(summary.totalRevenue)}`,
       `Crecimiento Neto (mes),${summary.netGrowth}`,
       '',
       '-- OCUPACIÓN POR PROGRAMA --',
@@ -221,7 +236,7 @@ export default function ReportsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `reporte-sportmaps-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `reporte-sportmaps-${todayColombia()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -372,14 +387,17 @@ export default function ReportsPage() {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Ingresos Mensuales</CardTitle>
+                {/* Decía "Ingresos Mensuales / Confirmados este mes", pero el
+                    número nunca se filtró por mes: es el acumulado de todos los
+                    pagos confirmados. El del mes en curso vive en el Dashboard. */}
+                <CardTitle className="text-sm font-medium">Ingresos Confirmados</CardTitle>
                 <DollarSign className="h-4 w-4 text-green-500" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-green-500">
                   {formatCurrency(summary.totalRevenue)}
                 </div>
-                <p className="text-xs text-muted-foreground">Confirmados este mes</p>
+                <p className="text-xs text-muted-foreground">Acumulado histórico</p>
               </CardContent>
             </Card>
 

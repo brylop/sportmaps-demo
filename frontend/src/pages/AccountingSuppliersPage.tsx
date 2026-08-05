@@ -5,6 +5,7 @@ import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { formatCurrency } from '@/lib/utils';
+import { dayToLocalDate } from '@/lib/dateUtils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -200,7 +201,8 @@ export default function AccountingSuppliersPage() {
                                         <TableRow key={b.id}>
                                             <TableCell className="font-medium">{b.suppliers?.name ?? '—'}</TableCell>
                                             <TableCell className="text-sm">{b.invoice_no || '—'}</TableCell>
-                                            <TableCell className="text-sm">{new Date(b.due_date).toLocaleDateString('es-CO')}</TableCell>
+                                            {/* `due_date` es `date`: con `new Date()` se veía un día antes. */}
+                                            <TableCell className="text-sm">{dayToLocalDate(b.due_date).toLocaleDateString('es-CO')}</TableCell>
                                             <TableCell className="text-right">{formatCurrency(Number(b.amount))}</TableCell>
                                             <TableCell className="text-right font-medium">{formatCurrency(saldo)}</TableCell>
                                             <TableCell>
