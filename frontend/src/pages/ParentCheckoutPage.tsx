@@ -67,6 +67,52 @@ export default function ParentCheckoutPage() {
   // botón de enviar quedan fuera de pantalla. Ese regreso es el punto donde se pierde
   // el paso 2: nueve familias de Dynasty subieron y no confirmaron (2026-08-05).
   // Traerlos al aviso en cuanto el archivo queda cargado.
+  /**
+   * Enlaza el comprobante al cobro EN CUANTO se sube, sin esperar la confirmación.
+   *
+   * El flujo del acudiente son dos pasos y el segundo es perdible: si se cae en el
+   * medio, el archivo queda huérfano en storage, `payments` sin tocar, y la escuela
+   * sin ver nada. Peor: la policy de storage autoriza por `payments.receipt_url`, así
+   * que un huérfano NO lo puede leer ni la escuela ni la familia — solo el service
+   * role. Medido en Dynasty el 2026-08-05: 9 familias, y el caso de Paola Reyes
+   * (pagó $90.000 anticipado por Bre-B el 02-ago y el cobro seguía pendiente).
+   *
+   * Con esto el comprobante queda visible en "Validación de Cobros" desde la subida.
+   * El paso de confirmar sigue existiendo y reescribe esto mismo más el OCR completo;
+   * este adelanto es la red por si no llega.
+   *
+   * DOS GUARDAS, y las dos vienen de errores reales:
+   *
+   *   1. Solo con `paymentIdParam`. Sin él no sabemos a qué cobro pertenece y NO se
+   *      adivina: Diana María Pinzón tenía un comprobante de julio (ya pagado) y un
+   *      pendiente de agosto, y un UPDATE que filtraba por "impago" le habría pegado
+   *      el soporte de julio al cobro de agosto.
+   *   2. Solo sobre cobros abiertos. `paid`/`approved`/`glosado`/`cancelled` no se
+   *      tocan. Se incluye `awaiting_approval` a propósito para que una segunda
+   *      subida CORRIJA la anterior (subió la imagen equivocada y la reemplaza).
+   *
+   * OJO — consecuencia contable: al salir de `pending`, el cobro deja de sumar en las
+   * tarjetas de Finanzas (que cuentan pending/overdue) y `apply_late_fees` deja de
+   * correrle la mora. Es el intercambio buscado —la familia ya hizo su parte— y la
+   * plata no se pierde de vista: pasa a la cola de "Por Validar".
+   */
+  const linkReceiptOnUpload = async (url: string) => {
+    if (!paymentIdParam || !url) return;
+    const { error } = await supabase
+      .from('payments')
+      .update({
+        receipt_url: url,
+        status: 'awaiting_approval',
+        updated_at: new Date().toISOString(),
+      } as any)
+      .eq('id', paymentIdParam)
+      .in('status', ['pending', 'overdue', 'awaiting_approval']);
+
+    // No se le grita al acudiente: el botón de confirmar sigue siendo el camino
+    // principal y reescribe todo. Esto es el respaldo.
+    if (error) console.error('[checkout] no se pudo enlazar el comprobante al subirlo:', error.message);
+  };
+
   const pendingSendRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!manualReceiptUrl) return;
@@ -872,7 +918,7 @@ export default function ParentCheckoutPage() {
                                 <li>
                                   Pulsa <strong className="text-foreground">"Enviar comprobante"</strong> al final de la pantalla.
                                   {' '}<span className="text-amber-700 dark:text-amber-500 font-semibold">
-                                    Sin este último paso la escuela no recibe nada.
+                                    Sin este paso tu pago no queda registrado.
                                   </span>
                                 </li>
                               </ol>
@@ -882,7 +928,7 @@ export default function ParentCheckoutPage() {
                               bucket="payment-receipts"
                               path={`manual-payments/${user?.id}`}
                               accept="image/*,application/pdf"
-                              onUploadComplete={(url) => setManualReceiptUrl(url)}
+                              onUploadComplete={(url) => { setManualReceiptUrl(url); void linkReceiptOnUpload(url); }}
                               onValidationResult={(r) => setManualOcrResult(r)}
                               validateReceipt={true}
                               schoolId={resolvedSchoolId || undefined}
@@ -907,18 +953,38 @@ export default function ParentCheckoutPage() {
                         porque "aún no se ha enviado" se lee como un detalle, no como un
                         trabajo a medias. */}
                     {paymentFlow === 'manual' && manualReceiptUrl && (
+                      // El tono depende de si el comprobante YA quedó enlazado al cobro
+                      // (linkReceiptOnUpload, que solo corre con payment_id). Si llegó,
+                      // decir "se pierde si cierras" seria mentirle. Si no hay payment_id
+                      // no se enlazo nada y la advertencia fuerte sigue siendo la verdad.
                       <div
                         ref={pendingSendRef}
                         role="alert"
                         aria-live="polite"
-                        className="mt-4 flex items-start gap-3 text-sm bg-amber-100 border-2 border-amber-400 text-amber-900 rounded-lg p-3 leading-snug scroll-mt-4 dark:bg-amber-950/40 dark:border-amber-600 dark:text-amber-200"
+                        className={`mt-4 flex items-start gap-3 text-sm rounded-lg p-3 leading-snug scroll-mt-4 border-2 ${
+                          paymentIdParam
+                            ? 'bg-emerald-50 border-emerald-400 text-emerald-900 dark:bg-emerald-950/40 dark:border-emerald-600 dark:text-emerald-200'
+                            : 'bg-amber-100 border-amber-400 text-amber-900 dark:bg-amber-950/40 dark:border-amber-600 dark:text-amber-200'
+                        }`}
                       >
-                        <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                        {paymentIdParam
+                          ? <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5" />
+                          : <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />}
                         <span className="min-w-0">
-                          <strong className="block text-base mb-0.5">Falta el último paso</strong>
-                          Tu comprobante se cargó, pero <strong>todavía no llegó a la escuela</strong>.
-                          Si cierras esta pantalla ahora se pierde y tu pago sigue pendiente.
-                          Pulsa el botón de abajo para enviarlo.
+                          {paymentIdParam ? (
+                            <>
+                              <strong className="block text-base mb-0.5">Tu comprobante ya llegó a la escuela</strong>
+                              Queda guardado y la escuela puede verlo. Para terminar de registrar tu pago,
+                              pulsa el botón de abajo.
+                            </>
+                          ) : (
+                            <>
+                              <strong className="block text-base mb-0.5">Falta el último paso</strong>
+                              Tu comprobante se cargó, pero <strong>todavía no llegó a la escuela</strong>.
+                              Si cierras esta pantalla ahora se pierde y tu pago sigue pendiente.
+                              Pulsa el botón de abajo para enviarlo.
+                            </>
+                          )}
                         </span>
                       </div>
                     )}
