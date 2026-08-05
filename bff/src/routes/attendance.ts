@@ -1238,10 +1238,51 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
       if (teamFilter) records = records.filter(r => ctxOf(r).teamId === teamFilter);
       if (offeringFilter) records = records.filter(r => ctxOf(r).offeringId === offeringFilter);
 
+      // ── Identidad precargada ya vinculada a una cuenta ───────────────────
+      // La asistencia se escribe sobre la columna con la que se pasó lista, así
+      // que un atleta que la escuela precargó sigue apareciendo por
+      // `unregistered_athlete_id` aunque después haya creado su cuenta. Mirar
+      // solo la columna rotulaba "Sin cuenta" a gente que sí la tiene (caso real:
+      // DAIMARIS VASQUEZ PEREZ = Dai Vázquez), y si además tiene asistencias bajo
+      // su perfil el mes se le parte en dos filas. `linked_profile_id` manda.
+      const rawUnregIds = [...new Set(records.map(r => r.unregistered_athlete_id).filter(Boolean))] as string[];
+      const unregMeta: Record<string, { full_name: string; linked_profile_id: string | null }> = {};
+
+      if (rawUnregIds.length) {
+        const CHUNK = 300;
+        for (let i = 0; i < rawUnregIds.length; i += CHUNK) {
+          const { data, error } = await supabase
+            .from('unregistered_athletes')
+            .select('id, full_name, linked_profile_id')
+            .in('id', rawUnregIds.slice(i, i + CHUNK));
+          if (error) throw error;
+          for (const u of data || []) {
+            unregMeta[(u as any).id] = {
+              full_name: (u as any).full_name,
+              linked_profile_id: (u as any).linked_profile_id ?? null,
+            };
+          }
+        }
+      }
+
+      /** Identidad con la que se agrupa: la cuenta vinculada gana sobre la precargada. */
+      const athleteIdOf = (r: HistoryRecord): string | null =>
+        r.child_id
+        ?? r.user_id
+        ?? (r.unregistered_athlete_id
+          ? unregMeta[r.unregistered_athlete_id]?.linked_profile_id ?? r.unregistered_athlete_id
+          : null);
+
       // ── Nombres (atletas y contextos) ────────────────────────────────────
       const childIds = [...new Set(records.map(r => r.child_id).filter(Boolean))] as string[];
-      const userIds = [...new Set(records.map(r => r.user_id).filter(Boolean))] as string[];
-      const unregIds = [...new Set(records.map(r => r.unregistered_athlete_id).filter(Boolean))] as string[];
+      const linkedProfileIds = rawUnregIds
+        .map(id => unregMeta[id]?.linked_profile_id)
+        .filter(Boolean) as string[];
+      const userIds = [...new Set([
+        ...records.map(r => r.user_id).filter(Boolean) as string[],
+        ...linkedProfileIds,
+      ])];
+      const unregIds = rawUnregIds;
 
       const teamIds = [...new Set(records.map(r => ctxOf(r).teamId).filter(Boolean))] as string[];
       const offeringIds = [...new Set(records.map(r => ctxOf(r).offeringId).filter(Boolean))] as string[];
@@ -1268,24 +1309,42 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
       // ── Agregación ───────────────────────────────────────────────────────
       type AthleteRow = {
         id: string; athlete_type: 'child' | 'adult' | 'unregistered'; full_name: string;
+        /** Otros nombres de la misma persona (p.ej. como la precargó la escuela). */
+        aliases: string[];
         contexts: string[]; present: number; absent: number; late: number; excused: number;
         total: number; rate: number; by_day: Record<string, string>;
       };
 
-      const athletes = new Map<string, AthleteRow & { _ctx: Set<string> }>();
+      const athletes = new Map<string, AthleteRow & { _ctx: Set<string>; _aliases: Set<string> }>();
       const days = new Map<string, {
         date: string; present: number; absent: number; late: number; excused: number;
         total: number; athletes: number; rate: number; _athletes: Set<string>;
       }>();
 
       for (const r of records) {
-        const id = r.child_id ?? r.user_id ?? r.unregistered_athlete_id;
+        const id = athleteIdOf(r);
         if (!id) continue;
 
-        const athleteType = r.child_id ? 'child' : r.user_id ? 'adult' : 'unregistered';
+        const linked = r.unregistered_athlete_id
+          ? unregMeta[r.unregistered_athlete_id]?.linked_profile_id ?? null
+          : null;
+
+        // "Sin cuenta" solo si de verdad no hay cuenta detrás.
+        const athleteType = r.child_id ? 'child'
+          : r.user_id || linked ? 'adult'
+            : 'unregistered';
+
+        // Con cuenta vinculada manda el nombre del perfil, que es la identidad
+        // que sobrevive; el nombre precargado se guarda como alias para que la
+        // escuela siga encontrándola buscando como ella la escribió.
+        const unregName = r.unregistered_athlete_id
+          ? unregNames[r.unregistered_athlete_id] ?? unregMeta[r.unregistered_athlete_id]?.full_name
+          : undefined;
         const fullName = (r.child_id ? childNames[r.child_id]
           : r.user_id ? userNames[r.user_id]
-          : unregNames[r.unregistered_athlete_id as string]) ?? 'Sin nombre';
+          : linked ? userNames[linked] ?? unregName
+            : unregName) ?? 'Sin nombre';
+        const alias = linked && unregName && unregName !== fullName ? unregName : null;
 
         const ctx = ctxOf(r);
         const ctxLabel = (ctx.teamId && teamNames[ctx.teamId])
@@ -1296,13 +1355,14 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
         let row = athletes.get(id);
         if (!row) {
           row = {
-            id, athlete_type: athleteType, full_name: fullName, contexts: [],
+            id, athlete_type: athleteType, full_name: fullName, aliases: [], contexts: [],
             present: 0, absent: 0, late: 0, excused: 0, total: 0, rate: 0,
-            by_day: {}, _ctx: new Set<string>(),
+            by_day: {}, _ctx: new Set<string>(), _aliases: new Set<string>(),
           };
           athletes.set(id, row);
         }
         if (ctxLabel) row._ctx.add(ctxLabel);
+        if (alias) row._aliases.add(alias);
 
         let day = days.get(r.attendance_date);
         if (!day) {
@@ -1329,9 +1389,10 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
       }
 
       const athleteRows: AthleteRow[] = [...athletes.values()]
-        .map(({ _ctx, ...row }) => ({
+        .map(({ _ctx, _aliases, ...row }) => ({
           ...row,
           contexts: [..._ctx].sort(),
+          aliases: [..._aliases].sort(),
           rate: row.total > 0 ? Math.round(((row.present + row.late) / row.total) * 100) : 0,
         }))
         .sort((a, b) => a.full_name.localeCompare(b.full_name, 'es'));
