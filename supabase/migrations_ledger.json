@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 317,
-  "head": "20260804125913",
+  "count": 319,
+  "head": "20260804202714",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -320,6 +320,8 @@
     {"v":"20260803153549","file":"20260803153549_fecha_de_negocio_en_hora_colombia.sql","sha256":"fab33cd88e98996142d92344068c3d88a60f1fe5f5b1e9252e37ab3f137b661f","added":"2026-08-03","by":"brylop"},
     {"v":"20260803153633","file":"20260803153633_enrollments_active_needs_target.sql","sha256":"2d7fc863ba61e86b295fc440987b748a9c18d0656976801fc1b16685ca0df1b1","added":"2026-08-03","by":"brylop"},
     {"v":"20260804125644","file":"20260804125644_qr_due_date_desde_dia_de_corte.sql","sha256":"2569c755977b2b54d017d23eb293cf24ee7b97450108d879fcb9606778703a07","added":"2026-08-04","by":"brylop"},
-    {"v":"20260804125913","file":"20260804125913_school_athletes_payment_status_oldest_debt.sql","sha256":"539c68ae4c0a9a019a92e2012379c6e2cb336374344866accf64ff90dfeefbc0","added":"2026-08-04","by":"brylop"}
+    {"v":"20260804125913","file":"20260804125913_school_athletes_payment_status_oldest_debt.sql","sha256":"539c68ae4c0a9a019a92e2012379c6e2cb336374344866accf64ff90dfeefbc0","added":"2026-08-04","by":"brylop"},
+    {"v":"20260804161413","file":"20260804161413_merge_split_enrollments_ve_pendientes.sql","sha256":"fa134d0d9874eb7cf25cea5f6d64d3ccef3b1bd9d4860723586d2603288fea4f","added":"2026-08-04","by":"brylop"},
+    {"v":"20260804202714","file":"20260804202714_doc_number_unico_por_escuela.sql","sha256":"8e49ebb5f173cbcee61207a1c18ad42798954d6949f1077fb521ab1ae36e6418","added":"2026-08-05","by":"brylop"}
   ]
 }
