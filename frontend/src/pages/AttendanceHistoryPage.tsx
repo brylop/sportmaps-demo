@@ -223,16 +223,36 @@ export default function AttendanceHistoryPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* El mes es el filtro principal: además de las flechas hay que poder
+              saltar a cualquier mes, y la flecha bloqueada tiene que decir por qué. */}
           <div className="flex items-center gap-1 border rounded-lg p-1 bg-card">
             <Button variant="ghost" size="icon" className="h-8 w-8"
               onClick={() => setMonth(m => shiftMonth(m, -1))} aria-label="Mes anterior">
               <ChevronLeft className="w-4 h-4" />
             </Button>
-            <span className="text-sm font-bold min-w-[140px] text-center">{monthLabel(month)}</span>
-            <Button variant="ghost" size="icon" className="h-8 w-8" disabled={isCurrentMonth}
-              onClick={() => setMonth(m => shiftMonth(m, 1))} aria-label="Mes siguiente">
-              <ChevronRight className="w-4 h-4" />
-            </Button>
+
+            {/* Input nativo y visible: su propio calendario abre el selector de mes.
+                Un overlay invisible sobre un rótulo no sirve — en Chrome el clic
+                sobre el campo no abre el picker, solo el ícono. */}
+            <input
+              type="month"
+              value={month}
+              max={currentMonth()}
+              onChange={e => { if (e.target.value) setMonth(e.target.value); }}
+              aria-label="Elegir mes"
+              title="Elegir mes"
+              className="h-8 w-[150px] bg-transparent text-sm font-bold text-center border-0 outline-none focus-visible:ring-2 focus-visible:ring-ring rounded cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
+            />
+
+            <span title={isCurrentMonth
+              ? `${monthLabel(month)} es el mes en curso: no hay meses siguientes que consultar`
+              : 'Mes siguiente'}>
+              <Button variant="ghost" size="icon" className="h-8 w-8 disabled:opacity-25"
+                disabled={isCurrentMonth}
+                onClick={() => setMonth(m => shiftMonth(m, 1))} aria-label="Mes siguiente">
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </span>
           </div>
 
           {!isCurrentMonth && (
