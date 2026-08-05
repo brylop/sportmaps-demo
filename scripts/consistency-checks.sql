@@ -37,6 +37,67 @@
 --
 -- =============================================================================
 
+-- =============================================================================
+-- DETALLE POR CHEQUEO — descomentar el que interese
+-- =============================================================================
+--
+-- Chequeo 2, con lo que generaría la apertura del mes (misma lógica, sin
+-- persistir). Útil ANTES de correr open_month, que es por ESCUELA y no por
+-- atleta: en la auditoría generó 21 cobros y disparó 15 notificaciones reales
+-- cuando la intención era arreglar UNO.
+--
+--   SELECT public.preview_open_month('<school_id>', 2026, 8);
+--
+-- Chequeo 6, viendo las dos filas en conflicto y de qué generador vino cada una
+-- (el `concept` delata la vía: 'Mensualidad MM/YYYY - NOMBRE' = open_month;
+-- 'Plan X — Mensualidad completa…' = alta; 'Mensualidad Septiembre 2026 - NOMBRE
+-- (ESCUELA)' = QR; 'Mensualidad' pelado = registro manual):
+--
+--   SELECT c.full_name, p.id, p.concept, p.amount, p.status, p.due_date,
+--          p.period_month || '/' || p.period_year AS periodo, p.created_at
+--     FROM public.payments p JOIN public.children c ON c.id = p.child_id
+--    WHERE p.school_id = '<school_id>'
+--      AND p.status IN ('pending','awaiting_approval','paid','partial','overdue','glosado')
+--    ORDER BY c.full_name, p.period_year, p.period_month, p.created_at;
+--
+-- Chequeo 8, decidiendo cuál registro sobrevive: el que carga inscripciones y
+-- cobros. NUNCA fusionar sin mirar esto.
+--
+--   SELECT c.id, c.full_name, c.doc_number, c.date_of_birth, c.created_at::date,
+--          c.is_active, c.parent_id,
+--          (SELECT count(*) FROM public.enrollments e
+--            WHERE e.child_id = c.id AND e.status = 'active') AS insc_activas,
+--          (SELECT COALESCE(sum(p.amount), 0) FROM public.payments p
+--            WHERE p.child_id = c.id
+--              AND p.status IN ('pending','awaiting_approval','overdue','partial','glosado')) AS deuda
+--     FROM public.children c
+--    WHERE c.id IN ('<id_a>', '<id_b>');
+--
+-- =============================================================================
+-- CÓMO SE REPARA (referencia, no ejecutar a ciegas)
+-- =============================================================================
+--
+-- · Mes mal imputado: MOVER el cobro pagado al periodo correcto, no anular y
+--   regenerar. `cancelled` está EXCLUIDO del WHERE de los índices únicos y del
+--   NOT EXISTS de open_month, así que anular DEJA EL PERIODO LIBRE y la próxima
+--   apertura lo vuelve a crear y a notificar. Ocupar el periodo con una fila viva
+--   es lo único que lo protege.
+-- · Un pago que cubre dos meses no se puede representar con un periodo por fila:
+--   hay que partirlo en dos filas. Al copiar, EXCLUIR `qr_id` (duplica
+--   school_join_qr_codes.paid_count), `sportmaps_fee`/`gross_amount` (crea un
+--   egreso fantasma vía fn_school_fee_to_expense), `reference` (índice único
+--   payments_reference_key) y todo el bloque `ocr_*` + `receipt_reference_norm` +
+--   `receipt_image_sha256` (índices únicos de dedup de comprobante).
+-- · Identidades partidas (perfil adulto + unregistered_athletes): mover primero
+--   equipo/cuota/cobros al que sobrevive y SOLO DESPUÉS setear
+--   `linked_profile_id`. La tercera rama de school_athletes filtra
+--   `WHERE linked_profile_id IS NULL`, así que vincular antes lo saca del listado
+--   y se pierde el equipo y el plan.
+
+-- =============================================================================
+-- EL TABLERO (una fila por hallazgo) — esta es la consulta que se corre
+-- =============================================================================
+
 WITH params AS (
     -- ↓↓↓ EDITAR: uuid de la escuela, o NULL para todas ↓↓↓
     SELECT '2d509571-3238-4c04-ac3f-6dfe20539226'::uuid AS school_id,
@@ -293,62 +354,6 @@ SELECT '8c. AVISO: mismo telefono y fecha de nacimiento',
  GROUP BY pn.school_id, pn.telefono, pn.date_of_birth
 HAVING count(*) > 1
 
-ORDER BY 1, 3;
-
-
--- =============================================================================
--- DETALLE POR CHEQUEO — descomentar el que interese
--- =============================================================================
---
--- Chequeo 2, con lo que generaría la apertura del mes (misma lógica, sin
--- persistir). Útil ANTES de correr open_month, que es por ESCUELA y no por
--- atleta: en la auditoría generó 21 cobros y disparó 15 notificaciones reales
--- cuando la intención era arreglar UNO.
---
---   SELECT public.preview_open_month('<school_id>', 2026, 8);
---
--- Chequeo 6, viendo las dos filas en conflicto y de qué generador vino cada una
--- (el `concept` delata la vía: 'Mensualidad MM/YYYY - NOMBRE' = open_month;
--- 'Plan X — Mensualidad completa…' = alta; 'Mensualidad Septiembre 2026 - NOMBRE
--- (ESCUELA)' = QR; 'Mensualidad' pelado = registro manual):
---
---   SELECT c.full_name, p.id, p.concept, p.amount, p.status, p.due_date,
---          p.period_month || '/' || p.period_year AS periodo, p.created_at
---     FROM public.payments p JOIN public.children c ON c.id = p.child_id
---    WHERE p.school_id = '<school_id>'
---      AND p.status IN ('pending','awaiting_approval','paid','partial','overdue','glosado')
---    ORDER BY c.full_name, p.period_year, p.period_month, p.created_at;
---
--- Chequeo 8, decidiendo cuál registro sobrevive: el que carga inscripciones y
--- cobros. NUNCA fusionar sin mirar esto.
---
---   SELECT c.id, c.full_name, c.doc_number, c.date_of_birth, c.created_at::date,
---          c.is_active, c.parent_id,
---          (SELECT count(*) FROM public.enrollments e
---            WHERE e.child_id = c.id AND e.status = 'active') AS insc_activas,
---          (SELECT COALESCE(sum(p.amount), 0) FROM public.payments p
---            WHERE p.child_id = c.id
---              AND p.status IN ('pending','awaiting_approval','overdue','partial','glosado')) AS deuda
---     FROM public.children c
---    WHERE c.id IN ('<id_a>', '<id_b>');
---
--- =============================================================================
--- CÓMO SE REPARA (referencia, no ejecutar a ciegas)
--- =============================================================================
---
--- · Mes mal imputado: MOVER el cobro pagado al periodo correcto, no anular y
---   regenerar. `cancelled` está EXCLUIDO del WHERE de los índices únicos y del
---   NOT EXISTS de open_month, así que anular DEJA EL PERIODO LIBRE y la próxima
---   apertura lo vuelve a crear y a notificar. Ocupar el periodo con una fila viva
---   es lo único que lo protege.
--- · Un pago que cubre dos meses no se puede representar con un periodo por fila:
---   hay que partirlo en dos filas. Al copiar, EXCLUIR `qr_id` (duplica
---   school_join_qr_codes.paid_count), `sportmaps_fee`/`gross_amount` (crea un
---   egreso fantasma vía fn_school_fee_to_expense), `reference` (índice único
---   payments_reference_key) y todo el bloque `ocr_*` + `receipt_reference_norm` +
---   `receipt_image_sha256` (índices únicos de dedup de comprobante).
--- · Identidades partidas (perfil adulto + unregistered_athletes): mover primero
---   equipo/cuota/cobros al que sobrevive y SOLO DESPUÉS setear
---   `linked_profile_id`. La tercera rama de school_athletes filtra
---   `WHERE linked_profile_id IS NULL`, así que vincular antes lo saca del listado
---   y se pierde el equipo y el plan.
+ORDER BY 1, 3
+-- (sin punto y coma final: el editor de Supabase envuelve la consulta para
+--  aplicar su LIMIT 100 y un ';' interno rompe ese wrapper)
