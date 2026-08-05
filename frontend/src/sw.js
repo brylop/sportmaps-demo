@@ -2,9 +2,26 @@
 // Lo asignamos a self para evitar que el minificador (esbuild) lo borre
 self.__precacheManifest = [].concat(self.__WB_MANIFEST || []);
 
-// IMPORTANTE: subir esta versión purga caches viejos (incluido el shell HTML
-// y assets envenenados con text/html) en el evento 'activate'.
-const CACHE_NAME = 'sportmaps-v3'
+// La versión de cache se DERIVA del manifiesto del build, no se escribe a mano.
+//
+// Antes era la constante 'sportmaps-v3' y el filtro de 'activate'
+// (`k !== CACHE_NAME`) por lo tanto nunca borraba la cache de la app: el nombre
+// era el mismo entre deploys. Los chunks de todos los builds se acumulaban sin
+// techo, y offline se podían servir piezas de versiones distintas mezcladas.
+// Purgar dependía de que alguien se acordara de subir el número a mano.
+//
+// `__WB_MANIFEST` cambia en cada build (trae url + revision de cada archivo),
+// así que el hash cambia con el deploy y 'activate' sí encuentra caches viejas
+// que borrar. Hash barato y síncrono a propósito: corre en el arranque del SW.
+const BUILD_ID = (() => {
+  let h = 0;
+  for (const entry of self.__precacheManifest) {
+    const s = typeof entry === 'string' ? entry : `${entry.url}|${entry.revision ?? ''}`;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  }
+  return (h >>> 0).toString(36);
+})();
+const CACHE_NAME = `sportmaps-${BUILD_ID}`
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -22,7 +39,11 @@ self.addEventListener('install', (event) => {
   )
 })
 
-// Activación — limpiar caches viejos
+// Activación — limpiar caches viejos.
+// Con CACHE_NAME derivado del build este filtro por fin hace algo: borra la cache
+// del deploy anterior. Se mantiene a propósito el barrido de TODO lo que no sea la
+// cache actual —incluida 'supabase-api'— porque es el comportamiento que ya tenía
+// y porque datos de API cacheados antes de un deploy pueden haber quedado obsoletos.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then(keys =>
