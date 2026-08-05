@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
+import { todayColombia } from '@/lib/dateUtils';
 
 export interface DashboardStats {
   // School stats
@@ -65,9 +66,10 @@ export function useDashboardStatsReal() {
       setLoading(true);
 
       if (profile?.role === 'school' || (profile?.role as any) === 'school_admin' || profile?.role === 'admin' || (profile?.role as any) === 'super_admin' || profile?.role === 'coach') {
-        const startOfMonth = new Date();
-        startOfMonth.setDate(1);
-        startOfMonth.setHours(0, 0, 0, 0);
+        // Primer día del mes en curso, hora Colombia. `new Date()` local sirve en
+        // un navegador colombiano, pero el mes se compara contra `payment_date`,
+        // que es una columna `date`: se arma como string para no meter husos.
+        const startOfMonth = `${todayColombia().slice(0, 7)}-01`;
 
         // Revenue query with branch filter - only if schoolId exists
         let monthlyRevenue = 0;
@@ -76,19 +78,31 @@ export function useDashboardStatsReal() {
         let plansCount = 0;
 
         if (schoolId) {
+          // "Ingresos del Mes" = plata que ENTRÓ este mes, así que el eje es
+          // `payment_date` (cuándo se pagó), no `created_at` (cuándo se emitió
+          // el cobro). Con `created_at` agosto de Dynasty mostraba $6.660.000 en
+          // vez de $13.900.000: se caían los 48 pagos de agosto sobre cobros
+          // generados en julio, que es el caso NORMAL de una mensualidad.
+          // `partial` cuenta por lo abonado, no por el total del cobro.
           let revenueQuery = supabase
             .from('payments')
-            .select('amount')
+            .select('amount, amount_paid, status')
             .eq('school_id', schoolId)
-            .eq('status', 'paid')
-            .gte('created_at', startOfMonth.toISOString());
+            .in('status', ['paid', 'partial'])
+            .gte('payment_date', startOfMonth);
 
+          // Un pago sin sede asignada no es "de otra sede": con `.eq()` se caían
+          // 44 de los 89 pagos de agosto al seleccionar sede. Mismo criterio que
+          // Finanzas y Gestión de Pagos.
           if (activeBranchId) {
-            revenueQuery = revenueQuery.eq('branch_id', activeBranchId);
+            revenueQuery = revenueQuery.or(`branch_id.is.null,branch_id.eq.${activeBranchId}`);
           }
 
           const { data: revenueData } = await (revenueQuery as any);
-          monthlyRevenue = revenueData?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+          monthlyRevenue = revenueData?.reduce(
+            (sum: number, p: any) => sum + Number(p.status === 'partial' ? (p.amount_paid ?? 0) : p.amount),
+            0,
+          ) || 0;
 
           // Pending payments query with branch filter
           let pendingQuery = supabase
