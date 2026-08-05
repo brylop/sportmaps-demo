@@ -32,10 +32,12 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { Users, Plus, Mail, Building, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { Users, Plus, Mail, Building, Loader2, AlertCircle, CheckCircle, Stethoscope } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { StatFilterBar } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
+import { useAuth } from '@/contexts/AuthContext';
+import UserStateDialog from '@/components/admin/UserStateDialog';
 
 interface SchoolMember {
     id: string;
@@ -88,6 +90,12 @@ const roleGroups = [
 
 export default function AdminUsersPage() {
     const { schoolId } = useSchoolContext();
+    const { profile } = useAuth();
+    // El endpoint de diagnóstico es exclusivo de super_admin (expone datos de
+    // auth de terceros). Esta página también la abren 'admin' y 'school', así
+    // que la columna no se muestra para ellos: el BFF igual los rechazaría.
+    const canDiagnose = profile?.role === 'super_admin';
+    const [diagEmail, setDiagEmail] = useState<string | null>(null);
     const [members, setMembers] = useState<SchoolMember[]>([]);
     const [branches, setBranches] = useState<Branch[]>([]);
     const [loading, setLoading] = useState(true);
@@ -245,6 +253,16 @@ export default function AdminUsersPage() {
                         Administra todos los miembros de tu escuela
                     </p>
                 </div>
+                <div className="flex gap-2">
+                {/* La tabla solo lista miembros de ESTA escuela; el caso de soporte
+                    típico llega por correo y puede no estar en ella. Por eso el
+                    diagnóstico también se abre en blanco desde el encabezado. */}
+                {canDiagnose && (
+                    <Button variant="outline" className="gap-2" onClick={() => setDiagEmail('')}>
+                        <Stethoscope className="h-4 w-4" />
+                        Diagnosticar cuenta
+                    </Button>
+                )}
                 <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                     <DialogTrigger asChild>
                         <Button className="gap-2">
@@ -338,7 +356,16 @@ export default function AdminUsersPage() {
                         </div>
                     </DialogContent>
                 </Dialog>
+                </div>
             </div>
+
+            {canDiagnose && (
+                <UserStateDialog
+                    open={diagEmail !== null}
+                    onOpenChange={(o) => { if (!o) setDiagEmail(null); }}
+                    initialEmail={diagEmail ?? undefined}
+                />
+            )}
 
             {/* Stats cards — filtran la tabla por rol al hacer clic */}
             <StatFilterBar
@@ -406,6 +433,7 @@ export default function AdminUsersPage() {
                                     <TableHead>Rol</TableHead>
                                     <TableHead>Sede</TableHead>
                                     <TableHead>Estado</TableHead>
+                                    {canDiagnose && <TableHead className="w-12" />}
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -439,6 +467,19 @@ export default function AdminUsersPage() {
                                                 </span>
                                             )}
                                         </TableCell>
+                                        {canDiagnose && (
+                                            <TableCell>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    title="Diagnosticar cuenta"
+                                                    disabled={!m.email}
+                                                    onClick={() => setDiagEmail(m.email!)}
+                                                >
+                                                    <Stethoscope className="h-4 w-4" />
+                                                </Button>
+                                            </TableCell>
+                                        )}
                                     </TableRow>
                                 ))}
                             </TableBody>
