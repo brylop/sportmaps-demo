@@ -358,6 +358,29 @@ SELECT '8c. AVISO: mismo telefono y fecha de nacimiento',
  GROUP BY pn.school_id, pn.telefono, pn.date_of_birth
 HAVING count(*) > 1
 
+UNION ALL
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 9. Cobro huerfano de un menor QUE YA TIENE cuenta vinculada
+--    Guard de regresion del trigger trg_backfill_payment_payer_on_link
+--    (mig 20260804204905). DEBE DAR CERO: si aparece, el trigger no se disparo y
+--    esa familia tiene cuenta pero recibe 403 al intentar pagar.
+--
+--    Distinto del chequeo 5: ese cuenta a TODOS los cobros sin pagador, incluidos
+--    los de familias que nunca aceptaron la invitacion (201 en Dynasty, y eso es
+--    onboarding, no un bug). Este cuenta solo los que YA se podrian cobrar.
+-- ─────────────────────────────────────────────────────────────────────────────
+SELECT '9. cobro huerfano con acudiente YA vinculado (REGRESION del trigger)',
+       'alta',
+       c.full_name,
+       pay.concept || ' · $' || pay.amount || ' · el acudiente tiene cuenta pero'
+         || ' el cobro no lo tiene como pagador',
+       pay.id
+  FROM pay
+  JOIN public.children c ON c.id = pay.child_id
+ WHERE pay.parent_id IS NULL
+   AND c.parent_id IS NOT NULL
+   AND pay.status IN ('pending','awaiting_approval','overdue','partial','glosado')
+
 ORDER BY 1, 3
 -- (sin punto y coma final: el editor de Supabase envuelve la consulta para
 --  aplicar su LIMIT 100 y un ';' interno rompe ese wrapper)
