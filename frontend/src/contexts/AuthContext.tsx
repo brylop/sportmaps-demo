@@ -239,7 +239,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Supabase inicia sesión automáticamente con el token del email,
           // lo que haría que el ProtectedRoute deje pasar al usuario al Dashboard.
           // En vez de eso, lo redirigimos al formulario de cambio de contraseña.
-          window.location.href = '/reset-password';
+          //
+          // Si YA estamos en /reset-password no navegamos: el enlace nuevo
+          // (`?token_hash=…`) canjea el token con verifyOtp() desde esa misma
+          // página, y una navegación dura aquí borraría el query string y
+          // recargaría el componente a mitad del canje.
+          if (window.location.pathname !== '/reset-password') {
+            window.location.href = '/reset-password';
+          }
           return;
         }
 

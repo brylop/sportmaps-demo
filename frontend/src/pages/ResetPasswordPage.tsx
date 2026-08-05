@@ -20,10 +20,40 @@ export default function ResetPasswordPage() {
     const { toast } = useToast();
     const navigate = useNavigate();
 
-    // Verificar que el usuario llegó desde un enlace válido de recuperación
+    // Verificar que el usuario llegó desde un enlace válido de recuperación.
+    //
+    // Soportamos DOS formas de llegar:
+    //   1. `?token_hash=…&type=recovery` — el enlace vive en NUESTRO dominio y
+    //      canjeamos el token por XHR con verifyOtp(). Es la forma preferida:
+    //      el usuario nunca ve `<ref>.supabase.co`, que además de verse mal
+    //      hace que la gente desconfíe y no haga clic.
+    //   2. Sesión ya creada / evento PASSWORD_RECOVERY — es lo que deja el
+    //      enlace clásico `/auth/v1/verify`. Se mantiene por los correos
+    //      viejos que ya están en bandejas de entrada.
     useEffect(() => {
+        let mounted = true;
+
+        const redeemTokenHash = async (tokenHash: string) => {
+            const { error } = await supabase.auth.verifyOtp({
+                token_hash: tokenHash,
+                type: 'recovery',
+            });
+            if (!mounted) return;
+            if (error) {
+                console.error('verifyOtp falló:', error);
+                setIsValidSession(false);
+            } else {
+                setIsValidSession(true);
+                // Sacar el token de la barra de direcciones: ya se consumió y
+                // no queremos que quede en el historial ni en el Referer.
+                window.history.replaceState({}, '', '/reset-password');
+            }
+            setCheckingSession(false);
+        };
+
         const checkSession = async () => {
             const { data: { session } } = await supabase.auth.getSession();
+            if (!mounted) return;
             if (session) {
                 setIsValidSession(true);
             }
@@ -38,8 +68,17 @@ export default function ResetPasswordPage() {
             }
         });
 
-        checkSession();
-        return () => subscription.unsubscribe();
+        const tokenHash = new URLSearchParams(window.location.search).get('token_hash');
+        if (tokenHash) {
+            redeemTokenHash(tokenHash);
+        } else {
+            checkSession();
+        }
+
+        return () => {
+            mounted = false;
+            subscription.unsubscribe();
+        };
     }, []);
 
     const handleResetPassword = async (e: React.FormEvent) => {
