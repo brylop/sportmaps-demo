@@ -458,6 +458,34 @@ SELECT '13. correo de invitacion invalido',
 
 UNION ALL
 -- ─────────────────────────────────────────────────────────────────────────────
+-- 13b. Dominio de correo que es un typo de uno conocido
+--      El chequeo 13 solo exige un punto despues de la arroba, y por ahi se cuela
+--      'dayrodriguez30@hormail.com': tiene punto, pero el dominio no existe y el
+--      correo nunca llega. La lista sale de mirar la distribucion real de dominios
+--      de la plataforma — los de 1 solo uso al lado de uno con cientos.
+--
+--      `%.edu.com` va aparte: en Colombia es casi siempre `.edu.co` mal escrito
+--      (aparecieron 'uan.edu.com' y 'fucsalud.edu.com' junto a los .edu.co reales).
+-- ─────────────────────────────────────────────────────────────────────────────
+SELECT '13b. dominio de correo con typo',
+       'alta',
+       COALESCE(i.child_name, i.email),
+       'dominio sospechoso: ' || i.email,
+       i.id
+  FROM public.invitations i
+  CROSS JOIN params
+ WHERE (i.school_id = params.school_id OR params.school_id IS NULL)
+   AND i.status = 'pending'
+   AND (
+        lower(split_part(i.email, '@', 2)) IN (
+          'hormail.com','hotmial.com','homail.com','hotmail.co','hotmai.com',
+          'gmai.com','gmial.com','gnail.com','gmail.co',
+          'yaho.com','yahoo.co','outlok.com','outllook.com','hotmail.es.com')
+        OR lower(split_part(i.email, '@', 2)) LIKE '%.edu.com'
+       )
+
+UNION ALL
+-- ─────────────────────────────────────────────────────────────────────────────
 -- 14. AVISO: invitacion pending con el enlace ya vencido
 --     NO es un bloqueo: `accept_invitation_pro` solo exige `status = 'pending'` y
 --     nunca mira `expires_at` (mig 20260730231131), asi que el enlace vencido se
