@@ -160,12 +160,20 @@ export default function ReporterDashboardPage() {
                 coaches: CoachRow[];
                 sedes: SedeRow[];
                 teams: TeamRow[];
+                revenue_potential?: number;
+                athletes_active?: number;
             }>(`/api/v1/reports/reporter/dashboard?${queryParams.toString()}`);
 
             // Process students for KPIs
             setStudents(res.students);
-            const totalRevenuePotential = res.students.reduce((s, r) => s + r.fee, 0);
-            const active = res.students.filter(r => r.status === 'active').length;
+            // El potencial y el conteo de activos los calcula el BFF sobre TODOS los
+            // atletas del alcance. `students` viene capado a 500 filas: sumar la lista
+            // dejaba ambos KPIs cortos, en silencio, para escuelas con más atletas.
+            // El `??` mantiene el comportamiento viejo si el BFF todavía no desplegó.
+            const totalRevenuePotential = res.revenue_potential
+                ?? res.students.reduce((s, r) => s + r.fee, 0);
+            const active = res.athletes_active
+                ?? res.students.filter(r => r.status === 'active').length;
 
             // Process payments for KPIs
             setPayments(res.payments);
@@ -180,7 +188,7 @@ export default function ReporterDashboardPage() {
 
             // Set all KPIs at once
             setKpis([
-                { label: 'Deportistas Activos', value: active, sub: `${res.students.length} total`, trend: 'up', trendValue: 'Ver listado', color: 'bg-blue-500' },
+                { label: 'Deportistas Activos', value: active, sub: `${res.athletes_active ?? res.students.length} total`, trend: 'up', trendValue: 'Ver listado', color: 'bg-blue-500' },
                 { label: 'Ingreso Potencial Mes', value: currency(totalRevenuePotential), sub: 'Si todos pagan', trend: 'neutral', color: 'bg-green-500' },
                 { label: 'Recaudado', value: currency(collected), sub: `Últimos ${dateRange} días`, trend: 'up', trendValue: `${res.payments.filter(r => r.status === 'paid').length} pagos`, color: 'bg-emerald-500' },
                 { label: 'Por Cobrar', value: currency(pending), sub: 'Pendiente de pago', trend: 'neutral', color: 'bg-yellow-500' },

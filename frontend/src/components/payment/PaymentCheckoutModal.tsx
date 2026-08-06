@@ -96,6 +96,8 @@ export function PaymentCheckoutModal({
   const { user } = useAuth();
   const [hasCompleteDianData, setHasCompleteDianData] = useState<boolean>(true);
   const [checkingDian, setCheckingDian] = useState<boolean>(true);
+  /** Respaldo para rotular la notificación al colegio cuando paga un atleta adulto. */
+  const [payerName, setPayerName] = useState<string | null>(null);
   const [bankDetails, setBankDetails] = useState<any>(null);
   const [showFullQr, setShowFullQr] = useState(false);
 
@@ -329,8 +331,9 @@ export function PaymentCheckoutModal({
       const checkProfile = async () => {
         setCheckingDian(true);
         const { data } = await supabase.from('profiles')
-          .select('document_type, document_number, billing_address, billing_city_dane')
+          .select('full_name, document_type, document_number, billing_address, billing_city_dane')
           .eq('id', user.id).single();
+        setPayerName(data?.full_name ?? null);
         setHasCompleteDianData(!!(data?.document_type && data?.document_number && data?.billing_address && data?.billing_city_dane));
         setCheckingDian(false);
       };
@@ -671,7 +674,13 @@ export function PaymentCheckoutModal({
               const ownerId = schoolRow?.owner_id;
               if (!ownerId) return;
               const periodLabel = effectivePeriod?.label;
-              const studentLabel = childName ?? 'un deportista';
+              // El colegio necesita saber DE QUIÉN es el comprobante para poder
+              // buscarlo. 'Deportista' es el relleno que traen las listas del padre
+              // cuando el cobro no cuelga de un menor (atleta adulto que se paga
+              // solo): ahí el nombre útil es el del pagador.
+              const studentLabel =
+                (childName && childName !== 'Deportista') ? childName
+                  : payerName ?? 'un deportista';
               await supabase.rpc('notify_user', {
                 p_user_id: ownerId,
                 p_title: periodLabel
@@ -681,7 +690,11 @@ export function PaymentCheckoutModal({
                   ? `${studentLabel} envió comprobante de ${formatCurrency(chargeAmount)} para ${periodLabel}.`
                   : `${studentLabel} envió un comprobante de ${formatCurrency(chargeAmount)}.`,
                 p_type: 'payment',
-                p_link: '/finances',
+                // Gestión de Pagos, no Finanzas: el comprobante recién subido queda
+                // en `awaiting_approval`, y la tabla de Finanzas filtra ese estado
+                // (USED_STATUSES). El enlace llevaba a una pantalla donde el
+                // comprobante que se pide validar no aparece.
+                p_link: '/payments-automation',
               });
             } catch {
               /* silencio: notificacion no debe interrumpir flujo */
