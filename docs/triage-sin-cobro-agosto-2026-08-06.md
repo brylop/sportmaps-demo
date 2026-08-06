@@ -348,3 +348,45 @@ Por eso el `origen` de este reporte es **inferencia por ráfaga**, y es sólida 
 ---
 
 **Este script no escribió nada.** La emisión de los D es un paso aparte, con confirmación fila por fila.
+
+---
+
+# ACTA DE EMISIÓN — 2026-08-06
+
+Este bloque se agregó **a mano después de emitir**. El resto del documento es la salida del script y se regenera al correrlo; esto no, a propósito: es el registro de qué se ejecutó bajo qué decisión.
+
+Emitido con `scripts/emitir-cobros-agosto-2026-08-06.mjs`, en dos tandas (una fila primero para verificar contra la base, las 12 restantes después). Período **2026-08**, vencimiento **2026-08-10**, estado `pending`, `payment_type = subscription`.
+
+| Atleta | Monto | payment_id |
+|---|---|---|
+| CRISTIAN DAVID CASTILLO TAPIAS | $150.000 | `223e5fc1-7d0f-4a18-bab2-72021fe4971c` |
+| DAYANY ECHAVARRIA VARON | $150.000 | `e54781e3-393c-4422-8c17-634788f5dc49` |
+| JUAN JOSE PEÑA | $210.000 | `19393b70-9128-4e85-aca0-a2d321a170d5` |
+| JUAN SEBASTIAN ROMERO AGUDELO | $150.000 | `c8c2983a-9f6c-4a6e-b6e2-7e080bb36ebf` |
+| Lauren soffia Garcia bohorquez | $90.000 | `30a7d0c8-0942-422e-a08c-d5ca893f39b6` |
+| María Natalia Lemus Díaz | $150.000 | `eda610ea-7283-4cdd-96d5-fcbae3f6529e` |
+| MARIA PAULA ESCOBAR BENITEZ | $210.000 | `519eecc8-de24-4ef1-957c-1fa1e98cf484` |
+| SALOME MONTENEGRO PIEDRAHITA | $90.000 | `ec3bf88b-4822-4274-9967-5bb085c717c6` |
+| Samuel Puentes Barrera | $150.000 | `bc160026-b4b6-4232-ae29-ba3f727b1602` |
+| Sara Camila Bejarano | $90.000 | `ec0ea076-6eb8-417a-ab32-6d7820b66e73` |
+| Sergio Soler Suárez | $150.000 | `dfd92bca-41f7-44c3-acce-213fc4a02fbc` |
+| SHARITH ENCISO BARON | $150.000 | `c3a56899-00e4-461d-90a9-b8546700665e` |
+| Sofia Valentina Barón Chacón | $150.000 | `1a0bbc72-ca7c-4a74-9e8f-6c636501b013` |
+| | **$1.890.000** | **13 cobros** |
+
+## Verificación posterior
+
+- Los 13 quedaron con **exactamente un** cobro vivo de 2026-08 cada uno. Ninguno con dos.
+- Los 13 tienen `parent_id` poblado: el acudiente puede pagar, sin el 403 de pagador nulo.
+- En toda la escuela, **0 niños** con más de un cobro vivo de agosto (sobre 423 cobros).
+- El total emitido coincide al peso con el que había aprobado el bucket D.
+
+La segunda tanda corrió con `--emitir todos`: Cristian, ya emitido en la primera, **salió solo del bucket D** al reevaluarlo el triage, así que no hubo ni riesgo de repetirlo.
+
+## Lo que NO se emitió y sigue abierto
+
+- **Bucket A (7)** — duplicados. Esperan la fusión F3. Cuatro de ellos ya tenían el cobro de agosto anulado por duplicado con aprobación del owner.
+- **Bucket B (2)** — Dilan Yadiel y María Paula Calderón: Dynasty define plan (y confirma si la baja de María Paula es real).
+- **Bucket C (4)** — acudiente roto. Los tres «solo texto» se destraban invitando al acudiente a crear la cuenta; HADE SOFIA necesita un acudiente distinto de sí misma.
+- **SALOME MONTENEGRO** arrastra además **$90.000 de julio en `pending`**. Con el cobro de agosto recién emitido, la familia debe **$180.000**. Conviene que Dynasty se lo comunique junto y no como dos avisos sueltos.
+- **No correr `open_month` sobre Dynasty** hasta que F3 limpie los duplicados: generaría cobros sobre las identidades del bucket A.
