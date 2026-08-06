@@ -451,7 +451,10 @@ export default function ParentCheckoutPage() {
           : `Pago Recibido${periodSuffix}`,
         p_message: traceMsg,
         p_type: 'payment',
-        p_link: '/finances',
+        // El comprobante por validar queda en `awaiting_approval`, estado que la
+        // tabla de Finanzas filtra: hay que mandar a Gestión de Pagos, que es
+        // donde está la cola "Por Validar". El pago en línea sí llega a Finanzas.
+        p_link: paymentFlow === 'manual' ? '/payments-automation' : '/finances',
       });
     }
 

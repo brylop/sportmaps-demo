@@ -38,31 +38,58 @@ export interface DashboardStats {
 }
 
 export function useDashboardStatsReal() {
-  const { profile, user } = useAuth();
+  const { profile, user, loading: authLoading } = useAuth();
   const { schoolId, activeBranchId } = useSchoolContext();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Ref to avoid infinite loops if dependencies change too fast
-  const loadingRef = useRef(false);
+  // Identidad de la carga: cambia solo cuando cambia algo que altera el resultado.
+  // La dependencia del efecto era `profile` (el objeto), así que cada identidad
+  // nueva que emitiera AuthContext redisparaba la tanda completa de consultas
+  // aunque el usuario fuera el mismo.
+  const statsKey = [
+    profile?.id ?? '', profile?.role ?? '', schoolId ?? '', activeBranchId ?? '',
+  ].join('|');
+
+  // Hacen falta las tres: `inFlight` corta la carga duplicada, `loaded` evita
+  // repetir una que ya terminó, y `latest` descarta la que llegó tarde. Bloquear a
+  // secas perdería el resultado cuando cambian de sede en medio de una carga.
+  const inFlightKeyRef = useRef<string | null>(null);
+  const loadedKeyRef = useRef<string | null>(null);
+  const latestKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (schoolId || profile?.role === 'coach' || profile?.role === 'parent') {
-      loadStats();
-    } else {
-      setLoading(false);
-    }
-  }, [profile, schoolId, activeBranchId]);
+    latestKeyRef.current = statsKey;
 
-  const loadStats = async () => {
-    if (!profile || loadingRef.current) {
-      if (!schoolId && profile?.role !== 'coach' && profile?.role !== 'parent') {
-        return;
-      }
+    // Sin perfil no hay stats que pedir. Se distingue "auth todavía resolviendo"
+    // —seguir en loading, que el efecto vuelve cuando llegue el perfil porque
+    // `profile?.id` es parte de la clave— de "no hay perfil", donde hay que cortar
+    // el spinner. Antes seguía de largo con el perfil en null y la rama de acudiente
+    // reventaba leyendo `profile.role`.
+    if (!profile) {
+      if (!authLoading) setLoading(false);
+      return;
     }
+
+    if (!schoolId && profile.role !== 'coach' && profile.role !== 'parent') {
+      setLoading(false);
+      return;
+    }
+
+    // El guard anterior era código muerto para el caso escuela: solo hacía
+    // `return` cuando NO había schoolId, que es justo cuando no se cargaba nada.
+    // Con schoolId presente entraban corridas concurrentes.
+    if (inFlightKeyRef.current === statsKey || loadedKeyRef.current === statsKey) return;
+
+    loadStats(statsKey);
+  }, [statsKey, authLoading]);
+
+  const loadStats = async (key: string) => {
+    /** La carga dejó de ser la vigente: su resultado ya no se escribe. */
+    const isStale = () => latestKeyRef.current !== key;
 
     try {
-      loadingRef.current = true;
+      inFlightKeyRef.current = key;
       setLoading(true);
 
       if (profile?.role === 'school' || (profile?.role as any) === 'school_admin' || profile?.role === 'admin' || (profile?.role as any) === 'super_admin' || profile?.role === 'coach') {
@@ -237,6 +264,7 @@ export function useDashboardStatsReal() {
           }
         }
 
+        if (isStale()) return;
         setStats({
           students_count: studentStats.total,
           active_students: studentStats.active,
@@ -291,6 +319,7 @@ export function useDashboardStatsReal() {
           .eq('user_id', profile.id)
           .eq('read', false);
 
+        if (isStale()) return;
         setStats({
           children: childrenCount || 0,
           children_attendance: `${attendancePercentage}%`,
@@ -298,14 +327,22 @@ export function useDashboardStatsReal() {
           unreadNotifications: unreadNotifications || 0,
         });
       }
+
+      // Solo al terminar bien: si falló, un efecto posterior puede reintentar.
+      loadedKeyRef.current = key;
     } catch (error) {
       console.error('Error loading dashboard stats:', error);
-      setStats(null);
+      if (!isStale()) setStats(null);
     } finally {
-      loadingRef.current = false;
-      setLoading(false);
+      if (inFlightKeyRef.current === key) inFlightKeyRef.current = null;
+      if (!isStale()) setLoading(false);
     }
   };
 
-  return { stats, loading, refresh: loadStats };
+  return {
+    stats,
+    loading,
+    // `refresh` es una recarga pedida a mano: se salta el guard de "ya cargada".
+    refresh: () => { loadedKeyRef.current = null; return loadStats(statsKey); },
+  };
 }
