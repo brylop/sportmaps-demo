@@ -25,7 +25,7 @@ import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { emailClient } from '@/lib/email-client';
 import { ReviewInstallmentModal } from '@/components/payment/ReviewInstallmentModal';
 import { InstallmentsConfigCard } from '@/components/payment/InstallmentsConfigCard';
-import { todayColombia } from '@/lib/dateUtils';
+import { todayColombia, formatDayCO } from '@/lib/dateUtils';
 import { SportMapsPaySettings } from '@/components/settings/SportMapsPaySettings';
 import { RegisterCashPaymentModal } from '@/components/payment/RegisterCashPaymentModal';
 import { ApprovePaymentMethodSheet } from '@/components/payment/ApprovePaymentMethodSheet';
@@ -219,6 +219,9 @@ interface PaymentTransaction {
   amount_paid?: number | null;
   status: string;
   created_at: string;
+  /** Fecha en que se hizo el pago, la declara quien lo reporta. Distinta de
+   *  created_at, que es cuándo se EMITIÓ el cobro. */
+  payment_date?: string | null;
   payment_method: string | null;
   payment_type: string | null;
   receipt_url: string | null;
@@ -448,7 +451,7 @@ export default function PaymentsAutomationPage() {
       let query = supabase
         .from('payments')
         .select(`
-          id, amount, amount_paid, status, created_at, payment_method, payment_type,
+          id, amount, amount_paid, status, created_at, payment_date, payment_method, payment_type,
           receipt_url, concept, child_id, parent_id, user_id, team_id,
           unregistered_athlete_id, early_payment_discount_applied,
           period_year, period_month,
@@ -750,17 +753,40 @@ export default function PaymentsAutomationPage() {
 
   const handleExportCSV = () => {
     if (payments.length === 0) { toast({ title: 'No hay datos', description: 'No hay transacciones para exportar.' }); return; }
-    const headers = ['Fecha', 'Padre', 'Deportista', 'Monto', 'Estado', 'Concepto', 'Tipo'];
+    // Un campo con coma, comilla o salto de línea tiene que ir entrecomillado o
+    // corre las columnas del resto de la fila. No es teórico: hay conceptos como
+    // "Mensualidad 10/2026 - VIOLETA (pago adelantado del 31/07, ref TRF-...)",
+    // y esas filas salían descuadradas del archivo.
+    const csvCell = (v: unknown): string => {
+      const s = v == null ? '' : String(v);
+      return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const headers = ['Fecha de pago', 'Fecha de emisión', 'Acudiente', 'Deportista', 'Monto', 'Estado', 'Concepto', 'Tipo'];
     const rows = payments.map(p => {
       const cfg = STATUS_CONFIG[p.status];
-      return [new Date(p.created_at).toLocaleDateString(), p.parent?.full_name || 'Desconocido', p.child?.full_name || 'Desconocido', p.amount, cfg?.label ?? p.status, p.concept, p.payment_type || 'N/A'];
+      return [
+        // La fecha del movimiento es cuándo se pagó. Con `created_at` el reporte
+        // fechaba los pagos el día en que se EMITIÓ el cobro (para una mensualidad
+        // de agosto cobrada el 30 de julio, un mes antes del pago real).
+        formatDayCO(p.payment_date || p.created_at),
+        formatDayCO(p.created_at),
+        // Los nombres ya resueltos: `parent`/`child` son null para atletas adultos
+        // y sin cuenta, y el CSV los exportaba todos como "Desconocido" aunque la
+        // tabla en pantalla sí mostrara el nombre.
+        (p as any).parent_responsible || p.parent?.full_name || '—',
+        (p as any).athlete_name || p.child?.full_name || 'Sin nombre',
+        p.status === 'partial' ? (p.amount_paid ?? 0) : p.amount,
+        cfg?.label ?? p.status,
+        p.concept,
+        p.payment_type || 'N/A',
+      ];
     });
-    const csvContent = [headers, ...rows].map(e => e.join(',')).join('\n');
+    const csvContent = [headers, ...rows].map(e => e.map(csvCell).join(',')).join('\n');
     const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `reporte_pagos_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `reporte_pagos_${todayColombia()}.csv`);
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
     toast({ title: 'Reporte Generado', description: 'El archivo CSV se ha descargado correctamente.' });
   };
@@ -783,6 +809,24 @@ export default function PaymentsAutomationPage() {
 
   const formatDate = (dateStr: string) =>
     new Date(dateStr).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  /**
+   * Formatea un 'YYYY-MM-DD' sin correrlo un día.
+   *
+   * `new Date('2026-08-03')` se parsea como medianoche UTC, que en Colombia es el 2 de
+   * agosto a las 7 p.m. — o sea que una columna `date` se renderiza con el día anterior.
+   * El sufijo 'T00:00:00' la fuerza a interpretarse en hora local.
+   */
+  const formatBusinessDate = (dateStr: string) =>
+    new Date(dateStr + 'T00:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  /**
+   * En "Cobros por Aprobar" la fecha que importa es CUÁNDO SE PAGÓ, no cuándo se emitió
+   * el cobro. Antes se mostraba `created_at` y la escuela veía "30 de jul" en un pago
+   * reportado el 3 de agosto: la fecha de emisión de la mensualidad, no la del pago.
+   */
+  const reportedDate = (p: PaymentTransaction) =>
+    p.payment_date ? formatBusinessDate(p.payment_date) : formatDate(p.created_at);
 
   // "Validación de Cobros" muestra SOLO transferencias manuales que requieren
   // que la escuela apruebe/rechace el comprobante. Los pagos de MercadoPago
@@ -1029,7 +1073,7 @@ export default function PaymentsAutomationPage() {
                           </div>
                           <div className="text-right shrink-0">
                             <p className="font-bold text-primary text-sm">{formatCurrency(payment.amount)}</p>
-                            <p className="text-xs text-muted-foreground">{new Date(payment.created_at).toLocaleDateString('es-CO')}</p>
+                            <p className="text-xs text-muted-foreground">{reportedDate(payment)}</p>
                             <div className="mt-1 flex flex-wrap gap-1 justify-end">
                               {(payment.receipt_url || payment.status === 'awaiting_approval') ? (
                                 <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">Transferencia</Badge>
@@ -1079,7 +1123,7 @@ export default function PaymentsAutomationPage() {
                       <TableBody>
                         {pendingPayments.map((payment) => (
                           <TableRow key={payment.id}>
-                            <TableCell className="font-mono text-xs">{formatDate(payment.created_at)}</TableCell>
+                            <TableCell className="font-mono text-xs">{reportedDate(payment)}</TableCell>
                             <TableCell>
                               <div className="flex flex-col">
                                 <span className="font-bold">{(payment as any).athlete_name || 'Sin nombre'}</span>
@@ -1498,6 +1542,11 @@ export default function PaymentsAutomationPage() {
                                 <Zap className="h-2.5 w-2.5 mr-1" /> {(payment as any).plan.name}
                               </Badge>
                             )}
+                            {(payment as any).period_label && (
+                              <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 py-0 h-4">
+                                Cubre {(payment as any).period_label}
+                              </Badge>
+                            )}
                             {!payment.team?.name && !(payment as any).plan?.name && (
                               <span className="text-xs text-muted-foreground truncate">{payment.concept}</span>
                             )}
@@ -1515,7 +1564,8 @@ export default function PaymentsAutomationPage() {
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
-                          <p className="text-xs text-muted-foreground whitespace-nowrap">{new Date(payment.created_at).toLocaleDateString('es-CO')}</p>
+                          {/* Misma corrección que en la tabla: la fecha del pago, no la de emisión. */}
+                          <p className="text-xs text-muted-foreground whitespace-nowrap">{reportedDate(payment)}</p>
                           <PaymentOriginBadge payment={payment} compact />
                         </div>
                         {payment.receipt_url && (
@@ -1549,7 +1599,16 @@ export default function PaymentsAutomationPage() {
                       const cfg = STATUS_CONFIG[payment.status] ?? { label: payment.status, className: 'bg-gray-100 text-gray-600' };
                       return (
                         <TableRow key={payment.id}>
-                          <TableCell className="text-xs text-muted-foreground">{formatDate(payment.created_at)}</TableCell>
+                          {/* CUÁNDO ENTRÓ LA PLATA, no cuándo se emitió el cobro. Con
+                              `created_at` la mensualidad de agosto generada el 30/jul se leía
+                              como un pago "del 30 de jul" aunque el comprobante fuera del 3 de
+                              agosto — el mismo error ya corregido en "Cobros por Aprobar". */}
+                          <TableCell
+                            className="text-xs text-muted-foreground whitespace-nowrap"
+                            title={payment.payment_date ? `Cobro emitido el ${formatDate(payment.created_at)}` : undefined}
+                          >
+                            {reportedDate(payment)}
+                          </TableCell>
                           <TableCell className="font-medium">
                             <div className="flex flex-col">
                               <span className="font-bold">{(payment as any).athlete_name || 'Sin nombre'}</span>
@@ -1569,6 +1628,15 @@ export default function PaymentsAutomationPage() {
                               {(payment as any).plan?.name && (
                                 <Badge variant="outline" className="text-[10px] bg-purple-50 text-purple-700 border-purple-200 w-fit">
                                   <Zap className="h-3 w-3 mr-1" /> {(payment as any).plan.name}
+                                </Badge>
+                              )}
+                              {/* QUÉ MES CUBRE. El concepto es texto libre y hay cinco
+                                  generadores distintos ("Plan PLAN PRO", "Mensualidad", …):
+                                  varios no nombran el mes, así que sin este chip no hay forma
+                                  de saber a qué periodo se imputó la plata. */}
+                              {(payment as any).period_label && (
+                                <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 w-fit">
+                                  Cubre {(payment as any).period_label}
                                 </Badge>
                               )}
                             </div>

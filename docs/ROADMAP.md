@@ -63,7 +63,7 @@ tocan para reflejar avance; ellos describen el destino, esta tabla describe dón
 
 ---
 
-## 1.1 Estado para producción
+## 1. Estado para producción
 
 | Frente | Estado | Nota |
 |---|---|---|
@@ -74,7 +74,7 @@ tocan para reflejar avance; ellos describen el destino, esta tabla describe dón
 
 ---
 
-## 1. Qué se entregó desde la v1.3 (12 may → 1 ago 2026)
+## 1.1 Lo entregado desde la v1.3 (12 may → 1 ago 2026)
 
 Nada de esto estaba en el roadmap anterior. Es la razón por la que hacía falta reescribirlo.
 
@@ -106,12 +106,14 @@ IDs estables. La cola de la §3 los ordena; esta sección los describe.
 
 | ID | Pendiente | Estado | Esfuerzo | Fuente |
 |---|---|---|---|---|
-| **DIN-1** | **Generación de mes y cobros duplicados (F0) — plan consolidado.** Cubre lo que sigue abierto de las inscripciones duplicadas y de la generación unificada, ahora que se verificó qué cerró el 24-jul: la ventana **intra-sentencia** de `open_month` (el advisory lock no la cubre; hoy el síntoma es que la apertura de mes **aborta** para toda la escuela), el guard que falta en `POST /enrollments`, el `UPDATE` de `students.ts:829` que fabrica huérfanas, el `CHECK` de inscripción con destino, el merge de las 198 filas duplicadas y las 16 huérfanas que hay que **asignar** (~$2.21M/mes). | 🟡 | 1–2 sem | **[plan consolidado](plan-f0-generacion-de-mes-y-cobros-duplicados.md)** · evidencia en [plan-f0 original](plan-f0-inscripciones-y-cobros-duplicados.md) §2 y §7 |
+| **DIN-1** | ⚠️ **Orden corregido por el §11 del plan: los productores se cierran ANTES de limpiar** (B1 guard → B2 `students.ts:829` → M1 con `ON CONFLICT DO NOTHING` → recién entonces M3/huérfanas/M2). Limpiar con los tres productores abiertos es trapear con la llave abierta. Dos hallazgos más del §11: **el cron falla peor que el botón** — desde que delega en `open_month`, el `23505` queda atrapado en su `EXCEPTION WHEN OTHERS`, así que **salta la escuela en silencio y reporta éxito global** (cualquier alerta tiene que mirar el `WARNING`, no el valor de retorno); y **`SOLO MILLOS` es la única escuela expuesta** a ese fallo silencioso, porque es la única con duplicados **y** `auto_generate_payments = true`. Agosto de Dynasty ya está generado y sano (345 `pending` para 345 menores, 1:1), así que **no hay presión de calendario**. **Generación de mes y cobros duplicados (F0) — plan consolidado.** Cubre lo que sigue abierto de las inscripciones duplicadas y de la generación unificada, ahora que se verificó qué cerró el 24-jul: la ventana **intra-sentencia** de `open_month` (el advisory lock no la cubre; hoy el síntoma es que la apertura de mes **aborta** para toda la escuela), el guard que falta en `POST /enrollments`, el `UPDATE` de `students.ts:829` que fabrica huérfanas, el `CHECK` de inscripción con destino, el merge de las 198 filas duplicadas y las 16 huérfanas que hay que **asignar** (~$2.21M/mes). | 🟡 | 1–2 sem | **[plan consolidado](plan-f0-generacion-de-mes-y-cobros-duplicados.md)** · evidencia en [plan-f0 original](plan-f0-inscripciones-y-cobros-duplicados.md) §2 y §7 |
 | ~~DIN-2~~ | **Absorbido por DIN-1.** Verificado contra el código el 2026-08-01: **H1 cerrado** (los tres índices únicos existen, incluidos adultos y no registrados) y **H2 cerrado** (`open_month` puebla `period_*` siempre y el cron delega en él desde el 24-jul). La unificación de las 3 vías del §4.4 también está hecha: el botón llama `preview_open_month`/`open_month` y `calcFirstPayment` quedó confinado a los modales de alta. Queda **H3** (declarativo, sin código) dentro de DIN-1. | ✅ | — | [spec month-close §4](specs/month-close-module.md) |
 | DIN-3 | **`payments.payment_provider` deja de mentir.** Se creó con `DEFAULT 'wompi'`, así que toda fila insertada sin provider queda sellada como Wompi y la reconciliación cuenta mal. | 🟡 | 4 h | [plan](plan-payment-provider-default-fix.md) |
 | **DIN-4** | **Bloqueo de fin de prueba, entitlements y cuentas de prueba.** Hoy no se bloquea nada: no hay cron, `EntitlementGate` está en una sola página y `/me/entitlements` es fail-open. Decidido: 1 mes abierto → bloqueo duro → reactivación manual, marcando con `account_type` nuevo (`is_demo` está mal mantenido). **Es ingreso que se está regalando**, y además el panel de activación miente (ver desglose abajo). | 🔵 | 3–4 sem, 7 fases | [spec](specs/trial-blocking-and-test-accounts.md) §2.5, D11–D13, F0.5 |
 | DIN-5 | **Duplicación de pagos — H-03, H-04, H-05, H-07.** Los hallazgos H-01 (autopay legacy), H-02 (doble clic) y H-06 (`record_recurring_attempt`) ya están arreglados; estos cuatro siguen abiertos. | 🔵 | 2–3 d | memoria `project_payment_duplication_audit` |
-| DIN-6 | **Connected accounts (pasarela propia por escuela).** El resolver y la tabla ya existen; falta poblar y hacer el split. Decisiones abiertas: pricing de M2 y si la Fase 3 va a modelo agregador. | 🟡 | 1–2 sem | [plan](payments-connected-accounts-plan.md) · [status](payments-connected-accounts-STATUS.md) |
+| DIN-6 | **Connected accounts — cerrar Fase 0 (F-B, F-C, F-F).** Re-auditado el 2026-08-01: **la fase está al ~85 %, no al ~70 %**, y los dos docs de connected-accounts **subestiman el avance**. Ya están hechos el `wompi.service` parametrizado, el escritor cifrado (`upsert_school_provider`) y la firma del Widget por escuela. Lo que falta: **cablear el gate por addon** (`hasGatewayAddon()` está definido y **no se invoca desde ninguna ruta** — es código muerto), **crear el endpoint de switch de `payment_mode`** (hoy solo se cambia por SQL a mano), **validar las llaves contra la API del proveedor**, migrar Dynasty de ENV a `direct` en orden estricto, y los webhooks multi-tenant. | 🟡 | 2–3 sem | **[plan de cierre de ruteo](plan-cierre-ruteo-de-pagos.md)** · [plan original](payments-connected-accounts-plan.md) · [status ⚠️ desactualizado](payments-connected-accounts-STATUS.md) |
+| **DIN-9** | 🔴 **Higiene de ambientes — el footgun de MercadoPago.** `MP_ACCESS_TOKEN_DEFAULT` y `MP_PUBLIC_KEY_DEFAULT` de **dev** tienen prefijo `APP_USR-`, que en MP es **producción**. `MP_ENV=sandbox` no corrige nada: `mercadopago.service.ts:29` tiene **una sola URL** y MP no tiene host de sandbox — la credencial decide. Con `MARKETPLACE_DEFAULT_PROVIDER=mercadopago`, **un pago «de prueba» desde dev cobra de verdad.** Fix: credenciales `TEST-` en dev + guard de arranque que haga **fail-fast** si el prefijo de la credencial no coincide con el `*_ENV`, y derivar `sandbox` del prefijo en vez de la variable. Sin migración, sin tocar producción, una sesión. | 🟡 | 1 sesión | [plan §F-A](plan-cierre-ruteo-de-pagos.md) |
+| **DIN-10** | 🟡 **Dinero de terceros ya recibido.** Los cobros de Academia Porras y MMA Blair (mayo) entraron a la cuenta de MercadoPago **de SportMaps** vía `MP_ACCESS_TOKEN_DEFAULT`. Es exactamente el riesgo regulatorio —captación irregular ante la SFC— que el modelo directo-a-escuela existe para evitar. Incluye parametrizar el camino MP como ya está el de Wompi. **La decisión sobre el dinero ya recibido es de negocio (D2), no técnica.** | ⚪ | 1 sem + decisión | [plan §F-E](plan-cierre-ruteo-de-pagos.md) |
 | DIN-7 | **Autopay en Wompi.** Bloqueado por falta de API `payment_sources`; hay que pedirla aparte en el contrato de Pagos a Terceros. Solo MP funciona hoy. | ⚪ | externo | memoria `project_wompi_commercial_status` |
 | DIN-8 | **Facturación electrónica multi-PAC.** Capa de adaptadores DIAN (Factus primero, luego Siigo/Alegra). API sandbox de Factus ya validada. Tablas `invoice_providers` + `invoices`. **No depende del libro mayor**: el PAC emite la factura, no pide el mayor — no se bloquean entre sí en ningún sentido. | 🔵 | 5 fases | memoria `project_electronic_invoicing` |
 
@@ -162,6 +164,45 @@ doble completa desde la primera fase** (§3.1).
 | ERP-4 | **Nómina.** Obligación por empleado al cerrar la liquidación (el motor `payroll_runs` **ya existe**), pestaña agrupada por período, pago del período completo con un egreso, posteo al mayor. | 🔵 | 1–2 sem | ERP-2 en producción · D-NOM |
 | ERP-5 | **CxC: lectura + posteo.** Pestaña «Por cobrar» que lee `payments` **sin migrarlo**, y capa de posteo que lleva sus eventos al mayor (cobro emitido → CxC/Ingreso; pago recibido → Banco/CxC). Sin esto el mayor no incluye el ingreso principal de la escuela. | 🔵 | 2 sem | ERP-2 · `DIN-1` cerrado |
 | ERP-6 | **Retiro de los nombres viejos.** «Finanzas» y «Proveedores» dejan de existir como módulos; queda `Pendientes · Movimientos · Contabilidad`. | 🔵 | 3 d | **Se entrega junto con `UX-4`** o se pisan |
+
+### ADM — Consola de Super Admin
+
+El rol `super_admin` tiene que poder configurar **todo** de cualquier escuela desde una sola
+pantalla. Hoy no puede: los interruptores existen pero están repartidos y no hay dónde verlos juntos.
+
+**Inventario real de la superficie de configuración** (verificado contra el esquema el 2026-08-01):
+
+| Dónde vive | Cuántos | Qué hay |
+|---|---|---|
+| `school_settings` (tabla) | **20 columnas** | `payment_cutoff_day`, `payment_grace_days`, `responsible_payment_policy`, `allow_multiple_enrollments`, `coach_can_send_reminders`, `coach_can_request_reminders`, `auto_generate_payments`, `allow_installments`, `max_installments_per_payment`, `reminder_enabled`, `wompi_enabled`, `epayco_enabled`, `online_fee_pct`, `glosa_response_days`, `receipt_date_window_days`, `coach_can_enroll_paid_teams`, `active_modules`, `bank_name`, `bank_account_number`… |
+| `schools` (columnas) | 4 | `payment_mode`, `business_model`, `branding_settings`, `slug` |
+| `schools.payment_settings` | 1 JSONB | 🔴 **store legacy duplicado** (`allow_manual`, `allow_online`) — el mismo concepto que ya vive en la tabla |
+| `school_addons` | **11 claves** | `tournaments · access_control · biomech · nutrition · whitelabel · whatsapp · wompi · mp · store · accounting · invoicing` (el `CHECK` se amplió dos veces: `20260514000002` y `20260713000006`) |
+| `school_subscriptions` | plan/tier/status/trial | `metadata` guarda `via: 'admin_toggle'` y `set_by` |
+| `profiles` / escuela | `account_type` | nuevo en `DIN-4` F0 |
+
+➡️ **~40 interruptores repartidos en 5 tablas y 2 JSONB, sin un solo lugar donde verlos ni fijarlos.**
+
+| ID | Pendiente | Estado | Esfuerzo |
+|---|---|---|---|
+| ADM-1 | **Inventario y catálogo de flags.** Una tabla-catálogo (`school_flag_definitions`) con: clave, tipo, valor por defecto, dónde vive físicamente, quién puede cambiarlo, si es peligroso y qué precondición exige. Sin esto la consola es una lista hardcodeada que se desactualiza en la primera migración. | 🔵 | 3–4 d |
+| ADM-2 | 🔴 **Resolver el doble store antes de construir la consola.** `school_settings` (tabla) vs `schools.payment_settings` (JSONB legacy) guardan el mismo concepto. **Una consola que lee uno y escribe el otro miente**, y es el mismo tipo de defecto que `SEG-7`. Migrar el JSONB a columnas y dejarlo de solo-lectura con `COMMENT` de deprecación. | 🔵 | 3 d |
+| ADM-3 | **Consola por escuela: ver y fijar todo.** Una pantalla con las ~40 opciones agrupadas, y por cada una: valor actual **releído de la BD**, valor por defecto, quién lo cambió, cuándo y desde dónde (`trial_grant` / `admin_toggle` / `seed`). Hereda `G-VERIFY` de `DIN-4`: **nada se pinta por optimismo**. | 🔵 | 1–2 sem |
+| ADM-4 | **Precondiciones en los flags peligrosos.** No todo interruptor puede ser un switch pelado:<br>· `auto_generate_payments = true` en una escuela con inscripciones duplicadas **arma el fallo silencioso del cron** de `DIN-1` — `SOLO MILLOS` es la prueba viva: lo tiene en `true`, tiene 7 atletas duplicados, y su mes no se está facturando sin que nadie vea un error.<br>· `payment_mode = 'direct'` sin llaves validadas **mata el checkout** (`DIN-6` F-B).<br>· bajar de plan puede esconder módulos que la escuela está usando.<br>La consola **verifica la precondición y explica por qué se niega**, en vez de dejar apretar y romper. | 🔵 | 1 sem |
+| ADM-5 | **Auditoría y reversa.** Toda escritura registra actor, momento, valor anterior y nuevo, y se puede revertir al valor previo desde la misma pantalla. | 🔵 | 4 d |
+
+> ⛔ **Lo que esta consola NO es: una caja para correr SQL desde el navegador.** El BFF usa
+> `service_role`, que **salta toda la RLS**: un endpoint que acepte SQL arbitrario del cliente es la
+> puerta más grande que se puede abrir en el producto, y ningún gate de rol la cierra —basta un XSS o
+> un token filtrado. Cada interruptor escribe por una **RPC tipada y auditada**, con su propia
+> validación. «Directo en BD» significa *sin pedirle permiso a la escuela*, no *sin capa de control*.
+>
+> Y `is_super_admin()` **nunca se revoca** al rol que la invoca desde policies — convención del repo:
+> hacerlo rompe con 403 todas las queries.
+
+`ADM-3` absorbe la fase **F5 «consola»** de `DIN-4`, y depende de `DIN-4` F0.5 (la verdad en el panel)
+y de `SEG-7` (que la lectura no devuelva defaults inventados). Construir la consola antes de esas dos
+es construirla sobre datos que mienten.
 
 ### CONC — Concurrencia e integridad
 
@@ -225,7 +266,7 @@ Buena parte **ya está aplicada**: índice único parcial en `session_bookings`,
 | MOD-8 | **Asistencia y créditos de sesión.** Máx 1 crédito/atleta/día, la reserva descuenta y la asistencia no re-descuenta ese día, bloqueo del día al 2º coach. Incluye el saneamiento del eje plan↔equipo↔sesiones. | 🔵 | 2 sem | [plan créditos](plan-asistencia-y-creditos-de-sesion.md) · [saneamiento](plan-saneamiento-sesiones-plan-equipo.md) |
 | MOD-9 | **Informes de asistencia.** Decisiones de producto cerradas. | 🔵 | 1 sem | [spec](specs/attendance-reports-module.md) |
 | MOD-10 | **Complementos de métricas de rendimiento (C-A…C-K)** + `higher_is_better`, pesos, normalización, benchmark, y la UI de crecimiento. | 🔵 | 3 sem | [complementos](performance-metrics-complements.md) · [spec](performance-metrics-spec.md) |
-| MOD-11 | **Marketplace: desplegar lo que ya está en código.** `marketplace_transactions` no existe en la base — el módulo escolar y externo está construido pero **no desplegado**. Después: M8 planes vendor, M9 split multi-vendor en carrito, M10 3D/AR, M11 Mox real, M12 email transaccional. | 🔵 | 1 sem + M8–M12 | memoria `project_stores_marketplace_state` · [anexo M8–M12](archived/ROADMAP-v1.3-2026-05-12.md) |
+| MOD-11 | **Marketplace: desplegar lo que ya está en código.** `marketplace_transactions` no existe en la base — el módulo escolar y externo está construido pero **no desplegado**. Después: M8 planes vendor, M9 split multi-vendor en carrito, M10 3D/AR, M11 Mox real, M12 email transaccional.<br>⛔ **GATE DE DESPLIEGUE: no se despliegan las migraciones de `marketplace_transactions` hasta cerrar F-D del [plan de ruteo de pagos](plan-cierre-ruteo-de-pagos.md).** Cinco de los seis endpoints de `marketplace-checkout.routes.ts` (135, 191, 248, 314, 568) **no llaman a `resolveProvider`** — solo el de carrito (446) lo hace — así que caerían a ENV, que en staging es Dynasty. Hoy el riesgo es teórico **solo porque la tabla no existe**: desplegarla lo arma. | 🔵⛔ | 1 sem + M8–M12 | memoria `project_stores_marketplace_state` · [gate F-D](plan-cierre-ruteo-de-pagos.md) |
 | MOD-12 | **Self-service de planes y addons (fases 1–4).** De activación manual asistida por ventas a autoservicio instantáneo, luego auto-renew, ciclo de vida y onboarding desde la landing. | 🔵 | 3 sem | [roadmap](self-service-planes-addons-roadmap.md) · [vendor subs](saas-vendor-subscriptions-plan.md) |
 | MOD-13 | **Facturación de sesiones y cobro por plan.** | 🔵 | 1 sem | [spec](specs/invoice-plan-sessions-and-collection.md) |
 | MOD-14 | **Carnets: cerrar el editor de plantillas** y quitar las referencias a `programs`. | ⚠️ | 3 d | memoria `project_carnets_digitales` |
@@ -339,9 +380,10 @@ El criterio, en orden: **dinero mal contado** → **seguridad** → **ingreso qu
 
 | # | ID | Por qué ahora | Bloqueante de |
 |---|---|---|---|
-| 1 | **DIN-1** | Plan consolidado escrito el 2026-08-01, **pendiente de aprobación**. Su primer paso es una puerta dura: verificar contra la base que las tres migraciones del 24-jul están aplicadas. Si no lo están, el alcance vuelve a ser el del plan original. | MOD-3, todo el ciclo de mes |
-| 2 | **DIN-3** | 4 horas de trabajo y la reconciliación deja de contar mal. Plan ya escrito. | Conciliación bancaria, DIN-6 |
-| 3 | **SEG-1** | La Fase −0.5 es un drift **bloqueante**: hasta resolverlo, cualquier migración nueva puede aplicarse sobre un esquema distinto al que el repo cree. | Toda migración posterior |
+| 1 | **DIN-9** | **Una sesión, sin migración, sin tocar producción, y desarma el único footgun vivo**: hoy un pago de prueba desde dev cobra de verdad. Lo más barato de todo el roadmap con el riesgo más tonto. | Cualquier prueba de pagos |
+| 2 | **DIN-1** | Plan consolidado escrito el 2026-08-01, **pendiente de aprobación**. Su primer paso es una puerta dura: verificar contra la base que las tres migraciones del 24-jul están aplicadas. Si no lo están, el alcance vuelve a ser el del plan original. | MOD-3 · todo el track contable |
+| 3 | **DIN-3** | 4 horas de trabajo y la reconciliación deja de contar mal. Plan ya escrito. | Conciliación bancaria · DIN-6 |
+| 4 | **SEG-1** | La Fase −0.5 es un drift **bloqueante**: hasta resolverlo, cualquier migración nueva puede aplicarse sobre un esquema distinto al que el repo cree. | Toda migración posterior |
 
 > **Cuatro decisiones abiertas dentro de DIN-1** (§8 del plan consolidado): qué hace
 > `students.ts:829` cuando el atleta queda sin equipo ni plan · si las 16 huérfanas se asignan antes
@@ -361,12 +403,14 @@ El criterio, en orden: **dinero mal contado** → **seguridad** → **ingreso qu
 | 10 | **MOD-15** | 4 horas. Sin el System User el bot de WhatsApp muere cada 2 h. |
 | 11 | **INF-1 (por dominio)** | Versionar el dominio que bloquee la siguiente fase, no los 336 objetos de golpe. |
 | 12 | **UX-6** | Las features cosméticas son lo que hace que un padre vuelva al grupo de WhatsApp. Verificar primero qué quedó resuelto con el módulo de notificaciones. |
-| 13 | **Responder D-T, D-MIG, D-PUC, D-CORTE** | Cuatro decisiones sin código de por medio que bloquean las 6–7 semanas de `ERP-2`. Se pueden contestar esta semana. |
+| 13 | **ADM-1 + ADM-2** | El catálogo de flags y el doble store. `ADM-2` es prerrequisito de la consola: sin resolverlo, la consola hereda el mismo defecto de `SEG-7` — leer de un sitio y escribir en otro. |
+| 14 | **Responder D-T, D-MIG, D-PUC, D-CORTE** | Cuatro decisiones sin código de por medio que bloquean las 6–7 semanas de `ERP-2`. Se pueden contestar esta semana. |
 
 ### P2 — Cuando P0 y P1 estén cerrados
 
 En este orden: **MOD-2** (riesgo nulo, entregable ya) → **MOD-4** (go-live de notificaciones) →
-**MOD-11** (desplegar el marketplace que ya está escrito) → **DIN-5** → **ERP-2** → **ERP-3** →
+**MOD-11** (desplegar el marketplace que ya está escrito) → **ADM-3 + ADM-4 + ADM-5** (la consola) →
+**DIN-5** → **ERP-2** → **ERP-3** →
 **Ciclo de mes F1** → **ERP-4** → **ERP-5** → **MOD-8** → **MOD-6** → **MOD-9** → **DIN-6** →
 **MOD-12** → **MOD-10** → **MOD-13** → **MOD-14** → **MOD-7** → **SEG-4** → **SEG-5** → **SEG-6** →
 **INF-2..5** → **UX-5**.
@@ -400,6 +444,10 @@ compras. Cierre del track contable: **Ciclo de mes F2–F6** → **ERP-6 + UX-4*
 | **D-NOM** — ¿la obligación de nómina nace de un trigger al cerrar la liquidación, o de una RPC explícita? | `ERP-4` | Un trigger es cómodo y difícil de deshacer |
 | **D-ROL** — la matriz Auxiliar/Contador/Administrador del spec externo → roles reales | `ERP-2` | Ya hay dos matrices de permisos de coach que son código muerto (`SEG-4`); no crear una tercera |
 | **CONC-5** — franjas fijas vs solapamiento libre | `BLQ-1` | Índice único simple vs `EXCLUDE USING gist` |
+| **D1-pagos** — ¿`PAYMENT_TOKENS_ENC_KEY` está seteada en Render (stg y prod)? | `DIN-6` F-C paso 1 | Sin la clave, `getEncKey()` lanza y el checkout muere. **No hay versionado de clave:** rotarla hoy invalidaría todos los secretos guardados → vale añadir `key_version` mientras la tabla está casi vacía |
+| **D2-pagos** — el dinero de terceros ya recibido (Porras / MMA Blair): ¿se concilia, se devuelve, o se documenta como histórico cerrado? | `DIN-10` | **Decisión de negocio, no técnica** |
+| **D3-pagos** — ¿las credenciales `TEST-` de MP en dev rompen algún flujo que hoy se pruebe contra la cuenta real? | `DIN-9` | Si sí, el fail-fast necesita una excepción explícita en vez de bloquear el arranque |
+| **D4-pagos** — ¿qué receptor de webhook tiene Dynasty configurado en su dashboard: la Edge Function `wompi-webhook` o la ruta del BFF? | `DIN-6` F-F | **Hay dos receptores.** Verificar antes de tocar nada de webhooks |
 | Pricing de M2 en connected accounts; ¿Fase 3 va a agregador? | DIN-6 | |
 | Módulos no contratados: ¿se ocultan del menú o se muestran con candado como gancho de upgrade? | UX-3 | |
 | Mobile: app unificada vs varias por rol · push provider · versión mínima · actualización forzada · Sentry · localización · build infra | BLQ-3 | 7 decisiones, todas en [MOBILE_ROADMAP_EXECUTION](MOBILE_ROADMAP_EXECUTION.md) |
@@ -441,7 +489,9 @@ No los borro: son decisión del dueño del repo.
 
 ## 7. Arranque inmediato
 
-1. **Aprobar el plan de `DIN-1`** — es el único bloqueante de producción (§1.1). Nada de SQL antes.
+0. **`DIN-9`** — una sesión. Credenciales `TEST-` en dev + guard de arranque. Es lo único con un
+   footgun vivo y no depende de ninguna decisión salvo D3-pagos.
+1. **Aprobar el plan de `DIN-1`** — es el único bloqueante de producción (§1). Nada de SQL antes.
    Su paso 1 es el preflight que verifica contra la base las tres migraciones del 24-jul.
 2. **Aprobar `DIN-4` F0 + F0.5** — F0.5 arregla hoy el síntoma de «prendo el módulo y no se activa»,
    y F3 no se puede construir encima de un status que se puede leer falso.

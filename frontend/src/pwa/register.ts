@@ -47,10 +47,36 @@ export async function registerSW() {
       });
     });
 
-    // Verificar actualizaciones periódicamente (cada 60 min)
-    setInterval(() => {
-      reg.update();
-    }, 60 * 60 * 1000);
+    // ── Chequeo de versión ────────────────────────────────────────────────────
+    //
+    // El navegador vuelve a pedir /sw.js en cada NAVEGACIÓN real, pero esta es una
+    // SPA: después de la primera carga el routing es client-side y no cuenta. El
+    // único disparador era el setInterval de 60 min, así que con la app abierta se
+    // podía correr código viejo hasta una hora y un fix desplegado no llegaba.
+    //
+    // El regreso a la app es el momento natural para mirar: el acudiente sale a la
+    // app de su banco a hacer la transferencia y vuelve. Ahí se chequea.
+    let lastCheck = Date.now();
+    const checkForUpdate = () => {
+      // Throttle: volver al foco dispara visibilitychange Y focus, y en móvil el
+      // cambio de app los repite. Sin esto se llamaría a update() varias veces
+      // por cada regreso.
+      const now = Date.now();
+      if (now - lastCheck < 60 * 1000) return;
+      lastCheck = now;
+      // Sin red update() rechaza; no es un error que valga romper nada — el
+      // interval y la próxima visita reintentan.
+      reg.update().catch(() => {});
+    };
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') checkForUpdate();
+    });
+    window.addEventListener('focus', checkForUpdate);
+
+    // Respaldo para la pestaña que queda abierta y visible horas (p.ej. el panel
+    // de la escuela en un escritorio), donde no hay foco ni visibilidad que cambie.
+    setInterval(checkForUpdate, 60 * 60 * 1000);
 
   } catch (err) {
     console.error('[PWA] Error registrando SW:', err);

@@ -35,6 +35,7 @@ import { CreateChildModal } from '@/components/students/CreateChildModal';
 import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
 import { useSchoolContext, createStudentWithPendingPayment } from '@/hooks/useSchoolContext';
 import { studentsAPI, StudentViewRow } from '@/lib/api/students';
+import { daysDiffFromToday } from '@/lib/dateUtils';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { useNavigate } from 'react-router-dom';
 
@@ -89,8 +90,27 @@ const getPaymentState = (student: any): PaymentState => {
   const ps  = student.payment_status;
   const due = student.payment_due_date;
   if (!ps) return 'none';
-  if (ps === 'paid') return 'paid';
-  if (ps === 'overdue' || ((ps === 'pending' || ps === 'awaiting_approval') && due && new Date(due) < new Date()))
+  // Estados terminales = no hay nada que cobrar, NO una categoría propia. La vista
+  // school_athletes ya los excluye (mig 20260804125913), pero antes su cobro
+  // anulado era el más reciente y caía en 'other': al anular 5 duplicados el
+  // contador "OTROS" saltó de 1 a 6 con atletas que no debían nada. Defensa en
+  // profundidad: si otra vía los reintroduce, no vuelven a inventar un bucket.
+  if (ps === 'cancelled' || ps === 'rejected' || ps === 'failed') return 'none';
+  if (ps === 'paid' || ps === 'approved') return 'paid';
+  // `due` es un YYYY-MM-DD (columna date). `new Date(due)` lo parsea como MEDIANOCHE
+  // UTC, y compararlo contra `new Date()` (instante local) marcaba vencido desde las
+  // 19:00 hora Colombia del día ANTERIOR y durante todo el día de vencimiento: ~29 horas
+  // de falso vencido. Misma familia del bug que cerró 035dff3.
+  //
+  // El umbral es > 0 y no >= 0 para alinearse con el motor de mora, que exige
+  // `due_date + payment_grace_days < today` (apply_late_fees): el día de vencimiento
+  // NO cuenta como vencido — se puede pagar el día 10.
+  //
+  // DIVERGENCIA CONOCIDA: esto ignora `school_settings.payment_grace_days`. Con días de
+  // gracia > 0 el badge dice "Vencido" antes de que el motor marque la fila y cobre el
+  // recargo. La fuente autoritativa es `status = 'overdue'`, que ya se honra arriba;
+  // este cálculo solo lo anticipa. Cerrarlo requiere traer el setting a esta pantalla.
+  if (ps === 'overdue' || ((ps === 'pending' || ps === 'awaiting_approval') && due && daysDiffFromToday(due) > 0))
     return 'overdue';
   if (ps === 'pending' || ps === 'awaiting_approval') return 'pending';
   return 'other';

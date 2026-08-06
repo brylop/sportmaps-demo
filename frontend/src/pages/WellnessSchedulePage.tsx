@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { todayColombia } from '@/lib/dateUtils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Calendar, Clock, User, Plus, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
@@ -18,7 +19,7 @@ export default function WellnessSchedulePage() {
   // Clean MVP: Only real data
   const isUsingMockData = false;
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayColombia();
   const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
 
   // Normalize appointments for display (Assuming API returns correct format, or handle empty)

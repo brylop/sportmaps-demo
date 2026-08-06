@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from "@/components/ui/button";
@@ -396,7 +397,7 @@ export function ClientStatsTab({ clientId, clientName, onUpdate, stats, clientTy
 
   const [form, setForm] = useState({
     stat_type: 'fcr', value: '', unit: 'bpm',
-    stat_date: new Date().toISOString().split('T')[0], notes: '',
+    stat_date: todayColombia(), notes: '',
   });
 
   const ptStats = useMemo(() =>

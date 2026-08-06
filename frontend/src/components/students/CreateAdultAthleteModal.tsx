@@ -13,6 +13,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -272,7 +273,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
   const [selectedPlanId, setSelectedPlanId]   = useState('none');
   const [selectedOfferingId, setSelectedOfferingId] = useState('');
   const [selectedPlanPrice, setSelectedPlanPrice] = useState(0);
-  const [startDate, setStartDate]             = useState(() => new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate]             = useState(() => todayColombia());
   const [monthlyFee, setMonthlyFee]           = useState('');
   const [discountPct, setDiscountPct]         = useState(0);
  
@@ -357,7 +358,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
     setBranchId('none'); setTeamId('none');
     setSelectedPlanId('none'); setSelectedOfferingId('');
     setSelectedPlanPrice(0);
-    setStartDate(new Date().toISOString().split('T')[0]);
+    setStartDate(todayColombia());
     setMonthlyFee('');
     setDiscountPct(0);
 

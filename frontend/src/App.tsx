@@ -105,6 +105,7 @@ const AdminUpgradeRequestsPage = lazy(() => import("./pages/AdminUpgradeRequests
 const StaffPage = lazy(() => import("./pages/StaffPage"));
 const ProgramsManagementPage = lazy(() => import("./pages/ProgramsManagementPage"));
 const AttendanceSupervisionPage = lazy(() => import("./pages/AttendanceSupervisionPage"));
+const AttendanceHistoryPage = lazy(() => import("./pages/AttendanceHistoryPage"));
 const ResultsOverviewPage = lazy(() => import("./pages/ResultsOverviewPage"));
 const FinancesPage = lazy(() => import("./pages/FinancesPage"));
 const AccountingPage = lazy(() => import("./pages/AccountingPage"));
@@ -537,6 +538,11 @@ const App = () => (
                       <Route path="attendance-supervision" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <AttendanceSupervisionPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="attendance-history" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <AttendanceHistoryPage />
                         </ProtectedRoute>
                       } />
                       <Route path="results-overview" element={

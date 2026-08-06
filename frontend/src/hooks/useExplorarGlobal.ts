@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { todayColombia } from '@/lib/dateUtils';
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -170,7 +171,7 @@ async function fetchExploreGlobal(filters: ExploreFilters): Promise<ExploreResul
       .select('*', { count: 'exact' })
       .eq('status', 'active')
       .eq('registrations_open', true)
-      .gte('event_date', new Date().toISOString().split('T')[0]);
+      .gte('event_date', todayColombia());
 
     if (filters.q) {
       eventsQuery = eventsQuery.or(`title.ilike.%${filters.q}%,description.ilike.%${filters.q}%`);

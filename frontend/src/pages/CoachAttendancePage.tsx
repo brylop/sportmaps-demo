@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -334,7 +335,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
     queryKey: ['coach-plan-sessions', schoolId, staffId, isAdmin],
     queryFn: async () => {
       if (!schoolId) return [];
-      const today = new Date().toISOString().split('T')[0];
+      const today = todayColombia();
       let query = supabase
         .from('attendance_sessions')
         .select(`id, start_time, end_time, title, offerings!attendance_sessions_offering_id_fkey(name)`)
@@ -424,7 +425,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
         return { session, records: records || [] };
       }
       if (isOffering) {
-        const today = new Date().toISOString().split('T')[0];
+        const today = todayColombia();
         const { data: session, error: sErr } = await (supabase as any)
           .from('attendance_sessions')
           .select('id, team_id, session_date, finalized, finalized_at')

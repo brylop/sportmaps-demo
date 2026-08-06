@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { formatCurrency } from '@/lib/utils';
+import { dayToLocalDate } from '@/lib/dateUtils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -103,7 +104,11 @@ export default function AccountingPage() {
                 .eq('owner_type', 'school')
                 .eq('owner_id', schoolId)
                 .order('movement_date', { ascending: false });
-            if (activeBranchId) q = q.eq('branch_id', activeBranchId);
+            // Un movimiento con `branch_id` NULL es uno SIN sede asignada, no de otra
+            // sede. La mayoría de los ingresos vienen de `payments`, y ahí 266 de 593
+            // filas de Dynasty no tienen sede: con `.eq()` el libro de caja escondía
+            // la mitad del ingreso al seleccionar una sede.
+            if (activeBranchId) q = q.or(`branch_id.is.null,branch_id.eq.${activeBranchId}`);
             const { data, error } = await q;
             if (error) throw error;
             return (data ?? []) as LedgerRow[];
@@ -331,7 +336,9 @@ export default function AccountingPage() {
                                 {filteredRows.map((r) => (
                                     <TableRow key={`${r.source}-${r.id}`}>
                                         <TableCell className="text-sm">
-                                            {r.movement_date ? new Date(r.movement_date).toLocaleDateString('es-CO') : '—'}
+                                            {/* `movement_date` es `date`: con `new Date()` se parsea
+                                                en UTC y el movimiento se veía un día antes. */}
+                                            {r.movement_date ? dayToLocalDate(r.movement_date).toLocaleDateString('es-CO') : '—'}
                                         </TableCell>
                                         <TableCell>
                                             {r.direction === 'income' ? (

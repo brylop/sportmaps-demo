@@ -63,6 +63,9 @@ const ChildSchema = EnrollmentBase.extend({
   parent_name:   z.string().min(2),
   parent_email:  z.string().email(),
   parent_phone:  z.string().regex(/^\d{10,}$/),
+  /** Confirmación explícita del staff: "ya vi el duplicado, son personas distintas".
+   *  Sin esto, dos homónimos reales quedarían bloqueados para siempre. */
+  allow_duplicate: z.boolean().default(false),
 });
 
 const AdultExistingSchema = EnrollmentBase.extend({
@@ -90,6 +93,8 @@ const UnregisteredAdultSchema = EnrollmentBase.extend({
   date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   gender:        z.string().nullable().optional(),
   send_invite:   z.boolean().default(false),
+  /** Ver ChildSchema.allow_duplicate. */
+  allow_duplicate: z.boolean().default(false),
 });
 
 const CreateOneSchema = z.discriminatedUnion('type', [
@@ -113,6 +118,111 @@ function calcProratedFee(startDate: string, monthlyFee: number): number {
 function endOfMonth(startDate: string): string {
   const [year, month] = startDate.split('-').map(Number);
   return new Date(year, month, 0).toISOString().split('T')[0];
+}
+
+// ─── Detección de atleta duplicado ────────────────────────────────────────────
+//
+// BLOQUEAR Y SUGERIR, nunca adoptar en automático. Un merge equivocado fusiona a
+// dos personas distintas y eso es mucho más difícil de deshacer que un duplicado.
+// Caso real en Dynasty: las hermanas Mariana y Sofia Ariza Sánchez comparten fecha
+// de nacimiento (2011-11-16) y el teléfono del acudiente, así que cualquier
+// adopción por teléfono+fecha habría hecho desaparecer a una de las dos.
+//
+// Por eso acá NO se cruza por teléfono ni por fecha de nacimiento: esas dos
+// señales son las que tienen falsos positivos entre hermanos. Se cruza por:
+//
+//   1. doc_number exacto — señal fuerte, pero en la práctica atrapa poco: en los
+//      cuatro duplicados medidos el 2026-08-04 el documento se re-tecleó distinto
+//      cada vez (1018475529 vs 1016020710 para la misma Gabriela), así que el
+//      match exacto nunca disparó.
+//   2. NOMBRE NORMALIZADO — sin acentos, sin mayúsculas, espacios colapsados. Es
+//      la que sí atrapa lo observado (Josue Cortes Saenz, Gabriela Buitrago,
+//      Julieta Mayorga: nombre idéntico al normalizar) y NO toca a las hermanas
+//      Ariza, que se llaman distinto.
+//
+// Se comparan las tres tablas de identidad de atleta, porque un menor puede estar
+// duplicado contra un `unregistered_athletes` y viceversa. (Que existan tres
+// tablas de identidad es la causa raíz de fondo; mientras siga así, cada flujo
+// nuevo tiene que acordarse de consultar las tres.)
+
+/** minúsculas, sin acentos, espacios colapsados. Para comparar nombres escritos a mano. */
+function normalizeName(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')   // quita diacriticos (JERONIMO == Jeronimo)
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export interface AthleteDuplicate {
+  table: 'children' | 'unregistered_athletes';
+  id: string;
+  full_name: string;
+  doc_number: string | null;
+  date_of_birth: string | null;
+  matched_by: 'doc_number' | 'nombre';
+}
+
+/**
+ * Busca un atleta ya registrado en la escuela que sea probablemente la misma
+ * persona. Devuelve el primer match, priorizando documento sobre nombre.
+ *
+ * Trae el padrón de la escuela y compara en memoria a propósito: la comparación
+ * de nombres necesita quitar acentos y PostgREST no expone `unaccent`. Con ~400
+ * atletas por escuela el costo es irrelevante frente a un alta.
+ */
+async function findExistingAthlete(
+  schoolId: string,
+  opts: { docNumber?: string | null; fullName?: string | null },
+): Promise<AthleteDuplicate | null> {
+  const doc = opts.docNumber?.trim() || null;
+  const name = opts.fullName ? normalizeName(opts.fullName) : null;
+  if (!doc && !name) return null;
+
+  const [kids, unreg] = await Promise.all([
+    supabase.from('children')
+      .select('id, full_name, doc_number, date_of_birth')
+      .eq('school_id', schoolId),
+    supabase.from('unregistered_athletes')
+      .select('id, full_name, doc_number, date_of_birth')
+      .eq('school_id', schoolId),
+  ]);
+
+  const pool: Array<AthleteDuplicate> = [
+    ...((kids.data ?? []) as any[]).map(r => ({ ...r, table: 'children' as const, matched_by: 'nombre' as const })),
+    ...((unreg.data ?? []) as any[]).map(r => ({ ...r, table: 'unregistered_athletes' as const, matched_by: 'nombre' as const })),
+  ];
+
+  // Documento primero: es la señal más fuerte cuando existe.
+  if (doc) {
+    const hit = pool.find(r => (r.doc_number ?? '').trim() === doc);
+    if (hit) return { ...hit, matched_by: 'doc_number' };
+  }
+
+  if (name) {
+    const hit = pool.find(r => normalizeName(r.full_name ?? '') === name);
+    if (hit) return { ...hit, matched_by: 'nombre' };
+  }
+
+  return null;
+}
+
+/** Cuerpo del 409. La ruta es staff-only, así que devolver el registro hallado no
+ *  expone datos de otra familia a un tercero — el caller ya administra ese padrón.
+ *  OJO: si algún día esto se expone al flujo del acudiente (QR público), la
+ *  respuesta debe degradarse a un mensaje sin nombres. */
+function duplicateResponse(dup: AthleteDuplicate) {
+  const como = dup.matched_by === 'doc_number'
+    ? `el documento ${dup.doc_number}`
+    : 'el mismo nombre';
+  return {
+    error: `Ya existe un atleta con ${como} en esta escuela: "${dup.full_name}". `
+         + 'Si es la misma persona, editá ese registro en vez de crear uno nuevo. '
+         + 'Si son personas distintas, reenviá con allow_duplicate = true.',
+    duplicate: dup,
+    existing_id: dup.id,   // se conserva por compatibilidad con el cliente actual
+  };
 }
 
 /**
@@ -237,21 +347,19 @@ router.post(
       // FLUJO A — Menor de edad
       // ══════════════════════════════════════════════════════════════════════
       if (data.type === 'child') {
-        // 1. Verificar duplicado por doc_number en esta escuela (solo si hay documento)
-        if (data.doc_number) {
-          const { data: existing } = await supabase
-            .from('children')
-            .select('id')
-            .eq('school_id', schoolId)
-            .eq('doc_number', data.doc_number)
-            .maybeSingle();
-
-          if (existing) {
-            return res.status(409).json({
-              error: `Ya existe un menor con el documento ${data.doc_number} en esta escuela.`,
-              existing_id: existing.id,
-            });
-          }
+        // 1. Duplicado ya registrado en la escuela.
+        //
+        // Antes esto solo miraba `children` y solo por `doc_number` exacto. Con eso
+        // pasaron los cuatro duplicados del 2026-08-04: el documento se re-tecleó
+        // distinto cada vez, así que el match nunca disparó. Ahora cruza también por
+        // nombre normalizado y contra `unregistered_athletes` — un menor puede estar
+        // duplicado contra un registro que la escuela creó sin cuenta.
+        if (!data.allow_duplicate) {
+          const dup = await findExistingAthlete(schoolId, {
+            docNumber: data.doc_number,
+            fullName: data.full_name,
+          });
+          if (dup) return res.status(409).json(duplicateResponse(dup));
         }
 
         // 2. INSERT children
@@ -343,6 +451,12 @@ router.post(
             due_date:         payCalc.dueDate,
             status:           'pending',
             payment_type:     'subscription',
+            // Explícito, NO derivado del due_date por trg_payments_fill_period:
+            // ese camino mandaba el cobro al mes siguiente y dejaba el mes de
+            // entrada sin facturar. Además, sin periodo el cobro se escapa de
+            // uniq_payment_active_period_* y se puede duplicar el mes.
+            period_year:      payCalc.periodYear,
+            period_month:     payCalc.periodMonth,
           });
           if (!payErr) paymentCreated = true;
           else req.log?.error({ err: payErr }, 'Error creando pago menor');
@@ -511,6 +625,8 @@ router.post(
             due_date:         payCalc.dueDate,
             status:           'pending',
             payment_type:     'subscription',
+            period_year:      payCalc.periodYear,
+            period_month:     payCalc.periodMonth,
           });
           if (!payErr) paymentCreated = true;
           else req.log?.error({ err: payErr }, 'Error creando pago adulto');
@@ -579,6 +695,8 @@ router.post(
             due_date:     payCalc.dueDate,
             status:       'pending',
             payment_type: 'subscription',
+            period_year:  payCalc.periodYear,
+            period_month: payCalc.periodMonth,
           });
           if (!payErr) paymentCreated = true;
         }
@@ -657,6 +775,17 @@ router.post(
 
       // ── FLUJO D: Atleta adulto sin cuenta ──────────────────────────────────────────
       if (data.type === 'unregistered_adult') {
+        // Esta rama NO tenía ningún chequeo: insertaba directo. Es la que creó
+        // DAIMARIS VASQUEZ PEREZ tres minutos antes de que la misma persona
+        // apareciera como atleta adulta con su propia cuenta.
+        if (!data.allow_duplicate) {
+          const dup = await findExistingAthlete(schoolId, {
+            docNumber: data.doc_number,
+            fullName: data.full_name,
+          });
+          if (dup) return res.status(409).json(duplicateResponse(dup));
+        }
+
         const { data: ua, error: uaErr } = await supabase
           .from('unregistered_athletes')
           .insert({
@@ -729,6 +858,7 @@ router.post(
             amount: payCalc.amount,
             concept: `${conceptName} — ${payCalc.description} — ${data.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
             due_date: payCalc.dueDate, status: 'pending', payment_type: 'subscription',
+            period_year: payCalc.periodYear, period_month: payCalc.periodMonth,
           });
         }
 

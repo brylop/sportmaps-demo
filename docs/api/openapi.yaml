@@ -481,6 +481,20 @@ paths:
       responses:
         '200': { description: OK }
         '500': { description: Error }
+  /api/v1/attendance/history:
+    get:
+      tags: [attendance]
+      summary: Histórico de asistencia de la escuela por mes (por atleta, por día y matriz atleta × día)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { in: query, name: month, required: false, schema: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' }, description: 'Mes YYYY-MM; por defecto el mes en curso (America/Bogota)' }
+        - { in: query, name: teamId, required: false, schema: { type: string, format: uuid }, description: 'Filtra a las asistencias de un equipo' }
+        - { in: query, name: offeringId, required: false, schema: { type: string, format: uuid }, description: 'Filtra a las asistencias de un plan/oferta' }
+      responses:
+        '200': { description: OK }
+        '400': { description: Falta el contexto de escuela }
+        '500': { description: Error }
   /api/v1/attendance/link-unregistered:
     post:
       tags: [attendance]

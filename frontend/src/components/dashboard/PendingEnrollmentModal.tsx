@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { getPendingEnrollment, clearPendingEnrollment, PendingEnrollment } from '@/lib/pending-enrollment';
 import { PaymentModal } from '@/components/payment/PaymentModal';
 import { ChildSelectorModal } from '@/components/enrollment/ChildSelectorModal';
@@ -53,7 +54,7 @@ export function PendingEnrollmentModal() {
           team_id: pendingEnrollment.teamId,
           school_id: pendingEnrollment.schoolId,
           ...(profile?.role === 'athlete' ? {} : { child_id: selectedChildId }),
-          start_date: new Date().toISOString().split('T')[0],
+          start_date: todayColombia(),
           status: 'active',
         });
 

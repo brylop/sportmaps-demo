@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,68 @@ export default function ParentCheckoutPage() {
   const [showSensitive, setShowSensitive] = useState(false);
   const [manualReceiptUrl, setManualReceiptUrl] = useState('');
   const [manualOcrResult, setManualOcrResult] = useState<ReceiptValidationResult | null>(null);
+
+  // En Android/iOS subir el comprobante abre el selector de archivos o la cámara del
+  // sistema. Al volver al WebView el acudiente queda donde estaba —arriba, con los
+  // datos bancarios y el QR de por medio— y el aviso de "falta el último paso" más el
+  // botón de enviar quedan fuera de pantalla. Ese regreso es el punto donde se pierde
+  // el paso 2: nueve familias de Dynasty subieron y no confirmaron (2026-08-05).
+  // Traerlos al aviso en cuanto el archivo queda cargado.
+  /**
+   * Enlaza el comprobante al cobro EN CUANTO se sube, sin esperar la confirmación.
+   *
+   * El flujo del acudiente son dos pasos y el segundo es perdible: si se cae en el
+   * medio, el archivo queda huérfano en storage, `payments` sin tocar, y la escuela
+   * sin ver nada. Peor: la policy de storage autoriza por `payments.receipt_url`, así
+   * que un huérfano NO lo puede leer ni la escuela ni la familia — solo el service
+   * role. Medido en Dynasty el 2026-08-05: 9 familias, y el caso de Paola Reyes
+   * (pagó $90.000 anticipado por Bre-B el 02-ago y el cobro seguía pendiente).
+   *
+   * Con esto el comprobante queda visible en "Validación de Cobros" desde la subida.
+   * El paso de confirmar sigue existiendo y reescribe esto mismo más el OCR completo;
+   * este adelanto es la red por si no llega.
+   *
+   * DOS GUARDAS, y las dos vienen de errores reales:
+   *
+   *   1. Solo con `paymentIdParam`. Sin él no sabemos a qué cobro pertenece y NO se
+   *      adivina: Diana María Pinzón tenía un comprobante de julio (ya pagado) y un
+   *      pendiente de agosto, y un UPDATE que filtraba por "impago" le habría pegado
+   *      el soporte de julio al cobro de agosto.
+   *   2. Solo sobre cobros abiertos. `paid`/`approved`/`glosado`/`cancelled` no se
+   *      tocan. Se incluye `awaiting_approval` a propósito para que una segunda
+   *      subida CORRIJA la anterior (subió la imagen equivocada y la reemplaza).
+   *
+   * OJO — consecuencia contable: al salir de `pending`, el cobro deja de sumar en las
+   * tarjetas de Finanzas (que cuentan pending/overdue) y `apply_late_fees` deja de
+   * correrle la mora. Es el intercambio buscado —la familia ya hizo su parte— y la
+   * plata no se pierde de vista: pasa a la cola de "Por Validar".
+   */
+  const linkReceiptOnUpload = async (url: string) => {
+    if (!paymentIdParam || !url) return;
+    const { error } = await supabase
+      .from('payments')
+      .update({
+        receipt_url: url,
+        status: 'awaiting_approval',
+        updated_at: new Date().toISOString(),
+      } as any)
+      .eq('id', paymentIdParam)
+      .in('status', ['pending', 'overdue', 'awaiting_approval']);
+
+    // No se le grita al acudiente: el botón de confirmar sigue siendo el camino
+    // principal y reescribe todo. Esto es el respaldo.
+    if (error) console.error('[checkout] no se pudo enlazar el comprobante al subirlo:', error.message);
+  };
+
+  const pendingSendRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!manualReceiptUrl) return;
+    // rAF: esperar a que el aviso exista en el DOM antes de desplazarse.
+    const raf = requestAnimationFrame(() => {
+      pendingSendRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [manualReceiptUrl]);
 
   // Feature Flag State
   const [paymentSettings, setPaymentSettings] = useState<{ allow_online: boolean; allow_manual: boolean } | null>(null);
@@ -293,7 +356,7 @@ export default function ParentCheckoutPage() {
     const mutableFields = {
       // Manual paga "awaiting_approval" (admin valida); Wompi paga "paid" directo
       status: paymentFlow === 'manual' ? 'awaiting_approval' : 'paid',
-      payment_date: new Date().toISOString().split('T')[0],
+      payment_date: todayColombia(),
       receipt_number: reference,
       payment_method: paymentFlow === 'wompi' ? 'card' : 'transfer',
       receipt_url: manualReceiptUrl,
@@ -337,7 +400,7 @@ export default function ParentCheckoutPage() {
         // Si tenemos label del periodo, usarlo en lugar del concept libre del
         // query string (mas consistente con la fuente de verdad de la BD).
         concept: periodLabel ? `Mensualidad ${periodLabel}` : concept,
-        due_date: new Date().toISOString().split('T')[0],
+        due_date: todayColombia(),
         payment_type: 'one_time',
         school_id: schoolId,
         // El período solo se estampa al CREAR el cobro (no al actualizar uno del QR).
@@ -827,13 +890,45 @@ export default function ParentCheckoutPage() {
                             </div>
                           )}
                           
+                          {/* Paso a paso ANTES de subir. El aviso de "falta 1 paso" ya
+                              existía pero es reactivo: aparece recién después de cargar el
+                              archivo y en móvil queda debajo del QR, fuera de pantalla. Nueve
+                              familias de Dynasty subieron el comprobante y no confirmaron
+                              (medido 2026-08-05): el archivo quedó huérfano en storage, el
+                              cobro sin tocar, y la escuela sin ver nada. Decirle que son tres
+                              pasos ANTES de empezar es lo que evita que se caiga en el medio. */}
                           <div className="mt-4 pt-4 border-t">
-                            <Label className="text-xs font-semibold mb-2 block">Sube tu Comprobante:</Label>
+                            {/* Panel propio y no más letra chica suelta: si esto se ve como
+                                fine print, se saltea. `list-outside` + `pl-5` para que la
+                                línea que se parte en móvil quede alineada con el texto y no
+                                debajo del número; `marker:` resalta el número sin maquetar
+                                badges a mano. */}
+                            {/* Tamaños mobile-first: `sm:` es 640px y un teléfono en vertical
+                                mide 390–430, así que `text-xs sm:text-sm` le dejaba 12px al
+                                celular —donde la instrucción más importa— y 14 al escritorio.
+                                Base 14px para todos. `marker:` no lo aplican WebViews viejos
+                                de iOS; degrada a número sin estilo, no rompe el layout. */}
+                            <div className="rounded-lg border bg-muted/40 p-3 mb-3">
+                              <p className="text-sm font-bold mb-2 leading-snug">
+                                Para que tu pago quede registrado, completa los 3 pasos:
+                              </p>
+                              <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-outside pl-5 leading-snug marker:font-bold marker:text-foreground">
+                                <li>Haz la transferencia a la cuenta de arriba.</li>
+                                <li>Sube aquí la imagen del comprobante.</li>
+                                <li>
+                                  Pulsa <strong className="text-foreground">"Enviar comprobante"</strong> al final de la pantalla.
+                                  {' '}<span className="text-amber-700 dark:text-amber-500 font-semibold">
+                                    Sin este paso tu pago no queda registrado.
+                                  </span>
+                                </li>
+                              </ol>
+                            </div>
+                            <Label className="text-xs sm:text-sm font-semibold mb-2 block">Paso 2 — Sube tu comprobante:</Label>
                             <FileUpload
                               bucket="payment-receipts"
                               path={`manual-payments/${user?.id}`}
                               accept="image/*,application/pdf"
-                              onUploadComplete={(url) => setManualReceiptUrl(url)}
+                              onUploadComplete={(url) => { setManualReceiptUrl(url); void linkReceiptOnUpload(url); }}
                               onValidationResult={(r) => setManualOcrResult(r)}
                               validateReceipt={true}
                               schoolId={resolvedSchoolId || undefined}
@@ -852,10 +947,45 @@ export default function ParentCheckoutPage() {
 
                 {paymentFlow !== 'mercadopago' && (
                   <>
+                    {/* Este aviso ya existía en text-xs ámbar suave y no alcanzó: las nueve
+                        familias que se cayeron lo tuvieron en pantalla. Se sube el volumen y
+                        se nombra la consecuencia — que el comprobante se pierde si cierra —
+                        porque "aún no se ha enviado" se lee como un detalle, no como un
+                        trabajo a medias. */}
                     {paymentFlow === 'manual' && manualReceiptUrl && (
-                      <div className="mt-4 flex items-start gap-2 text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3">
-                        <span className="font-bold whitespace-nowrap">Falta 1 paso:</span>
-                        <span>tu comprobante está cargado pero <strong>aún no se ha enviado</strong>. Pulsa el botón de abajo para enviarlo a la escuela.</span>
+                      // El tono depende de si el comprobante YA quedó enlazado al cobro
+                      // (linkReceiptOnUpload, que solo corre con payment_id). Si llegó,
+                      // decir "se pierde si cierras" seria mentirle. Si no hay payment_id
+                      // no se enlazo nada y la advertencia fuerte sigue siendo la verdad.
+                      <div
+                        ref={pendingSendRef}
+                        role="alert"
+                        aria-live="polite"
+                        className={`mt-4 flex items-start gap-3 text-sm rounded-lg p-3 leading-snug scroll-mt-4 border-2 ${
+                          paymentIdParam
+                            ? 'bg-emerald-50 border-emerald-400 text-emerald-900 dark:bg-emerald-950/40 dark:border-emerald-600 dark:text-emerald-200'
+                            : 'bg-amber-100 border-amber-400 text-amber-900 dark:bg-amber-950/40 dark:border-amber-600 dark:text-amber-200'
+                        }`}
+                      >
+                        {paymentIdParam
+                          ? <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5" />
+                          : <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />}
+                        <span className="min-w-0">
+                          {paymentIdParam ? (
+                            <>
+                              <strong className="block text-base mb-0.5">Tu comprobante ya llegó a la escuela</strong>
+                              Queda guardado y la escuela puede verlo. Para terminar de registrar tu pago,
+                              pulsa el botón de abajo.
+                            </>
+                          ) : (
+                            <>
+                              <strong className="block text-base mb-0.5">Falta el último paso</strong>
+                              Tu comprobante se cargó, pero <strong>todavía no llegó a la escuela</strong>.
+                              Si cierras esta pantalla ahora se pierde y tu pago sigue pendiente.
+                              Pulsa el botón de abajo para enviarlo.
+                            </>
+                          )}
+                        </span>
                       </div>
                     )}
                     <Button className="w-full mt-4" onClick={handlePayment} disabled={processing || (!canPayOnline && !canPayManual)}>

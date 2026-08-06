@@ -26,13 +26,22 @@ export async function getCutoffDay(schoolId: string): Promise<number> {
 }
 
 /**
- * Vencimiento canónico del cobro: día de corte de la escuela, en el mes
- * SIGUIENTE al de la fecha de inicio (se conserva la semántica de "el alta no
- * cobra el mes en curso"), acotado al último día de ese mes.
+ * Vencimiento canónico del cobro: día de corte de la escuela DENTRO DEL MES DE
+ * ENTRADA, acotado al último día de ese mes y nunca antes del día del alta.
  *
  * Antes cada rama inventaba su propia fecha (start_date + 1 mes para equipo,
  * plan_start + 30 días para plan): cobros del MISMO mes con vencimientos
  * distintos y cada edición corriéndole la fecha al alumno.
+ *
+ * EL PERIODO ES EL MES DE ENTRADA. Antes esta función devolvía `mes + 1` a
+ * propósito ("el alta no cobra el mes en curso") y eso resultó ser el error:
+ * quien se inscribía y pagaba en agosto quedaba con un cobro de SEPTIEMBRE, su
+ * agosto no se facturaba nunca y salía "al día" sin tener cobro. Medido en
+ * Dynasty el 2026-08-04: 12 atletas y $1.730.000 aparcados en septiembre. El
+ * desfase tampoco se autocorregía — `next_unpaid_period` seguía avanzando.
+ *
+ * `due_date` NO define el mes cubierto: el periodo se devuelve aparte y los
+ * callers lo persisten, sin depender de `trg_payments_fill_period`.
  */
 export async function billingDue(schoolId: string, startDate: string): Promise<{
     due_date: string;
@@ -40,17 +49,17 @@ export async function billingDue(schoolId: string, startDate: string): Promise<{
     period_month: number;
 }> {
     const cutoff = await getCutoffDay(schoolId);
-    const [y, m] = startDate.split('-').map(Number);
-    const year = m === 12 ? y + 1 : y;
-    const month = m === 12 ? 1 : m + 1;
-    // Día 0 del mes siguiente = último día del mes objetivo.
-    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-    const day = Math.min(cutoff, lastDay);
+    const [y, m, d] = startDate.split('-').map(Number);
+    // Día 0 del mes siguiente = último día del mes de entrada.
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    // Nunca antes del día del alta: con alta el 20 y corte 10, un vencimiento el
+    // 10 nace en mora y el motor de recargos le cobra un atraso que no existió.
+    const day = Math.max(Math.min(cutoff, lastDay), d);
     const pad = (n: number) => String(n).padStart(2, '0');
     return {
-        due_date: `${year}-${pad(month)}-${pad(day)}`,
-        period_year: year,
-        period_month: month,
+        due_date: `${y}-${pad(m)}-${pad(day)}`,
+        period_year: y,
+        period_month: m,
     };
 }
 

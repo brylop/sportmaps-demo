@@ -33,7 +33,8 @@ import {
   Truck,
   ShieldCheck,
   CreditCard,
-  MonitorSpeaker
+  MonitorSpeaker,
+  History
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 import { SHOW_EXPLORE } from '@/lib/feature-flags';
@@ -225,7 +226,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           },
           { title: 'Resultados', href: '/results', icon: Trophy },
           { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity },
-          { title: 'Rutinas del Gym', href: '/school/routines', icon: Dumbbell },
+          { title: 'Gestión de Rutinas', href: '/school/routines', icon: Dumbbell },
           { title: 'Reportes', href: '/coach-reports', icon: FileText },
           { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText }
         ]
@@ -266,13 +267,14 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity },
-          { title: 'Rutinas del Gym', href: '/school/routines', icon: Dumbbell },
+          { title: 'Gestión de Rutinas', href: '/school/routines', icon: Dumbbell },
           { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText },
           {
             title: 'Asistencias',
             icon: BarChart3,
             submenu: [
               { title: 'Supervisión', href: '/attendance-supervision', icon: BarChart3 },
+              { title: 'Histórico', href: '/attendance-history', icon: History },
               { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
             ],
           },
@@ -498,13 +500,14 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             ]
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
-          { title: 'Rutinas del Gym', href: '/school/routines', icon: Dumbbell },
+          { title: 'Gestión de Rutinas', href: '/school/routines', icon: Dumbbell },
            { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText },
           {
             title: 'Asistencias',
             icon: BarChart3,
             submenu: [
               { title: 'Supervisión', href: '/attendance-supervision', icon: BarChart3 },
+              { title: 'Histórico', href: '/attendance-history', icon: History },
               { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
             ],
           },

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { todayColombia } from '@/lib/dateUtils';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -77,7 +78,7 @@ export function usePrograms(schoolId: string | undefined) {
       const { error: enrollError } = await supabase.from('enrollments').insert({
         user_id: userId,
         team_id: teamId,
-        start_date: new Date().toISOString().split('T')[0],
+        start_date: todayColombia(),
         status: 'active',
       });
 

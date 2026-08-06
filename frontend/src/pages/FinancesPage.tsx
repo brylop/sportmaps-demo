@@ -10,7 +10,7 @@ import { DollarSign, AlertCircle, TrendingUp, MessageCircle, CheckCircle2, Histo
 import { useToast } from '@/hooks/use-toast';
 import { ReminderHistoryModal, ReminderRecord } from '@/components/finances/ReminderHistoryModal';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
-import { todayColombia, daysDiffFromToday } from '@/lib/dateUtils';
+import { todayColombia, daysDiffFromToday, formatDayCO } from '@/lib/dateUtils';
 import { Input } from '@/components/ui/input';
 import { PaymentOriginBadge } from '@/components/payment/PaymentOriginBadge';
 import {
@@ -58,9 +58,62 @@ interface Transaction {
   isPartial: boolean;
   origin: PaymentOrigin;
   raw: PaymentOriginInput;
+  /** Día + hora + id: orden estable. Ver `sortKey` más abajo. */
+  sortKey: string;
 }
 
 const TX_PAGE_SIZE = 10;
+
+/**
+ * Tope explícito de la consulta. No es un filtro: es el techo que PostgREST
+ * aplica igual (`max-rows` = 1000) aunque no se pida nada. Pedirlo a la vista
+ * permite DARSE CUENTA de que se truncó, en vez de perder plata en silencio
+ * — el mismo principio que F-01. Dynasty ya va en 593 filas de `payments` y
+ * cada mes agrega ~360 cobros, así que el techo se cruza pronto.
+ */
+const FETCH_CAP = 1000;
+
+/**
+ * Estados que esta pantalla usa de verdad: transacciones (paid/partial) y
+ * cartera (pending/overdue). `cancelled` son cobros anulados por las limpiezas
+ * de duplicados — 169 de las 593 filas de Dynasty — y no se muestran en ninguna
+ * de las dos tablas: traerlos solo acerca el techo de 1000.
+ */
+const USED_STATUSES = ['paid', 'partial', 'pending', 'overdue'] as const;
+
+/** Lo mínimo que hay que saber de un cobro para clasificarlo como vencido o por vencer. */
+type ChargeState = {
+  status: string;
+  due_date: string;
+  period_year?: number | null;
+  period_month?: number | null;
+};
+
+/**
+ * Un cobro de un mes que todavía no empieza NO está vencido, aunque su `due_date`
+ * ya haya pasado. Salía "Mensualidad Septiembre 2026 · 2 días vencido" el 4 de
+ * agosto, porque el QR estampaba el período de septiembre pero el vencimiento del
+ * día en que se generó el cobro. Espejo del cinturón que lleva `apply_late_fees`
+ * en la migración 20260804125644.
+ */
+const isFuturePeriod = (p: ChargeState): boolean => {
+  if (!p.period_year || !p.period_month) return false;
+  const [y, m] = todayColombia().split('-').map(Number);
+  return p.period_year * 12 + p.period_month > y * 12 + m;
+};
+
+const isUnpaid = (p: ChargeState): boolean => p.status === 'pending' || p.status === 'overdue';
+
+/** Vencido de verdad: impago, de un período ya empezado, y con el plazo cumplido. */
+const isOverdueCharge = (p: ChargeState): boolean =>
+  isUnpaid(p) && !isFuturePeriod(p) && (p.status === 'overdue' || p.due_date < todayColombia());
+
+/**
+ * Impago que aún no vence. Incluye a propósito los `overdue` de período futuro:
+ * si solo se los quitáramos de "vencido" sin recogerlos acá, esa plata
+ * desaparecería de las dos tarjetas — el mismo fallo silencioso que F-01.
+ */
+const isUpcomingCharge = (p: ChargeState): boolean => isUnpaid(p) && !isOverdueCharge(p);
 
 export default function FinancesPage() {
   const { toast } = useToast();
@@ -96,10 +149,19 @@ export default function FinancesPage() {
           wompi_transaction_id,
           provider_transaction_id,
           qr_id,
+          period_year,
+          period_month,
           student:children(full_name),
           parent:profiles!payments_parent_id_fkey(full_name)
         `)
-        .order('due_date', { ascending: false });
+        .in('status', USED_STATUSES as unknown as string[])
+        // `id` como último criterio: sin un desempate determinista, dos cargas
+        // de la misma pantalla podían devolver los empates de `due_date` en
+        // orden distinto y mover filas de página.
+        .order('due_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(FETCH_CAP);
 
       if (schoolId) query = query.eq('school_id', schoolId);
       // Un pago sin sede asignada (branch_id NULL) no es "de otra sede": con
@@ -117,12 +179,12 @@ export default function FinancesPage() {
   // Calculate Aggregates
   const financialSummary = {
     totalIncome: payments?.filter(p => p.status === 'paid').reduce((sum, p) => sum + Number(p.amount), 0) || 0,
-    totalOverdue: payments?.filter(p => p.status === 'overdue' || (p.status === 'pending' && p.due_date < todayColombia())).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
-    pendingPayments: payments?.filter(p => p.status === 'pending' && p.due_date >= todayColombia()).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
+    totalOverdue: payments?.filter(isOverdueCharge).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
+    pendingPayments: payments?.filter(isUpcomingCharge).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
   };
 
   // Map Overdue Accounts
-  const accountsData = payments?.filter(p => p.status === 'overdue' || (p.status === 'pending' && p.due_date < todayColombia())) || [];
+  const accountsData = payments?.filter(isOverdueCharge) || [];
 
   const [overdueAccounts, setOverdueAccounts] = useState<OverdueAccount[]>([]);
 
@@ -151,12 +213,26 @@ export default function FinancesPage() {
   const nameOf = (v: unknown): string | null =>
     (Array.isArray(v) ? (v[0] as { full_name?: string })?.full_name : (v as { full_name?: string })?.full_name) || null;
 
+  /**
+   * Clave de orden del listado. El DÍA lo manda `payment_date` (la fecha
+   * declarada del pago), pero `payment_date` es una columna `date`: no tiene
+   * hora, así que no desempata nada. Con 53 pagos entre el 3 y el 5 de agosto
+   * todos empataban, y el orden dentro del empate lo terminaba decidiendo el
+   * orden en que Postgres devolvía las filas — que no está garantizado y cambia
+   * entre cargas. Resultado: la página 1 mezclaba días salteados y NO eran las
+   * 10 transacciones más recientes, así que un pago recién aprobado parecía no
+   * existir (estaba en la página 7). `created_at` + `id` desempatan estable.
+   */
+  const sortKey = (p: { payment_date?: string | null; created_at?: string | null; due_date?: string | null; id: string }) =>
+    `${(p.payment_date || p.created_at || p.due_date || '').slice(0, 10)}|${p.created_at || ''}|${p.id}`;
+
   const allTransactions: Transaction[] = (payments || [])
     .filter(p => p.status === 'paid' || p.status === 'partial')
     .map(p => ({
       id: p.id,
       // La fecha del movimiento es cuándo se pagó; due_date es cuándo se debía.
       date: p.payment_date || p.created_at || p.due_date,
+      sortKey: sortKey(p),
       athlete: nameOf(p.student) || nameOf(p.parent) || 'Sin nombre',
       // Solo se muestra el pagador si es alguien distinto del atleta (menores).
       payer: nameOf(p.student) ? nameOf(p.parent) : null,
@@ -166,7 +242,7 @@ export default function FinancesPage() {
       origin: resolvePaymentOrigin(p),
       raw: p as PaymentOriginInput,
     }))
-    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    .sort((a, b) => b.sortKey.localeCompare(a.sortKey));
 
   // Base = solo búsqueda. De acá salen los contadores de las tarjetas de origen,
   // para que el número de cada tarjeta cuadre con lo que muestra la tabla.
@@ -296,10 +372,27 @@ export default function FinancesPage() {
         </div>
       </div>
 
+      {/* Truncamiento visible, no silencioso: si la consulta topó el límite, los
+          totales de abajo están incompletos y hay que decirlo. */}
+      {payments && payments.length >= FETCH_CAP && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Vista incompleta</AlertTitle>
+          <AlertDescription>
+            Se alcanzó el tope de {FETCH_CAP} cobros por consulta, así que los totales
+            y las tablas de esta pantalla <strong>no incluyen todo el histórico</strong>.
+            Hay que acotar por período en el servidor antes de usar estos números.
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Ingresado (Mes)</CardTitle>
+            {/* Histórico a propósito: el acumulado del mes en curso vive en la
+                tarjeta "Ingresos del Mes" del Dashboard. El rótulo decía "(Mes)"
+                pero la cuenta nunca filtró por mes. */}
+            <CardTitle className="text-sm font-medium">Total Ingresado (Histórico)</CardTitle>
             <DollarSign className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
@@ -466,7 +559,7 @@ export default function FinancesPage() {
                 <div className="flex items-center justify-between gap-2">
                   <PaymentOriginBadge payment={t.raw} />
                   <span className="text-[11px] text-muted-foreground whitespace-nowrap shrink-0">
-                    {t.date ? new Date(t.date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' }) : '—'}
+                    {formatDayCO(t.date)}
                   </span>
                 </div>
               </div>
@@ -495,7 +588,7 @@ export default function FinancesPage() {
                 ) : pagedTransactions.map((t) => (
                   <TableRow key={t.id}>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                      {t.date ? new Date(t.date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                      {formatDayCO(t.date)}
                     </TableCell>
                     <TableCell>
                       {/* El deportista es lo que diferencia dos pagos del mismo

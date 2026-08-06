@@ -1,8 +1,38 @@
 import { Router, Response, NextFunction } from 'express';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { todayInZone, addDaysToDateString } from '../utils/businessDate';
 
 const router = Router();
+
+/** Tamaño de página de PostgREST (`max-rows`). No se puede pedir más en una sola vuelta. */
+const PG_PAGE = 1000;
+
+/**
+ * Trae TODAS las filas de una consulta, paginando con `.range()`.
+ *
+ * PostgREST corta en 1000 filas aunque no se pida `limit`, y lo hace en
+ * silencio: un reporte de ingresos sobre una escuela con más de 1000 cobros
+ * devolvía un total incompleto sin ninguna señal. Un reporte que miente por
+ * debajo es peor que uno que falla.
+ */
+async function fetchAllRows<T>(build: () => any): Promise<T[]> {
+    const out: T[] = [];
+    for (let from = 0; ; from += PG_PAGE) {
+        const { data, error } = await build().range(from, from + PG_PAGE - 1);
+        if (error) throw error;
+        const page = (data || []) as T[];
+        out.push(...page);
+        if (page.length < PG_PAGE) return out;
+    }
+}
+
+/**
+ * Suma de dinero realmente recibido. `paid` cuenta por el total del cobro y
+ * `partial` solo por lo abonado — sumar `amount` de un abono infla el ingreso.
+ */
+const receivedAmount = (p: { status?: string | null; amount?: unknown; amount_paid?: unknown }): number =>
+    Number(p.status === 'partial' ? (p.amount_paid ?? 0) : p.amount) || 0;
 
 // Middleware helper to determine which branch_id to filter by.
 const getBranchFilter = (req: AuthenticatedRequest): string | null => {
@@ -114,23 +144,32 @@ router.get(
                 .sort((a, b) => a[1].sortKey - b[1].sortKey)
                 .map(([month, data]) => ({ month, nuevos: data.nuevos, retiros: data.retiros }));
 
-            // 3. Obtener Pagos confirmados
-            let paymentsQuery = supabase
-                .from('payments')
-                .select('amount, concept')
-                .eq('school_id', schoolId)
-                .eq('status', 'paid');
-
-            if (branchFilterId) paymentsQuery = paymentsQuery.eq('branch_id', branchFilterId);
-
-            const { data: payments, error: payError } = await paymentsQuery;
-            if (payError) req.log?.warn({ err: payError }, 'Error fetching payments for reports');
+            // 3. Obtener Pagos confirmados (histórico completo, paginado)
+            //    `partial` entra por lo abonado: un abono también es plata que entró.
+            //    Si esta consulta falla, el endpoint falla: devolver el reporte con
+            //    `totalRevenue: 0` se lee como "no hubo ingresos". El frontend ya
+            //    tiene su propio fallback contra Supabase para este caso.
+            const payments: any[] = await fetchAllRows<any>(() => {
+                let q = supabase
+                    .from('payments')
+                    .select('amount, amount_paid, status, concept')
+                    .eq('school_id', schoolId)
+                    .in('status', ['paid', 'partial'])
+                    // `id` fija el orden: sin él, dos páginas del mismo `.range()`
+                    // pueden repetir o saltarse filas.
+                    .order('id', { ascending: true });
+                // Un cobro con `branch_id` NULL es un cobro SIN sede asignada, no uno
+                // de otra sede: con `.eq()` se caían 44 de los 89 pagos de agosto de
+                // Dynasty y el reporte de ingresos salía a la mitad.
+                if (branchFilterId) q = q.or(`branch_id.is.null,branch_id.eq.${branchFilterId}`);
+                return q;
+            });
 
             let revenueSum = 0;
             const revenueByConcept = new Map<string, number>();
 
             (payments || []).forEach((p: any) => {
-                const amt = Number(p.amount) || 0;
+                const amt = receivedAmount(p);
                 revenueSum += amt;
                 const conceptShort = p.concept?.split('-')[0]?.trim() || 'General';
                 revenueByConcept.set(conceptShort, (revenueByConcept.get(conceptShort) || 0) + amt);
@@ -172,9 +211,9 @@ router.get(
             const branchFilterId = getBranchFilter(req);
             const days = parseInt(req.query.days as string) || 30;
 
-            const sinceDate = new Date();
-            sinceDate.setDate(sinceDate.getDate() - days);
-            const since = sinceDate.toISOString().split('T')[0];
+            // Ventana en hora Colombia. `toISOString()` sobre el reloj de Render
+            // (UTC) corría el inicio de la ventana un día después de las 7 p.m.
+            const since = addDaysToDateString(todayInZone(), -days);
 
             // 1. Students
             let studentsQuery = supabase
@@ -240,13 +279,19 @@ router.get(
             // dashboard del auditor.
             let paymentsQuery = supabase
                 .from('payments')
-                .select('id, amount, status, concept, due_date, period_year, period_month, created_at, child_id, user_id, parent_id, unregistered_athlete_id, branch_id')
+                .select('id, amount, amount_paid, status, concept, due_date, payment_date, period_year, period_month, created_at, child_id, user_id, parent_id, unregistered_athlete_id, branch_id')
                 .eq('school_id', schoolId)
-                .gte('created_at', since)
+                // La ventana mira las DOS fechas. Con solo `created_at` se caía del
+                // reporte un pago cobrado dentro del período cuyo cobro se había
+                // emitido antes — que es el caso normal de una mensualidad (48 de
+                // los 89 pagos de agosto de Dynasty).
+                .or(`created_at.gte.${since},payment_date.gte.${since}`)
                 .order('created_at', { ascending: false })
-                .limit(1000);
+                .limit(PG_PAGE);
 
-            if (branchFilterId) paymentsQuery = paymentsQuery.eq('branch_id', branchFilterId);
+            // branch_id NULL = sin sede asignada, no "de otra sede". Ver el reporte
+            // general más arriba.
+            if (branchFilterId) paymentsQuery = paymentsQuery.or(`branch_id.is.null,branch_id.eq.${branchFilterId}`);
 
             const { data: paymentsRaw, error: paymentsErr } = await paymentsQuery;
             if (paymentsErr) throw paymentsErr;
@@ -333,12 +378,21 @@ router.get(
 
             const sedes = await Promise.all(
                 (sedesData || []).map(async (sede: any) => {
-                    const [studRes, coachRes, payRes] = await Promise.all([
+                    // OJO: acá el `.eq('branch_id')` SÍ corresponde — es el desglose
+                    // POR sede. La consecuencia es que los cobros sin sede asignada
+                    // (44 de los 89 de agosto en Dynasty) no entran en ninguna fila,
+                    // así que la suma de las sedes es menor que el ingreso total.
+                    const [studRes, coachRes, pagos] = await Promise.all([
                         supabase.from('children').select('id', { count: 'exact', head: true }).eq('branch_id', sede.id),
                         supabase.from('school_members').select('id', { count: 'exact', head: true }).eq('branch_id', sede.id).in('role', ['coach', 'staff']),
-                        supabase.from('payments').select('amount').eq('branch_id', sede.id).eq('status', 'paid'),
+                        fetchAllRows<any>(() => supabase
+                            .from('payments')
+                            .select('amount, amount_paid, status')
+                            .eq('branch_id', sede.id)
+                            .in('status', ['paid', 'partial'])
+                            .order('id', { ascending: true })),
                     ]);
-                    const income = (payRes.data || []).reduce((s: number, p: any) => s + (p.amount || 0), 0);
+                    const income = pagos.reduce((s: number, p: any) => s + receivedAmount(p), 0);
                     return { id: sede.id, name: sede.name, students: studRes.count || 0, coaches: coachRes.count || 0, income };
                 })
             );

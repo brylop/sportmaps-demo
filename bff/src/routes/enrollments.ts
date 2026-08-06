@@ -212,26 +212,34 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
             expiresAt = date.toISOString().split('T')[0];
         }
 
-        // ✅ Anti-duplicado: el atleta lleva UNA inscripción activa por escuela —
+        // ✅ Anti-duplicado: el atleta lleva UNA inscripción abierta por escuela —
         //    el plan manda el cobro y el equipo es el roster. Si ya existe una fila
-        //    activa a la que solo le falta el dato que llega (equipo sin plan, o
-        //    plan sin equipo), se completa esa fila en vez de abrir una segunda.
-        //    Sin esto, asignar un plan a un atleta ya inscrito en su equipo dejaba
-        //    dos inscripciones activas: roster inflado y riesgo de doble cobro.
-        const { data: activeEnrollments, error: activeError } = await supabase
+        //    a la que solo le falta el dato que llega (equipo sin plan, o plan sin
+        //    equipo), se completa esa fila en vez de abrir una segunda.
+        //
+        //    OJO — 'pending' cuenta como abierta. Antes esta consulta filtraba
+        //    `status='active'` y ahí se escapaba el duplicado: submit_qr_signup crea
+        //    la inscripción como 'pending' cuando el QR tiene require_first_payment,
+        //    así que al asignarle el plan desde la app no se encontraba candidato a
+        //    merge y se insertaba una segunda fila. Medido en Dynasty el 2026-08-04:
+        //    6 atletas de 418, TODOS con forma 1 active + 1 pending, ninguno con dos
+        //    activas. La misma ceguera la tenían los índices únicos parciales
+        //    (WHERE status='active') y la RPC de limpieza merge_split_enrollments,
+        //    así que el problema no era detectable con las herramientas de entonces.
+        const { data: openEnrollments, error: openError } = await supabase
             .from('enrollments')
-            .select('id, team_id, offering_plan_id, monthly_fee')
+            .select('id, team_id, offering_plan_id, monthly_fee, status')
             .eq(studentField, studentId)
             .eq('school_id', schoolId)
-            .eq('status', 'active')
+            .in('status', ['active', 'pending'])
             .order('created_at', { ascending: true });
 
-        if (activeError) throw activeError;
+        if (openError) throw openError;
 
         const athleteCol = athleteColFor(athleteType);
         const startDate = data.start_date || todayInZone();
 
-        const mergeTarget = (activeEnrollments || []).find((row: any) =>
+        const mergeTarget = (openEnrollments || []).find((row: any) =>
             (!data.team_id || !row.team_id || row.team_id === data.team_id) &&
             (!data.offering_plan_id || !row.offering_plan_id || row.offering_plan_id === data.offering_plan_id) &&
             ((data.team_id && !row.team_id) || (data.offering_plan_id && !row.offering_plan_id))
@@ -245,8 +253,16 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
         // quedaba roto con 23505. Ahora se reemplaza sobre la misma fila, igual
         // que hace el editor: se anula el cobro del plan viejo y se emite el del
         // nuevo. Una sola inscripción activa por atleta, siempre.
-        const planHolders = (activeEnrollments || []).filter(
-            (row: any) => row.offering_plan_id && row.offering_plan_id !== data.offering_plan_id,
+        //
+        // El reemplazo se queda SOLO sobre filas activas, a propósito: anula los
+        // cobros del plan viejo y emite el del nuevo, y esa contabilidad está pensada
+        // para una inscripción ya activa. Sobre una 'pending' el cobro vivo es el
+        // primer pago que emitió el QR, y decidir por código si se anula es plata de
+        // una familia. Ese caso cae al 409 de más abajo y lo resuelve un humano desde
+        // la ficha del atleta.
+        const planHolders = (openEnrollments || []).filter(
+            (row: any) => row.status === 'active'
+                && row.offering_plan_id && row.offering_plan_id !== data.offering_plan_id,
         );
         const replaceTarget = data.offering_plan_id && data.status === 'active' && !mergeTarget && planHolders.length
             ? planHolders[0]
@@ -330,14 +346,29 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
             // El plan recién asignado tiene que traer su mensualidad: antes esta
             // rama dejaba al atleta con plan y sin cobro (se leía como "el plan
             // no se agregó").
-            if (data.offering_plan_id && !mergeTarget.offering_plan_id && data.status === 'active') {
+            //
+            // Pero NO si la fila fusionada está 'pending': ese atleta entró por QR y
+            // ya tiene emitido su primer pago. Emitir acá le cobraría el mes dos
+            // veces, que es peor que la fila duplicada que este fix vino a evitar.
+            // La inscripción tampoco se activa (decisión de producto 2026-08-04): la
+            // escuela completa el plan, la activación sigue esperando el pago, así
+            // que se ignora el `status: 'active'` que trae el request por default.
+            if (
+                data.offering_plan_id
+                && !mergeTarget.offering_plan_id
+                && data.status === 'active'
+                && mergeTarget.status === 'active'
+            ) {
                 await emitPlanCharge(schoolId!, athleteCol, studentId!, data.offering_plan_id, startDate);
             }
 
             return res.status(200).json({
-                message: 'Inscripción actualizada exitosamente',
+                message: mergeTarget.status === 'pending'
+                    ? 'Inscripción actualizada. Sigue pendiente de pago.'
+                    : 'Inscripción actualizada exitosamente',
                 data: merged,
-                merged: true
+                merged: true,
+                still_pending: mergeTarget.status === 'pending',
             });
         }
 
@@ -364,8 +395,12 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
         // Cuando llegue la multi-categoría (MOD-3), este 409 se relaja: el segundo
         // team_id pasará a crear una fila en enrollment_categories.
         // Ref: docs/plan-f0-generacion-de-mes-y-cobros-duplicados.md §3.2 vía A, §5 B1.
-        if (!mergeTarget && !replaceTarget && (activeEnrollments?.length ?? 0) > 0) {
-            const current = activeEnrollments![0];
+        if (!mergeTarget && !replaceTarget && (openEnrollments?.length ?? 0) > 0) {
+            // Si hay una activa, esa es la que manda el mensaje; si solo hay una
+            // 'pending' (alta por QR sin pagar), se nombra como tal para que el admin
+            // no crea que el atleta ya está adentro.
+            const current = openEnrollments!.find((r: any) => r.status === 'active') ?? openEnrollments![0];
+            const isPending = current.status === 'pending';
             let currentTeamName: string | null = null;
             if (current.team_id) {
                 const { data: t } = await supabase
@@ -373,12 +408,16 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
                 currentTeamName = (t as any)?.name ?? null;
             }
             return res.status(409).json({
-                error: 'El atleta ya tiene una inscripción activa en esta escuela.',
-                details: currentTeamName
-                    ? `Hoy está en "${currentTeamName}". Para moverlo de equipo, edítalo desde la ficha del atleta: así se anulan los cobros pendientes del equipo anterior.`
-                    : 'Para cambiar su equipo o su plan, edítalo desde la ficha del atleta.',
+                error: isPending
+                    ? 'El atleta ya tiene una inscripción pendiente de pago en esta escuela.'
+                    : 'El atleta ya tiene una inscripción activa en esta escuela.',
+                details: isPending
+                    ? 'Se inscribió por QR y su primer pago está sin saldar. Complétala desde la ficha del atleta en vez de crear otra: abrir una segunda deja al atleta con dos inscripciones y rompe la renovación del plan.'
+                    : currentTeamName
+                        ? `Hoy está en "${currentTeamName}". Para moverlo de equipo, edítalo desde la ficha del atleta: así se anulan los cobros pendientes del equipo anterior.`
+                        : 'Para cambiar su equipo o su plan, edítalo desde la ficha del atleta.',
                 enrollment_id: current.id,
-                code: 'ATHLETE_ALREADY_ENROLLED',
+                code: isPending ? 'ATHLETE_ENROLLMENT_PENDING' : 'ATHLETE_ALREADY_ENROLLED',
             });
         }
 

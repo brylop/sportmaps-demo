@@ -32,6 +32,7 @@ import facilitiesRouter from './routes/facilities';
 import paymentsRouter from './routes/payments.routes';
 import glosasRouter from './routes/glosas.routes';
 import adminPaymentsRouter from './routes/admin-payments.routes';
+import adminSupportRouter from './routes/admin-support.routes';
 import paymentTokensRouter from './routes/payment-tokens.routes';
 import recurringRouter from './routes/recurring.routes';
 import { vendorPayoutsRouter, adminPayoutsRouter } from './routes/vendor-payouts.routes';
@@ -334,6 +335,8 @@ app.use('/api/v1/certificates', generalLimiter, certificatesRouter);
 app.use('/api/v1/join-qr', generalLimiter, joinQrRouter);
 app.use('/api/v1/access', generalLimiter, accessApiRouter);
 app.use('/api/v1/admin/access-logs', generalLimiter, accessAdminRouter);
+// Consola de soporte (super_admin) — F0 solo lectura.
+app.use('/api/v1/admin/support', generalLimiter, adminSupportRouter);
 
 // ── Social sharing — OG meta tags for crawlers ──────────────────────────────
 app.use('/share', ogPreviewRouter);
