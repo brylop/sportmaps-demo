@@ -1023,6 +1023,33 @@ const main = async () => {
   say('**Conclusión operativa:** la emisión tiene que ser dirigida (por `enrollment_id`/atleta, los 13 del bucket D), no un `open_month` de toda la escuela. Y hasta que la fusión F3 limpie los duplicados, correr el botón de generar mes sobre Dynasty vuelve a romper lo que se arregló el 5-ago.');
   say('');
 
+  // ── Pagos atrasados cargados a mano ───────────────────────────────────────
+  // Se reportan explícitamente porque a primera vista parecen un bug de rotulado
+  // —"el cobro de agosto quedó marcado como julio"— y esa lectura equivocada saca
+  // de la cola a gente que sí debe el mes.
+  const retrofechados = pays.filter((p) => {
+    if (!VIVOS.has(p.status) || p.period_year == null) return false;
+    const periodo = `${p.period_year}-${String(p.period_month).padStart(2, '0')}`;
+    return periodo < String(p.created_at).slice(0, 7);
+  });
+  if (retrofechados.length) {
+    const nombreDe = (p) => String(idxKid.get(p.child_id)?.full_name
+      ?? idxProf.get(p.user_id)?.full_name ?? idxUa.get(p.unregistered_athlete_id)?.full_name ?? '—').trim();
+    say('## Cobros con período anterior a su mes de creación (no es un bug)');
+    say('');
+    say(`Hay **${retrofechados.length}** cobros vivos cuyo período es anterior al mes en que se crearon. **No están mal rotulados.** La plataforma no tiene forma de registrar el pago de un mes anterior, así que cuando una familia salda tarde, el admin crea el cobro a mano desde el panel con el vencimiento del mes que corresponde; \`trg_payments_fill_period\` lo estampa con ese período aunque se haya creado hoy.`);
+    say('');
+    say('| Atleta | Monto | Período | Creado | Estado | Qué significa |');
+    say('|---|---|---|---|---|---|');
+    for (const p of retrofechados.sort((a, b) => nombreDe(a).localeCompare(nombreDe(b)))) {
+      const saldado = PAGADOS.has(p.status);
+      say(`| ${nombreDe(p)} | ${money(p.amount)} | ${p.period_year}-${String(p.period_month).padStart(2, '0')} | ${String(p.created_at).slice(0, 10)} | ${p.status} | ${saldado ? 'saldó un mes viejo — **el mes corriente sigue faltando**' : 'deuda anterior real, se cobra aparte del mes corriente'} |`);
+    }
+    say('');
+    say(`Por eso ninguno de estos cuenta como cobro de ${ANIO}-${String(MES).padStart(2, '0')}, y las personas que aparecen acá **siguen en su bucket**: pagar julio no paga agosto.`);
+    say('');
+  }
+
   say('## Lo que va a pasar cuando se emita (triggers vivos, verificados en la base)');
   say('');
   say('No es teoría: son los triggers que hoy están activos sobre `payments` y `children`.');

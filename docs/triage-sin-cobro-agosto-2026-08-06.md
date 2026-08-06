@@ -314,6 +314,20 @@ Los 13 del bucket D **sí** están entre los elegibles y con el mismo monto — 
 
 **Conclusión operativa:** la emisión tiene que ser dirigida (por `enrollment_id`/atleta, los 13 del bucket D), no un `open_month` de toda la escuela. Y hasta que la fusión F3 limpie los duplicados, correr el botón de generar mes sobre Dynasty vuelve a romper lo que se arregló el 5-ago.
 
+## Cobros con período anterior a su mes de creación (no es un bug)
+
+Hay **5** cobros vivos cuyo período es anterior al mes en que se crearon. **No están mal rotulados.** La plataforma no tiene forma de registrar el pago de un mes anterior, así que cuando una familia salda tarde, el admin crea el cobro a mano desde el panel con el vencimiento del mes que corresponde; `trg_payments_fill_period` lo estampa con ese período aunque se haya creado hoy.
+
+| Atleta | Monto | Período | Creado | Estado | Qué significa |
+|---|---|---|---|---|---|
+| HADE SOFIA PRADA ACERO | $180.000 | 2026-07 | 2026-08-05 | paid | saldó un mes viejo — **el mes corriente sigue faltando** |
+| JUAN JOSE PEÑA | $210.000 | 2026-07 | 2026-08-05 | paid | saldó un mes viejo — **el mes corriente sigue faltando** |
+| LAURA SOFIA FAJARDO RINCON | $150.000 | 2026-07 | 2026-08-01 | paid | saldó un mes viejo — **el mes corriente sigue faltando** |
+| MARIA PAULA ESCOBAR BENITEZ | $210.000 | 2026-07 | 2026-08-05 | paid | saldó un mes viejo — **el mes corriente sigue faltando** |
+| SALOME MONTENEGRO PIEDRAHITA | $90.000 | 2026-07 | 2026-08-06 | pending | deuda anterior real, se cobra aparte del mes corriente |
+
+Por eso ninguno de estos cuenta como cobro de 2026-08, y las personas que aparecen acá **siguen en su bucket**: pagar julio no paga agosto.
+
 ## Lo que va a pasar cuando se emita (triggers vivos, verificados en la base)
 
 No es teoría: son los triggers que hoy están activos sobre `payments` y `children`.
