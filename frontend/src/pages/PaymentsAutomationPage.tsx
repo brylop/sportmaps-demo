@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { NumberStepper } from '@/components/ui/number-stepper';
-import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loader2, XCircle, Save, Bell, DollarSign, Shield, Smartphone, Building2, AlertTriangle, Trophy, Zap, Banknote } from 'lucide-react';
+import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loader2, XCircle, Save, Bell, DollarSign, Shield, AlertTriangle, Trophy, Zap, Banknote } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { formatCurrency, maskSensitive } from '@/lib/utils';
@@ -25,7 +25,7 @@ import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { emailClient } from '@/lib/email-client';
 import { ReviewInstallmentModal } from '@/components/payment/ReviewInstallmentModal';
 import { InstallmentsConfigCard } from '@/components/payment/InstallmentsConfigCard';
-import { todayColombia, formatDayCO } from '@/lib/dateUtils';
+import { todayColombia, formatDayCO, daysDiffFromToday } from '@/lib/dateUtils';
 import { SportMapsPaySettings } from '@/components/settings/SportMapsPaySettings';
 import { RegisterCashPaymentModal } from '@/components/payment/RegisterCashPaymentModal';
 import { ApprovePaymentMethodSheet } from '@/components/payment/ApprovePaymentMethodSheet';
@@ -177,24 +177,47 @@ const OPT_IN_STATUSES = ['cancelled', 'overdue', 'pending', 'failed'] as const;
 // Historial = movimientos con plata, con desenlace real, o en discusión abierta.
 const HISTORY_DEFAULT_STATUSES = ['paid', 'partial', 'rejected', 'glosado'] as const;
 
-// Periodo del Historial. Se aplica en el SERVIDOR: es el filtro explícito que
-// acota el volumen, en vez de un tope de filas que corta en silencio. 'all' es
-// el único caso donde el límite de seguridad puede quedarse corto, y se avisa.
-const HISTORY_PERIODS = [
-  { value: '3m', label: 'Últimos 3 meses', months: 3 },
-  { value: '12m', label: 'Últimos 12 meses', months: 12 },
-  { value: 'all', label: 'Todo el histórico', months: null as number | null },
-] as const;
-type HistoryPeriod = typeof HISTORY_PERIODS[number]['value'];
+// Rango del Historial: dos fechas exactas (desde / hasta), no bloques de meses.
+// La pregunta operativa de la escuela es "¿qué entró HOY?", y un selector de
+// "últimos 3 meses" no la responde. Se aplica en el SERVIDOR para acotar el
+// volumen, en vez de un tope de filas que corta en silencio.
+//
+// LA FECHA QUE MANDA ES LA DEL PAGO (`payment_date`), no la de emisión del
+// cobro: la mensualidad de agosto se emite el 30 de julio (batch `open_month`)
+// y se paga en agosto. Filtrar por `created_at` metía los pagos de hoy en el
+// bloque de julio. Cuando la fila no tiene fecha de pago propia se cae a
+// `created_at`, que es lo único que hay.
+const HISTORY_DEFAULT_RANGE_DAYS = 365;
 
-/** Fecha ISO desde la cual pedir, o null para no acotar. */
-function periodSince(period: HistoryPeriod): string | null {
-  const months = HISTORY_PERIODS.find(p => p.value === period)?.months ?? null;
-  if (months == null) return null;
-  const d = new Date();
-  d.setMonth(d.getMonth() - months);
-  return d.toISOString();
+/** 'YYYY-MM-DD' + n días. Aritmética de calendario pura, sin husos de por medio. */
+function addDaysToDay(day: string, n: number): string {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
+
+/**
+ * Medianoche hora Colombia de un 'YYYY-MM-DD', en ISO UTC — para comparar
+ * contra `created_at`, que es `timestamptz`. 00:00 COT = 05:00Z del mismo día.
+ * Se expresa en Z y no con offset `-05:00` para no meter signos en el valor de
+ * un filtro de PostgREST.
+ */
+const dayStartUtc = (day: string) => `${day}T05:00:00.000Z`;
+
+/** Día Colombia de un timestamp, para comparar contra un rango 'YYYY-MM-DD'. */
+const dayInCO = (iso: string) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date(iso));
+
+/**
+ * Atajos del rango. `from`/`to` son funciones y no valores: el módulo se evalúa
+ * una vez y la pestaña puede quedar abierta cruzando la medianoche, así que "Hoy"
+ * tiene que resolverse en el clic.
+ */
+const HISTORY_QUICK_RANGES: { label: string; from: () => string; to: () => string }[] = [
+  { label: 'Hoy', from: () => todayColombia(), to: () => todayColombia() },
+  { label: 'Ayer', from: () => addDaysToDay(todayColombia(), -1), to: () => addDaysToDay(todayColombia(), -1) },
+  { label: 'Este mes', from: () => `${todayColombia().slice(0, 7)}-01`, to: () => todayColombia() },
+  { label: 'Último año', from: () => addDaysToDay(todayColombia(), -HISTORY_DEFAULT_RANGE_DAYS), to: () => todayColombia() },
+];
 
 /** Tope de seguridad de la consulta. No es el filtro: es la red por si acaso. */
 const HISTORY_FETCH_CAP = 500;
@@ -277,24 +300,63 @@ interface PaymentKpis {
   approval_rate: number | null;
 }
 
+/** Una inscripción activa: a quién se le cobra, cuánto, y qué pasó este mes. */
 interface TeamSubscription {
   id: string;
   full_name: string;
   child_id?: string | null;
   user_id?: string | null;
   unregistered_athlete_id?: string | null;
-  // Equipo
   team_id?: string | null;
   team_name?: string | null;
-  price_monthly: number;
-  // Plan
+  /** Sede del equipo. `enrollments` no tiene sede propia; la hereda del equipo. */
+  branch_id?: string | null;
   offering_plan_id?: string | null;
   plan_name?: string | null;
-  plan_price?: number;
-  has_team: boolean;
-  has_plan: boolean;
+  /** Cuota que se le va a cobrar de verdad. Ver `effectiveFee`. */
+  fee: number;
+  /** De dónde salió la cuota, para poder explicar un $0 sin abrir la base. */
+  fee_source: 'enrollment' | 'plan' | 'team' | 'none';
   start_date: string;
+  /** Cobro del mes en curso si existe. `null` = no se le generó nada. */
+  charge: { status: string; due_date: string | null; amount: number } | null;
+  /** Deuda de meses ANTERIORES que sigue sin pagar. */
+  arrears: { count: number; amount: number } | null;
+  /** Atleta al que pertenece la fila. Para no sumar su deuda dos veces. */
+  athlete_key: string | null;
 }
+
+/**
+ * Cuota efectiva de una inscripción, en el MISMO orden que usa el resto del
+ * sistema al cobrar: `enrollments.monthly_fee` manda, el plan es el respaldo y
+ * el precio del equipo es el último recurso.
+ *
+ * Esta pantalla leía `teams.price_monthly` de una: en Dynasty está en 0 para
+ * todos los equipos, así que 419 de 422 filas mostraban $0 — $57.5M de
+ * mensualidad invisible — mientras el monto real estaba en `monthly_fee`.
+ */
+function effectiveFee(e: {
+  monthly_fee?: number | null;
+  plan?: { price?: number | null } | null;
+  team?: { price_monthly?: number | null } | null;
+}): { fee: number; source: TeamSubscription['fee_source'] } {
+  const own = Number(e.monthly_fee) || 0;
+  if (own > 0) return { fee: own, source: 'enrollment' };
+  const plan = Number(e.plan?.price) || 0;
+  if (plan > 0) return { fee: plan, source: 'plan' };
+  const team = Number(e.team?.price_monthly) || 0;
+  if (team > 0) return { fee: team, source: 'team' };
+  return { fee: 0, source: 'none' };
+}
+
+/**
+ * Cuál de los cobros del mes representa a la inscripción cuando hay varios.
+ * Gana el que está más avanzado: si ya hay uno pagado, la fila está pagada
+ * aunque arrastre otro pendiente de una segunda categoría.
+ */
+const CHARGE_PRIORITY: Record<string, number> = {
+  paid: 0, partial: 1, awaiting_approval: 2, glosado: 3, pending: 4, overdue: 5, rejected: 6, failed: 7,
+};
 
 export default function PaymentsAutomationPage() {
   const { profile } = useAuth();
@@ -323,9 +385,20 @@ export default function PaymentsAutomationPage() {
   const [historySearch, setHistorySearch] = useState('');
   const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
   const [historyTeamFilter, setHistoryTeamFilter] = useState('all');
-  const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>('12m');
+  // Rango por fecha del pago. Arranca en el último año para no cambiar de golpe
+  // lo que la escuela ya veía al entrar; los atajos de abajo lo acotan a un día.
+  const [historyFrom, setHistoryFrom] = useState(() => addDaysToDay(todayColombia(), -HISTORY_DEFAULT_RANGE_DAYS));
+  const [historyTo, setHistoryTo] = useState(() => todayColombia());
   const [historyPage, setHistoryPage] = useState(1);
   const HISTORY_PAGE_SIZE = 10;
+
+  // Filtros "Equipos y Planes". Antes pintaba las 855 filas de una, sin buscador
+  // ni orden: para encontrar a alguien había que usar Ctrl+F del navegador.
+  const [subsSearch, setSubsSearch] = useState('');
+  const [subsTeamFilter, setSubsTeamFilter] = useState('all');
+  const [subsSort, setSubsSort] = useState<'name' | 'fee' | 'urgency'>('name');
+  const [subsPage, setSubsPage] = useState(1);
+  const SUBS_PAGE_SIZE = 15;
 
   // Filtros Validación (Pendientes)
   const [pendingSearch, setPendingSearch] = useState('');
@@ -338,7 +411,8 @@ export default function PaymentsAutomationPage() {
   const [activeTeams, setActiveTeams] = useState<{ id: string; name: string }[]>([]);
 
   // Reset de la paginación del historial cuando cambian los filtros
-  useEffect(() => { setHistoryPage(1); }, [historySearch, historyStatusFilter, historyTeamFilter, historyPeriod]);
+  useEffect(() => { setHistoryPage(1); }, [historySearch, historyStatusFilter, historyTeamFilter, historyFrom, historyTo]);
+  useEffect(() => { setSubsPage(1); }, [subsSearch, subsTeamFilter, subsSort, activeBranchId]);
 
   useEffect(() => {
     const teamsMap = new Map();
@@ -366,7 +440,7 @@ export default function PaymentsAutomationPage() {
   useEffect(() => {
     if (!didMountRef.current) { didMountRef.current = true; return; }
     if (schoolId) fetchPayments();
-  }, [extraStatusRequested, historyPeriod]);
+  }, [extraStatusRequested, historyFrom, historyTo]);
 
   const fetchGlosas = async () => {
     if (!schoolId) return;
@@ -472,13 +546,33 @@ export default function PaymentsAutomationPage() {
         .order('created_at', { ascending: false })
         .limit(HISTORY_FETCH_CAP);
 
-      // Periodo, también en el servidor. Los comprobantes por validar NUNCA se
-      // recortan por fecha: si un comprobante viejo sigue esperando aprobación
-      // tiene que verse, y esconderlo por antigüedad es justo el bug que
-      // dejó uno de Dynasty invisible.
-      const since = periodSince(historyPeriod);
-      if (since) {
-        query = query.or(`created_at.gte.${since},status.in.(awaiting_approval,partial,glosado)`);
+      // Rango de fechas, también en el servidor. Se compara contra `payment_date`
+      // (columna `date`, se compara pelada) y, solo cuando esa está en NULL,
+      // contra `created_at` (`timestamptz`, se compara con los límites del día
+      // en hora Colombia).
+      //
+      // Los comprobantes por validar NUNCA se recortan por fecha: si uno viejo
+      // sigue esperando aprobación tiene que verse, y esconderlo por antigüedad
+      // es justo el bug que dejó uno de Dynasty invisible. Esa exención es para
+      // la COLA; el Historial sí respeta el rango exacto, y lo aplica en cliente
+      // sobre estas mismas filas (ver `inHistoryRange`).
+      if (historyFrom || historyTo) {
+        const byPaymentDate = ['payment_date.not.is.null'];
+        const byCreatedAt = ['payment_date.is.null'];
+        if (historyFrom) {
+          byPaymentDate.push(`payment_date.gte.${historyFrom}`);
+          byCreatedAt.push(`created_at.gte.${dayStartUtc(historyFrom)}`);
+        }
+        if (historyTo) {
+          byPaymentDate.push(`payment_date.lte.${historyTo}`);
+          // Límite superior EXCLUSIVO al arranque del día siguiente: con `lte`
+          // sobre el mismo día se perdía todo lo del día "hasta" después de las
+          // 00:00, que es todo.
+          byCreatedAt.push(`created_at.lt.${dayStartUtc(addDaysToDay(historyTo, 1))}`);
+        }
+        query = query.or(
+          `and(${byPaymentDate.join(',')}),and(${byCreatedAt.join(',')}),status.in.(awaiting_approval,partial,glosado)`,
+        );
       }
 
       // Un pago con branch_id NULL no es "de otra sede": es un pago sin sede
@@ -519,6 +613,11 @@ export default function PaymentsAutomationPage() {
 
       setPayments(((data as any[]) || []).map((p) => ({
         id: p.id, amount: p.amount, amount_paid: p.amount_paid, status: p.status, created_at: p.created_at,
+        // `payment_date` se pedía al servidor pero se caía acá: la columna Fecha
+        // y el CSV llevaban meses mostrando `created_at` (la EMISIÓN del cobro)
+        // por el fallback de `reportedDate`. Un pago aprobado hoy sobre una
+        // mensualidad emitida el 30/jul se leía como "30 de jul".
+        payment_date: p.payment_date ?? null,
         payment_method: p.payment_method, payment_type: p.payment_type,
         receipt_url: p.receipt_url, concept: p.concept,
         child_id: p.child_id, parent_id: p.parent_id, user_id: p.user_id,
@@ -596,8 +695,9 @@ export default function PaymentsAutomationPage() {
         .select(`
           id, child_id, user_id, unregistered_athlete_id,
           team_id, offering_plan_id,
+          monthly_fee,
           start_date,
-          team:teams!enrollments_team_id_fkey ( name, price_monthly ),
+          team:teams!enrollments_team_id_fkey ( name, price_monthly, branch_id ),
           plan:offering_plans!enrollments_offering_plan_id_fkey ( name, price )
         `)
         .eq('school_id', schoolId)
@@ -632,11 +732,75 @@ export default function PaymentsAutomationPage() {
         : { data: [] };
       const unregMap = new Map<string, string>((unreg ?? []).map(u => [u.id, u.full_name]));
 
-      const mapped = rawEnrollments.map(e => {
+      // ─── Cobro del mes en curso, por atleta ────────────────────────────────
+      // Sin esto la columna "Próximo Cobro" era la etiqueta `Día N (Prox. Mes)`
+      // repetida idéntica en todas las filas: la config de la escuela, no la
+      // realidad. Con esto se ve el `due_date` de verdad, quién ya pagó y —lo
+      // que no se veía en ninguna pantalla— a quién no se le generó el cobro.
+      const [periodYear, periodMonth] = todayColombia().split('-').map(Number);
+      const { data: periodCharges } = await (supabase.from('payments') as any)
+        .select('child_id, user_id, unregistered_athlete_id, team_id, status, due_date, amount')
+        .eq('school_id', schoolId)
+        .eq('period_year', periodYear)
+        .eq('period_month', periodMonth)
+        .neq('status', 'cancelled');
+
+      // Deuda arrastrada: cobros sin pagar que vencieron ANTES de este mes. Sin
+      // esto la pantalla solo hablaría del mes en curso y una mora vieja (Dynasty
+      // tiene una del 2026-07-10) no se vería en ninguna parte de esta pestaña.
+      const firstOfMonth = `${todayColombia().slice(0, 7)}-01`;
+      const { data: oldDebt } = await (supabase.from('payments') as any)
+        .select('child_id, user_id, unregistered_athlete_id, amount')
+        .eq('school_id', schoolId)
+        .in('status', ['pending', 'overdue'])
+        .lt('due_date', firstOfMonth);
+
+      const athleteKey = (r: { child_id?: string | null; user_id?: string | null; unregistered_athlete_id?: string | null }) =>
+        r.child_id || r.user_id || r.unregistered_athlete_id || null;
+
+      const arrearsByAthlete = new Map<string, { count: number; amount: number }>();
+      for (const d of ((oldDebt as any[]) ?? [])) {
+        const k = athleteKey(d);
+        if (!k) continue;
+        const acc = arrearsByAthlete.get(k) ?? { count: 0, amount: 0 };
+        acc.count += 1;
+        acc.amount += Number(d.amount) || 0;
+        arrearsByAthlete.set(k, acc);
+      }
+
+      const chargesByAthlete = new Map<string, any[]>();
+      for (const c of ((periodCharges as any[]) ?? [])) {
+        const k = athleteKey(c);
+        if (!k) continue;
+        const list = chargesByAthlete.get(k);
+        if (list) list.push(c); else chargesByAthlete.set(k, [c]);
+      }
+
+      /**
+       * Cobro que representa a esta inscripción. Con multi-categoría un atleta
+       * tiene dos inscripciones y puede tener dos cobros: se prefiere el del
+       * mismo equipo antes de caer al primero que aparezca.
+       */
+      const chargeFor = (e: any): TeamSubscription['charge'] => {
+        const k = athleteKey(e);
+        const all = k ? chargesByAthlete.get(k) ?? [] : [];
+        if (all.length === 0) return null;
+        const sameTeam = e.team_id ? all.filter(c => c.team_id === e.team_id) : [];
+        const pool = sameTeam.length > 0 ? sameTeam : all;
+        const best = [...pool].sort((a, b) =>
+          (CHARGE_PRIORITY[a.status] ?? 99) - (CHARGE_PRIORITY[b.status] ?? 99) ||
+          (a.due_date ?? '9999-12-31').localeCompare(b.due_date ?? '9999-12-31'),
+        )[0];
+        return { status: best.status, due_date: best.due_date ?? null, amount: Number(best.amount) || 0 };
+      };
+
+      const mapped: TeamSubscription[] = rawEnrollments.map(e => {
         let fullName = 'Sin nombre';
         if (e.child_id)                     fullName = childMap.get(e.child_id) || fullName;
         else if (e.user_id)                 fullName = profileMap.get(e.user_id) || fullName;
         else if (e.unregistered_athlete_id)   fullName = unregMap.get(e.unregistered_athlete_id) || fullName;
+
+        const { fee, source } = effectiveFee(e);
 
         return {
           id: e.id,
@@ -644,18 +808,23 @@ export default function PaymentsAutomationPage() {
           user_id: e.user_id,
           unregistered_athlete_id: e.unregistered_athlete_id,
           full_name: fullName,
-          // Equipo
           team_id: e.team_id,
           team_name: e.team?.name || null,
-          price_monthly: e.team?.price_monthly || 0,
-          // Plan
+          branch_id: e.team?.branch_id ?? null,
           offering_plan_id: e.offering_plan_id,
           plan_name: e.plan?.name || null,
-          plan_price: e.plan?.price || 0,
-          // Tipo
-          has_team: !!e.team_id,
-          has_plan: !!e.offering_plan_id,
+          fee,
+          fee_source: source,
           start_date: e.start_date,
+          charge: chargeFor(e),
+          // La deuda vieja es del ATLETA, no de una inscripción suya. Si tiene
+          // dos inscripciones activas (multi-categoría) el chip sale en ambas
+          // filas, así que el TOTAL se suma una sola vez por `athlete_key`.
+          athlete_key: athleteKey(e),
+          arrears: (() => {
+            const k = athleteKey(e);
+            return k ? arrearsByAthlete.get(k) ?? null : null;
+          })(),
         };
       });
 
@@ -885,7 +1054,22 @@ export default function PaymentsAutomationPage() {
   // tarjetas, para que muestren cuánto hay en cada estado con la búsqueda y el
   // equipo ya aplicados (si contaran sobre el total, el número no cuadraría con
   // la tabla al buscar).
-  const historyBase = rawHistoryPayments.filter(p => {
+  /** Día en que entró la plata. Sin fecha de pago, lo único que hay es la emisión. */
+  const paymentDay = (p: PaymentTransaction) => p.payment_date || dayInCO(p.created_at);
+
+  /**
+   * El Historial sí respeta el rango exacto elegido. La consulta al servidor deja
+   * pasar de largo los estados de la cola (un comprobante por validar no se puede
+   * esconder por antigüedad), así que el recorte fino va acá.
+   */
+  const inHistoryRange = (p: PaymentTransaction) => {
+    const day = paymentDay(p);
+    if (historyFrom && day < historyFrom) return false;
+    if (historyTo && day > historyTo) return false;
+    return true;
+  };
+
+  const historyBase = rawHistoryPayments.filter(inHistoryRange).filter(p => {
     const searchMatch = !historySearch ||
       p.child?.full_name?.toLowerCase().includes(historySearch.toLowerCase()) ||
       p.parent?.full_name?.toLowerCase().includes(historySearch.toLowerCase()) ||
@@ -895,9 +1079,16 @@ export default function PaymentsAutomationPage() {
     const teamMatch = historyTeamFilter === 'all' || p.team?.name === historyTeamFilter || p.team_id === historyTeamFilter;
     return searchMatch && teamMatch;
   });
-  const historyPayments = historyBase.filter(
-    p => historyStatusFilter === 'all' || p.status === historyStatusFilter,
-  );
+  // Orden por FECHA DEL PAGO, no por emisión. La consulta viene ordenada por
+  // `created_at` (necesario para que el tope de 500 recorte lo más viejo), y con
+  // ese orden un pago recibido hoy sobre una mensualidad emitida el 30/jul
+  // aparecía sepultado entre las filas de julio en vez de arriba.
+  const historyPayments = historyBase
+    .filter(p => historyStatusFilter === 'all' || p.status === historyStatusFilter)
+    .sort((a, b) =>
+      paymentDay(b).localeCompare(paymentDay(a)) ||
+      (b.created_at ?? '').localeCompare(a.created_at ?? ''),
+    );
 
   const historyCounts = historyBase.reduce<Record<string, number>>((acc, p) => {
     acc[p.status] = (acc[p.status] ?? 0) + 1;
@@ -912,24 +1103,106 @@ export default function PaymentsAutomationPage() {
   // página de 100 filas más recientes, y las tarjetas mostraban el total de esa
   // ventana como si fuera el histórico. Ahora vienen de school_payment_kpis.
 
-  const getPreferredMethod = (athleteId?: string) => {
-    if (!athleteId) return { label: 'Pendiente', icon: Clock };
-    const latest = payments.find(p => 
-      p.status === 'paid' && (
-        p.child_id === athleteId || 
-        p.user_id === athleteId || 
-        p.unregistered_athlete_id === athleteId
-      )
-    );
-    if (!latest || !latest.payment_method) return { label: 'Pendiente', icon: Clock };
-    switch (latest.payment_method.toLowerCase()) {
-      case 'transfer': return { label: 'Transferencia', icon: Smartphone };
-      case 'pse': return { label: 'PSE', icon: Building2 };
-      case 'card': return { label: 'Tarjeta', icon: CreditCard };
-      case 'cash': return { label: 'Efectivo', icon: Banknote };
-      default: return { label: latest.payment_method.toUpperCase(), icon: CreditCard };
+  // ── Equipos y Planes ──────────────────────────────────────────────────────
+  // La columna "Método" salió de acá: adivinaba el medio de pago buscando el
+  // último pago dentro del array `payments`, que lo carga el Historial acotado
+  // por estado, por el tope de 500 filas y por su rango de fechas. Si el pago
+  // del atleta no caía en esa ventana, la fila decía "Pendiente" — o sea que
+  // decía "Pendiente" en casi todas. El medio de pago se ve en el Historial,
+  // donde el dato es real; acá lo que importa es el cobro del mes.
+
+  /** Cómo va el cobro del mes de una inscripción. */
+  const chargeState = (s: TeamSubscription): { label: string; className: string; detail: string | null } => {
+    const hoy = todayColombia();
+    const vence = s.charge?.due_date ?? null;
+    const detail = vence ? `Vence ${formatDayCO(vence)}` : null;
+
+    // Lo más importante de la pantalla: nadie le generó el cobro. Ni la cartera
+    // de Finanzas lo muestra (no hay fila que mostrar) ni la cola de aprobación.
+    if (!s.charge) {
+      return { label: 'Sin cobro generado', className: 'bg-rose-100 text-rose-700 border-rose-200', detail: null };
+    }
+    switch (s.charge.status) {
+      case 'paid':
+        return { label: 'Pagado', className: 'bg-green-500 text-white border-transparent', detail };
+      case 'partial':
+        return { label: 'Abono parcial', className: 'bg-blue-50 text-blue-700 border-blue-200', detail };
+      case 'awaiting_approval':
+        return { label: 'Por validar', className: 'bg-amber-100 text-amber-700 border-amber-200', detail };
+      case 'glosado':
+        return { label: 'En aclaración', className: 'bg-orange-100 text-orange-700 border-orange-200', detail };
+      case 'rejected':
+      case 'failed':
+        return { label: 'Comprobante rechazado', className: 'bg-red-100 text-red-700 border-red-200', detail };
+      default: {
+        // pending / overdue: lo decide la fecha, no el estado. Un `pending` con
+        // due_date de julio está vencido aunque nadie haya corrido el motor de mora.
+        if (vence && vence < hoy) {
+          const dias = daysDiffFromToday(vence);
+          return {
+            label: dias === 1 ? 'Vencido ayer' : `Vencido hace ${dias} días`,
+            className: 'bg-red-50 text-red-600 border-red-200',
+            detail,
+          };
+        }
+        return { label: 'Al día', className: 'bg-slate-100 text-slate-700 border-slate-200', detail };
+      }
     }
   };
+
+  /** Prioridad de orden cuando se pide "Más urgente". */
+  const urgencyRank = (s: TeamSubscription) => {
+    if (!s.charge) return 0;                                   // nadie le generó el cobro
+    if (s.arrears) return 1;                                   // arrastra deuda de otros meses
+    if (s.charge.due_date && s.charge.due_date < todayColombia()
+      && !['paid', 'partial'].includes(s.charge.status)) return 2;
+    if (s.fee === 0) return 3;                                 // activo sin cuota
+    if (s.charge.status === 'paid') return 6;
+    return 4;
+  };
+
+  const subsFiltered = teamSubscriptions
+    // Una inscripción sin sede no es "de otra sede": es una sin asignar. Misma
+    // regla que la lista de cobros, o al filtrar por sede se caen 55 de Dynasty.
+    .filter(s => !activeBranchId || !s.branch_id || s.branch_id === activeBranchId)
+    .filter(s => {
+      const term = subsSearch.trim().toLowerCase();
+      const searchMatch = !term ||
+        s.full_name.toLowerCase().includes(term) ||
+        (s.team_name || '').toLowerCase().includes(term) ||
+        (s.plan_name || '').toLowerCase().includes(term);
+      const teamMatch = subsTeamFilter === 'all' || s.team_name === subsTeamFilter || s.team_id === subsTeamFilter;
+      return searchMatch && teamMatch;
+    })
+    .sort((a, b) => {
+      if (subsSort === 'fee') return b.fee - a.fee || a.full_name.localeCompare(b.full_name);
+      if (subsSort === 'urgency') return urgencyRank(a) - urgencyRank(b) || a.full_name.localeCompare(b.full_name);
+      return a.full_name.localeCompare(b.full_name);
+    });
+
+  // Totales sobre lo filtrado, para que cuadren con lo que la tabla muestra.
+  // La deuda anterior se suma una vez por atleta: es suya, no de cada inscripción.
+  const subsTotals = (() => {
+    const seenDebt = new Set<string>();
+    return subsFiltered.reduce(
+      (acc, s) => {
+        acc.expected += s.fee;
+        if (s.charge) acc.billed += s.charge.amount;
+        else { acc.unbilled += s.fee; acc.unbilledCount += 1; }
+        if (s.fee === 0) acc.noFee += 1;
+        if (s.arrears && s.athlete_key && !seenDebt.has(s.athlete_key)) {
+          seenDebt.add(s.athlete_key);
+          acc.arrears += s.arrears.amount;
+          acc.arrearsCount += 1;
+        }
+        return acc;
+      },
+      { expected: 0, billed: 0, unbilled: 0, unbilledCount: 0, noFee: 0, arrears: 0, arrearsCount: 0 },
+    );
+  })();
+
+  const subsTotalPages = Math.max(1, Math.ceil(subsFiltered.length / SUBS_PAGE_SIZE));
+  const pagedSubs = subsFiltered.slice((subsPage - 1) * SUBS_PAGE_SIZE, subsPage * SUBS_PAGE_SIZE);
 
   return (
     <div className="space-y-6 w-full max-w-full overflow-x-hidden animate-in fade-in">
@@ -1217,169 +1490,200 @@ export default function PaymentsAutomationPage() {
           </Card>
         </TabsContent>
 
-        {/* ── Tab: Equipos ─────────────────────────────────────────────── */}
+        {/* ── Tab: Equipos y Planes ────────────────────────────────────── */}
         <TabsContent value="teams">
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base sm:text-lg">Vista por Equipos y Planes</CardTitle>
-              <CardDescription>Cobros programados por equipo y por plan.</CardDescription>
+            <CardHeader className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+              <div>
+                <CardTitle className="text-base sm:text-lg">Vista por Equipos y Planes</CardTitle>
+                <CardDescription>
+                  Una fila por inscripción activa: cuánto se le cobra y cómo va su cobro de este mes.
+                </CardDescription>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                <Input
+                  placeholder="Buscar alumno, equipo o plan..."
+                  value={subsSearch}
+                  onChange={(e) => setSubsSearch(e.target.value)}
+                  className="w-full sm:w-[240px] h-9"
+                />
+                <select
+                  className="flex h-9 w-full sm:w-[150px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={subsTeamFilter}
+                  onChange={(e) => setSubsTeamFilter(e.target.value)}
+                >
+                  <option value="all">Todos los Equipos</option>
+                  {activeTeams.map(team => (
+                    <option key={team.id} value={team.name}>{team.name}</option>
+                  ))}
+                </select>
+                <select
+                  className="flex h-9 w-full sm:w-[150px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={subsSort}
+                  onChange={(e) => setSubsSort(e.target.value as 'name' | 'fee' | 'urgency')}
+                >
+                  <option value="name">Nombre (A-Z)</option>
+                  <option value="urgency">Más urgente</option>
+                  <option value="fee">Mayor cuota</option>
+                </select>
+              </div>
             </CardHeader>
             <CardContent className="p-0 sm:p-6">
+              {/* Totales de lo que la tabla está mostrando. Antes no había ninguno:
+                  la pantalla de los cobros programados no decía cuánto se espera cobrar. */}
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 px-4 sm:px-0 pt-4 sm:pt-0 pb-4">
+                <div className="rounded-lg border p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Esperado mensual</p>
+                  <p className="text-lg font-bold">{formatCurrency(subsTotals.expected)}</p>
+                  <p className="text-[11px] text-muted-foreground">{subsFiltered.length} inscripciones activas</p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Facturado este mes</p>
+                  <p className="text-lg font-bold text-emerald-600">{formatCurrency(subsTotals.billed)}</p>
+                  <p className="text-[11px] text-muted-foreground">cobros ya emitidos</p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Sin facturar</p>
+                  <p className={`text-lg font-bold ${subsTotals.unbilled > 0 ? 'text-rose-600' : ''}`}>
+                    {formatCurrency(subsTotals.unbilled)}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">{subsTotals.unbilledCount} sin cobro generado</p>
+                </div>
+                {/* Deuda de meses anteriores. Es del atleta, así que se cuenta
+                    una vez por persona aunque tenga dos inscripciones. */}
+                <div className="rounded-lg border p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Deuda anterior</p>
+                  <p className={`text-lg font-bold ${subsTotals.arrears > 0 ? 'text-red-600' : ''}`}>
+                    {formatCurrency(subsTotals.arrears)}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">{subsTotals.arrearsCount} atletas con mora</p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Sin cuota</p>
+                  <p className={`text-lg font-bold ${subsTotals.noFee > 0 ? 'text-amber-600' : ''}`}>{subsTotals.noFee}</p>
+                  <p className="text-[11px] text-muted-foreground">activos en cero</p>
+                </div>
+              </div>
+
               {/* Mobile cards */}
               <div className="grid grid-cols-1 gap-3 p-4 md:hidden">
                 {loading ? (
                   <div className="flex justify-center py-8"><Loader2 className="animate-spin h-6 w-6 text-muted-foreground" /></div>
-                ) : teamSubscriptions.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-8">No hay deportistas asignados a equipos o planes.</p>
-                ) : teamSubscriptions.map((sub) => (
-                  <div key={sub.id} className="border rounded-lg p-4 flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className={`font-medium text-sm truncate ${sub.has_plan ? 'text-green-600' : 'text-blue-600'}`}>{sub.full_name}</p>
-                      <p className="text-xs text-muted-foreground">{sub.team_name || sub.plan_name || 'Sin asignar'}</p>
+                ) : pagedSubs.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-8">No hay inscripciones activas con estos filtros.</p>
+                ) : pagedSubs.map((sub) => {
+                  const st = chargeState(sub);
+                  return (
+                    <div key={sub.id} className="border rounded-lg p-4 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm truncate">{sub.full_name}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {[sub.team_name, sub.plan_name].filter(Boolean).join(' · ') || 'Sin equipo ni plan'}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="font-bold text-sm">{formatCurrency(sub.fee)}</p>
+                          {sub.fee === 0 && <p className="text-[10px] text-amber-600">sin cuota</p>}
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <Badge variant="outline" className={`text-[10px] ${st.className}`}>{st.label}</Badge>
+                        {st.detail && <span className="text-[11px] text-muted-foreground">{st.detail}</span>}
+                      </div>
+                      {sub.arrears && (
+                        <p className="text-[11px] font-medium text-red-600">
+                          Debe {formatCurrency(sub.arrears.amount)} de meses anteriores
+                        </p>
+                      )}
                     </div>
-                    <div className="text-right shrink-0">
-                      <p className="font-bold text-sm">{formatCurrency(sub.price_monthly || sub.plan_price || 0)}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {billing?.billing_cycle_type === 'rolling_30'
-                          ? (() => {
-                              const d = new Date(sub.start_date + 'T12:00:00');
-                              d.setDate(d.getDate() + 30);
-                              return d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' });
-                            })()
-                          : `Día ${billing?.payment_cutoff_day || 10}`
-                        }
-                      </p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
-              {/* Desktop view */}
-              <div className="hidden md:block space-y-8">
-                {/* ── EQUIPOS ── */}
-                {teamSubscriptions.filter(s => s.has_team).length > 0 && (
-                  <div className="space-y-3">
-                    <p className="text-xs font-semibold text-muted-foreground px-1">
-                      Equipos ({teamSubscriptions.filter(s => s.has_team).length})
-                    </p>
-                    <div className="rounded-md border overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Alumno</TableHead>
-                            <TableHead>Equipo</TableHead>
-                            <TableHead>Mensualidad</TableHead>
-                            <TableHead>Próximo Cobro</TableHead>
-                            <TableHead>Método</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {teamSubscriptions.filter(s => s.has_team).map(sub => (
-                            <TableRow key={sub.id}>
-                              <TableCell className="font-medium text-blue-600">{sub.full_name}</TableCell>
-                              <TableCell>
-                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-100">
-                                  {sub.team_name || 'Sin equipo'}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="font-bold">{formatCurrency(sub.price_monthly)}</TableCell>
-                              <TableCell>
-                                <span className="flex items-center gap-1.5 text-sm">
-                                  <Clock className="h-3.5 w-3.5 text-amber-500" />
-                                  {billing?.billing_cycle_type === 'rolling_30'
-                                    ? (() => {
-                                        const d = new Date(sub.start_date + 'T12:00:00');
-                                        d.setDate(d.getDate() + 30);
-                                        return d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) + ' (+30d)';
-                                      })()
-                                    : `Día ${billing?.payment_cutoff_day || 10} (Prox. Mes)`
-                                  }
-                                </span>
-                              </TableCell>
-                              <TableCell>
-                                {(() => {
-                                  const method = getPreferredMethod(sub.child_id || sub.user_id || sub.unregistered_athlete_id || undefined);
-                                  const Icon = method.icon;
-                                  return (
-                                    <Badge variant="secondary" className="gap-1.5 py-1 px-3 bg-slate-100 text-slate-700">
-                                      <Icon className="h-3.5 w-3.5" />{method.label}
-                                    </Badge>
-                                  );
-                                })()}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                )}
-
-                {/* ── PLANES ── */}
-                {teamSubscriptions.filter(s => s.has_plan).length > 0 && (
-                  <div className="space-y-3">
-                    <p className="text-xs font-semibold text-muted-foreground px-1">
-                      Planes ({teamSubscriptions.filter(s => s.has_plan).length})
-                    </p>
-                    <div className="rounded-md border overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Atleta</TableHead>
-                            <TableHead>Plan</TableHead>
-                            <TableHead>Valor</TableHead>
-                            <TableHead>Próximo Cobro</TableHead>
-                            <TableHead>Método</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {teamSubscriptions.filter(s => s.has_plan).map(sub => (
-                            <TableRow key={sub.id}>
-                              <TableCell className="font-medium text-green-600">{sub.full_name}</TableCell>
-                              <TableCell>
-                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-100">
-                                  {sub.plan_name || 'Sin plan'}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="font-bold">{formatCurrency(sub.plan_price || 0)}</TableCell>
-                              <TableCell>
-                                <span className="flex items-center gap-1.5 text-sm">
-                                  <Clock className="h-3.5 w-3.5 text-amber-500" />
-                                  {billing?.billing_cycle_type === 'rolling_30'
-                                    ? (() => {
-                                        const d = new Date(sub.start_date + 'T12:00:00');
-                                        d.setDate(d.getDate() + 30);
-                                        return d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) + ' (+30d)';
-                                      })()
-                                    : `Día ${billing?.payment_cutoff_day || 10} (Prox. Mes)`
-                                  }
-                                </span>
-                              </TableCell>
-                              <TableCell>
-                                {(() => {
-                                  const method = getPreferredMethod(sub.child_id || sub.user_id || sub.unregistered_athlete_id || undefined);
-                                  const Icon = method.icon;
-                                  return (
-                                    <Badge variant="secondary" className="gap-1.5 py-1 px-3 bg-slate-100 text-slate-700">
-                                      <Icon className="h-3.5 w-3.5" />{method.label}
-                                    </Badge>
-                                  );
-                                })()}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                )}
-
-                {teamSubscriptions.length === 0 && !loading && (
-                   <div className="text-center py-12 text-muted-foreground">
-                     <p>No hay deportistas asignados a equipos o planes activos.</p>
-                   </div>
-                )}
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Alumno</TableHead>
+                      <TableHead>Equipo</TableHead>
+                      <TableHead>Plan</TableHead>
+                      <TableHead>Mensualidad</TableHead>
+                      <TableHead>Cobro de este mes</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading ? (
+                      <TableRow><TableCell colSpan={5} className="text-center py-8"><Loader2 className="animate-spin h-5 w-5 mx-auto text-muted-foreground" /></TableCell></TableRow>
+                    ) : pagedSubs.length === 0 ? (
+                      <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No hay inscripciones activas con estos filtros.</TableCell></TableRow>
+                    ) : pagedSubs.map((sub) => {
+                      const st = chargeState(sub);
+                      return (
+                        <TableRow key={sub.id}>
+                          <TableCell className="font-medium">{sub.full_name}</TableCell>
+                          <TableCell>
+                            {sub.team_name ? (
+                              <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100">
+                                <Trophy className="h-3 w-3 mr-1" />{sub.team_name}
+                              </Badge>
+                            ) : <span className="text-xs text-muted-foreground">—</span>}
+                          </TableCell>
+                          <TableCell>
+                            {sub.plan_name ? (
+                              <Badge variant="outline" className="text-[10px] bg-purple-50 text-purple-700 border-purple-200">
+                                <Zap className="h-3 w-3 mr-1" />{sub.plan_name}
+                              </Badge>
+                            ) : <span className="text-xs text-muted-foreground">—</span>}
+                          </TableCell>
+                          {/* El monto que se cobra de verdad, con su origen a la vista: un
+                              cero acá es una inscripción activa sin cuota, no un error de lectura. */}
+                          <TableCell>
+                            <span className="font-bold">{formatCurrency(sub.fee)}</span>
+                            {sub.fee === 0 ? (
+                              <span className="block text-[10px] text-amber-600">sin cuota asignada</span>
+                            ) : sub.fee_source !== 'enrollment' && (
+                              <span className="block text-[10px] text-muted-foreground">
+                                heredada {sub.fee_source === 'plan' ? 'del plan' : 'del equipo'}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={`text-xs ${st.className}`}>{st.label}</Badge>
+                            {st.detail && <span className="block text-[11px] text-muted-foreground mt-0.5">{st.detail}</span>}
+                            {sub.arrears && (
+                              <span className="block text-[11px] font-medium text-red-600 mt-0.5">
+                                Debe {formatCurrency(sub.arrears.amount)} de {sub.arrears.count} cobro
+                                {sub.arrears.count === 1 ? '' : 's'} anterior{sub.arrears.count === 1 ? '' : 'es'}
+                              </span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
               </div>
+              <TableRefreshBar
+                className="-mx-0 sm:-mx-6 sm:-mb-6 mt-2 sm:rounded-b-lg"
+                onRefresh={loadTeamSubscriptions}
+                loading={loading}
+                summary={
+                  subsTotalPages > 1
+                    ? `Página ${subsPage} de ${subsTotalPages} · ${subsFiltered.length} inscripciones`
+                    : `${subsFiltered.length} inscripciones`
+                }
+              >
+                {subsTotalPages > 1 && (
+                  <>
+                    <Button variant="outline" size="sm" disabled={subsPage <= 1}
+                      onClick={() => setSubsPage((p) => Math.max(1, p - 1))}>Anterior</Button>
+                    <Button variant="outline" size="sm" disabled={subsPage >= subsTotalPages}
+                      onClick={() => setSubsPage((p) => Math.min(subsTotalPages, p + 1))}>Siguiente</Button>
+                  </>
+                )}
+              </TableRefreshBar>
             </CardContent>
           </Card>
         </TabsContent>
@@ -1463,15 +1767,48 @@ export default function PaymentsAutomationPage() {
                   onChange={(e) => setHistorySearch(e.target.value)}
                   className="w-full sm:w-[250px] h-9"
                 />
-                <select
-                  className="flex h-9 w-full sm:w-[170px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  value={historyPeriod}
-                  onChange={(e) => setHistoryPeriod(e.target.value as HistoryPeriod)}
-                >
-                  {HISTORY_PERIODS.map(p => (
-                    <option key={p.value} value={p.value}>{p.label}</option>
-                  ))}
-                </select>
+                {/* Rango por FECHA DEL PAGO (no de emisión del cobro) con dos
+                    calendarios. Los atajos cubren la pregunta de todos los días,
+                    "¿qué entró hoy?", que con bloques de meses no se podía hacer. */}
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="date"
+                      aria-label="Pagos desde"
+                      title="Desde — fecha en que entró el pago"
+                      value={historyFrom}
+                      max={historyTo || todayColombia()}
+                      onChange={(e) => setHistoryFrom(e.target.value)}
+                      className="h-9 w-full sm:w-[145px]"
+                    />
+                    <span className="text-xs text-muted-foreground shrink-0">a</span>
+                    <Input
+                      type="date"
+                      aria-label="Pagos hasta"
+                      title="Hasta — fecha en que entró el pago"
+                      value={historyTo}
+                      min={historyFrom}
+                      onChange={(e) => setHistoryTo(e.target.value)}
+                      className="h-9 w-full sm:w-[145px]"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {HISTORY_QUICK_RANGES.map(q => {
+                      const active = historyFrom === q.from() && historyTo === q.to();
+                      return (
+                        <Button
+                          key={q.label}
+                          variant="ghost"
+                          size="sm"
+                          className={`h-6 px-2 text-[11px] ${active ? 'bg-muted font-semibold' : 'text-muted-foreground'}`}
+                          onClick={() => { setHistoryFrom(q.from()); setHistoryTo(q.to()); }}
+                        >
+                          {q.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
                 <select
                   className="flex h-9 w-full sm:w-[150px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   value={historyTeamFilter}
@@ -1516,7 +1853,7 @@ export default function PaymentsAutomationPage() {
                   <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                   <span>
                     Se alcanzó el máximo de {HISTORY_FETCH_CAP} movimientos por consulta.
-                    Acota el periodo o el estado para ver el resto — lo que falta no está perdido, solo no cabe en esta carga.
+                    Acota el rango de fechas o el estado para ver el resto — lo que falta no está perdido, solo no cabe en esta carga.
                   </span>
                 </div>
               )}
@@ -1583,7 +1920,9 @@ export default function PaymentsAutomationPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Fecha</TableHead>
+                      {/* "Fecha" a secas se leía como la del cobro y la escuela
+                          creía que un pago de hoy era del 30 de julio. */}
+                      <TableHead>Fecha de pago</TableHead>
                       <TableHead>Deportista</TableHead>
                       <TableHead>Concepto</TableHead>
                       <TableHead>Monto</TableHead>

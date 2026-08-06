@@ -780,6 +780,9 @@ export default function MyPaymentsPage() {
           onOpenChange={setShowCheckout}
           studentId={selectedPayment.childId}
           childId={selectedPayment.childId}
+          // Sin esto la notificación al colegio sale como "un deportista envió
+          // comprobante": el modal cae en su genérico cuando no le llega el nombre.
+          childName={selectedPayment.childName}
           teamId={selectedPayment.teamId}
           schoolId={selectedPayment.schoolId}
           paymentId={selectedPayment.paymentId}

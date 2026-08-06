@@ -215,40 +215,91 @@ router.get(
             // (UTC) corría el inicio de la ventana un día después de las 7 p.m.
             const since = addDaysToDateString(todayInZone(), -days);
 
-            // 1. Students
-            let studentsQuery = supabase
-                .from('children')
-                // children NO tiene columna `status`; default abajo (s.status || 'active').
-                .select('id, full_name, created_at, team_id, branch_id, monthly_fee')
+            // ── 1. Deportistas y su cuota ────────────────────────────────────────
+            // El KPI "Ingreso Potencial Mes" se arma sumando la cuota de esta lista, así
+            // que la cuota TIENE que resolverse por la misma cadena que genera los
+            // cobros. Antes salía de `children.monthly_fee || teams.price_monthly`, que
+            // se salta los DOS primeros eslabones de esa cadena. Medido el 2026-08-06:
+            // el KPI mostraba $10.390.000 contra $66.250.000 reales — 435 atletas y una
+            // brecha de $55.860.000, o sea el 16% de lo que debía mostrar.
+            //
+            // Cadena canónica, la de open_month (mig 20260803114540):
+            //   COALESCE(NULLIF(e.monthly_fee,0), NULLIF(op.price,0),
+            //            NULLIF(t.price_monthly,0), NULLIF(c.monthly_fee,0), 0)
+            //
+            // El NULLIF no es decorativo: un 0 no es un precio, es un "sin definir" que
+            // cae al siguiente eslabón. Por eso acá se busca el primer valor DISTINTO DE
+            // CERO y no el primero no nulo.
+            //
+            // Y el eje pasa a ser la INSCRIPCIÓN ACTIVA, no `children`: los atletas
+            // adultos (`user_id`) y los no registrados (`unregistered_athlete_id`)
+            // también pagan, y para este KPI sencillamente no existían.
+            const { data: enrollmentsRaw, error: enrollmentsErr } = await supabase
+                .from('enrollments')
+                .select('id, child_id, user_id, unregistered_athlete_id, team_id, offering_plan_id, monthly_fee, created_at')
                 .eq('school_id', schoolId)
-                .order('created_at', { ascending: false })
-                .limit(500);
+                .eq('status', 'active');
+            if (enrollmentsErr) throw enrollmentsErr;
 
-            if (branchFilterId) studentsQuery = studentsQuery.eq('branch_id', branchFilterId);
-
-            const { data: studentsRaw, error: studentsErr } = await studentsQuery;
-            if (studentsErr) throw studentsErr;
-
-            // Fetch team names separately to avoid join ambiguity
-            const studentTeamIds = [...new Set((studentsRaw || []).map((s: any) => s.team_id).filter(Boolean))];
-            const teamNameMap = new Map<string, string>();
-            const teamFeeMap = new Map<string, number>();
-            if (studentTeamIds.length > 0) {
-                const { data: teamRows } = await supabase
-                    .from('teams')
-                    // La cuota mensual del equipo es `price_monthly`; `monthly_fee`
-                    // no existe en teams (sí en children/enrollments) y hacía
-                    // fallar el select completo → 500 en todo el dashboard.
-                    .select('id, name, price_monthly')
-                    .in('id', studentTeamIds);
-                (teamRows || []).forEach((t: any) => {
-                    teamNameMap.set(t.id, t.name);
-                    teamFeeMap.set(t.id, Number(t.price_monthly) || 0);
-                });
+            // Un atleta puede tener varias inscripciones activas, pero open_month le
+            // genera UN solo cobro, eligiendo con este desempate: el plan gobierna,
+            // luego el equipo, y a igualdad la más antigua (la que carga el historial).
+            // Se replica igual, o el potencial contaría dos veces a la misma persona.
+            const enrollmentRank = (e: any): [number, number, string] => [
+                e.offering_plan_id ? 0 : 1,
+                e.team_id ? 0 : 1,
+                String(e.created_at ?? ''),
+            ];
+            const enrollmentByAthlete = new Map<string, any>();
+            for (const e of (enrollmentsRaw || [])) {
+                const athleteId = e.child_id || e.user_id || e.unregistered_athlete_id;
+                if (!athleteId) continue;
+                const prev = enrollmentByAthlete.get(athleteId);
+                if (!prev) { enrollmentByAthlete.set(athleteId, e); continue; }
+                const [ap, at, ac] = enrollmentRank(e);
+                const [bp, bt, bc] = enrollmentRank(prev);
+                if (ap < bp || (ap === bp && (at < bt || (at === bt && ac < bc)))) {
+                    enrollmentByAthlete.set(athleteId, e);
+                }
             }
+            const chosenEnrollments = [...enrollmentByAthlete.values()];
 
-            // Fetch branch names
-            const branchIds = [...new Set((studentsRaw || []).map((s: any) => s.branch_id).filter(Boolean))];
+            const uniqIds = (xs: any[]): string[] => [...new Set(xs.filter(Boolean))] as string[];
+            const athChildIds = uniqIds(chosenEnrollments.map((e: any) => e.child_id));
+            const athUserIds  = uniqIds(chosenEnrollments.map((e: any) => e.user_id));
+            const athUaIds    = uniqIds(chosenEnrollments.map((e: any) => e.unregistered_athlete_id));
+            const athTeamIds  = uniqIds(chosenEnrollments.map((e: any) => e.team_id));
+            const athPlanIds  = uniqIds(chosenEnrollments.map((e: any) => e.offering_plan_id));
+
+            const emptyRows = Promise.resolve({ data: [] as any[] });
+            const [childRes, athProfileRes, uaRes, teamRes, planRes] = await Promise.all([
+                athChildIds.length ? supabase.from('children').select('id, full_name, branch_id, monthly_fee, created_at').in('id', athChildIds) : emptyRows,
+                athUserIds.length  ? supabase.from('profiles').select('id, full_name').in('id', athUserIds) : emptyRows,
+                athUaIds.length    ? supabase.from('unregistered_athletes').select('id, full_name, created_at').in('id', athUaIds) : emptyRows,
+                // La cuota del equipo es `price_monthly`; `monthly_fee` NO existe en
+                // teams (sí en children/enrollments) y pedirla hacía fallar el select
+                // completo → 500 en todo el dashboard.
+                athTeamIds.length  ? supabase.from('teams').select('id, name, price_monthly, branch_id').in('id', athTeamIds) : emptyRows,
+                athPlanIds.length  ? supabase.from('offering_plans').select('id, price').in('id', athPlanIds) : emptyRows,
+            ]);
+
+            const childMap       = new Map((childRes.data || []).map((c: any) => [c.id, c]));
+            const athProfileMap  = new Map((athProfileRes.data || []).map((p: any) => [p.id, p]));
+            const uaMap          = new Map((uaRes.data || []).map((u: any) => [u.id, u]));
+            const teamMap        = new Map((teamRes.data || []).map((t: any) => [t.id, t]));
+            const planMap        = new Map((planRes.data || []).map((p: any) => [p.id, p]));
+
+            const teamNameMap = new Map<string, string>();
+            (teamRes.data || []).forEach((t: any) => teamNameMap.set(t.id, t.name));
+
+            // La sede sale de `COALESCE(children.branch_id, teams.branch_id)`, igual que
+            // en open_month. Un adulto sin equipo no tiene sede: cae en 'Principal'.
+            const branchOf = (e: any): string | null =>
+                (childMap.get(e.child_id) as any)?.branch_id
+                || (teamMap.get(e.team_id) as any)?.branch_id
+                || null;
+
+            const branchIds = uniqIds(chosenEnrollments.map(branchOf));
             const branchNameMap = new Map<string, string>();
             if (branchIds.length > 0) {
                 const { data: branchRows } = await supabase
@@ -258,18 +309,51 @@ router.get(
                 (branchRows || []).forEach((b: any) => branchNameMap.set(b.id, b.name));
             }
 
-            const students = (studentsRaw || []).map((s: any) => ({
-                id: s.id,
-                full_name: s.full_name || 'Sin nombre',
-                team: teamNameMap.get(s.team_id) || '—',
-                sede: branchNameMap.get(s.branch_id) || 'Principal',
-                status: s.status || 'active',
-                // Antes iba fijo en 0, así que el KPI "Ingreso Potencial Mes"
-                // salía en $0. Se toma la cuota del atleta y, si no tiene, la de
-                // su categoría.
-                fee: Number(s.monthly_fee) || teamFeeMap.get(s.team_id) || 0,
-                joined: s.created_at,
-            }));
+            // Primer valor distinto de cero: el equivalente en JS del NULLIF(x, 0) de la
+            // cadena canónica. `Number(null)` es 0 y `Number(undefined)` es NaN, así que
+            // el saneo tiene que ser explícito.
+            const firstNonZero = (...vals: any[]): number => {
+                for (const v of vals) {
+                    const n = Number(v);
+                    if (Number.isFinite(n) && n !== 0) return n;
+                }
+                return 0;
+            };
+
+            const athleteRows = chosenEnrollments.map((e: any) => {
+                const child = childMap.get(e.child_id) as any;
+                const team  = teamMap.get(e.team_id) as any;
+                const plan  = planMap.get(e.offering_plan_id) as any;
+                const branchId = branchOf(e);
+                return {
+                    id: e.child_id || e.user_id || e.unregistered_athlete_id,
+                    full_name: child?.full_name
+                        || (athProfileMap.get(e.user_id) as any)?.full_name
+                        || (uaMap.get(e.unregistered_athlete_id) as any)?.full_name
+                        || 'Sin nombre',
+                    team: teamNameMap.get(e.team_id) || '—',
+                    sede: (branchId && branchNameMap.get(branchId)) || 'Principal',
+                    status: 'active',
+                    fee: firstNonZero(e.monthly_fee, plan?.price, team?.price_monthly, child?.monthly_fee),
+                    joined: child?.created_at || (uaMap.get(e.unregistered_athlete_id) as any)?.created_at || e.created_at,
+                    branchId,
+                };
+            });
+
+            const athletesInScope = branchFilterId
+                ? athleteRows.filter(r => r.branchId === branchFilterId)
+                : athleteRows;
+
+            // El potencial se calcula sobre TODOS los atletas del alcance y viaja aparte.
+            // La lista va capada a 500 filas, y cuando el front sumaba la lista el KPI
+            // quedaba corto en silencio para cualquier escuela con más de 500 atletas.
+            const revenuePotential = athletesInScope.reduce((sum, r) => sum + r.fee, 0);
+
+            const students = athletesInScope
+                .slice()
+                .sort((a, b) => String(b.joined ?? '').localeCompare(String(a.joined ?? '')))
+                .slice(0, 500)
+                .map(({ branchId, ...rest }) => rest);
 
             // 2. Payments
             // `payments` no tiene `payment_month` ni `student_id`: el periodo vive
@@ -428,7 +512,18 @@ router.get(
                 })
             );
 
-            return res.json({ students, payments, coaches, sedes, teams });
+            // `revenue_potential` y `athletes_active` van aparte de `students` a
+            // propósito: la lista está capada a 500 filas y ningún KPI puede depender
+            // de cuántas quepan.
+            return res.json({
+                students,
+                payments,
+                coaches,
+                sedes,
+                teams,
+                revenue_potential: revenuePotential,
+                athletes_active: athletesInScope.length,
+            });
 
         } catch (err: any) {
             req.log?.error({ err: err.message || err }, 'Error en reporte de dashboard');

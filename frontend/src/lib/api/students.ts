@@ -753,15 +753,51 @@ class StudentsAPI {
       return { total: 0, active: 0, inactive: 0, by_grade: {} };
     }
     try {
-      const { data: athletes, error: athletesErr } = await supabase
-        .from('school_athletes' as any)
-        .select('id, is_active')
-        .eq('school_id', schoolId);
+      // Se cuenta sobre las tres tablas base, NO sobre la vista `school_athletes`.
+      // La vista arma cada atleta con 12 LEFT JOIN LATERAL (equipo, plan, cobro,
+      // inscripción activa) y Postgres no los puede podar aunque solo se pidan dos
+      // columnas: son joins, y con `LIMIT 1` sin prueba de unicidad no aplica join
+      // removal. Bajar el roster entero para calcular dos números costaba 746 ms de
+      // media y hasta 10,5 s (auditoría de lentitud del 2026-08-05).
+      //
+      // El conteo no necesita nada de los laterales: "activo" es columna plana en
+      // cada rama de la vista.
+      //   · menores        → children.is_active
+      //   · adultos        → school_members.status = 'active', role = 'athlete'
+      //   · no registrados → unregistered_athletes.is_active, sin los ya vinculados
+      //
+      // `count: 'exact', head: true` trae el conteo del servidor sin filas, así que
+      // el techo de filas de PostgREST no lo afecta: el conteo en JS que había antes
+      // se quedaba corto en una escuela de más de 1000 atletas.
+      //
+      // Divergencia conocida con la vista: su rama de adultos hace INNER JOIN a
+      // `profiles`, y como `school_members.profile_id` apunta a `auth.users` y no a
+      // `profiles`, un miembro sin fila visible ahí se le caía del total (ya pasó:
+      // mig 20260730160000). Acá se cuenta la membresía, que es el registro
+      // autoritativo. Si los dos números difieren, falta una fila de `profiles` —
+      // conviene verlo, no esconderlo.
+      const countAthletes = (table: string, build: (q: any) => any) =>
+        build((supabase.from(table as any) as any).select('id', { count: 'exact', head: true }));
 
-      if (athletesErr) throw athletesErr;
+      const byBranch = await Promise.all([
+        countAthletes('children', q => q.eq('school_id', schoolId)),
+        countAthletes('children', q => q.eq('school_id', schoolId).eq('is_active', true)),
+        countAthletes('school_members', q => q.eq('school_id', schoolId).eq('role', 'athlete')),
+        countAthletes('school_members', q => q.eq('school_id', schoolId).eq('role', 'athlete').eq('status', 'active')),
+        countAthletes('unregistered_athletes', q => q.eq('school_id', schoolId).is('linked_profile_id', null)),
+        countAthletes('unregistered_athletes', q => q.eq('school_id', schoolId).is('linked_profile_id', null).eq('is_active', true)),
+      ]);
 
-      const total = athletes?.length ?? 0;
-      const active = athletes?.filter((a: any) => a.is_active).length ?? 0;
+      // Un error parcial no puede pasar por cero: seis counts donde uno falla darían
+      // un total más chico y creíble, que es la peor forma de equivocarse.
+      const failed = byBranch.find((r: any) => r.error);
+      if (failed) throw (failed as any).error;
+
+      const [childrenTotal, childrenActive, adultsTotal, adultsActive, unregTotal, unregActive] =
+        byBranch.map((r: any) => r.count ?? 0);
+
+      const total = childrenTotal + adultsTotal + unregTotal;
+      const active = childrenActive + adultsActive + unregActive;
 
       return {
         total,
