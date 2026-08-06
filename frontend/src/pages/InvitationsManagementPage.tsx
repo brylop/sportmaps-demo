@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { todayColombia } from '@/lib/dateUtils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -378,7 +379,11 @@ export default function InvitationsManagementPage() {
   // ── Filtrado y ordenamiento ──────────────────────────────────────────────────
   const filteredInvitations = invitations
     .filter(inv => {
-      if (statusFilter !== 'all' && inv.status !== statusFilter) return false;
+      // 'vencidas' no es un estado de la tabla: es pending con la fecha pasada.
+      if (statusFilter === 'vencidas') {
+        if (inv.status !== 'pending' || !inv.expires_at
+            || inv.expires_at.slice(0, 10) >= todayColombia()) return false;
+      } else if (statusFilter !== 'all' && inv.status !== statusFilter) return false;
       const s = searchTerm.toLowerCase();
       if (!s) return true;
       return (
@@ -744,19 +749,35 @@ export default function InvitationsManagementPage() {
     switch (status) {
       case 'accepted': return <Badge className="bg-green-500"><Check className="w-3 h-3 mr-1" />Aceptada</Badge>;
       case 'pending': return <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />Pendiente</Badge>;
-      case 'rejected': return <Badge variant="destructive"><XIcon className="w-3 h-3 mr-1" />Rechazada</Badge>;
-      case 'expired': return <Badge variant="outline" className="text-orange-500 border-orange-300"><Clock className="w-3 h-3 mr-1" />Expirada</Badge>;
+      // La tabla guarda 'declined', no 'rejected': con el case viejo la única
+      // invitación rechazada de la plataforma caía al default y se veía como
+      // texto crudo. 'expired' tampoco existe — el vencimiento es `expires_at`.
+      case 'declined': return <Badge variant="destructive"><XIcon className="w-3 h-3 mr-1" />Rechazada</Badge>;
       case 'cancelled': return <Badge variant="outline" className="text-gray-400 border-gray-300"><XIcon className="w-3 h-3 mr-1" />Cancelada</Badge>;
       default: return <Badge variant="outline" className="text-gray-400">{status}</Badge>;
     }
   };
 
+  // ── Contadores ───────────────────────────────────────────────────────────────
+  // La taxonomía real de `invitations.status` es accepted | pending | cancelled |
+  // declined. Antes se contaba 'rejected' y 'expired', que NO existen en ninguna
+  // fila: las dos tarjetas daban 0 siempre, y las 4 filas declined/cancelled de
+  // Dynasty sumaban en Total sin aparecer en ninguna categoría (433 ≠ 152+277).
+  //
+  // "Vencidas" no es un estado: sale de `expires_at`. Y es informativo a propósito
+  // — `accept_invitation_pro` solo exige `status = 'pending'` y no mira la fecha,
+  // así que el enlace vencido SIGUE funcionando. Presentarlo como si bloqueara
+  // empuja a reemitir invitaciones que ya sirven, y reemitir es lo que genera
+  // pendientes duplicadas.
+  const hoyISO = todayColombia();
   const stats = {
     total: invitations.length,
     accepted: invitations.filter(i => i.status === 'accepted').length,
     pending: invitations.filter(i => i.status === 'pending').length,
-    rejected: invitations.filter(i => i.status === 'rejected').length,
-    expired: invitations.filter(i => i.status === 'expired').length,
+    declined: invitations.filter(i => i.status === 'declined').length,
+    cancelled: invitations.filter(i => i.status === 'cancelled').length,
+    vencidas: invitations.filter(i =>
+      i.status === 'pending' && !!i.expires_at && i.expires_at.slice(0, 10) < hoyISO).length,
   };
 
   // ── Envío masivo de invitaciones ─────────────────────────────────────────────
@@ -907,15 +928,18 @@ export default function InvitationsManagementPage() {
       {/* Antes las clases de color se armaban interpolando (`ring-${color}`) y
           Tailwind no las generaba: las tarjetas nunca se veían resaltadas. */}
       <StatFilterBar
-        columns={5}
+        columns={6}
         value={statusFilter === 'all' ? null : statusFilter}
         onChange={(v) => setStatusFilter(v ?? 'all')}
         items={[
           { key: null, label: 'Total', value: stats.total, tone: 'neutral' },
           { key: 'accepted', label: 'Aceptadas', value: stats.accepted, tone: 'emerald' },
           { key: 'pending', label: 'Pendientes', value: stats.pending, tone: 'yellow' },
-          { key: 'rejected', label: 'Rechazadas', value: stats.rejected, tone: 'rose' },
-          { key: 'expired', label: 'Expiradas', value: stats.expired, tone: 'orange' },
+          { key: 'declined', label: 'Rechazadas', value: stats.declined, tone: 'rose' },
+          { key: 'cancelled', label: 'Canceladas', value: stats.cancelled, tone: 'neutral' },
+          // Pseudo-estado: el enlace vencido igual se acepta, así que esto se
+          // muestra para saber qué tan viejo está el envío, no como un bloqueo.
+          { key: 'vencidas', label: 'Enlace viejo', value: stats.vencidas, tone: 'orange' },
         ]}
       />
 

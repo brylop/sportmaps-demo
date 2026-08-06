@@ -381,6 +381,103 @@ SELECT '9. cobro huerfano con acudiente YA vinculado (REGRESION del trigger)',
    AND c.parent_id IS NOT NULL
    AND pay.status IN ('pending','awaiting_approval','overdue','partial','glosado')
 
+UNION ALL
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 10. Invitacion con un estado que la pantalla no sabe contar
+--     La taxonomia real es accepted | pending | cancelled | declined. La pantalla
+--     contaba 'rejected' y 'expired', que no existen en ninguna fila: las dos
+--     tarjetas daban 0 y las filas declined/cancelled sumaban en Total sin
+--     aparecer en ninguna categoria (Dynasty: 433 <> 152 + 277).
+--     Corregido en la UI; esto es el guard para cuando alguien agregue un estado
+--     nuevo sin tocar los contadores.
+-- ─────────────────────────────────────────────────────────────────────────────
+SELECT '10. invitacion con estado que la UI no cuenta',
+       'media',
+       COALESCE(i.child_name, i.email),
+       'status=' || i.status || ' · creada ' || i.created_at::date,
+       i.id
+  FROM public.invitations i
+  CROSS JOIN params
+ WHERE (i.school_id = params.school_id OR params.school_id IS NULL)
+   AND i.status NOT IN ('accepted','pending','cancelled','declined')
+
+UNION ALL
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 11. Invitacion pending cuyo correo YA tiene cuenta
+--     Se registro por otra via sin consumir la invitacion: la pending es ruido
+--     que infla el contador, y el cobro del menor sigue sin pagador porque nadie
+--     vinculo al acudiente. Estas SI se pueden destrabar sin esperar a la familia.
+-- ─────────────────────────────────────────────────────────────────────────────
+SELECT '11. invitacion pending y el correo ya tiene cuenta',
+       'media',
+       COALESCE(i.child_name, i.email),
+       'ya existe el perfil ' || pr.full_name || ' <' || i.email || '>'
+         || ' · invitacion creada ' || i.created_at::date,
+       i.id
+  FROM public.invitations i
+  CROSS JOIN params
+  JOIN public.profiles pr ON lower(trim(pr.email)) = lower(trim(i.email))
+ WHERE (i.school_id = params.school_id OR params.school_id IS NULL)
+   AND i.status = 'pending'
+
+UNION ALL
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 12. Invitacion pending sin NINGUN registro de envio
+--     `email_sends` guarda un renglon por destinatario. Sin fila, el correo nunca
+--     salio, y la familia figura como "no ha entrado" cuando en realidad no la
+--     invitamos. Las creadas una a una (alta individual) son las que se escapan.
+-- ─────────────────────────────────────────────────────────────────────────────
+SELECT '12. invitacion pending sin registro de envio',
+       'alta',
+       COALESCE(i.child_name, i.email),
+       'sin fila en email_sends · ' || i.email || ' · creada ' || i.created_at::date,
+       i.id
+  FROM public.invitations i
+  CROSS JOIN params
+ WHERE (i.school_id = params.school_id OR params.school_id IS NULL)
+   AND i.status = 'pending'
+   AND NOT EXISTS (SELECT 1 FROM public.email_sends es WHERE es.invitation_id = i.id)
+
+UNION ALL
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 13. Correo de invitacion con formato imposible
+--     Caso real: 'carojas805@hotmai' (sin .com). Resend lo acepta o lo rechaza
+--     callado y la invitacion se queda pending para siempre. El chequeo es
+--     deliberadamente tonto — solo exige un punto despues de la arroba.
+-- ─────────────────────────────────────────────────────────────────────────────
+SELECT '13. correo de invitacion invalido',
+       'alta',
+       COALESCE(i.child_name, i.email),
+       'correo ilegible: ' || i.email,
+       i.id
+  FROM public.invitations i
+  CROSS JOIN params
+ WHERE (i.school_id = params.school_id OR params.school_id IS NULL)
+   AND i.status = 'pending'
+   AND i.email NOT LIKE '%@%.%'
+
+UNION ALL
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 14. AVISO: invitacion pending con el enlace ya vencido
+--     NO es un bloqueo: `accept_invitation_pro` solo exige `status = 'pending'` y
+--     nunca mira `expires_at` (mig 20260730231131), asi que el enlace vencido se
+--     acepta igual. Esta aca para medir que tan viejo esta el envio — Dynasty
+--     tenia 265 de 277 vencidas todas el mismo dia, 30 dias despues del alta
+--     masiva. Si algun dia se empieza a validar la fecha, esto pasa a severidad
+--     alta y hay que reemitirlas.
+-- ─────────────────────────────────────────────────────────────────────────────
+SELECT '14. AVISO: pending con enlace vencido (igual funciona)',
+       'aviso',
+       COALESCE(i.child_name, i.email),
+       'vencio ' || i.expires_at::date || ' · enviada ' || i.created_at::date,
+       i.id
+  FROM public.invitations i
+  CROSS JOIN params
+ WHERE (i.school_id = params.school_id OR params.school_id IS NULL)
+   AND i.status = 'pending'
+   AND i.expires_at IS NOT NULL
+   AND i.expires_at::date < params.hoy
+
 ORDER BY 1, 3
 -- (sin punto y coma final: el editor de Supabase envuelve la consulta para
 --  aplicar su LIMIT 100 y un ';' interno rompe ese wrapper)
