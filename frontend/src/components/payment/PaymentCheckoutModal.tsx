@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { todayColombia } from '@/lib/dateUtils';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -41,6 +41,7 @@ import { PaymentConfirmModal } from '@/components/payment/PaymentConfirmModal';
 import { useWompiCheckout, type ServerQuote } from '@/hooks/useWompiCheckout';
 import { blockPwaReload, unblockPwaReload } from '@/pwa/reloadGuard';
 import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
+import { resolvePaymentAccounts, accountDisplayLabel } from '@/lib/payment-accounts';
 import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
 import { autoEvaluate as autoEvaluateGlosa } from '@/lib/api/glosas';
 import {
@@ -164,24 +165,38 @@ export function PaymentCheckoutModal({
     ? { year: nextPeriod.year, month: nextPeriod.month, label: nextPeriod.label }
     : null);
 
+  // Llaves que la escuela dejó visibles. Es la misma lista contra la que el BFF
+  // valida el destino del comprobante, así que lo que no aparezca acá tampoco se
+  // acepta como pago válido.
+  const payableAccounts = useMemo(() => resolvePaymentAccounts(bankDetails), [bankDetails]);
+
   useEffect(() => {
-    if (open && schoolId) {
-      supabase.from('school_settings')
-        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, breb_number, transfer_key, bank_titular_name, bank_titular_id, payment_qr_url, wompi_enabled, online_fee_pct, allow_installments, min_installment_amount, early_payment_discount_enabled, early_payment_discount_days, early_payment_discount_percentage')
-        .eq('school_id', schoolId).single()
-        .then(({ data }) => {
-          setBankDetails(data);
-          setWompiEnabled(!!(data as any)?.wompi_enabled);
-          setOnlineFeePct(Number((data as any)?.online_fee_pct ?? 3));
-          setAllowInstallments(!!(data as any)?.allow_installments);
-          setMinInstallmentAmount(Number((data as any)?.min_installment_amount) || 0);
-          setDiscountConfig({
-            enabled: !!(data as any)?.early_payment_discount_enabled,
-            days: Number((data as any)?.early_payment_discount_days) || 5,
-            percentage: Number((data as any)?.early_payment_discount_percentage) || 0,
-          });
-        });
-    }
+    if (!open || !schoolId) return;
+    const loadBankDetails = async () => {
+      const { data } = await supabase.from('school_settings')
+        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, breb_number, breb_key, transfer_key, bank_titular_name, bank_titular_id, payment_qr_url, wompi_enabled, online_fee_pct, allow_installments, min_installment_amount, early_payment_discount_enabled, early_payment_discount_days, early_payment_discount_percentage')
+        .eq('school_id', schoolId).single();
+
+      // payment_accounts (migración 20260809095613) va en un select APARTE: si el
+      // ambiente todavía no la aplicó, PostgREST responde 400 y tumba la query
+      // entera — el acudiente se quedaría sin ningún dato de transferencia. Así el
+      // despliegue del frontend no depende de que la migración ya esté corrida.
+      const { data: accounts } = await supabase.from('school_settings')
+        .select('payment_accounts')
+        .eq('school_id', schoolId).single();
+
+      setBankDetails(data ? { ...data, payment_accounts: accounts?.payment_accounts ?? null } : data);
+      setWompiEnabled(!!(data as any)?.wompi_enabled);
+      setOnlineFeePct(Number((data as any)?.online_fee_pct ?? 3));
+      setAllowInstallments(!!(data as any)?.allow_installments);
+      setMinInstallmentAmount(Number((data as any)?.min_installment_amount) || 0);
+      setDiscountConfig({
+        enabled: !!(data as any)?.early_payment_discount_enabled,
+        days: Number((data as any)?.early_payment_discount_days) || 5,
+        percentage: Number((data as any)?.early_payment_discount_percentage) || 0,
+      });
+    };
+    loadBankDetails();
   }, [open, schoolId]);
 
   // ── Wompi checkout hook ──────────────────────────────────────────────────
@@ -1050,16 +1065,19 @@ export function PaymentCheckoutModal({
                     <Info className="h-4 w-4 text-primary shrink-0" />
                     <AlertTitle className="text-primary font-bold text-sm">Información de Transferencia</AlertTitle>
                     <AlertDescription className="space-y-2 mt-2">
-                      <p className="text-sm">Realiza tu transferencia a la siguiente cuenta:</p>
+                      <p className="text-sm">
+                        {payableAccounts.length > 1
+                          ? 'Realiza tu transferencia a cualquiera de estas cuentas:'
+                          : 'Realiza tu transferencia a la siguiente cuenta:'}
+                      </p>
                       {bankDetails ? (
                         <div className="bg-background/80 p-3 rounded border space-y-1.5 text-xs break-all">
                           {([
                             bankDetails.bank_name && { label: 'Banco', value: `${bankDetails.bank_name}${bankDetails.bank_account_type ? ` (${bankDetails.bank_account_type})` : ''}`, copy: false },
                             bankDetails.bank_account_number && { label: 'Número', value: bankDetails.bank_account_number, copy: true },
-                            bankDetails.transfer_key && { label: 'Llave de Transferencia', value: bankDetails.transfer_key, copy: true },
-                            bankDetails.nequi_number && { label: 'Nequi', value: bankDetails.nequi_number, copy: true },
-                            bankDetails.daviplata_number && { label: 'Daviplata', value: bankDetails.daviplata_number, copy: true },
-                            bankDetails.breb_number && { label: 'Bre-B', value: bankDetails.breb_number, copy: true },
+                            // Las llaves salen de payment_accounts: la escuela puede tener
+                            // varias del mismo tipo y el OCR solo acepta las que estén acá.
+                            ...payableAccounts.map(a => ({ label: accountDisplayLabel(a), value: a.value, copy: true })),
                             bankDetails.bank_titular_name && { label: 'Titular', value: bankDetails.bank_titular_name, copy: false },
                             bankDetails.bank_titular_id && { label: 'NIT/CC', value: bankDetails.bank_titular_id, copy: true },
                           ].filter(Boolean) as { label: string; value: string; copy: boolean }[]).map((f, i) => (

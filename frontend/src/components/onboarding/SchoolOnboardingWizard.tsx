@@ -10,6 +10,7 @@ import { OnboardingShell, type ShellStep } from '@/components/onboarding/Onboard
 import { PhoneInput } from '@/components/ui/phone-input';
 import { CityCombobox } from '@/components/common/CityCombobox';
 import { BankCombobox } from '@/components/common/BankCombobox';
+import { newAccountId } from '@/lib/payment-accounts';
 import {
   Select,
   SelectContent,
@@ -527,6 +528,15 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
     }
     setSaving(true);
     try {
+      // Las llaves se guardan en payment_accounts, que es lo que ve el acudiente y
+      // lo que el OCR acepta como destino. Las columnas sueltas se siguen llenando
+      // como espejo. Desde el panel de cobros la escuela puede agregar las que
+      // quiera; acá el wizard solo captura la primera de cada tipo.
+      const paymentAccounts = [
+        ...(nequi.trim()   ? [{ id: newAccountId(), type: 'nequi' as const, label: 'Nequi', value: nequi.trim(),   active: true }] : []),
+        ...(brebKey.trim() ? [{ id: newAccountId(), type: 'breb'  as const, label: 'Bre-B', value: brebKey.trim(), active: true }] : []),
+      ];
+
       const { error } = await supabase
         .from('school_settings')
         .upsert({
@@ -534,6 +544,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
           bank_name:           bankCode || null,
           bank_account_number: accountNumber.trim() || null,
           bank_account_type:   hasBank ? accountType : null,
+          payment_accounts:    paymentAccounts,
           nequi_number:        nequi.trim() || null,
           breb_key:            brebKey.trim() || null,
           whatsapp_number:     whatsapp.trim() || null,
