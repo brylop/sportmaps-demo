@@ -6356,6 +6356,8 @@ export type Database = {
           bank_titular_id: string | null
           bank_titular_name: string | null
           billing_cycle_type: string
+          breb_key: string | null
+          breb_number: string | null
           coach_can_request_reminders: boolean | null
           coach_can_send_reminders: boolean | null
           created_at: string | null
@@ -6366,6 +6368,7 @@ export type Database = {
           late_fee_percentage: number | null
           nequi_number: string | null
           online_fee_pct: number | null
+          payment_accounts: Json
           payment_cutoff_day: number | null
           payment_grace_days: number | null
           payment_qr_url: string | null
@@ -6382,6 +6385,7 @@ export type Database = {
           sportmaps_pay_terms_accepted_at: string | null
           sportmaps_pay_terms_accepted_by: string | null
           transfer_day: string | null
+          transfer_key: string | null
           updated_at: string | null
           early_payment_discount_days: number
           early_payment_discount_enabled: boolean
@@ -6398,6 +6402,8 @@ export type Database = {
           bank_titular_id?: string | null
           bank_titular_name?: string | null
           billing_cycle_type?: string
+          breb_key?: string | null
+          breb_number?: string | null
           coach_can_request_reminders?: boolean | null
           coach_can_send_reminders?: boolean | null
           created_at?: string | null
@@ -6408,6 +6414,7 @@ export type Database = {
           late_fee_percentage?: number | null
           nequi_number?: string | null
           online_fee_pct?: number | null
+          payment_accounts?: Json
           payment_cutoff_day?: number | null
           payment_grace_days?: number | null
           payment_qr_url?: string | null
@@ -6424,10 +6431,8 @@ export type Database = {
           sportmaps_pay_terms_accepted_at?: string | null
           sportmaps_pay_terms_accepted_by?: string | null
           transfer_day?: string | null
+          transfer_key?: string | null
           updated_at?: string | null
-          early_payment_discount_days?: number
-          early_payment_discount_enabled?: boolean
-          early_payment_discount_percentage?: number
           early_payment_discount_days?: number
           early_payment_discount_enabled?: boolean
           early_payment_discount_percentage?: number
@@ -6443,6 +6448,8 @@ export type Database = {
           bank_titular_id?: string | null
           bank_titular_name?: string | null
           billing_cycle_type?: string
+          breb_key?: string | null
+          breb_number?: string | null
           coach_can_request_reminders?: boolean | null
           coach_can_send_reminders?: boolean | null
           created_at?: string | null
@@ -6453,6 +6460,7 @@ export type Database = {
           late_fee_percentage?: number | null
           nequi_number?: string | null
           online_fee_pct?: number | null
+          payment_accounts?: Json
           payment_cutoff_day?: number | null
           payment_grace_days?: number | null
           payment_qr_url?: string | null
@@ -6469,6 +6477,7 @@ export type Database = {
           sportmaps_pay_terms_accepted_at?: string | null
           sportmaps_pay_terms_accepted_by?: string | null
           transfer_day?: string | null
+          transfer_key?: string | null
           updated_at?: string | null
         }
         Relationships: [

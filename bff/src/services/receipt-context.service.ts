@@ -40,7 +40,8 @@ export async function buildVerdictContext(
     const today = todayIsoBogota();
 
     // 1) school_settings: ventana de fecha + cuentas destino registradas.
-    //    Solo columnas garantizadas por migración (daviplata_number es drift → se omite).
+    //    Solo columnas garantizadas por migración (payment_accounts y las llaves
+    //    sueltas van aparte, ver 1.b).
     let dateWindowDays = 5;
     let registeredAccounts: string[] = [];
     try {
@@ -61,23 +62,44 @@ export async function buildVerdictContext(
         // Sin settings legibles: ventana default, sin cuentas → check 4 se salta.
     }
 
-    // 1.b) Cuentas destino que viven en columnas DRIFT (existen en la base pero
-    //      ninguna migración las crea: transfer_key, breb_number, daviplata_number).
-    //      Van en un select APARTE a propósito: si se mezclan con el de arriba y
-    //      una columna no existe, PostgREST falla la query entera, `registeredAccounts`
-    //      queda vacío y el check 4 se salta por completo — o sea, dejaríamos de
-    //      detectar destinos ajenos por un problema de esquema.
-    //      Sin esto, la Llave de Transferencia de la escuela no se compara y un
-    //      pago legítimo hecho a esa llave sale ROJO (falso positivo que ahora
-    //      además rechazaría el pago).
+    // 1.b) payment_accounts: la lista que la escuela edita en el panel y que el
+    //      acudiente ve en su modal. Es la fuente real de destinos válidos —
+    //      cualquier llave que la escuela agregue ahí tiene que ser aceptada acá,
+    //      o el comprobante de un pago legítimo sale ROJO por DESTINO_NO_COINCIDE.
+    //
+    //      Se lee en un select APARTE a propósito (igual que las columnas legacy
+    //      que acompaña): si se mezclara con el de arriba y una columna faltara en
+    //      el esquema, PostgREST falla la query entera, `registeredAccounts` queda
+    //      vacío y el check 4 se salta por completo — dejaríamos de detectar
+    //      destinos ajenos por un problema de esquema.
+    //
+    //      Las columnas sueltas siguen leyéndose como respaldo: espejan la primera
+    //      llave de cada tipo y cubren a las escuelas que aún no guardaron la lista.
     try {
-        const { data: drift } = await supabase
+        const { data: extraCols } = await supabase
             .from('school_settings')
-            .select('transfer_key, breb_number, daviplata_number')
+            .select('payment_accounts, transfer_key, breb_number, daviplata_number')
             .eq('school_id', schoolId)
             .single();
-        if (drift) {
-            const extra = [drift.transfer_key, drift.breb_number, drift.daviplata_number]
+        if (extraCols) {
+            //      Se toman TODAS las llaves, incluidas las apagadas: `active`
+            //      decide qué se le muestra al acudiente, no de quién es la cuenta.
+            //      El check 4 pregunta "¿el dinero salió hacia un tercero?", así que
+            //      apagar una llave no puede rechazar retroactivamente el comprobante
+            //      de quien ya pagó a ella. Para dejar de aceptarla hay que borrarla.
+            const fromList = Array.isArray(extraCols.payment_accounts)
+                ? (extraCols.payment_accounts as unknown[]).map((a) =>
+                      a && typeof a === 'object' && typeof (a as Record<string, unknown>).value === 'string'
+                          ? ((a as Record<string, unknown>).value as string)
+                          : null,
+                  )
+                : [];
+            const extra = [
+                ...fromList,
+                extraCols.transfer_key,
+                extraCols.breb_number,
+                extraCols.daviplata_number,
+            ]
                 .map((a) => normalizeDestination(a))
                 .filter((a): a is string => a !== null);
             registeredAccounts = Array.from(new Set([...registeredAccounts, ...extra]));
