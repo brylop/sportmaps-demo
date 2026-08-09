@@ -227,11 +227,20 @@ export default function ParentCheckoutPage() {
 
       if (data?.id) {
         const { data: ss } = await supabase.from('school_settings')
-          .select('wompi_enabled, allow_installments, min_installment_amount, bank_name, bank_account_type, bank_account_number, payment_accounts, nequi_number, daviplata_number, breb_number, breb_key, transfer_key, bank_titular_name, bank_titular_id, payment_qr_url')
+          .select('wompi_enabled, allow_installments, min_installment_amount, bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, breb_number, breb_key, transfer_key, bank_titular_name, bank_titular_id, payment_qr_url')
           .eq('school_id', data.id)
           .maybeSingle();
 
-        const s = ss as any;
+        // payment_accounts (migración 20260809095613) va aparte: si el ambiente no
+        // la aplicó todavía, PostgREST devuelve 400 y se cae la query completa,
+        // dejando al acudiente sin datos de transferencia. Separado, el frontend
+        // se puede desplegar antes que la migración.
+        const { data: accounts } = await supabase.from('school_settings')
+          .select('payment_accounts')
+          .eq('school_id', data.id)
+          .maybeSingle();
+
+        const s = ss ? { ...ss, payment_accounts: accounts?.payment_accounts ?? null } : ss;
         const allowOnline = Boolean(s?.wompi_enabled) || Boolean(legacy.allow_online);
         // El pago manual (transferencia + comprobante) siempre está disponible.
         setPaymentSettings({ allow_online: allowOnline, allow_manual: true });

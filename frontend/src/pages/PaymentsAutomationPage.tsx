@@ -393,6 +393,8 @@ export default function PaymentsAutomationPage() {
   const [conciliatingGlosa, setConciliatingGlosa] = useState<Glosa | null>(null);
   const [creatingGlosaPayment, setCreatingGlosaPayment] = useState<PaymentTransaction | null>(null);
   const [billing, setBilling] = useState<BillingSettings | null>(null);
+  // ¿Este ambiente ya tiene la columna payment_accounts? Se resuelve al cargar.
+  const accountsColumnReady = useRef(false);
   const [billingSaving, setBillingSaving] = useState(false);
   const [showSensitive, setShowSensitive] = useState(false);
 
@@ -474,6 +476,10 @@ export default function PaymentsAutomationPage() {
       setBilling({ ...DEFAULT_BILLING, school_id: schoolId });
       return;
     }
+    // El select('*') delata si la migración 20260809095613 ya corrió en este
+    // ambiente. Si la columna no está, guardar mandándola tumbaría el upsert
+    // completo y la escuela no podría salvar NINGÚN ajuste de cobro.
+    accountsColumnReady.current = 'payment_accounts' in data;
     // `onlyActive: false` porque el admin también edita las llaves apagadas. Si la
     // escuela nunca guardó la lista (deploy recién hecho), se arma desde las
     // columnas viejas para que no vea el formulario en blanco teniendo datos.
@@ -493,7 +499,7 @@ export default function PaymentsAutomationPage() {
       const accounts = serializePaymentAccounts(billing.payment_accounts ?? []);
       const payload = {
         school_id: schoolId,
-        payment_accounts: accounts,
+        ...(accountsColumnReady.current ? { payment_accounts: accounts } : {}),
         ...accountsToLegacyColumns(accounts),
         payment_cutoff_day: billing.payment_cutoff_day,
         payment_grace_days: billing.payment_grace_days,

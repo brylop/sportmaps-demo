@@ -171,23 +171,32 @@ export function PaymentCheckoutModal({
   const payableAccounts = useMemo(() => resolvePaymentAccounts(bankDetails), [bankDetails]);
 
   useEffect(() => {
-    if (open && schoolId) {
-      supabase.from('school_settings')
-        .select('bank_name, bank_account_type, bank_account_number, payment_accounts, nequi_number, daviplata_number, breb_number, breb_key, transfer_key, bank_titular_name, bank_titular_id, payment_qr_url, wompi_enabled, online_fee_pct, allow_installments, min_installment_amount, early_payment_discount_enabled, early_payment_discount_days, early_payment_discount_percentage')
-        .eq('school_id', schoolId).single()
-        .then(({ data }) => {
-          setBankDetails(data);
-          setWompiEnabled(!!(data as any)?.wompi_enabled);
-          setOnlineFeePct(Number((data as any)?.online_fee_pct ?? 3));
-          setAllowInstallments(!!(data as any)?.allow_installments);
-          setMinInstallmentAmount(Number((data as any)?.min_installment_amount) || 0);
-          setDiscountConfig({
-            enabled: !!(data as any)?.early_payment_discount_enabled,
-            days: Number((data as any)?.early_payment_discount_days) || 5,
-            percentage: Number((data as any)?.early_payment_discount_percentage) || 0,
-          });
-        });
-    }
+    if (!open || !schoolId) return;
+    const loadBankDetails = async () => {
+      const { data } = await supabase.from('school_settings')
+        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, breb_number, breb_key, transfer_key, bank_titular_name, bank_titular_id, payment_qr_url, wompi_enabled, online_fee_pct, allow_installments, min_installment_amount, early_payment_discount_enabled, early_payment_discount_days, early_payment_discount_percentage')
+        .eq('school_id', schoolId).single();
+
+      // payment_accounts (migración 20260809095613) va en un select APARTE: si el
+      // ambiente todavía no la aplicó, PostgREST responde 400 y tumba la query
+      // entera — el acudiente se quedaría sin ningún dato de transferencia. Así el
+      // despliegue del frontend no depende de que la migración ya esté corrida.
+      const { data: accounts } = await supabase.from('school_settings')
+        .select('payment_accounts')
+        .eq('school_id', schoolId).single();
+
+      setBankDetails(data ? { ...data, payment_accounts: accounts?.payment_accounts ?? null } : data);
+      setWompiEnabled(!!(data as any)?.wompi_enabled);
+      setOnlineFeePct(Number((data as any)?.online_fee_pct ?? 3));
+      setAllowInstallments(!!(data as any)?.allow_installments);
+      setMinInstallmentAmount(Number((data as any)?.min_installment_amount) || 0);
+      setDiscountConfig({
+        enabled: !!(data as any)?.early_payment_discount_enabled,
+        days: Number((data as any)?.early_payment_discount_days) || 5,
+        percentage: Number((data as any)?.early_payment_discount_percentage) || 0,
+      });
+    };
+    loadBankDetails();
   }, [open, schoolId]);
 
   // ── Wompi checkout hook ──────────────────────────────────────────────────
