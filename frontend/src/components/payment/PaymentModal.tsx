@@ -90,7 +90,12 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
     fetchBank();
   }, [item.schoolId]);
 
-  const hasGateway = !!(bankSettings?.sportmaps_pay_enabled || bankSettings?.wompi_enabled);
+  // El toggle de la escuela en SportMaps Pay es el que manda. Antes bastaba con
+  // `sportmaps_pay_enabled`, que es "aceptó los términos alguna vez": esa fecha no
+  // se borra al apagar Wompi, así que dejaba el botón de pago online a la vista en
+  // escuelas que ya lo habían desactivado. Los términos siguen siendo requisito
+  // para prender el toggle, solo que se exigen al guardar, no acá.
+  const hasGateway = !!bankSettings?.wompi_enabled;
 
   // Llaves visibles de la escuela. La RPC ahora devuelve payment_accounts; las
   // columnas viejas quedan de respaldo para escuelas sin la lista guardada.
