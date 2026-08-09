@@ -36,6 +36,14 @@ import { CreateGlosaDialog } from '@/components/payment/CreateGlosaDialog';
 import { listBySchool as listSchoolGlosas, REASON_ADMIN_LABELS, STATUS_LABELS, OPEN_GLOSA_STATUSES, type Glosa } from '@/lib/api/glosas';
 import { PaymentOriginBadge } from '@/components/payment/PaymentOriginBadge';
 import { isGatewayPayment } from '@/lib/paymentOrigin';
+import { PaymentAccountsEditor } from '@/components/payment/PaymentAccountsEditor';
+import {
+  resolvePaymentAccounts,
+  serializePaymentAccounts,
+  accountsToLegacyColumns,
+  type PaymentAccount,
+  type LegacyAccountColumns,
+} from '@/lib/payment-accounts';
 
 
 interface BillingSettings {
@@ -61,6 +69,12 @@ interface BillingSettings {
   payment_qr_url?: string | null;
   breb_number?: string | null;
   transfer_key?: string | null;
+  /**
+   * Llaves de pago de la escuela. Fuente única: es lo que ve el acudiente en su
+   * modal y lo que el OCR acepta como destino del comprobante. Las columnas
+   * sueltas de arriba quedan como espejo de la primera llave de cada tipo.
+   */
+  payment_accounts?: PaymentAccount[];
   allow_installments: boolean;
   max_installments_per_payment: number;
   min_installment_amount: number;
@@ -99,6 +113,7 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   auto_approve_enabled: false,
   auto_approve_max_amount: 0,
   auto_glosa_enabled: false,
+  payment_accounts: [],
 };
 
 
@@ -455,15 +470,31 @@ export default function PaymentsAutomationPage() {
   const loadBillingSettings = async () => {
     if (!schoolId) return;
     const { data } = await supabase.from('school_settings').select('*').eq('school_id', schoolId).maybeSingle();
-    setBilling(data ? (data as unknown as BillingSettings) : { ...DEFAULT_BILLING, school_id: schoolId });
+    if (!data) {
+      setBilling({ ...DEFAULT_BILLING, school_id: schoolId });
+      return;
+    }
+    // `onlyActive: false` porque el admin también edita las llaves apagadas. Si la
+    // escuela nunca guardó la lista (deploy recién hecho), se arma desde las
+    // columnas viejas para que no vea el formulario en blanco teniendo datos.
+    setBilling({
+      ...(data as unknown as BillingSettings),
+      payment_accounts: resolvePaymentAccounts(data as LegacyAccountColumns & { payment_accounts?: unknown }, { onlyActive: false }),
+    });
   };
 
   const handleSaveBilling = async () => {
     if (!billing || !schoolId) return;
     setBillingSaving(true);
     try {
+      // La lista manda: las columnas sueltas se reescriben con la primera llave
+      // activa de cada tipo para no dejar datos viejos contradiciendo lo que el
+      // acudiente ve y lo que el OCR compara.
+      const accounts = serializePaymentAccounts(billing.payment_accounts ?? []);
       const payload = {
         school_id: schoolId,
+        payment_accounts: accounts,
+        ...accountsToLegacyColumns(accounts),
         payment_cutoff_day: billing.payment_cutoff_day,
         payment_grace_days: billing.payment_grace_days,
         auto_generate_payments: billing.auto_generate_payments,
@@ -477,13 +508,9 @@ export default function PaymentsAutomationPage() {
         bank_name: billing.bank_name,
         bank_account_type: billing.bank_account_type,
         bank_account_number: billing.bank_account_number,
-        nequi_number: billing.nequi_number,
-        daviplata_number: billing.daviplata_number,
         bank_titular_name: billing.bank_titular_name,
         bank_titular_id: billing.bank_titular_id,
         payment_qr_url: billing.payment_qr_url,
-        breb_number: billing.breb_number,
-        transfer_key: billing.transfer_key,
         billing_cycle_type: billing.billing_cycle_type,
         allow_installments: billing.allow_installments,
         max_installments_per_payment: billing.max_installments_per_payment,
@@ -2334,47 +2361,14 @@ export default function PaymentsAutomationPage() {
                         onFocus={() => setShowSensitive(true)}
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="nequi_number">Número Nequi (Opcional)</Label>
-                      <Input 
-                        id="nequi_number" 
-                        placeholder="Celular" 
-                        value={showSensitive ? (billing.nequi_number || '') : maskSensitive(billing.nequi_number)} 
-                        onChange={e => updateBilling('nequi_number', e.target.value)} 
-                        onFocus={() => setShowSensitive(true)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="daviplata_number">Número Daviplata (Opcional)</Label>
-                      <Input 
-                        id="daviplata_number" 
-                        placeholder="Celular" 
-                        value={showSensitive ? (billing.daviplata_number || '') : maskSensitive(billing.daviplata_number)} 
-                        onChange={e => updateBilling('daviplata_number', e.target.value)} 
-                        onFocus={() => setShowSensitive(true)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="breb_number">Número Bre-B (Opcional)</Label>
-                      <Input 
-                        id="breb_number" 
-                        placeholder="Celular o ID" 
-                        value={showSensitive ? (billing.breb_number || '') : maskSensitive(billing.breb_number)} 
-                        onChange={e => updateBilling('breb_number', e.target.value)} 
-                        onFocus={() => setShowSensitive(true)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="transfer_key">Llave de Transferencia</Label>
-                      <Input 
-                        id="transfer_key" 
-                        placeholder="Ej: Celular, Correo o Alias" 
-                        value={showSensitive ? (billing.transfer_key || '') : maskSensitive(billing.transfer_key)} 
-                        onChange={e => updateBilling('transfer_key', e.target.value)} 
-                        onFocus={() => setShowSensitive(true)}
-                      />
-                    </div>
                   </div>
+                  <Separator />
+                  <PaymentAccountsEditor
+                    accounts={billing.payment_accounts ?? []}
+                    onChange={next => updateBilling('payment_accounts', next)}
+                    showSensitive={showSensitive}
+                    onReveal={() => setShowSensitive(true)}
+                  />
                   <Separator />
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">

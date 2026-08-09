@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -33,6 +33,7 @@ import { downloadReceipt } from '@/lib/receipt-generator';
 import { usePdfBranding } from '@/hooks/usePdfBranding';
 import { transactionsAPI } from '@/lib/api/transactions';
 import { maskSensitive } from '@/lib/utils';
+import { resolvePaymentAccounts, accountDisplayLabel } from '@/lib/payment-accounts';
 import { Eye, EyeOff, Copy } from 'lucide-react';
 
 export interface PaymentItem {
@@ -90,6 +91,10 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
   }, [item.schoolId]);
 
   const hasGateway = !!(bankSettings?.sportmaps_pay_enabled || bankSettings?.wompi_enabled);
+
+  // Llaves visibles de la escuela. La RPC ahora devuelve payment_accounts; las
+  // columnas viejas quedan de respaldo para escuelas sin la lista guardada.
+  const payableAccounts = useMemo(() => resolvePaymentAccounts(bankSettings), [bankSettings]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-CO', {
@@ -391,26 +396,18 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
                               )}
                             </div>
                           )}
-                          {bankSettings.nequi_number && (
-                            <div className="flex justify-between items-center group">
-                              <p>Nequi: <span className="font-medium">{showSensitive ? bankSettings.nequi_number : maskSensitive(bankSettings.nequi_number)}</span></p>
+                          {/* Llaves de la escuela (payment_accounts): puede haber varias
+                              por canal, y son las únicas que el OCR acepta como destino. */}
+                          {payableAccounts.map(account => (
+                            <div key={account.id} className="flex justify-between items-center group">
+                              <p>{accountDisplayLabel(account)}: <span className="font-medium">{showSensitive ? account.value : maskSensitive(account.value)}</span></p>
                               {showSensitive && (
-                                <Button variant="ghost" size="icon" className="h-4 w-4 opacity-0 group-hover:opacity-100" onClick={() => navigator.clipboard.writeText(bankSettings.nequi_number)}>
+                                <Button variant="ghost" size="icon" className="h-4 w-4 opacity-0 group-hover:opacity-100" onClick={() => navigator.clipboard.writeText(account.value)}>
                                   <Copy className="h-3 w-3" />
                                 </Button>
                               )}
                             </div>
-                          )}
-                          {bankSettings.daviplata_number && (
-                            <div className="flex justify-between items-center group">
-                              <p>Daviplata: <span className="font-medium">{showSensitive ? bankSettings.daviplata_number : maskSensitive(bankSettings.daviplata_number)}</span></p>
-                              {showSensitive && (
-                                <Button variant="ghost" size="icon" className="h-4 w-4 opacity-0 group-hover:opacity-100" onClick={() => navigator.clipboard.writeText(bankSettings.daviplata_number)}>
-                                  <Copy className="h-3 w-3" />
-                                </Button>
-                              )}
-                            </div>
-                          )}
+                          ))}
                           {bankSettings.bank_titular_name && <p>Titular: <span className="font-medium">{bankSettings.bank_titular_name}</span></p>}
                           {bankSettings.bank_titular_id && (
                             <div className="flex justify-between items-center group">

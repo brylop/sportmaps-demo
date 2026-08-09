@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { todayColombia } from '@/lib/dateUtils';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,6 +23,7 @@ import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { maskSensitive } from '@/lib/utils';
+import { resolvePaymentAccounts, accountDisplayLabel } from '@/lib/payment-accounts';
 import { FileUpload } from '@/components/common/FileUpload';
 import type { ReceiptValidationResult, ConceptKind } from '@/hooks/useReceiptValidator';
 import { blockPwaReload, unblockPwaReload } from '@/pwa/reloadGuard';
@@ -193,6 +194,9 @@ export default function ParentCheckoutPage() {
   }, [user?.id]);
 
   const [bankDetails, setBankDetails] = useState<any>(null);
+  // Llaves visibles de la escuela; si aún no guardó la lista, se arman desde las
+  // columnas viejas para no dejar el bloque de transferencia vacío.
+  const payableAccounts = useMemo(() => resolvePaymentAccounts(bankDetails), [bankDetails]);
 
   // Fetch School Settings (Feature Flag)
   useEffect(() => {
@@ -223,7 +227,7 @@ export default function ParentCheckoutPage() {
 
       if (data?.id) {
         const { data: ss } = await supabase.from('school_settings')
-          .select('wompi_enabled, allow_installments, min_installment_amount, bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url')
+          .select('wompi_enabled, allow_installments, min_installment_amount, bank_name, bank_account_type, bank_account_number, payment_accounts, nequi_number, daviplata_number, breb_number, breb_key, transfer_key, bank_titular_name, bank_titular_id, payment_qr_url')
           .eq('school_id', data.id)
           .maybeSingle();
 
@@ -827,33 +831,24 @@ export default function ParentCheckoutPage() {
                               </div>
                             )}
 
-                            {bankDetails.nequi_number && (
-                              <div className="flex justify-between items-center gap-2">
-                                <p><strong>Nequi:</strong> {showSensitive ? bankDetails.nequi_number : maskSensitive(bankDetails.nequi_number)}</p>
+                            {/* Llaves de la escuela (payment_accounts). Puede tener varias del
+                                mismo tipo; solo estas se aceptan como destino del comprobante. */}
+                            {payableAccounts.map(account => (
+                              <div key={account.id} className="flex justify-between items-center gap-2">
+                                <p>
+                                  <strong>{accountDisplayLabel(account)}:</strong>{' '}
+                                  {showSensitive ? account.value : maskSensitive(account.value)}
+                                </p>
                                 <Button
                                   variant="outline"
                                   size="sm"
                                   className="h-7 px-2 shrink-0 font-sans"
-                                  onClick={(e) => { e.stopPropagation(); copyField(bankDetails.nequi_number, 'Nequi'); }}
+                                  onClick={(e) => { e.stopPropagation(); copyField(account.value, accountDisplayLabel(account)); }}
                                 >
                                   <Copy className="h-3.5 w-3.5 mr-1" /> Copiar
                                 </Button>
                               </div>
-                            )}
-
-                            {bankDetails.daviplata_number && (
-                              <div className="flex justify-between items-center gap-2">
-                                <p><strong>Daviplata:</strong> {showSensitive ? bankDetails.daviplata_number : maskSensitive(bankDetails.daviplata_number)}</p>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 px-2 shrink-0 font-sans"
-                                  onClick={(e) => { e.stopPropagation(); copyField(bankDetails.daviplata_number, 'Daviplata'); }}
-                                >
-                                  <Copy className="h-3.5 w-3.5 mr-1" /> Copiar
-                                </Button>
-                              </div>
-                            )}
+                            ))}
 
                             {bankDetails.bank_titular_name && <p><strong>Titular:</strong> {bankDetails.bank_titular_name}</p>}
                             {bankDetails.bank_titular_id && (
