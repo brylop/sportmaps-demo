@@ -778,6 +778,27 @@ router.put(
         });
 
         /**
+         * Cancela las inscripciones activas duplicadas. Va SIEMPRE antes de
+         * actualizar la que sobrevive: los índices únicos son parciales
+         * (WHERE status='active'), así que mover el plan a la fila que queda con
+         * la duplicada todavía activa revienta con 23505.
+         *
+         * Declarado ACÁ ARRIBA a propósito: `consolidateEnrollments` lo usa y se
+         * invoca antes de los dos bloques, así que con el `const` más abajo la
+         * variable seguía en la zona muerta y cambiar de plan a un atleta con dos
+         * inscripciones activas moría con "Cannot access 'cancelExtraEnrollments'
+         * before initialization".
+         */
+        const cancelExtraEnrollments = async (extras: any[]) => {
+          if (!extras.length) return;
+          const today = todayInZone();
+          await supabase.from('enrollments')
+            .update({ status: 'cancelled', end_date: today, updated_at: new Date().toISOString() })
+            .in('id', extras.map(r => r.id))
+            .eq('school_id', schoolId);
+        };
+
+        /**
          * Lee las inscripciones activas de un tipo (equipo o plan) y devuelve la
          * más antigua + las sobrantes.
          *
@@ -812,7 +833,18 @@ router.put(
           // duplicadas del MISMO tipo: cancelar la complementaria acá le borraría al
           // atleta el equipo o el plan que la escuela ya le había puesto.
           const survivor = withCol[0] ?? rows[0] ?? null;
-          return { survivor, extras: withCol.slice(1) };
+
+          // `extras` era `withCol.slice(1)`: TODA otra fila con esa columna se
+          // cancelaba. Pero un atleta en dos disciplinas tiene dos filas con
+          // team_id (Boxeo y Fútbol, Porrismo y Natación, INTERMEDIO y NUEVA ERA)
+          // y ninguna es duplicada: guardar el editor le borraba una disciplina
+          // y sus cobros. Ahora solo se cancela el duplicado EXACTO —misma
+          // columna, mismo valor—, que es el caso que revienta el índice único
+          // parcial (23505) y el que cobra dos veces lo mismo.
+          const extras = survivor?.[col]
+            ? withCol.filter(r => r.id !== survivor.id && r[col] === survivor[col])
+            : [];
+          return { survivor, extras };
         };
 
         /**
@@ -834,6 +866,30 @@ router.put(
           if (error) throw new Error(`Error leyendo inscripciones: ${error.message}`);
           const rows = (data as any[]) ?? [];
           if (rows.length <= 1) return;
+
+          // Fusionar solo cuando las filas NO compiten por la misma columna.
+          //
+          // La fusión hereda UN equipo y UN plan, así que con dos filas que
+          // apuntan a equipos distintos (o a planes distintos) hay que descartar
+          // uno: eso no es reparar una inscripción partida, es borrarle al atleta
+          // una disciplina que la escuela le puso a propósito. En la base al
+          // 2026-08-10 son 15 de 17 casos (Fútbol+Tenis, Boxeo+Fútbol,
+          // Porrismo+Natación, INTERMEDIO+NUEVA ERA…), todos legítimos.
+          //
+          // Cuando no compiten —fila fantasma del QR sin equipo ni plan, o el par
+          // partido (una fila con equipo, otra con plan)— la fusión no pierde
+          // nada: el equipo y el plan sobreviven juntos en la fila que queda.
+          // El duplicado EXACTO (mismo equipo o mismo plan repetido) también
+          // entra acá, y es el que hay que fusionar.
+          const distinctValues = (col: string) =>
+            new Set(rows.map(r => r[col]).filter(Boolean)).size;
+          if (distinctValues('team_id') > 1 || distinctValues('offering_plan_id') > 1) {
+            req.log?.warn?.(
+              { athleteId: id, schoolId, enrollments: rows.map(r => r.id) },
+              'Atleta con inscripciones en varias disciplinas: no se fusionan',
+            );
+            return;
+          }
 
           const [keep, ...rest] = rows;
           const inheritedTeam = keep.team_id ?? rest.find(r => r.team_id)?.team_id ?? null;
@@ -879,21 +935,6 @@ router.put(
         // Va antes de los dos bloques: después de esto hay como máximo una activa, así
         // que ambos escriben sobre la misma fila en vez de crear una cada uno.
         await consolidateEnrollments();
-
-        /**
-         * Cancela las inscripciones activas duplicadas. Va SIEMPRE antes de
-         * actualizar la que sobrevive: los índices únicos son parciales
-         * (WHERE status='active'), así que mover el plan a la fila que queda con
-         * la duplicada todavía activa revienta con 23505.
-         */
-        const cancelExtraEnrollments = async (extras: any[]) => {
-          if (!extras.length) return;
-          const today = todayInZone();
-          await supabase.from('enrollments')
-            .update({ status: 'cancelled', end_date: today, updated_at: new Date().toISOString() })
-            .in('id', extras.map(r => r.id))
-            .eq('school_id', schoolId);
-        };
 
         // ── Enrollment de EQUIPO ────────────────────────────────────────────────
         if (enrollment.team_id !== undefined) {
