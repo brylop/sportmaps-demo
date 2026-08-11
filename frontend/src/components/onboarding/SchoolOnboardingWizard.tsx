@@ -301,11 +301,23 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
   };
 
   /**
-   * Crea un subscription_plan tipo school_monthly atado al vendor_profile
-   * del owner de la escuela. Si el owner no tiene vendor_profile aun
-   * (school role ya no auto-crea), lo creamos silenciosamente con
-   * capabilities en false. No abre Mi Tienda — el addon store sigue
-   * siendo lo que decide eso.
+   * Crea el primer plan de la escuela en las DOS tablas que hacen falta.
+   *
+   * 1. `offering` + `offering_plan` (por `school_id`): es lo que lee el resto
+   *    del producto — el selector de plan del editor de atleta, el QR de
+   *    inscripción y el motor de cobros. Sin esto, el paso "creaba" un plan que
+   *    no aparecía en ninguna parte: la escuela terminaba el onboarding y al ir
+   *    a asignárselo a un atleta la lista estaba vacía. Medido el 2026-08-11:
+   *    5 de las 10 escuelas que pasaron por este paso no tenían ni un
+   *    `offering_plan`, o sea que su único plan era invisible.
+   *
+   * 2. `subscription_plan` tipo school_monthly atado al vendor_profile del
+   *    owner: es del dominio de marketplace/cobros recurrentes, y además es lo
+   *    que mira `has_plans` en get_onboarding_status para marcar el paso como
+   *    hecho. Por eso se conserva. Si el owner no tiene vendor_profile aun
+   *    (school role ya no auto-crea), lo creamos silenciosamente con
+   *    capabilities en false. No abre Mi Tienda — el addon store sigue
+   *    siendo lo que decide eso.
    */
   const handleCreatePlan = async () => {
     if (!schoolId || !user) return;
@@ -319,6 +331,58 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
     }
     setSaving(true);
     try {
+      // ── 1. El plan operativo: offering + offering_plan de la escuela ────────
+      const durationDays = planBilling === 'yearly' ? 365
+        : planBilling === 'quarterly' ? 90
+        : 30;
+
+      // Volver a este paso no debe dejar ofertas repetidas: si ya hay una con
+      // ese nombre, se reusa.
+      const { data: existingOffering } = await supabase
+        .from('offerings')
+        .select('id')
+        .eq('school_id', schoolId)
+        .eq('name', planName.trim())
+        .limit(1)
+        .maybeSingle();
+
+      let offeringId: string | undefined = (existingOffering as any)?.id;
+
+      if (!offeringId) {
+        const { data: newOffering, error: offErr } = await supabase
+          .from('offerings')
+          .insert({
+            school_id:     schoolId,
+            name:          planName.trim(),
+            // 'membership' es el default del módulo de Ofertas; el paquete de
+            // sesiones se distingue por max_sessions en el plan.
+            offering_type: 'membership',
+            // Con modelo 'plans' el paso de equipo se salta y no hay deporte
+            // elegido: la oferta queda sin deporte y la escuela lo completa
+            // después desde Ofertas.
+            sport:         teamSport || null,
+          })
+          .select('id')
+          .single();
+        if (offErr) throw offErr;
+        offeringId = (newOffering as any).id;
+      }
+
+      const { error: planErr } = await supabase
+        .from('offering_plans')
+        .insert({
+          school_id:    schoolId,
+          offering_id:  offeringId,
+          name:         planName.trim(),
+          price:        Number(planPrice),
+          duration_days: durationDays,
+          // Vacío = ilimitado, igual que en el módulo de Ofertas.
+          max_sessions: planSessions === '' ? null : Number(planSessions),
+          is_active:    true,
+        });
+      if (planErr) throw planErr;
+
+      // ── 2. El subscription_plan (recurrentes + has_plans del onboarding) ────
       // Buscar o crear vendor_profile del owner (capabilities=false para
       // no activar tienda; solo es contenedor de los planes recurrentes).
       let { data: vp } = await supabase

@@ -778,6 +778,30 @@ router.put(
         });
 
         /**
+         * Fecha que define el PERIODO del cobro de reemplazo cuando el plan (o el
+         * equipo) CAMBIAN. No es la misma que la de un alta.
+         *
+         * `billingDue` estampa el periodo = mes del startDate, que es lo correcto
+         * para un alta. Pero en un cambio, el editor manda la fecha de inscripción
+         * ORIGINAL (viene prellenada desde la vista), así que el cobro nuevo salía
+         * con el periodo de un mes ya cerrado: nacía vencido y, como el del mes en
+         * curso se acaba de cancelar, el mes corriente quedaba sin facturar.
+         * Medido el 2026-08-11: 12 atletas de Dynasty y $1.710.000 de agosto
+         * cancelados y reemplazados por cobros de julio, 7 de ellos en mora.
+         *
+         * Cambiar de plan cobra el plan nuevo en el mes en que se cambia. Si la
+         * escuela quiere además cobrar clases viejas impagas, eso lo decide ella
+         * y lo carga a mano; no lo inventa este endpoint.
+         *
+         * Una fecha del mes en curso o futura se respeta tal cual (deja programar
+         * el cambio para el mes siguiente).
+         */
+        const billingStartForChange = (startDate: string): string => {
+          const today = todayInZone();
+          return startDate.slice(0, 7) < today.slice(0, 7) ? today : startDate;
+        };
+
+        /**
          * Cancela las inscripciones activas duplicadas. Va SIEMPRE antes de
          * actualizar la que sobrevive: los índices únicos son parciales
          * (WHERE status='active'), así que mover el plan a la fila que queda con
@@ -971,11 +995,17 @@ router.put(
                 supabase.from('payments').update({ status: 'cancelled', updated_at: new Date().toISOString() })
                   .eq('school_id', schoolId).eq('team_id', oldTeamId).eq('status', 'pending')
               );
-              // Crear pago nuevo para el equipo nuevo (solo si tiene cuota > 0)
+              // Crear pago nuevo para el equipo nuevo (solo si tiene cuota > 0).
+              // Igual que en el cambio de plan: el cobro va al mes en que se
+              // cambia, no al de la fecha de inscripción vieja.
               if (enrollment.team_id) {
                 const { data: teamData } = await supabase.from('teams').select('name, price_monthly').eq('id', enrollment.team_id).maybeSingle();
                 const amount = teamFee ?? Number(teamData?.price_monthly ?? 0);
-                if (amount > 0) await createPendingPayment(enrollment.team_id, null, amount, `Mensualidad ${teamData?.name || 'Equipo'}`, teamStartDate);
+                if (amount > 0) await createPendingPayment(
+                  enrollment.team_id, null, amount,
+                  `Mensualidad ${teamData?.name || 'Equipo'}`,
+                  billingStartForChange(teamStartDate),
+                );
               }
             } else if (teamFee !== null && teamFee <= 0) {
               // Cuota de equipo en 0 = sin cobro por equipo: se cancelan los
@@ -1051,7 +1081,11 @@ router.put(
               if (enrollment.offering_plan_id) {
                 const { data: planData } = await supabase.from('offering_plans').select('name, price').eq('id', enrollment.offering_plan_id).maybeSingle();
                 const amount = planFee ?? planData?.price ?? 0;
-                await createPendingPayment(null, enrollment.offering_plan_id, amount, `Plan ${planData?.name || 'Plan'}`, planStartDate);
+                await createPendingPayment(
+                  null, enrollment.offering_plan_id, amount,
+                  `Plan ${planData?.name || 'Plan'}`,
+                  billingStartForChange(planStartDate),
+                );
               }
             } else if (planFee !== null && planFee <= 0) {
               // Plan sin cobro: cancelar pendientes (amount = 0 rompe el
