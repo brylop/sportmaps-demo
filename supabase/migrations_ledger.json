@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 323,
-  "head": "20260809101617",
+  "count": 324,
+  "head": "20260811110226",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -326,6 +326,7 @@
     {"v":"20260804202714","file":"20260804202714_doc_number_unico_por_escuela.sql","sha256":"8e49ebb5f173cbcee61207a1c18ad42798954d6949f1077fb521ab1ae36e6418","added":"2026-08-05","by":"brylop"},
     {"v":"20260804204905","file":"20260804204905_backfill_pagador_al_vincular_acudiente.sql","sha256":"637b3ae7a80ef4cda945233fe7b25a5f231ba6c8f8adddb1165784e2de39994a","added":"2026-08-05","by":"brylop"},
     {"v":"20260809095613","file":"20260809095613_llaves_de_pago_multiples.sql","sha256":"87662642cd0fa58f67bbc59ba8c8beb6d38561eb62be64de6a47d035745723d6","added":"2026-08-09","by":"brylop"},
-    {"v":"20260809101617","file":"20260809101617_rpc_pago_info_gateway_correcto.sql","sha256":"5860875176ddef1a1e566f5c1ece3dfc2ea4171088c510dfddaaf4ae7c076ccd","added":"2026-08-09","by":"brylop"}
+    {"v":"20260809101617","file":"20260809101617_rpc_pago_info_gateway_correcto.sql","sha256":"5860875176ddef1a1e566f5c1ece3dfc2ea4171088c510dfddaaf4ae7c076ccd","added":"2026-08-09","by":"brylop"},
+    {"v":"20260811110226","file":"20260811110226_update_get_onboarding_status_check_offering_plans.sql","sha256":"13ce0a8d3fa39146399563bb611fae7008fb0813eae02fc8cbca0aa081bd1f96","added":"2026-08-11","by":"judegor99"}
   ]
 }
