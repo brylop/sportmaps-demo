@@ -231,7 +231,7 @@ function getSubjectAndHtml(type: EmailType, d: Record<string, string>): { subjec
               <td style="padding: 10px; font-weight: 600; text-align: right;">${d.dueDate || "Próximamente"}</td>
             </tr>
           </table>
-          ${orangeButton(d.paymentUrl || "https://app.sportmaps.co/payments", "Realizar Pago")}
+          ${orangeButton(d.paymentUrl || "https://app.sportmaps.co/my-payments", "Realizar Pago")}
         `),
             };
 
@@ -289,11 +289,14 @@ Deno.serve(async (req: Request) => {
                 );
             }
 
+            // Sin llave NO se envió nada: devolver 200 con success:true hacía que
+            // el cliente contara los correos como enviados y la UI dijera
+            // «✅ enviado» sin que saliera uno solo. Falla explícito.
             if (!RESEND_API_KEY) {
                 console.error("RESEND_API_KEY not configured");
                 return new Response(
-                    JSON.stringify({ success: true, simulated: true, count: emails.length }),
-                    { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                    JSON.stringify({ error: "RESEND_API_KEY no configurada: no se envió ningún correo", sent: 0 }),
+                    { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
                 );
             }
 
@@ -357,11 +360,13 @@ Deno.serve(async (req: Request) => {
             );
         }
 
+        // Igual que en el batch: sin llave no hay envío, y decir que sí lo hubo
+        // es peor que fallar (la escuela cree que avisó y nadie recibió nada).
         if (!RESEND_API_KEY) {
             console.error("RESEND_API_KEY not configured");
             return new Response(
-                JSON.stringify({ success: true, simulated: true, message: "API key missing — email simulated" }),
-                { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                JSON.stringify({ error: "RESEND_API_KEY no configurada: no se envió el correo" }),
+                { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
         }
 
