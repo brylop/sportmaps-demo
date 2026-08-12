@@ -778,6 +778,51 @@ router.put(
         });
 
         /**
+         * Fecha que define el PERIODO del cobro de reemplazo cuando el plan (o el
+         * equipo) CAMBIAN. No es la misma que la de un alta.
+         *
+         * `billingDue` estampa el periodo = mes del startDate, que es lo correcto
+         * para un alta. Pero en un cambio, el editor manda la fecha de inscripción
+         * ORIGINAL (viene prellenada desde la vista), así que el cobro nuevo salía
+         * con el periodo de un mes ya cerrado: nacía vencido y, como el del mes en
+         * curso se acaba de cancelar, el mes corriente quedaba sin facturar.
+         * Medido el 2026-08-11: 12 atletas de Dynasty y $1.710.000 de agosto
+         * cancelados y reemplazados por cobros de julio, 7 de ellos en mora.
+         *
+         * Cambiar de plan cobra el plan nuevo en el mes en que se cambia. Si la
+         * escuela quiere además cobrar clases viejas impagas, eso lo decide ella
+         * y lo carga a mano; no lo inventa este endpoint.
+         *
+         * Una fecha del mes en curso o futura se respeta tal cual (deja programar
+         * el cambio para el mes siguiente).
+         */
+        const billingStartForChange = (startDate: string): string => {
+          const today = todayInZone();
+          return startDate.slice(0, 7) < today.slice(0, 7) ? today : startDate;
+        };
+
+        /**
+         * Cancela las inscripciones activas duplicadas. Va SIEMPRE antes de
+         * actualizar la que sobrevive: los índices únicos son parciales
+         * (WHERE status='active'), así que mover el plan a la fila que queda con
+         * la duplicada todavía activa revienta con 23505.
+         *
+         * Declarado ACÁ ARRIBA a propósito: `consolidateEnrollments` lo usa y se
+         * invoca antes de los dos bloques, así que con el `const` más abajo la
+         * variable seguía en la zona muerta y cambiar de plan a un atleta con dos
+         * inscripciones activas moría con "Cannot access 'cancelExtraEnrollments'
+         * before initialization".
+         */
+        const cancelExtraEnrollments = async (extras: any[]) => {
+          if (!extras.length) return;
+          const today = todayInZone();
+          await supabase.from('enrollments')
+            .update({ status: 'cancelled', end_date: today, updated_at: new Date().toISOString() })
+            .in('id', extras.map(r => r.id))
+            .eq('school_id', schoolId);
+        };
+
+        /**
          * Lee las inscripciones activas de un tipo (equipo o plan) y devuelve la
          * más antigua + las sobrantes.
          *
@@ -812,7 +857,18 @@ router.put(
           // duplicadas del MISMO tipo: cancelar la complementaria acá le borraría al
           // atleta el equipo o el plan que la escuela ya le había puesto.
           const survivor = withCol[0] ?? rows[0] ?? null;
-          return { survivor, extras: withCol.slice(1) };
+
+          // `extras` era `withCol.slice(1)`: TODA otra fila con esa columna se
+          // cancelaba. Pero un atleta en dos disciplinas tiene dos filas con
+          // team_id (Boxeo y Fútbol, Porrismo y Natación, INTERMEDIO y NUEVA ERA)
+          // y ninguna es duplicada: guardar el editor le borraba una disciplina
+          // y sus cobros. Ahora solo se cancela el duplicado EXACTO —misma
+          // columna, mismo valor—, que es el caso que revienta el índice único
+          // parcial (23505) y el que cobra dos veces lo mismo.
+          const extras = survivor?.[col]
+            ? withCol.filter(r => r.id !== survivor.id && r[col] === survivor[col])
+            : [];
+          return { survivor, extras };
         };
 
         /**
@@ -834,6 +890,30 @@ router.put(
           if (error) throw new Error(`Error leyendo inscripciones: ${error.message}`);
           const rows = (data as any[]) ?? [];
           if (rows.length <= 1) return;
+
+          // Fusionar solo cuando las filas NO compiten por la misma columna.
+          //
+          // La fusión hereda UN equipo y UN plan, así que con dos filas que
+          // apuntan a equipos distintos (o a planes distintos) hay que descartar
+          // uno: eso no es reparar una inscripción partida, es borrarle al atleta
+          // una disciplina que la escuela le puso a propósito. En la base al
+          // 2026-08-10 son 15 de 17 casos (Fútbol+Tenis, Boxeo+Fútbol,
+          // Porrismo+Natación, INTERMEDIO+NUEVA ERA…), todos legítimos.
+          //
+          // Cuando no compiten —fila fantasma del QR sin equipo ni plan, o el par
+          // partido (una fila con equipo, otra con plan)— la fusión no pierde
+          // nada: el equipo y el plan sobreviven juntos en la fila que queda.
+          // El duplicado EXACTO (mismo equipo o mismo plan repetido) también
+          // entra acá, y es el que hay que fusionar.
+          const distinctValues = (col: string) =>
+            new Set(rows.map(r => r[col]).filter(Boolean)).size;
+          if (distinctValues('team_id') > 1 || distinctValues('offering_plan_id') > 1) {
+            req.log?.warn?.(
+              { athleteId: id, schoolId, enrollments: rows.map(r => r.id) },
+              'Atleta con inscripciones en varias disciplinas: no se fusionan',
+            );
+            return;
+          }
 
           const [keep, ...rest] = rows;
           const inheritedTeam = keep.team_id ?? rest.find(r => r.team_id)?.team_id ?? null;
@@ -880,21 +960,6 @@ router.put(
         // que ambos escriben sobre la misma fila en vez de crear una cada uno.
         await consolidateEnrollments();
 
-        /**
-         * Cancela las inscripciones activas duplicadas. Va SIEMPRE antes de
-         * actualizar la que sobrevive: los índices únicos son parciales
-         * (WHERE status='active'), así que mover el plan a la fila que queda con
-         * la duplicada todavía activa revienta con 23505.
-         */
-        const cancelExtraEnrollments = async (extras: any[]) => {
-          if (!extras.length) return;
-          const today = todayInZone();
-          await supabase.from('enrollments')
-            .update({ status: 'cancelled', end_date: today, updated_at: new Date().toISOString() })
-            .in('id', extras.map(r => r.id))
-            .eq('school_id', schoolId);
-        };
-
         // ── Enrollment de EQUIPO ────────────────────────────────────────────────
         if (enrollment.team_id !== undefined) {
           const teamStartDate: string = enrollment.team_start_date || todayInZone();
@@ -930,11 +995,17 @@ router.put(
                 supabase.from('payments').update({ status: 'cancelled', updated_at: new Date().toISOString() })
                   .eq('school_id', schoolId).eq('team_id', oldTeamId).eq('status', 'pending')
               );
-              // Crear pago nuevo para el equipo nuevo (solo si tiene cuota > 0)
+              // Crear pago nuevo para el equipo nuevo (solo si tiene cuota > 0).
+              // Igual que en el cambio de plan: el cobro va al mes en que se
+              // cambia, no al de la fecha de inscripción vieja.
               if (enrollment.team_id) {
                 const { data: teamData } = await supabase.from('teams').select('name, price_monthly').eq('id', enrollment.team_id).maybeSingle();
                 const amount = teamFee ?? Number(teamData?.price_monthly ?? 0);
-                if (amount > 0) await createPendingPayment(enrollment.team_id, null, amount, `Mensualidad ${teamData?.name || 'Equipo'}`, teamStartDate);
+                if (amount > 0) await createPendingPayment(
+                  enrollment.team_id, null, amount,
+                  `Mensualidad ${teamData?.name || 'Equipo'}`,
+                  billingStartForChange(teamStartDate),
+                );
               }
             } else if (teamFee !== null && teamFee <= 0) {
               // Cuota de equipo en 0 = sin cobro por equipo: se cancelan los
@@ -1010,7 +1081,11 @@ router.put(
               if (enrollment.offering_plan_id) {
                 const { data: planData } = await supabase.from('offering_plans').select('name, price').eq('id', enrollment.offering_plan_id).maybeSingle();
                 const amount = planFee ?? planData?.price ?? 0;
-                await createPendingPayment(null, enrollment.offering_plan_id, amount, `Plan ${planData?.name || 'Plan'}`, planStartDate);
+                await createPendingPayment(
+                  null, enrollment.offering_plan_id, amount,
+                  `Plan ${planData?.name || 'Plan'}`,
+                  billingStartForChange(planStartDate),
+                );
               }
             } else if (planFee !== null && planFee <= 0) {
               // Plan sin cobro: cancelar pendientes (amount = 0 rompe el

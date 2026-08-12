@@ -145,12 +145,12 @@ router.get('/search-profile', async (req: Request, res: Response) => {
   const { data, error } = isEmail
     ? await supabase
         .from('profiles')
-        .select('id, full_name, email, phone, role')
+        .select('id, role')
         .eq('email', q.toLowerCase())
         .maybeSingle()
     : await supabase
         .from('profiles')
-        .select('id, full_name, email, phone, role')
+        .select('id, role')
         .or(`phone.eq.${cleanPhone},phone.eq.+57${cleanPhone}`)
         .maybeSingle();
 

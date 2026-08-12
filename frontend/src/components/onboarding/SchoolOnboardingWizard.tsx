@@ -46,7 +46,7 @@ type StepId = 'branch' | 'model' | 'team' | 'plan' | 'coach' | 'student' | 'paym
  */
 function friendlyError(err: any): string {
   const msg = String(err?.message || err || '');
-  if (msg.includes('schema cache') && msg.includes('subscription_plans')) {
+  if (msg.includes('schema cache') && (msg.includes('subscription_plans') || msg.includes('offerings') || msg.includes('offering_plans'))) {
     return 'El módulo de planes aún no está disponible. Pídele al administrador que aplique la última actualización.';
   }
   if (msg.includes('schema cache') && msg.includes('school_settings')) {
@@ -208,11 +208,20 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
   const [accountType,   setAccountType]   = useState('ahorros');
   const [whatsapp,      setWhatsapp]      = useState('');
 
-  // Load existing branch data
+  // Existing records IDs for update
+  const [existingTeamId, setExistingTeamId] = useState<string | null>(null);
+  const [existingOfferingId, setExistingOfferingId] = useState<string | null>(null);
+  const [existingPlanId, setExistingPlanId] = useState<string | null>(null);
+
+  // Load existing onboarding data
   useEffect(() => {
     if (schoolId) {
       loadBranchData();
+      loadTeamData();
+      loadPlanData();
+      loadPaymentsData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schoolId]);
 
   const loadBranchData = async () => {
@@ -228,6 +237,76 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
       setBranchAddress(data.address || '');
       setBranchCity(data.city || '');
       setBranchPhone(data.phone || '');
+    }
+  };
+
+  const loadTeamData = async () => {
+    if (!schoolId) return;
+    const { data } = await supabase
+      .from('teams')
+      .select('id, name, sport, price_monthly')
+      .eq('school_id', schoolId)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (data) {
+      setExistingTeamId(data.id);
+      setTeamName(data.name || '');
+      setTeamSport(data.sport || '');
+      setTeamPrice(String(data.price_monthly || '150000'));
+    }
+  };
+
+  const loadPlanData = async () => {
+    if (!schoolId) return;
+    const { data: offering } = await supabase
+      .from('offerings')
+      .select('id, name, sport')
+      .eq('school_id', schoolId)
+      .eq('offering_type', 'membership')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (offering) {
+      setExistingOfferingId(offering.id);
+      setPlanName(offering.name || '');
+
+      const { data: plan } = await supabase
+        .from('offering_plans')
+        .select('id, price, duration_days, max_sessions')
+        .eq('offering_id', offering.id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (plan) {
+        setExistingPlanId(plan.id);
+        setPlanPrice(String(plan.price || '120000'));
+        const billing = plan.duration_days === 365 ? 'yearly'
+          : (plan.duration_days === 90 ? 'quarterly' : 'monthly');
+        setPlanBilling(billing);
+        setPlanSessions(plan.max_sessions === null ? '' : String(plan.max_sessions));
+      }
+    }
+  };
+
+  const loadPaymentsData = async () => {
+    if (!schoolId) return;
+    const { data } = await supabase
+      .from('school_settings')
+      .select('bank_name, bank_account_number, bank_account_type, nequi_number, breb_key, whatsapp_number')
+      .eq('school_id', schoolId)
+      .maybeSingle();
+
+    if (data) {
+      setBankCode(data.bank_name || '');
+      setAccountNumber(data.bank_account_number || '');
+      setAccountType(data.bank_account_type || 'ahorros');
+      setNequi(data.nequi_number || '');
+      setBrebKey(data.breb_key || '');
+      setWhatsapp(data.whatsapp_number || '');
     }
   };
 
@@ -301,11 +380,23 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
   };
 
   /**
-   * Crea un subscription_plan tipo school_monthly atado al vendor_profile
-   * del owner de la escuela. Si el owner no tiene vendor_profile aun
-   * (school role ya no auto-crea), lo creamos silenciosamente con
-   * capabilities en false. No abre Mi Tienda — el addon store sigue
-   * siendo lo que decide eso.
+   * Crea el primer plan de la escuela en las DOS tablas que hacen falta.
+   *
+   * 1. `offering` + `offering_plan` (por `school_id`): es lo que lee el resto
+   *    del producto — el selector de plan del editor de atleta, el QR de
+   *    inscripción y el motor de cobros. Sin esto, el paso "creaba" un plan que
+   *    no aparecía en ninguna parte: la escuela terminaba el onboarding y al ir
+   *    a asignárselo a un atleta la lista estaba vacía. Medido el 2026-08-11:
+   *    5 de las 10 escuelas que pasaron por este paso no tenían ni un
+   *    `offering_plan`, o sea que su único plan era invisible.
+   *
+   * 2. `subscription_plan` tipo school_monthly atado al vendor_profile del
+   *    owner: es del dominio de marketplace/cobros recurrentes, y además es lo
+   *    que mira `has_plans` en get_onboarding_status para marcar el paso como
+   *    hecho. Por eso se conserva. Si el owner no tiene vendor_profile aun
+   *    (school role ya no auto-crea), lo creamos silenciosamente con
+   *    capabilities en false. No abre Mi Tienda — el addon store sigue
+   *    siendo lo que decide eso.
    */
   const handleCreatePlan = async () => {
     if (!schoolId || !user) return;
@@ -319,40 +410,74 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
     }
     setSaving(true);
     try {
-      // Buscar o crear vendor_profile del owner (capabilities=false para
-      // no activar tienda; solo es contenedor de los planes recurrentes).
-      let { data: vp } = await supabase
-        .from('vendor_profiles')
-        .select('id')
-        .eq('user_id', user.id)
-        .maybeSingle();
+      const durationDays = planBilling === 'yearly' ? 365
+        : planBilling === 'quarterly' ? 90
+        : 30;
 
-      if (!vp) {
-        const { data: created, error: rpcErr } = await supabase.rpc('enable_vendor_profile', {
-          p_vendor_type:       'school',
-          p_can_sell_products: false,
-          p_can_sell_services: false,
-          p_display_name:      schoolName || 'Academia',
-        });
-        if (rpcErr) throw rpcErr;
-        vp = created;
+      let offeringId = existingOfferingId;
+
+      if (offeringId) {
+        // Update existing offering
+        const { error: offErr } = await supabase
+          .from('offerings')
+          .update({
+            name: planName.trim(),
+            sport: teamSport || null,
+          })
+          .eq('id', offeringId);
+        if (offErr) throw offErr;
+      } else {
+        // Insert new offering
+        const { data: newOffering, error: offErr } = await supabase
+          .from('offerings')
+          .insert({
+            school_id:     schoolId,
+            name:          planName.trim(),
+            offering_type: 'membership',
+            sport:         teamSport || null,
+          })
+          .select('id')
+          .single();
+        if (offErr) throw offErr;
+        offeringId = (newOffering as any).id;
+        setExistingOfferingId(offeringId);
       }
 
-      const { error } = await supabase
-        .from('subscription_plans')
-        .insert({
-          vendor_profile_id: vp!.id,
-          name:              planName.trim(),
-          plan_type:         'school_monthly',
-          price:             Number(planPrice),
-          billing_period:    planBilling,
-          sessions_included: planSessions === '' ? null : Number(planSessions),
-          is_active:         true,
-        });
+      if (existingPlanId) {
+        // Update existing offering_plan
+        const { error: planErr } = await supabase
+          .from('offering_plans')
+          .update({
+            name:         planBilling === 'yearly' ? 'Anual' : (planBilling === 'quarterly' ? 'Trimestral' : 'Mensual'),
+            price:        Number(planPrice),
+            duration_days: durationDays,
+            max_sessions: planSessions === '' ? null : Number(planSessions),
+          })
+          .eq('id', existingPlanId);
+        if (planErr) throw planErr;
+        toast({ title: 'Plan actualizado' });
+      } else {
+        // Insert new offering_plan
+        const { data: newPlanData, error: planErr } = await supabase
+          .from('offering_plans')
+          .insert({
+            school_id:    schoolId,
+            offering_id:  offeringId,
+            name:         planBilling === 'yearly' ? 'Anual' : (planBilling === 'quarterly' ? 'Trimestral' : 'Mensual'),
+            price:        Number(planPrice),
+            duration_days: durationDays,
+            max_sessions: planSessions === '' ? null : Number(planSessions),
+            is_active:    true,
+          })
+          .select('id')
+          .single();
+        if (planErr) throw planErr;
+        if (newPlanData) {
+          setExistingPlanId(newPlanData.id);
+        }
+        toast({ title: 'Plan creado' });
+      }
 
-      if (error) throw error;
-
-      toast({ title: 'Plan creado' });
       onRefresh();
       goNext();
     } catch (err: any) {
@@ -378,21 +503,43 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
         .eq('is_main', true)
         .maybeSingle();
 
-      const { error } = await supabase
-        .from('teams')
-        .insert({
-          school_id: schoolId,
-          name: teamName.trim(),
-          sport: teamSport,
-          price_monthly: Number(teamPrice) || 150000,
-          branch_id: branch?.id || null,
-          status: 'active',
-          current_students: 0,
-        });
+      if (existingTeamId) {
+        // Update existing team
+        const { error } = await supabase
+          .from('teams')
+          .update({
+            name: teamName.trim(),
+            sport: teamSport,
+            price_monthly: Number(teamPrice) || 150000,
+            branch_id: branch?.id || null,
+          })
+          .eq('id', existingTeamId);
 
-      if (error) throw error;
+        if (error) throw error;
+        toast({ title: 'Equipo actualizado' });
+      } else {
+        // Insert new team
+        const { data: newTeam, error } = await supabase
+          .from('teams')
+          .insert({
+            school_id: schoolId,
+            name: teamName.trim(),
+            sport: teamSport,
+            price_monthly: Number(teamPrice) || 150000,
+            branch_id: branch?.id || null,
+            status: 'active',
+            current_students: 0,
+          })
+          .select('id')
+          .single();
 
-      toast({ title: 'Equipo creado' });
+        if (error) throw error;
+        if (newTeam) {
+          setExistingTeamId(newTeam.id);
+        }
+        toast({ title: 'Equipo creado' });
+      }
+
       onRefresh();
       goNext();
     } catch (err: any) {

@@ -11,7 +11,7 @@
  * Equipo y Plan son INDEPENDIENTES — nunca se cruzan entre sí.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { todayColombia } from '@/lib/dateUtils';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -67,20 +67,6 @@ interface CreateChildModalProps {
   onClose: () => void;
   onSuccess: () => void;
   schoolId: string;
-}
-
-interface ExistingChild {
-  id: string;
-  full_name: string;
-  doc_type: string;
-  doc_number: string;
-  date_of_birth: string | null;
-  gender: string | null;
-  grade: string | null;
-  medical_info: any;
-  parent_name_temp?: string;
-  parent_email_temp?: string;
-  parent_phone_temp?: string;
 }
 
 interface BillingSettings {
@@ -246,8 +232,6 @@ function Section({
   );
 }
 
-// ─── Main Modal ───────────────────────────────────────────────────────────────
-
 export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateChildModalProps) {
   const { toast } = useToast();
   const [submitting, setSubmitting] = useState(false);
@@ -275,25 +259,19 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
   // ── Sección 2: Acudiente ──────────────────────────────────────────────────
   const [parentName, setParentName]   = useState('');
   const [parentEmail, setParentEmail] = useState('');
-  const [parentPhone, setParentPhone] = useState('');
+  const [parentPhone, setParentPhone] = useState('+57');
 
-  const [parentSearchQuery, setParentSearchQuery] = useState('');
-  const [parentSearching, setParentSearching]     = useState(false);
-  const [parentFound, setParentFound]             = useState<{id: string; full_name: string; email: string; phone: string} | null>(null);
-  const [searchDone, setSearchDone]               = useState(false);
-  const [showForm, setShowForm]                   = useState(false); // para cuando el padre no existe y hay que crearlo
-  const [parentChildren, setParentChildren]       = useState<ExistingChild[]>([]);
-  const [selectedChildId, setSelectedChildId]     = useState<string | null>(null);
+  const [checkingParentEmail, setCheckingParentEmail] = useState(false);
+  const [parentEmailExists, setParentEmailExists] = useState<boolean | null>(null);
+  const [sendInviteEmail, setSendInviteEmail]       = useState(true);
+  const [sendInviteWhatsapp, setSendInviteWhatsapp] = useState(true);
 
   // ── Sección 3: Inscripción ────────────────────────────────────────────────
   const [branchId, setBranchId]   = useState('none');
-  // Equipo (independiente)
   const [teamId, setTeamId]       = useState('none');
-  // Plan (independiente — guarda offering_plan_id y offering_id por separado)
-  const [selectedPlanId, setSelectedPlanId]       = useState('none');   // offering_plans.id
-  const [selectedOfferingId, setSelectedOfferingId] = useState(''); // offerings.id
+  const [selectedPlanId, setSelectedPlanId]       = useState('none');
+  const [selectedOfferingId, setSelectedOfferingId] = useState('');
   const [selectedPlanPrice, setSelectedPlanPrice] = useState(0);
-  // Fecha y mensualidad (para el pago proporcional)
   const [startDate, setStartDate]   = useState(() => todayColombia());
   const [monthlyFee, setMonthlyFee] = useState('');
   const [discountPct, setDiscountPct] = useState(0);
@@ -303,39 +281,12 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
     if (!open || !schoolId) return;
 
     Promise.all([
-      // Equipos
-      supabase
-        .from('teams')
-        .select('id, name, sport, price_monthly')
-        .eq('school_id', schoolId)
-        .eq('status', 'active')
-        .order('name'),
-
-      // Planes: offering_plans JOIN offerings — precio en offering_plans.price
-      supabase
-        .from('offering_plans')
-        .select('id, name, price, duration_days, offering_id, offerings(id, name)')
-        .eq('school_id', schoolId)
-        .eq('is_active', true)
-        .order('sort_order'),
-
-      // Sedes
-      supabase
-        .from('school_branches')
-        .select('id, name')
-        .eq('school_id', schoolId)
-        .order('name'),
-
-      // Configuración de pagos
-      supabase
-        .from('school_settings')
-        .select('payment_cutoff_day, billing_cycle_type')
-        .eq('school_id', schoolId)
-        .maybeSingle(),
+      supabase.from('teams').select('id, name, sport, price_monthly').eq('school_id', schoolId).eq('status', 'active').order('name'),
+      supabase.from('offering_plans').select('id, name, price, duration_days, offering_id, offerings(id, name)').eq('school_id', schoolId).eq('is_active', true).order('sort_order'),
+      supabase.from('school_branches').select('id, name').eq('school_id', schoolId).order('name'),
+      supabase.from('school_settings').select('payment_cutoff_day, billing_cycle_type').eq('school_id', schoolId).maybeSingle(),
     ]).then(([teamsRes, plansRes, branchesRes, settingsRes]) => {
       setTeams((teamsRes.data as Team[]) ?? []);
-
-      // Aplanar offering_plans con su offering padre
       const flatPlans: PlanOption[] = ((plansRes.data as any[]) ?? []).map(row => ({
         plan_id:       row.id,
         offering_id:   row.offerings?.id ?? row.offering_id,
@@ -345,9 +296,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
         duration_days: row.duration_days,
       }));
       setPlans(flatPlans);
-
       setBranches((branchesRes.data as Branch[]) ?? []);
-      
       if (settingsRes.data) {
         setBilling(settingsRes.data as BillingSettings);
       }
@@ -374,7 +323,6 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
     if (p) {
       setSelectedOfferingId(p.offering_id);
       setSelectedPlanPrice(p.price);
-      // El plan tiene prioridad sobre el equipo para la mensualidad
       setMonthlyFee(String(p.price));
     }
   };
@@ -389,109 +337,49 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
     setSelectedPlanId('none'); setSelectedOfferingId(''); setSelectedPlanPrice(0);
     setStartDate(todayColombia()); setMonthlyFee('');
     setDiscountPct(0);
-    setParentSearchQuery(''); setSearchDone(false); setParentFound(null);
-    setParentChildren([]); setSelectedChildId(null);
-  };
-
-  const handleParentSearch = async () => {
-    const q = parentSearchQuery.trim();
-    if (!q) return;
-    setParentSearching(true);
-    setParentFound(null);
-    setShowForm(false);
-    setParentChildren([]);
-    setSelectedChildId(null);
-    
-    try {
-      const isEmail = q.includes('@');
-
-      // Llamamos al nuevo endpoint del BFF que unifica búsqueda de padre e hijos
-      const result = await bffClient.get(
-        `/api/v1/trainer/search-parent-children?q=${encodeURIComponent(q)}`,
-        { 'x-school-id': schoolId }
-      ) as { profile: any; children: any[] };
-
-      const profile  = result?.profile ?? null;
-      const children = result?.children ?? [];
-
-      setParentChildren(children);
-
-      if (profile) {
-        setParentFound(profile);
-        setParentName(profile.full_name || '');
-        setParentEmail(profile.email || '');
-        setParentPhone(profile.phone || '');
-        setShowForm(true);
-        
-        toast({ 
-          title: children.length > 0 ? 'Acudiente e hijos encontrados' : 'Acudiente encontrado', 
-          description: children.length > 0 
-            ? `${profile.full_name} tiene ${children.length} hijo(s) en esta escuela.` 
-            : `${profile.full_name} identificado.` 
-        });
-      } else if (children.length > 0) {
-        // No hay perfil de usuario oficial, pero hay historial de hijos (ej: carga masiva)
-        const first = children[0];
-        setParentName(first.parent_name_temp || '');
-        setParentEmail(first.parent_email_temp || (isEmail ? q.toLowerCase() : ''));
-        setParentPhone(first.parent_phone_temp || (!isEmail ? q : ''));
-        setShowForm(true);
-        
-        toast({ 
-          title: 'Historial encontrado', 
-          description: `Se identificaron ${children.length} hijo(s) vinculados a este contacto.` 
-        });
-      } else {
-        toast({ 
-          title: 'Sin coincidencias', 
-          description: 'No hay perfil ni historial previo. Ingresa los datos manualmente.' 
-        });
-        setParentEmail(isEmail ? q.toLowerCase() : '');
-        setParentPhone(!isEmail ? q : '');
-        setShowForm(true);
-      }
-    } catch (err) {
-      console.error('Error en búsqueda:', err);
-      toast({ title: 'Error al buscar', variant: 'destructive' });
-    } finally {
-      setParentSearching(false);
-      setSearchDone(true);
-    }
-  };
-
-  const handleSelectExistingChild = (childId: string) => {
-    if (childId === 'new') {
-      setSelectedChildId(null);
-      setDocNumber('');
-      setFullName('');
-      setDob('');
-      setGender('');
-      setGrade('');
-      setMedicalHasAllergies('false');
-      setMedicalNotes('');
-      return;
-    }
-    
-    const child = parentChildren.find(c => c.id === childId);
-    if (child) {
-      setSelectedChildId(child.id);
-      setDocType(child.doc_type || 'TI');
-      setDocNumber(child.doc_number || '');
-      setFullName(child.full_name || '');
-      setDob(child.date_of_birth || '');
-      setGender(child.gender || '');
-      setGrade(child.grade || '');
-      
-      const medInfo = typeof child.medical_info === 'string' 
-        ? JSON.parse(child.medical_info) 
-        : child.medical_info;
-      
-      setMedicalHasAllergies(medInfo?.has_allergies ? 'true' : 'false');
-      setMedicalNotes(medInfo?.notes || '');
-    }
+    setCheckingParentEmail(false);
+    setParentEmailExists(null);
+    setSendInviteEmail(true);
+    setSendInviteWhatsapp(true);
   };
 
   const handleClose = () => { reset(); onClose(); };
+
+  // ── Búsqueda silenciosa en acudiente ──────────────────────────────────────────
+  const checkParentEmailExists = useCallback(async (emailVal: string) => {
+    const emailClean = emailVal.trim().toLowerCase();
+    if (!emailClean || !emailClean.includes('@')) {
+      setParentEmailExists(null);
+      return;
+    }
+
+    setCheckingParentEmail(true);
+    try {
+      const data = await bffClient.get(`/api/v1/trainer/search-profile?q=${encodeURIComponent(emailClean)}`, {
+        'x-school-id': schoolId
+      });
+
+      setParentEmailExists(!!data);
+    } catch {
+      setParentEmailExists(false);
+    } finally {
+      setCheckingParentEmail(false);
+    }
+  }, [schoolId]);
+
+  const handleParentEmailChange = (val: string) => {
+    setParentEmail(val);
+    setParentEmailExists(null);
+    
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (emailRegex.test(val.trim())) {
+      checkParentEmailExists(val);
+    }
+  };
+
+  const handleParentEmailBlur = () => {
+    checkParentEmailExists(parentEmail);
+  };
 
   // ── Validation ─────────────────────────────────────────────────────────────
   const validate = (): string | null => {
@@ -518,14 +406,14 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
 
     const medicalInfo = JSON.stringify({
       has_allergies: medicalHasAllergies === 'true',
-      ...(medicalNotes ? { notes: medicalNotes } : {}),
+      notes: medicalNotes.trim(),
     });
 
-    try {
-      setSubmitting(true);
+    setSubmitting(true);
 
-      // Si no es un hijo existente y hay documento, verificar duplicado localmente
-      if (!selectedChildId && docNumber.trim()) {
+    try {
+      // Verificar duplicado localmente
+      if (docNumber.trim()) {
         const { data: existingChild } = await supabase
           .from('children')
           .select('id, full_name')
@@ -536,7 +424,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
         if (existingChild) {
           toast({
             title: 'Menor ya registrado',
-            description: `Ya existe un menor con documento ${docNumber} en esta escuela: "${existingChild.full_name}". Edítalo desde la lista de atletas.`,
+            description: `Ya existe un menor con documento ${docNumber} en esta escuela: "${existingChild.full_name}".`,
             variant: 'destructive',
           });
           setSubmitting(false);
@@ -544,7 +432,6 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
         }
       }
 
-      // Payload base para inscripciones
       const enrollmentData = {
         branch_id:        (branchId && branchId !== 'none') ? branchId : null,
         team_id:          (teamId && teamId !== 'none') ? teamId : null,
@@ -555,50 +442,36 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
         discount_pct:     discountPct > 0 ? discountPct : undefined,
       };
 
-      let result: any;
-
-      if (selectedChildId) {
-        // FLUJO: Inscripción de hijo existente
-        result = await bffClient.post('/api/v1/students/create-one', {
-          type: 'child_existing',
-          child_id: selectedChildId,
-          ...enrollmentData,
-        }, { 'x-school-id': schoolId });
-      } else {
-        // FLUJO: Creación e inscripción de nuevo hijo
-        result = await bffClient.post('/api/v1/students/create-one', {
-          type: 'child',
-          ...enrollmentData,
-          // Identificación (documento opcional)
-          doc_type:   docType,
-          doc_number: docNumber.trim() || null,
-          // Datos personales
-          full_name:    fullName.trim(),
-          date_of_birth: dob || null,
-          gender:       gender || null,
-          grade:        grade  || null,
-          medical_info: medicalInfo,
-          // Acudiente
-          parent_name:  parentName.trim(),
-          parent_email: parentEmail.trim().toLowerCase(),
-          parent_phone: parentPhone.replace(/\D/g, ''),
-        }, { 'x-school-id': schoolId });
-      }
+      const result = await bffClient.post('/api/v1/students/create-one', {
+        type: 'child',
+        ...enrollmentData,
+        doc_type:   docType,
+        doc_number: docNumber.trim() || null,
+        full_name:    fullName.trim(),
+        date_of_birth: dob || null,
+        gender:       gender || null,
+        grade:        grade  || null,
+        medical_info: medicalInfo,
+        parent_name:  parentName.trim(),
+        parent_email: parentEmail.trim().toLowerCase(),
+        parent_phone: parentPhone.replace(/\D/g, ''),
+        send_invite:  sendInviteEmail,
+      }, { 'x-school-id': schoolId }) as any;
 
       toast({ title: '✅ Registro exitoso', description: `${fullName} fue procesado correctamente.` });
 
-      if (result?.registration_link && parentPhone) {
+      if (sendInviteWhatsapp && result?.registration_link && parentPhone) {
         const phoneClean = parentPhone.replace(/\D/g, '');
         const msg = `¡Hola ${parentName}! ${fullName} ha sido inscrito. Activa tu cuenta aquí: ${result.registration_link}`;
         toast({
           title: 'Invitar acudiente por WhatsApp',
           description: (
-            <button
-              className="mt-2 w-full bg-green-600 hover:bg-green-700 text-white text-xs py-2 px-3 rounded-md"
+            <Button
+              className="mt-2 w-full bg-green-600 hover:bg-green-700 text-white text-xs"
               onClick={() => window.open(`https://wa.me/${phoneClean}?text=${encodeURIComponent(msg)}`, '_blank')}
             >
               📱 Abrir WhatsApp
-            </button>
+            </Button>
           ) as any,
         });
       }
@@ -615,7 +488,6 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
     }
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -625,367 +497,328 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
             Registrar Menor de Edad
           </DialogTitle>
           <DialogDescription>
-            El acudiente recibirá una invitación por email para activar su cuenta y ver los pagos.
+            Registra a un menor de edad y asócialo a un acudiente. El acudiente recibirá una invitación para activar su cuenta.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6 py-2">
           
-          {/* ── Búsqueda de Acudiente ── */}
-          <Section icon={<Search className="h-4 w-4" />} title="Buscar Acudiente">
-            <div className="flex gap-2">
-              <Input
-                placeholder="Email o teléfono del acudiente..."
-                value={parentSearchQuery}
-                onChange={e => {
-                  setParentSearchQuery(e.target.value);
-                  setSearchDone(false);
-                  setParentFound(null);
-                }}
-                onKeyDown={e => e.key === 'Enter' && handleParentSearch()}
-                className="flex-1"
-              />
-              <Button variant="outline" onClick={handleParentSearch} disabled={!parentSearchQuery.trim() || parentSearching} type="button">
-                {parentSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground px-1">
-              Busca por email o celular para vincular a un padre/madre existente.
-            </p>
-
-            {/* Encontrado */}
-            {searchDone && parentFound && (
-              <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-800 p-4">
-                <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
-                <div className="flex-1">
-                  <p className="font-semibold text-green-900 dark:text-green-100">{parentFound.full_name}</p>
-                  <p className="text-sm text-green-700 dark:text-green-300">{parentFound.email}</p>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => { setSearchDone(false); setParentFound(null); setParentSearchQuery(''); }} className="text-xs">
-                  Cambiar
-                </Button>
+          {/* ── Sección 1: Datos del menor ── */}
+          <Section icon={<Baby className="h-4 w-4" />} title="Información del Menor">
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label>Tipo de Doc. *</Label>
+                <Select value={docType} onValueChange={setDocType}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TI">TI</SelectItem>
+                    <SelectItem value="CC">CC</SelectItem>
+                    <SelectItem value="CE">CE</SelectItem>
+                    <SelectItem value="PP">Pasaporte</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-            )}
+              <div className="col-span-2">
+                <Label>Número de Documento <span className="text-muted-foreground font-normal">(opcional)</span></Label>
+                <Input placeholder="1234567890" value={docNumber} onChange={e => setDocNumber(e.target.value)} />
+              </div>
+            </div>
 
-            {/* No encontrado */}
-            {searchDone && !parentFound && !showForm && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-4 space-y-3">
-                <div className="flex items-start gap-3">
-                  <Info className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium text-amber-900 dark:text-amber-100">Acudiente no encontrado</p>
-                    <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                      Si el acudiente es nuevo, regístralo junto al menor.
-                    </p>
-                  </div>
+            <div>
+              <Label>Nombre Completo *</Label>
+              <Input placeholder="Ana María Gómez López" value={fullName} onChange={e => setFullName(e.target.value)} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col">
+                <Label className="mb-2">Fecha de Nacimiento *</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant={"outline"}
+                      className={cn(
+                        "w-full pl-3 text-left font-normal",
+                        !dob && "text-muted-foreground"
+                      )}
+                    >
+                      {dob ? (
+                        format(new Date(dob + 'T12:00:00'), "PPP", { locale: es })
+                      ) : (
+                        <span>Seleccionar fecha</span>
+                      )}
+                      <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={dob ? new Date(dob + 'T12:00:00') : undefined}
+                      onSelect={(date) => {
+                        if (date) {
+                          const year = date.getFullYear();
+                          const month = String(date.getMonth() + 1).padStart(2, '0');
+                          const day = String(date.getDate()).padStart(2, '0');
+                          setDob(`${year}-${month}-${day}`);
+                        }
+                      }}
+                      captionLayout="dropdown-buttons"
+                      fromYear={1920}
+                      toYear={new Date().getFullYear()}
+                      disabled={(date) =>
+                        date > new Date() || date < new Date("1900-01-01")
+                      }
+                      initialFocus
+                      locale={es}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div>
+                <Label>Género</Label>
+                <Select value={gender} onValueChange={setGender}>
+                  <SelectTrigger><SelectValue placeholder="Seleccionar" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="male">Masculino</SelectItem>
+                    <SelectItem value="female">Femenino</SelectItem>
+                    <SelectItem value="other">Otro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <Label>Grado Escolar</Label>
+              <Input placeholder="Ej: 6A, 7B, Primaria" value={grade} onChange={e => setGrade(e.target.value)} />
+            </div>
+
+            <button type="button" onClick={() => setShowMedical(v => !v)} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+              {showMedical ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              Información médica {showMedical ? '' : '(opcional)'}
+            </button>
+
+            {showMedical && (
+              <div className="space-y-3 rounded-lg border border-dashed p-4">
+                <div>
+                  <Label>¿Tiene alergias?</Label>
+                  <Select value={medicalHasAllergies} onValueChange={v => setMedicalHasAllergies(v as 'true' | 'false')}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="false">No</SelectItem>
+                      <SelectItem value="true">Sí</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-                <Button variant="outline" size="sm" className="w-full" onClick={() => {
-                  setShowForm(true);
-                  if (parentSearchQuery.includes('@')) setParentEmail(parentSearchQuery.trim().toLowerCase());
-                }}>
-                  Registrar Nuevo Acudiente y Menor
-                </Button>
+                <div>
+                  <Label>Notas adicionales</Label>
+                  <Textarea placeholder="Condiciones, medicamentos, restricciones físicas..." value={medicalNotes} onChange={e => setMedicalNotes(e.target.value)} rows={3} />
+                </div>
               </div>
             )}
           </Section>
 
-          {/* ── Formulario Completo (solo si ya se buscó y se continúa) ── */}
-          {(parentFound || showForm) && (
-            <>
-              <Separator />
+          <Separator />
 
-              {/* Datos del Acudiente (solo si es nuevo y no se encontró perfil) */}
-              {showForm && !parentFound && (
-                <Section icon={<Users className="h-4 w-4" />} title="Datos del Nuevo Acudiente">
-                  <div className="space-y-3 rounded-lg border border-dashed p-4">
-                    <div>
-                      <Label>Nombre del Acudiente *</Label>
-                      <Input placeholder="María López" value={parentName} onChange={e => setParentName(e.target.value)} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label>Email *</Label>
-                        <Input type="email" placeholder="madre@email.com" value={parentEmail} onChange={e => setParentEmail(e.target.value)} />
-                      </div>
-                      <div>
-                        <Label>Teléfono *</Label>
-                        <PhoneInput value={parentPhone} onChange={setParentPhone} />
-                      </div>
-                    </div>
-                  </div>
-                </Section>
-              )}
-
-              <Separator />
-
-              {/* ── Sección 1: Datos del menor ── */}
-              <Section icon={<Baby className="h-4 w-4" />} title="Información del Menor">
-                
-                {/* Selector de hijos existentes si los hay */}
-                {parentChildren.length > 0 && (
-                  <div className="bg-muted/40 dark:bg-muted/20 border border-border rounded-xl p-4 space-y-3 transition-all shadow-sm">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-foreground flex items-center gap-2 font-semibold">
-                        <Users className="h-4 w-4 text-primary" />
-                        Hijos vinculados a este contacto
-                      </Label>
-                      <span className="text-[10px] uppercase tracking-wider font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
-                        Historial
-                      </span>
-                    </div>
-                    <Select value={selectedChildId || 'new'} onValueChange={handleSelectExistingChild}>
-                      <SelectTrigger className="bg-background border-input focus:ring-primary shadow-sm">
-                        <SelectValue placeholder="Seleccionar hijo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="new" className="font-medium text-primary">
-                          ➕ Registrar a otro hijo
-                        </SelectItem>
-                        {parentChildren.map(c => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.full_name} — {c.doc_number || 'Sin documento'}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <Label>Tipo de Doc. *</Label>
-                    <Select value={docType} onValueChange={setDocType} disabled={!!selectedChildId}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="TI">TI</SelectItem>
-                        <SelectItem value="CC">CC</SelectItem>
-                        <SelectItem value="CE">CE</SelectItem>
-                        <SelectItem value="PP">Pasaporte</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="col-span-2">
-                    <Label>Número de Documento <span className="text-muted-foreground font-normal">(opcional)</span></Label>
-                    <Input placeholder="1234567890" value={docNumber} onChange={e => setDocNumber(e.target.value)} disabled={!!selectedChildId} />
-                  </div>
-                </div>
-
+          {/* ── Sección 2: Acudiente ── */}
+          <Section icon={<Users className="h-4 w-4" />} title="Datos del Acudiente">
+            <div className="space-y-3 rounded-lg border border-dashed p-4 bg-muted/20">
+              <div>
+                <Label>Nombre del Acudiente *</Label>
+                <Input placeholder="María López" value={parentName} onChange={e => setParentName(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <Label>Nombre Completo *</Label>
-                  <Input placeholder="Ana María Gómez López" value={fullName} onChange={e => setFullName(e.target.value)} disabled={!!selectedChildId} />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="flex flex-col">
-                    <Label className="mb-2">Fecha de Nacimiento *</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant={"outline"}
-                          className={cn(
-                            "w-full pl-3 text-left font-normal",
-                            !dob && "text-muted-foreground"
-                          )}
-                        >
-                          {dob ? (
-                            format(new Date(dob + 'T12:00:00'), "PPP", { locale: es })
-                          ) : (
-                            <span>Seleccionar fecha</span>
-                          )}
-                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={dob ? new Date(dob + 'T12:00:00') : undefined}
-                          onSelect={(date) => {
-                            if (date) {
-                              const year = date.getFullYear();
-                              const month = String(date.getMonth() + 1).padStart(2, '0');
-                              const day = String(date.getDate()).padStart(2, '0');
-                              setDob(`${year}-${month}-${day}`);
-                            }
-                          }}
-                          captionLayout="dropdown-buttons"
-                          fromYear={1920}
-                          toYear={new Date().getFullYear()}
-                          disabled={(date) =>
-                            date > new Date() || date < new Date("1900-01-01")
-                          }
-                          initialFocus
-                          locale={es}
-                        />
-                      </PopoverContent>
-                    </Popover>
+                  <Label>Correo Electrónico *</Label>
+                  <div className="relative">
+                    <Input
+                      type="email"
+                      placeholder="madre@email.com"
+                      value={parentEmail}
+                      onChange={e => handleParentEmailChange(e.target.value)}
+                      onBlur={handleParentEmailBlur}
+                      className="pr-10"
+                    />
+                    {checkingParentEmail && (
+                      <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                    )}
                   </div>
-                  <div>
-                    <Label>Género</Label>
-                    <Select value={gender} onValueChange={setGender}>
-                      <SelectTrigger><SelectValue placeholder="Seleccionar" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="male">Masculino</SelectItem>
-                        <SelectItem value="female">Femenino</SelectItem>
-                        <SelectItem value="other">Otro</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div>
-                  <Label>Grado Escolar</Label>
-                  <Input placeholder="Ej: 6A, 7B, Primaria" value={grade} onChange={e => setGrade(e.target.value)} />
-                </div>
-
-                <button type="button" onClick={() => setShowMedical(v => !v)} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-                  {showMedical ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  Información médica {showMedical ? '' : '(opcional)'}
-                </button>
-
-                {showMedical && (
-                  <div className="space-y-3 rounded-lg border border-dashed p-4">
-                    <div>
-                      <Label>¿Tiene alergias?</Label>
-                      <Select value={medicalHasAllergies} onValueChange={v => setMedicalHasAllergies(v as 'true' | 'false')}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="false">No</SelectItem>
-                          <SelectItem value="true">Sí</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label>Notas adicionales</Label>
-                      <Textarea placeholder="Condiciones, medicamentos, restricciones físicas..." value={medicalNotes} onChange={e => setMedicalNotes(e.target.value)} rows={3} />
-                    </div>
-                  </div>
-                )}
-              </Section>
-
-              <Separator />
-
-              {/* ── Sección 3: Inscripción ── */}
-              <Section icon={<ClipboardList className="h-4 w-4" />} title="Inscripción">
-                {branches.length > 0 && (
-                  <div>
-                    <Label>Sede</Label>
-                    <Select value={branchId} onValueChange={setBranchId}>
-                      <SelectTrigger><SelectValue placeholder="Selecciona una sede *" /></SelectTrigger>
-                      <SelectContent>
-                        {branches.map(b => (
-                          <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>Equipo</Label>
-                    <p className="text-xs text-muted-foreground mb-1">Opcional — independiente del plan</p>
-                    <Select value={teamId} onValueChange={setTeamId}>
-                      <SelectTrigger><SelectValue placeholder="Sin equipo" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Sin equipo</SelectItem>
-                        {teams.map(t => (
-                          <SelectItem key={t.id} value={t.id}>
-                            {t.name}
-                            {t.sport ? <span className="ml-1 text-xs text-muted-foreground">— {t.sport}</span> : null}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Plan</Label>
-                    <p className="text-xs text-muted-foreground mb-1">Opcional — independiente del equipo</p>
-                    <Select value={selectedPlanId} onValueChange={handlePlanSelect}>
-                      <SelectTrigger><SelectValue placeholder="Sin plan" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Sin plan</SelectItem>
-                        {plans.map(p => (
-                          <SelectItem key={p.plan_id} value={p.plan_id}>
-                            {p.offering_name} — {p.plan_name} ({formatCOP(p.price)})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="flex flex-col">
-                    <Label className="mb-2">Fecha de Inscripción *</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant={"outline"}
-                          className={cn(
-                            "w-full pl-3 text-left font-normal",
-                            !startDate && "text-muted-foreground"
-                          )}
-                        >
-                          {startDate ? (
-                            format(new Date(startDate + 'T12:00:00'), "PPP", { locale: es })
-                          ) : (
-                            <span>Seleccionar fecha</span>
-                          )}
-                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={startDate ? new Date(startDate + 'T12:00:00') : undefined}
-                          onSelect={(date) => {
-                            if (date) {
-                              const year = date.getFullYear();
-                              const month = String(date.getMonth() + 1).padStart(2, '0');
-                              const day = String(date.getDate()).padStart(2, '0');
-                              setStartDate(`${year}-${month}-${day}`);
-                            }
-                          }}
-                          initialFocus
-                          locale={es}
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  <div>
-                    <Label>Mensualidad (COP) *</Label>
-                    <Input type="number" placeholder="150000" value={monthlyFee} onChange={e => setMonthlyFee(e.target.value)} min={10000} step={1000} />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {selectedPlanId !== 'none' ? 'Cargado desde el plan' : teamId !== 'none' ? 'Cargado desde el equipo' : 'Ingresa manualmente'}
+                  {parentEmailExists === true && (
+                    <p className="text-xs text-green-600 dark:text-green-400 mt-1 flex items-center gap-1 font-medium">
+                      <CheckCircle2 className="h-3.5 w-3.5 inline shrink-0" />
+                      Acudiente ya registrado. Se vinculará el menor a su cuenta existente.
                     </p>
+                  )}
+                  {parentEmailExists === false && parentEmail.trim() && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1 font-medium">
+                      <Info className="h-3.5 w-3.5 inline shrink-0" />
+                      El acudiente no está registrado. Se le enviará invitación.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <Label>Teléfono *</Label>
+                  <PhoneInput value={parentPhone} onChange={setParentPhone} />
+                </div>
+              </div>
+
+              {/* Canales de Invitación */}
+              {parentEmailExists === false && parentEmail.trim() && (
+                <div className="space-y-2 rounded-lg border border-amber-100 bg-amber-50/50 p-3 mt-4">
+                  <p className="text-xs font-semibold text-amber-900 dark:text-amber-100 mb-1">
+                    Canales de Invitación:
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        id="sendInviteEmailChild"
+                        checked={sendInviteEmail}
+                        onChange={e => setSendInviteEmail(e.target.checked)}
+                        className="rounded border-input text-primary focus:ring-primary h-4 w-4"
+                      />
+                      <label htmlFor="sendInviteEmailChild" className="text-muted-foreground text-xs cursor-pointer">
+                        Enviar invitación por Correo Electrónico a <strong>{parentEmail}</strong>
+                      </label>
+                    </div>
+                    {parentPhone && parentPhone !== '+57' && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          id="sendInviteWhatsappChild"
+                          checked={sendInviteWhatsapp}
+                          onChange={e => setSendInviteWhatsapp(e.target.checked)}
+                          className="rounded border-input text-primary focus:ring-primary h-4 w-4"
+                        />
+                        <label htmlFor="sendInviteWhatsappChild" className="text-muted-foreground text-xs cursor-pointer">
+                          Generar link para invitar al acudiente por WhatsApp al finalizar
+                        </label>
+                      </div>
+                    )}
                   </div>
                 </div>
+              )}
+            </div>
+          </Section>
 
-                <ProrationCard
-                  startDate={startDate}
-                  monthlyFee={Number(monthlyFee) || 0}
-                  billing={billing}
-                  discountPct={discountPct}
-                  onDiscountChange={setDiscountPct}
-                />
-              </Section>
-            </>
-          )}
+          <Separator />
+
+          {/* ── Sección 3: Inscripción ── */}
+          <Section icon={<ClipboardList className="h-4 w-4" />} title="Inscripción">
+            {branches.length > 0 && (
+              <div>
+                <Label>Sede *</Label>
+                <Select value={branchId} onValueChange={setBranchId}>
+                  <SelectTrigger><SelectValue placeholder="Selecciona una sede *" /></SelectTrigger>
+                  <SelectContent>
+                    {branches.map(b => (
+                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <Label>Equipo</Label>
+                <p className="text-[11px] text-muted-foreground mb-1">Opcional — independiente del plan</p>
+                <Select value={teamId} onValueChange={setTeamId}>
+                  <SelectTrigger><SelectValue placeholder="Sin equipo" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sin equipo</SelectItem>
+                    {teams.map(t => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                        {t.sport ? <span className="ml-1 text-xs text-muted-foreground">— {t.sport}</span> : null}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Plan</Label>
+                <p className="text-[11px] text-muted-foreground mb-1">Opcional — independiente del equipo</p>
+                <Select value={selectedPlanId} onValueChange={handlePlanSelect}>
+                  <SelectTrigger><SelectValue placeholder="Sin plan" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sin plan</SelectItem>
+                    {plans.map(p => (
+                      <SelectItem key={p.plan_id} value={p.plan_id}>
+                        {p.offering_name} — {p.plan_name} ({formatCOP(p.price)})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="flex flex-col">
+                <Label className="mb-2">Fecha de Inscripción *</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant={"outline"}
+                      className={cn(
+                        "w-full pl-3 text-left font-normal",
+                        !startDate && "text-muted-foreground"
+                      )}
+                    >
+                      {startDate ? (
+                        format(new Date(startDate + 'T12:00:00'), "PPP", { locale: es })
+                      ) : (
+                        <span>Seleccionar fecha</span>
+                      )}
+                      <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={startDate ? new Date(startDate + 'T12:00:00') : undefined}
+                      onSelect={(date) => {
+                        if (date) {
+                          const year = date.getFullYear();
+                          const month = String(date.getMonth() + 1).padStart(2, '0');
+                          const day = String(date.getDate()).padStart(2, '0');
+                          setStartDate(`${year}-${month}-${day}`);
+                        }
+                      }}
+                      initialFocus
+                      locale={es}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div>
+                <Label>Mensualidad (COP) *</Label>
+                <Input type="number" placeholder="150000" value={monthlyFee} onChange={e => setMonthlyFee(e.target.value)} min={10000} step={1000} />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {selectedPlanId !== 'none' ? 'Cargado desde el plan' : teamId !== 'none' ? 'Cargado desde el equipo' : 'Ingresa manualmente'}
+                </p>
+              </div>
+            </div>
+
+            <ProrationCard
+              startDate={startDate}
+              monthlyFee={Number(monthlyFee) || 0}
+              billing={billing}
+              discountPct={discountPct}
+              onDiscountChange={setDiscountPct}
+            />
+          </Section>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={handleClose} disabled={submitting}>
             Cancelar
           </Button>
-          {(parentFound || showForm) && (
-            <Button onClick={handleSubmit} disabled={submitting}>
-              {submitting ? (
-                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Guardando...</>
-              ) : (
-                <><Baby className="h-4 w-4 mr-2" />Registrar Menor</>
-              )}
-            </Button>
-          )}
+          <Button onClick={handleSubmit} disabled={submitting || checkingParentEmail}>
+            {submitting ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Guardando...</>
+            ) : (
+              <><Baby className="h-4 w-4 mr-2" />Registrar Menor</>
+            )}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

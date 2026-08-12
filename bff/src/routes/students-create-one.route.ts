@@ -63,8 +63,8 @@ const ChildSchema = EnrollmentBase.extend({
   parent_name:   z.string().min(2),
   parent_email:  z.string().email(),
   parent_phone:  z.string().regex(/^\d{10,}$/),
-  /** Confirmación explícita del staff: "ya vi el duplicado, son personas distintas".
-   *  Sin esto, dos homónimos reales quedarían bloqueados para siempre. */
+  send_invite:   z.boolean().default(true),
+  /** Confirmación explícita del staff: "ya vi el duplicado, son personas distintas". */
   allow_duplicate: z.boolean().default(false),
 });
 
@@ -494,23 +494,25 @@ router.post(
           if (!invErr && inviteData) {
             invite = inviteData;
             invitationSent = true;
-            const { emailClient } = await import('../utils/emailClient');
-            const { BrandedEmailTemplates } = await import('../utils/emailTemplates');
-            const link = `${origin}/register?email=${encodeURIComponent(data.parent_email)}&role=parent&invite=${invite.id}`;
-            try {
-              const tpl = await BrandedEmailTemplates.invitation({
-                parentName: data.parent_name,
-                childName: data.full_name,
-                schoolId,
-                inviteLink: link,
-              });
-              emailClient.send({
-                to: data.parent_email,
-                subject: tpl.subject,
-                html: tpl.html,
-              }).catch((e: any) => req.log?.error({ email: data.parent_email, err: e }, 'Fallo email'));
-            } catch (e: any) {
-              req.log?.error({ email: data.parent_email, err: e }, 'Fallo template branded');
+            if (data.send_invite !== false) {
+              const { emailClient } = await import('../utils/emailClient');
+              const { BrandedEmailTemplates } = await import('../utils/emailTemplates');
+              const link = `${origin}/register?email=${encodeURIComponent(data.parent_email)}&role=parent&invite=${invite.id}`;
+              try {
+                const tpl = await BrandedEmailTemplates.invitation({
+                  parentName: data.parent_name,
+                  childName: data.full_name,
+                  schoolId,
+                  inviteLink: link,
+                });
+                emailClient.send({
+                  to: data.parent_email,
+                  subject: tpl.subject,
+                  html: tpl.html,
+                }).catch((e: any) => req.log?.error({ email: data.parent_email, err: e }, 'Fallo email'));
+              } catch (e: any) {
+                req.log?.error({ email: data.parent_email, err: e }, 'Fallo template branded');
+              }
             }
           }
         }

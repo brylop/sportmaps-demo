@@ -40,6 +40,7 @@ import vendorBankAccountsRouter from './routes/vendor-bank-accounts.routes';
 import shippingRouter, { shippingWebhookRouter, vendorShippingRouter } from './routes/shipping.routes';
 import { requireTrainerAuth, requireAthleteAuth, requireAuth } from './middlewares/authMiddleware';
 import { requireCsrfHeader } from './middlewares/csrfHeader';
+import { requireOperationalSchool } from './middlewares/requireOperationalSchool';
 import systemRouter from './routes/system';
 import whatsappWebhookRouter from './routes/whatsapp';
 import publicBookingRouter from './routes/public-booking.routes';
@@ -243,6 +244,11 @@ app.get('/health', (_req: Request, res: Response) => {
         version: process.env.npm_package_version ?? '1.0.0',
     });
 });
+
+// Bloqueo por fin del periodo de prueba. Va ANTES de todos los routers para que
+// no queden huecos por ruta olvidada: solo intercepta mutaciones y respeta una
+// allowlist (webhooks, /me, /admin, pagos de familias). Los GET siempre pasan.
+app.use('/api/v1', requireOperationalSchool);
 
 app.use('/api/v1/students', generalLimiter, studentsRouter);
 app.use('/api/v1/students', generalLimiter, createOneRouter);
