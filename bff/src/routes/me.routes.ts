@@ -16,9 +16,11 @@ const router = Router();
  * Consumido por el hook useEntitlements() en el frontend y por el componente
  * <EntitlementGate /> para decidir qué features bloquear / mostrar upsell.
  *
- * Fallback: si la escuela no tiene fila en school_subscriptions (no debería
- * pasar tras el backfill Pre-F0, pero por seguridad), retorna defaults
- * starter/free/active para no romper la UI.
+ * La vista arranca en `schools` con LEFT JOIN a la suscripción, así que ahora
+ * devuelve fila para toda escuela existente (con trial_ends_at = registro + 1 mes
+ * cuando falta la suscripción — hay 151 escuelas así). Por eso `!data` ya solo
+ * significa "la escuela no existe": ahí se responde fail-closed y no
+ * starter/free/active, que era el agujero por el que se colaba acceso abierto.
  */
 router.get('/entitlements', requireAuth, async (req: Request, res: Response) => {
     try {
@@ -40,14 +42,19 @@ router.get('/entitlements', requireAuth, async (req: Request, res: Response) => 
         }
 
         if (!data) {
-            // Escuela sin fila en school_subscriptions — defaults seguros
-            req.log?.warn({ schoolId }, 'Sin fila en school_subscriptions, devolviendo defaults');
+            // La escuela no existe (la vista sí devuelve fila cuando falta la
+            // suscripción). Fail-closed: sin escuela no hay entitlements.
+            req.log?.warn({ schoolId }, 'v_school_entitlements sin fila: escuela inexistente, fail-closed');
             return res.json({
                 school_id:            schoolId,
                 school_type:          'academy',
                 plan_code:            'starter',
                 tier:                 'free',
-                subscription_status:  'active',
+                subscription_status:  'trial_expired',
+                has_subscription_row: false,
+                account_type:         'real',
+                blocking_exempt:      false,
+                is_operational:       false,
                 trial_ends_at:        null,
                 current_period_start: null,
                 current_period_end:   null,

@@ -24,6 +24,16 @@ interface EntitlementsResponse {
     tier: 'free' | 'pro' | 'enterprise';
     subscription_status: SubscriptionStatus;
     trial_ends_at: string | null;
+    /** false → la escuela no tiene fila en school_subscriptions (151 así hoy). */
+    has_subscription_row?: boolean;
+    /** real | test | demo — las cuentas nuestras nunca se bloquean. */
+    account_type?: 'real' | 'test' | 'demo';
+    /** true → ve el aviso de fin de prueba pero no se bloquea (caso Dynasty). */
+    blocking_exempt?: boolean;
+    blocking_exempt_reason?: string | null;
+    /** Veredicto del bloqueo calculado en la BD (school_is_operational). */
+    is_operational?: boolean;
+    trial_months?: number | null;
     current_period_start: string | null;
     current_period_end: string | null;
     billing_cycle: 'monthly' | 'annual' | null;
@@ -65,6 +75,24 @@ export interface Entitlements {
     isTrialExpired: boolean;
     inGracePeriod: boolean;
     isGrandfathered: boolean;
+
+    // ── Fin del periodo de prueba (aviso + bloqueo) ──────────────────────────
+    /**
+     * Días que faltan para el corte. A diferencia de `daysLeftInTrial`, se
+     * calcula aunque el status no sea 'trialing' y puede ser 0 ("vence hoy") o
+     * negativo (ya venció) — el contador del banner lo necesita así.
+     */
+    trialDaysRemaining: number | null;
+    /** El corte es hoy. */
+    trialEndsToday: boolean;
+    /** La fecha de corte ya pasó. */
+    trialHasEnded: boolean;
+    /** Veredicto del servidor: la escuela quedó en solo lectura. */
+    isBlocked: boolean;
+    /** Ve el aviso pero no se bloquea (decisión comercial, ej. Dynasty). */
+    isBlockingExempt: boolean;
+    /** Cuenta nuestra (test/demo): nunca se avisa ni se bloquea. */
+    isTestAccount: boolean;
 }
 
 export interface EntitlementsHelpers {
@@ -115,6 +143,12 @@ const EMPTY_ENTITLEMENTS: Entitlements = {
     isTrialExpired: false,
     inGracePeriod: false,
     isGrandfathered: false,
+    trialDaysRemaining: null,
+    trialEndsToday: false,
+    trialHasEnded: false,
+    isBlocked: false,
+    isBlockingExempt: false,
+    isTestAccount: false,
 };
 
 // ============================================================
@@ -168,6 +202,18 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
                 ? Math.max(0, Math.ceil((trialEndsAt.getTime() - now.getTime()) / msPerDay))
                 : null;
 
+        // Contador del banner: se cuenta por DÍA CALENDARIO, no por horas.
+        // Sin esto, un corte a las 23:59 de hoy mostraría "1 día" a las 9 a.m.
+        // y el aviso diría lo contrario a lo que el usuario ve en el calendario.
+        const trialDaysRemaining = trialEndsAt
+            ? Math.round(
+                (new Date(trialEndsAt.getFullYear(), trialEndsAt.getMonth(), trialEndsAt.getDate()).getTime() -
+                    new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) / msPerDay,
+            )
+            : null;
+
+        const isTestAccount = data.account_type === 'test' || data.account_type === 'demo';
+
         return {
             schoolId: data.school_id,
             schoolType: data.school_type,
@@ -197,6 +243,15 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
             isTrialExpired,
             inGracePeriod: data.subscription_status === 'past_due',
             isGrandfathered: data.subscription_status === 'grandfathered',
+
+            trialDaysRemaining,
+            trialEndsToday: trialDaysRemaining === 0,
+            trialHasEnded: trialDaysRemaining !== null && trialDaysRemaining < 0,
+            // El bloqueo lo decide la BD (school_is_operational), no el navegador.
+            // Si el BFF es viejo y no manda el campo, no se bloquea nada.
+            isBlocked: data.is_operational === false,
+            isBlockingExempt: data.blocking_exempt === true,
+            isTestAccount,
         };
     }, [query.data]);
 
