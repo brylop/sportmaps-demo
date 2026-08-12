@@ -53,29 +53,24 @@ export function logDebug(msg: string) {
   }
 }
 
-// ─── GET /debug-logs (público, sin auth — solo para diagnóstico) ──────────────
-router.get('/debug-logs', (req: Request, res: Response) => {
-  try {
-    const logPath = path.join(__dirname, '../../debug.log');
-    if (!fs.existsSync(logPath)) {
-      return res.type('text/plain').send('Log file does not exist yet.');
-    }
-    const content = fs.readFileSync(logPath, 'utf8');
-    return res.type('text/plain').send(content || '(vacío)');
-  } catch (err: any) {
-    return res.status(500).send(`Error reading log: ${err.message}`);
-  }
-});
-
-router.post('/debug-logs/clear', (req: Request, res: Response) => {
-  try {
-    const logPath = path.join(__dirname, '../../debug.log');
-    fs.writeFileSync(logPath, '');
-    return res.send('Cleared.');
-  } catch (err: any) {
-    return res.status(500).send(err.message);
-  }
-});
+// ─── /debug-logs — ELIMINADO (SEG-9, 2026-08-12) ─────────────────────────────
+// Había aquí un GET y un POST /debug-logs{,/clear} SIN auth, y este router se
+// monta en la RAÍZ (`app.use('/', admsRouter)`), así que quedaban expuestos como
+// `GET /debug-logs` y `POST /debug-logs/clear` a cualquiera en internet.
+//
+// Lo que servían: `debug.log`, que `logDebug()` llena con seriales de lector,
+// IDs de usuario del dispositivo y timestamps de entrada/salida — datos de
+// asistencia de personas identificables. Y el `clear` dejaba que cualquiera
+// borrara la traza del control de acceso.
+//
+// La allowlist de IP que sí existe cubre solo `/iclock/*` y es opt-in (vacía =
+// desactivada), así que no los cubría.
+//
+// Se ELIMINAN en vez de ponerles auth: nadie los consumía (cero referencias en
+// bff y frontend) y el disco de Render es efímero, así que como herramienta de
+// diagnóstico servían de poco. `logDebug()` sigue escribiendo igual — se usa en
+// 8 sitios y no se toca; lo que desaparece es la forma de leerlo por HTTP.
+// Para diagnosticar, los logs de Render (pino) ya están y son el camino bueno.
 
 
 

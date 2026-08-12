@@ -106,6 +106,11 @@ export default function PaymentRemindersPage() {
         total: filteredReminders.reduce((s, r) => s + r.amount, 0),
     };
 
+    // Cobros que sí se pueden reclamar: los posibles duplicados quedan fuera de
+    // toda selección hasta que la escuela resuelva la ficha repetida.
+    const duplicados = filteredReminders.filter(r => r.posibleDuplicado);
+    const selectableCount = filteredReminders.length - duplicados.length;
+
     // Group by parent for grouped view
     const groupedByParent = filteredReminders.reduce<Record<string, PaymentReminder[]>>((acc, r) => {
         if (!acc[r.parentId]) acc[r.parentId] = [];
@@ -113,9 +118,11 @@ export default function PaymentRemindersPage() {
         return acc;
     }, {});
 
+    // «Seleccionar todo» nunca incluye los posibles duplicados: si la persona ya
+    // pagó ese periodo en su ficha gemela, hay que revisarlo, no reclamarlo.
     const toggleAll = (checked: boolean) => {
         if (checked) {
-            setSelectedIds(new Set(filteredReminders.map(r => r.id)));
+            setSelectedIds(new Set(filteredReminders.filter(r => !r.posibleDuplicado).map(r => r.id)));
         } else {
             setSelectedIds(new Set());
         }
@@ -140,7 +147,10 @@ export default function PaymentRemindersPage() {
         let failed = 0;
         try {
             const selected = batch?.reminders.filter(r => selectedIds.has(r.id)) || [];
-            for (const reminder of selected) {
+            // Último cortafuegos: nunca reclamarle a quien ya pagó ese periodo en
+            // su ficha gemela, ni siquiera si quedó seleccionado a mano.
+            const duplicados = selected.filter(r => r.posibleDuplicado);
+            for (const reminder of selected.filter(r => !r.posibleDuplicado)) {
                 if (!reminder.parentEmail) { failed++; continue; }
                 try {
                     await emailClient.send({
@@ -149,9 +159,13 @@ export default function PaymentRemindersPage() {
                         data: {
                             userName: reminder.parentName,
                             schoolName: schoolName || '',
-                            concept: reminder.teamName,
+                            // El concepto del COBRO, no el del equipo.
+                            concept: reminder.concept || reminder.teamName,
                             amount: formatCurrency(reminder.amount),
                             dueDate: formatDate(reminder.dueDate),
+                            // Sin esto cae al default '/payments', que no existe:
+                            // la ruta del acudiente es '/my-payments'.
+                            paymentUrl: `${window.location.origin}/my-payments`,
                         },
                     });
                     sent++;
@@ -161,6 +175,11 @@ export default function PaymentRemindersPage() {
             }
             if (sent > 0) toast.success(`✅ ${sent} recordatorio${sent > 1 ? 's' : ''} enviado${sent > 1 ? 's' : ''}`);
             if (failed > 0) toast.warning(`${failed} sin email registrado, no enviado${failed > 1 ? 's' : ''}`);
+            if (duplicados.length > 0) {
+                toast.warning(
+                    `${duplicados.length} no se enviaron: ya pagaron ese periodo en otra ficha. Revisar el duplicado antes de reclamar.`,
+                );
+            }
             setSelectedIds(new Set());
         } catch (error: any) {
             toast.error(error.message || 'Error al enviar recordatorios');
@@ -480,6 +499,33 @@ export default function PaymentRemindersPage() {
                 )}
             </div>
 
+            {/* Ficha repetida: la persona ya pagó ese periodo en su otra ficha.
+                No se reclama hasta resolver el duplicado. */}
+            {duplicados.length > 0 && (
+                <Card className="border-amber-300 bg-amber-50/60">
+                    <CardHeader className="pb-3">
+                        <CardTitle className="flex items-center gap-2 text-base text-amber-900">
+                            <AlertTriangle className="h-4 w-4" />
+                            {duplicados.length} cobro{duplicados.length > 1 ? 's' : ''} bloqueado{duplicados.length > 1 ? 's' : ''}: ya pagaron ese periodo
+                        </CardTitle>
+                        <CardDescription className="text-amber-900/80">
+                            Estas personas existen más de una vez en la escuela y ya pagaron el mes en
+                            su otra ficha. Reclamarles sería cobrarles dos veces, así que quedan fuera
+                            del envío. Hay que fusionar las fichas repetidas y anular el cobro sobrante.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                        <ul className="space-y-1 text-sm text-amber-900">
+                            {duplicados.map(r => (
+                                <li key={r.id}>
+                                    <span className="font-medium">{r.childName}</span> — {r.duplicadoMotivo}
+                                </li>
+                            ))}
+                        </ul>
+                    </CardContent>
+                </Card>
+            )}
+
             {/* Content */}
             {loadError ? (
                 // F-01: error de carga != "todo al día". No dar falsa tranquilidad.
@@ -510,7 +556,7 @@ export default function PaymentRemindersPage() {
                             <TableRow>
                                 <TableHead className="w-12">
                                     <Checkbox
-                                        checked={selectedIds.size === filteredReminders.length && filteredReminders.length > 0}
+                                        checked={selectableCount > 0 && selectedIds.size === selectableCount}
                                         onCheckedChange={toggleAll}
                                     />
                                 </TableHead>
@@ -599,10 +645,12 @@ export default function PaymentRemindersPage() {
                                         >
                                             <TableCell>
                                                 <Checkbox
-                                                    checked={reminders.every(r => selectedIds.has(r.id))}
+                                                    checked={reminders.filter(r => !r.posibleDuplicado).length > 0
+                                                        && reminders.filter(r => !r.posibleDuplicado).every(r => selectedIds.has(r.id))}
                                                     onCheckedChange={(checked) => {
                                                         const next = new Set(selectedIds);
                                                         reminders.forEach(r => {
+                                                            if (r.posibleDuplicado) return;   // ya pagó en su ficha gemela
                                                             if (checked) next.add(r.id);
                                                             else next.delete(r.id);
                                                         });
@@ -652,10 +700,22 @@ export default function PaymentRemindersPage() {
                                                     <Checkbox
                                                         checked={selectedIds.has(r.id)}
                                                         onCheckedChange={() => toggleOne(r.id)}
+                                                        disabled={r.posibleDuplicado}
+                                                        title={r.duplicadoMotivo}
                                                     />
                                                 </TableCell>
                                                 <TableCell />
-                                                <TableCell className="text-sm">{r.childName}</TableCell>
+                                                <TableCell className="text-sm">
+                                                    {r.childName}
+                                                    {r.posibleDuplicado && (
+                                                        <span
+                                                            className="ml-2 inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900"
+                                                            title={r.duplicadoMotivo}
+                                                        >
+                                                            <AlertTriangle className="h-3 w-3" /> ya pagó
+                                                        </span>
+                                                    )}
+                                                </TableCell>
                                                 <TableCell className="text-sm">{r.teamName}</TableCell>
                                                 <TableCell className="text-right text-sm">{formatCurrency(r.amount)}</TableCell>
                                                 <TableCell className="text-sm">{formatDate(r.dueDate)}</TableCell>

@@ -207,3 +207,11 @@ supabase/.temp/
 # Volcados de depuracion contra la BD compartida: llevan datos reales
 # (correos, UUIDs de usuarios). Nunca versionar.
 bff/records_by_email.json
+
+# Salidas de los scripts de auditoria (scripts/audit-*.mjs). Llevan nombres de
+# menores, documentos y correos de acudientes: se regeneran con un comando, no
+# se versionan nunca.
+revisar-*.csv
+/dynasty*.json
+/cobertura*.json
+/duplicados*.json

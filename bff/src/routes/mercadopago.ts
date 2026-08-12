@@ -29,6 +29,7 @@ import {
     createMpPayment,
     saveMpCustomerCard,
     mapMpStatus,
+    esCredencialDePrueba,
     type MpPayment,
     type InternalStatus,
 } from '../services/mercadopago.service';
@@ -107,7 +108,10 @@ webhookRouter.post('/webhook', async (req: Request, res: Response) => {
         // compartido entre escuelas permitiria que una merchant maliciosa
         // forje webhooks de otras escuelas que tampoco lo configuraron.
         const effectiveSecret = merchantConfig?.webhookSecret ?? null;
-        const isSandbox = merchantConfig?.sandbox ?? ((process.env.MP_ENV ?? 'sandbox').toLowerCase() !== 'production');
+        // DIN-9: sin config de comercio, el ambiente lo decide el PREFIJO de la
+        // credencial, no `MP_ENV`. MP no tiene host de sandbox: un token
+        // `APP_USR-` cobra de verdad aunque la variable diga `sandbox`.
+        const isSandbox = merchantConfig?.sandbox ?? esCredencialDePrueba(process.env.MP_ACCESS_TOKEN_DEFAULT);
 
         if (!effectiveSecret) {
             req.log?.error(

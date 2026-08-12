@@ -28,12 +28,12 @@ import { AlertCircle, Clock, X } from 'lucide-react';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { Button } from '@/components/ui/button';
+import { salesWhatsappLink } from '@/lib/salesContact';
 
 /** Roles que deciden sobre el plan de la escuela. */
 const ROLES_QUE_DECIDEN = ['owner', 'admin', 'school_admin', 'school'];
 
-const WHATSAPP_COMERCIAL =
-    import.meta.env.VITE_SALES_WHATSAPP?.replace(/[^\d]/g, '') || '573205653807';
+// El número vive en un solo lugar: src/lib/salesContact.ts (VITE_SALES_WHATSAPP).
 
 type Severidad = 'aviso' | 'urgente' | 'bloqueo';
 
@@ -144,7 +144,7 @@ export function TrialStatusBanner() {
     }[contenido.severidad];
 
     const Icono = contenido.severidad === 'aviso' ? Clock : AlertCircle;
-    const mensajeWa = encodeURIComponent(
+    const enlaceWa = salesWhatsappLink(
         `Hola, soy de ${schoolName || 'mi club'} y quiero activar mi plan en SportMaps.`,
     );
 
@@ -170,7 +170,7 @@ export function TrialStatusBanner() {
                         <div className="mt-3 sm:mt-4 flex flex-wrap items-center gap-2">
                             <Button asChild size="sm">
                                 <a
-                                    href={`https://wa.me/${WHATSAPP_COMERCIAL}?text=${mensajeWa}`}
+                                    href={enlaceWa}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                 >
