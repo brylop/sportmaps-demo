@@ -1,11 +1,24 @@
 # SportMaps — Roadmap Maestro
 
-**Versión:** 2.1 · **Fecha:** 2026-08-01 · **Rama:** `develop`
+**Versión:** 2.2 · **Fecha:** 2026-08-12 · **Rama:** `develop`
 
 > **Este es el único roadmap.** Todo lo demás en `docs/` es *spec* (qué se construye y por qué),
 > *plan de fase* (cómo se migra), *doctrina de arquitectura* (cómo se hace) o *auditoría* (qué está
 > mal). Ninguno de esos documentos define prioridades: las define esta cola. Si un pendiente no
 > aparece aquí, no existe.
+
+**Cambios v2.1 → v2.2** (barrido de seguridad del 2026-08-12, ejecutado **contra la base viva**):
+- **Tres huecos nuevos en P0** — `SEG-8` (un padre puede auto-aprobar su comprobante), `SEG-9`
+  (cuatro `/debug-logs` públicos), `SEG-10` (`anon` enumera tokens de link de pago y PII de staff).
+  Los tres verificados ejecutando SQL como rol `anon`, no inferidos del repo.
+- **Tres ítems nuevos en P1/P2** — `SEG-11` higiene del BFF, `SEG-12` observabilidad (Sentry **no
+  está instalado** y la política de privacidad se lo promete al usuario), `SEG-13` secretos y MFA.
+- **`SEG-3` se reclasifica y baja a P2.** Los 502 avisos del linter son ~96 % ruido: las `admin_*`
+  sí validan por dentro. Lo explotable se extrajo a `SEG-8`.
+- **`SEG-1` y `SEG-5` re-medidos** contra la base: el alcance de `SEG-1` encogió (8 funciones con
+  `search_path` mutable, no ~35); el rate limit de `SEG-5` resultó más flojo (IP-only y en memoria).
+- Lección que queda escrita en §2: **el linter cubre la capa de datos y no ve el BFF ni la infra**,
+  y ahí estaba todo lo explotable.
 
 **Cambios v2.0 → v2.1:**
 - Nuevo track **`CONC`** — concurrencia e integridad. Doctrina en
@@ -71,6 +84,7 @@ tocan para reflejar avance; ellos describen el destino, esta tabla describe dón
 | **Migraciones** | ✅ aplicadas y funcionales | El gate `migrations:check` corre en pre-commit y CI |
 | **Ciclo de mes / cobros duplicados** | 🔍 en revisión → `DIN-1` | **Único bloqueante de producción.** Revisión hecha el 2026-08-01: de los tres hallazgos, **H1 y H2 ya estaban cerrados** por las migraciones del 24-jul (índices de adultos y no registrados creados; `open_month` puebla `period_*` y el cron delega en él). Lo que sigue abierto es la ventana intra-sentencia, que **ninguno** de los tres hallazgos describía |
 | **Entitlements / activación de módulos** | 🔴 miente en silencio | `DIN-4` + `SEG-7`. No bloquea prod hoy, pero bloquea el bloqueo de trial |
+| **Seguridad** | 🔴 3 huecos abiertos → `SEG-8`, `SEG-9`, `SEG-10` | Barrido del 2026-08-12 **contra la base viva**. Un padre puede auto-aprobar su comprobante; cuatro `/debug-logs` son públicos; `anon` enumera 91 tokens de link de pago y 68 registros de staff con teléfono. Los tres se cierran en menos de una semana y **ninguno espera una decisión** |
 
 ---
 
@@ -106,7 +120,7 @@ IDs estables. La cola de la §3 los ordena; esta sección los describe.
 
 | ID | Pendiente | Estado | Esfuerzo | Fuente |
 |---|---|---|---|---|
-| **DIN-1** | ⚠️ **Orden corregido por el §11 del plan: los productores se cierran ANTES de limpiar** (B1 guard → B2 `students.ts:829` → M1 con `ON CONFLICT DO NOTHING` → recién entonces M3/huérfanas/M2). Limpiar con los tres productores abiertos es trapear con la llave abierta. Dos hallazgos más del §11: **el cron falla peor que el botón** — desde que delega en `open_month`, el `23505` queda atrapado en su `EXCEPTION WHEN OTHERS`, así que **salta la escuela en silencio y reporta éxito global** (cualquier alerta tiene que mirar el `WARNING`, no el valor de retorno); y **`SOLO MILLOS` es la única escuela expuesta** a ese fallo silencioso, porque es la única con duplicados **y** `auto_generate_payments = true`. Agosto de Dynasty ya está generado y sano (345 `pending` para 345 menores, 1:1), así que **no hay presión de calendario**. **Generación de mes y cobros duplicados (F0) — plan consolidado.** Cubre lo que sigue abierto de las inscripciones duplicadas y de la generación unificada, ahora que se verificó qué cerró el 24-jul: la ventana **intra-sentencia** de `open_month` (el advisory lock no la cubre; hoy el síntoma es que la apertura de mes **aborta** para toda la escuela), el guard que falta en `POST /enrollments`, el `UPDATE` de `students.ts:829` que fabrica huérfanas, el `CHECK` de inscripción con destino, el merge de las 198 filas duplicadas y las 16 huérfanas que hay que **asignar** (~$2.21M/mes). | 🟡 | 1–2 sem | **[plan consolidado](plan-f0-generacion-de-mes-y-cobros-duplicados.md)** · evidencia en [plan-f0 original](plan-f0-inscripciones-y-cobros-duplicados.md) §2 y §7 |
+| **DIN-1** | ⚠️ **Orden corregido por el §11 del plan: los productores se cierran ANTES de limpiar** (B1 guard → B2 `students.ts:829` → M1 con `ON CONFLICT DO NOTHING` → recién entonces M3/huérfanas/M2). Limpiar con los tres productores abiertos es trapear con la llave abierta. Dos hallazgos más del §11: **el cron falla peor que el botón** — desde que delega en `open_month`, el `23505` queda atrapado en su `EXCEPTION WHEN OTHERS`, así que **salta la escuela en silencio y reporta éxito global** (cualquier alerta tiene que mirar el `WARNING`, no el valor de retorno); y **`SOLO MILLOS` es la única escuela expuesta** a ese fallo silencioso, porque es la única con duplicados **y** `auto_generate_payments = true`. Agosto de Dynasty ya está generado y sano (345 `pending` para 345 menores, 1:1), así que **no hay presión de calendario**. ⚠️ **Esa última frase quedó desmentida el 2026-08-12:** el 1:1 se cumple **por cobro** pero no **por persona** — 4 cobros de agosto vivían en la ficha gemela de alguien que ya había pagado, 5 nacieron vencidos y una atleta quedó cobrada dos veces. El conteo era correcto; contaba cobros y el problema estaba en las personas. Ya corregido en datos ([SQL](../scripts/dynasty-corregir-cobros-2026-08-12.sql)), pero el productor sigue abierto en todas las escuelas. **Generación de mes y cobros duplicados (F0) — plan consolidado.** Cubre lo que sigue abierto de las inscripciones duplicadas y de la generación unificada, ahora que se verificó qué cerró el 24-jul: la ventana **intra-sentencia** de `open_month` (el advisory lock no la cubre; hoy el síntoma es que la apertura de mes **aborta** para toda la escuela), el guard que falta en `POST /enrollments`, el `UPDATE` de `students.ts:829` que fabrica huérfanas, el `CHECK` de inscripción con destino, el merge de las 198 filas duplicadas y las 16 huérfanas que hay que **asignar** (~$2.21M/mes). | 🟡 | 1–2 sem | **[plan consolidado](plan-f0-generacion-de-mes-y-cobros-duplicados.md)** · evidencia en [plan-f0 original](plan-f0-inscripciones-y-cobros-duplicados.md) §2 y §7 |
 | ~~DIN-2~~ | **Absorbido por DIN-1.** Verificado contra el código el 2026-08-01: **H1 cerrado** (los tres índices únicos existen, incluidos adultos y no registrados) y **H2 cerrado** (`open_month` puebla `period_*` siempre y el cron delega en él desde el 24-jul). La unificación de las 3 vías del §4.4 también está hecha: el botón llama `preview_open_month`/`open_month` y `calcFirstPayment` quedó confinado a los modales de alta. Queda **H3** (declarativo, sin código) dentro de DIN-1. | ✅ | — | [spec month-close §4](specs/month-close-module.md) |
 | DIN-3 | **`payments.payment_provider` deja de mentir.** Se creó con `DEFAULT 'wompi'`, así que toda fila insertada sin provider queda sellada como Wompi y la reconciliación cuenta mal. | 🟡 | 4 h | [plan](plan-payment-provider-default-fix.md) |
 | **DIN-4** | **Bloqueo de fin de prueba, entitlements y cuentas de prueba.** Hoy no se bloquea nada: no hay cron, `EntitlementGate` está en una sola página y `/me/entitlements` es fail-open. Decidido: 1 mes abierto → bloqueo duro → reactivación manual, marcando con `account_type` nuevo (`is_demo` está mal mantenido). **Es ingreso que se está regalando**, y además el panel de activación miente (ver desglose abajo). | 🔵 | 3–4 sem, 7 fases | [spec](specs/trial-blocking-and-test-accounts.md) §2.5, D11–D13, F0.5 |
@@ -116,6 +130,14 @@ IDs estables. La cola de la §3 los ordena; esta sección los describe.
 | **DIN-10** | 🟡 **Dinero de terceros ya recibido.** Los cobros de Academia Porras y MMA Blair (mayo) entraron a la cuenta de MercadoPago **de SportMaps** vía `MP_ACCESS_TOKEN_DEFAULT`. Es exactamente el riesgo regulatorio —captación irregular ante la SFC— que el modelo directo-a-escuela existe para evitar. Incluye parametrizar el camino MP como ya está el de Wompi. **La decisión sobre el dinero ya recibido es de negocio (D2), no técnica.** | ⚪ | 1 sem + decisión | [plan §F-E](plan-cierre-ruteo-de-pagos.md) |
 | DIN-7 | **Autopay en Wompi.** Bloqueado por falta de API `payment_sources`; hay que pedirla aparte en el contrato de Pagos a Terceros. Solo MP funciona hoy. | ⚪ | externo | memoria `project_wompi_commercial_status` |
 | DIN-8 | **Facturación electrónica multi-PAC.** Capa de adaptadores DIAN (Factus primero, luego Siigo/Alegra). API sandbox de Factus ya validada. Tablas `invoice_providers` + `invoices`. **No depende del libro mayor**: el PAC emite la factura, no pide el mayor — no se bloquean entre sí en ningún sentido. | 🔵 | 5 fases | memoria `project_electronic_invoicing` |
+| ~~DIN-11~~ | ✅ **Un cobro nuevo ya no nace vencido.** `billingDue` acotaba el vencimiento al día del **alta**, no al de **hoy**: si el plan se asignaba un mes después, el cobro entraba al mundo en mora, con recargo y recordatorio de deuda por algo que ayer no existía. Medidos **20 en la plataforma** (5 en Dynasty, uno con 31 días). El piso ahora es `hoy + payment_grace_days`, la MISMA regla que ya usaba el flujo QR (`qr_first_charge_due_date`) — antes había dos criterios según la vía de alta. Solo reemplaza si la fecha calculada ya pasó, para no mover los vencimientos correctos. Sin migración. ⚠️ **Commiteado, SIN DESPLEGAR: no protege a nadie hasta que el BFF suba a Render, y conviene antes de la próxima apertura de mes.** | ✅ código · ⚠️ sin deploy | hecho | `30d5a36` · eje D de [audit-cobros-duplicados](../scripts/audit-cobros-duplicados.mjs) |
+| ~~DIN-12~~ | ✅ **El recordatorio ya no le reclama a quien pagó, y el correo funciona.** Dynasty reportó familias al día recibiendo «tienes un pago pendiente»: eran cobros duplicados en la ficha **gemela** de la misma persona. Guard en `generateReminders` (la fuente única de la lista, así que cubre todas las vías de envío): excluye lo cierto, marca y bloquea lo probable. El cruce de nombres es por **subconjunto de tokens** — con comparación exacta se escapaba 1 de 3 casos («Gabriela Núñez» vs «Gabriela nuñez osorio»). Y tres fallos del correo: la ruta **`/payments` no existía** (es `/my-payments`, el botón «Realizar Pago» no llevaba a ningún lado → el padre se registraba otra vez → más duplicados); **éxito falso** (sin `RESEND_API_KEY` devolvía `success:true` con HTTP 200 y la UI decía «enviado»); y el «Concepto» mostraba el nombre del **equipo**. Verificado: en Dynasty los correos indebidos pasaron de **3 a 0**. ⚠️ **Sin desplegar** — necesita frontend y `supabase functions deploy send-email`. | ✅ código · ⚠️ sin deploy | hecho | `498fa40` |
+| **DIN-13** | 🔴 **Un solo registro por atleta (F3) — la causa raíz de los duplicados.** El acudiente se registra por su cuenta en vez de aceptar la invitación y crea una **segunda ficha** del mismo atleta: ambas facturables. **41 dobles facturables en la plataforma**, 13 en Dynasty ($1.770.000/mes). ⚠️ **Buena parte ya está construida** —`normalize_doc_number`, `find_athletes_by_document`, `claim_children_by_document`, `claim_orphan_children`, y `validate_doc_for_plan_join` + `claim_member_for_plan` que son el flujo completo— así que F3 **no es construir un matcher**: es cerrar la única puerta sin chequeo (`AddChildDialog` hace `INSERT INTO children` crudo) y dejar de depender de que el acudiente llegue al dashboard. Medido: **9 de 13 pares tienen correos de acudiente distintos** (el correo no sirve), **11 de 13 comparten fecha de nacimiento** (la señal fuerte), y los documentos difieren en 1–2 dígitos. Bloqueado por **D-DUP** y **D-DOC**. | 🔵 | 4 fases | **[plan F3](plan-f3-un-solo-registro-por-atleta.md)** |
+| **DIN-14** | 🟡 **El registro manual de pagos rotula el mes equivocado.** De **13 rótulos malos en Dynasty, 13 fueron manuales y 0 por pasarela**: cuando la fecha la pone el proveedor el mes sale bien siempre. El origen no fue la escuela eligiendo: 10 de 13 traen concepto `Plan PLAN X`, que produce `emitPlanCharge` con el periodo de la inscripción **vieja**. Consecuencia medida: agosto sin facturar y cobros que la familia ve como deuda vieja. Ya corregido en datos para Dynasty; falta el fix de captura. | 🔵 | 2–3 d | [audit-periodo-vs-fecha-pago](../scripts/audit-periodo-vs-fecha-pago.mjs) · [SQL aplicado](../scripts/dynasty-rerotular-periodos-2026-08-12.sql) |
+| **DIN-15** | 🟡 **Higiene de invitaciones.** Tres cosas: **(a)** `accept_invitation_pro` hace `SET offering_plan_id` **sin tocar `monthly_fee`**, así que puede dejar plan y cuota discrepando — medido, solo 4 de 409 y tres parecen deliberados, **pero se vuelve peligroso cuando `monthly_fee` viene NULL** porque entonces cae al precio del plan y sí mueve la plata; **(b)** **255 de 444** invitaciones de Dynasty no llevan plan ni configuran facturación, y 10 no llevan ni equipo ni plan; **(c)** 4 combinaciones de mismo correo + mismo atleta repetidas, una con `child_name` NULL. Verificado que **ninguna de las 263 `pending` cambiaría el plan al aceptarse**, así que no hay bomba armada: es riesgo latente. El 59% sin aceptar **no es reenvío, es falta de adopción** (195 correos sin perfil). | 🔵 | 2–3 d | barrido 2026-08-12 |
+| **DIN-16** | 🔵 **Fusionar las identidades ya duplicadas.** **$1.770.000/mes** solo en Dynasty: 13 personas con 2–3 fichas, cada una facturable. Cancelar el cobro no alcanza — hay que trasladar equipo, cuota y pagos a la que sobrevive, vincular la absorbida y cancelar su inscripción. Incluye el patrón **child + adult** (Darwin Hernandez nació en 1972 y su documento es una cédula: atleta adulto cargado como menor; igual Oscar Baquero y Esteban Herrera). El plan existe y **estaba fuera de la cola**. Distinto de `DIN-13`, que evita las próximas. | 🔵 | 1 sem | [plan de fusión](plan-fusion-identidades-duplicadas.md) · [pendientes Dynasty](dynasty-pendientes-2026-08-12.md) |
+| **DIN-17** | 🔵 **Multimes / prepago de mensualidades.** No existe en ninguno de los 62 documentos: hoy se resuelve a mano. La escuela crea el cobro del mes siguiente **después** de recibir la plata (Violeta del Campo: cobro de octubre creado el 4-ago con `payment_date` del 3-ago). El veredicto de comprobantes compara contra **un solo** cobro con **tolerancia 0**, así que pagar dos meses siempre cae en `MONTO_DIFIERE` → revisión manual. Diseño propuesto: `payment_receipts` (la transacción) + `payment_allocations` (cómo se reparte) por encima de `payments`, que sigue siendo un cobro por mes — es lo único que hoy impide duplicados. Bloqueado por 4 decisiones de producto (descuento, cuántos meses adelante, baja con meses prepagados, saldo a favor). | 🔵 | spec + 5 fases | barrido 2026-08-12 |
+| **DIN-18** | 🟡 **73 documentos inválidos de 788.** 50 fichas con documento de **5 dígitos** y 23 con **11 a 15**. Además 59 sin documento (29 en `Club Campestre Demo`). Sin validación de formato al capturar, cualquier matcher por documento falla o empareja mal en esas 73 — por eso **D-DOC y la validación de formato son la misma decisión**. Incluye una colisión que hay que limpiar antes del índice único de `DIN-13` F3.3: **SPIRIT ALL STARS, doc `1016092607` en dos fichas** (Sara Sánchez / Silvana Sánchez — le digitaron el de la hermana a una de las dos). | 🔵 | 1–2 d | barrido 2026-08-12 |
 
 #### DIN-4 en detalle — «prendo el módulo y no se activa»
 
@@ -223,13 +245,52 @@ Buena parte **ya está aplicada**: índice único parcial en `session_bookings`,
 
 | ID | Pendiente | Estado | Esfuerzo | Fuente |
 |---|---|---|---|---|
-| SEG-1 | **Linter de Supabase — Fase −0.5 (drift bloqueante)** y luego Fase 1 (quick wins: `search_path` en ~35 funciones, 2 MVs expuestas en la API, 4 buckets que permiten listado). | 🟢 | 1–2 d | [plan](analysis/SUPABASE_LINTER_REMEDIATION_PLAN.md) |
+| SEG-1 | **Linter de Supabase — Fase −0.5 (drift bloqueante)** y luego Fase 1 (quick wins). ⚠️ **Re-medido contra la base el 2026-08-12: el alcance encogió.** `search_path` bajó de ~35 funciones a **8**; siguen 3 extensiones en `public` (eran 2). Suma un hallazgo nuevo que no estaba en el plan: **la protección de contraseñas filtradas está desactivada** (`auth_leaked_password_protection`) — es un toggle del dashboard de Auth, gratis, chequea contra HaveIBeenPwned al registrarse. | 🟢 | 1 d | [plan](analysis/SUPABASE_LINTER_REMEDIATION_PLAN.md) · barrido 2026-08-12 |
 | SEG-2 | **`security_definer_view` en `school_athletes`** — el único ERROR del linter. | 🟢 | 4 h | [plan §Fase 2](analysis/SUPABASE_LINTER_REMEDIATION_PLAN.md) |
-| SEG-3 | **`SECURITY DEFINER` expuestas a `anon`.** Ejecutar por grupos: A (helpers/triggers → revoke total), E (internas → solo `service_role`), F (candidatas a `DROP` por falta de uso), luego C y D. Cuidado: **nunca revocar** `is_school_admin()` / `is_super_admin()` al rol que las invoca desde policies. | 🟢 | 1 sem, N PRs | [auditoría](analysis/SECURITY_DEFINER_AUDIT.md) |
+| SEG-3 | **`SECURITY DEFINER` expuestas a `anon`.** Ejecutar por grupos: A (helpers/triggers → revoke total), E (internas → solo `service_role`), F (candidatas a `DROP` por falta de uso), luego C y D. Cuidado: **nunca revocar** `is_school_admin()` / `is_super_admin()` al rol que las invoca desde policies. ⚠️ **La premisa cambió con el barrido del 2026-08-12: esto es higiene, no riesgo.** Hoy son 195 funciones para `anon` y 307 para `authenticated`, pero se revisaron las de riesgo una por una y **las `admin_*` sí validan por dentro** (`is_super_admin`, `auth.uid`). El único caso sin ningún chequeo se extrajo a **`SEG-8`** y sube a P0; `get_school_payment_info` está sin chequeo **por diseño** (gateada por `public_profile_enabled`, la usa el checkout público — documentarla con `COMMENT`, no revocarla). Baja a P2: seguir haciéndolo, pero sabiendo que es defensa en profundidad. | 🟢 | 1 sem, N PRs | [auditoría ⚠️ de may-2026](analysis/SECURITY_DEFINER_AUDIT.md) · barrido 2026-08-12 |
 | SEG-4 | **Permisos de coach.** Dos planos que no coinciden (RLS aguanta / el BFF con service role es el único gate real) y dos matrices de permisos que son código muerto. | 🔵 | 3–4 d | memoria `project_coach_permissions_audit` |
-| SEG-5 | **Anti-spoofing / IDOR / rate limit.** No aceptar nunca `user_id`/`sender_id` desde el payload del cliente; rate limit en endpoints sensibles; helper `can_message(a,b)` con relaciones reales. | 🔵 | 3–5 d | [athlete remediation §F1](athlete-modules-remediation-plan.md) · [strategic §10](sportmaps-strategic-roadmap.md) |
+| SEG-5 | **Anti-spoofing / IDOR / rate limit.** No aceptar nunca `user_id`/`sender_id` desde el payload del cliente; helper `can_message(a,b)` con relaciones reales. **El rate limit se midió el 2026-08-12 y es más flojo de lo que sugiere el código:** existen tres capas (`generalLimiter` 200/15min, `paymentLimiter` 20/min, `cardAlterLimiter` 10/h) pero **solo `cardAlterLimiter` usa key por usuario** — las otras dos son IP-only, así que un atacante autenticado rotando IPs no toca techo y una escuela detrás de NAT comparte cuota. Y el store es **en memoria**: cada instancia de Render y cada redeploy resetea los contadores, así que sin Redis no hay límite global. Falta además WAF/edge — `vercel.json` solo tiene rewrites y el BFF en Render está expuesto directo. | 🔵 | 3–5 d | [athlete remediation §F1](athlete-modules-remediation-plan.md) · [strategic §10](sportmaps-strategic-roadmap.md) · barrido 2026-08-12 |
 | SEG-6 | **RLS column-level en `medical_info` y `phone`** (A8 del roadmap v1.3). | 🔵 | 1 d | [anexo B.8](archived/ROADMAP-v1.3-2026-05-12.md) |
 | **SEG-7** | 🔴 **`v_school_entitlements` devuelve una respuesta falsa, sin error.** Misma escuela, mismo instante: con `service_role` responde `enterprise / active / 10 módulos true`; sin privilegio responde `starter / free / active / todos false` — **HTTP 200 en ambos casos**. La vista es `security_invoker=true`; `schools` tiene `FOR SELECT USING (true)` así que la fila siempre vuelve, pero `school_subscriptions` y `school_addons` están gateadas a `is_school_admin() OR is_super_admin()`. Cuando el lector no pasa, el `LEFT JOIN` da NULL, los `COALESCE` **inventan** `starter/free/active` y cada `EXISTS` de addons da `false`. Es **fail-open en el status** (afirma `active` cuando no sabe) y fail-closed en los módulos. Hoy muerde poco porque el BFF usa service role y el único lector del browser es el panel admin, cuyos 3 perfiles pasan el guard — **pero el bloqueo de `DIN-4` F3 se apoya justo en ese status**: un lector degradado ve `active` y el bloqueo no se aplica nunca. | 🔵 | 2–3 d | `DIN-4` D12 · gate `G-NOLIE` |
+| **SEG-8** | 🔴 **`auto_approve_payment` no valida a quién la llama.** `SECURITY DEFINER`, con `EXECUTE` para `anon` **y** `authenticated`, y **cero chequeo de autorización** — lo único que verifica es que el cobro exista y esté en `awaiting_approval`. Después pasa `status` a `paid`, setea `amount_paid`, activa la inscripción y notifica. Un padre autenticado ve el UUID de su propio cobro en `/my-payments`: **se aprueba su propio comprobante y saltea el ciclo entero de validación de la escuela.** Hoy hay 0 cobros en `awaiting_approval`, así que no hay daño en curso — pero está armado y se dispara con el primer comprobante que suba un padre. Fix: `REVOKE EXECUTE … FROM anon, authenticated` en migración nueva; el BFF usa `service_role`, no se rompe nada. | 🟡 | 30 min | barrido 2026-08-12 · memoria `project_security_posture_audit` |
+| **SEG-9** | 🔴 **Cuatro `/debug-logs` públicos en el BFF.** Sin auth, sin rate limit, sin allowlist: `GET` y `POST` sobre `/debug-logs` y `/debug-logs/clear` (montados en la **raíz** vía `admsRouter`), y los mismos dos bajo `/api/v1/access/`. Leen `debug.log` del disco, que lleva seriales de lector, IDs de usuario del dispositivo y timestamps de entrada/salida — **datos de asistencia de personas identificables**. El `clear` deja que cualquiera borre la traza del control de acceso. La allowlist de IP que sí existe cubre solo `/iclock/*` y es opt-in (vacía = desactivada). **Es lo único explotable por un anónimo sin cuenta.** | 🟡 | 1 sesión | `bff/src/routes/access-adms.ts:57,70` · `access-api.ts:11,24` |
+| **SEG-10** | 🔴 **Policies `USING (true)` que filtran datos reales a `anon`.** Verificado ejecutando como rol `anon`, no inferido: **`payment_links` → 91 filas** con `token`, `gross_amount`, `sportmaps_fee`, `fee_pct` (la policy se llama `payment_links_select_by_token` pero **no filtra por token**: se enumeran todos los links de pago y el token es toda su autenticación; de paso filtra la comisión por escuela). **`school_staff` → 68 filas** con nombre, email y teléfono. **`facility_reservations` → 60 filas** con `user_id`, horario, precio y `payment_status`. `schools` (364) es el directorio público y es intencional. Lo que sí está bien cerrado: `profiles`, `payments` y `children` devuelven 0. Fix: filtrar el `USING` por el token del request en `payment_links`; en las otras dos, exponer una vista con solo las columnas que la web pública necesita. | 🟡 | 1–2 d | barrido 2026-08-12 |
+| **SEG-14** | 🔴 **`find_athletes_by_document` entrega la ficha de un menor a cualquiera, sin sesión.** `SECURITY DEFINER` con `EXECUTE` para `anon`: con la llave pública del frontend y un número de documento devolvía `full_name`, `date_of_birth`, `school_id/name`, `team_id/name` y `branch_name`. **Verificado sin autenticar, en lectura, con el documento de una menor de Dynasty** — devolvió los seis campos. Los documentos de menores en Colombia son **enumerables**, así que permitía cosechar datos personales de menores a escala. ⚠️ **Corrige dos conclusiones del barrido del 2026-08-12:** `SEG-10` dice «`children` devuelve 0 a `anon`» —cierto para la **tabla** vía RLS, **falso en el efecto** porque esta función se la salta— y `SEG-3` dice «el único caso sin ningún chequeo se extrajo a `SEG-8`»: había un segundo. **No se puede revocar a `anon` en seco:** la usa `/join-team/:teamId`, que es pública y pide el documento **antes** del `signUp`. Fix escrito: el detalle solo con sesión; a `anon`, nombre enmascarado (`SALOME L. V.`) y `date_of_birth`/`team_id`/`branch_name` en NULL. No cambia la firma, no necesita despliegue coordinado. **Queda abierto** que siga siendo un oráculo «existe/no existe»: cerrarlo exige invertir el flujo de `/join-team`. | 🟡 | migración escrita, sin aplicar | [migración](../supabase/migrations/20260812172252_find_athletes_por_documento_sin_fuga_a_anon.sql) · [verificación](../scripts/verificar-fuga-documento-2026-08-12.sql) · barrido 2026-08-12 |
+| SEG-11 | **Higiene del BFF.** Cuatro cosas de la misma pasada: **(a)** el error handler solo devuelve mensaje genérico si `NODE_ENV === 'production'`, y staging corre con `NODE_ENV=staging` → **devuelve `err.message` crudo al cliente**, y de paso el rate limit sube a 2000 por el mismo ternario; **(b)** `requireAuth` responde 403 con `detail: profile_id=<uuid> no encontrado en school_members…`, que filtra UUID interno y estructura de tablas (y `requireRole` devuelve `receivedRole`, útil para enumerar privilegios); **(c)** el auth se monta **por router, no globalmente**, así que la garantía «todas las rutas privadas» depende de no olvidarse — y ya hay olvidos (`SEG-9`); **(d)** `requireCsrfHeader` solo se aplica en 2 routers (`payment-tokens`, `recurring`); el resto de mutaciones no lo exige. | 🔵 | 3–4 d | barrido 2026-08-12 |
+| SEG-12 | **Observabilidad: no hay.** `pino-http` está bien configurado (serializers que no vuelcan bodies), pero **Sentry no está instalado** — no figura en el `package.json` de ninguno de los dos servicios ni hay `Sentry.init` en ningún lado; solo existe como tipo opcional en `vite-env.d.ts`. 🔴 **Y la política de privacidad lo declara como proveedor de datos ante el usuario** (`PrivacyPage.tsx:324`, y otra vez en la cláusula de transferencia internacional): eso es un problema de exactitud legal, no solo técnico — o se instala, o se saca del texto. Sin centralización no hay alertas ni detección de anomalías: los logs viven en Render con retención corta y `debug.log` en disco efímero. Hay 64 `console.log` fuera de pino. `security_audit_log` sí existe en la BD pero nadie la vigila. | 🔵 | 3 d | barrido 2026-08-12 |
+| SEG-13 | **Gestión de secretos y segundo factor.** Los secretos de pasarela por escuela **sí** están bien: AES-256-GCM en `payment_provider_secrets`, clave dedicada, descifrado solo en el BFF (`payment-crypto.ts`). Lo que falta es alrededor: no hay secrets manager (Doppler/AWS SM) ni rotación ni registro de cuándo se rotó — los secretos viven como env vars en Render y Vercel; **«scopes mínimos» no aplica porque no existen**: el BFF entero corre con `service_role`. Y **no hay MFA en ningún rol, ni siquiera `super_admin`** (lo único que hay es el componente `input-otp` de shadcn, sin usar) — lo cual pesa justo sobre `ADM-3`, que le da a una sola pantalla el control de las ~40 opciones de cualquier escuela. | 🔵 | 1 sem | barrido 2026-08-12 · `D1-pagos` (§5) |
+
+#### El barrido del 2026-08-12 — por qué cambia la prioridad del track
+
+Auditoría ejecutada contra la base viva (`luebjarufsiadojhvxgi`, la compartida dev/stg/prod: **son
+datos reales**), no contra el repo. Todo con `SELECT`; nada se modificó. Método reproducible para
+comprobar RLS de verdad: `set role anon; select count(*) from <tabla>; reset role;`.
+
+**Lo que salió mejor de lo que decía el repo:**
+
+| Medición | Repo | Base viva |
+|---|---|---|
+| Tablas con RLS | 139 (contadas en migraciones) | **224 de 224**, 619 policies, cero `DISABLE` |
+| `search_path` mutable | ~35 funciones | **8** |
+| Tablas con RLS y sin policy | — | 13, y es deny-all correcto |
+
+Que el repo subcuente 85 tablas es otra cara de **`INF-1`**: la cadena de migraciones ya no
+reproduce la base.
+
+**Lo que salió peor:**
+
+> `anon` tiene GRANT de `SELECT, INSERT, UPDATE, DELETE, TRUNCATE` sobre **~230 tablas**. Es el
+> default de Supabase y no es un error en sí — pero significa que **RLS es literalmente lo único
+> que separa a un anónimo de la base**, y que cada policy con `USING (true)` es una puerta abierta
+> de verdad, no un aviso teórico. Es el mismo argumento que ya está escrito para la consola de
+> `ADM`: el `service_role` del BFF salta toda la RLS.
+
+**El desplazamiento de prioridad, que es lo que importa:** el track `SEG` se armó desde la vista del
+linter, y esa vista es **~96 % ruido**. De los 502 avisos de `SECURITY DEFINER`, los que valían algo
+eran dos, y solo uno es un hueco real (`SEG-8`). Al mismo tiempo, **ninguno** de los hallazgos que
+viven fuera de Postgres estaba mapeado: `SEG-9` a `SEG-13` son todos nuevos. Regla que queda: *el
+linter cubre la capa de datos y hay que seguirlo, pero no ve el BFF ni la infraestructura, y ahí
+estaba lo explotable.*
 
 ### INF — Infraestructura y deuda de esquema
 
@@ -376,14 +437,28 @@ migración de datos.
 El criterio, en orden: **dinero mal contado** → **seguridad** → **ingreso que se regala** →
 **deuda que encarece todo lo demás** → **módulos con spec cerrada** → **bloques largos**.
 
-### P0 — Esta semana. Hay dinero mal cobrado en producción
+### P0 — Esta semana. Hay dinero mal cobrado en producción, y cuatro huecos de seguridad abiertos
 
 | # | ID | Por qué ahora | Bloqueante de |
 |---|---|---|---|
-| 1 | **DIN-9** | **Una sesión, sin migración, sin tocar producción, y desarma el único footgun vivo**: hoy un pago de prueba desde dev cobra de verdad. Lo más barato de todo el roadmap con el riesgo más tonto. | Cualquier prueba de pagos |
-| 2 | **DIN-1** | Plan consolidado escrito el 2026-08-01, **pendiente de aprobación**. Su primer paso es una puerta dura: verificar contra la base que las tres migraciones del 24-jul están aplicadas. Si no lo están, el alcance vuelve a ser el del plan original. | MOD-3 · todo el track contable |
-| 3 | **DIN-3** | 4 horas de trabajo y la reconciliación deja de contar mal. Plan ya escrito. | Conciliación bancaria · DIN-6 |
-| 4 | **SEG-1** | La Fase −0.5 es un drift **bloqueante**: hasta resolverlo, cualquier migración nueva puede aplicarse sobre un esquema distinto al que el repo cree. | Toda migración posterior |
+| 0 | **Desplegar `DIN-11` + `DIN-12`** | **Ya están commiteados y no protegen a nadie hasta que suban.** `DIN-11` evita que se repitan los 20 cobros nacidos vencidos de la plataforma, y **conviene antes de la próxima apertura de mes** o hay que rehacer la limpieza. Tres despliegues: BFF a Render, frontend a Vercel, y `supabase functions deploy send-email --project-ref luebjarufsiadojhvxgi` (⚠️ el `project-ref` local apunta a otro proyecto). | Que no se repita el trabajo del 12-ago |
+| 1 | **SEG-14** | **Migración ya escrita.** Datos personales de **menores** —nombre completo y fecha de nacimiento— a cualquiera con la llave pública y un documento, que además es enumerable. Es Habeas Data sobre menores, la superficie más sensible que hay. No cambia la firma, no necesita despliegue coordinado. | — |
+| 2 | **SEG-8** | **30 minutos y cierra el único hueco explotable que toca dinero.** Un `REVOKE` en migración nueva; el BFF usa `service_role`, no se rompe nada. Está armado y se dispara con el primer comprobante que suba un padre. | Comprobantes v2 · `DIN-1` |
+| 2 | **SEG-9** | Una sesión. **Lo único explotable por un anónimo sin cuenta**, y expone datos de asistencia de personas. Sin migración. | — |
+| 3 | **DIN-9** | **Una sesión, sin migración, sin tocar producción, y desarma el único footgun vivo**: hoy un pago de prueba desde dev cobra de verdad. Lo más barato de todo el roadmap con el riesgo más tonto. | Cualquier prueba de pagos |
+| 4 | **SEG-10** | Hoy mismo se enumeran 91 tokens de link de pago, 68 registros de staff con teléfono y correo, y 60 reservas. Verificado ejecutando como `anon`. Es Habeas Data además de higiene. | — |
+| 5 | **DIN-1** | Plan consolidado escrito el 2026-08-01, **pendiente de aprobación**. Su primer paso es una puerta dura: verificar contra la base que las tres migraciones del 24-jul están aplicadas. Si no lo están, el alcance vuelve a ser el del plan original. | MOD-3 · todo el track contable |
+| 6 | **DIN-3** | 4 horas de trabajo y la reconciliación deja de contar mal. Plan ya escrito. | Conciliación bancaria · DIN-6 |
+| 7 | **SEG-1** | La Fase −0.5 es un drift **bloqueante**: hasta resolverlo, cualquier migración nueva puede aplicarse sobre un esquema distinto al que el repo cree. El alcance encogió (8 funciones, no ~35) y suma el toggle de contraseñas filtradas, que es gratis. | Toda migración posterior |
+
+> Los cuatro `SEG` de P0 son **independientes entre sí y de todo lo demás**: uno enmascara una
+> respuesta pública, otro es un `REVOKE`, otro borra cuatro handlers, el último reescribe tres
+> `USING`. Ninguno espera una decisión abierta.
+>
+> **Y los tres del barrido del 12-ago comparten una lección:** `SEG-10` concluyó que `children`
+> «devuelve 0 a `anon`» mirando la **tabla**, y `SEG-14` es la misma tabla filtrándose por una función
+> `SECURITY DEFINER` que se salta RLS. Auditar RLS por tabla no alcanza: hay que auditar también las
+> **195 funciones** que `anon` puede ejecutar.
 
 > **Cuatro decisiones abiertas dentro de DIN-1** (§8 del plan consolidado): qué hace
 > `students.ts:829` cuando el atleta queda sin equipo ni plan · si las 16 huérfanas se asignan antes
@@ -394,26 +469,37 @@ El criterio, en orden: **dinero mal contado** → **seguridad** → **ingreso qu
 
 | # | ID | Por qué |
 |---|---|---|
-| 4 | **SEG-2 + SEG-3** | El único ERROR del linter, más los revokes de `anon`. Riesgo real de lectura no autorizada. |
-| 5 | **DIN-4** | Sin bloqueo de trial, cada cuenta que termina la prueba sigue usando todo gratis. |
-| 6 | **MOD-1** | Evita repetir el envío masivo con datos mal cargados. Plan escrito y ya revisado. |
-| 7 | **UX-1 + UX-3 + ERP-1** | Barato, mecánico, sin tocar lógica, y todo lo que se construya después nace bien. Los tres son la misma pasada por la UI. |
-| 8 | **CONC-1 + CONC-2** | La idempotencia general es la defensa más barata contra el doble cargo y **prerrequisito de `ERP-2`**; el barrido de `count(*)` sin lock busca el error clásico donde ya sabemos cómo se ve bien hecho. |
-| 9 | **UX-2** | F-01 (un error de fetch se ve como tabla vacía) toca pantallas de dinero. |
-| 10 | **MOD-15** | 4 horas. Sin el System User el bot de WhatsApp muere cada 2 h. |
-| 11 | **INF-1 (por dominio)** | Versionar el dominio que bloquee la siguiente fase, no los 336 objetos de golpe. |
-| 12 | **UX-6** | Las features cosméticas son lo que hace que un padre vuelva al grupo de WhatsApp. Verificar primero qué quedó resuelto con el módulo de notificaciones. |
-| 13 | **ADM-1 + ADM-2** | El catálogo de flags y el doble store. `ADM-2` es prerrequisito de la consola: sin resolverlo, la consola hereda el mismo defecto de `SEG-7` — leer de un sitio y escribir en otro. |
-| 14 | **Responder D-T, D-MIG, D-PUC, D-CORTE** | Cuatro decisiones sin código de por medio que bloquean las 6–7 semanas de `ERP-2`. Se pueden contestar esta semana. |
+| 8 | **SEG-2** | El único ERROR del linter (`school_athletes`). ⚠️ `SEG-3` ya **no** va acá: el barrido del 2026-08-12 mostró que es higiene, no riesgo — se extrajo lo explotable a `SEG-8` (P0) y el resto baja a P2. |
+| 9 | **SEG-11 + SEG-12** | La misma pasada por el BFF: `NODE_ENV` de staging filtrando stack traces, CSRF en 2 routers de N, auth montado por router. Y Sentry, que **la política de privacidad ya le promete al usuario** y no existe — eso hay que cerrarlo en un sentido o en el otro. |
+| 10 | **DIN-4** | Sin bloqueo de trial, cada cuenta que termina la prueba sigue usando todo gratis. |
+| 11 | **MOD-1** | Evita repetir el envío masivo con datos mal cargados. Plan escrito y ya revisado. |
+| 12 | **UX-1 + UX-3 + ERP-1** | Barato, mecánico, sin tocar lógica, y todo lo que se construya después nace bien. Los tres son la misma pasada por la UI. |
+| 13 | **CONC-1 + CONC-2** | La idempotencia general es la defensa más barata contra el doble cargo y **prerrequisito de `ERP-2`**; el barrido de `count(*)` sin lock busca el error clásico donde ya sabemos cómo se ve bien hecho. |
+| 14 | **UX-2** | F-01 (un error de fetch se ve como tabla vacía) toca pantallas de dinero. |
+| 15 | **MOD-15** | 4 horas. Sin el System User el bot de WhatsApp muere cada 2 h. |
+| 16 | **INF-1 (por dominio)** | Versionar el dominio que bloquee la siguiente fase, no los 336 objetos de golpe. |
+| 17 | **UX-6** | Las features cosméticas son lo que hace que un padre vuelva al grupo de WhatsApp. Verificar primero qué quedó resuelto con el módulo de notificaciones. |
+| 18 | **ADM-1 + ADM-2** | El catálogo de flags y el doble store. `ADM-2` es prerrequisito de la consola: sin resolverlo, la consola hereda el mismo defecto de `SEG-7` — leer de un sitio y escribir en otro. |
+| 19 | **Responder D-T, D-MIG, D-PUC, D-CORTE** | Cuatro decisiones sin código de por medio que bloquean las 6–7 semanas de `ERP-2`. Se pueden contestar esta semana. |
 
 ### P2 — Cuando P0 y P1 estén cerrados
 
-En este orden: **MOD-2** (riesgo nulo, entregable ya) → **MOD-4** (go-live de notificaciones) →
-**MOD-11** (desplegar el marketplace que ya está escrito) → **ADM-3 + ADM-4 + ADM-5** (la consola) →
-**DIN-5** → **ERP-2** → **ERP-3** →
+Arranca con los tres que salieron del barrido del 12-ago y son la cola natural de `DIN-1`:
+**DIN-13** (F3, la causa raíz de los 41 dobles facturables — necesita `D-DUP` y `D-DOC` contestadas)
+→ **DIN-16** (fusionar las 13 que ya existen, $1.770.000/mes) → **DIN-14** (el mes en el registro
+manual) → **DIN-18** (documentos inválidos; su colisión de Spirit bloquea la F3.3 de `DIN-13`) →
+**DIN-15** (higiene de invitaciones).
+
+Después, en este orden: **MOD-2** (riesgo nulo, entregable ya) → **MOD-4** (go-live de notificaciones) →
+**MOD-11** (desplegar el marketplace que ya está escrito) → **SEG-13** → **ADM-3 + ADM-4 + ADM-5**
+(la consola) → **DIN-5** → **ERP-2** → **ERP-3** →
 **Ciclo de mes F1** → **ERP-4** → **ERP-5** → **MOD-8** → **MOD-6** → **MOD-9** → **DIN-6** →
-**MOD-12** → **MOD-10** → **MOD-13** → **MOD-14** → **MOD-7** → **SEG-4** → **SEG-5** → **SEG-6** →
-**INF-2..5** → **UX-5**.
+**MOD-12** → **MOD-10** → **MOD-13** → **MOD-14** → **MOD-7** → **SEG-3** → **SEG-4** → **SEG-5** →
+**SEG-6** → **INF-2..5** → **UX-5** → **DIN-17** (multimes, detrás de sus 4 decisiones de producto).
+
+> **`SEG-13` va antes de `ADM-3`, no después.** La consola le da a una sola pantalla el control de las
+> ~40 opciones de cualquier escuela; entregarla mientras `super_admin` entra con solo usuario y
+> contraseña es concentrar el radio de daño justo donde no hay segundo factor.
 
 ### P3 — Bloques largos
 
@@ -437,6 +523,10 @@ compras. Cierre del track contable: **Ciclo de mes F2–F6** → **ERP-6 + UX-4*
 | Decisión | Bloquea | Nota |
 |---|---|---|
 | Las 4 de `DIN-1` §8 | P0 completo | `students.ts:829` · las 16 huérfanas · backfill de `period_*` · GYM RM |
+| **D-DUP** — ante un casi-duplicado, ¿el guard **bloquea** la creación o **crea y avisa** a la escuela? | `DIN-13` (F3) | Bloquear frustra al acudiente cuando el matcher se equivoca —Gabriela y **Juliana** Simbaqueva comparten fecha de nacimiento y tienen documentos consecutivos: son **gemelas**— y crear-y-avisar deja pasar el duplicado. Define toda la UX de F3 |
+| **D-DOC** — ¿el documento es **obligatorio** al crear la ficha, y con qué validación de formato? | `DIN-13` · `DIN-18` | Son la misma decisión: exigirlo sin validar longitud no sirve, hay 73 documentos imposibles de 788 |
+| **D-ORACULO** — ¿se acepta que un anónimo pueda saber si un documento existe? | `SEG-14` cierre total | Cerrarlo exige invertir `/join-team`: registrarse primero, buscar después. Es un cambio de UX del onboarding público |
+| **D-MULTIMES** — descuento por varios meses · cuántos meses adelante · baja con meses prepagados · ¿el saldo a favor se devuelve o solo se aplica? | `DIN-17` | Cuatro decisiones de producto, ninguna técnica |
 | **D-PUC** — ¿qué plan de cuentas? PUC Colombia (Decreto 2650) completo, o un catálogo reducido con las cuentas que una escuela realmente usa | `ERP-2` | El completo son ~2.000 cuentas que nadie de la escuela sabe elegir; el reducido exige decidir cuáles |
 | **D-T** — tercero: ¿tabla `parties` unificada, o eje polimórfico `party_type + party_id`? | `ERP-2` | El polimórfico no obliga a migrar `suppliers` ni `payroll_employees`, pero pierde la FK |
 | **D-CORTE** — fecha de corte del mayor y cómo se calculan los saldos de apertura | `ERP-2` | Sin esto no se puede postear la primera fila |
@@ -467,10 +557,14 @@ compras. Cierre del track contable: **Ciclo de mes F2–F6** → **ERP-6 + UX-4*
 | `docs/plan-*.md` | Plan de migraciones de una fase concreta. Se aprueba antes de escribir SQL. |
 | [`architecture/concurrencia-y-reservas.md`](architecture/concurrencia-y-reservas.md) | Doctrina de integridad + diseño de reservas con soft lock. **Aplica a todo el producto**, no solo a reservas. |
 | [`specs/pendientes-cxc-cxp-nomina.md`](specs/pendientes-cxc-cxp-nomina.md) | Spec del módulo Pendientes con libro mayor, aterrizado al modelo real. |
-| `docs/analysis/SUPABASE_LINTER_REMEDIATION_PLAN.md`, `SECURITY_DEFINER_AUDIT.md` | Auditorías con plan de ejecución. Vivas. |
+| `docs/analysis/SUPABASE_LINTER_REMEDIATION_PLAN.md`, `SECURITY_DEFINER_AUDIT.md` | Auditorías con plan de ejecución. Vivas, pero ⚠️ **son del 2026-05-11 y sus conteos ya no cuadran** — el barrido del 12-ago los re-midió contra la base (§2, track `SEG`). El **método** de ambas sigue siendo bueno; las **cifras y la priorización**, no. Y solo cubren Postgres: ninguna ve el BFF. |
 | `docs/AUDITORIA_ARQUITECTURA.md` | Retrato del sistema y su deuda. Vive. |
 | `docs/sportmaps-strategic-roadmap.md` | Tesis, mapa competitivo, track D1–D4. **Su §7 queda superseded por este archivo.** |
 | `docs/migrations-workflow.md` | Cómo se crea una migración. Obligatorio. |
+| [`plan-f3-un-solo-registro-por-atleta.md`](plan-f3-un-solo-registro-por-atleta.md) | Plan de `DIN-13`. Incluye el inventario de lo que **ya está construido** y la validación contra la base del 12-ago. |
+| [`plan-fusion-identidades-duplicadas.md`](plan-fusion-identidades-duplicadas.md) | Procedimiento de `DIN-16`. **Estaba huérfano**: escrito y fuera de la cola hasta el 12-ago. |
+| [`dynasty-pendientes-2026-08-12.md`](dynasty-pendientes-2026-08-12.md) | Lo que quedó abierto en Dynasty tras la corrección, con cómo regenerar cada lista. |
+| `scripts/audit-cobros-duplicados.mjs` · `audit-cobertura-cobros.mjs` · `audit-periodo-vs-fecha-pago.mjs` · `audit-acudientes-desenganchados.mjs` | Los cuatro barridos de cobros. Todos READ-ONLY; sus salidas llevan datos de menores y están en `.gitignore`. |
 | `docs/api/openapi.yaml` | 358 rutas del BFF. Importable en Postman. |
 | `docs/archived/ROADMAP-v1.3-2026-05-12.md` | Anexos A–F: DDL, RLS, endpoints, RPCs y tests de los bloques sin construir. |
 
@@ -489,7 +583,10 @@ No los borro: son decisión del dueño del repo.
 
 ## 7. Arranque inmediato
 
-0. **`DIN-9`** — una sesión. Credenciales `TEST-` en dev + guard de arranque. Es lo único con un
+0. **`SEG-8` + `SEG-9`** — media hora y una sesión. Un `REVOKE` y borrar cuatro handlers de debug.
+   Son los dos únicos huecos explotables hoy y no dependen de ninguna decisión abierta. `SEG-10`
+   (1–2 d) va detrás, en la misma pasada de seguridad.
+0.b **`DIN-9`** — una sesión. Credenciales `TEST-` en dev + guard de arranque. Es lo único con un
    footgun vivo y no depende de ninguna decisión salvo D3-pagos.
 1. **Aprobar el plan de `DIN-1`** — es el único bloqueante de producción (§1). Nada de SQL antes.
    Su paso 1 es el preflight que verifica contra la base las tres migraciones del 24-jul.
