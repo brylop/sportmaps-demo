@@ -43,6 +43,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { bffClient } from '@/lib/api/bffClient';
 import { ACADEMY_TIERS, ADDONS, formatCop, type TierCode, type AddonKey } from '@/config/saas-plans';
+import { salesWhatsappLink } from '@/lib/salesContact';
 
 // ============================================================
 // Tipos
@@ -341,12 +342,11 @@ function RequestCard({
                 : 0;
 
     const whatsappLink = useMemo(() => {
-        const phone = '573128463555';
         const schoolName = request.schools?.name || 'tu escuela';
-        const email = request.requester?.email || '';
         const item = planName || addonName || request.request_type;
-        const message = `Hola! 👋 Soy del equipo de SportMaps. Vi tu solicitud de ${item} para ${schoolName}. ¿Te puedo ayudar con la activación?`;
-        return `https://wa.me/${email ? phone : phone}?text=${encodeURIComponent(message)}`;
+        return salesWhatsappLink(
+            `Hola! 👋 Soy del equipo de SportMaps. Vi tu solicitud de ${item} para ${schoolName}. ¿Te puedo ayudar con la activación?`,
+        );
     }, [request, planName, addonName]);
 
     return (

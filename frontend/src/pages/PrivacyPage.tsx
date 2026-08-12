@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Shield } from 'lucide-react';
+import { SALES_PHONE_TEL, SALES_PHONE_DISPLAY } from '@/lib/salesContact';
 
 export default function PrivacyPage() {
   return (
@@ -488,7 +489,7 @@ export default function PrivacyPage() {
             <strong className="text-foreground">Oficial de Protección de Datos — SportMaps Technology S.A.S.</strong><br />
             Bogotá D.C., Colombia<br />
             <a href="mailto:privacidad@sportmaps.co" className="text-[#248223] hover:underline">privacidad@sportmaps.co</a><br />
-            Línea de atención: <a href="tel:+573128463555" className="text-[#248223] hover:underline">+57 (312) 846-3555</a>
+            Línea de atención: <a href={SALES_PHONE_TEL} className="text-[#248223] hover:underline">{SALES_PHONE_DISPLAY}</a>
           </p>
           <p className="mt-3">
             Si consideras que SportMaps ha vulnerado tus derechos como titular de datos, puedes presentar una queja ante la <strong className="text-foreground">Superintendencia de Industria y Comercio (SIC)</strong>, autoridad de control en materia de protección de datos personales en Colombia:{' '}

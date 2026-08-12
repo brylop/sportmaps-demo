@@ -2,6 +2,7 @@ import { Facebook, Instagram, Linkedin, Mail, MapPin, Phone, ShieldCheck, Twitte
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import { SHOW_EXPLORE } from "@/lib/feature-flags";
+import { SALES_PHONE_TEL, SALES_PHONE_DISPLAY } from "@/lib/salesContact";
 
 export function SportMapsFooter() {
   return (
@@ -82,10 +83,10 @@ export function SportMapsFooter() {
               <li className="flex items-center gap-3 text-sm">
                 <Phone className="h-4 w-4 text-primary flex-shrink-0" />
                 <a
-                  href="tel:+573128463555"
+                  href={SALES_PHONE_TEL}
                   className="text-gray-400 hover:text-white transition-colors"
                 >
-                  +57 (312) 846-3555
+                  {SALES_PHONE_DISPLAY}
                 </a>
               </li>
               <li className="flex items-center gap-4 mt-4">
