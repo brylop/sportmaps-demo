@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { BrandingScope } from "@/components/BrandingScope";
 import { useDeviceContext } from "@/hooks/useDeviceContext";
 import { PushPermissionBanner } from "@/components/PushPermissionBanner";
+import { TrialStatusBanner } from "@/components/entitlements/TrialStatusBanner";
 
 export default function AuthLayout() {
   const { user, profile } = useAuth();
@@ -106,6 +107,12 @@ export default function AuthLayout() {
           {/* pb-24 en mobile para evitar que el contenido quede detrás de la barra inferior del navegador */}
           <main className="flex-1 p-3 sm:p-4 lg:p-6 overflow-auto pb-20 sm:pb-6 w-full max-w-full">
             <div className="w-full max-w-full overflow-x-hidden">
+              {/* Aviso de fin del periodo de prueba (contador → bloqueo).
+                  Va aquí, en el layout, y no página por página: así ninguna
+                  pantalla queda sin el aviso. El componente decide solo si
+                  corresponde mostrarlo (rol que decide + escuela en prueba). */}
+              <TrialStatusBanner />
+
               {/* BrandingScope aplica CSS vars de escuela SOLO si:
                   - ruta esta en allowlist (no admin/marketplace/billing)
                   - rol es de escuela (no super_admin)

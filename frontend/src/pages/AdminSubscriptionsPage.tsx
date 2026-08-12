@@ -4,8 +4,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Loader2, Building2, Check } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Search, Loader2, Building2, Check, ShieldOff, CalendarClock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+
+// Duraciones de prueba que se conceden a mano. El registro nuevo nace con 1 mes
+// (trigger create_default_school_subscription); acá se extiende cuando se acuerda.
+const MESES_PRUEBA = [1, 2, 3, 6, 12];
 
 // Add-ons que el super-admin puede prender/apagar por escuela.
 const ADDONS: { key: string; label: string; icon: string; note?: string }[] = [
@@ -96,6 +101,26 @@ export default function AdminSubscriptionsPage() {
     toast({ title: next ? 'Módulo activado' : 'Módulo desactivado', description: `${key} · ${selected.name}` });
   }
 
+  /**
+   * Corre un RPC de prueba y RELEE la fuente antes de pintar.
+   * El resto de esta página usa update optimista (pinta lo que pidió, no lo que
+   * la BD respondió) y por eso era imposible distinguir "se guardó" de "no se
+   * guardó". Acá no: si la relectura no coincide con lo pedido, se ve.
+   */
+  async function accionPrueba(rpc: string, params: Record<string, unknown>, ok: string) {
+    if (!selected) return;
+    setSavingKey(rpc);
+    const { error } = await supabase.rpc(rpc as any, { p_school_id: selected.id, ...params });
+    if (error) {
+      setSavingKey(null);
+      toast({ title: 'No se pudo aplicar', description: error.message, variant: 'destructive' });
+      return;
+    }
+    await loadEnt(selected.id);   // verificado, no optimista
+    setSavingKey(null);
+    toast({ title: ok, description: selected.name });
+  }
+
   async function changePlan(code: string) {
     if (!selected) return;
     setSavingKey('__plan__');
@@ -172,6 +197,132 @@ export default function AdminSubscriptionsPage() {
                   </Select>
                   {ent?.subscription_status && <Badge variant="outline">{ent.subscription_status}</Badge>}
                   {savingKey === '__plan__' && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                </div>
+
+                {/* Periodo de prueba */}
+                <div className="rounded-xl border p-4 space-y-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <CalendarClock className="h-4 w-4 text-primary" />
+                    <p className="text-sm font-semibold">Periodo de prueba</p>
+                    {ent?.is_operational === false && <Badge variant="destructive">Bloqueada</Badge>}
+                    {ent?.blocking_exempt && <Badge variant="outline" className="border-amber-500 text-amber-600">Avisa sin bloquear</Badge>}
+                    {ent?.account_type && ent.account_type !== 'real' && (
+                      <Badge variant="secondary">{String(ent.account_type).toUpperCase()}</Badge>
+                    )}
+                  </div>
+
+                  {/* Estado verificado, leído de la BD tras cada cambio */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                    <div>
+                      <div className="text-muted-foreground">Registro</div>
+                      <div className="font-medium">
+                        {ent?.school_created_at ? new Date(ent.school_created_at).toLocaleDateString('es-CO') : '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">Vence</div>
+                      <div className="font-medium">
+                        {ent?.trial_ends_at ? new Date(ent.trial_ends_at).toLocaleDateString('es-CO') : '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">Días restantes</div>
+                      <div className="font-medium">
+                        {ent?.trial_ends_at
+                          ? Math.round((new Date(ent.trial_ends_at).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000)
+                          : '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">Meses concedidos</div>
+                      <div className="font-medium">{ent?.trial_months ?? '—'}</div>
+                    </div>
+                  </div>
+
+                  {/* Fijar duración contada desde la fecha de registro */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Prueba desde el registro:</span>
+                    {MESES_PRUEBA.map((m) => (
+                      <Button
+                        key={m}
+                        size="sm"
+                        variant={ent?.trial_months === m ? 'default' : 'outline'}
+                        disabled={!!savingKey}
+                        onClick={() => accionPrueba('admin_set_trial', { p_months: m }, `Prueba fijada en ${m} mes(es)`)}
+                      >
+                        {m} {m === 1 ? 'mes' : 'meses'}
+                      </Button>
+                    ))}
+                  </div>
+
+                  {/* Fecha exacta, para acuerdos que no caen en meses redondos */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-muted-foreground">O fecha exacta:</span>
+                    <Input
+                      type="date"
+                      className="w-[170px] h-9"
+                      defaultValue={ent?.trial_ends_at ? new Date(ent.trial_ends_at).toISOString().slice(0, 10) : ''}
+                      disabled={!!savingKey}
+                      onChange={(e) => {
+                        if (!e.target.value) return;
+                        // Se fija al cierre del día elegido: si no, "vence el 20"
+                        // dejaría a la escuela bloqueada desde la medianoche del 20.
+                        void accionPrueba(
+                          'admin_set_trial',
+                          { p_months: null, p_ends_at: `${e.target.value}T23:59:00-05:00` },
+                          'Fecha de vencimiento actualizada',
+                        );
+                      }}
+                    />
+                    <Button size="sm" variant="outline" disabled={!!savingKey}
+                      onClick={() => accionPrueba('admin_extend_trial', { p_months: 1 }, 'Prueba extendida 1 mes')}>
+                      +1 mes
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={!!savingKey}
+                      onClick={() => accionPrueba('admin_expire_trial_now', {}, 'Prueba expirada')}>
+                      Expirar ya
+                    </Button>
+                  </div>
+
+                  {/* Exención: avisa pero no corta (el caso Dynasty) */}
+                  <div className="flex flex-wrap items-center gap-2 pt-1 border-t">
+                    <ShieldOff className="h-4 w-4 text-amber-600" />
+                    <span className="text-xs text-muted-foreground flex-1 min-w-[180px]">
+                      {ent?.blocking_exempt
+                        ? `Exenta del bloqueo${ent.blocking_exempt_reason ? `: ${ent.blocking_exempt_reason}` : ''}`
+                        : 'Ve el aviso y se bloquea al vencer.'}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant={ent?.blocking_exempt ? 'default' : 'outline'}
+                      disabled={!!savingKey}
+                      onClick={() => accionPrueba(
+                        'admin_set_blocking_exempt',
+                        {
+                          p_exempt: !ent?.blocking_exempt,
+                          p_reason: ent?.blocking_exempt ? null : 'En uso real — exenta por decisión comercial',
+                        },
+                        ent?.blocking_exempt ? 'Exención retirada' : 'Exenta del bloqueo',
+                      )}
+                    >
+                      {ent?.blocking_exempt ? 'Quitar exención' : 'No bloquear'}
+                    </Button>
+                    <Select
+                      value={ent?.account_type || 'real'}
+                      onValueChange={(v) => accionPrueba('admin_set_account_type', { p_account_type: v }, `Cuenta marcada como ${v}`)}
+                    >
+                      <SelectTrigger className="w-[130px] h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="real">Cliente real</SelectItem>
+                        <SelectItem value="test">Pruebas</SelectItem>
+                        <SelectItem value="demo">Demo</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <p className="text-[11px] text-muted-foreground">
+                    Las cuentas marcadas <b>Pruebas</b> o <b>Demo</b> nunca se bloquean ni las toca el cron de expiración.
+                  </p>
                 </div>
 
                 {/* Módulos */}
