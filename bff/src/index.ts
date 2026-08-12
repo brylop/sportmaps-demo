@@ -63,6 +63,7 @@ import ogPreviewRouter from './routes/og-preview.routes';
 import certificatesRouter from './routes/certificates';
 import equipmentActaRouter from './routes/equipment.route';
 import joinQrRouter from './routes/join-qr';
+import { assertMpEnvCoherente } from './services/mercadopago.service';
 import admsRouter from './routes/access-adms';
 import accessApiRouter from './routes/access-api';
 import accessAdminRouter from './routes/access-admin.routes';
@@ -388,6 +389,18 @@ app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
 
     res.status(500).json({ error: message });
 });
+
+// DIN-9 · Fail-fast ANTES de aceptar tráfico: si `MP_ENV` dice sandbox y la
+// credencial de MercadoPago es `APP_USR-` (producción), un pago «de prueba»
+// cobra plata de verdad. MP no tiene host de sandbox, así que manda la
+// credencial. Se aborta el arranque en vez de descubrirlo con el primer cobro.
+try {
+    assertMpEnvCoherente();
+} catch (err: any) {
+    console.error('\n❌ Configuración de MercadoPago incoherente — el BFF no arranca.\n');
+    console.error(`   ${err.message}\n`);
+    process.exit(1);
+}
 
 app.listen(PORT, () => {
     console.log(`🚀 BFF corriendo en http://localhost:${PORT}`);

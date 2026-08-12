@@ -101,7 +101,7 @@ export const requireOperationalSchool = async (
             code: 'trial_expired',
             school_id: schoolId,
             contact: {
-                whatsapp: process.env.SALES_WHATSAPP ?? '+57 320 565 3807',
+                whatsapp: process.env.SALES_WHATSAPP ?? '+57 320 268 3539',
                 email: process.env.SALES_EMAIL ?? 'comercial@sportmaps.co',
             },
         });

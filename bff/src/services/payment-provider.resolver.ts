@@ -19,6 +19,7 @@
  */
 
 import { supabase } from '../config/supabase';
+import { esCredencialDePrueba } from './mercadopago.service';
 import { decryptSecretOrNull } from '../utils/payment-crypto';
 
 export type PaymentProvider = 'wompi' | 'mercadopago';
@@ -352,7 +353,11 @@ export async function resolveProvider(
             accessToken,
             webhookSecret: process.env.MP_WEBHOOK_SECRET_DEFAULT ?? null,
             integritySecret: null,
-            sandbox: (process.env.MP_ENV ?? 'sandbox').toLowerCase() !== 'production',
+            // DIN-9: manda la CREDENCIAL, no la variable. MP no tiene host de
+            // sandbox, asi que un token APP_USR- cobra de verdad aunque MP_ENV diga
+            // sandbox. El guard de arranque (assertMpEnvCoherente) impide que se
+            // contradigan, y aca se lee del prefijo.
+            sandbox: esCredencialDePrueba(process.env.MP_ACCESS_TOKEN_DEFAULT),
             isDefault: true,
             source: 'env',
         };
@@ -436,7 +441,11 @@ export async function loadProviderConfig(params: {
             accessToken,
             webhookSecret: process.env.MP_WEBHOOK_SECRET_DEFAULT ?? null,
             integritySecret: null,
-            sandbox: (process.env.MP_ENV ?? 'sandbox').toLowerCase() !== 'production',
+            // DIN-9: manda la CREDENCIAL, no la variable. MP no tiene host de
+            // sandbox, asi que un token APP_USR- cobra de verdad aunque MP_ENV diga
+            // sandbox. El guard de arranque (assertMpEnvCoherente) impide que se
+            // contradigan, y aca se lee del prefijo.
+            sandbox: esCredencialDePrueba(process.env.MP_ACCESS_TOKEN_DEFAULT),
             isDefault: true,
             source: 'env',
         };

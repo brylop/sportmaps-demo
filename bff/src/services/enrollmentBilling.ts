@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase';
+import { addDaysToDateString, todayInZone } from '../utils/businessDate';
 
 /**
  * Reglas compartidas de inscripción + cobro.
@@ -15,15 +16,23 @@ export type AthleteCol = 'child_id' | 'user_id' | 'unregistered_athlete_id';
 export const athleteColFor = (t: AthleteType): AthleteCol =>
     t === 'child' ? 'child_id' : t === 'adult' ? 'user_id' : 'unregistered_athlete_id';
 
-/** Día de corte de la escuela: la MISMA fuente que usa open_month(). */
-export async function getCutoffDay(schoolId: string): Promise<number> {
+/**
+ * Corte y días de gracia de la escuela: la MISMA fuente que usa open_month() y
+ * que el helper SQL `qr_first_charge_due_date` del flujo por QR.
+ */
+export async function getBillingConfig(schoolId: string): Promise<{ cutoff: number; grace: number }> {
     const { data } = await supabase
         .from('school_settings')
-        .select('payment_cutoff_day')
+        .select('payment_cutoff_day, payment_grace_days')
         .eq('school_id', schoolId)
         .maybeSingle();
-    return Number((data as any)?.payment_cutoff_day) || 10;
+    return {
+        cutoff: Number((data as any)?.payment_cutoff_day) || 10,
+        // 0 explícito es válido: solo se cae al default cuando no hay fila/valor.
+        grace: Number((data as any)?.payment_grace_days ?? 5),
+    };
 }
+
 
 /**
  * Vencimiento canónico del cobro: día de corte de la escuela DENTRO DEL MES DE
@@ -42,13 +51,30 @@ export async function getCutoffDay(schoolId: string): Promise<number> {
  *
  * `due_date` NO define el mes cubierto: el periodo se devuelve aparte y los
  * callers lo persisten, sin depender de `trg_payments_fill_period`.
+ *
+ * UN COBRO NUEVO NUNCA NACE VENCIDO. Acotar al día del alta no alcanzaba: solo
+ * protege dentro del mes de entrada. Si el plan se asigna un mes DESPUÉS del
+ * alta, el vencimiento calculado ya pasó y el cobro entra al mundo en mora, con
+ * recargo y recordatorio de deuda por un cobro que ayer no existía. Medido en
+ * Dynasty el 2026-08-12: 5 cobros nacidos con 9 a 31 días de atraso — Salomé
+ * Montenegro nació con 27 (alta 6-jul, corte 10, cobro emitido el 6-ago).
+ *
+ * La deuda puede ser legítima (cursó el mes), así que el PERIODO no se toca:
+ * sigue siendo el mes de entrada. Lo que se corrige es la fecha de pago: como
+ * muy tarde pasa a ser hoy + los días de gracia de la escuela, la MISMA regla
+ * que ya aplica el flujo por QR (`qr_first_charge_due_date` usa
+ * `GREATEST(corte, hoy + payment_grace_days)`). Antes había dos criterios
+ * distintos para la misma situación según la vía de alta.
+ *
+ * Esto NO aplica al registro manual de pagos viejos: esa vía escribe en
+ * `payments` directamente y debe poder fechar hacia atrás a propósito.
  */
 export async function billingDue(schoolId: string, startDate: string): Promise<{
     due_date: string;
     period_year: number;
     period_month: number;
 }> {
-    const cutoff = await getCutoffDay(schoolId);
+    const { cutoff, grace } = await getBillingConfig(schoolId);
     const [y, m, d] = startDate.split('-').map(Number);
     // Día 0 del mes siguiente = último día del mes de entrada.
     const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
@@ -56,8 +82,18 @@ export async function billingDue(schoolId: string, startDate: string): Promise<{
     // 10 nace en mora y el motor de recargos le cobra un atraso que no existió.
     const day = Math.max(Math.min(cutoff, lastDay), d);
     const pad = (n: number) => String(n).padStart(2, '0');
+    const calculado = `${y}-${pad(m)}-${pad(day)}`;
+    // Solo se reemplaza si la fecha calculada YA PASÓ. Aplicar el piso siempre
+    // correría también los vencimientos que ya eran correctos (un alta el 20 con
+    // corte 10 vencía el 20 y pasaría al 25), y esto no viene a mover lo que
+    // funciona: viene a que nada nazca vencido.
+    //
+    // Comparación lexicográfica: ambas son 'YYYY-MM-DD' en la zona del negocio,
+    // no UTC (un alta de las 19:00 en Bogotá ya es del día siguiente en UTC, y
+    // por ahí se colaba un corrimiento de un día).
+    const hoy = todayInZone();
     return {
-        due_date: `${y}-${pad(m)}-${pad(day)}`,
+        due_date: calculado < hoy ? addDaysToDateString(hoy, grace) : calculado,
         period_year: y,
         period_month: m,
     };

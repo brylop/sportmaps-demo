@@ -8,6 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Mail, Phone, User, MessageSquare, Send, MapPin } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { salesWhatsappLink, SALES_PHONE_DISPLAY } from "@/lib/salesContact";
 
 const contactSchema = z.object({
   name: z.string()
@@ -51,7 +52,7 @@ export default function Contact({ onNavigate }: ContactProps) {
     );
     
     // Open WhatsApp with pre-filled message
-    window.open(`https://wa.me/573128463555?text=${message}`, '_blank');
+    window.open(`${salesWhatsappLink()}?text=${message}`, '_blank');
     
     toast({
       title: "¡Mensaje enviado!",
@@ -115,12 +116,12 @@ export default function Contact({ onNavigate }: ContactProps) {
                     <div>
                       <h3 className="font-semibold mb-1">Teléfono / WhatsApp</h3>
                       <a 
-                        href="https://wa.me/573128463555" 
+                        href={salesWhatsappLink()}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-primary hover:underline"
                       >
-                        +57 312 846 3555
+                        {SALES_PHONE_DISPLAY}
                       </a>
                     </div>
                   </div>

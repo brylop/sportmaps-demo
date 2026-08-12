@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { ArrowLeft, FileText } from 'lucide-react';
+import { SALES_PHONE_TEL, SALES_PHONE_DISPLAY } from '@/lib/salesContact';
 
 export default function TermsPage() {
   return (
@@ -514,7 +515,7 @@ export default function TermsPage() {
             Bogotá D.C., Colombia<br />
             <a href="mailto:legal@sportmaps.co" className="text-[#248223] hover:underline">legal@sportmaps.co</a> (asuntos legales)<br />
             <a href="mailto:soporte@sportmaps.co" className="text-[#248223] hover:underline">soporte@sportmaps.co</a> (soporte general)<br />
-            Línea de atención: <a href="tel:+573128463555" className="text-[#248223] hover:underline">+57 (312) 846-3555</a>
+            Línea de atención: <a href={SALES_PHONE_TEL} className="text-[#248223] hover:underline">{SALES_PHONE_DISPLAY}</a>
           </p>
         </section>
 

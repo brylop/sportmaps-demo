@@ -16,6 +16,8 @@
 //   name:<tokens ordenados>  nombre sin acentos, ordenado (aguanta el cambio de orden)
 //   dob:<fecha>+<2 tokens>   fecha de nacimiento + dos tokens del nombre
 // Todo dentro de la MISMA escuela: la misma persona en dos escuelas es legítimo.
+// La heurística vive en `lib/athlete-identity.mjs`, compartida con
+// `audit-cobros-duplicados.mjs` para que ambos barridos agrupen igual.
 //
 // Uso:
 //   node scripts/audit-duplicate-athletes.mjs
@@ -25,9 +27,9 @@
 //
 // NO escribe nada. Lee con la service key de bff/.env.
 // ============================================================================
-import { readFileSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { writeFileSync } from 'node:fs';
+import { conectar } from './lib/supabase-rest.mjs';
+import { agruparIdentidades, construirIdentidades } from './lib/athlete-identity.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (n) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : null; };
@@ -36,52 +38,10 @@ const wantSchool = (arg('school') || '').trim().toLowerCase() || null;
 const jsonOut = arg('json');
 const minSignals = Number(arg('min-signals') || 1);
 
-const here = dirname(fileURLToPath(import.meta.url));
-const env = Object.fromEntries(
-  readFileSync(resolve(here, '../bff/.env'), 'utf8')
-    .split(/\r?\n/).filter((l) => l && !l.startsWith('#') && l.includes('='))
-    .map((l) => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^["']|["']$/g, '')]; }),
-);
-const URL_ = env.SUPABASE_URL.replace(/\/$/, '');
-const KEY = env.SUPABASE_SERVICE_ROLE_KEY;
-if (!URL_ || !KEY) { console.error('Falta SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY en bff/.env'); process.exit(1); }
-const H = { apikey: KEY, Authorization: `Bearer ${KEY}` };
-
-// PostgREST corta en 1000 filas: paginamos siempre.
-async function all(path, select) {
-  const out = [];
-  const PAGE = 1000;
-  for (let off = 0; ; off += PAGE) {
-    const url = `${URL_}/rest/v1/${path}?select=${select}&limit=${PAGE}&offset=${off}&order=id`;
-    const r = await fetch(url, { headers: H });
-    const t = await r.text();
-    if (!r.ok) { console.error(`ERROR ${path}: ${t.slice(0, 200)}`); process.exit(1); }
-    const j = JSON.parse(t);
-    out.push(...j);
-    if (j.length < PAGE) break;
-  }
-  return out;
-}
-
-// ── normalización ───────────────────────────────────────────────────────────
-const noAccents = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
-const normName = (s) => noAccents(s).toUpperCase().replace(/[^A-Z\s]/g, ' ').replace(/\s+/g, ' ').trim();
-const nameKey = (s) => {
-  const toks = normName(s).split(' ').filter((t) => t.length >= 3);
-  return toks.length >= 2 ? `name:${[...toks].sort().join('|')}` : null;
-};
-const docKey = (d) => {
-  const n = String(d || '').replace(/\D/g, '');
-  return n.length >= 6 ? `doc:${n}` : null;
-};
-const dobKey = (dob, name) => {
-  if (!dob) return null;
-  const toks = normName(name).split(' ').filter((t) => t.length >= 3).sort();
-  return toks.length >= 2 ? `dob:${String(dob).slice(0, 10)}+${toks.slice(0, 2).join('|')}` : null;
-};
+const { proyecto, all } = conectar();
 
 console.log('='.repeat(78));
-console.log('Proyecto :', URL_.replace('https://', '').split('.')[0]);
+console.log('Proyecto :', proyecto);
 console.log('Barrido  : identidades de atleta duplicadas por escuela (READ-ONLY)');
 console.log('='.repeat(78));
 
@@ -99,136 +59,9 @@ const schoolName = new Map(schools.map((s) => [s.id, s.name]));
 const profById = new Map(profs.map((p) => [p.id, p]));
 console.log(`\nCargado: ${schools.length} escuelas · ${kids.length} children · ${uas.length} unregistered · ${members.length} school_members · ${enrs.length} inscripciones · ${pays.length} cobros`);
 
-// ── identidades candidatas ──────────────────────────────────────────────────
-const ids = [];
-for (const c of kids) {
-  ids.push({
-    kind: 'child', id: c.id, school_id: c.school_id, name: c.full_name,
-    doc: c.doc_number, dob: c.date_of_birth, is_active: c.is_active !== false,
-    is_demo: !!c.is_demo, created_at: c.created_at,
-    owner: c.parent_id ? (profById.get(c.parent_id)?.email || c.parent_id.slice(0, 8)) : (c.parent_email_temp || '❌ sin acudiente'),
-  });
-}
-for (const u of uas) {
-  ids.push({
-    kind: 'unregistered', id: u.id, school_id: u.school_id, name: u.full_name,
-    doc: u.doc_number, dob: u.date_of_birth, is_active: u.is_active !== false,
-    linked: u.linked_profile_id, created_at: u.created_at,
-    owner: u.email || u.phone || '-',
-    // la vista solo lo muestra si NO está vinculado
-    visible: !u.linked_profile_id,
-  });
-}
-for (const m of members) {
-  if (m.role !== 'athlete') continue;
-  const p = profById.get(m.profile_id);
-  if (!p) continue;
-  ids.push({
-    kind: 'adult', id: m.profile_id, school_id: m.school_id, name: p.full_name,
-    doc: null, dob: p.date_of_birth, is_active: m.status !== 'inactive' && m.status !== 'removed',
-    created_at: m.created_at, owner: p.email || p.phone || '-',
-  });
-}
-
-// ── evidencia por pareja ────────────────────────────────────────────────────
-// Coincidir por nombre NO alcanza: "VICTORIA GOMEZ" son tres niñas distintas en
-// la misma escuela. Se pesa cada pareja y solo las CONFIRMADAS o PROBABLES se
-// unen en un grupo; el resto se reporta aparte como homónimos.
-const lev = (a, b) => {
-  a = String(a || ''); b = String(b || '');
-  const m = a.length, n = b.length;
-  if (!m || !n) return Math.max(m, n);
-  let prev = Array.from({ length: n + 1 }, (_, j) => j);
-  for (let i = 1; i <= m; i++) {
-    const cur = [i];
-    for (let j = 1; j <= n; j++) {
-      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-    }
-    prev = cur;
-  }
-  return prev[n];
-};
-const toks = (s) => new Set(normName(s).split(' ').filter((t) => t.length >= 3));
-const digits = (d) => String(d || '').replace(/\D/g, '');
-const localPart = (e) => String(e || '').split('@')[0].toLowerCase();
-
-function evaluar(a, b) {
-  const ta = toks(a.name), tb = toks(b.name);
-  const inter = [...ta].filter((t) => tb.has(t));
-  const nameSame = ta.size === tb.size && inter.length === ta.size;
-  const nameSub = !nameSame && inter.length >= 2 && (inter.length === ta.size || inter.length === tb.size);
-  const nameStrong = (nameSame || nameSub) && Math.max(ta.size, tb.size) >= 3; // 3 tokens = mucho más específico
-  const da = digits(a.doc), db = digits(b.doc);
-  const bothDoc = da.length >= 5 && db.length >= 5;
-  const docSame = bothDoc && da === db;
-  const docNear = bothDoc && !docSame && lev(da, db) <= 2;
-  const docDiff = bothDoc && !docSame && !docNear;
-  const bothDob = !!a.dob && !!b.dob;
-  const dobSame = bothDob && String(a.dob).slice(0, 10) === String(b.dob).slice(0, 10);
-  const dobDiff = bothDob && !dobSame;
-  const ea = localPart(a.owner), eb = localPart(b.owner);
-  const mailSame = ea && eb && ea === eb;
-  const mailNear = ea && eb && !mailSame && ea.length > 4 && lev(ea, eb) <= 2;
-  const razones = [];
-  let veredicto;
-
-  if (docSame && (nameSame || nameSub)) { veredicto = 'CONFIRMADO'; razones.push('mismo documento + mismo nombre'); }
-  else if (docSame) { veredicto = 'DOC_REPETIDO'; razones.push(`mismo documento (${da}) con nombres distintos → documento mal digitado, no fusionar sin revisar`); }
-  else if ((nameSame || nameSub) && dobSame) { veredicto = 'CONFIRMADO'; razones.push('mismo nombre + misma fecha de nacimiento'); }
-  else if ((nameSame || nameSub) && docNear) { veredicto = 'CONFIRMADO'; razones.push(`documento con dígito de más/menos (${da} vs ${db})`); }
-  else if ((nameSame || nameSub) && (mailSame || mailNear)) { veredicto = 'CONFIRMADO'; razones.push(mailSame ? 'mismo nombre + mismo acudiente' : `mismo nombre + correo del acudiente casi igual (${ea} vs ${eb})`); }
-  else if (nameStrong) { veredicto = 'PROBABLE'; razones.push('nombre completo idéntico (3+ tokens) pero documento y/o fecha no cuadran → cada acudiente lo cargó a su manera'); }
-  else if ((nameSame || nameSub) && !dobDiff && !docDiff) { veredicto = 'PROBABLE'; razones.push('mismo nombre y sin documento/fecha que lo desmienta'); }
-  else { veredicto = 'HOMONIMO'; razones.push('mismo nombre pero documento y fecha de nacimiento distintos → personas distintas'); }
-
-  if (docNear && veredicto === 'CONFIRMADO') razones.push('ojo: uno de los dos documentos está mal');
-  if (dobDiff) razones.push(`fechas de nacimiento distintas (${String(a.dob).slice(0, 10)} vs ${String(b.dob).slice(0, 10)})`);
-  return { veredicto, razones, nameSame, nameSub, docSame, dobSame };
-}
-
-const parent = new Map();
-const find = (x) => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
-const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
-const key = (r) => `${r.school_id}|${r.kind}|${r.id}`;
-for (const r of ids) parent.set(key(r), key(r));
-
-const bySignal = new Map();
-for (const r of ids) {
-  const sigs = [docKey(r.doc), nameKey(r.name), dobKey(r.dob, r.name)].filter(Boolean);
-  // token individual también, para pescar "Sergio Herrera" vs "Sergio Herrera Torres"
-  for (const t of toks(r.name)) sigs.push(`tok:${t}`);
-  r._sigs = sigs;
-  for (const s of sigs) {
-    const gk = `${r.school_id}::${s}`;
-    if (!bySignal.has(gk)) bySignal.set(gk, []);
-    bySignal.get(gk).push(r);
-  }
-}
-const RANK = { CONFIRMADO: 3, PROBABLE: 2, DOC_REPETIDO: 1, HOMONIMO: 0 };
-const pares = new Map();
-for (const [, rows] of bySignal) {
-  if (rows.length < 2) continue;
-  for (let i = 0; i < rows.length; i++) {
-    for (let j = i + 1; j < rows.length; j++) {
-      const a = rows[i], b = rows[j];
-      if (a.id === b.id) continue;
-      const pk = [key(a), key(b)].sort().join('##');
-      if (pares.has(pk)) continue;
-      const ev = evaluar(a, b);
-      pares.set(pk, { a, b, ...ev });
-      if (RANK[ev.veredicto] >= 2) union(key(a), key(b));
-    }
-  }
-}
-const descartados = [...pares.values()].filter((p) => RANK[p.veredicto] < 2);
-
-// ── grupos ──────────────────────────────────────────────────────────────────
-const groups = new Map();
-for (const r of ids) {
-  const root = find(key(r));
-  if (!groups.has(root)) groups.set(root, []);
-  groups.get(root).push(r);
-}
+// ── identidades candidatas + agrupación (lib/athlete-identity.mjs) ──────────
+const ids = construirIdentidades({ kids, uas, members, profById });
+const { grupos, descartados } = agruparIdentidades(ids);
 
 const enrBySubject = new Map();
 for (const e of enrs) {
@@ -248,12 +81,7 @@ const TERMINAL = new Set(['cancelled', 'canceled', 'void', 'rejected', 'failed',
 const DEUDA = new Set(['pending', 'overdue', 'partial', 'awaiting_approval', 'glosado']);
 
 const report = [];
-for (const [root, rows] of groups) {
-  if (rows.length < 2) continue;
-  const misPares = [...pares.values()].filter((p) => find(key(p.a)) === root && RANK[p.veredicto] >= 2);
-  if (!misPares.length) continue;
-  const veredicto = misPares.some((p) => p.veredicto === 'CONFIRMADO') ? 'CONFIRMADO' : 'PROBABLE';
-  const razones = [...new Set(misPares.flatMap((p) => p.razones))];
+for (const { rows, veredicto, razones } of grupos) {
   const sid = rows[0].school_id;
   const sname = schoolName.get(sid) || sid;
   if (wantSchool && !String(sname).toLowerCase().includes(wantSchool)) continue;

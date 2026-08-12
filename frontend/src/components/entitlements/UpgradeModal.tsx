@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { openSalesWhatsapp } from '@/lib/salesContact';
 import {
     ACADEMY_TIERS,
     ADDONS,
@@ -108,9 +109,9 @@ export function UpgradeModal({
     };
 
     const contactSales = () => {
-        const phone = '573128463555';
-        const msg = `Hola SportMaps 👋\n\nQuiero hablar con ventas sobre mi plan.\n\nPlan actual: ${currentTierDef.name}\nSchool ID: ${schoolId ?? '—'}`;
-        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+        openSalesWhatsapp(
+            `Hola SportMaps 👋\n\nQuiero hablar con ventas sobre mi plan.\n\nPlan actual: ${currentTierDef.name}\nSchool ID: ${schoolId ?? '—'}`,
+        );
     };
 
     // ============================================================

@@ -31,11 +31,22 @@ export interface PaymentReminder {
     childName: string;
     childId: string;
     teamName: string;
+    /** Concepto real del cobro. El correo debe mostrar esto, NO `teamName`. */
+    concept: string;
     amount: number;
     dueDate: string;
     status: 'pending' | 'paid' | 'overdue';
     paymentId: string | null;
     daysOverdue: number;
+    /**
+     * La misma persona YA PAGÓ este periodo en OTRA ficha suya (duplicado de
+     * identidad). No se puede excluir sin más porque el match es por nombre, no
+     * por documento: se marca, se deja fuera de la preselección y la escuela
+     * decide. Es el caso que le mandaba «tienes un pago pendiente» a familias
+     * al día en Dynasty.
+     */
+    posibleDuplicado?: boolean;
+    duplicadoMotivo?: string;
 }
 
 export interface ReminderBatch {
@@ -141,7 +152,93 @@ class PaymentRemindersAPI {
             return true;
         });
 
-        const reminders: PaymentReminder[] = uniquePayments.map(payment => {
+        // ── Guard: no reclamarle a quien YA PAGÓ ese periodo ────────────────
+        // Un cobro impago no significa deuda. Puede ser un duplicado del mes que
+        // la familia ya pagó — sea en este mismo cobro-sujeto o en la ficha
+        // gemela de la misma persona. Sin este cruce, el recordatorio le escribe
+        // a familias al día (Dynasty, agosto 2026).
+        const { data: pagados } = await supabase
+            .from('payments')
+            .select('id, child_id, unregistered_athlete_id, user_id, amount, due_date, period_year, period_month, concept')
+            .eq('school_id', schoolId)
+            .in('status', ['paid', 'partial']);
+
+        const periodoDe = (p: { period_year?: number | null; period_month?: number | null; due_date?: string | null }) =>
+            p.period_year && p.period_month
+                ? `${p.period_year}-${String(p.period_month).padStart(2, '0')}`
+                : (p.due_date || '').slice(0, 7);
+        const sujetoDe = (p: { child_id?: string | null; unregistered_athlete_id?: string | null; user_id?: string | null }) =>
+            p.child_id || p.unregistered_athlete_id || p.user_id || '';
+        // Tokens del nombre sin acentos. Comparar la cadena completa NO alcanza:
+        // «Gabriela Núñez» y «Gabriela nuñez osorio» son la misma niña con un
+        // apellido de más en una de las dos fichas. Se compara por SUBCONJUNTO.
+        const tokensNombre = (s: string) => new Set(
+            (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+                .toUpperCase().replace(/[^A-Z\s]/g, ' ').trim()
+                .split(/\s+/).filter(t => t.length >= 3),
+        );
+        // Mismo nombre, o el de uno contenido en el del otro, con 2+ tokens en
+        // común. Exigir 2 evita emparejar a cualquiera que comparta un apellido.
+        const mismoNombre = (a: Set<string>, b: Set<string>) => {
+            if (a.size < 2 || b.size < 2) return false;
+            const comunes = [...a].filter(t => b.has(t)).length;
+            return comunes >= 2 && (comunes === a.size || comunes === b.size);
+        };
+        // Matrícula/uniforme/torneo no cancelan la mensualidad ni al revés.
+        // OJO: `payment_type` NO sirve para esto — en Dynasty la mensualidad
+        // pagada viene como 'one_time' y la duplicada como 'subscription'.
+        const esUnicaVez = (c?: string | null) =>
+            /matricul|inscripcion|uniforme|torneo|examen|carnet|kit|implement|multa|sancion/
+                .test((c || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase());
+
+        // Los mapas de arriba solo cubren los sujetos de los cobros IMPAGOS. La
+        // ficha gemela que ya pagó normalmente no está ahí, así que hay que
+        // traer sus nombres aparte o el cruce por nombre nunca encuentra nada.
+        const pagChildIds = [...new Set((pagados || []).map(q => q.child_id).filter(Boolean))]
+            .filter(id => !childMap.has(id as string)) as string[];
+        const pagUnregIds = [...new Set((pagados || []).map(q => q.unregistered_athlete_id).filter(Boolean))]
+            .filter(id => !unregisteredMap.has(id as string)) as string[];
+        const [{ data: pagChildren }, { data: pagUnreg }] = await Promise.all([
+            pagChildIds.length
+                ? supabase.from('children').select('id, full_name').in('id', pagChildIds)
+                : Promise.resolve({ data: [] as any[] }),
+            pagUnregIds.length
+                ? supabase.from('unregistered_athletes').select('id, full_name').in('id', pagUnregIds)
+                : Promise.resolve({ data: [] as any[] }),
+        ]);
+        const nombrePagado = new Map<string, string>([
+            ...[...childMap].map(([id, c]) => [id, (c as any).full_name] as [string, string]),
+            ...[...unregisteredMap].map(([id, u]) => [id, (u as any).full_name] as [string, string]),
+            ...(pagChildren || []).map(c => [c.id, c.full_name] as [string, string]),
+            ...(pagUnreg || []).map(u => [u.id, u.full_name] as [string, string]),
+        ]);
+
+        const pagadoPorSujeto = new Set<string>();   // sujeto|periodo
+        // Por periodo, los pagados con sus tokens de nombre, para cruzar por
+        // subconjunto (no se puede indexar por nombre exacto, ver `mismoNombre`).
+        const pagadoPorPeriodo = new Map<string, { sujeto: string; monto: number; toks: Set<string> }[]>();
+        for (const q of (pagados || [])) {
+            if (esUnicaVez(q.concept)) continue;
+            const per = periodoDe(q);
+            if (!per) continue;
+            const subj = sujetoDe(q);
+            if (subj) pagadoPorSujeto.add(`${subj}|${per}`);
+            const toks = tokensNombre(nombrePagado.get(subj) || '');
+            if (toks.size >= 2) {
+                if (!pagadoPorPeriodo.has(per)) pagadoPorPeriodo.set(per, []);
+                pagadoPorPeriodo.get(per)!.push({ sujeto: subj, monto: Number(q.amount || 0), toks });
+            }
+        }
+
+        // Certeza: el MISMO sujeto ya tiene ese periodo pagado → no es deuda,
+        // es un duplicado. Se saca de la lista, no se le escribe a nadie.
+        const cobrables = uniquePayments.filter(payment => {
+            const per = periodoDe(payment as any);
+            const subj = sujetoDe(payment as any);
+            return !(per && subj && pagadoPorSujeto.has(`${subj}|${per}`));
+        });
+
+        const reminders: PaymentReminder[] = cobrables.map(payment => {
             const parent = parentMap.get(payment.parent_id);
             const child = childMap.get(payment.child_id || '');
             const unregistered = unregisteredMap.get(payment.unregistered_athlete_id || '');
@@ -160,6 +257,20 @@ class PaymentRemindersAPI {
             // Show plan name > cleaned concept
             const programLabel = plan?.name || cleanConcept(payment.concept);
 
+            // Probable: alguien con el MISMO nombre en esta escuela ya pagó ese
+            // periodo, pero desde otro sujeto → ficha gemela de la misma persona.
+            // El match es por nombre, no por documento, así que no se excluye
+            // solo: se marca para que la escuela lo confirme.
+            const per = periodoDe(payment as any);
+            const subj = sujetoDe(payment as any);
+            const misToks = tokensNombre(athleteName);
+            const gemelo = per && !esUnicaVez(payment.concept)
+                ? (pagadoPorPeriodo.get(per) || []).find(
+                    x => x.sujeto !== subj && mismoNombre(misToks, x.toks),
+                )
+                : undefined;
+            const esDuplicado = !!gemelo;
+
             return {
                 id: payment.id,
                 parentId: payment.parent_id || payment.unregistered_athlete_id || '',
@@ -169,11 +280,16 @@ class PaymentRemindersAPI {
                 childName: athleteName,
                 childId: payment.child_id || payment.unregistered_athlete_id || '',
                 teamName: programLabel,
+                concept: payment.concept || programLabel,
                 amount: payment.amount,
                 dueDate: payment.due_date,
                 status: payment.status as 'pending' | 'overdue',
                 paymentId: payment.id,
                 daysOverdue,
+                posibleDuplicado: esDuplicado,
+                duplicadoMotivo: esDuplicado
+                    ? `${athleteName} ya pagó ${per} en otra de sus fichas ($${gemelo!.monto.toLocaleString('es-CO')}). Revisar antes de reclamar.`
+                    : undefined,
             };
         });
 

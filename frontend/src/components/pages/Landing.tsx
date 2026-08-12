@@ -38,6 +38,7 @@ import logoImage from "@/assets/logo-bienvenida.png";
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { SALES_PHONE_TEL, SALES_PHONE_DISPLAY } from "@/lib/salesContact";
 
 interface LandingProps {
   onNavigate?: (page: string) => void;
@@ -206,11 +207,11 @@ const Landing = ({ onNavigate }: LandingProps) => {
             <div className="flex items-center justify-between h-10 text-sm">
               <div className="flex items-center gap-6">
                 <a
-                  href="tel:+573001234567"
+                  href={SALES_PHONE_TEL}
                   className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors"
                 >
                   <Phone className="h-4 w-4" />
-                  <span className="hidden md:inline">300 123 4567</span>
+                  <span className="hidden md:inline">{SALES_PHONE_DISPLAY}</span>
                 </a>
               </div>
               <div className="flex items-center gap-3">
