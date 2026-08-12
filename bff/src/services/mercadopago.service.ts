@@ -170,10 +170,69 @@ export async function loadMpConfig(params: {
     const accessToken = process.env.MP_ACCESS_TOKEN_DEFAULT;
     const publicKey = process.env.MP_PUBLIC_KEY_DEFAULT;
     const webhookSecret = process.env.MP_WEBHOOK_SECRET_DEFAULT ?? null;
-    const sandbox = (process.env.MP_ENV ?? 'sandbox').toLowerCase() !== 'production';
+    // El SANDBOX lo decide la CREDENCIAL, no la variable. MercadoPago no tiene
+    // host de sandbox: `MP_API_BASE` es una sola URL y lo que separa producción
+    // de prueba es el prefijo del token. Con `MP_ENV=sandbox` y un token
+    // `APP_USR-` el cobro es REAL, y antes esta línea devolvía `sandbox: true`
+    // creyéndole a la variable. Ver el guard de arranque en assertMpEnvCoherente().
+    const sandbox = esCredencialDePrueba(accessToken);
 
     if (!accessToken || !publicKey) return null;
     return { accessToken, publicKey, webhookSecret, sandbox };
+}
+
+/**
+ * ¿La credencial es de PRUEBA? En MercadoPago lo dice el prefijo:
+ *   TEST-…      → sandbox
+ *   APP_USR-…   → PRODUCCIÓN, cobra de verdad
+ * Sin credencial se asume prueba: no hay con qué cobrar.
+ */
+export function esCredencialDePrueba(token?: string | null): boolean {
+    if (!token) return true;
+    return token.trim().toUpperCase().startsWith('TEST-');
+}
+
+/**
+ * Guard de arranque (DIN-9). Aborta el proceso si `MP_ENV` dice una cosa y la
+ * credencial dice otra.
+ *
+ * El caso real que motiva esto: en dev había `MP_ENV=sandbox` con
+ * `MP_ACCESS_TOKEN_DEFAULT=APP_USR-…`, que en MercadoPago es PRODUCCIÓN. Como
+ * `MARKETPLACE_DEFAULT_PROVIDER=mercadopago`, un pago «de prueba» lanzado desde
+ * dev cobraba plata de verdad. El síntoma es invisible: la app no falla, cobra.
+ *
+ * Falla al arrancar y no en la primera transacción a propósito: descubrirlo con
+ * un cobro real ya es tarde.
+ */
+export function assertMpEnvCoherente(): void {
+    const token = process.env.MP_ACCESS_TOKEN_DEFAULT;
+    const pub = process.env.MP_PUBLIC_KEY_DEFAULT;
+    if (!token && !pub) return;   // sin credenciales globales no hay nada que validar
+
+    const declaraProduccion = (process.env.MP_ENV ?? 'sandbox').toLowerCase() === 'production';
+    const tokenEsPrueba = esCredencialDePrueba(token);
+    const pubEsPrueba = esCredencialDePrueba(pub);
+
+    // 1. El token y la llave pública tienen que ser del mismo mundo.
+    if (token && pub && tokenEsPrueba !== pubEsPrueba) {
+        throw new Error(
+            '[MP] MP_ACCESS_TOKEN_DEFAULT y MP_PUBLIC_KEY_DEFAULT son de ambientes distintos '
+            + `(token=${tokenEsPrueba ? 'TEST' : 'APP_USR'}, public_key=${pubEsPrueba ? 'TEST' : 'APP_USR'}). `
+            + 'Corregí las credenciales antes de arrancar.',
+        );
+    }
+
+    // 2. Y tienen que coincidir con lo que declara MP_ENV.
+    if (declaraProduccion !== !tokenEsPrueba) {
+        throw new Error(
+            `[MP] MP_ENV=${process.env.MP_ENV ?? '(sin definir → sandbox)'} pero la credencial es `
+            + `${tokenEsPrueba ? 'TEST- (prueba)' : 'APP_USR- (PRODUCCION: COBRA DE VERDAD)'}. `
+            + 'En MercadoPago no hay host de sandbox: manda la credencial, no la variable. '
+            + (tokenEsPrueba
+                ? 'Poné MP_ENV=sandbox, o usá credenciales APP_USR- si de verdad es producción.'
+                : 'Usá credenciales TEST- en dev/staging, o poné MP_ENV=production si esto ES producción.'),
+        );
+    }
 }
 
 // ─── Webhook signature validation ──────────────────────────────────────────
