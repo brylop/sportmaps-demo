@@ -7,29 +7,15 @@ import path from 'path';
 
 const router = Router();
 
-// ─── GET /api/v1/access/debug-logs ───────────────────────────────────────────
-router.get('/debug-logs', (req, res) => {
-  try {
-    const logPath = path.join(__dirname, '../../debug.log');
-    if (!fs.existsSync(logPath)) {
-      return res.type('text/plain').send('Log file does not exist yet.');
-    }
-    const content = fs.readFileSync(logPath, 'utf8');
-    return res.type('text/plain').send(content);
-  } catch (err: any) {
-    return res.status(500).send(`Error reading log: ${err.message}`);
-  }
-});
-
-router.post('/debug-logs/clear', (req, res) => {
-  try {
-    const logPath = path.join(__dirname, '../../debug.log');
-    fs.writeFileSync(logPath, '');
-    return res.send('Cleared.');
-  } catch (err: any) {
-    return res.status(500).send(err.message);
-  }
-});
+// ─── /debug-logs — ELIMINADO (SEG-9, 2026-08-12) ─────────────────────────────
+// Gemelos de los de `access-adms.ts`, montados acá como
+// `GET /api/v1/access/debug-logs` y `POST /api/v1/access/debug-logs/clear`.
+// Sin `requireAuth` ni `requireRole`, en un router donde TODAS las demás rutas
+// sí los llevan — el descuido se ve al comparar con la línea siguiente.
+//
+// Servían `debug.log`: seriales de lector, IDs de usuario del dispositivo y
+// horarios de entrada/salida. Datos de asistencia de personas identificables,
+// legibles y borrables por cualquiera. Ver la nota larga en access-adms.ts.
 
 // ─── GET /api/v1/access/events ───────────────────────────────────────────────
 router.get('/events', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
