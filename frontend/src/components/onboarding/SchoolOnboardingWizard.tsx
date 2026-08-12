@@ -208,11 +208,20 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
   const [accountType,   setAccountType]   = useState('ahorros');
   const [whatsapp,      setWhatsapp]      = useState('');
 
-  // Load existing branch data
+  // Existing records IDs for update
+  const [existingTeamId, setExistingTeamId] = useState<string | null>(null);
+  const [existingOfferingId, setExistingOfferingId] = useState<string | null>(null);
+  const [existingPlanId, setExistingPlanId] = useState<string | null>(null);
+
+  // Load existing onboarding data
   useEffect(() => {
     if (schoolId) {
       loadBranchData();
+      loadTeamData();
+      loadPlanData();
+      loadPaymentsData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schoolId]);
 
   const loadBranchData = async () => {
@@ -228,6 +237,76 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
       setBranchAddress(data.address || '');
       setBranchCity(data.city || '');
       setBranchPhone(data.phone || '');
+    }
+  };
+
+  const loadTeamData = async () => {
+    if (!schoolId) return;
+    const { data } = await supabase
+      .from('teams')
+      .select('id, name, sport, price_monthly')
+      .eq('school_id', schoolId)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (data) {
+      setExistingTeamId(data.id);
+      setTeamName(data.name || '');
+      setTeamSport(data.sport || '');
+      setTeamPrice(String(data.price_monthly || '150000'));
+    }
+  };
+
+  const loadPlanData = async () => {
+    if (!schoolId) return;
+    const { data: offering } = await supabase
+      .from('offerings')
+      .select('id, name, sport')
+      .eq('school_id', schoolId)
+      .eq('offering_type', 'membership')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (offering) {
+      setExistingOfferingId(offering.id);
+      setPlanName(offering.name || '');
+
+      const { data: plan } = await supabase
+        .from('offering_plans')
+        .select('id, price, duration_days, max_sessions')
+        .eq('offering_id', offering.id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (plan) {
+        setExistingPlanId(plan.id);
+        setPlanPrice(String(plan.price || '120000'));
+        const billing = plan.duration_days === 365 ? 'yearly'
+          : (plan.duration_days === 90 ? 'quarterly' : 'monthly');
+        setPlanBilling(billing);
+        setPlanSessions(plan.max_sessions === null ? '' : String(plan.max_sessions));
+      }
+    }
+  };
+
+  const loadPaymentsData = async () => {
+    if (!schoolId) return;
+    const { data } = await supabase
+      .from('school_settings')
+      .select('bank_name, bank_account_number, bank_account_type, nequi_number, breb_key, whatsapp_number')
+      .eq('school_id', schoolId)
+      .maybeSingle();
+
+    if (data) {
+      setBankCode(data.bank_name || '');
+      setAccountNumber(data.bank_account_number || '');
+      setAccountType(data.bank_account_type || 'ahorros');
+      setNequi(data.nequi_number || '');
+      setBrebKey(data.breb_key || '');
+      setWhatsapp(data.whatsapp_number || '');
     }
   };
 
@@ -335,19 +414,20 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
         : planBilling === 'quarterly' ? 90
         : 30;
 
-      // Volver a este paso no debe dejar ofertas repetidas: si ya hay una con
-      // ese nombre, se reusa.
-      const { data: existingOffering } = await supabase
-        .from('offerings')
-        .select('id')
-        .eq('school_id', schoolId)
-        .eq('name', planName.trim())
-        .limit(1)
-        .maybeSingle();
+      let offeringId = existingOfferingId;
 
-      let offeringId: string | undefined = (existingOffering as any)?.id;
-
-      if (!offeringId) {
+      if (offeringId) {
+        // Update existing offering
+        const { error: offErr } = await supabase
+          .from('offerings')
+          .update({
+            name: planName.trim(),
+            sport: teamSport || null,
+          })
+          .eq('id', offeringId);
+        if (offErr) throw offErr;
+      } else {
+        // Insert new offering
         const { data: newOffering, error: offErr } = await supabase
           .from('offerings')
           .insert({
@@ -360,22 +440,44 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
           .single();
         if (offErr) throw offErr;
         offeringId = (newOffering as any).id;
+        setExistingOfferingId(offeringId);
       }
 
-      const { error: planErr } = await supabase
-        .from('offering_plans')
-        .insert({
-          school_id:    schoolId,
-          offering_id:  offeringId,
-          name:         planBilling === 'yearly' ? 'Anual' : (planBilling === 'quarterly' ? 'Trimestral' : 'Mensual'),
-          price:        Number(planPrice),
-          duration_days: durationDays,
-          max_sessions: planSessions === '' ? null : Number(planSessions),
-          is_active:    true,
-        });
-      if (planErr) throw planErr;
+      if (existingPlanId) {
+        // Update existing offering_plan
+        const { error: planErr } = await supabase
+          .from('offering_plans')
+          .update({
+            name:         planBilling === 'yearly' ? 'Anual' : (planBilling === 'quarterly' ? 'Trimestral' : 'Mensual'),
+            price:        Number(planPrice),
+            duration_days: durationDays,
+            max_sessions: planSessions === '' ? null : Number(planSessions),
+          })
+          .eq('id', existingPlanId);
+        if (planErr) throw planErr;
+        toast({ title: 'Plan actualizado' });
+      } else {
+        // Insert new offering_plan
+        const { data: newPlanData, error: planErr } = await supabase
+          .from('offering_plans')
+          .insert({
+            school_id:    schoolId,
+            offering_id:  offeringId,
+            name:         planBilling === 'yearly' ? 'Anual' : (planBilling === 'quarterly' ? 'Trimestral' : 'Mensual'),
+            price:        Number(planPrice),
+            duration_days: durationDays,
+            max_sessions: planSessions === '' ? null : Number(planSessions),
+            is_active:    true,
+          })
+          .select('id')
+          .single();
+        if (planErr) throw planErr;
+        if (newPlanData) {
+          setExistingPlanId(newPlanData.id);
+        }
+        toast({ title: 'Plan creado' });
+      }
 
-      toast({ title: 'Plan creado' });
       onRefresh();
       goNext();
     } catch (err: any) {
@@ -401,21 +503,43 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
         .eq('is_main', true)
         .maybeSingle();
 
-      const { error } = await supabase
-        .from('teams')
-        .insert({
-          school_id: schoolId,
-          name: teamName.trim(),
-          sport: teamSport,
-          price_monthly: Number(teamPrice) || 150000,
-          branch_id: branch?.id || null,
-          status: 'active',
-          current_students: 0,
-        });
+      if (existingTeamId) {
+        // Update existing team
+        const { error } = await supabase
+          .from('teams')
+          .update({
+            name: teamName.trim(),
+            sport: teamSport,
+            price_monthly: Number(teamPrice) || 150000,
+            branch_id: branch?.id || null,
+          })
+          .eq('id', existingTeamId);
 
-      if (error) throw error;
+        if (error) throw error;
+        toast({ title: 'Equipo actualizado' });
+      } else {
+        // Insert new team
+        const { data: newTeam, error } = await supabase
+          .from('teams')
+          .insert({
+            school_id: schoolId,
+            name: teamName.trim(),
+            sport: teamSport,
+            price_monthly: Number(teamPrice) || 150000,
+            branch_id: branch?.id || null,
+            status: 'active',
+            current_students: 0,
+          })
+          .select('id')
+          .single();
 
-      toast({ title: 'Equipo creado' });
+        if (error) throw error;
+        if (newTeam) {
+          setExistingTeamId(newTeam.id);
+        }
+        toast({ title: 'Equipo creado' });
+      }
+
       onRefresh();
       goNext();
     } catch (err: any) {
