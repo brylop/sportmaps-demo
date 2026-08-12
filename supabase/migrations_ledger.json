@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 328,
-  "head": "20260812172252",
+  "count": 330,
+  "head": "20260812174317",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -331,6 +331,8 @@
     {"v":"20260812125503","file":"20260812125503_periodo_de_prueba_aviso_y_bloqueo.sql","sha256":"80cf0b7540acbc502d94f565309e9d93cb23158fac0a2c97a0b8b5fac344baaa","added":"2026-08-12","by":"brylop"},
     {"v":"20260812150627","file":"20260812150627_entidades_informativas_no_se_bloquean.sql","sha256":"1701f910503582ea56e3daab7f4f214e0ec7288c2a2e15f3cb31197c3ec053ea","added":"2026-08-12","by":"brylop"},
     {"v":"20260812170438","file":"20260812170438_bloqueo_de_prueba_en_rls.sql","sha256":"d829c649fdbff72bd63db7f538cb3df2b71b384c82a48c9294628ce875eeea20","added":"2026-08-12","by":"brylop"},
-    {"v":"20260812172252","file":"20260812172252_find_athletes_por_documento_sin_fuga_a_anon.sql","sha256":"b5324e4bcfd68054694b48d80a4e9b0848a3f98b3369d6bc9f2ed9b6681155b3","added":"2026-08-12","by":"brylop"}
+    {"v":"20260812172252","file":"20260812172252_find_athletes_por_documento_sin_fuga_a_anon.sql","sha256":"b5324e4bcfd68054694b48d80a4e9b0848a3f98b3369d6bc9f2ed9b6681155b3","added":"2026-08-12","by":"brylop"},
+    {"v":"20260812174039","file":"20260812174039_mapeo_school_type_a_modulos.sql","sha256":"94d4d63d9a02f1416405b909fd19d7971708bc304e3ea410ad923fd2f319bcb3","added":"2026-08-12","by":"brylop"},
+    {"v":"20260812174317","file":"20260812174317_revoke_public_en_find_athletes_by_document.sql","sha256":"e3e9f5bf03c3408c76733195249c2c62ded5b6c52f3a39a5a8940874cdbd9036","added":"2026-08-12","by":"brylop"}
   ]
 }
