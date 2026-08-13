@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 337,
-  "head": "20260813170814",
+  "count": 338,
+  "head": "20260813180537",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -340,6 +340,7 @@
     {"v":"20260812183012","file":"20260812183012_qr_signup_adopta_ficha_precargada.sql","sha256":"43f8d4eae83fbcf36f18d995c2bd3849ba1c83eaf25ba9ecd02e6969feffb435","added":"2026-08-13","by":"brylop"},
     {"v":"20260813133108","file":"20260813133108_cerrar_fuga_de_payment_links_a_anon.sql","sha256":"663bb87e3e3d1dc88eba61b48e174aab308d9a70f4991e20d0381ae56b415654","added":"2026-08-13","by":"brylop"},
     {"v":"20260813170813","file":"20260813170813_bloqueo_de_prueba_en_rls.sql","sha256":"d829c649fdbff72bd63db7f538cb3df2b71b384c82a48c9294628ce875eeea20","added":"2026-08-13","by":"brylop"},
-    {"v":"20260813170814","file":"20260813170814_mapeo_school_type_a_modulos.sql","sha256":"94d4d63d9a02f1416405b909fd19d7971708bc304e3ea410ad923fd2f319bcb3","added":"2026-08-13","by":"brylop"}
+    {"v":"20260813170814","file":"20260813170814_mapeo_school_type_a_modulos.sql","sha256":"94d4d63d9a02f1416405b909fd19d7971708bc304e3ea410ad923fd2f319bcb3","added":"2026-08-13","by":"brylop"},
+    {"v":"20260813180537","file":"20260813180537_payment_provider_deja_de_mentir.sql","sha256":"9cdc53249c5f770a6f1a655d4f8d05df5882e03092316f4443737c7a7a47ab46","added":"2026-08-13","by":"brylop"}
   ]
 }
