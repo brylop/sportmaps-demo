@@ -1,0 +1,86 @@
+-- ============================================================================
+-- 20260813133108_cerrar_fuga_de_payment_links_a_anon.sql
+-- Fecha: 2026-08-13   ·   SEG-10 (parcial: solo payment_links)
+--
+-- HALLAZGO. Verificado ejecutando como `anon` con la llave publica del frontend:
+--
+--   payment_links          93 filas visibles, 18 columnas
+--   school_staff           68 filas visibles, 12 columnas
+--   facility_reservations  60 filas visibles, 24 columnas
+--   schools               364 filas  (es el directorio publico: intencional)
+--   profiles / payments / children -> 0 filas  (bien cerradas)
+--
+-- En `payment_links` eso expone `token`, `gross_amount`, `sportmaps_fee` y
+-- `fee_pct`: se enumeran TODOS los links de pago de la plataforma, y el token es
+-- toda su autenticacion. De paso queda a la vista la comision por escuela.
+--
+-- LA CAUSA es una policy mal nombrada, de 20260411_sportmaps_pay_epayco.sql:
+--
+--   CREATE POLICY "payment_links_select_by_token" ON public.payment_links
+--     FOR SELECT USING (true);      <-- no filtra por token: filtra por nada
+--
+-- El nombre promete lo que el `USING` no hace. En RLS no hay forma limpia de
+-- comparar contra un token que viene en la query, asi que la policy nunca pudo
+-- cumplir su nombre.
+--
+-- POR QUE SE PUEDE BORRAR SIN ROMPER NADA: `payment_links` solo se consulta
+-- desde el BFF (routes/mercadopago.ts:199, 297, 346, 388, 635), que usa
+-- `service_role` y no pasa por RLS. El frontend NO la consulta nunca — cero
+-- coincidencias de `from('payment_links')` en frontend/src. La policy
+-- `payment_links_select_by_school`, que si esta bien acotada a los miembros de
+-- la escuela, se queda intacta.
+--
+-- ----------------------------------------------------------------------------
+-- LO QUE ESTA MIGRACION *NO* CIERRA, y por que
+--
+-- `school_staff` y `facility_reservations` siguen expuestas. No se tocan aca por
+-- dos razones concretas:
+--
+--   1. Sus policies DECLARADAS en el repo estan bien acotadas
+--      (`school_id = ANY(user_school_ids())`, `user_id = auth.uid()`), asi que la
+--      fuga viene de OTRA policy que el repo no declara: deriva de esquema
+--      (INF-1). Sin poder leer `pg_policies` no se sabe como se llama, y no se
+--      puede borrar a ciegas una policy cuyo nombre se desconoce.
+--
+--   2. `school_staff` lo lee `getDemoSchoolProfile()` en
+--      frontend/src/lib/api/schools.ts:220, que es la ruta de MODO INVITADO. Hoy
+--      esta desactivada (`VITE_DEMO_SCHOOL_EMAIL` sin configurar), pero si se
+--      activa, cerrar la tabla en seco rompe el perfil publico de la escuela
+--      demo. SEG-10 ya propone la salida buena: exponer una VISTA con solo las
+--      columnas que la web publica necesita, en vez de la tabla entera.
+--
+-- Para avanzar con esas dos hace falta el listado real de policies. Esta el
+-- diagnostico en scripts/verificar-fuga-rls-2026-08-13.sql.
+-- ============================================================================
+
+BEGIN;
+
+-- Se borra por nombre porque ESTE nombre si esta en el repo y es el que declara
+-- `USING (true)`. Si en la base quedo con otro nombre, el DROP no encuentra nada
+-- y no falla: el diagnostico de scripts/verificar-fuga-rls-2026-08-13.sql lo dice.
+DROP POLICY IF EXISTS "payment_links_select_by_token" ON public.payment_links;
+
+COMMIT;
+
+
+-- ── Verificacion (correr despues) ───────────────────────────────────────────
+-- 1. Que quede SOLO la policy acotada a la escuela:
+--
+-- SELECT policyname, permissive, roles, cmd, qual
+--   FROM pg_policies
+--  WHERE schemaname = 'public' AND tablename = 'payment_links'
+--  ORDER BY policyname;
+--
+-- ESPERADO: solo `payment_links_select_by_school`. Si sigue apareciendo alguna
+-- con `qual = true`, es otra policy no versionada y hay que sumarla al DROP en
+-- una migracion nueva.
+--
+-- 2. Prueba de humo, fuera del SQL editor, con la ANON key:
+--
+--    GET /rest/v1/payment_links?select=*&limit=1
+--    con header  Prefer: count=exact
+--
+--    ESPERADO: 0 filas. Antes devolvia 93.
+--
+-- 3. Y que el BFF NO se rompio: sigue leyendo con service_role, que ignora RLS.
+--    Un cobro por MercadoPago de punta a punta es la prueba real.

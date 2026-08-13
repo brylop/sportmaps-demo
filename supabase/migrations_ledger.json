@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 333,
-  "head": "20260812182200",
+  "count": 337,
+  "head": "20260813170814",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -336,6 +336,10 @@
     {"v":"20260812181043","file":"20260812181043_cerrar_a_anon_service_role_por_catalogo.sql","sha256":"7c86220436d19983950fd0f3ad0d8ff40636bbc3c6e8b1c35d680a651c125a73","added":"2026-08-12","by":"brylop"},
     {"v":"20260812182000","file":"20260812182000_futbol_metricas_alineacion.sql","sha256":"3f35859410177cc8c7f664c558228f76d6dc68dbd4bed0be9761401ed7194953","added":"2026-08-13","by":"judegor99"},
     {"v":"20260812182100","file":"20260812182100_fix_duelos_ganados_thresholds_futbol.sql","sha256":"159f8d66196967aab0f1791432dcc8763711d3ee5fc18765533d55ceedb587a6","added":"2026-08-13","by":"judegor99"},
-    {"v":"20260812182200","file":"20260812182200_baseline_thresholds_futbol_manual.sql","sha256":"4566f67b896891eb7389ec082d91fb77b6a7c30d7d5293f4c18f4a54d61c8ab2","added":"2026-08-13","by":"judegor99"}
+    {"v":"20260812182200","file":"20260812182200_baseline_thresholds_futbol_manual.sql","sha256":"4566f67b896891eb7389ec082d91fb77b6a7c30d7d5293f4c18f4a54d61c8ab2","added":"2026-08-13","by":"judegor99"},
+    {"v":"20260812183012","file":"20260812183012_qr_signup_adopta_ficha_precargada.sql","sha256":"43f8d4eae83fbcf36f18d995c2bd3849ba1c83eaf25ba9ecd02e6969feffb435","added":"2026-08-13","by":"brylop"},
+    {"v":"20260813133108","file":"20260813133108_cerrar_fuga_de_payment_links_a_anon.sql","sha256":"663bb87e3e3d1dc88eba61b48e174aab308d9a70f4991e20d0381ae56b415654","added":"2026-08-13","by":"brylop"},
+    {"v":"20260813170813","file":"20260813170813_bloqueo_de_prueba_en_rls.sql","sha256":"d829c649fdbff72bd63db7f538cb3df2b71b384c82a48c9294628ce875eeea20","added":"2026-08-13","by":"brylop"},
+    {"v":"20260813170814","file":"20260813170814_mapeo_school_type_a_modulos.sql","sha256":"94d4d63d9a02f1416405b909fd19d7971708bc304e3ea410ad923fd2f319bcb3","added":"2026-08-13","by":"brylop"}
   ]
 }
