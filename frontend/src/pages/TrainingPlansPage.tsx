@@ -8,9 +8,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { Plus, Calendar, Target, ClipboardList, Trash2, Activity, Users, Loader2, TrendingUp } from 'lucide-react';
+import { Plus, Calendar, Target, ClipboardList, Trash2, Activity, Users, Loader2, TrendingUp, Trophy } from 'lucide-react';
 import { TrainingPlanFormDialog } from '@/components/coach/TrainingPlanFormDialog';
 import { TeamPerformanceEntryModal } from '@/components/school/TeamPerformanceEntryModal';
+import { FootballDashboardModal } from '@/components/school/FootballDashboardModal';
 import { PerformanceEntryModal } from '@/components/school/PerformanceEntryModal';
 import { AthleteEvolutionModal } from '@/components/school/AthleteEvolutionModal';
 import { useToast } from '@/hooks/use-toast';
@@ -38,6 +39,7 @@ export default function TrainingPlansPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [performanceDialogOpen, setPerformanceDialogOpen] = useState(false);
+  const [footballDialogOpen, setFootballDialogOpen] = useState(false);
   const [individualStudent, setIndividualStudent] = useState<any>(null);
   const [evolutionStudent, setEvolutionStudent] = useState<any>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -419,6 +421,21 @@ export default function TrainingPlansPage() {
                     <Activity className="w-3.5 h-3.5" />
                     Evaluar Lote
                   </Button>
+                  {(() => {
+                    const selectedTeam = teams?.find((t: any) => t.id === selectedTeamId);
+                    const isFootball = selectedTeam?.sport?.toLowerCase() === 'futbol' || selectedTeam?.sport?.toLowerCase() === 'fútbol';
+                    return filterType === 'teams' && isFootball && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 gap-1.5 shrink-0"
+                        onClick={() => setFootballDialogOpen(true)}
+                      >
+                        <Trophy className="w-3.5 h-3.5" />
+                        Fútbol
+                      </Button>
+                    );
+                  })()}
                 </div>
               </CardHeader>
               <CardContent className="p-3 flex-1">
@@ -494,6 +511,15 @@ export default function TrainingPlansPage() {
           onClose={() => setPerformanceDialogOpen(false)}
           teamId={filterType === 'teams' ? selectedTeamId : undefined}
           offeringPlanId={filterType === 'plans' ? selectedPlanId : undefined}
+          teamName={selectedName}
+        />
+      )}
+
+      {footballDialogOpen && filterType === 'teams' && selectedTeamId && (
+        <FootballDashboardModal
+          open={footballDialogOpen}
+          onClose={() => setFootballDialogOpen(false)}
+          teamId={selectedTeamId}
           teamName={selectedName}
         />
       )}

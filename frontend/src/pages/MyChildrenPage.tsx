@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
-import { Plus, Calendar, User, AlertTriangle, School, Pencil, FileText, Trophy } from 'lucide-react';
+import { Plus, Calendar, User, AlertTriangle, School, Pencil, FileText, Trophy, BookOpen } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { AddChildDialog } from '@/components/children/AddChildDialog';
@@ -205,28 +205,38 @@ export default function MyChildrenPage() {
                 })()}
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <Link to={`/academic-progress?childId=${child.id}`} className="flex-1">
-                  <Button variant="outline" className="w-full h-11 rounded-xl border-border/60 hover:border-primary/40 hover:bg-primary/5 hover:text-primary transition-all group/btn shadow-sm font-bold text-xs uppercase tracking-wider">
-                    <Trophy className="w-4 h-4 mr-2 group-hover/btn:scale-110 transition-transform" />
-                    Progreso
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-3">
+                  <Link to={`/academic-progress?childId=${child.id}`} className="flex-1">
+                    <Button variant="outline" className="w-full h-11 rounded-xl border-border/60 hover:border-primary/40 hover:bg-primary/5 hover:text-primary transition-all group/btn shadow-sm font-bold text-xs uppercase tracking-wider">
+                      <Trophy className="w-4 h-4 mr-2 group-hover/btn:scale-110 transition-transform" />
+                      Progreso
+                    </Button>
+                  </Link>
+                  <Link to={`/parent-attendance?childId=${child.id}`} className="flex-1">
+                    <Button variant="outline" className="w-full h-11 rounded-xl border-border/60 hover:border-primary/40 hover:bg-primary/5 hover:text-primary transition-all group/btn shadow-sm font-bold text-xs uppercase tracking-wider">
+                      <Calendar className="w-4 h-4 mr-2 group-hover/btn:scale-110 transition-transform" />
+                      Asistencia
+                    </Button>
+                  </Link>
+                  <Link to={`/children/${child.id}/reports`} className="flex-1">
+                    <Button variant="outline" className="w-full h-11 rounded-xl border-border/60 hover:border-primary/40 hover:bg-primary/5 hover:text-primary transition-all group/btn shadow-sm font-bold text-xs uppercase tracking-wider">
+                      <BookOpen className="w-4 h-4 mr-2 group-hover/btn:scale-110 transition-transform" />
+                      Informes
+                    </Button>
+                  </Link>
+                </div>
+                <div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setUploadingDocsFor(child)}
+                  >
+                    <FileText className="w-4 h-4 mr-2" />
+                    Subir documentos
                   </Button>
-                </Link>
-                <Link to={`/parent-attendance?childId=${child.id}`} className="flex-1">
-                  <Button variant="outline" className="w-full h-11 rounded-xl border-border/60 hover:border-primary/40 hover:bg-primary/5 hover:text-primary transition-all group/btn shadow-sm font-bold text-xs uppercase tracking-wider">
-                    <Calendar className="w-4 h-4 mr-2 group-hover/btn:scale-110 transition-transform" />
-                    Asistencia
-                  </Button>
-                </Link>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => setUploadingDocsFor(child)}
-                >
-                  <FileText className="w-4 h-4 mr-2" />
-                  Subir documentos
-                </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

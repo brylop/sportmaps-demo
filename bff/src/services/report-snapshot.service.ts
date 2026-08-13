@@ -44,6 +44,19 @@ export interface SnapshotMetric {
     measured_at: string;
 }
 
+/** Acumulados de fútbol DENTRO del periodo del informe -- derivados de
+ *  match_lineup_players/football_match_events, no de performance_entries.
+ *  null si el atleta no juega fútbol o no tuvo actividad este mes. */
+export interface FootballSummary {
+    matches_played: number;
+    minutes_played: number;
+    goals: number;
+    own_goals: number;
+    assists: number;
+    yellow_cards: number;
+    red_cards: number;
+}
+
 export interface ReportSnapshot {
     version: 1;
     generated_at: string;
@@ -58,6 +71,7 @@ export interface ReportSnapshot {
     highlights: SnapshotMetric[];
     to_work_on: SnapshotMetric[];
     metrics: SnapshotMetric[];
+    football: FootballSummary | null;
 }
 
 const MESES = [
@@ -175,6 +189,93 @@ async function loadAttendance(
     return { present, total, pct: total > 0 ? Math.round((present / total) * 100) : null };
 }
 
+/**
+ * Acumulados de fútbol del periodo: alineaciones (minutos) + eventos (goles,
+ * asistencias, tarjetas), acotados a partidos cuya fecha cae dentro del mes.
+ * Igual que loadAttendance: es un complemento del informe, no su razón de
+ * ser -- si algo falla, el informe sale igual sin la sección de fútbol.
+ */
+async function loadFootballSummary(
+    schoolId: string,
+    subjectType: SubjectType,
+    subjectId: string,
+    periodStart: Date,
+    periodEnd: Date,
+): Promise<FootballSummary | null> {
+    try {
+        const { data: lineupRows, error: lineupErr } = await supabase
+            .from('match_lineup_players')
+            .select('minutes_played, match_lineups!inner(source_type, source_id)')
+            .eq('school_id', schoolId)
+            .eq('subject_type', subjectType)
+            .eq('subject_id', subjectId);
+        if (lineupErr) throw lineupErr;
+
+        const rows = (lineupRows ?? []) as any[];
+        if (rows.length === 0) return null;
+
+        const teamMatchIds = rows
+            .filter((r) => r.match_lineups.source_type === 'team_match')
+            .map((r) => r.match_lineups.source_id);
+        const tournamentMatchIds = rows
+            .filter((r) => r.match_lineups.source_type === 'tournament_match')
+            .map((r) => r.match_lineups.source_id);
+
+        const periodStartDate = periodStart.toISOString().slice(0, 10);
+        const periodEndDate = periodEnd.toISOString().slice(0, 10);
+
+        const [teamMatchesInPeriod, tournamentMatchesInPeriod] = await Promise.all([
+            teamMatchIds.length > 0
+                ? supabase.from('match_results').select('id')
+                    .in('id', teamMatchIds)
+                    .gte('match_date', periodStartDate)
+                    .lte('match_date', periodEndDate)
+                : Promise.resolve({ data: [] as { id: string }[] }),
+            tournamentMatchIds.length > 0
+                ? supabase.from('tournament_matches').select('id')
+                    .in('id', tournamentMatchIds)
+                    .gte('scheduled_at', periodStart.toISOString())
+                    .lte('scheduled_at', periodEnd.toISOString())
+                : Promise.resolve({ data: [] as { id: string }[] }),
+        ]);
+
+        const qualifyingIds = new Set([
+            ...((teamMatchesInPeriod.data ?? []) as { id: string }[]).map((m) => m.id),
+            ...((tournamentMatchesInPeriod.data ?? []) as { id: string }[]).map((m) => m.id),
+        ]);
+
+        const rowsInPeriod = rows.filter((r) => qualifyingIds.has(r.match_lineups.source_id));
+        if (rowsInPeriod.length === 0) return null;
+
+        const matches_played = rowsInPeriod.filter((r) => r.minutes_played && r.minutes_played > 0).length;
+        const minutes_played = rowsInPeriod.reduce((sum, r) => sum + (r.minutes_played ?? 0), 0);
+
+        const { data: eventRows, error: eventsErr } = await supabase
+            .from('football_match_events')
+            .select('type, source_id')
+            .eq('school_id', schoolId)
+            .eq('subject_type', subjectType)
+            .eq('subject_id', subjectId);
+        if (eventsErr) throw eventsErr;
+
+        const eventsInPeriod = ((eventRows ?? []) as { type: string; source_id: string }[])
+            .filter((e) => qualifyingIds.has(e.source_id));
+
+        const counts = { goals: 0, own_goals: 0, assists: 0, yellow_cards: 0, red_cards: 0 };
+        for (const e of eventsInPeriod) {
+            if (e.type === 'goal') counts.goals++;
+            else if (e.type === 'own_goal') counts.own_goals++;
+            else if (e.type === 'assist') counts.assists++;
+            else if (e.type === 'yellow') counts.yellow_cards++;
+            else if (e.type === 'red') counts.red_cards++;
+        }
+
+        return { matches_played, minutes_played, ...counts };
+    } catch {
+        return null;
+    }
+}
+
 export interface BuildSnapshotInput {
     schoolId: string;
     subjectType: SubjectType;
@@ -199,12 +300,14 @@ export async function buildReportSnapshot(input: BuildSnapshotInput): Promise<Re
 
     const [sujetoRes, escuelaRes] = await Promise.all([
         supabase.from(tablaSujeto).select('full_name').eq('id', subjectId).maybeSingle(),
-        supabase.from('schools').select('id, name, category_id').eq('id', schoolId).maybeSingle(),
+        supabase.from('schools').select('id, name, category_id, sports_categories(name)').eq('id', schoolId).maybeSingle(),
     ]);
 
     const athleteName = (sujetoRes.data as any)?.full_name || 'El atleta';
     const schoolName = (escuelaRes.data as any)?.name || 'la escuela';
     const sportCategoryId = (escuelaRes.data as any)?.category_id as string | null;
+    const sportCategoryName = ((escuelaRes.data as any)?.sports_categories?.name as string | undefined)?.toLowerCase();
+    const isFootball = sportCategoryName === 'fútbol' || sportCategoryName === 'futbol';
 
     // ── Equipos del atleta vigentes en el periodo ────────────────────────────
     const columna = athleteColumn(subjectType);
@@ -245,9 +348,10 @@ export async function buildReportSnapshot(input: BuildSnapshotInput): Promise<Re
     }
 
     // ── Métricas ─────────────────────────────────────────────────────────────
-    const [series, attendance] = await Promise.all([
+    const [series, attendance, football] = await Promise.all([
         loadMetricSeries(schoolId, subjectType, subjectId, periodEnd, periodStart),
         loadAttendance(schoolId, subjectType, subjectId, periodStart, periodEnd),
+        isFootball ? loadFootballSummary(schoolId, subjectType, subjectId, periodStart, periodEnd) : Promise.resolve(null),
     ]);
 
     // getMetricCatalog devuelve un array; se indexa por metric_key para no
@@ -313,5 +417,6 @@ export async function buildReportSnapshot(input: BuildSnapshotInput): Promise<Re
         highlights,
         to_work_on: toWorkOn,
         metrics,
+        football,
     };
 }
