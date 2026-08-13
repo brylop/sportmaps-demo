@@ -28,6 +28,73 @@ roster anterior al 30-jul, y las invitaciones del período.
 
 ---
 
+## 0.1 Revalidación del 2026-08-12 — qué cambió en 4 días
+
+La primera lectura se hizo sobre datos del **8-ago**. Esta revalidación corrió contra la base viva el
+**12-ago**, directo por MCP. **El problema no está contenido: sigue produciendo.**
+
+| Medida | 8-ago | 12-ago | |
+|---|---|---|---|
+| Altas en el rango | 77 | **93** | +16 en 4 días |
+| Altas ya inactivas | 0 | **3** | la escuela empezó a desactivar duplicados |
+| Personas duplicadas | 8 (17 registros) | **13** (27 registros) | **5 grupos nuevos, creados entre el 10 y el 12-ago** |
+| Períodos cobrados dos veces | sin medir | **0** | ✅ ningún grupo cobró doble |
+| Grupos con 2+ inscripciones activas | sin medir | **10 de 12** | es lo que factura septiembre |
+| Cobros de menor sin pagador (toda la escuela) | 5 en las altas nuevas | **142 / $21.440.000** | **58% de la cartera viva** ($37M / 243 cobros); el último emitido **hoy 17:12** |
+| Cobros de no registrado sin ruta | 3 / $410.000 | **3 / $410.000** | sin cambio |
+| Inscripciones `pending` vivas | ~11 | **16** | 12 atletas con `pending` **y** `active` a la vez |
+| Equipo «NO USAR» | recibiendo | **3 activas, sin movimiento desde el 5-ago** | se frenó solo; sigue sin desactivar |
+
+### La buena: cero doble cobro
+
+Los 12 grupos detectados **no tienen ningún período cobrado en dos identidades**. En cada grupo la
+plata está de un solo lado. Verificado con el bloque 7.a y confirmado caso por caso en 7.b.
+
+**La fusión es preventiva, no un incendio.** Eso baja la urgencia de `DIN-11`… pero solo hasta la
+próxima apertura de mes: **10 de 12 grupos tienen dos inscripciones activas**, y septiembre las va a
+facturar a las dos.
+
+### La mala: B-2 era falso, y hay una vía sin guard
+
+El viernes dije que el fix de `pending` funcionaba porque no había pares nuevos después del 5-ago.
+**Apareció uno el 10-ago:**
+
+> **Valeria Prieto Alfonso** — `pending` (PLAN PRO, $150.000, sin equipo) a las **17:06:01**, y
+> `active` (MINIVOLLEY BENJAMINES, **el mismo PLAN PRO, la misma cuota**) a las **17:08:45**.
+
+Eso no lo explica un despliegue atrasado: el fix entró a `main` el **6-ago**
+([`732208a`](https://github.com), release 2026-08-06), cuatro días antes. Y las condiciones son
+exactamente las que el merge de [`enrollments.ts`](../bff/src/routes/enrollments.ts) cubre — misma
+fila abierta, mismo plan, a la `pending` solo le faltaba el equipo. Debió fusionar y no fusionó.
+
+**Conclusión: el alta no pasó por `POST /enrollments`.** Hay otra vía que crea inscripciones sin el
+guard. Es la vía B del plan de `DIN-1` ([`students.ts:829`](../bff/src/routes/students.ts#L829)) o
+una tercera todavía no identificada. **Identificarla es ahora el primer paso de la Ola 1**, porque
+mientras esté abierta, cerrar `POST /enrollments` no alcanza.
+
+### El detector todavía tiene un punto ciego
+
+Los 12 grupos salen de comparar **nombre normalizado exacto**. Por eso **Jerónimo Balaguera no
+aparece**: sus dos registros se llaman «Jerónimo Balaguera Barrera» y «JERONIMO BALAGUERA» — un
+apellido de diferencia. Por eso son 13 personas y no 12. Cualquier barrido por igualdad exacta va a
+seguir perdiendo este caso; hace falta la comparación difusa que ya tiene
+[`audit-duplicate-athletes.mjs`](../scripts/audit-duplicate-athletes.mjs).
+
+### Los 5 duplicados nuevos
+
+| Persona | Ficha vieja | Registro nuevo | Señal |
+|---|---|---|---|
+| Alexander Castillo | 6-jul, doc `1030573939`, **nac 1990** | 12-ago 17:14, sin doc ni nacimiento | adulto guardado como menor |
+| Darwin Hernández | 6-jul, doc `80441327`, **nac 1972** | 10-ago 19:52, sin doc ni nacimiento | ídem |
+| Esteban Daniel Herrera Rodríguez | 6-jul, **menor** | 11-ago 19:30, **adulto** | `adult ← child`: la adulta sobrevive siempre |
+| Jefferson Steven Rojas Preciado | 6-jul, doc `1030595288` | 11-ago 20:52, doc `1030595277` | dos dígitos finales cambiados |
+| Laura Sofía Castillo Cabra | 6-jul, doc `1013144764` | 12-ago 17:13, sin doc ni nacimiento | |
+
+Los tres del 10–12 de agosto sin documento **ni** fecha de nacimiento son la misma forma: alguien
+cargando a mano sobre un padrón que ya tenía a esa persona.
+
+---
+
 ## 1. Qué está bien — verificado con datos, no supuesto
 
 Esto importa tanto como lo que falla: son fixes recientes que **se comprobó que funcionan en
@@ -36,7 +103,7 @@ producción**, y no hay que volver a tocarlos.
 | # | Qué funciona | Evidencia |
 |---|---|---|
 | **B-1** | **La fusión de inscripciones partidas.** El alta genera hasta 3 filas (`pending` sin destino → `cancelled` intermedia → `active` con equipo y plan) y **siempre termina en una sola activa**. Kristen Salomé, Victoria Ávila, Edward Becerra, Maria Gabriela Medina, Linda Saray: el patrón se repite y cierra bien | Bloque 4, decenas de casos |
-| **B-2** | **El fix «`pending` también cuenta como inscripción abierta»** ([`d1be3a9`](../bff/src/routes/enrollments.ts), 5-ago) **funciona**. Los pares `pending` + `active` sobre el mismo atleta se cortan el 5-ago ~07:15. Después de esa hora, **ninguno nuevo** en 4 días de altas | Bloque 4, corte temporal limpio |
+| **B-2** | ~~El fix «`pending` también cuenta como inscripción abierta» ([`d1be3a9`](../bff/src/routes/enrollments.ts), 5-ago) funciona~~ ❌ **FALSIFICADO el 12-ago.** Ver §0.1 — apareció un par nuevo el 10-ago, con el fix ya en `main` desde el 6-ago | — |
 | **B-3** | **La adopción de ficha precargada SÍ funciona por la vía de invitación.** «DAIMARIS VASQUEZ PEREZ» (no registrada) quedó `cancelled` a las 19:03 y «Dai Vázquez» (adulta) `active` a las 19:07. `accept_invitation_pro` fusionó sola | Bloque 4, 4-ago 19:03/19:07 |
 | **B-4** | **No se repitió el escenario de «entraron y nadie les cobró».** 71 de 77 altas tienen cobro vivo. Los 6 sin cobro son 3 duplicados + 3 casos con destino incompleto | Bloque 2 |
 | **B-5** | **Cero bajas.** Ninguna de las 77 altas quedó inactiva: no hay gente entrando y saliendo por error | Bloque 1, `ya_inactivos = 0` |
@@ -49,6 +116,9 @@ producción**, y no hay que volver a tocarlos.
 Ordenados por plata y por urgencia, no por cuándo aparecieron.
 
 ### A-1 · Identidades duplicadas: 8 personas en 17 registros 🔴
+
+> **Revalidado el 12-ago: son 13 personas en 27 registros.** La tabla de abajo es la foto del 8-ago;
+> los 5 grupos nuevos están en §0.1. Ninguno cobró doble — todavía.
 
 La causa raíz ya está documentada: **el auto-registro no adopta la ficha que la escuela precargó**.
 
@@ -100,6 +170,13 @@ guard anti-IDOR responde 403 al propio acudiente.
 |---|---|---|
 | 5 menores con acudiente sin cuenta (Gabriela Simbaqueva, Avril Sofía, Victoria Osorio, Isabella Prieto, Salomé Pamplona) | $690.000 | **Sí** — el trigger de [`20260804204905`](../supabase/migrations/20260804204905_backfill_pagador_al_vincular_acudiente.sql) hereda el pagador al vincular |
 | 3 no registrados (Edgar Zerda, Yenny Porras, Valentina Castellanos) | $410.000 | **No.** No hay acudiente al que vincular. Sin ruta |
+
+> **Revalidación 12-ago — el número real es mucho mayor.** Los 5 de arriba son solo los de las altas
+> nuevas. A escala de toda la escuela hay **142 cobros vivos de menor sin pagador por $21.440.000**,
+> y el último se emitió **hoy a las 17:12**: se siguen produciendo. No es un bug —es la cartera de
+> las familias que nunca aceptaron la invitación— pero es **el 58% de toda la cartera viva de la
+> escuela** ($21.440.000 de $37.000.000 en 243 cobros) esperando a que alguien haga clic en un correo
+> que en muchos casos nunca salió (el `429` de Resend del 6-jul).
 
 ### A-4 · La vigencia se sigue regalando 🟠
 
@@ -196,13 +273,24 @@ llave abierta es trapear.
 
 Nada acá toca el roadmap ni requiere aprobar un plan.
 
-1. **Correr el cruce de cobros de los 8 grupos duplicados** (bloque 7 del script): ¿cuántos ya
-   cobraron dos veces? Sin ese dato no se decide nada.
-2. **Desactivar el equipo «MINIVOLLEY -BENJAMINES (DUPLICADO - NO USAR)»** y mover a sus 4 atletas
-   al equipo bueno. Es una acción de catálogo del panel, reversible.
-3. **Revisar los ~11 cobros de las `pending` colgadas** (A-2) y decidir uno por uno: ¿vale el monto
+1. ~~**Correr el cruce de cobros de los grupos duplicados**~~ ✅ **hecho el 12-ago: cero doble
+   cobro.** Ver §0.1. Esto es lo que permite que el resto se haga con calma y no de urgencia.
+2. 🔴 **Identificar la vía que crea inscripciones sin pasar por el guard** (§0.1, caso Valeria
+   Prieto). Es lectura de código, no migración, y **bloquea todo lo demás**: mientras esté abierta,
+   cada limpieza se vuelve a ensuciar. Sospechosos por orden: el editor de atletas
+   (`students.ts`), el modal de alta, las RPCs del QR.
+3. **Resolver las 13 identidades duplicadas antes de la apertura de septiembre.** 10 de 12 grupos
+   tienen dos inscripciones activas; si se abre el mes así, ahí sí nace el doble cobro. Criterio que
+   sale de los datos: **sobrevive la que tiene cuenta y ya pagó** — en 4 de 5 casos la duplicada es
+   la que no tiene cuenta y su correo es el typo (`iforero52@` vs `lforero52@`, `ggilnavarro@` vs
+   `gglnavarro@`, `marcianapv@` vs `marcianap@`). Excepciones que necesitan ojo humano: **Josue
+   Cortes** (dos acudientes distintos y la vieja tiene 3 asistencias) y **Esteban Daniel Herrera**
+   (`adult ← child`: la adulta sobrevive siempre, es regla dura del plan de fusión).
+4. **Desactivar el equipo «MINIVOLLEY -BENJAMINES (DUPLICADO - NO USAR)»** y mover a sus 3 atletas
+   al equipo bueno. Dejó de recibir altas el 5-ago solo, pero sigue vivo en el catálogo.
+5. **Revisar los cobros de las 16 `pending` vivas** (A-2) y decidir uno por uno: ¿vale el monto
    emitido o el del plan vigente?
-4. **Corregir a mano las 2 fechas de nacimiento imposibles** y el `start_date` retroactivo de Avril.
+6. **Corregir a mano las 2 fechas de nacimiento imposibles** y el `start_date` retroactivo de Avril.
 
 > Las eliminaciones y fusiones de datos las ejecuta el dueño del producto, no yo. Acá se entrega el
 > listado con IDs y la recomendación por caso.
@@ -210,11 +298,19 @@ Nada acá toca el roadmap ni requiere aprobar un plan.
 ### Ola 1 — `DIN-1`, ampliado *(el bloqueante que ya estaba primero)*
 
 Sin cambios de prioridad: `DIN-9` (una sesión, el footgun de MercadoPago) sigue antes, y `DIN-1`
-sigue siendo P0. Lo único que cambia es que **el plan de `DIN-1` incorpora dos casos nuevos** que se
-midieron después de escribirse:
+sigue siendo P0. Lo único que cambia es que **el plan de `DIN-1` incorpora tres casos nuevos** que
+se midieron después de escribirse:
 
+- **La vía sin guard del 10-ago** (§0.1). El plan nombra dos productores —`POST /enrollments` y
+  `students.ts:829`—; el caso Valeria Prieto no encaja en el primero y hay que confirmar si es el
+  segundo o un tercero. **Es el hallazgo que más cambia el plan**, porque su §11 ordena cerrar los
+  productores antes de limpiar: si falta uno de la lista, el orden no protege.
 - La `pending` de QR que ya facturó con un plan que después cambió (A-2).
 - El cobro vivo sin inscripción (A-8) dentro del barrido de huérfanas.
+
+Y un dato que **baja** el alcance: la revalidación midió **cero doble cobro**, así que la parte de
+`DIN-1` que anula cobros duplicados no tiene material en Dynasty. Es merge de inscripciones, no
+plata.
 
 ### Ola 2 — que no se reproduzca *(`DIN-12`, después `DIN-11`)*
 
