@@ -15,7 +15,7 @@ import { useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
-import { applyIosMetaTags, setPwaTenant, setTenantCache } from '@/pwa/tenant';
+import { applyIosMetaTags, applyTenantManifest, clearPwaTenant, setPwaTenant, setTenantCache } from '@/pwa/tenant';
 
 export function usePwaTenantSync(): void {
     const { schoolId } = useSchoolContext();
@@ -29,7 +29,15 @@ export function usePwaTenantSync(): void {
     const muestraSuMarca = entitlements.marcaPropia;
 
     useEffect(() => {
-        if (!schoolId || !muestraSuMarca) return;
+        // El usuario NO pertenece a una escuela con marca propia: se borra lo
+        // que hubiera guardado otro usuario en este mismo navegador. Sin esto
+        // la marca sobrevive al cambio de cuenta — paso de verdad: alguien
+        // ajeno a la escuela agrego a inicio y se llevo su icono.
+        if (!schoolId || !muestraSuMarca) {
+            clearPwaTenant();
+            return;
+        }
+
         let cancelado = false;
 
         (async () => {
@@ -53,11 +61,14 @@ export function usePwaTenantSync(): void {
                     branding_settings: ((data as any).branding_settings ?? {}) as any,
                 });
 
-                // iOS toma el nombre y el icono de estas etiquetas al "Añadir a
-                // inicio". El script del index.html corrio antes de saber a que
-                // escuela pertenece el usuario, asi que sin esto quien agrega a
-                // inicio despues de loguearse se lleva la marca de SportMaps.
+                // El script del index.html corrio antes de saber quien es el
+                // usuario, y en una pestaña normal NO aplica la marca guardada
+                // (para no filtrarla a visitantes ajenos). Recien aca se sabe
+                // que este usuario SI pertenece a una escuela con marca propia,
+                // asi que se corrigen manifest e iOS para que la instalacion
+                // salga con su marca.
                 applyIosMetaTags(data.name, data.slug);
+                applyTenantManifest(data.slug);
             } catch {
                 // Sin marca propia la app funciona igual: el manifest cae al de
                 // SportMaps. No vale la pena molestar al usuario con un error.

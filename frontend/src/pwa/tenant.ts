@@ -135,12 +135,56 @@ export function setPwaTenant(slug: string | null | undefined, name?: string | nu
     }
 }
 
+/**
+ * Borra todo rastro de la marca de una escuela en este navegador.
+ *
+ * Se llama al cerrar sesion y cuando el usuario logueado NO pertenece a la
+ * escuela guardada. Es imprescindible: localStorage es del NAVEGADOR, no del
+ * usuario, asi que sin esto la marca de una escuela sobrevive al cambio de
+ * cuenta y se la lleva puesta el siguiente que entre en ese telefono.
+ */
 export function clearPwaTenant(): void {
     try {
         localStorage.removeItem(TENANT_KEY);
         localStorage.removeItem(TENANT_NAME_KEY);
+        localStorage.removeItem(TENANT_DATA_KEY);
     } catch {
         // no-op
+    }
+    resetIosMetaTags();
+}
+
+/** Devuelve las etiquetas de iOS y el manifest a la marca SportMaps. */
+export function resetIosMetaTags(): void {
+    try {
+        const meta = document.getElementById('sm-ios-title');
+        if (meta) meta.setAttribute('content', 'SportMaps');
+
+        const icono = document.querySelector('link[rel="apple-touch-icon"]');
+        if (icono) icono.setAttribute('href', '/icons/icon-192.png');
+
+        const manifest = document.getElementById('sm-manifest');
+        if (manifest) manifest.setAttribute('href', '/app.webmanifest');
+    } catch {
+        // DOM no disponible.
+    }
+}
+
+/**
+ * Apunta el <link rel="manifest"> a la escuela.
+ *
+ * Hace falta ademas del script inline porque ese corre antes de saber quien es
+ * el usuario: en una pestaña normal no aplica la marca guardada (ver
+ * index.html), asi que si el que entra resulta ser miembro de la escuela hay
+ * que corregir el manifest aca para que la instalacion salga con su marca.
+ */
+export function applyTenantManifest(slug: string | null): void {
+    try {
+        if (!slug || !SLUG_RE.test(slug)) return;
+        const manifest = document.getElementById('sm-manifest');
+        if (manifest) manifest.setAttribute('href', `/app.webmanifest?s=${encodeURIComponent(slug)}`);
+    } catch {
+        // DOM no disponible.
     }
 }
 
