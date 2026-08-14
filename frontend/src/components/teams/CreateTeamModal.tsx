@@ -34,6 +34,7 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ImageUpload } from '@/components/common/ImageUpload';
 
 interface CreateTeamModalProps {
     open: boolean;
@@ -67,6 +68,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
         coach_ids: [] as string[], // Multiple coaches
         branch_ids: [] as string[], // Multiple branches
         status: 'active',
+        image_url: null as string | null,
     });
 
     const [staff, setStaff] = useState<any[]>([]);
@@ -119,6 +121,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 coach_ids: [] as string[],
                 branch_ids: [] as string[],
                 status: team.status || 'active',
+                image_url: team.image_url || null,
             });
 
             // If editing, fetch the coaches and branches associations
@@ -140,6 +143,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 coach_ids: [],
                 branch_ids: [],
                 status: 'active',
+                image_url: null,
             });
         }
     }, [open, team]);
@@ -296,6 +300,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 branch_id: formData.branch_ids.length > 0 ? formData.branch_ids[0] : (branchId || null), // Update branch_id for backward compatibility
                 school_id: schoolId,
                 status: formData.status,
+                image_url: formData.image_url || null,
             };
 
             if (team?.id) {
@@ -391,15 +396,29 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 </DialogHeader>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="name">Nombre del Equipo *</Label>
-                        <Input
-                            id="name"
-                            placeholder="Ej: Selección de Fútbol Sub-15"
-                            value={formData.name}
-                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                            required
-                        />
+                    <div className="flex flex-col sm:flex-row gap-4 items-start">
+                        <div className="flex flex-col items-center gap-1.5 shrink-0">
+                            <Label className="text-xs font-semibold">Logo del Equipo</Label>
+                            <ImageUpload
+                                value={formData.image_url}
+                                onChange={(url) => setFormData({ ...formData, image_url: url })}
+                                onRemove={() => setFormData({ ...formData, image_url: null })}
+                                bucket="school-assets"
+                                path={`logos/${schoolId}`}
+                                compact={true}
+                                className="w-16 h-16"
+                            />
+                        </div>
+                        <div className="flex-1 space-y-2 w-full">
+                            <Label htmlFor="name">Nombre del Equipo *</Label>
+                            <Input
+                                id="name"
+                                placeholder="Ej: Selección de Fútbol Sub-15"
+                                value={formData.name}
+                                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                required
+                            />
+                        </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">

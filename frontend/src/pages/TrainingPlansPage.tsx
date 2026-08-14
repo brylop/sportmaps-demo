@@ -60,7 +60,7 @@ export default function TrainingPlansPage() {
 
       const { data: teamsData, error } = await (supabase
         .from('teams')
-        .select('id, name, coach_id, age_group, sport, branch_id, team_coaches(coach_id)')
+        .select('id, name, coach_id, age_group, sport, branch_id, image_url, team_coaches(coach_id)')
         .eq('school_id', schoolId) as any);
 
       if (error) throw error;
@@ -402,14 +402,26 @@ export default function TrainingPlansPage() {
             <Card className="border-border/40 bg-background/50 backdrop-blur-sm shadow-sm overflow-hidden flex flex-col">
               <CardHeader className="pb-3 border-b border-border/40 bg-muted/20">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <CardTitle className="text-base font-bold flex items-center gap-2">
-                      <Users className="w-4 h-4 text-primary" />
-                      Roster ({roster.length})
-                    </CardTitle>
-                    <CardDescription className="truncate max-w-[200px]">
-                      {selectedName}
-                    </CardDescription>
+                  <div className="flex items-center gap-3">
+                    {filterType === 'teams' && (() => {
+                      const selectedTeam = teams?.find((t: any) => t.id === selectedTeamId);
+                      return selectedTeam?.image_url ? (
+                        <img 
+                          src={selectedTeam.image_url} 
+                          alt={selectedTeam.name} 
+                          className="w-10 h-10 rounded-full object-cover border border-border/50 bg-background shadow-sm shrink-0" 
+                        />
+                      ) : null;
+                    })()}
+                    <div>
+                      <CardTitle className="text-base font-bold flex items-center gap-2">
+                        <Users className="w-4 h-4 text-primary" />
+                        Roster ({roster.length})
+                      </CardTitle>
+                      <CardDescription className="truncate max-w-[200px]">
+                        {selectedName}
+                      </CardDescription>
+                    </div>
                   </div>
                   <Button
                     size="sm"
@@ -512,6 +524,7 @@ export default function TrainingPlansPage() {
           teamId={filterType === 'teams' ? selectedTeamId : undefined}
           offeringPlanId={filterType === 'plans' ? selectedPlanId : undefined}
           teamName={selectedName}
+          teamImageUrl={filterType === 'teams' ? teams?.find((t: any) => t.id === selectedTeamId)?.image_url : undefined}
         />
       )}
 
