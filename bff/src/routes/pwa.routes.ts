@@ -129,16 +129,29 @@ async function buildManifest(slug: string): Promise<Record<string, unknown>> {
     // Mejor SportMaps que un banner que nunca aparece.
     if (!icon192 || !icon512) return DEFAULT_MANIFEST;
 
+    const color = safeHex(settings.primary_color, DEFAULT_MANIFEST.theme_color);
+
     const value = {
         ...DEFAULT_MANIFEST,
-        // `id` y `start_url` con el tenant: es lo que separa esta app instalada
-        // de la de SportMaps y de la de otra escuela en el mismo dispositivo.
+        // `id` separa esta app instalada de la de SportMaps y de la de otra
+        // escuela en el mismo dispositivo. Se mantiene en `/?t=` aunque el
+        // start_url apunte al login: cambiarlo convertiria a las apps YA
+        // instaladas en otra app distinta y quedarian huerfanas.
         id: `/?t=${school.slug}`,
-        start_url: `/?t=${school.slug}`,
+        // Aterriza en el login, no en la landing. Quien instalo la app de SU
+        // escuela no tiene por que caer en el home comercial de SportMaps con
+        // "Escuelas Deportivas" y "Tienda".
+        start_url: `/login?t=${school.slug}`,
         name: school.name,
         short_name: toShortName(school.name),
         description: `App de ${school.name}. Inscripciones, pagos y seguimiento deportivo.`,
-        theme_color: safeHex(settings.primary_color, DEFAULT_MANIFEST.theme_color),
+        theme_color: color,
+        // El splash de Android es background_color + el icono 512 centrado.
+        // Con el blanco por defecto se veia el cuadrado de color del icono
+        // flotando sobre blanco, y la foto todavia mas adentro por el padding
+        // maskable: tres capas. Usando el color de la escuela queda un fondo
+        // continuo con el logo encima.
+        background_color: color,
         icons: [
             { src: icon192, sizes: '192x192', type: 'image/png', purpose: 'any' },
             { src: icon512, sizes: '512x512', type: 'image/png', purpose: 'any' },

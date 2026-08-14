@@ -15,6 +15,14 @@
        filesystem ganan sobre los rewrites. -->
   <link rel="manifest" id="sm-manifest" href="/app.webmanifest" />
 
+  <!-- iOS ignora el manifest por completo: el nombre bajo el icono lo saca de
+       apple-mobile-web-app-title (o del <title> si no existe) y el icono del
+       apple-touch-icon. Sin estas dos etiquetas, en iPhone la app se instala
+       llamandose "SportMaps - Revolucionando..." aunque sea la de la escuela. -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" id="sm-ios-title" content="SportMaps" />
+
   <script>
     // Resolver la escuela ANTES de que el navegador evalue la instalabilidad.
     // Corre inline en el <head> a proposito: si esto se hiciera desde React,
@@ -23,6 +31,7 @@
     (function () {
       try {
         var TENANT_KEY = 'sm_pwa_tenant';
+        var TENANT_NAME_KEY = 'sm_pwa_tenant_name';
         var SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 
         // Orden de resolucion:
@@ -63,6 +72,17 @@
           var icono = document.querySelector('link[rel="apple-touch-icon"]');
           if (icono) {
             icono.setAttribute('href', '/app-icon.png?s=' + encodeURIComponent(slug));
+          }
+
+          // Nombre en iOS. Se guarda junto al slug cuando la app ya supo a que
+          // escuela pertenece el usuario (usePwaTenantSync). Si todavia no se
+          // conoce, iOS caera al <title> generico — no se inventa nada.
+          var nombre = null;
+          try { nombre = window.localStorage.getItem(TENANT_NAME_KEY); } catch (e) {}
+          if (nombre) {
+            var metaTitulo = document.getElementById('sm-ios-title');
+            if (metaTitulo) { metaTitulo.setAttribute('content', nombre); }
+            document.title = nombre;
           }
         }
       } catch (e) {
