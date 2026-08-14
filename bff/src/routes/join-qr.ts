@@ -3,6 +3,7 @@ import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
+import { conMarca, sufijoMarcaEscuela } from '../utils/tenantLink';
 import { requireAuth, requireRole } from '../middlewares/authMiddleware';
 
 const router = Router();
@@ -50,7 +51,13 @@ router.get(
             const origin = (process.env.FRONTEND_URL || req.headers.origin || 'https://sportmaps.com')
                 .toString()
                 .replace(/\/$/, '');
-            const publicUrl = `${origin}/join/${qr.slug}`;
+            // El QR es el link que la escuela imprime y reparte, asi que es el
+            // mejor lugar para que la familia llegue ya con la marca puesta: si
+            // instala la app desde ahi, queda instalada con el logo y el nombre
+            // de la escuela. Si la escuela NO tiene la marca comprada, sufijo es
+            // '' y el QR sale exactamente igual que siempre.
+            const marca = await sufijoMarcaEscuela(qr.school_id);
+            const publicUrl = conMarca(`${origin}/join/${qr.slug}`, marca);
             // QR hi-res + nivel H (robusto, soporta impresión grande sin pixelar)
             const qrPng = await QRCode.toBuffer(publicUrl, { width: 1000, margin: 1, errorCorrectionLevel: 'H' });
 
