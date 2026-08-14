@@ -8,6 +8,7 @@ import { reprocessOrphanWebhooks } from '../services/webhook-reprocess.service';
 import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders } from '../services/invoicing.service';
 import { runGlosaNotifications } from './glosa-notifications.job';
 import { runNotificationDispatch } from './notifications-dispatch.job';
+import { runAthleteReportsCycle } from './athlete-reports.job';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -294,6 +295,22 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Notificaciones de glosa registradas para las 08:05 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Ciclo diario del Informe Mensual (F5): genera borradores, publica lo que
+    // vence hoy y envía lo publicado sin marcar sent_at. Kill-switch por env
+    // mientras se prueba en una escuela piloto.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('10 6 * * *', async () => {
+        if (process.env.DISABLE_ATHLETE_REPORTS_CRON === 'true') return;
+        try {
+            await runAthleteReportsCycle();
+        } catch (err: any) {
+            console.error('[CRON] Error en ciclo de informes:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Ciclo de informes registrado para las 06:10 COT.');
 
     // ────────────────────────────────────────────────────────────────────────
     // Despachador unificado (F1) — red de seguridad. Drena el outbox
