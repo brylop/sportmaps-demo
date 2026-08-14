@@ -10,6 +10,7 @@ import { Outlet } from "react-router-dom";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { BrandingScope } from "@/components/BrandingScope";
 import { useDeviceContext } from "@/hooks/useDeviceContext";
+import { usePwaTenantSync } from "@/hooks/usePwaTenantSync";
 import { PushPermissionBanner } from "@/components/PushPermissionBanner";
 import { TrialStatusBanner } from "@/components/entitlements/TrialStatusBanner";
 
@@ -20,6 +21,9 @@ export default function AuthLayout() {
   // Registrar device del usuario al loguearse (Fase 6.1).
   // Hoy solo web/PWA; cuando se instale Capacitor (Fase 7) detecta nativo.
   useDeviceContext();
+  // Deja el slug de la escuela en localStorage para que la PROXIMA carga pida
+  // el manifest con la marca correcta y la app se instale con su logo.
+  usePwaTenantSync();
 
   // Logo escuela en header: usar el del context (ya lo hace fetch
   // useSchoolContext.fetchSchoolBranding). Sirve para feature gate por tier.

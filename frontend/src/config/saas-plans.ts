@@ -41,7 +41,8 @@ export type AddonKey =
   | 'access_control'
   | 'biomech'
   | 'nutrition'
-  | 'whitelabel'
+  | 'whitelabel'    // app NATIVA de marca blanca (producto mayor)
+  | 'pwa_branding'  // al instalar la PWA sale el logo + nombre de la escuela
   | 'whatsapp'
   | 'wompi'
   | 'mp'
@@ -94,6 +95,7 @@ export type FeatureKey =
   | 'branding_basic'
   | 'branding_full'
   | 'custom_subdomain'
+  | 'pwa_branded_install'
   // Soporte
   | 'support_docs'
   | 'support_email'
@@ -662,6 +664,15 @@ export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
     kind: 'tier',
     minTier: 'crecimiento',
     label: 'Branding completo (paleta + tipografía)',
+  },
+  // Addon, NO tier: se vende suelto y actúa como allowlist del rollout.
+  // `whitelabel` (app nativa de marca blanca) ya lo incluye — esa equivalencia
+  // se resuelve en la vista v_school_entitlements, no acá.
+  pwa_branded_install: {
+    key: 'pwa_branded_install',
+    kind: 'addon',
+    addonKey: 'pwa_branding',
+    label: 'App instalable con logo y nombre de la escuela',
   },
   custom_subdomain: {
     key: 'custom_subdomain',

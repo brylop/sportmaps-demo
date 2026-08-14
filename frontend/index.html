@@ -7,6 +7,71 @@
   <link rel="icon" type="image/png" href="/icons/icon-192.png" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
+  <!-- Manifest de la PWA. El href se completa abajo con el slug de la escuela
+       para que, al instalar, aparezca su logo y su nombre en vez de SportMaps.
+       Sin slug queda /app.webmanifest pelado y el BFF devuelve la marca
+       SportMaps. Es /app.webmanifest y no /manifest.webmanifest porque en
+       public/ hay un manifest.webmanifest estatico y en Vercel los archivos del
+       filesystem ganan sobre los rewrites. -->
+  <link rel="manifest" id="sm-manifest" href="/app.webmanifest" />
+
+  <script>
+    // Resolver la escuela ANTES de que el navegador evalue la instalabilidad.
+    // Corre inline en el <head> a proposito: si esto se hiciera desde React,
+    // Chrome ya habria leido el manifest generico y el banner de instalar
+    // saldria con la marca equivocada.
+    (function () {
+      try {
+        var TENANT_KEY = 'sm_pwa_tenant';
+        var SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
+
+        // Orden de resolucion:
+        //   1. ?t= de la URL — es el start_url que quedo grabado en la app
+        //      instalada, asi que al abrirla desde el icono siempre gana.
+        //   2. localStorage — lo deja la app cuando ya se sabe a que escuela
+        //      pertenece el usuario, para que la 2a visita en el navegador ya
+        //      ofrezca instalar con la marca correcta.
+        //   3. subdominio <escuela>.sportmaps.co, por si algun dia se usa.
+        var params = new URLSearchParams(window.location.search);
+        var slug = params.get('t');
+
+        if (!slug) {
+          try { slug = window.localStorage.getItem(TENANT_KEY); } catch (e) { slug = null; }
+        }
+
+        if (!slug) {
+          var host = window.location.hostname.split(':')[0].toLowerCase();
+          var partes = host.split('.');
+          var reservados = ['www', 'app', 'api', 'dev', 'staging', 'preview', 'blog', 'docs', 'admin'];
+          if (partes.length === 3 && host.indexOf('.sportmaps.co') !== -1 && reservados.indexOf(partes[0]) === -1) {
+            slug = partes[0];
+          }
+        }
+
+        if (slug) { slug = String(slug).toLowerCase().trim(); }
+
+        if (slug && SLUG_RE.test(slug)) {
+          // Persistir para las proximas visitas desde el navegador.
+          try { window.localStorage.setItem(TENANT_KEY, slug); } catch (e) {}
+
+          var link = document.getElementById('sm-manifest');
+          if (link) { link.setAttribute('href', '/app.webmanifest?s=' + encodeURIComponent(slug)); }
+
+          // iOS ignora por completo el manifest: el icono de "Añadir a inicio"
+          // lo saca del apple-touch-icon y el nombre del <title>. Sin esto, en
+          // iPhone la app se instalaria igual pero con la marca de SportMaps.
+          var icono = document.querySelector('link[rel="apple-touch-icon"]');
+          if (icono) {
+            icono.setAttribute('href', '/app-icon.png?s=' + encodeURIComponent(slug));
+          }
+        }
+      } catch (e) {
+        // Ante cualquier error se deja el manifest generico: peor que no tener
+        // la marca es que la app deje de ser instalable.
+      }
+    })();
+  </script>
+
   <!-- Captura beforeinstallprompt lo antes posible: Chrome Android dispara este
        evento durante la carga, a veces ANTES de que React monte InstallBanner.
        Guardarlo en window evita perderlo por esa carrera. -->

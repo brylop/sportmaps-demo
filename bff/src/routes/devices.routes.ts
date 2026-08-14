@@ -38,6 +38,12 @@ const RegisterSchema = z.object({
     device_model:  z.string().max(128).optional(),
     locale:        z.string().max(16).optional(),
     timezone:      z.string().max(64).optional(),
+    // Tracking de instalacion. El frontend reporta el modo de visualizacion en
+    // CADA sesion, no el evento `appinstalled`: iOS nunca dispara ese evento y
+    // los dispositivos ya existentes tampoco lo harian. Asi se clasifican solos
+    // a medida que las familias vuelven a entrar.
+    display_mode:        z.enum(['browser', 'standalone', 'native']).optional(),
+    install_tenant_slug: z.string().max(64).nullable().optional(),
 });
 
 router.post(
@@ -76,6 +82,11 @@ router.post(
             if (body.device_model != null)  row.device_model  = body.device_model;
             if (body.locale != null)        row.locale        = body.locale;
             if (body.timezone != null)      row.timezone      = body.timezone;
+            // installed_at / last_standalone_at NO se mandan desde aca: los sella
+            // el trigger stamp_device_install, para que el upsert no pise la
+            // fecha de la primera instalacion en cada sesion.
+            if (body.display_mode != null)  row.display_mode  = body.display_mode;
+            if (body.install_tenant_slug !== undefined) row.install_tenant_slug = body.install_tenant_slug;
 
             const { data, error } = await supabase
                 .from('user_devices')

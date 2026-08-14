@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 338,
-  "head": "20260813180537",
+  "count": 343,
+  "head": "20260814112450",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -341,6 +341,11 @@
     {"v":"20260813133108","file":"20260813133108_cerrar_fuga_de_payment_links_a_anon.sql","sha256":"663bb87e3e3d1dc88eba61b48e174aab308d9a70f4991e20d0381ae56b415654","added":"2026-08-13","by":"brylop"},
     {"v":"20260813170813","file":"20260813170813_bloqueo_de_prueba_en_rls.sql","sha256":"d829c649fdbff72bd63db7f538cb3df2b71b384c82a48c9294628ce875eeea20","added":"2026-08-13","by":"brylop"},
     {"v":"20260813170814","file":"20260813170814_mapeo_school_type_a_modulos.sql","sha256":"94d4d63d9a02f1416405b909fd19d7971708bc304e3ea410ad923fd2f319bcb3","added":"2026-08-13","by":"brylop"},
-    {"v":"20260813180537","file":"20260813180537_payment_provider_deja_de_mentir.sql","sha256":"9cdc53249c5f770a6f1a655d4f8d05df5882e03092316f4443737c7a7a47ab46","added":"2026-08-13","by":"brylop"}
+    {"v":"20260813180537","file":"20260813180537_payment_provider_deja_de_mentir.sql","sha256":"9cdc53249c5f770a6f1a655d4f8d05df5882e03092316f4443737c7a7a47ab46","added":"2026-08-13","by":"brylop"},
+    {"v":"20260814104612","file":"20260814104612_addon_pwa_branding_en_entitlements.sql","sha256":"41125629d59fa7d035bb8a1914bfb90096861d64f97da57b7488629bb38a4844","added":"2026-08-14","by":"brylop"},
+    {"v":"20260814105131","file":"20260814105131_pwa_branding_sin_herencia_de_whitelabel.sql","sha256":"7138114c4d05b2cbe56fd2defc232dd0c777b0c72b68220768e1a591d7f17cd6","added":"2026-08-14","by":"brylop"},
+    {"v":"20260814111324","file":"20260814111324_rpc_set_school_pwa_icons.sql","sha256":"60299597bda45d04bba1eebfe14309359e3e7c5618e3b02d9e7827c53ddcd1fc","added":"2026-08-14","by":"brylop"},
+    {"v":"20260814111326","file":"20260814111326_user_devices_tracking_de_instalacion.sql","sha256":"6acf68d17bf10368f75f68ad2556a696bc3963eb9c47e5ec545ffe62423d81bc","added":"2026-08-14","by":"brylop"},
+    {"v":"20260814112450","file":"20260814112450_revocar_set_school_pwa_icons_de_authenticated.sql","sha256":"f167cbf5eec436a6836d4789bc1f8713f1dc608d96c4a280c897ac8eb1a688fa","added":"2026-08-14","by":"brylop"}
   ]
 }

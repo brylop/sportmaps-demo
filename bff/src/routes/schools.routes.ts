@@ -20,6 +20,8 @@ import { requireAuth, requireRole, auditLog } from '../middlewares/authMiddlewar
 import { requireCsrfHeader } from '../middlewares/csrfHeader';
 import { validateLogoUrl } from '../utils/logoValidator';
 import { invalidateBrandingCache } from '../utils/schoolBrandingResolver';
+import { generarIconosPwa } from '../services/pwaIcons.service';
+import { invalidatePwaManifestCache } from './pwa.routes';
 
 const router = Router();
 
@@ -204,9 +206,106 @@ router.put(
             // esperar al TTL de 60s).
             invalidateBrandingCache(schoolIdParam);
 
+            // ── Iconos del manifest PWA ──────────────────────────────────────
+            // Si cambio el logo, se regeneran los PNG 192/512 que usa el
+            // manifest para que la app instalada muestre la marca de la escuela.
+            //
+            // Deliberadamente NO bloquea la respuesta ni la hace fallar: guardar
+            // el branding es la operacion que el usuario pidio y ya esta hecha.
+            // Si sharp falla, el manifest sirve la marca SportMaps (fail-open) y
+            // queda el log para reintentar. Romper el guardado del logo por un
+            // derivado seria peor que no tener el icono.
+            if (logo_url) {
+                const bg = (data.branding_settings as any)?.primary_color ?? null;
+                void generarIconosPwa({
+                    schoolId: schoolIdParam,
+                    logoUrl: data.logo_url,
+                    backgroundColor: bg,
+                    actorId: req.user.id,
+                })
+                    .then((r) => {
+                        if (r.ok) {
+                            invalidatePwaManifestCache();
+                            req.log?.info({ schoolId: schoolIdParam }, 'iconos PWA regenerados');
+                        } else {
+                            req.log?.warn({ schoolId: schoolIdParam, error: r.error }, 'no se pudieron generar los iconos PWA');
+                        }
+                    })
+                    .catch((err) => {
+                        req.log?.error({ err, schoolId: schoolIdParam }, 'error inesperado generando iconos PWA');
+                    });
+            }
+
             return res.json(data);
         } catch (err: any) {
             req.log?.error({ err }, 'Error en PUT /schools/:id/branding');
+            return res.status(500).json({ error: 'server_error' });
+        }
+    },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/v1/schools/:id/pwa-icons/regenerate   (solo super_admin)
+//
+// Regenera los iconos PNG del manifest a partir del logo YA cargado.
+//
+// Por que existe: los iconos se generan como efecto del PUT de branding, o sea
+// solo cuando alguien vuelve a guardar la marca. Una escuela que ya tenia logo
+// desde antes —o a la que se le prende el addon hoy— no tiene iconos y el
+// manifest le devuelve la marca SportMaps hasta que su admin entre y reguarde el
+// logo. Eso es pedirle al cliente que haga un paso que no entiende. Con esto se
+// resuelve desde la consola de super admin.
+//
+// Tambien es la forma de probar la marca en una escuela de pruebas sin tener que
+// loguearse como ella.
+// ─────────────────────────────────────────────────────────────────────────────
+router.post(
+    '/:id/pwa-icons/regenerate',
+    requireAuth,
+    requireCsrfHeader,
+    brandingLimiter,
+    async (req: Request, res: Response) => {
+        if (req.role !== 'super_admin') {
+            return res.status(403).json({ error: 'forbidden', message: 'Solo super_admin.' });
+        }
+
+        const schoolId = req.params.id as string;
+
+        try {
+            const { data: school, error } = await supabase
+                .from('schools')
+                .select('id, logo_url, branding_settings')
+                .eq('id', schoolId)
+                .maybeSingle();
+
+            if (error)  return res.status(500).json({ error: 'server_error', detail: error.message });
+            if (!school) return res.status(404).json({ error: 'school_not_found' });
+            if (!school.logo_url) {
+                return res.status(400).json({
+                    error: 'sin_logo',
+                    message: 'La escuela todavía no cargó un logo. Sin logo no hay ícono que generar.',
+                });
+            }
+
+            const bg = (school.branding_settings as any)?.primary_color ?? null;
+            const r = await generarIconosPwa({
+                schoolId,
+                logoUrl: school.logo_url,
+                backgroundColor: bg,
+                actorId: req.user.id,
+            });
+
+            if (!r.ok) {
+                req.log?.warn({ schoolId, error: r.error }, 'regeneracion de iconos PWA fallida');
+                return res.status(422).json({ error: 'generacion_fallida', detail: r.error });
+            }
+
+            invalidatePwaManifestCache();
+            invalidateBrandingCache(schoolId);
+
+            return res.json({ ok: true, icon_192: r.icon192, icon_512: r.icon512 });
+        } catch (err: any) {
+            req.log?.error({ err, schoolId }, 'Error POST /schools/:id/pwa-icons/regenerate');
             return res.status(500).json({ error: 'server_error' });
         }
     },

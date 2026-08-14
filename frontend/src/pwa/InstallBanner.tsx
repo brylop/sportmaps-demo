@@ -1,9 +1,18 @@
 import { useState, useEffect } from 'react'
+import { getPwaTenantName, getPwaTenantSlug } from './tenant'
 
 export function InstallBanner() {
   // Estado inicial = evento capturado por el script inline del index.html
   // (Chrome Android puede dispararlo antes de que monte este componente).
   const [prompt, setPrompt] = useState<any>(() => (window as any).__installPrompt ?? null)
+
+  // Marca con la que se va a instalar. Es la MISMA que resolvio el script inline
+  // del index.html para el manifest, asi que lo que anuncia el banner coincide
+  // con el icono que va a quedar en la pantalla de inicio.
+  const slug = getPwaTenantSlug()
+  const nombreEscuela = getPwaTenantName()
+  const titulo = nombreEscuela ? `Instalar ${nombreEscuela}` : 'Instalar SportMaps'
+  const icono = slug ? `/app-icon.png?s=${encodeURIComponent(slug)}` : '/icons/icon-72.png'
 
   useEffect(() => {
     // Reconciliar por si el evento llegó entre el render inicial y este efecto.
@@ -28,9 +37,16 @@ export function InstallBanner() {
 
   return (
     <div className="fixed bottom-4 left-4 right-4 bg-white rounded-xl shadow-lg p-4 flex items-center gap-3 z-50 border border-sky-100 animate-in slide-in-from-bottom-5 duration-300">
-      <img src="/icons/icon-72.png" className="w-10 h-10 rounded-lg shadow-sm" alt="SportMaps Logo" />
+      <img
+        src={icono}
+        className="w-10 h-10 rounded-lg shadow-sm object-contain"
+        alt={nombreEscuela || 'SportMaps'}
+        // Si el icono de la escuela no resuelve, cae al de SportMaps en vez de
+        // dejar un hueco roto justo en el banner que invita a instalar.
+        onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/icons/icon-72.png' }}
+      />
       <div className="flex-1 min-w-0">
-        <p className="font-semibold text-sm truncate text-slate-900">Instalar SportMaps</p>
+        <p className="font-semibold text-sm truncate text-slate-900">{titulo}</p>
         <p className="text-xs text-slate-500 truncate">Acceso rápido desde tu pantalla de inicio</p>
       </div>
       <div className="flex gap-2">

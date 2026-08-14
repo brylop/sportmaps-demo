@@ -45,7 +45,15 @@ export function BrandingSettingsForm() {
     const [logoUrl, setLogoUrl] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
 
-    const hasWhitelabel = entitlements.addons.whitelabel;
+    // Gate por ADDON, no por tier. `pwa_branding` (PWA con marca de la escuela)
+    // se vende suelto; `whitelabel` (app nativa de marca blanca) lo incluye y la
+    // vista v_school_entitlements ya resuelve esa equivalencia.
+    //
+    // OJO: no cambiar esto por un chequeo de tier. El gate de la DB
+    // (school_has_branding_feature, que usa el RPC update_school_branding) SI
+    // mira el tier, asi que una escuela puede pasar uno y no el otro. El addon
+    // es el que refleja lo vendido y hace de allowlist del rollout.
+    const hasWhitelabel = entitlements.hasFeature('pwa_branded_install');
 
     // Re-init defaults cuando cambie schoolId o llegue el branding del context.
     useEffect(() => {
@@ -68,7 +76,7 @@ export function BrandingSettingsForm() {
                         Personalización de Marca
                     </CardTitle>
                     <CardDescription>
-                        La personalización de logo y colores es una característica de los planes Pro y superiores.
+                        La personalización de logo y colores es un complemento que se activa aparte.
                         Tu plan actual usa el branding de SportMaps por defecto.
                     </CardDescription>
                 </CardHeader>
