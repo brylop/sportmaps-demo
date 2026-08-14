@@ -81,8 +81,19 @@
         if (slug) { slug = String(slug).toLowerCase().trim(); }
 
         if (slug && SLUG_RE.test(slug)) {
-          // Persistir para las proximas visitas desde el navegador.
-          try { window.localStorage.setItem(TENANT_KEY, slug); } catch (e) {}
+          // NO se persiste el slug aca a proposito. Este script corre antes de
+          // saber quien es el usuario, asi que guardar lo que venga en la URL
+          // dejaba marcado el navegador de cualquier curioso que abriera el
+          // link: despues instalaba la app y, ya en modo standalone, el slug
+          // guardado se aplicaba y le pintaba una escuela que no es la suya.
+          //
+          // Solo lo guarda usePwaTenantSync, que corre con sesion iniciada y
+          // recien despues de confirmar que el usuario pertenece a una escuela
+          // con la marca comprada.
+          //
+          // No hace falta para instalar: el manifest se pide con ?s= tomado de
+          // la URL, y el start_url que queda grabado en la app instalada ya
+          // lleva el ?t=.
 
           var link = document.getElementById('sm-manifest');
           if (link) { link.setAttribute('href', '/app.webmanifest?s=' + encodeURIComponent(slug)); }

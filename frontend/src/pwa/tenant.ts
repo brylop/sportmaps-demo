@@ -99,14 +99,62 @@ export function isIos(): boolean {
     }
 }
 
-export function getPwaTenantSlug(): string | null {
+/**
+ * UNICA fuente de verdad para "¿de que escuela es esta pantalla?".
+ *
+ * Todos los lectores tienen que pasar por aca. Cuando la regla estuvo escrita
+ * en varios lados paso esto: se arreglo el script del index.html pero
+ * usePublicTenant seguia leyendo localStorage sin condicion, asi que bastaba
+ * abrir el link con ?t= UNA vez para que el navegador quedara marcado con esa
+ * escuela para siempre, incluso para otro usuario y sin sesion iniciada.
+ *
+ * La regla:
+ *   1. ?t= en la URL → siempre vale. Es el start_url de la app instalada y es
+ *      explicito: quien abre ese link esta pidiendo esa escuela.
+ *   2. localStorage → SOLO si la app corre instalada (standalone). Ahi no hay
+ *      ambiguedad: ese dispositivo instalo deliberadamente la app de esa
+ *      escuela. En una pestaña normal NO se usa, porque localStorage es del
+ *      NAVEGADOR y sobrevive al cierre de sesion y al cambio de cuenta.
+ *   3. Subdominio <escuela>.sportmaps.co.
+ *
+ * Si el usuario resulta ser miembro de la escuela, usePwaTenantSync corrige el
+ * manifest y las etiquetas despues del login, que es cuando recien se sabe
+ * quien es.
+ */
+export function resolveTenantSlug(): string | null {
+    if (typeof window === 'undefined') return null;
+
+    const valido = (s: string | null | undefined): string | null => {
+        const limpio = (s || '').toLowerCase().trim();
+        return limpio && SLUG_RE.test(limpio) ? limpio : null;
+    };
+
     try {
-        const fromUrl = new URLSearchParams(window.location.search).get('t');
-        const slug = (fromUrl || localStorage.getItem(TENANT_KEY) || '').toLowerCase().trim();
-        return slug && SLUG_RE.test(slug) ? slug : null;
-    } catch {
-        return null;
+        const deUrl = valido(new URLSearchParams(window.location.search).get('t'));
+        if (deUrl) return deUrl;
+    } catch { /* URL rara */ }
+
+    if (getDisplayMode() !== 'browser') {
+        try {
+            const guardado = valido(localStorage.getItem(TENANT_KEY));
+            if (guardado) return guardado;
+        } catch { /* modo privado */ }
     }
+
+    try {
+        const host = window.location.hostname.split(':')[0].toLowerCase();
+        const partes = host.split('.');
+        const reservados = new Set(['www', 'app', 'api', 'blog', 'docs', 'admin', 'dev', 'staging', 'preview']);
+        if (partes.length === 3 && host.endsWith('.sportmaps.co') && !reservados.has(partes[0])) {
+            return valido(partes[0]);
+        }
+    } catch { /* no-op */ }
+
+    return null;
+}
+
+export function getPwaTenantSlug(): string | null {
+    return resolveTenantSlug();
 }
 
 export function getPwaTenantName(): string | null {

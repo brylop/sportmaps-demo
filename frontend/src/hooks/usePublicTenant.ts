@@ -17,7 +17,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { applyIosMetaTags, getTenantCache, setTenantCache } from '@/pwa/tenant';
+import { applyIosMetaTags, getTenantCache, resolveTenantSlug, setTenantCache } from '@/pwa/tenant';
 
 export interface PublicTenant {
     id: string;
@@ -31,36 +31,14 @@ export interface PublicTenant {
     };
 }
 
-const TENANT_KEY = 'sm_pwa_tenant';
-const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
-const RESERVADOS = new Set(['www', 'app', 'api', 'blog', 'docs', 'admin', 'dev', 'staging', 'preview']);
-
-function resolverSlug(): string | null {
-    if (typeof window === 'undefined') return null;
-
-    try {
-        const deUrl = new URLSearchParams(window.location.search).get('t');
-        if (deUrl && SLUG_RE.test(deUrl.toLowerCase().trim())) {
-            return deUrl.toLowerCase().trim();
-        }
-    } catch { /* URL rara: se sigue con las otras fuentes */ }
-
-    try {
-        const guardado = window.localStorage.getItem(TENANT_KEY);
-        if (guardado && SLUG_RE.test(guardado)) return guardado;
-    } catch { /* Safari en modo privado */ }
-
-    const host = window.location.hostname.split(':')[0].toLowerCase();
-    const partes = host.split('.');
-    if (partes.length === 3 && host.endsWith('.sportmaps.co') && !RESERVADOS.has(partes[0])) {
-        if (SLUG_RE.test(partes[0])) return partes[0];
-    }
-
-    return null;
-}
+// La resolucion vive en pwa/tenant.ts y NO se duplica aca. Tener la regla
+// escrita en dos lados ya costo un escape: se corrigio el script del
+// index.html y este hook siguio leyendo localStorage sin condicion, asi que
+// abrir el link con ?t= una sola vez dejaba el navegador marcado con esa
+// escuela para cualquier visitante posterior.
 
 export function usePublicTenant(): { tenant: PublicTenant | null; slug: string | null; isLoading: boolean } {
-    const slug = resolverSlug();
+    const slug = resolveTenantSlug();
 
     // Estado inicial desde el cache, SINCRONO. Sin esto el primer render no
     // tiene escuela y el login se pinta con la marca de SportMaps durante el
