@@ -72,7 +72,28 @@ async function componerIcono(
 
     // `density` sube la resolucion de rasterizado de los SVG; sin esto un SVG
     // chico sale pixelado al escalarlo a 512.
-    const logoRedimensionado = await sharp(logo, { density: 384 })
+    let base = sharp(logo, { density: 384 });
+
+    // Recortar el borde uniforme (transparente o de color solido) ANTES de
+    // escalar. Los logos suelen venir con mucho aire alrededor: uno vertical con
+    // media imagen vacia, escalado al 60% de un cuadrado de 192px, deja el
+    // escudo diminuto y borroso. Con el recorte, lo que se escala es el dibujo y
+    // no el margen, asi que el icono se lee.
+    //
+    // Si el trim falla o deja la imagen vacia (logo de un solo color, formato
+    // raro), se sigue con el original: un icono con aire de mas es mucho mejor
+    // que ninguno.
+    try {
+        const recortado = await base.clone().trim({ threshold: 10 }).toBuffer();
+        const meta = await sharp(recortado).metadata();
+        if ((meta.width ?? 0) > 8 && (meta.height ?? 0) > 8) {
+            base = sharp(recortado, { density: 384 });
+        }
+    } catch {
+        // Se conserva `base` sin recortar.
+    }
+
+    const logoRedimensionado = await base
         .resize(interior, interior, {
             fit: 'contain',
             background: { r: 0, g: 0, b: 0, alpha: 0 },
