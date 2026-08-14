@@ -17,6 +17,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { applyIosMetaTags, getTenantCache, setTenantCache } from '@/pwa/tenant';
 
 export interface PublicTenant {
     id: string;
@@ -59,9 +60,16 @@ function resolverSlug(): string | null {
 }
 
 export function usePublicTenant(): { tenant: PublicTenant | null; slug: string | null; isLoading: boolean } {
-    const [tenant, setTenant] = useState<PublicTenant | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
     const slug = resolverSlug();
+
+    // Estado inicial desde el cache, SINCRONO. Sin esto el primer render no
+    // tiene escuela y el login se pinta con la marca de SportMaps durante el
+    // ~1s que tarda la RPC, saltando despues a la marca correcta. El parpadeo
+    // se notaba y quedaba pesimo justo en la pantalla de entrada.
+    const [tenant, setTenant] = useState<PublicTenant | null>(
+        () => (getTenantCache(slug) as PublicTenant | null) ?? null,
+    );
+    const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         if (!slug) {
@@ -80,10 +88,18 @@ export function usePublicTenant(): { tenant: PublicTenant | null; slug: string |
                 // not_found = la escuela no existe o no tiene la marca comprada.
                 // En ambos casos se muestra SportMaps, que es lo correcto.
                 if (error || !payload?.ok) {
+                    // El servidor manda: si dice que no, se limpia lo cacheado.
                     setTenant(null);
+                    setTenantCache(null);
                     return;
                 }
-                setTenant(payload.school as PublicTenant);
+
+                const escuela = payload.school as PublicTenant;
+                setTenant(escuela);
+                setTenantCache(escuela as any);
+                // iOS lee estas etiquetas al "Añadir a inicio"; el script del
+                // index.html ya corrio, asi que hay que refrescarlas aca.
+                applyIosMetaTags(escuela.name, escuela.slug);
             } catch {
                 if (!cancelado) setTenant(null);
             } finally {

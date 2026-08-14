@@ -14,7 +14,7 @@
 import { useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
-import { setPwaTenant } from '@/pwa/tenant';
+import { applyIosMetaTags, setPwaTenant, setTenantCache } from '@/pwa/tenant';
 
 export function usePwaTenantSync(): void {
     const { schoolId } = useSchoolContext();
@@ -27,12 +27,28 @@ export function usePwaTenantSync(): void {
             try {
                 const { data, error } = await supabase
                     .from('schools')
-                    .select('slug, name')
+                    .select('slug, name, logo_url, branding_settings')
                     .eq('id', schoolId)
                     .maybeSingle();
 
                 if (cancelado || error || !data?.slug) return;
+
                 setPwaTenant(data.slug, data.name);
+
+                // Cache para que la PROXIMA carga pinte el login sin parpadeo.
+                setTenantCache({
+                    id: schoolId,
+                    slug: data.slug,
+                    name: data.name,
+                    logo_url: (data as any).logo_url ?? null,
+                    branding_settings: ((data as any).branding_settings ?? {}) as any,
+                });
+
+                // iOS toma el nombre y el icono de estas etiquetas al "Añadir a
+                // inicio". El script del index.html corrio antes de saber a que
+                // escuela pertenece el usuario, asi que sin esto quien agrega a
+                // inicio despues de loguearse se lleva la marca de SportMaps.
+                applyIosMetaTags(data.name, data.slug);
             } catch {
                 // Sin marca propia la app funciona igual: el manifest cae al de
                 // SportMaps. No vale la pena molestar al usuario con un error.

@@ -45,7 +45,7 @@ export default function LoginPage() {
   // Escuela "duenia" de esta pantalla cuando se entra desde la app instalada de
   // una escuela (?t=<slug>). null = se ve SportMaps, que es lo correcto para
   // quien entra por la web general.
-  const { tenant } = usePublicTenant();
+  const { tenant, slug: tenantSlug, isLoading: tenantCargando } = usePublicTenant();
   // Hex validado antes de pintarlo: llega de la BD via RPC y termina en un
   // style inline, asi que se verifica el formato igual que en ThemeContext.
   const colorMarca = /^#[0-9A-Fa-f]{6}$/.test(tenant?.branding_settings?.primary_color ?? '')
@@ -76,6 +76,19 @@ export default function LoginPage() {
   // Redirect if already logged in
   if (user) {
     return <Navigate to={redirectTo || "/dashboard"} replace />;
+  }
+
+  // Sabemos que la pantalla pertenece a una escuela (hay slug) pero todavia no
+  // llegaron sus datos y no hay nada cacheado: es la PRIMERA visita.
+  //
+  // Se muestra un vacio neutro en vez del login de SportMaps. Pintar la marca
+  // equivocada durante ~1s y despues saltar a la correcta se veia como un
+  // parpadeo, justo en la pantalla de entrada de la app de la escuela.
+  //
+  // En las visitas siguientes esto no llega a verse: el cache de localStorage
+  // ya alimenta el primer render con la marca correcta.
+  if (tenantSlug && !tenant && tenantCargando) {
+    return <div className="min-h-screen bg-[#0d0f12]" />;
   }
 
   const onSubmit = async (data: LoginFormData) => {
