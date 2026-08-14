@@ -55,6 +55,11 @@ export function BrandingSettingsForm() {
     // es el que refleja lo vendido y hace de allowlist del rollout.
     const hasWhitelabel = entitlements.hasFeature('pwa_branded_install');
 
+    // El "Powered by SportMaps" solo lo apaga quien contrato la app nativa de
+    // marca blanca. Con `pwa_branding` a secas la atribucion es fija: es lo que
+    // hace que subir a white-label tenga sentido. Espejo del gate de la RPC.
+    const puedeApagarWatermark = entitlements.addons.whitelabel === true;
+
     // Re-init defaults cuando cambie schoolId o llegue el branding del context.
     useEffect(() => {
         if (!schoolId) return;
@@ -350,12 +355,19 @@ export function BrandingSettingsForm() {
                             <div className="space-y-0.5">
                                 <Label>Marca de agua de SportMaps</Label>
                                 <p className="text-sm text-muted-foreground">
-                                    Mostrar discretamente "Powered by SportMaps" junto a tu logo.
+                                    {puedeApagarWatermark
+                                        ? 'Mostrar discretamente "Powered by SportMaps" junto a tu logo.'
+                                        : 'Se incluye "Powered by SportMaps". Se puede quitar con la app propia de marca blanca.'}
                                 </p>
                             </div>
+                            {/* Deshabilitado sin el addon `whitelabel`: el RPC
+                                update_school_branding rechaza el apagado y fuerza
+                                true. Dejar el switch activo invitaria a apagarlo
+                                para que la pantalla lo revierta sola al recargar. */}
                             <Switch
-                                checked={showWatermark}
+                                checked={puedeApagarWatermark ? showWatermark : true}
                                 onCheckedChange={setShowWatermark}
+                                disabled={!puedeApagarWatermark}
                             />
                         </div>
                     </div>
