@@ -17,7 +17,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { applyIosMetaTags, getTenantCache, resolveTenantSlug, setTenantCache } from '@/pwa/tenant';
+import { applyIosMetaTags, getTenantCache, isIos as esIos, resolveTenantSlug, setTenantCache } from '@/pwa/tenant';
 
 export interface PublicTenant {
     id: string;
@@ -73,11 +73,37 @@ export function usePublicTenant(): { tenant: PublicTenant | null; slug: string |
                 }
 
                 const escuela = payload.school as PublicTenant;
+                const habiaCache = getTenantCache(slug) !== null;
+
                 setTenant(escuela);
                 setTenantCache(escuela as any);
-                // iOS lee estas etiquetas al "Añadir a inicio"; el script del
-                // index.html ya corrio, asi que hay que refrescarlas aca.
                 applyIosMetaTags(escuela.name, escuela.slug);
+
+                // ── iOS: una recarga, una sola vez ───────────────────────────
+                // Safari lee apple-mobile-web-app-title AL PARSEAR la pagina e
+                // ignora lo que se escriba despues. En la PRIMERA visita de un
+                // dispositivo el nombre todavia no estaba cacheado cuando corrio
+                // el script del <head>, asi que "Añadir a inicio" ofreceria el
+                // icono de la escuela con el nombre "SportMaps".
+                //
+                // Ya cacheado el nombre, una recarga hace que el script lo tome
+                // durante el parseo y el nombre quede bien. Se hace solo en iOS
+                // (Android lee el manifest y no lo necesita), solo si NO habia
+                // cache, y se marca en sessionStorage para no repetirla nunca:
+                // un bucle de recargas en la pantalla de login seria mucho peor
+                // que un nombre equivocado.
+                //
+                // Es seguro en este punto: la pagina acaba de cargar y el
+                // usuario todavia no escribio credenciales.
+                if (!habiaCache && esIos()) {
+                    try {
+                        const YA = 'sm_ios_reload_marca';
+                        if (!sessionStorage.getItem(YA)) {
+                            sessionStorage.setItem(YA, '1');
+                            window.location.reload();
+                        }
+                    } catch { /* modo privado: se queda con el nombre generico */ }
+                }
             } catch {
                 if (!cancelado) setTenant(null);
             } finally {
