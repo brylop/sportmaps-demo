@@ -19,6 +19,7 @@
 import { useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { bffClient } from '@/lib/api/bffClient';
+import { getDisplayMode, getPwaTenantSlug } from '@/pwa/tenant';
 
 const DEVICE_ID_KEY = 'sportmaps_device_id';
 const CSRF_HEADERS = { 'X-Requested-With': 'SportMaps' };
@@ -168,6 +169,13 @@ export function useDeviceContext(): { deviceId: string; platform: 'web' | 'ios' 
                     device_model:  payload.deviceModel,
                     locale:        payload.locale,
                     timezone:      payload.timezone,
+                    // Tracking de instalacion: se manda el modo de visualizacion
+                    // en CADA sesion. Es lo unico que funciona en iOS (nunca
+                    // dispara `appinstalled`) y ademas clasifica retroactivamente
+                    // a los dispositivos que ya existian. installed_at lo sella
+                    // un trigger en la BD para que el upsert no lo pise.
+                    display_mode:        getDisplayMode(),
+                    install_tenant_slug: getPwaTenantSlug(),
                 }, CSRF_HEADERS)
                 .catch((err) => {
                     console.warn('[useDeviceContext] device register failed:', err?.message);

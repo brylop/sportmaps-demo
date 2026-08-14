@@ -7,6 +7,7 @@ import { emailClient } from '@/lib/email-client';
 import { bffClient } from '@/lib/api/bffClient';
 import { Database } from '@/integrations/supabase/types';
 import { getUserFriendlyError } from '@/lib/error-translator';
+import { clearPwaTenant } from '@/pwa/tenant';
 
 interface UserProfile {
   id: string;
@@ -423,6 +424,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem('sportmaps_favoritos');
       localStorage.removeItem('sportmaps_welcome_dismissed');
       localStorage.removeItem('pending_invite_id');
+
+      // Marca de la escuela (PWA). Critico: localStorage es del NAVEGADOR, no
+      // del usuario. Sin esto el logo, el nombre y el manifest de una escuela
+      // sobreviven al cierre de sesion y se los lleva puestos el siguiente que
+      // entre en ese dispositivo, aunque no pertenezca a esa escuela.
+      clearPwaTenant();
 
       // Reset BFF module-level school header so the next user doesn't inherit it.
       bffClient.setSchoolId(null);

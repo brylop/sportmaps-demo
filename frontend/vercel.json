@@ -4,6 +4,24 @@
   "installCommand": "npm install",
   "rewrites": [
     {
+      "source": "/app.webmanifest",
+      "has": [{ "type": "host", "value": "(dev\\.sportmaps\\.co|.*\\.vercel\\.app)" }],
+      "destination": "https://sportmaps-bff-dev.onrender.com/api/v1/pwa/manifest"
+    },
+    {
+      "source": "/app-icon.png",
+      "has": [{ "type": "host", "value": "(dev\\.sportmaps\\.co|.*\\.vercel\\.app)" }],
+      "destination": "https://sportmaps-bff-dev.onrender.com/api/v1/pwa/icon"
+    },
+    {
+      "source": "/app.webmanifest",
+      "destination": "https://sportmaps-bff.onrender.com/api/v1/pwa/manifest"
+    },
+    {
+      "source": "/app-icon.png",
+      "destination": "https://sportmaps-bff.onrender.com/api/v1/pwa/icon"
+    },
+    {
       "source": "/((?!assets/).*)",
       "destination": "/index.html"
     }

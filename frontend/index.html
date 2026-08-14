@@ -7,6 +7,162 @@
   <link rel="icon" type="image/png" href="/icons/icon-192.png" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
+  <!-- Manifest de la PWA. El href se completa abajo con el slug de la escuela
+       para que, al instalar, aparezca su logo y su nombre en vez de SportMaps.
+       Sin slug queda /app.webmanifest pelado y el BFF devuelve la marca
+       SportMaps. Es /app.webmanifest y no /manifest.webmanifest porque en
+       public/ hay un manifest.webmanifest estatico y en Vercel los archivos del
+       filesystem ganan sobre los rewrites. -->
+  <link rel="manifest" id="sm-manifest" href="/app.webmanifest" />
+
+  <!-- iOS ignora el manifest por completo: el nombre bajo el icono lo saca de
+       apple-mobile-web-app-title (o del <title> si no existe) y el icono del
+       apple-touch-icon. Sin esta etiqueta, en iPhone la app se instala
+       llamandose "SportMaps - Revolucionando..." aunque sea la de la escuela.
+       El content se completa abajo cuando hay escuela; asi queda por defecto.
+       `apple-mobile-web-app-capable` NO se declara aca a proposito: cambia como
+       se abre la app en iPhone (sin barra de Safari) y eso alteraria el
+       comportamiento de TODOS los usuarios de SportMaps, no solo de la escuela.
+       Se agrega mas abajo unicamente cuando hay tenant. -->
+  <meta name="apple-mobile-web-app-title" id="sm-ios-title" content="SportMaps" />
+
+  <script>
+    // Resolver la escuela ANTES de que el navegador evalue la instalabilidad.
+    // Corre inline en el <head> a proposito: si esto se hiciera desde React,
+    // Chrome ya habria leido el manifest generico y el banner de instalar
+    // saldria con la marca equivocada.
+    (function () {
+      try {
+        var TENANT_KEY = 'sm_pwa_tenant';
+        var TENANT_NAME_KEY = 'sm_pwa_tenant_name';
+        var TENANT_DATA_KEY = 'sm_pwa_tenant_data';
+        var SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
+
+        // Orden de resolucion:
+        //   1. ?t= de la URL — es el start_url que quedo grabado en la app
+        //      instalada, asi que al abrirla desde el icono siempre gana.
+        //   2. localStorage, PERO SOLO si la app corre instalada (standalone).
+        //   3. subdominio <escuela>.sportmaps.co, por si algun dia se usa.
+        var params = new URLSearchParams(window.location.search);
+        var slug = params.get('t');
+
+        // ── Por que localStorage NO se usa en una pestaña normal ─────────────
+        // localStorage es del NAVEGADOR, no del usuario: sobrevive al cierre de
+        // sesion y al cambio de cuenta. Usandolo sin condicion, un visitante que
+        // ni siquiera inicio sesion entraba a dev.sportmaps.co y se llevaba el
+        // icono de la escuela que alguien probo antes en ese telefono. Paso de
+        // verdad al agregar a inicio en un iPhone.
+        //
+        // En modo instalado no hay ambiguedad: ese dispositivo instalo
+        // deliberadamente la app de esa escuela. En una pestaña, en cambio, la
+        // marca solo puede venir de la URL; si el usuario resulta ser miembro de
+        // la escuela, la app corrige las etiquetas despues del login
+        // (usePwaTenantSync), que es cuando recien se sabe quien es.
+        if (!slug) {
+          try {
+            var instalada =
+              (window.matchMedia && (
+                window.matchMedia('(display-mode: standalone)').matches ||
+                window.matchMedia('(display-mode: fullscreen)').matches ||
+                window.matchMedia('(display-mode: minimal-ui)').matches
+              )) || window.navigator.standalone === true;
+            slug = instalada ? window.localStorage.getItem(TENANT_KEY) : null;
+          } catch (e) { slug = null; }
+        }
+
+        if (!slug) {
+          var host = window.location.hostname.split(':')[0].toLowerCase();
+          var partes = host.split('.');
+          var reservados = ['www', 'app', 'api', 'dev', 'staging', 'preview', 'blog', 'docs', 'admin'];
+          if (partes.length === 3 && host.indexOf('.sportmaps.co') !== -1 && reservados.indexOf(partes[0]) === -1) {
+            slug = partes[0];
+          }
+        }
+
+        if (slug) { slug = String(slug).toLowerCase().trim(); }
+
+        if (slug && SLUG_RE.test(slug)) {
+          // NO se persiste el slug aca a proposito. Este script corre antes de
+          // saber quien es el usuario, asi que guardar lo que venga en la URL
+          // dejaba marcado el navegador de cualquier curioso que abriera el
+          // link: despues instalaba la app y, ya en modo standalone, el slug
+          // guardado se aplicaba y le pintaba una escuela que no es la suya.
+          //
+          // Solo lo guarda usePwaTenantSync, que corre con sesion iniciada y
+          // recien despues de confirmar que el usuario pertenece a una escuela
+          // con la marca comprada.
+          //
+          // No hace falta para instalar: el manifest se pide con ?s= tomado de
+          // la URL, y el start_url que queda grabado en la app instalada ya
+          // lleva el ?t=.
+
+          var link = document.getElementById('sm-manifest');
+          if (link) { link.setAttribute('href', '/app.webmanifest?s=' + encodeURIComponent(slug)); }
+
+          // iOS ignora por completo el manifest: el icono de "Añadir a inicio"
+          // lo saca del apple-touch-icon y el nombre del <title>. Sin esto, en
+          // iPhone la app se instalaria igual pero con la marca de SportMaps.
+          var icono = document.querySelector('link[rel="apple-touch-icon"]');
+          if (icono) {
+            icono.setAttribute('href', '/app-icon.png?s=' + encodeURIComponent(slug));
+          }
+
+          // Modo standalone en iOS: SOLO con escuela. Declararlo siempre
+          // cambiaria como se abre la app para todos los usuarios de SportMaps
+          // que la tengan agregada a inicio, y eso no es parte de lo que se
+          // vendio ni algo que se deba cambiar de refilon.
+          if (!document.querySelector('meta[name="apple-mobile-web-app-capable"]')) {
+            var metaCapaz = document.createElement('meta');
+            metaCapaz.setAttribute('name', 'apple-mobile-web-app-capable');
+            metaCapaz.setAttribute('content', 'yes');
+            document.head.appendChild(metaCapaz);
+          }
+
+          // ── Nombre en iOS ────────────────────────────────────────────────
+          // Safari lee apple-mobile-web-app-title AL PARSEAR la pagina e ignora
+          // lo que React escriba despues, asi que al "Añadir a inicio" salia el
+          // icono de la escuela pero el nombre "SportMaps". El icono si cambia
+          // porque lo escribe este script, que corre durante el parseo.
+          //
+          // Por eso el nombre se toma del cache, que React deja al resolver la
+          // escuela (no hace falta iniciar sesion). Solo se usa si el cache es
+          // de ESTA escuela: comparar el slug evita mostrar el nombre de otra.
+          //
+          // Costo asumido: en la PRIMERA visita de un dispositivo el nombre
+          // todavia no esta cacheado y iOS mostraria "SportMaps". Se corrige
+          // solo en la siguiente carga. La alternativa era mandar el nombre en
+          // la URL, que ademas de feo permitiria fabricar un link que agregue un
+          // icono llamado cualquier cosa.
+          var nombre = null;
+          try {
+            var crudo = window.localStorage.getItem(TENANT_DATA_KEY);
+            if (crudo) {
+              var cache = JSON.parse(crudo);
+              if (cache && cache.slug === slug && cache.name) nombre = cache.name;
+            }
+          } catch (e) { nombre = null; }
+
+          // Compatibilidad con la clave vieja, tambien validando la escuela.
+          if (!nombre) {
+            try {
+              if (window.localStorage.getItem(TENANT_KEY) === slug) {
+                nombre = window.localStorage.getItem(TENANT_NAME_KEY);
+              }
+            } catch (e) {}
+          }
+          if (nombre) {
+            var metaTitulo = document.getElementById('sm-ios-title');
+            if (metaTitulo) { metaTitulo.setAttribute('content', nombre); }
+            document.title = nombre;
+          }
+        }
+      } catch (e) {
+        // Ante cualquier error se deja el manifest generico: peor que no tener
+        // la marca es que la app deje de ser instalable.
+      }
+    })();
+  </script>
+
   <!-- Captura beforeinstallprompt lo antes posible: Chrome Android dispara este
        evento durante la carga, a veces ANTES de que React monte InstallBanner.
        Guardarlo en window evita perderlo por esa carrera. -->

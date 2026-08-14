@@ -83,6 +83,7 @@ import athleteTrainingRouter from './routes/athlete/training';
 import athleteBiomechRouter from './routes/athlete/biomech';
 import schoolPerformanceRouter from './routes/school/performance';
 import schoolCompetitionResultsRouter from './routes/school/competition-results';
+import schoolFootballRouter from './routes/school/football';
 import schoolRoutinesRouter from './routes/school/routines';
 import schoolReportsRouter from './routes/school/reports';
 import athletePerformanceRouter from './routes/athlete/performance';
@@ -92,6 +93,7 @@ import upgradeRequestsRouter from './routes/upgrade-requests.routes';
 import schoolsRouter from './routes/schools.routes';
 import customDomainsRouter from './routes/custom-domains.routes';
 import devicesRouter from './routes/devices.routes';
+import pwaRouter from './routes/pwa.routes';
 import internalNotificationsRouter from './routes/internal-notifications.routes';
 
 const app = express();
@@ -107,6 +109,20 @@ const generalLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Demasiadas peticiones. Intenta de nuevo en 15 minutos.' },
+});
+
+// El manifest y el icono de la PWA son publicos, de solo lectura y cacheados
+// (5 min en proceso + 5 min en el navegador). Necesitan un limite MUCHO mas
+// alto que el general: se piden desde cada dispositivo en cada arranque, y
+// varias familias comparten IP en la wifi de la escuela. Con el cap general de
+// 200/15min, Chrome recibiria un 429 en vez del manifest y la app dejaria de
+// ser instalable sin mostrar ningun error.
+const pwaLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: process.env.NODE_ENV === 'production' ? 2000 : 10000,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'rate_limited' },
 });
 
 const paymentLimiter = rateLimit({
@@ -286,6 +302,9 @@ app.use('/api/v1/schools', generalLimiter, customDomainsRouter);
 // Devices (Fase 6.1 — base mobile). Web/PWA tambien lo usa para tracking
 // de adopcion. CSRF se aplica dentro del router para state-changing.
 app.use('/api/v1/devices', generalLimiter, devicesRouter);
+// Manifest dinamico de la PWA. PUBLICO y sin auth: el navegador lo pide antes
+// de que exista sesion, y Vercel le reescribe /manifest.webmanifest hacia aca.
+app.use('/api/v1/pwa', pwaLimiter, pwaRouter);
 // Endpoint INTERNO del despachador de notificaciones (lo llama pg_net desde la
 // DB). Sin JWT: se valida por header secreto (fail-closed). Sin generalLimiter:
 // el disparo es 1 por notificación y el claim es idempotente por lease.
@@ -322,6 +341,7 @@ app.use('/api/v1/events', generalLimiter, eventsRouter);
 app.use('/api/v1/school/delegations', generalLimiter, schoolDelegationsRouter);
 app.use('/api/v1/school', generalLimiter, schoolPerformanceRouter);
 app.use('/api/v1/school', generalLimiter, schoolCompetitionResultsRouter);
+app.use('/api/v1/school', generalLimiter, schoolFootballRouter);
 app.use('/api/v1/school', generalLimiter, requireAuth, schoolRoutinesRouter);
 app.use('/api/v1/school', generalLimiter, schoolReportsRouter);
 app.use('/api/v1/templates', generalLimiter, templatesRouter);

@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button';
 import { Search, Loader2, Building2, Check, ShieldOff, CalendarClock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { bffClient } from '@/lib/api/bffClient';
 
 // Duraciones de prueba que se conceden a mano. El registro nuevo nace con 1 mes
 // (trigger create_default_school_subscription); acá se extiende cuando se acuerda.
@@ -21,7 +22,15 @@ const ADDONS: { key: string; label: string; icon: string; note?: string }[] = [
   { key: 'nutrition',      label: 'Nutrición',              icon: '🥗' },
   { key: 'biomech',        label: 'Biomecánica',            icon: '📈' },
   { key: 'access_control', label: 'Control de acceso',      icon: '🔐', note: 'Hardware' },
-  { key: 'whitelabel',     label: 'App White-Label',        icon: '🎨', note: 'App propia' },
+  // ── Los DOS productos de marca. No confundirlos ──────────────────────────
+  // pwa_branding = la marca se MUESTRA (manifest, iconos, login, colores) en
+  //                web, Android e iOS. Se instala desde el navegador.
+  // whitelabel   = ADEMAS app NATIVA propia en App Store y Play Store, y es el
+  //                unico que permite ocultar el "powered by SportMaps".
+  // Prender whitelabel prende tambien pwa_branding (ver toggleAddon): la
+  // herencia se aplica al otorgar, nunca al leer.
+  { key: 'pwa_branding',   label: 'PWA con marca propia',   icon: '📲', note: 'Se instala del navegador · incluye iOS' },
+  { key: 'whitelabel',     label: 'App nativa propia',      icon: '🎨', note: 'App Store + Play Store · sin atribución' },
   { key: 'whatsapp',       label: 'WhatsApp campañas',      icon: '💬' },
   { key: 'wompi',          label: 'Pasarela Wompi',         icon: '💳' },
   { key: 'mp',             label: 'Pasarela MercadoPago',   icon: '💳' },
@@ -95,10 +104,81 @@ export default function AdminSubscriptionsPage() {
     const { error } = await supabase.rpc('admin_set_school_addon' as any, {
       p_school_id: selected.id, p_addon_key: key, p_enabled: next,
     });
-    setSavingKey(null);
-    if (error) { toast({ title: 'No se pudo cambiar', description: error.message, variant: 'destructive' }); return; }
+    if (error) {
+      setSavingKey(null);
+      toast({ title: 'No se pudo cambiar', description: error.message, variant: 'destructive' });
+      return;
+    }
     setEnt((prev) => prev ? { ...prev, [`has_${key}`]: next } : prev);
+
+    // La app nativa INCLUYE la marca del PWA. Esa herencia se aplica al
+    // OTORGAR, nunca al leer: si se resolviera en una vista con un OR, todo el
+    // sistema tendria dos reglas para la misma pregunta y bastaria con que una
+    // quedara desincronizada para que una escuela tuviera el icono con su logo
+    // y los colores de SportMaps adentro. Ya paso: un OR en la vista activo la
+    // marca en 29 escuelas de golpe (migraciones 20260814104612 / 105131).
+    //
+    // Al apagar white-label NO se apaga pwa_branding: puede haberse vendido
+    // suelto, y decidir eso no le corresponde a este toggle.
+    if (key === 'whitelabel' && next) {
+      const { error: errPwa } = await supabase.rpc('admin_set_school_addon' as any, {
+        p_school_id: selected.id, p_addon_key: 'pwa_branding', p_enabled: true,
+      });
+      if (!errPwa) {
+        setEnt((prev) => prev ? { ...prev, has_pwa_branding: true } : prev);
+        toast({
+          title: 'App propia activada',
+          description: 'Se activó también "PWA con marca propia": la app nativa la incluye.',
+        });
+        setSavingKey(null);
+        return;
+      }
+      toast({
+        title: 'Ojo: quedó a medias',
+        description: 'Se activó la app propia pero NO la marca del PWA. Prendela a mano.',
+        variant: 'destructive',
+      });
+      setSavingKey(null);
+      return;
+    }
+
+    setSavingKey(null);
     toast({ title: next ? 'Módulo activado' : 'Módulo desactivado', description: `${key} · ${selected.name}` });
+  }
+
+  /**
+   * Regenera los iconos del manifest PWA desde el logo ya cargado.
+   *
+   * Hace falta un boton porque los iconos se generan como efecto de guardar la
+   * marca: una escuela que ya tenia logo, o a la que se le prende el addon hoy,
+   * se queda sin iconos y el manifest le devuelve la marca SportMaps hasta que
+   * su admin entre y reguarde el logo.
+   */
+  async function regenerarIconosPwa() {
+    if (!selected) return;
+    setSavingKey('__pwa_icons__');
+    try {
+      const r = await bffClient.post<{ ok: boolean }>(
+        `/api/v1/schools/${selected.id}/pwa-icons/regenerate`,
+        {},
+        { 'X-Requested-With': 'SportMaps' },
+      );
+      toast({
+        title: r?.ok ? 'Iconos generados' : 'No se generaron',
+        description: r?.ok
+          ? `${selected.name} ya se instala con su marca. Ojo: quien la tenga instalada necesita reinstalar.`
+          : 'Revisa que la escuela tenga logo cargado.',
+        variant: r?.ok ? undefined : 'destructive',
+      });
+    } catch (e: any) {
+      toast({
+        title: 'No se pudieron generar los iconos',
+        description: e?.message || 'Verifica que la escuela tenga un logo cargado.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingKey(null);
+    }
   }
 
   /**
@@ -358,6 +438,31 @@ export default function AdminSubscriptionsPage() {
                       );
                     })}
                   </div>
+
+                  {/* Los iconos del manifest se generan al guardar la marca. Si
+                      la escuela ya tenía logo de antes, no los tiene y su app se
+                      instalaría como SportMaps: este botón los crea sin que su
+                      admin tenga que entrar a reguardar el logo. */}
+                  {!!ent?.has_pwa_branding && (
+                    <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-dashed p-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium">Íconos de la app instalable</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          Se generan desde el logo. Si la escuela ya tenía logo cargado, hay que generarlos una vez.
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!!savingKey}
+                        onClick={regenerarIconosPwa}
+                      >
+                        {savingKey === '__pwa_icons__' && <Loader2 className="h-3 w-3 animate-spin mr-2" />}
+                        Generar íconos
+                      </Button>
+                    </div>
+                  )}
+
                   <p className="text-xs text-muted-foreground mt-3">
                     Prender un módulo lo activa al instante para la escuela (Modelo asistido). El cobro se gestiona aparte.
                   </p>

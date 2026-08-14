@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 332,
-  "head": "20260812181043",
+  "count": 348,
+  "head": "20260814174607",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -330,11 +330,27 @@
     {"v":"20260811110226","file":"20260811110226_update_get_onboarding_status_check_offering_plans.sql","sha256":"13ce0a8d3fa39146399563bb611fae7008fb0813eae02fc8cbca0aa081bd1f96","added":"2026-08-11","by":"judegor99"},
     {"v":"20260812125503","file":"20260812125503_periodo_de_prueba_aviso_y_bloqueo.sql","sha256":"80cf0b7540acbc502d94f565309e9d93cb23158fac0a2c97a0b8b5fac344baaa","added":"2026-08-12","by":"brylop"},
     {"v":"20260812150627","file":"20260812150627_entidades_informativas_no_se_bloquean.sql","sha256":"1701f910503582ea56e3daab7f4f214e0ec7288c2a2e15f3cb31197c3ec053ea","added":"2026-08-12","by":"brylop"},
-    {"v":"20260812170438","file":"20260812170438_bloqueo_de_prueba_en_rls.sql","sha256":"d829c649fdbff72bd63db7f538cb3df2b71b384c82a48c9294628ce875eeea20","added":"2026-08-12","by":"brylop"},
     {"v":"20260812172252","file":"20260812172252_find_athletes_por_documento_sin_fuga_a_anon.sql","sha256":"b5324e4bcfd68054694b48d80a4e9b0848a3f98b3369d6bc9f2ed9b6681155b3","added":"2026-08-12","by":"brylop"},
-    {"v":"20260812174039","file":"20260812174039_mapeo_school_type_a_modulos.sql","sha256":"94d4d63d9a02f1416405b909fd19d7971708bc304e3ea410ad923fd2f319bcb3","added":"2026-08-12","by":"brylop"},
     {"v":"20260812174317","file":"20260812174317_revoke_public_en_find_athletes_by_document.sql","sha256":"e3e9f5bf03c3408c76733195249c2c62ded5b6c52f3a39a5a8940874cdbd9036","added":"2026-08-12","by":"brylop"},
     {"v":"20260812180437","file":"20260812180437_cerrar_a_anon_las_funciones_de_service_role.sql","sha256":"9c102d87405de42e60ac464de581a8dd9ff93fece82d01f6d87fecef930740c0","added":"2026-08-12","by":"brylop"},
-    {"v":"20260812181043","file":"20260812181043_cerrar_a_anon_service_role_por_catalogo.sql","sha256":"7c86220436d19983950fd0f3ad0d8ff40636bbc3c6e8b1c35d680a651c125a73","added":"2026-08-12","by":"brylop"}
+    {"v":"20260812181043","file":"20260812181043_cerrar_a_anon_service_role_por_catalogo.sql","sha256":"7c86220436d19983950fd0f3ad0d8ff40636bbc3c6e8b1c35d680a651c125a73","added":"2026-08-12","by":"brylop"},
+    {"v":"20260812182000","file":"20260812182000_futbol_metricas_alineacion.sql","sha256":"3f35859410177cc8c7f664c558228f76d6dc68dbd4bed0be9761401ed7194953","added":"2026-08-13","by":"judegor99"},
+    {"v":"20260812182100","file":"20260812182100_fix_duelos_ganados_thresholds_futbol.sql","sha256":"159f8d66196967aab0f1791432dcc8763711d3ee5fc18765533d55ceedb587a6","added":"2026-08-13","by":"judegor99"},
+    {"v":"20260812182200","file":"20260812182200_baseline_thresholds_futbol_manual.sql","sha256":"4566f67b896891eb7389ec082d91fb77b6a7c30d7d5293f4c18f4a54d61c8ab2","added":"2026-08-13","by":"judegor99"},
+    {"v":"20260812183012","file":"20260812183012_qr_signup_adopta_ficha_precargada.sql","sha256":"43f8d4eae83fbcf36f18d995c2bd3849ba1c83eaf25ba9ecd02e6969feffb435","added":"2026-08-13","by":"brylop"},
+    {"v":"20260813133108","file":"20260813133108_cerrar_fuga_de_payment_links_a_anon.sql","sha256":"663bb87e3e3d1dc88eba61b48e174aab308d9a70f4991e20d0381ae56b415654","added":"2026-08-13","by":"brylop"},
+    {"v":"20260813170813","file":"20260813170813_bloqueo_de_prueba_en_rls.sql","sha256":"d829c649fdbff72bd63db7f538cb3df2b71b384c82a48c9294628ce875eeea20","added":"2026-08-13","by":"brylop"},
+    {"v":"20260813170814","file":"20260813170814_mapeo_school_type_a_modulos.sql","sha256":"94d4d63d9a02f1416405b909fd19d7971708bc304e3ea410ad923fd2f319bcb3","added":"2026-08-13","by":"brylop"},
+    {"v":"20260813180537","file":"20260813180537_payment_provider_deja_de_mentir.sql","sha256":"9cdc53249c5f770a6f1a655d4f8d05df5882e03092316f4443737c7a7a47ab46","added":"2026-08-13","by":"brylop"},
+    {"v":"20260814104612","file":"20260814104612_addon_pwa_branding_en_entitlements.sql","sha256":"41125629d59fa7d035bb8a1914bfb90096861d64f97da57b7488629bb38a4844","added":"2026-08-14","by":"brylop"},
+    {"v":"20260814105131","file":"20260814105131_pwa_branding_sin_herencia_de_whitelabel.sql","sha256":"7138114c4d05b2cbe56fd2defc232dd0c777b0c72b68220768e1a591d7f17cd6","added":"2026-08-14","by":"brylop"},
+    {"v":"20260814111324","file":"20260814111324_rpc_set_school_pwa_icons.sql","sha256":"60299597bda45d04bba1eebfe14309359e3e7c5618e3b02d9e7827c53ddcd1fc","added":"2026-08-14","by":"brylop"},
+    {"v":"20260814111326","file":"20260814111326_user_devices_tracking_de_instalacion.sql","sha256":"6acf68d17bf10368f75f68ad2556a696bc3963eb9c47e5ec545ffe62423d81bc","added":"2026-08-14","by":"brylop"},
+    {"v":"20260814112450","file":"20260814112450_revocar_set_school_pwa_icons_de_authenticated.sql","sha256":"f167cbf5eec436a6836d4789bc1f8713f1dc608d96c4a280c897ac8eb1a688fa","added":"2026-08-14","by":"brylop"},
+    {"v":"20260814122449","file":"20260814122449_watermark_solo_lo_apaga_whitelabel.sql","sha256":"7afbb3b6a8fe36e99da13633da28a60902e028f3a6bac1de25a041a4862fa96e","added":"2026-08-14","by":"brylop"},
+    {"v":"20260814122832","file":"20260814122832_get_school_by_slug_gatea_por_addon.sql","sha256":"864c045e1c72e0a2f6282cc1ad0ff96e3ae12b6ed497b5147019a61890d6e548","added":"2026-08-14","by":"brylop"},
+    {"v":"20260814125518","file":"20260814125518_separar_pwa_branding_de_app_nativa.sql","sha256":"cb505f5361c792602ac8272777f534d70e8a04cf60746c3b4defe602051ffc67","added":"2026-08-14","by":"brylop"},
+    {"v":"20260814173709","file":"20260814173709_athlete_reports_system_cycle.sql","sha256":"161b1a12cafc004d7b50572db91b66c6bc17869a92083187fbc83a4a71a859af","added":"2026-08-14","by":"judegor99"},
+    {"v":"20260814174607","file":"20260814174607_add_team_image_url.sql","sha256":"67852d063e9ed7bc188cd45f61e4903ca0f94a820eb1fd4b8f1f0197113fda42","added":"2026-08-14","by":"judegor99"}
   ]
 }

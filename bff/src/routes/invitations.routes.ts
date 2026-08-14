@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { conMarca, sufijoMarcaEscuela } from '../utils/tenantLink';
 
 const router = Router();
 
@@ -115,6 +116,15 @@ router.post(
 
             const schoolName = school?.name || 'tu academia';
 
+            // Marca en el link de registro: la familia llega viendo el logo de
+            // su escuela y, si instala la app desde ahi, queda con su marca.
+            // Se resuelve UNA vez por envio (no por correo): un masivo son
+            // cientos de invitaciones de la misma escuela.
+            //
+            // Si la escuela NO tiene la marca comprada, el sufijo es '' y los
+            // correos salen exactamente igual que siempre.
+            const marcaEscuela = await sufijoMarcaEscuela(schoolId);
+
             // 1. Invitaciones pendientes con correo
             //    El filtro por school_id no es cosmético: impide que un admin
             //    mande correos a invitaciones de otra escuela pasando sus ids.
@@ -175,9 +185,11 @@ router.post(
 
                 const batch: BatchItem[] = slice.map((inv: any) => {
                     const isCoach = inv.role_to_assign === 'coach';
-                    const registrationUrl =
+                    const registrationUrl = conMarca(
                         `${FRONTEND_URL}/register?email=${encodeURIComponent(inv.email)}` +
-                        `&role=${inv.role_to_assign}&invite=${inv.id}`;
+                        `&role=${inv.role_to_assign}&invite=${inv.id}`,
+                        marcaEscuela,
+                    );
 
                     return {
                         type: isCoach ? 'coach_invitation' : 'parent_invitation',

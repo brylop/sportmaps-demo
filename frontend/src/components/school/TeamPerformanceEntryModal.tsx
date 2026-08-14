@@ -30,6 +30,7 @@ interface TeamPerformanceEntryModalProps {
   teamId?: string;
   offeringPlanId?: string;
   teamName: string;
+  teamImageUrl?: string;
 }
 
 /** key = `${subject_id}:${metric_key}` */
@@ -77,6 +78,7 @@ export function TeamPerformanceEntryModal({
   teamId,
   offeringPlanId,
   teamName,
+  teamImageUrl,
 }: TeamPerformanceEntryModalProps) {
   const { toast } = useToast();
   const { data, isLoading } = useTeamPerformanceRoster({ team_id: teamId, offering_plan_id: offeringPlanId });
@@ -160,9 +162,13 @@ export function TeamPerformanceEntryModal({
       <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
-              <Activity className="h-5 w-5 text-primary" />
-            </div>
+            {teamImageUrl ? (
+              <img src={teamImageUrl} alt={teamName} className="h-10 w-10 rounded-full object-cover border bg-background shadow-sm shrink-0" />
+            ) : (
+              <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                <Activity className="h-5 w-5 text-primary" />
+              </div>
+            )}
             <div>
               <DialogTitle>Evaluar Rendimiento</DialogTitle>
               <DialogDescription className="flex items-center gap-1.5">

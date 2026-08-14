@@ -8,9 +8,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { Plus, Calendar, Target, ClipboardList, Trash2, Activity, Users, Loader2, TrendingUp } from 'lucide-react';
+import { Plus, Calendar, Target, ClipboardList, Trash2, Activity, Users, Loader2, TrendingUp, Trophy } from 'lucide-react';
 import { TrainingPlanFormDialog } from '@/components/coach/TrainingPlanFormDialog';
 import { TeamPerformanceEntryModal } from '@/components/school/TeamPerformanceEntryModal';
+import { FootballDashboardModal } from '@/components/school/FootballDashboardModal';
 import { PerformanceEntryModal } from '@/components/school/PerformanceEntryModal';
 import { AthleteEvolutionModal } from '@/components/school/AthleteEvolutionModal';
 import { useToast } from '@/hooks/use-toast';
@@ -38,6 +39,7 @@ export default function TrainingPlansPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [performanceDialogOpen, setPerformanceDialogOpen] = useState(false);
+  const [footballDialogOpen, setFootballDialogOpen] = useState(false);
   const [individualStudent, setIndividualStudent] = useState<any>(null);
   const [evolutionStudent, setEvolutionStudent] = useState<any>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -58,7 +60,7 @@ export default function TrainingPlansPage() {
 
       const { data: teamsData, error } = await (supabase
         .from('teams')
-        .select('id, name, coach_id, age_group, sport, branch_id, team_coaches(coach_id)')
+        .select('id, name, coach_id, age_group, sport, branch_id, image_url, team_coaches(coach_id)')
         .eq('school_id', schoolId) as any);
 
       if (error) throw error;
@@ -400,14 +402,26 @@ export default function TrainingPlansPage() {
             <Card className="border-border/40 bg-background/50 backdrop-blur-sm shadow-sm overflow-hidden flex flex-col">
               <CardHeader className="pb-3 border-b border-border/40 bg-muted/20">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <CardTitle className="text-base font-bold flex items-center gap-2">
-                      <Users className="w-4 h-4 text-primary" />
-                      Roster ({roster.length})
-                    </CardTitle>
-                    <CardDescription className="truncate max-w-[200px]">
-                      {selectedName}
-                    </CardDescription>
+                  <div className="flex items-center gap-3">
+                    {filterType === 'teams' && (() => {
+                      const selectedTeam = teams?.find((t: any) => t.id === selectedTeamId);
+                      return selectedTeam?.image_url ? (
+                        <img 
+                          src={selectedTeam.image_url} 
+                          alt={selectedTeam.name} 
+                          className="w-10 h-10 rounded-full object-cover border border-border/50 bg-background shadow-sm shrink-0" 
+                        />
+                      ) : null;
+                    })()}
+                    <div>
+                      <CardTitle className="text-base font-bold flex items-center gap-2">
+                        <Users className="w-4 h-4 text-primary" />
+                        Roster ({roster.length})
+                      </CardTitle>
+                      <CardDescription className="truncate max-w-[200px]">
+                        {selectedName}
+                      </CardDescription>
+                    </div>
                   </div>
                   <Button
                     size="sm"
@@ -419,6 +433,21 @@ export default function TrainingPlansPage() {
                     <Activity className="w-3.5 h-3.5" />
                     Evaluar Lote
                   </Button>
+                  {(() => {
+                    const selectedTeam = teams?.find((t: any) => t.id === selectedTeamId);
+                    const isFootball = selectedTeam?.sport?.toLowerCase() === 'futbol' || selectedTeam?.sport?.toLowerCase() === 'fútbol';
+                    return filterType === 'teams' && isFootball && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 gap-1.5 shrink-0"
+                        onClick={() => setFootballDialogOpen(true)}
+                      >
+                        <Trophy className="w-3.5 h-3.5" />
+                        Fútbol
+                      </Button>
+                    );
+                  })()}
                 </div>
               </CardHeader>
               <CardContent className="p-3 flex-1">
@@ -494,6 +523,16 @@ export default function TrainingPlansPage() {
           onClose={() => setPerformanceDialogOpen(false)}
           teamId={filterType === 'teams' ? selectedTeamId : undefined}
           offeringPlanId={filterType === 'plans' ? selectedPlanId : undefined}
+          teamName={selectedName}
+          teamImageUrl={filterType === 'teams' ? teams?.find((t: any) => t.id === selectedTeamId)?.image_url : undefined}
+        />
+      )}
+
+      {footballDialogOpen && filterType === 'teams' && selectedTeamId && (
+        <FootballDashboardModal
+          open={footballDialogOpen}
+          onClose={() => setFootballDialogOpen(false)}
+          teamId={selectedTeamId}
           teamName={selectedName}
         />
       )}
