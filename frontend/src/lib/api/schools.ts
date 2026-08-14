@@ -215,12 +215,20 @@ class SchoolsAPI {
                 .eq('school_id', school.id)
                 .eq('active', true);
 
-            // Fetch staff/coaches for this school
+            // Cuerpo tecnico del perfil PUBLICO de la escuela.
+            //
+            // Se lee de la vista y no de school_staff porque esta pantalla la ve
+            // cualquiera, sin sesion. La tabla base tiene email, phone y
+            // coach_auth_id, y el `select('*')` que habia aca los arrastraba a
+            // una pagina publica: 70 fichas de staff de todas las escuelas
+            // quedaban legibles con la llave anonima, que viaja en el bundle.
+            //
+            // La vista expone solo nombre, especialidad y certificaciones, que
+            // es lo que la escuela quiere mostrar. Ver migracion 20260814185532.
             const { data: staff } = await supabase
-                .from('school_staff')
-                .select('*')
-                .eq('school_id', school.id)
-                .eq('status', 'active');
+                .from('v_school_staff_publico')
+                .select('id, school_id, branch_id, full_name, specialty, certifications')
+                .eq('school_id', school.id);
 
             return {
                 id: school.id,
