@@ -17,10 +17,13 @@
 
   <!-- iOS ignora el manifest por completo: el nombre bajo el icono lo saca de
        apple-mobile-web-app-title (o del <title> si no existe) y el icono del
-       apple-touch-icon. Sin estas dos etiquetas, en iPhone la app se instala
-       llamandose "SportMaps - Revolucionando..." aunque sea la de la escuela. -->
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+       apple-touch-icon. Sin esta etiqueta, en iPhone la app se instala
+       llamandose "SportMaps - Revolucionando..." aunque sea la de la escuela.
+       El content se completa abajo cuando hay escuela; asi queda por defecto.
+       `apple-mobile-web-app-capable` NO se declara aca a proposito: cambia como
+       se abre la app en iPhone (sin barra de Safari) y eso alteraria el
+       comportamiento de TODOS los usuarios de SportMaps, no solo de la escuela.
+       Se agrega mas abajo unicamente cuando hay tenant. -->
   <meta name="apple-mobile-web-app-title" id="sm-ios-title" content="SportMaps" />
 
   <script>
@@ -72,6 +75,17 @@
           var icono = document.querySelector('link[rel="apple-touch-icon"]');
           if (icono) {
             icono.setAttribute('href', '/app-icon.png?s=' + encodeURIComponent(slug));
+          }
+
+          // Modo standalone en iOS: SOLO con escuela. Declararlo siempre
+          // cambiaria como se abre la app para todos los usuarios de SportMaps
+          // que la tengan agregada a inicio, y eso no es parte de lo que se
+          // vendio ni algo que se deba cambiar de refilon.
+          if (!document.querySelector('meta[name="apple-mobile-web-app-capable"]')) {
+            var metaCapaz = document.createElement('meta');
+            metaCapaz.setAttribute('name', 'apple-mobile-web-app-capable');
+            metaCapaz.setAttribute('content', 'yes');
+            document.head.appendChild(metaCapaz);
           }
 
           // Nombre en iOS. Se guarda junto al slug cuando la app ya supo a que

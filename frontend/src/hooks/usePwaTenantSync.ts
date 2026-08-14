@@ -14,13 +14,23 @@
 import { useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { applyIosMetaTags, setPwaTenant, setTenantCache } from '@/pwa/tenant';
 
 export function usePwaTenantSync(): void {
     const { schoolId } = useSchoolContext();
+    const entitlements = useEntitlements();
+
+    // Gate imprescindible: sin esto se guardaba el nombre de CUALQUIER escuela.
+    // El manifest y el icono igual lo frenaban (el BFF valida el addon), pero el
+    // <title> y apple-mobile-web-app-title son puro DOM y no pasan por el
+    // servidor: una escuela sin la marca comprada terminaba con su nombre en el
+    // icono de iOS, y su nombre cacheado hacia parpadear el login.
+    const muestraSuMarca =
+        entitlements.addons.pwa_branding === true || entitlements.addons.whitelabel === true;
 
     useEffect(() => {
-        if (!schoolId) return;
+        if (!schoolId || !muestraSuMarca) return;
         let cancelado = false;
 
         (async () => {
@@ -56,5 +66,5 @@ export function usePwaTenantSync(): void {
         })();
 
         return () => { cancelado = true; };
-    }, [schoolId]);
+    }, [schoolId, muestraSuMarca]);
 }

@@ -34,10 +34,14 @@ export function InstallBanner() {
     window.addEventListener('beforeinstallprompt', onBeforePrompt)
     window.addEventListener('appinstalled', onInstalled)
 
-    // iOS: se muestra solo si esta en Safari (no ya instalada) y no lo cerraron.
+    // iOS: se muestra solo si hay ESCUELA, esta en Safari (no ya instalada) y no
+    // lo cerraron. El gate por escuela es deliberado: en iOS no existe boton de
+    // instalar, asi que este banner es contenido nuevo, y aparecerle de golpe a
+    // todos los usuarios de SportMaps seria un cambio de producto que nadie
+    // pidio. Se limita a quien viene de la app de su escuela.
     try {
       const yaCerrado = localStorage.getItem(IOS_DISMISS_KEY) === '1'
-      if (isIos() && getDisplayMode() === 'browser' && !yaCerrado) {
+      if (slug && isIos() && getDisplayMode() === 'browser' && !yaCerrado) {
         setMostrarIos(true)
       }
     } catch { /* modo privado: no se muestra, no se rompe */ }
@@ -47,7 +51,7 @@ export function InstallBanner() {
       window.removeEventListener('beforeinstallprompt', onBeforePrompt)
       window.removeEventListener('appinstalled', onInstalled)
     }
-  }, [])
+  }, [slug])
 
   const cerrarIos = () => {
     setMostrarIos(false)
