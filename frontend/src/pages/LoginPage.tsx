@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, Eye, EyeOff, Users, Mail, ArrowLeft, CheckCircle2, Lock, ArrowRight, School } from 'lucide-react';
 import { useInvitationBranding } from '@/hooks/useInvitationBranding';
+import { usePublicTenant } from '@/hooks/usePublicTenant';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { cn } from '@/lib/utils';
 import { GoogleSignInButton, AuthDivider } from '@/components/auth/GoogleSignInButton';
@@ -41,6 +42,10 @@ export default function LoginPage() {
 
   // Load branding if we have an invite id
   const inviteBranding = useInvitationBranding(inviteId);
+  // Escuela "duenia" de esta pantalla cuando se entra desde la app instalada de
+  // una escuela (?t=<slug>). null = se ve SportMaps, que es lo correcto para
+  // quien entra por la web general.
+  const { tenant } = usePublicTenant();
 
   useEffect(() => {
     if (inviteId) {
@@ -154,7 +159,7 @@ export default function LoginPage() {
           <div className="w-[38px] h-[38px] bg-[#248223] rounded-[10px] flex items-center justify-center">
             <svg viewBox="0 0 24 24" className="w-[22px] h-[22px] fill-white"><path d="M12 2C8.5 2 6 5 6 8c0 4 6 12 6 12s6-8 6-12c0-3-2.5-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z"/></svg>
           </div>
-          <span className="logo-name font-extrabold text-xl tracking-tight">SportMaps</span>
+          <span className="logo-name font-extrabold text-xl tracking-tight">{tenant?.name ?? 'SportMaps'}</span>
         </div>
 
         <div className="relative z-10">
@@ -187,12 +192,25 @@ export default function LoginPage() {
       <div className="flex-1 flex items-center justify-center p-6 md:p-12">
         <div className="w-full max-w-[420px] animate-in slide-in-from-bottom-6 duration-500 ease-out">
           
-          {/* Logo Mobile */}
+          {/* Logo Mobile.
+              Si el visitante viene de la app instalada de una escuela (?t=<slug>
+              o el slug guardado), se muestra SU logo y SU nombre. El gate lo hace
+              el servidor: get_school_by_slug solo devuelve datos si la escuela
+              tiene el addon de marca, asi que un slug inventado cae al de
+              SportMaps. */}
           <div className="lg:hidden flex items-center gap-2 mb-8 justify-center">
-            <div className="w-8 h-8 bg-[#248223] rounded-lg flex items-center justify-center">
-              <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white"><path d="M12 2C8.5 2 6 5 6 8c0 4 6 12 6 12s6-8 6-12c0-3-2.5-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z"/></svg>
-            </div>
-            <span className="logo-name font-bold text-lg">SportMaps</span>
+            {tenant?.logo_url ? (
+              <img
+                src={tenant.logo_url}
+                alt={tenant.name}
+                className="w-8 h-8 rounded-lg object-contain bg-white/5"
+              />
+            ) : (
+              <div className="w-8 h-8 bg-[#248223] rounded-lg flex items-center justify-center">
+                <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white"><path d="M12 2C8.5 2 6 5 6 8c0 4 6 12 6 12s6-8 6-12c0-3-2.5-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z"/></svg>
+              </div>
+            )}
+            <span className="logo-name font-bold text-lg">{tenant?.name ?? 'SportMaps'}</span>
           </div>
 
           {!showForgotPassword ? (

@@ -27,7 +27,14 @@ export default function AuthLayout() {
 
   // Logo escuela en header: usar el del context (ya lo hace fetch
   // useSchoolContext.fetchSchoolBranding). Sirve para feature gate por tier.
-  const schoolLogo = entitlements.addons.whitelabel ? (schoolBranding?.logo_url ?? null) : null;
+  // Los dos addons de marca habilitan el logo en el header: `whitelabel` (app
+  // nativa) y `pwa_branding` (PWA con marca propia). Con solo whitelabel, una
+  // escuela que compro pwa_branding veia su logo en el icono de la app pero no
+  // adentro. El gate real de la escuela activa ya lo resolvio useEntitlements.
+  const schoolLogo =
+    entitlements.addons.whitelabel || entitlements.addons.pwa_branding
+      ? (schoolBranding?.logo_url ?? null)
+      : null;
 
   const showSchoolBranding = ['owner', 'admin', 'school_admin', 'school', 'coach'].includes(currentUserRole || '');
   const isCoach = currentUserRole === 'coach';
