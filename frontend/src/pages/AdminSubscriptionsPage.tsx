@@ -22,11 +22,15 @@ const ADDONS: { key: string; label: string; icon: string; note?: string }[] = [
   { key: 'nutrition',      label: 'Nutrición',              icon: '🥗' },
   { key: 'biomech',        label: 'Biomecánica',            icon: '📈' },
   { key: 'access_control', label: 'Control de acceso',      icon: '🔐', note: 'Hardware' },
-  { key: 'whitelabel',     label: 'App White-Label',        icon: '🎨', note: 'App nativa propia' },
-  // OJO: distinto de whitelabel. Esto es solo la PWA — al instalarla desde el
-  // navegador sale con el logo y el nombre de la escuela. No incluye app nativa.
-  // Tampoco se hereda: si se contrata White-Label hay que prender los dos.
-  { key: 'pwa_branding',   label: 'PWA con marca propia',   icon: '📲', note: 'Logo al instalar' },
+  // ── Los DOS productos de marca. No confundirlos ──────────────────────────
+  // pwa_branding = la marca se MUESTRA (manifest, iconos, login, colores) en
+  //                web, Android e iOS. Se instala desde el navegador.
+  // whitelabel   = ADEMAS app NATIVA propia en App Store y Play Store, y es el
+  //                unico que permite ocultar el "powered by SportMaps".
+  // Prender whitelabel prende tambien pwa_branding (ver toggleAddon): la
+  // herencia se aplica al otorgar, nunca al leer.
+  { key: 'pwa_branding',   label: 'PWA con marca propia',   icon: '📲', note: 'Se instala del navegador · incluye iOS' },
+  { key: 'whitelabel',     label: 'App nativa propia',      icon: '🎨', note: 'App Store + Play Store · sin atribución' },
   { key: 'whatsapp',       label: 'WhatsApp campañas',      icon: '💬' },
   { key: 'wompi',          label: 'Pasarela Wompi',         icon: '💳' },
   { key: 'mp',             label: 'Pasarela MercadoPago',   icon: '💳' },
@@ -100,9 +104,45 @@ export default function AdminSubscriptionsPage() {
     const { error } = await supabase.rpc('admin_set_school_addon' as any, {
       p_school_id: selected.id, p_addon_key: key, p_enabled: next,
     });
-    setSavingKey(null);
-    if (error) { toast({ title: 'No se pudo cambiar', description: error.message, variant: 'destructive' }); return; }
+    if (error) {
+      setSavingKey(null);
+      toast({ title: 'No se pudo cambiar', description: error.message, variant: 'destructive' });
+      return;
+    }
     setEnt((prev) => prev ? { ...prev, [`has_${key}`]: next } : prev);
+
+    // La app nativa INCLUYE la marca del PWA. Esa herencia se aplica al
+    // OTORGAR, nunca al leer: si se resolviera en una vista con un OR, todo el
+    // sistema tendria dos reglas para la misma pregunta y bastaria con que una
+    // quedara desincronizada para que una escuela tuviera el icono con su logo
+    // y los colores de SportMaps adentro. Ya paso: un OR en la vista activo la
+    // marca en 29 escuelas de golpe (migraciones 20260814104612 / 105131).
+    //
+    // Al apagar white-label NO se apaga pwa_branding: puede haberse vendido
+    // suelto, y decidir eso no le corresponde a este toggle.
+    if (key === 'whitelabel' && next) {
+      const { error: errPwa } = await supabase.rpc('admin_set_school_addon' as any, {
+        p_school_id: selected.id, p_addon_key: 'pwa_branding', p_enabled: true,
+      });
+      if (!errPwa) {
+        setEnt((prev) => prev ? { ...prev, has_pwa_branding: true } : prev);
+        toast({
+          title: 'App propia activada',
+          description: 'Se activó también "PWA con marca propia": la app nativa la incluye.',
+        });
+        setSavingKey(null);
+        return;
+      }
+      toast({
+        title: 'Ojo: quedó a medias',
+        description: 'Se activó la app propia pero NO la marca del PWA. Prendela a mano.',
+        variant: 'destructive',
+      });
+      setSavingKey(null);
+      return;
+    }
+
+    setSavingKey(null);
     toast({ title: next ? 'Módulo activado' : 'Módulo desactivado', description: `${key} · ${selected.name}` });
   }
 

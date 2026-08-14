@@ -98,6 +98,29 @@ export interface Entitlements {
     isBlockingExempt: boolean;
     /** Cuenta nuestra (test/demo): nunca se avisa ni se bloquea. */
     isTestAccount: boolean;
+
+    // ── Marca: DOS productos distintos, no confundirlos ──────────────────────
+    //
+    // Se exponen como derivados para que nadie tenga que recordar que addon
+    // mira cada caso. Antes esto vivia como `addons.whitelabel || addons.x`
+    // repetido en BrandingScope, AuthLayout y usePwaTenantSync, y alcanzaba con
+    // que uno quedara desincronizado para que una escuela tuviera el icono con
+    // su logo pero los colores de SportMaps adentro.
+    //
+    // Espejo exacto de las funciones de la BD:
+    //   marcaPropia → school_shows_own_brand()  (addon pwa_branding)
+    //   appNativa   → school_has_native_app()   (addon whitelabel)
+
+    /** Se le MUESTRA su marca: manifest, iconos, login, colores. Web/Android/iOS. */
+    marcaPropia: boolean;
+
+    /**
+     * Tiene app NATIVA propia en App Store / Play Store.
+     * Producto mayor. Es el unico que habilita ocultar el "powered by
+     * SportMaps". Contratarlo debe otorgar TAMBIEN pwa_branding: la herencia se
+     * aplica al otorgar, nunca al leer.
+     */
+    appNativa: boolean;
 }
 
 export interface EntitlementsHelpers {
@@ -155,6 +178,8 @@ const EMPTY_ENTITLEMENTS: Entitlements = {
     isBlocked: false,
     isBlockingExempt: false,
     isTestAccount: false,
+    marcaPropia: false,
+    appNativa: false,
 };
 
 // ============================================================
@@ -261,6 +286,8 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
             isBlocked: data.is_operational === false,
             isBlockingExempt: data.blocking_exempt === true,
             isTestAccount,
+            marcaPropia: (data.has_pwa_branding ?? false) === true,
+            appNativa: data.has_whitelabel === true,
         };
     }, [query.data]);
 

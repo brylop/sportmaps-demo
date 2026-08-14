@@ -53,12 +53,12 @@ export function BrandingSettingsForm() {
     // (school_has_branding_feature, que usa el RPC update_school_branding) SI
     // mira el tier, asi que una escuela puede pasar uno y no el otro. El addon
     // es el que refleja lo vendido y hace de allowlist del rollout.
-    const hasWhitelabel = entitlements.hasFeature('pwa_branded_install');
+    const hasWhitelabel = entitlements.marcaPropia;
 
-    // El "Powered by SportMaps" solo lo apaga quien contrato la app nativa de
+    // El "Powered by SportMaps" solo lo apaga quien contrato la app NATIVA de
     // marca blanca. Con `pwa_branding` a secas la atribucion es fija: es lo que
-    // hace que subir a white-label tenga sentido. Espejo del gate de la RPC.
-    const puedeApagarWatermark = entitlements.addons.whitelabel === true;
+    // hace que subir a app propia tenga sentido. Espejo de school_has_native_app().
+    const puedeApagarWatermark = entitlements.appNativa;
 
     // Re-init defaults cuando cambie schoolId o llegue el branding del context.
     useEffect(() => {

@@ -26,8 +26,7 @@ export function usePwaTenantSync(): void {
     // <title> y apple-mobile-web-app-title son puro DOM y no pasan por el
     // servidor: una escuela sin la marca comprada terminaba con su nombre en el
     // icono de iOS, y su nombre cacheado hacia parpadear el login.
-    const muestraSuMarca =
-        entitlements.addons.pwa_branding === true || entitlements.addons.whitelabel === true;
+    const muestraSuMarca = entitlements.marcaPropia;
 
     useEffect(() => {
         if (!schoolId || !muestraSuMarca) return;
