@@ -97,3 +97,5 @@ select public.user_school_ids(), public.user_staff_school_ids(), public.user_adm
 
 - Este es el `CLAUDE.md` del repo (SportMaps). El `~/.claude/CLAUDE.md` global es de **otro contexto** (pipeline RCM/QA de Osigu) — no aplicarlo aquí.
 - Specs de módulos en `docs/specs/`. Planes/roadmaps en `docs/`.
+- **`docs/gotchas-tecnicos.md`** — trampas que ya costaron horas y no se deducen leyendo el código (una sola Supabase para todos los ambientes, `payments.status` es TEXT, los dos `vercel.json`, íconos PWA, `localStorage` entre usuarios…). Léelo antes de pelearte con algo que parece inexplicable.
+- **`docs/auditoria-seguridad-2026-08-14.md`** — qué se encontró, qué se cerró y **qué queda pendiente**.
