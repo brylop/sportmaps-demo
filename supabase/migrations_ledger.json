@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 355,
-  "head": "20260814190911",
+  "count": 356,
+  "head": "20260814193412",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -358,6 +358,7 @@
     {"v":"20260814185532","file":"20260814185532_cerrar_staff_publico_correos_y_telefonos.sql","sha256":"b994c74bfd9d800b63aeb2d6c940f5bfb27c681855c9fa44b1dd6680b424456f","added":"2026-08-14","by":"brylop"},
     {"v":"20260814190138","file":"20260814190138_cerrar_reservas_visibles_a_anon.sql","sha256":"a1f222ccbbf1234db5482945e268178efbf907ec9d9faa0b0ca9561e9f29db4d","added":"2026-08-15","by":"brylop"},
     {"v":"20260814190601","file":"20260814190601_cerrar_datos_bancarios_publicos_en_school_settings.sql","sha256":"f657b3c5447d616ec1918a4118271eebc1cb75360d8b8bdfecf89bf3fddf2069","added":"2026-08-15","by":"brylop"},
-    {"v":"20260814190911","file":"20260814190911_cerrar_leads_comerciales_en_demo_links.sql","sha256":"3fa21fea5c6197523973fab6cf1ebca96a41b4b54ca7c03233bd05d091f5b637","added":"2026-08-15","by":"brylop"}
+    {"v":"20260814190911","file":"20260814190911_cerrar_leads_comerciales_en_demo_links.sql","sha256":"3fa21fea5c6197523973fab6cf1ebca96a41b4b54ca7c03233bd05d091f5b637","added":"2026-08-15","by":"brylop"},
+    {"v":"20260814193412","file":"20260814193412_guardar_fondo_del_icono_pwa.sql","sha256":"b406aa88ca1c71cf9062f020fe58510095e684d0a3b275281cfb152884ac9788","added":"2026-08-15","by":"brylop"}
   ]
 }

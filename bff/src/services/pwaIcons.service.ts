@@ -263,11 +263,18 @@ export async function generarIconosPwa(opts: {
         urls[size] = `${data.publicUrl}?v=${Date.now()}`;
     }
 
+    const rgbAHex = ({ r, g, b }: Rgb) =>
+        '#' + [r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+
     const { data: rpc, error: rpcErr } = await supabase.rpc('set_school_pwa_icons', {
         p_school_id: schoolId,
         p_icon_192: urls[192],
         p_icon_512: urls[512],
         p_actor: actorId,
+        // Se guarda el fondo que se USO, no el color de la escuela: el manifest
+        // lo lee para background_color. Sin esto el splash queda de un color y
+        // el icono de otro — con Besser daba pantalla roja y cuadrado negro.
+        p_bg: rgbAHex(fondo),
     });
 
     if (rpcErr) return { ok: false, error: `rpc_fallida: ${rpcErr.message}` };

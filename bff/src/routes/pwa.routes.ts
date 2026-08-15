@@ -145,13 +145,17 @@ async function buildManifest(slug: string): Promise<Record<string, unknown>> {
         name: school.name,
         short_name: toShortName(school.name),
         description: `App de ${school.name}. Inscripciones, pagos y seguimiento deportivo.`,
+        // theme_color pinta la barra del navegador: ahi si va la marca.
         theme_color: color,
-        // El splash de Android es background_color + el icono 512 centrado.
-        // Con el blanco por defecto se veia el cuadrado de color del icono
-        // flotando sobre blanco, y la foto todavia mas adentro por el padding
-        // maskable: tres capas. Usando el color de la escuela queda un fondo
-        // continuo con el logo encima.
-        background_color: color,
+        // background_color arma el splash de Android (fondo + icono centrado), y
+        // por eso tiene que ser EL MISMO fondo que quedo dentro del icono, no el
+        // color de la escuela.
+        //
+        // El generador elige el fondo mirando el logo: si el logo trae uno
+        // solido lo extiende. Con Besser eso dio negro mientras su color es
+        // rojo, y el splash habria sido una pantalla roja con un cuadrado negro
+        // en el medio. `pwa_icon_bg` es lo que el generador uso de verdad.
+        background_color: safeHex(settings.pwa_icon_bg, color),
         icons: [
             { src: icon192, sizes: '192x192', type: 'image/png', purpose: 'any' },
             { src: icon512, sizes: '512x512', type: 'image/png', purpose: 'any' },
