@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 352,
-  "head": "20260814185532",
+  "count": 353,
+  "head": "20260814190138",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -355,6 +355,7 @@
     {"v":"20260814184457","file":"20260814184457_piso_rls_padres_no_gestionan_staff_ni_invitaciones.sql","sha256":"d019ba069dabede263e9719fc42b627bc3f4bc80bc862db4b52e1f957b096f20","added":"2026-08-14","by":"brylop"},
     {"v":"20260814184728","file":"20260814184728_cerrar_autoinsercion_en_school_staff.sql","sha256":"504564e54c49a3c26ed9b3d4c3dda3546bc0c59a16afa638456f7b00fa3df101","added":"2026-08-14","by":"brylop"},
     {"v":"20260814185120","file":"20260814185120_padres_no_escriben_tablas_operativas.sql","sha256":"d9e55dc4aa0557ed12cfc918b1804f656cf81058006fe9a6a1360ac8e6add3d1","added":"2026-08-14","by":"brylop"},
-    {"v":"20260814185532","file":"20260814185532_cerrar_staff_publico_correos_y_telefonos.sql","sha256":"b994c74bfd9d800b63aeb2d6c940f5bfb27c681855c9fa44b1dd6680b424456f","added":"2026-08-14","by":"brylop"}
+    {"v":"20260814185532","file":"20260814185532_cerrar_staff_publico_correos_y_telefonos.sql","sha256":"b994c74bfd9d800b63aeb2d6c940f5bfb27c681855c9fa44b1dd6680b424456f","added":"2026-08-14","by":"brylop"},
+    {"v":"20260814190138","file":"20260814190138_cerrar_reservas_visibles_a_anon.sql","sha256":"a1f222ccbbf1234db5482945e268178efbf907ec9d9faa0b0ca9561e9f29db4d","added":"2026-08-15","by":"brylop"}
   ]
 }
