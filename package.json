@@ -313,6 +313,7 @@
     "prepare": "git config core.hooksPath .husky",
     "migrations": "node scripts/migrations.mjs",
     "migrations:list": "node scripts/migrations.mjs list",
+    "migrations:pendientes": "node scripts/migraciones-pendientes.mjs",
     "migrations:check": "node scripts/migrations.mjs check",
     "migrations:sync": "node scripts/migrations.mjs sync",
     "migrations:next": "node scripts/migrations.mjs next",
