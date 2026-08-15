@@ -107,8 +107,11 @@ class SchoolsAPI {
         // tienen en true, así que esto no cambia nada para nadie — pero si una
         // apaga "mostrar tarifas", su perfil público deja de publicarlas en vez
         // de que este mapeo las saque igual.
+        // Vista y no school_settings: este perfil lo ve cualquiera sin sesión, y
+        // la tabla base tiene número de cuenta, cédula del titular, llaves de
+        // transferencia y payment_accounts. Ver migración 20260814190601.
         const { data: settings } = await supabase
-            .from('school_settings')
+            .from('v_school_settings_publico')
             .select('show_programs, show_plans, show_facilities')
             .eq('school_id', school.id)
             .maybeSingle();
