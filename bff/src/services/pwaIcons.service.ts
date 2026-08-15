@@ -78,6 +78,49 @@ function elegirFondo(dominante: Rgb, primario: Rgb): Rgb {
     return contraste(dominante, NEGRO) >= contraste(dominante, BLANCO) ? NEGRO : BLANCO;
 }
 
+/**
+ * Devuelve el color de fondo PROPIO del logo, o null si es transparente o no
+ * tiene un fondo uniforme.
+ *
+ * Se mira una esquina: si el logo trae fondo solido, ahi esta. Se descarta
+ * cuando hay transparencia (alpha bajo) porque en ese caso el fondo lo tiene
+ * que poner el icono.
+ *
+ * Sirve para que un JPG --que no admite transparencia y por eso SIEMPRE llega
+ * con fondo-- produzca un icono que parece el logo extendido, en vez del logo
+ * recortado y pegado sobre otro color.
+ */
+async function colorDeFondoDelLogo(logo: Buffer): Promise<Rgb | null> {
+    try {
+        const meta = await sharp(logo, { density: 384 }).metadata();
+        const w = meta.width ?? 0;
+        const h = meta.height ?? 0;
+        if (w < 16 || h < 16) return null;
+
+        const lado = Math.max(4, Math.floor(Math.min(w, h) * 0.03));
+        const esquina = await sharp(logo, { density: 384 })
+            .extract({ left: 0, top: 0, width: lado, height: lado })
+            .ensureAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+
+        const { data, info } = esquina;
+        let r = 0, g = 0, b = 0, a = 0, n = 0;
+        for (let i = 0; i < data.length; i += info.channels) {
+            r += data[i]; g += data[i + 1]; b += data[i + 2]; a += data[i + 3];
+            n++;
+        }
+        if (!n) return null;
+
+        // Esquina transparente → el logo no trae fondo propio.
+        if (a / n < 200) return null;
+
+        return { r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n) };
+    } catch {
+        return null;
+    }
+}
+
 async function descargarLogo(logoUrl: string): Promise<Buffer | null> {
     try {
         const res = await fetch(logoUrl);
@@ -167,19 +210,30 @@ export async function generarIconosPwa(opts: {
     const logo = await descargarLogo(logoUrl);
     if (!logo) return { ok: false, error: 'logo_no_descargable' };
 
-    // Color dominante del logo para decidir el fondo. `stats()` lo calcula sobre
-    // la imagen completa; alcanza de sobra para saber si el logo es claro u
-    // oscuro y si choca con el color de la escuela.
+    // ── Elegir el fondo del icono ────────────────────────────────────────────
     //
-    // Si falla (formato raro), se asume gris medio: no rompe, solo hace que la
-    // eleccion caiga en el color de la escuela como antes.
-    let dominante = { r: 128, g: 128, b: 128 };
-    try {
-        const stats = await sharp(logo, { density: 384 }).stats();
-        if ((stats as any).dominant) dominante = (stats as any).dominant;
-    } catch { /* se queda con el gris medio */ }
+    // 1. Si el logo YA trae un fondo solido (tipico de los JPG, que no admiten
+    //    transparencia), se usa ESE color. Asi el icono es el logo extendido
+    //    hasta los bordes y no se nota el pegado. Sin esto, un logo sobre negro
+    //    puesto sobre el rojo de la escuela queda como un rectangulo negro
+    //    dentro de un cuadrado rojo — el caso real que motivo este cambio.
+    //
+    // 2. Si el logo es transparente (PNG/SVG), se elige por contraste contra su
+    //    color dominante, prefiriendo el color de la escuela cuando separa.
+    let fondo: Rgb;
+    const propio = await colorDeFondoDelLogo(logo);
 
-    const fondo = elegirFondo(dominante, hexToRgb(opts.backgroundColor || '#FFFFFF'));
+    if (propio) {
+        fondo = propio;
+    } else {
+        let dominante: Rgb = { r: 128, g: 128, b: 128 };
+        try {
+            const stats = await sharp(logo, { density: 384 }).stats();
+            if ((stats as any).dominant) dominante = (stats as any).dominant;
+        } catch { /* gris medio: la eleccion cae en el color de la escuela */ }
+
+        fondo = elegirFondo(dominante, hexToRgb(opts.backgroundColor || '#FFFFFF'));
+    }
     const urls: Record<number, string> = {};
 
     for (const size of SIZES) {
