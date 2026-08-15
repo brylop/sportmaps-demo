@@ -41,6 +41,43 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
     return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 
+type Rgb = { r: number; g: number; b: number };
+
+/** Luminancia relativa (WCAG). Sirve para medir contraste de verdad, no "a ojo". */
+function luminancia({ r, g, b }: Rgb): number {
+    const canal = (v: number) => {
+        const s = v / 255;
+        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * canal(r) + 0.7152 * canal(g) + 0.0722 * canal(b);
+}
+
+function contraste(a: Rgb, b: Rgb): number {
+    const la = luminancia(a);
+    const lb = luminancia(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/**
+ * Elige el fondo del icono por CONTRASTE con el logo, no a ciegas.
+ *
+ * Antes se usaba siempre el color primario de la escuela, y eso se rompe en el
+ * caso mas comun: el color primario suele salir DEL logo. El escudo rojo de una
+ * escuela cuyo primario es rojo quedaba como una mancha roja sobre roja.
+ *
+ * Se prefiere el color de la escuela porque es su marca, pero solo si separa lo
+ * suficiente del logo (3:1, el minimo de WCAG para elementos graficos). Si no,
+ * se cae a blanco o negro, el que mas contraste de.
+ */
+function elegirFondo(dominante: Rgb, primario: Rgb): Rgb {
+    const BLANCO: Rgb = { r: 255, g: 255, b: 255 };
+    const NEGRO: Rgb = { r: 0, g: 0, b: 0 };
+
+    if (contraste(dominante, primario) >= 3) return primario;
+
+    return contraste(dominante, NEGRO) >= contraste(dominante, BLANCO) ? NEGRO : BLANCO;
+}
+
 async function descargarLogo(logoUrl: string): Promise<Buffer | null> {
     try {
         const res = await fetch(logoUrl);
@@ -130,7 +167,19 @@ export async function generarIconosPwa(opts: {
     const logo = await descargarLogo(logoUrl);
     if (!logo) return { ok: false, error: 'logo_no_descargable' };
 
-    const fondo = hexToRgb(opts.backgroundColor || '#FFFFFF');
+    // Color dominante del logo para decidir el fondo. `stats()` lo calcula sobre
+    // la imagen completa; alcanza de sobra para saber si el logo es claro u
+    // oscuro y si choca con el color de la escuela.
+    //
+    // Si falla (formato raro), se asume gris medio: no rompe, solo hace que la
+    // eleccion caiga en el color de la escuela como antes.
+    let dominante = { r: 128, g: 128, b: 128 };
+    try {
+        const stats = await sharp(logo, { density: 384 }).stats();
+        if ((stats as any).dominant) dominante = (stats as any).dominant;
+    } catch { /* se queda con el gris medio */ }
+
+    const fondo = elegirFondo(dominante, hexToRgb(opts.backgroundColor || '#FFFFFF'));
     const urls: Record<number, string> = {};
 
     for (const size of SIZES) {
