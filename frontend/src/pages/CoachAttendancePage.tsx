@@ -501,12 +501,20 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
       const presentEntries = Object.entries(attendanceState).filter(([, s]) => s === 'present');
       const otherEntries   = Object.entries(attendanceState).filter(([, s]) => s !== 'present');
       const walkInErrors: string[] = [];
+      // El atleta sin inscripción no se puede mandar al BFF (la ruta exige
+      // enrollmentId). Antes se lo saltaba con un `continue` mudo y el guardado
+      // terminaba con el toast verde: el entrenador creía haber pasado lista y
+      // ese atleta no quedaba registrado en ningún lado. Se cuentan y se avisan.
+      const sinInscripcion: string[] = [];
       const tally = newTally();
 
       // Presentes → walk-in con descuento
       for (const [id] of presentEntries) {
         const a = athletes.find((x) => x.id === id);
-        if (!a || !a.enrollment_id) continue;
+        if (!a || !a.enrollment_id) {
+          sinInscripcion.push(a?.full_name ?? 'Un atleta');
+          continue;
+        }
         const payload: any = { enrollmentId: a.enrollment_id, is_secondary: isSecondary, status: 'present' };
         if (isTeam)     payload.teamId     = selectedTeamId;
         if (isSession)  payload.sessionId  = selectedSessionId;
@@ -568,7 +576,10 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
           // Offering → walk-in por cada atleta (sin descuento porque status != present)
           for (const [id, status] of otherEntries) {
             const a = athletes.find((x) => x.id === id);
-            if (!a?.enrollment_id) continue;
+            if (!a?.enrollment_id) {
+              sinInscripcion.push(a?.full_name ?? 'Un atleta');
+              continue;
+            }
             const payload: any = {
               enrollmentId: a.enrollment_id,
               offeringId:   selectedOfferingId,
@@ -596,6 +607,12 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
         }
       }
 
+      if (sinInscripcion.length) {
+        walkInErrors.push(
+          `${sinInscripcion.join(', ')}: sin inscripción activa — NO se registró su asistencia. ` +
+          `Asígnale un plan desde Atletas y vuelve a pasarle lista.`
+        );
+      }
       if (walkInErrors.length) throw new Error(walkInErrors.join('\n'));
       return tally;
     },
@@ -604,7 +621,14 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
       queryClient.invalidateQueries({ queryKey: ['attendance-roster', contextType, contextId] });
       toast({ title: '✅ Asistencia guardada', description: describeCredits(t) });
     },
-    onError: (e: any) => toast({ title: 'Algunos registros no se guardaron', description: e.message, variant: 'destructive' }),
+    onError: (e: any) => {
+      // El guardado es atleta por atleta: un fallo parcial deja parte grabada.
+      // Sin refrescar, la pantalla seguiría mostrando el estado optimista y el
+      // entrenador no sabría cuáles sí entraron.
+      queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedItem] });
+      queryClient.invalidateQueries({ queryKey: ['attendance-roster', contextType, contextId] });
+      toast({ title: 'Algunos registros no se guardaron', description: e.message, variant: 'destructive' });
+    },
   });
 
   const finalizeMutation = useMutation({

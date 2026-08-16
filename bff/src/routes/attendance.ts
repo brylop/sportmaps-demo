@@ -278,17 +278,72 @@ function planSummary(credit: CreditEnrollment | null, booking?: FreeBooking | nu
 }
 
 // GET /session/:teamId — sesión de hoy + registros (ahora incluye unregistered_athlete_id)
+// ─────────────────────────────────────────────────────────────────────────────
+// La sesión del equipo para un día NO es única.
+//
+// El índice único es (team_id, session_date, coalesce(start_time,'00:00')), así
+// que un equipo con dos bloques reservables el mismo día tiene DOS filas. Las
+// tres rutas de equipo resolvían con `.maybeSingle()`, que ante dos filas lanza
+// PGRST116 y le devolvía al entrenador un 500 pelado: ese día el equipo entero
+// se quedaba sin poder pasar lista. La rama de `offering` ya lo resolvía bien
+// (409 `multiple_sessions_today`); esto lleva el mismo criterio a los equipos.
+// ─────────────────────────────────────────────────────────────────────────────
+type TeamSessionRow = { id: string; finalized: boolean | null; start_time: string | null };
+type TeamSessionLookup =
+  | { kind: 'none' }
+  | { kind: 'one';  session: any }
+  | { kind: 'many'; sessions: TeamSessionRow[] };
+
+async function findTeamSessionOfDay(
+  teamId: string,
+  date: string,
+  columns = 'id, finalized, start_time',
+): Promise<TeamSessionLookup> {
+  const { data, error } = await supabase
+    .from('attendance_sessions')
+    .select(columns)
+    .eq('team_id', teamId)
+    .eq('session_date', date)
+    .order('start_time', { ascending: true, nullsFirst: true });
+  if (error) throw error;
+
+  const rows = (data || []) as any[];
+  if (rows.length === 0) return { kind: 'none' };
+  if (rows.length === 1) return { kind: 'one', session: rows[0] };
+
+  // Un bloque sin hora es la clase del día de toda la vida. Si hay exactamente
+  // uno así, no hay ambigüedad: los demás son bloques reservables con horario.
+  const sinHora = rows.filter(r => !r.start_time);
+  if (sinHora.length === 1) return { kind: 'one', session: sinHora[0] };
+
+  return { kind: 'many', sessions: rows as TeamSessionRow[] };
+}
+
+const MULTIPLE_SESSIONS_MSG =
+  'Este equipo tiene varios bloques hoy. Elige el bloque específico antes de pasar lista.';
+
 router.get('/session/:teamId', requireAuth, requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const { teamId } = req.params;
+      const teamId = req.params.teamId as string;
       const today = todayString();
-      const { data: session, error: sessionErr } = await supabase
-        .from('attendance_sessions')
-        .select('id, team_id, session_date, finalized, finalized_at, created_by, created_at')
-        .eq('team_id', teamId).eq('session_date', today).maybeSingle();
-      if (sessionErr) throw sessionErr;
-      if (!session) return res.json({ session: null, records: [] });
+      const lookup = await findTeamSessionOfDay(
+        teamId, today,
+        'id, team_id, session_date, finalized, finalized_at, created_by, created_at, start_time',
+      );
+
+      // Ambiguo: se responde 200 con la lista para que la pantalla ofrezca
+      // elegir bloque, en vez de romperse. El 409 lo dan POST y walk-in.
+      if (lookup.kind === 'many') {
+        return res.json({
+          session: null,
+          records: [],
+          sessions: lookup.sessions,
+          reason: 'multiple_sessions_today',
+        });
+      }
+      if (lookup.kind === 'none') return res.json({ session: null, records: [] });
+      const session = lookup.session;
       const { data: records, error: recordsErr } = await supabase
         .from('attendance_records')
         .select('child_id, user_id, unregistered_athlete_id, status')
@@ -678,10 +733,19 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
         if (error) throw error;
         if (existing?.finalized) return res.status(409).json({ error: 'La sesión ya fue finalizada y no puede modificarse.', finalized: true });
       } else if (teamId) {
-        const { data: existing, error } = await supabase.from('attendance_sessions').select('id, finalized').eq('team_id', teamId).eq('session_date', today).maybeSingle();
-        if (error) throw error;
-        if (existing?.finalized) return res.status(409).json({ error: 'La sesión de hoy ya fue finalizada.', finalized: true });
-        if (existing) existingSessionId = existing.id;
+        const lookup = await findTeamSessionOfDay(teamId, today);
+        if (lookup.kind === 'many') {
+          return res.status(409).json({
+            error: MULTIPLE_SESSIONS_MSG,
+            reason: 'multiple_sessions_today',
+            sessions: lookup.sessions,
+          });
+        }
+        if (lookup.kind === 'one') {
+          if (lookup.session.finalized)
+            return res.status(409).json({ error: 'La sesión de hoy ya fue finalizada.', finalized: true });
+          existingSessionId = lookup.session.id;
+        }
       }
 
       let finalSessionId = existingSessionId;
@@ -897,7 +961,15 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
           return res.status(404).json({ error: 'No hay sesión activa para este plan hoy.', reason: 'no_session' });
         }
       } else if (!finalSessionId && teamId) {
-        const { data: existing } = await supabase.from('attendance_sessions').select('id, finalized').eq('team_id', teamId).eq('session_date', today).maybeSingle();
+        const lookup = await findTeamSessionOfDay(teamId, today);
+        if (lookup.kind === 'many') {
+          return res.status(409).json({
+            error: MULTIPLE_SESSIONS_MSG,
+            reason: 'multiple_sessions_today',
+            sessions: lookup.sessions,
+          });
+        }
+        const existing = lookup.kind === 'one' ? lookup.session : null;
         if (existing?.finalized) return res.status(409).json({ error: 'La sesión de hoy ya fue finalizada.' });
         if (existing) {
           finalSessionId = existing.id;
