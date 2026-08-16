@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 360,
-  "head": "20260814195535",
+  "count": 362,
+  "head": "20260816184104",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -363,6 +363,8 @@
     {"v":"20260814194111","file":"20260814194111_rpc_listar_migraciones_aplicadas.sql","sha256":"856e005fba42e9a5e2bbe9eebea8462fcf25a6064dd4060282547e0d9cbde847","added":"2026-08-15","by":"brylop"},
     {"v":"20260814194235","file":"20260814194235_migraciones_aplicadas_devuelve_nombre.sql","sha256":"b662031363051b68629769f0a645a0f0bed0dd39e780e2fe4b0b04e5cd66ddd2","added":"2026-08-15","by":"brylop"},
     {"v":"20260814195349","file":"20260814195349_invariantes_de_seguridad.sql","sha256":"34b74e006d9a0379994d3ebeb5723b5d3ffb93407f89b3f3b28c9c5e56edf607","added":"2026-08-15","by":"brylop"},
-    {"v":"20260814195535","file":"20260814195535_invariantes_i1_mira_el_rol_de_la_policy.sql","sha256":"0d4dc6cf79fba9e8dc77df126bb71d2ecb4afa210fa77c2fce14f42a7d8b1e6e","added":"2026-08-15","by":"brylop"}
+    {"v":"20260814195535","file":"20260814195535_invariantes_i1_mira_el_rol_de_la_policy.sql","sha256":"0d4dc6cf79fba9e8dc77df126bb71d2ecb4afa210fa77c2fce14f42a7d8b1e6e","added":"2026-08-15","by":"brylop"},
+    {"v":"20260815141039","file":"20260815141039_billing_enabled_por_escuela.sql","sha256":"6f4340a4956b5c18105e03e238ddb16b5b2ac76cc0fffea409a14af10e4f3abb","added":"2026-08-15","by":"brylop"},
+    {"v":"20260816184104","file":"20260816184104_arreglar_staff_select_policy_lee_auth_users.sql","sha256":"65f3bdd0566f0e78c88617182f898bbdf6625c1f74b41f3215b014fe6e758226","added":"2026-08-16","by":"brylop"}
   ]
 }
