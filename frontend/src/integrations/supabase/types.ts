@@ -4156,6 +4156,55 @@ export type Database = {
           },
         ]
       }
+      booking_holds: {
+        Row: {
+          athlete_id: string
+          availability_slot_id: string
+          created_at: string
+          expires_at: string
+          id: string
+          scheduled_date: string
+        }
+        Insert: {
+          athlete_id: string
+          availability_slot_id: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          scheduled_date: string
+        }
+        Update: {
+          athlete_id?: string
+          availability_slot_id?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          scheduled_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_holds_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "pending_athletes"
+            referencedColumns: ["profile_id"]
+          },
+          {
+            foreignKeyName: "booking_holds_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_holds_availability_slot_id_fkey"
+            columns: ["availability_slot_id"]
+            isOneToOne: false
+            referencedRelation: "school_availability"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bookings: {
         Row: {
           athlete_id: string
@@ -7201,12 +7250,14 @@ export type Database = {
       }
       event_organizers: {
         Row: {
+          bank_data: Json | null
           bio: string | null
           city: string | null
           created_at: string
           id: string
           is_verified: boolean | null
           logo_url: string | null
+          nequi_number: string | null
           nit: string | null
           organization_name: string | null
           payment_methods: string[] | null
@@ -7216,14 +7267,17 @@ export type Database = {
           sports: string[] | null
           updated_at: string
           verification_doc_url: string | null
+          whatsapp_number: string | null
         }
         Insert: {
+          bank_data?: Json | null
           bio?: string | null
           city?: string | null
           created_at?: string
           id?: string
           is_verified?: boolean | null
           logo_url?: string | null
+          nequi_number?: string | null
           nit?: string | null
           organization_name?: string | null
           payment_methods?: string[] | null
@@ -7233,14 +7287,17 @@ export type Database = {
           sports?: string[] | null
           updated_at?: string
           verification_doc_url?: string | null
+          whatsapp_number?: string | null
         }
         Update: {
+          bank_data?: Json | null
           bio?: string | null
           city?: string | null
           created_at?: string
           id?: string
           is_verified?: boolean | null
           logo_url?: string | null
+          nequi_number?: string | null
           nit?: string | null
           organization_name?: string | null
           payment_methods?: string[] | null
@@ -7250,6 +7307,7 @@ export type Database = {
           sports?: string[] | null
           updated_at?: string
           verification_doc_url?: string | null
+          whatsapp_number?: string | null
         }
         Relationships: [
           {
@@ -20257,31 +20315,49 @@ export type Database = {
           athlete_id: string | null
           created_at: string | null
           date: string
+          follow_up_date: string | null
+          health_record_id: string | null
           id: string
+          metrics: Json
           notes: string | null
           professional_id: string | null
+          recommendations: string | null
+          score: number | null
           status: string | null
           type: string | null
+          updated_at: string
         }
         Insert: {
           athlete_id?: string | null
           created_at?: string | null
           date: string
+          follow_up_date?: string | null
+          health_record_id?: string | null
           id?: string
+          metrics?: Json
           notes?: string | null
           professional_id?: string | null
+          recommendations?: string | null
+          score?: number | null
           status?: string | null
           type?: string | null
+          updated_at?: string
         }
         Update: {
           athlete_id?: string | null
           created_at?: string | null
           date?: string
+          follow_up_date?: string | null
+          health_record_id?: string | null
           id?: string
+          metrics?: Json
           notes?: string | null
           professional_id?: string | null
+          recommendations?: string | null
+          score?: number | null
           status?: string | null
           type?: string | null
+          updated_at?: string
         }
         Relationships: [
           {
@@ -20296,6 +20372,13 @@ export type Database = {
             columns: ["athlete_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wellness_evaluations_health_record_id_fkey"
+            columns: ["health_record_id"]
+            isOneToOne: false
+            referencedRelation: "health_records"
             referencedColumns: ["id"]
           },
         ]

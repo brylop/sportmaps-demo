@@ -33,8 +33,12 @@ if [ -d "frontend" ]; then
     fi
 
     # Check TypeScript Types
+    #
+    # El `-p` no es opcional: tsconfig.json es un config de solucion
+    # ("files": [] + references), asi que `npx tsc --noEmit` a secas revisa CERO
+    # archivos y sale 0. Este chequeo estuvo verde con 275 errores encima.
     echo "   - Running TypeScript Check..."
-    npx tsc --noEmit
+    npx tsc --noEmit -p tsconfig.app.json && npx tsc --noEmit -p tsconfig.node.json
     if [ $? -ne 0 ]; then
         echo "❌ Frontend: TypeScript Errors Found!"
         exit 1

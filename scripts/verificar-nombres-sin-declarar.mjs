@@ -66,8 +66,14 @@ console.log(`tsc reportó ${total} errores en total.`);
 console.log(`De esos, ${fatales.length} son fallas de ejecución garantizadas:\n`);
 
 if (fatales.length === 0) {
-    console.log('✅ Ninguna. Los demás son diferencias de tipos: molestan, no rompen.');
-    console.log('   (El grueso son tipos generados de Supabase desactualizados — INF-8.)');
+    if (total === 0) {
+        console.log('✅ Ninguna, y tampoco hay errores de tipos: la base está limpia.');
+        console.log('   Cualquier error nuevo es una regresión. El gate del pre-commit y del');
+        console.log('   CI corre el tsc completo con -p, así que ya no hace falta este script');
+        console.log('   como red — queda para diagnosticar rápido cuál error rompe una pantalla.');
+    } else {
+        console.log('✅ Ninguna. Los demás son diferencias de tipos: molestan, no rompen.');
+    }
     process.exit(0);
 }
 
