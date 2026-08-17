@@ -23,6 +23,7 @@ import { getSportVisual } from '@/lib/sportVisuals';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useCoachStaffId } from '@/hooks/useCoachStaffId';
+import { AvisoFichaStaff } from '@/components/common/AvisoFichaStaff';
 import { useUpdatePTAttendance, useHandleNoShow } from '@/hooks/useAthleteSessionBookings';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useActiveWorkPage } from '@/hooks/useActiveWorkPage';
@@ -286,7 +287,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
   );
 
   // ── 0. Staff profile ────────────────────────────────────────────────────
-  const { staffId } = useCoachStaffId();
+  const { staffId, estado: estadoFicha, refetch: refetchFicha } = useCoachStaffId();
 
   // ── 1. Equipos ──────────────────────────────────────────────────────────
   const { data: teams = [], isLoading: loadingTeams } = useQuery<TeamItem[]>({
@@ -725,6 +726,17 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
         <h1 className="text-3xl font-bold tracking-tight">Asistencias</h1>
         <p className="text-muted-foreground mt-1">Toma lista rápidamente</p>
       </div>
+
+      {/* Sin ficha de staff no matchea ningún equipo y la lista queda vacía,
+          igual que si no tuviera nada asignado. El admin no la necesita: ve
+          todos los equipos sin filtrar. */}
+      {!isAdmin && (
+        <AvisoFichaStaff
+          estado={estadoFicha}
+          onReintentar={refetchFicha}
+          queSePierde="tus equipos para pasar lista"
+        />
+      )}
 
       {!selectedItem ? (
         <div className="space-y-8">

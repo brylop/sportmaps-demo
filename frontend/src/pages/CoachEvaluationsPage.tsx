@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useCoachStaffId } from '@/hooks/useCoachStaffId';
+import { AvisoFichaStaff } from '@/components/common/AvisoFichaStaff';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -30,7 +31,7 @@ export default function CoachEvaluationsPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     // 1. Obtener staffId si existe (vía hook)
-    const { staffId } = useCoachStaffId();
+    const { staffId, estado: estadoFicha, refetch: refetchFicha } = useCoachStaffId();
 
     // Fetch Teams
     const { data: teamsResult = [] } = useQuery({
@@ -113,6 +114,12 @@ export default function CoachEvaluationsPage() {
                 <h1 className="text-3xl font-bold tracking-tight">Evaluaciones</h1>
                 <p className="text-muted-foreground mt-1">Registra el progreso deportivo de tus atletas</p>
             </div>
+
+            <AvisoFichaStaff
+                estado={estadoFicha}
+                onReintentar={refetchFicha}
+                queSePierde="tus equipos y atletas"
+            />
 
             <div className="grid gap-6 md:grid-cols-2">
                 {/* Selection Section */}
