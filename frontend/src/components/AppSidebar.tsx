@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { getNavigationByRole, getVendorNavGroup } from '@/config/navigation';
 import { UserRole } from '@/types/dashboard';
 import { useVendorProfile } from '@/hooks/useVendorProfile';
+import { useIsMultiSport } from '@/hooks/useSportVisual';
 import { useEntitlements } from '@/hooks/useEntitlements';
 // NOTE: SchoolSwitcher esta desactivado hasta que el schema soporte sede
 // end-to-end (falta enrollments.branch_id y varios enrollments no tienen
@@ -142,13 +143,25 @@ export function AppSidebar() {
   // `/accounting`, que es contabilidad interna (egresos, nómina, proveedores) y
   // tiene su propio addon.
   const RUTAS_DE_COBRO = ['/payments-automation', '/finances', '/payment-reminders', '/my-payments'];
+
+  // ── Deportes y categorías: solo cuando hay más de uno ─────────────────────
+  // Una escuela de un solo deporte administra sus categorías dentro de «Crear
+  // equipo», que es donde las usa. Darle una pantalla propia para un único
+  // deporte es un ítem de menú que nadie abre dos veces.
+  const esMultideporte = useIsMultiSport();
+  const RUTAS_MULTIDEPORTE = ['/school-sports'];
+
   const navigationGroups = useMemo(() => {
-    if (hasBilling) return navigationGroupsBase;
+    const ocultas = [
+      ...(hasBilling ? [] : RUTAS_DE_COBRO),
+      ...(esMultideporte ? [] : RUTAS_MULTIDEPORTE),
+    ];
+    if (ocultas.length === 0) return navigationGroupsBase;
     const podar = (items: typeof navigationGroupsBase[number]['items']) =>
       items
-        .filter(i => !i.href || !RUTAS_DE_COBRO.includes(i.href))
+        .filter(i => !i.href || !ocultas.includes(i.href))
         .map(i => (i.submenu
-          ? { ...i, submenu: i.submenu.filter(s => !s.href || !RUTAS_DE_COBRO.includes(s.href)) }
+          ? { ...i, submenu: i.submenu.filter(s => !s.href || !ocultas.includes(s.href)) }
           : i))
         // Un submenú que se quedó sin hijos no debe seguir ocupando lugar.
         .filter(i => !i.submenu || i.submenu.length > 0);
@@ -156,7 +169,7 @@ export function AppSidebar() {
       .map(g => ({ ...g, items: podar(g.items) }))
       .filter(g => g.items.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigationGroupsBase, hasBilling]);
+  }, [navigationGroupsBase, hasBilling, esMultideporte]);
 
   // ── Acordeon de grupos (roadmap I5) ──────────────────────────────────
   // Solo un grupo colapsable queda abierto a la vez; el primero ("Principal")
