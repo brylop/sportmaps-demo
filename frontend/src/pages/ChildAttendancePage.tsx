@@ -32,16 +32,18 @@ export default function ChildAttendancePage() {
     enabled: !!id && !!user?.id,
   });
 
-  // Fetch attendance records
+  // Asistencia del hijo. Sale de `attendance_records`, que es donde el
+  // entrenador registra: la tabla legacy `attendance` que se leía acá tiene
+  // CERO filas, así que esta pantalla estaba vacía siempre. La habilita la RLS
+  // "Parents can view attendance of their children".
   const { data: attendance, isLoading: loadingAttendance } = useQuery({
     queryKey: ['attendance', id],
     queryFn: async () => {
-
       const { data, error } = await supabase
-        .from('attendance')
-        .select('*')
+        .from('attendance_records')
+        .select('id, attendance_date, status, notes')
         .eq('child_id', id)
-        .order('class_date', { ascending: false });
+        .order('attendance_date', { ascending: false });
       if (error) throw error;
       return data;
     },
@@ -76,6 +78,8 @@ export default function ChildAttendancePage() {
         return <XCircle className="h-5 w-5 text-red-500" />;
       case 'late':
         return <Clock className="h-5 w-5 text-yellow-500" />;
+      case 'excused':
+        return <AlertCircle className="h-5 w-5 text-blue-500" />;
       default:
         return <AlertCircle className="h-5 w-5 text-muted-foreground" />;
     }
@@ -89,6 +93,8 @@ export default function ChildAttendancePage() {
         return <Badge variant="destructive">Ausente</Badge>;
       case 'late':
         return <Badge className="bg-yellow-500">Tardanza</Badge>;
+      case 'excused':
+        return <Badge className="bg-blue-500">Justificada</Badge>;
       default:
         return <Badge variant="secondary">{status}</Badge>;
     }
@@ -99,10 +105,12 @@ export default function ChildAttendancePage() {
     present: attendance?.filter(a => a.status === 'present').length || 0,
     absent: attendance?.filter(a => a.status === 'absent').length || 0,
     late: attendance?.filter(a => a.status === 'late').length || 0,
+    excused: attendance?.filter(a => a.status === 'excused').length || 0,
   };
 
+  // Presente + tardanza, igual que GET /attendance/rate/:teamId del BFF.
   const attendanceRate = stats.total > 0
-    ? Math.round((stats.present / stats.total) * 100)
+    ? Math.round(((stats.present + stats.late) / stats.total) * 100)
     : 0;
 
   if (loadingChild || loadingAttendance) {
@@ -231,7 +239,7 @@ export default function ChildAttendancePage() {
                   </div>
                   <div>
                     <p className="font-bold text-foreground group-hover/row:text-primary transition-colors capitalize">
-                      {new Date(record.class_date).toLocaleDateString('es-CO', {
+                      {new Date(record.attendance_date).toLocaleDateString('es-CO', {
                         weekday: 'long',
                         day: 'numeric',
                         month: 'long',
@@ -239,7 +247,7 @@ export default function ChildAttendancePage() {
                     </p>
                     <div className="flex items-center gap-2 text-[10px] text-muted-foreground uppercase font-black tracking-tighter mt-0.5">
                       <Clock className="h-3 w-3" />
-                      Año {new Date(record.class_date).getFullYear()}
+                      Año {new Date(record.attendance_date).getFullYear()}
                     </div>
                     {record.justification_reason && (
                       <p className="text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded inline-block mt-1 italic">
