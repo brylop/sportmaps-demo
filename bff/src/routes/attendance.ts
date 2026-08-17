@@ -92,7 +92,46 @@ function pickCreditFields(moved: any): Partial<CreditEnrollment> {
 }
 
 /** La inscripción con plan del atleta, o null si no maneja sesiones. */
-async function findCreditEnrollment(schoolId: string, athlete: AthleteRef): Promise<CreditEnrollment | null> {
+/** ¿A esta inscripción le queda algo por consumir hoy, en la bolsa que toca? */
+function tieneSaldo(c: CreditEnrollment, isSecondary: boolean, today: string): boolean {
+  if (c.expires_at && c.expires_at < today) return false;
+  const usadas = isSecondary ? c.secondary_sessions_used : c.sessions_used;
+  const tope   = isSecondary ? c.max_secondary_sessions  : c.max_sessions;
+  return tope === null || usadas < tope;   // sin tope = ilimitado
+}
+
+/**
+ * De cuál inscripción sale el crédito cuando el caller no dice cuál.
+ *
+ * Antes tomaba la más ANTIGUA (`created_at ASC limit 1`). Con dos inscripciones
+ * activas con plan —el bug de doble inscripción reaparece cada tanto— eso
+ * descontaba siempre de la vieja mientras la nueva, que es la que la familia
+ * está pagando, no consumía nunca.
+ *
+ * Regla vigente (decidida 2026-08-16): **la que aún tiene saldo**. Es la que no
+ * sorprende al entrenador — marcó presente y el atleta tenía clases, así que se
+ * descontó de donde las tenía. Entre varias con saldo gana la que **vence
+ * primero**: gastar antes lo que se vence antes es lo que menos plata le hace
+ * perder a la familia.
+ *
+ * Si NINGUNA tiene saldo se devuelve igual la más antigua, para que el llamador
+ * pueda distinguir `expired` de `no_credits` y decírselo al entrenador. Devolver
+ * null acá sería reportar `no_plan`, que es mentira: plan hay, saldo no.
+ *
+ * ── Lo que esta heurística NO puede resolver ────────────────────────────────
+ * El multideporte. Los dos casos reales que hay hoy en la base son atletas de
+ * Club Campestre Demo con «Mensualidad Golf + Mensualidad Gimnasio» y
+ * «Mensualidad Fútbol + Mensualidad Tenis»: las dos con saldo y sin
+ * vencimiento, así que empatan y gana la más antigua. Adivinar desde acá cuál
+ * corresponde a la disciplina de la sesión es imposible sin más contexto.
+ *
+ * Por eso el camino bueno es que el llamador mande `enrollmentId`: el roster ya
+ * sabe cuál le está mostrando al entrenador. Equipo y sesión ya lo hacen. Esta
+ * función es el respaldo para los que todavía no.
+ */
+async function findCreditEnrollment(
+  schoolId: string, athlete: AthleteRef, isSecondary = false,
+): Promise<CreditEnrollment | null> {
   const key = athleteKey(athlete);
   if (!key || !schoolId) return null;
 
@@ -103,11 +142,18 @@ async function findCreditEnrollment(schoolId: string, athlete: AthleteRef): Prom
     .match(athleteFilter(athlete))
     .eq('status', 'active')
     .not('offering_plan_id', 'is', null)
-    .order('created_at', { ascending: true })
-    .limit(1);
+    .order('created_at', { ascending: true });
 
-  const row = (data || [])[0];
-  return row ? toCreditEnrollment(row) : null;
+  const todas = (data || []).map(toCreditEnrollment);
+  if (!todas.length) return null;
+  if (todas.length === 1) return todas[0];
+
+  const today = todayString();
+  const conSaldo = todas.filter(c => tieneSaldo(c, isSecondary, today));
+  if (!conSaldo.length) return todas[0];   // la más antigua, para reportar el motivo
+
+  // La que vence primero. `expires_at` nulo es "no vence": va al final.
+  return conSaldo.sort((a, b) => (a.expires_at ?? '9999-12-31').localeCompare(b.expires_at ?? '9999-12-31'))[0];
 }
 
 /**
@@ -265,7 +311,7 @@ async function validatePlanForAttendance(
   // saldo sale de la que tiene el plan, que puede ser esta misma u otra.
   const credit = (enr as any).offering_plan_id
     ? toCreditEnrollment(enr)
-    : (schoolId ? await findCreditEnrollment(schoolId, athlete) : null);
+    : (schoolId ? await findCreditEnrollment(schoolId, athlete, isSecondary) : null);
 
   if (!credit) return { found: true, credit: null, warning: null };
 
@@ -880,14 +926,13 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
 
         const isSecondary = record.isSecondary === true;
 
-        // La inscripción que mandó la pantalla manda sobre la heurística.
-        // `findCreditEnrollment` toma la más ANTIGUA con plan: con dos
-        // inscripciones activas descuenta de la vieja y la nueva nunca consume.
-        // El roster ya resolvió cuál le está mostrando al entrenador, así que
-        // se le cobra a ESA — la que el entrenador vio en pantalla.
+        // La inscripción que mandó la pantalla manda sobre la heurística: el
+        // roster ya resolvió cuál le está mostrando al entrenador, así que se
+        // le cobra a ESA. Sin ella, findCreditEnrollment elige la que tiene
+        // saldo y vence primero.
         const credit = record.enrollmentId
           ? await loadCreditEnrollment(record.enrollmentId, schoolId!)
-          : await findCreditEnrollment(schoolId!, athlete);
+          : await findCreditEnrollment(schoolId!, athlete, isSecondary);
         if (!credit) { creditOutcomes[key] = 'no_plan'; continue; }
 
         if (isNowPresent) {
