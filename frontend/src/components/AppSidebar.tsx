@@ -151,10 +151,22 @@ export function AppSidebar() {
   const esMultideporte = useIsMultiSport();
   const RUTAS_MULTIDEPORTE = ['/school-sports'];
 
+  // ── Membresías: al revés que los cobros ───────────────────────────────────
+  // La pantalla existe para clubes que cobran la membresía POR FUERA de
+  // SportMaps (CAR-4), así que se muestra justo cuando los cobros están
+  // apagados. Para una escuela que sí factura por acá es un ítem que no aplica.
+  //
+  // Ojo con el sentido de `hasBilling`: falla ABIERTO (es `true` mientras carga y
+  // cuando el dato no llega), así que por defecto esto queda oculto — que es lo
+  // correcto para una función de nicho. Se prende desde el super admin al
+  // desactivar los cobros de la escuela.
+  const RUTAS_DE_MEMBRESIA = ['/memberships'];
+
   const navigationGroups = useMemo(() => {
     const ocultas = [
       ...(hasBilling ? [] : RUTAS_DE_COBRO),
       ...(esMultideporte ? [] : RUTAS_MULTIDEPORTE),
+      ...(hasBilling ? RUTAS_DE_MEMBRESIA : []),
     ];
     if (ocultas.length === 0) return navigationGroupsBase;
     const podar = (items: typeof navigationGroupsBase[number]['items']) =>
