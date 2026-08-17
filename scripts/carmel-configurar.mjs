@@ -25,15 +25,36 @@ import { conectar } from './lib/supabase-rest.mjs';
 
 const argv = process.argv.slice(2);
 const APPLY = argv.includes('--apply');
-const SCHOOL_ID = (argv.find((a) => a.startsWith('--school-id=')) || '').split('=')[1];
+const arg = (f) => (argv.find((a) => a.startsWith(`${f}=`)) || '').split('=').slice(1).join('=');
 
-if (!SCHOOL_ID) {
-    console.error('Falta --school-id=<uuid>.');
-    console.error('Sale de: SELECT id, name FROM schools WHERE name ILIKE \'%carmel%\';');
+const { url, H, all } = conectar();
+
+// Se puede pasar el nombre en vez del uuid: buscar el id a mano en la base para
+// correr un script es una fricción tonta y una fuente de equivocarse de escuela.
+let SCHOOL_ID = arg('--school-id');
+const NOMBRE = arg('--nombre');
+
+if (!SCHOOL_ID && !NOMBRE) {
+    console.error('Falta decir qué escuela. Dos formas:');
+    console.error('  node scripts/carmel-configurar.mjs --nombre=carmel');
+    console.error('  node scripts/carmel-configurar.mjs --school-id=<uuid>');
     process.exit(1);
 }
 
-const { url, H, all } = conectar();
+if (!SCHOOL_ID) {
+    const r = await fetch(`${url}/rest/v1/schools?select=id,name&name=ilike.*${encodeURIComponent(NOMBRE)}*`, { headers: H });
+    const cand = await r.json();
+    if (!cand.length) { console.error(`Ninguna escuela contiene "${NOMBRE}".`); process.exit(1); }
+    if (cand.length > 1) {
+        // Nunca adivinar cuál: este script marca la escuela como cliente real y
+        // le apaga los cobros. Elegir la equivocada no es un error barato.
+        console.error(`Hay ${cand.length} escuelas que contienen "${NOMBRE}". Usa --school-id con la correcta:`);
+        for (const c of cand) console.error(`   ${c.id}  ${c.name}`);
+        process.exit(1);
+    }
+    SCHOOL_ID = cand[0].id;
+    console.log(`Escuela: ${cand[0].name}  (${SCHOOL_ID})\n`);
+}
 
 // ── Las 8 disciplinas, con el eje que le corresponde a cada una ─────────────
 //
