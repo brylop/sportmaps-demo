@@ -1,25 +1,53 @@
 #!/usr/bin/env node
 // ============================================================================
-// CAR-1 + CAR-2 — Dejar a Club Carmel listo para el trial
+// CAR-1 + CAR-2 — Dejar un club multideporte listo para el trial
 //
 // Qué hace, sobre una escuela YA CREADA por el onboarding normal:
-//   1. school_type = 'hybrid'      → prende Academia Y Reservas a la vez
-//   2. billing_enabled = false     → no cobra mensualidades por SportMaps
-//   3. account_type = 'real'       → es cliente, entra al régimen de trial
-//   4. sport_configs de sus 8 disciplinas, con el eje correcto por deporte
-//   5. Instalaciones, con los carriles de piscina como facilities sueltas
+//   1. school_type = 'hybrid'   → prende Academia Y Reservas a la vez
+//   2. billing_enabled = false  → no cobra mensualidades por SportMaps
+//   3. account_type = 'real'    → es cliente, entra al régimen de trial
+//   4. sport_configs de las disciplinas QUE SE LE PASEN, con las categorías
+//      oficiales que el catálogo ya tiene para cada deporte
 //
-// El alta NO se hace acá a propósito: que la escuela y el usuario dueño nazcan
-// por el onboarding normal es lo que garantiza que el dueño reciba sus
-// credenciales, que el trigger le cree la suscripción y que quede igual que
-// cualquier cliente. Este script solo configura lo que el onboarding no pregunta.
+// Lo que NO hace, a propósito:
+//
+//   · No crea el alta. Que la escuela y su dueño nazcan por el onboarding
+//     normal es lo que garantiza que el dueño reciba credenciales, que el
+//     trigger le cree la suscripción y que quede igual que cualquier cliente.
+//
+//   · No crea instalaciones. Canchas, piscinas, carriles y sus tarifas son del
+//     club: nosotros no sabemos cuántas tiene, cómo las llama ni qué cobra por
+//     ellas. Las crea él desde la app. Una versión anterior de este script las
+//     inventaba (2 canchas de tenis, 6 carriles, precios por hora) y eso es
+//     exactamente lo que no se debe hacer: inventar datos de un cliente.
+//
+//   · No inventa categorías. Salen de `sports_categories.categorias_oficiales`
+//     (FIFA, IOC, IASF…), que es el catálogo que ya vive en la base.
+//
+// ── Por qué el eje queda en 'division' ──────────────────────────────────────
+// `fn_validate_sport_config_rules` (mig 20260310000001) exige que `rules` NO
+// esté vacío cuando el eje no es 'none', y para cada eje pide campos distintos:
+//
+//     age    → { name, min, max }              belt  → { name, order }
+//     weight → { name, min_kg, max_kg }        level → { name, min_rating, max_rating }
+//     division → { name }                      none  → rules vacío
+//
+// El catálogo guarda las categorías como NOMBRES ('Sub-11', 'Senior'). El
+// nombre no dice los cortes de edad: FIFA define Sub-11, pero si en este club
+// Sub-11 va de 9 a 11 o de 10 a 11 es una decisión del club. Poner un rango
+// para satisfacer al validador sería inventarlo.
+//
+// Así que se entra por 'division' —el único eje que se llena con solo el
+// nombre— y el club afina desde «Deportes y categorías» / «Crear equipo», que
+// es donde se le puede preguntar el rango a un humano. Con --eje se puede
+// forzar otro eje cuando el club ya nos dio los números.
 //
 // Uso:
-//   node scripts/carmel-configurar.mjs --school-id=<uuid>            # ensayo
-//   node scripts/carmel-configurar.mjs --school-id=<uuid> --apply    # escribe
+//   node scripts/carmel-configurar.mjs --nombre=carmel --deportes=futbol,natacion,golf
+//   node scripts/carmel-configurar.mjs --school-id=<uuid> --deportes=futbol --apply
 //
-// Requiere aplicadas: 20260815141039 (billing_enabled) y 20260813170814
-// (mapeo school_type → módulos).
+// Requiere aplicadas: 20260815141039 (billing_enabled), 20260813170814 (mapeo
+// school_type → módulos) y 20260816200007 (slugs del catálogo).
 // ============================================================================
 import { conectar } from './lib/supabase-rest.mjs';
 
@@ -29,142 +57,135 @@ const arg = (f) => (argv.find((a) => a.startsWith(`${f}=`)) || '').split('=').sl
 
 const { url, H, all } = conectar();
 
+// ── Qué escuela ─────────────────────────────────────────────────────────────
 // Se puede pasar el nombre en vez del uuid: buscar el id a mano en la base para
 // correr un script es una fricción tonta y una fuente de equivocarse de escuela.
 let SCHOOL_ID = arg('--school-id');
 const NOMBRE = arg('--nombre');
 
 if (!SCHOOL_ID && !NOMBRE) {
-    console.error('Falta decir qué escuela. Dos formas:');
-    console.error('  node scripts/carmel-configurar.mjs --nombre=carmel');
-    console.error('  node scripts/carmel-configurar.mjs --school-id=<uuid>');
+    console.error('Falta --school-id=<uuid> o --nombre=<parte del nombre>.');
     process.exit(1);
 }
 
+const escuelas = await all('schools', 'id,name,school_type,account_type', { order: 'id' });
+
 if (!SCHOOL_ID) {
-    const r = await fetch(`${url}/rest/v1/schools?select=id,name&name=ilike.*${encodeURIComponent(NOMBRE)}*`, { headers: H });
-    const cand = await r.json();
-    if (!cand.length) { console.error(`Ninguna escuela contiene "${NOMBRE}".`); process.exit(1); }
-    if (cand.length > 1) {
-        // Nunca adivinar cuál: este script marca la escuela como cliente real y
-        // le apaga los cobros. Elegir la equivocada no es un error barato.
-        console.error(`Hay ${cand.length} escuelas que contienen "${NOMBRE}". Usa --school-id con la correcta:`);
-        for (const c of cand) console.error(`   ${c.id}  ${c.name}`);
+    const norm = (s) => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+    const cands = escuelas.filter((s) => norm(s.name).includes(norm(NOMBRE)));
+    if (cands.length === 0) { console.error(`Ninguna escuela coincide con "${NOMBRE}".`); process.exit(1); }
+    if (cands.length > 1) {
+        console.error(`"${NOMBRE}" coincide con ${cands.length} escuelas. Usá --school-id:`);
+        for (const c of cands) console.error(`   ${c.id}  ${c.name}`);
         process.exit(1);
     }
-    SCHOOL_ID = cand[0].id;
-    console.log(`Escuela: ${cand[0].name}  (${SCHOOL_ID})\n`);
+    SCHOOL_ID = cands[0].id;
 }
 
-// ── Las 8 disciplinas, con el eje que le corresponde a cada una ─────────────
-//
-// El eje NO es cosmético: define cómo el producto agrupa a los deportistas.
-// Y cada uno exige una forma distinta en `rules` — lo valida el trigger
-// `trg_validate_sport_config_rules` (mig 20260310000001):
-//
-//     age   → { name, min, max }              (NO min_age/max_age)
-//     level → { name, min_rating, max_rating }
-//     none  → rules VACÍO (con elementos, revienta)
-//
-// Golf va por nivel porque se agrupa por hándicap, no por edad. Gimnasio no
-// tiene categorías. Esto es lo primero que hay que revisar con ellos.
-const DISCIPLINAS = [
-    {
-        sport: 'futbol', nombre: 'Fútbol', eje: 'age',
-        categorias: [
-            { name: 'Sub-8', min: 6, max: 8 }, { name: 'Sub-10', min: 9, max: 10 },
-            { name: 'Sub-12', min: 11, max: 12 }, { name: 'Sub-15', min: 13, max: 15 },
-            { name: 'Sub-17', min: 16, max: 17 }, { name: 'Mayores', min: 18, max: 50 },
-        ],
-        instalaciones: [
-            { name: 'Cancha de fútbol 11', type: 'Cancha de Fútbol', capacity: 60, hora: 240000, rental: true },
-            { name: 'Cancha de fútbol 8', type: 'Cancha de Fútbol', capacity: 30, hora: 140000, rental: true },
-        ],
-    },
-    {
-        sport: 'voleibol', nombre: 'Voleibol', eje: 'age',
-        categorias: [
-            { name: 'Infantil', min: 8, max: 12 }, { name: 'Juvenil', min: 13, max: 17 },
-            { name: 'Mayores', min: 18, max: 50 },
-        ],
-        instalaciones: [{ name: 'Cancha de voleibol', type: 'Cancha de Voleibol', capacity: 24, hora: 90000, rental: true }],
-    },
-    {
-        sport: 'baloncesto', nombre: 'Baloncesto', eje: 'age',
-        categorias: [
-            { name: 'Infantil', min: 8, max: 12 }, { name: 'Juvenil', min: 13, max: 17 },
-            { name: 'Mayores', min: 18, max: 50 },
-        ],
-        instalaciones: [{ name: 'Cancha de baloncesto', type: 'Cancha de Baloncesto', capacity: 24, hora: 90000, rental: true }],
-    },
-    {
-        sport: 'tenis', nombre: 'Tenis', eje: 'age',
-        categorias: [
-            { name: 'Escuela Formativa', min: 6, max: 12 }, { name: 'Juvenil', min: 13, max: 17 },
-            { name: 'Adultos', min: 18, max: 70 },
-        ],
-        instalaciones: [
-            { name: 'Cancha de tenis 1', type: 'Cancha de Tenis', capacity: 6, hora: 60000, rental: true },
-            { name: 'Cancha de tenis 2', type: 'Cancha de Tenis', capacity: 6, hora: 60000, rental: true },
-        ],
-    },
-    {
-        sport: 'padel', nombre: 'Pádel', eje: 'level',
-        categorias: [
-            { name: 'Recreativo', min_rating: 1, max_rating: 3 },
-            { name: 'Intermedio', min_rating: 4, max_rating: 6 },
-            { name: 'Competitivo', min_rating: 7, max_rating: 10 },
-        ],
-        instalaciones: [
-            { name: 'Cancha de pádel 1', type: 'Cancha de Pádel', capacity: 8, hora: 80000, rental: true },
-            { name: 'Cancha de pádel 2', type: 'Cancha de Pádel', capacity: 8, hora: 80000, rental: true },
-        ],
-    },
-    {
-        sport: 'golf', nombre: 'Golf', eje: 'level',
-        categorias: [
-            { name: 'Iniciación', min_rating: 1, max_rating: 3 },
-            { name: 'Intermedio', min_rating: 4, max_rating: 7 },
-            { name: 'Alto Rendimiento', min_rating: 8, max_rating: 10 },
-        ],
-        instalaciones: [
-            { name: 'Campo de golf', type: 'Campo de Golf', capacity: 72, hora: 180000, rental: true },
-            { name: 'Tee de práctica', type: 'Campo de Golf', capacity: 20, hora: 45000, rental: false },
-        ],
-    },
-    {
-        sport: 'natacion', nombre: 'Natación', eje: 'age',
-        categorias: [
-            { name: 'Infantil', min: 4, max: 8 }, { name: 'Formativo', min: 9, max: 14 },
-            { name: 'Competitivo', min: 12, max: 22 }, { name: 'Adultos', min: 18, max: 70 },
-        ],
-        // Los CARRILES van como instalaciones sueltas (decisión del plan §5):
-        // hoy no existen sub-unidades, así que "carril 3 de 6" solo se puede
-        // expresar así. Contrapartida conocida: nada impide reservar la piscina
-        // completa y un carril a la vez — se mitiga con el nombre y avisando en
-        // la inducción, no con código. Si molesta, se construye facility_units.
-        instalaciones: [
-            { name: 'Piscina completa (bloquea carriles)', type: 'Piscina', capacity: 48, hora: 150000, rental: true },
-            ...Array.from({ length: 6 }, (_, i) => ({
-                name: `Piscina — Carril ${i + 1}`, type: 'Piscina', capacity: 8, hora: 35000, rental: true,
-            })),
-        ],
-    },
-    {
-        sport: 'gimnasio', nombre: 'Gimnasio', eje: 'none',
-        categorias: [],   // axis='none' NO admite reglas: el trigger lo rechaza
-        instalaciones: [
-            { name: 'Sala de máquinas', type: 'Gimnasio', capacity: 40, hora: 0, rental: false },
-            { name: 'Salón de clases dirigidas', type: 'Gimnasio', capacity: 25, hora: 60000, rental: true },
-        ],
-    },
-];
-
-// ── Comprobaciones previas ──────────────────────────────────────────────────
-const escuelas = await all('schools', 'id,name,school_type,account_type', { order: 'id' });
 const esc = escuelas.find((s) => s.id === SCHOOL_ID);
 if (!esc) { console.error(`No existe la escuela ${SCHOOL_ID}.`); process.exit(1); }
 
+// ── Qué disciplinas ─────────────────────────────────────────────────────────
+// Obligatorio y sin default: cuáles maneja el club es dato del club. Antes
+// venían 8 cableadas en el script, que es como se colaron supuestos.
+const DEPORTES = (arg('--deportes') || '').split(',').map((s) => s.trim()).filter(Boolean);
+if (DEPORTES.length === 0) {
+    console.error('Falta --deportes=futbol,natacion,golf (separados por coma).');
+    console.error('Se aceptan el slug ("futbol") o el nombre del catálogo ("Fútbol").');
+    console.error('\nNo hay lista por defecto a propósito: las disciplinas las dice el club.');
+    process.exit(1);
+}
+const EJE_FORZADO = arg('--eje') || null;
+const EJES_VALIDOS = ['age', 'weight', 'belt', 'level', 'division', 'none'];
+if (EJE_FORZADO && !EJES_VALIDOS.includes(EJE_FORZADO)) {
+    console.error(`--eje debe ser uno de: ${EJES_VALIDOS.join(', ')}`);
+    process.exit(1);
+}
+
+// ── Resolver cada deporte contra el catálogo ────────────────────────────────
+const catalogo = await all(
+    'sports_categories',
+    'id,name,slug,categorias_oficiales,federacion_internacional,is_active',
+    { order: 'name' },
+);
+
+const norm = (s) => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/_/g, ' ').trim();
+
+/**
+ * ¿Este grupo de `categorias_oficiales` es una categoría de EQUIPO?
+ *
+ * Mismo criterio que `public.is_category_group()` (mig 20260817112153) — acá se
+ * repite porque el script lee el catálogo directo y no por la RPC.
+ *
+ * De los 49 grupos que existen en los 99 deportes, la mayoría NO son categorías:
+ * `modalidades` (55 deportes), `pruebas`, `superficies`, `aparatos`, `formatos`,
+ * `genero`. Golf ofrecía «72 hoyos stroke play» y tenis «Tierra batida (Clay)»
+ * como si fueran categorías de equipo. No lo son: es cómo se juega.
+ *
+ * Lista blanca, no negra: un grupo nuevo queda fuera. Falta una categoría se
+ * arregla a mano; basura en la configuración del cliente, no.
+ */
+function esGrupoDeCategorias(grupo) {
+    return grupo.startsWith('categorias_')
+        || grupo.startsWith('kumite_')     // pesos, con el nombre del combate
+        || grupo.startsWith('kyorugi_')
+        || ['niveles', 'divisiones', 'cinturones',
+            // clasificación funcional paralímpica: define contra quién compite
+            'clases', 'clasificacion', 'clases_funcionamiento',
+            'sistema_puntos', 'handicap'].includes(grupo);
+}
+
+/**
+ * Las categorías oficiales de un deporte, aplanadas a la forma que pide el
+ * validador para el eje 'division' (solo `name`).
+ *
+ * Se salta lo que no sea una lista de textos: algunos deportes guardan objetos
+ * anidados (los programas de cheer, `CHEER_ALL_STAR_*`).
+ */
+function categoriasOficiales(fila) {
+    const oc = fila?.categorias_oficiales ?? {};
+    const out = [];
+    const descartados = [];
+    const vistos = new Set();
+    for (const [grupo, lista] of Object.entries(oc)) {
+        if (!Array.isArray(lista) || typeof lista[0] !== 'string') continue;
+        if (!esGrupoDeCategorias(grupo)) { descartados.push(`${grupo}(${lista.length})`); continue; }
+        for (const v of lista) {
+            if (typeof v !== 'string') continue;
+            const k = v.toLowerCase();
+            if (vistos.has(k)) continue;      // el mismo nombre en dos grupos
+            vistos.add(k);
+            out.push({ name: v, origen: 'oficial', grupo });
+        }
+    }
+    // Se reporta lo que se dejó afuera en vez de recortar en silencio: si un
+    // grupo estaba mal clasificado, se ve acá y no seis meses después.
+    out.descartados = descartados;
+    return out;
+}
+
+const resueltos = DEPORTES.map((entrada) => {
+    const fila = catalogo.find((c) => c.slug === entrada || norm(c.name) === norm(entrada));
+    const cats = categoriasOficiales(fila);
+    // Sin categorías no se puede usar un eje que las exija: el validador
+    // rechaza `rules` vacío. Queda en 'none', que es lo honesto —el deporte
+    // existe para la escuela pero todavía no tiene categorías mapeadas.
+    const eje = EJE_FORZADO ?? (cats.length > 0 ? 'division' : 'none');
+    return {
+        entrada,
+        slug: fila?.slug ?? entrada,
+        nombre: fila?.name ?? entrada,
+        federacion: fila?.federacion_internacional ?? null,
+        enCatalogo: !!fila,
+        eje,
+        categorias: eje === 'none' ? [] : cats,
+        descartados: cats.descartados ?? [],
+    };
+});
+
+const sinCatalogo = resueltos.filter((r) => !r.enCatalogo);
+
+// ── Comprobaciones previas ──────────────────────────────────────────────────
 const ents = await (await fetch(`${url}/rest/v1/v_school_entitlements?select=*&school_id=eq.${SCHOOL_ID}`, { headers: H })).json();
 const ent = ents[0] || {};
 if (!('has_billing' in ent)) {
@@ -185,9 +206,8 @@ if (esc.account_type !== 'real' && !argv.includes('--force')) {
 
 const scfg = await all('sport_configs', 'school_id,sport', { order: 'sport' });
 const yaTiene = new Set(scfg.filter((x) => x.school_id === SCHOOL_ID).map((x) => x.sport));
-const facs = await all('facilities', 'school_id,name', { order: 'id' });
-const yaFac = new Set(facs.filter((f) => f.school_id === SCHOOL_ID).map((f) => f.name));
 
+// ── Informe ─────────────────────────────────────────────────────────────────
 console.log(`${APPLY ? 'APLICANDO' : 'ENSAYO — usa --apply para escribir'}\n`);
 console.log(`${esc.name}  ·  ${SCHOOL_ID}`);
 console.log(`  school_type   ${esc.school_type}  →  hybrid       ${esc.school_type === 'hybrid' ? '(ya está)' : ''}`);
@@ -195,19 +215,35 @@ console.log(`  account_type  ${esc.account_type}  →  real          ${esc.accou
 console.log(`  cobros        ${ent.has_billing ? 'ACTIVOS' : 'apagados'}  →  apagados  ${ent.has_billing === false ? '(ya está)' : ''}`);
 console.log(`  reservas      ${ent.has_reservations ? 'sí' : 'NO'} · academia ${ent.has_academy ? 'sí' : 'NO'}   (se resuelven con school_type)\n`);
 
-const nuevasCfg = DISCIPLINAS.filter((d) => !yaTiene.has(d.sport));
-const nuevasFac = DISCIPLINAS.flatMap((d) => d.instalaciones.filter((f) => !yaFac.has(f.name)).map((f) => ({ ...f, sport: d.sport })));
-
-console.log('Disciplinas:');
-for (const d of DISCIPLINAS) {
-    const marca = yaTiene.has(d.sport) ? 'ya existe' : (APPLY ? 'crear' : '[dry] crear');
-    console.log(`  ${d.sport.padEnd(11)} eje ${d.eje.padEnd(5)} · ${String(d.categorias.length).padStart(2)} categorías · ${String(d.instalaciones.length).padStart(2)} instalaciones · ${marca}`);
+console.log('Disciplinas (categorías tomadas del catálogo, no inventadas):');
+for (const r of resueltos) {
+    const marca = yaTiene.has(r.slug) ? 'ya existe' : (APPLY ? 'crear' : '[dry] crear');
+    const fed = r.federacion ? ` · ${r.federacion}` : '';
+    console.log(`  ${r.slug.padEnd(14)} eje ${r.eje.padEnd(9)} ${String(r.categorias.length).padStart(2)} categorías${fed.padEnd(12)} ${marca}`);
+    if (r.categorias.length) {
+        const muestra = r.categorias.slice(0, 8).map((c) => c.name).join(', ');
+        console.log(`     ${muestra}${r.categorias.length > 8 ? ` … (+${r.categorias.length - 8})` : ''}`);
+    }
+    if (r.descartados.length) {
+        console.log(`     no son categorias, se omiten: ${r.descartados.join(', ')}`);
+    }
+    if (!r.enCatalogo) {
+        console.log(`     ⚠ "${r.entrada}" no está en el catálogo: se crea sin categorías (eje none).`);
+    }
 }
-console.log(`\nInstalaciones nuevas: ${nuevasFac.length} (incluye ${DISCIPLINAS.find((d) => d.sport === 'natacion').instalaciones.length - 1} carriles de piscina)`);
+
+if (sinCatalogo.length) {
+    console.log(`\n⚠ ${sinCatalogo.length} disciplina(s) fuera del catálogo: ${sinCatalogo.map((r) => r.entrada).join(', ')}`);
+    console.log('  Revisá el nombre, o hay que agregar ese deporte a sports_categories.');
+}
+
+console.log('\nInstalaciones: NINGUNA. Canchas, piscinas, carriles y tarifas los crea el club');
+console.log('desde la app — no los inventa este script.');
+
+const nuevas = resueltos.filter((r) => !yaTiene.has(r.slug));
 
 if (!APPLY) {
-    console.log('\nNada escrito.');
-    console.log(`Faltaría crear: ${nuevasCfg.length} sport_configs y ${nuevasFac.length} instalaciones.`);
+    console.log(`\nNada escrito. Faltaría crear ${nuevas.length} sport_configs.`);
     process.exit(0);
 }
 
@@ -231,59 +267,33 @@ await patch(`school_settings?school_id=eq.${SCHOOL_ID}`, { billing_enabled: fals
 console.log('✓ school_settings · billing_enabled=false (el trigger apaga cobro automático, mora y recordatorios)');
 
 // ── 3. sport_configs ────────────────────────────────────────────────────────
-if (nuevasCfg.length) {
-    const filas = nuevasCfg.map((d) => ({
-        school_id: SCHOOL_ID, sport: d.sport, categorization_axis: d.eje,
-        rules: d.eje === 'none' ? [] : d.categorias,
-        settings: { display_name: d.nombre, seeded_by: 'CAR-1' }, is_active: true,
-    }));
-    const r = await fetch(`${url}/rest/v1/sport_configs`, {
-        method: 'POST', headers: { ...H, 'Content-Type': 'application/json', Prefer: 'return=representation' },
-        body: JSON.stringify(filas),
-    });
-    if (!r.ok) { console.error(`✗ sport_configs: ${(await r.text()).slice(0, 300)}`); process.exit(1); }
-    console.log(`✓ sport_configs · ${JSON.parse(await r.text()).length} disciplinas`);
-}
-
-// ── 4. Instalaciones ────────────────────────────────────────────────────────
-if (nuevasFac.length) {
-    // Nombres de columna verificados contra la tabla real: es `type` (no
-    // facility_type), `rental_enabled` (no is_rentable) y `status='available'`
-    // (no is_active). `booking_enabled` es lo que la hace reservable desde la
-    // app; sin eso queda listada pero nadie puede pedirla.
-    const filas = nuevasFac.map((f) => ({
+if (nuevas.length) {
+    const filas = nuevas.map((r) => ({
         school_id: SCHOOL_ID,
-        name: f.name,
-        type: f.type,
-        capacity: f.capacity,
-        description: `${f.sport} — ${f.name}`,
-        status: 'available',
-        hourly_rate: f.hora,
-        booking_enabled: true,
-        rental_enabled: f.rental,
-        rental_rate: f.rental ? f.hora : null,
-        available_hours: {
-            monday: ['06:00-22:00'], tuesday: ['06:00-22:00'], wednesday: ['06:00-22:00'],
-            thursday: ['06:00-22:00'], friday: ['06:00-22:00'],
-            saturday: ['07:00-20:00'], sunday: ['08:00-18:00'],
-        },
+        sport: r.slug,
+        categorization_axis: r.eje,
+        rules: r.categorias,
+        settings: { display_name: r.nombre, seeded_by: 'CAR-1', categorias_origen: 'catalogo' },
+        is_active: true,
     }));
-    const r = await fetch(`${url}/rest/v1/facilities`, {
-        method: 'POST', headers: { ...H, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+    const res = await fetch(`${url}/rest/v1/sport_configs`, {
+        method: 'POST',
+        headers: { ...H, 'Content-Type': 'application/json', Prefer: 'return=representation' },
         body: JSON.stringify(filas),
     });
-    if (!r.ok) {
-        console.error(`✗ facilities: ${(await r.text()).slice(0, 300)}`);
-        process.exit(1);
-    }
-    console.log(`✓ facilities · ${JSON.parse(await r.text()).length} instalaciones`);
+    if (!res.ok) { console.error(`✗ sport_configs: ${(await res.text()).slice(0, 300)}`); process.exit(1); }
+    console.log(`✓ sport_configs · ${JSON.parse(await res.text()).length} disciplinas`);
 }
 
-// ── 5. Verificación ─────────────────────────────────────────────────────────
+// ── 4. Verificación ─────────────────────────────────────────────────────────
 const v = (await (await fetch(`${url}/rest/v1/v_school_entitlements?select=*&school_id=eq.${SCHOOL_ID}`, { headers: H })).json())[0];
-console.log('\nLo que va a ver Carmel:');
+console.log('\nLo que va a ver el club:');
 console.log(`  Academia          ${v.has_academy ? '✓' : '✗'}`);
 console.log(`  Reservas          ${v.has_reservations ? '✓' : '✗'}`);
 console.log(`  Cobros a familias ${v.has_billing ? '✗ SIGUEN ACTIVOS' : '✓ ocultos'}`);
 console.log(`  Estado            ${v.subscription_status} · vence ${String(v.trial_ends_at).slice(0, 10)} · operativa=${v.is_operational}`);
-console.log('\nFalta: desplegar el frontend para que el menú respete has_billing.');
+
+console.log('\nQueda para el club (o para la inducción):');
+console.log('  · crear sus instalaciones con sus tarifas reales');
+console.log('  · ajustar el eje y los rangos de cada categoría desde «Deportes y categorías»');
+console.log('  · el menú respeta has_billing solo si el frontend está desplegado');

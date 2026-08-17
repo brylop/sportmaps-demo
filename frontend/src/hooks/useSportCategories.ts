@@ -96,10 +96,11 @@ export function useSportCategories(
         },
     });
 
-    // `categorias_oficiales` guarda el género junto a las categorías de verdad
-    // (en MMA: `genero: [Masculino, Femenino]`). Género es otro eje: ofrecerlo
-    // como categoría de un equipo es lo que hacía ilegible el selector. Se
-    // descarta acá, en un solo lugar, y no en cada pantalla que consuma el hook.
+    // El filtro de fondo vive en la base: `is_category_group()` (mig
+    // 20260817112153) deja fuera género, modalidades, pruebas, superficies y
+    // aparatos, que no son categorías de equipo. Esto queda como red: mientras
+    // esa migración no esté aplicada, el género seguiría llegando y es el que
+    // más ensucia el selector (82 de 99 deportes lo traen).
     const cats = (query.data ?? []).filter(
         (c) => c.adoptada || c.detalle?.grupo !== 'genero',
     );
