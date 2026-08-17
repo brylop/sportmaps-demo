@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { Search, Loader2, Building2, Check, ShieldOff, CalendarClock } from 'lucide-react';
+import { Search, Loader2, Building2, Check, ShieldOff, CalendarClock, DollarSign } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { bffClient } from '@/lib/api/bffClient';
 
@@ -402,6 +402,42 @@ export default function AdminSubscriptionsPage() {
 
                   <p className="text-[11px] text-muted-foreground">
                     Las cuentas marcadas <b>Pruebas</b> o <b>Demo</b> nunca se bloquean ni las toca el cron de expiración.
+                  </p>
+                </div>
+
+                {/* Cobros a familias — interruptor maestro (CAR-2) */}
+                <div className="rounded-xl border p-4 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <DollarSign className="h-4 w-4 text-primary" />
+                    <p className="text-sm font-semibold">Cobros a familias</p>
+                    {ent?.has_billing === false && (
+                      <Badge variant="outline" className="border-amber-500 text-amber-600">Apagados</Badge>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    {ent?.has_billing === false
+                      ? 'Esta escuela NO cobra mensualidades por SportMaps: no ve Pagos, Finanzas ni Recordatorios, y ningún cron le genera cartera ni mora. Sus cobros existentes no se borran — vuelven a verse al reactivar.'
+                      : 'Cobra mensualidades por SportMaps. Apágalo para clubes que cobran por fuera (membresías propias, convenios).'}
+                  </p>
+
+                  <Button
+                    size="sm"
+                    variant={ent?.has_billing === false ? 'default' : 'outline'}
+                    disabled={!!savingKey}
+                    onClick={() => accionPrueba(
+                      'admin_set_billing_enabled',
+                      { p_enabled: ent?.has_billing === false },
+                      ent?.has_billing === false ? 'Cobros activados' : 'Cobros desactivados',
+                    )}
+                  >
+                    {ent?.has_billing === false ? 'Activar cobros' : 'Desactivar cobros'}
+                  </Button>
+
+                  <p className="text-[11px] text-muted-foreground">
+                    Apagarlo fuerza <code>auto_generate_payments</code>, <code>late_fee_enabled</code> y{' '}
+                    <code>reminder_enabled</code> a <b>false</b>, que es lo que hace que los tres crons
+                    salten la escuela. No toca <b>/mi-plan</b> (lo que la escuela nos paga a nosotros).
                   </p>
                 </div>
 

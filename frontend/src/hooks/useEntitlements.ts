@@ -33,6 +33,12 @@ interface EntitlementsResponse {
     blocking_exempt_reason?: string | null;
     /** Veredicto del bloqueo calculado en la BD (school_is_operational). */
     is_operational?: boolean;
+    /**
+     * false → la escuela NO cobra mensualidades por SportMaps (caso Club Carmel:
+     * las membresías se pagan en el club). Se le ocultan Pagos, Finanzas y
+     * Recordatorios, y ningún cron le genera cartera.
+     */
+    has_billing?: boolean;
     trial_months?: number | null;
     current_period_start: string | null;
     current_period_end: string | null;
@@ -98,6 +104,13 @@ export interface Entitlements {
     isBlockingExempt: boolean;
     /** Cuenta nuestra (test/demo): nunca se avisa ni se bloquea. */
     isTestAccount: boolean;
+    /**
+     * La escuela cobra mensualidades por SportMaps. Cuando es false se le
+     * ocultan Pagos, Finanzas y Recordatorios (columna `billing_enabled`).
+     * Por defecto **true**: si el BFF es viejo y no manda el campo no se
+     * esconde nada — ocultar de más es peor que ocultar de menos.
+     */
+    hasBilling: boolean;
 
     // ── Marca: DOS productos distintos, no confundirlos ──────────────────────
     //
@@ -178,6 +191,7 @@ const EMPTY_ENTITLEMENTS: Entitlements = {
     isBlocked: false,
     isBlockingExempt: false,
     isTestAccount: false,
+    hasBilling: true,
     marcaPropia: false,
     appNativa: false,
 };
@@ -286,6 +300,7 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
             isBlocked: data.is_operational === false,
             isBlockingExempt: data.blocking_exempt === true,
             isTestAccount,
+            hasBilling: data.has_billing !== false,
             marcaPropia: (data.has_pwa_branding ?? false) === true,
             appNativa: data.has_whitelabel === true,
         };
