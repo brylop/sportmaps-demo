@@ -88,10 +88,13 @@ export function SlotPicker({ teamId, schoolId, bookingType, onSlotSelected }: Sl
         return;
       }
 
-      // Filter by program if specific
-      const filtered = teamId
-        ? availability.filter(s => !s.team_id || s.team_id === teamId)
-        : availability;
+      // Antes esto pretendia filtrar por equipo con `s.team_id`, pero
+      // `school_availability` NO tiene esa columna (sus llaves son school_id,
+      // branch_id e instructor_id). `s.team_id` era undefined, `!undefined` es
+      // true, y el filtro dejaba pasar TODO: nunca filtro nada. Se deja explicito
+      // en vez de mantener la ilusion. Si hace falta acotar por equipo, la
+      // disponibilidad necesita primero una columna que lo exprese.
+      const filtered = availability;
 
       // Get booking counts for the selected date
       const dateStr = selectedDate.toISOString().split('T')[0];
@@ -135,9 +138,10 @@ export function SlotPicker({ teamId, schoolId, bookingType, onSlotSelected }: Sl
         const isFull = count >= slot.max_capacity;
         const isHeld = holdSet.has(slot.id) && !myBookingSet.has(slot.id);
         const isBooked = myBookingSet.has(slot.id);
-        const isExcluded = slot.exceptions?.some(
-          (ex: { date: string }) => ex.date === dateStr
-        );
+        // `exceptions` es jsonb: puede venir null, objeto o arreglo. Sin el
+        // Array.isArray, `.some` revienta cuando no es arreglo.
+        const isExcluded = Array.isArray(slot.exceptions)
+          && slot.exceptions.some((ex: any) => ex?.date === dateStr);
 
         // Check if time slot is in the past
         const [hours, minutes] = slot.start_time.split(':').map(Number);

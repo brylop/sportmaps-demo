@@ -15,6 +15,11 @@ const OrganizerProfileSchema = z.object({
     logo_url: z.string().url().optional().or(z.literal('')),
     payment_methods: z.array(z.string()).optional(),
     bank_data: z.record(z.string(), z.any()).optional(),
+    // El wizard los recoge desde antes, pero al no estar acá zod los descartaba
+    // en silencio (strip de claves desconocidas): se le pedían al organizador y
+    // se tiraban sin error. Columnas agregadas en 20260817131907.
+    nequi_number: z.string().max(30).nullable().optional(),
+    whatsapp_number: z.string().max(30).nullable().optional(),
     verification_doc_url: z.string().url().optional().or(z.literal('')),
     qr_smart_enabled: z.boolean().optional()
 });

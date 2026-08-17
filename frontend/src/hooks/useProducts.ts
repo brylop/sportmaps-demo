@@ -7,7 +7,8 @@ export function useProducts(filters?: { category?: string; minPrice?: number; ma
   return useQuery({
     queryKey: ['products', filters],
     queryFn: async () => {
-      let query = supabase.from('products').select('id, name, description, price, stock, category, image_url, status').order('created_at', { ascending: false });
+      // `vendor_id` faltaba en el select y Product lo exige: llegaba undefined.
+      let query = supabase.from('products').select('id, name, description, price, stock, category, image_url, status, vendor_id').order('created_at', { ascending: false });
 
       if (filters?.category) {
         query = query.eq('category', filters.category);

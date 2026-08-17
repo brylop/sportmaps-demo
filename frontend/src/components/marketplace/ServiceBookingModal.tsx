@@ -124,10 +124,14 @@ export function ServiceBookingModal({ open, onOpenChange, service, isParent }: S
     enabled: !!vendorProfileQuery.data?.id && !!selectedDate,
   });
 
-  const slots: TimeSlot[] = slotsQuery.data?.slots || [];
+  // La RPC devuelve `Json`, asi que hay que estrechar antes de leerle `.slots`.
+  const slots: TimeSlot[] = (slotsQuery.data as { slots?: TimeSlot[] } | null)?.slots ?? [];
 
   // Un servicio es cortesia si viene marcado explicitamente is_courtesy o si su precio es 0.
-  const isCourtesyBooking = service.is_courtesy === true || isCourtesyBooking;
+  // Se autorreferenciaba (`|| isCourtesyBooking`), asi que lanzaba
+  // ReferenceError en cuanto `is_courtesy` no era true — o sea, en casi toda
+  // reserva. La intencion es la del comentario de arriba: precio 0 es cortesia.
+  const isCourtesyBooking = service.is_courtesy === true || service.price === 0;
 
   // Create appointment + checkout
   const bookMutation = useMutation({

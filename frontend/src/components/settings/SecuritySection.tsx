@@ -3,7 +3,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Shield, Key, Loader2, Save } from 'lucide-react';
+// AlertTriangle se usaba sin importar: la rama de error de esta seccion
+// reventaba en vez de mostrar el error.
+import { Shield, Key, Loader2, Save, AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AccountDeletionCard } from '@/components/settings/AccountDeletionCard';
 

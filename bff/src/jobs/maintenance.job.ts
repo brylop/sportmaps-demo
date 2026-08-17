@@ -14,45 +14,19 @@ import { runAthleteReportsCycle } from './athlete-reports.job';
  * Inicia los trabajos de mantenimiento programados para el BFF.
  */
 export function initMaintenanceJobs() {
-    // Configurar cron job para las 23:55 hora Colombia (UTC-5)
-    // El formato cron es: minuto hora dia-mes mes dia-semana
-    // Colombia está en UTC-5, por lo que las 23:55 COT son las 04:55 UTC (del día siguiente)
-    // Usamos la zona horaria 'America/Bogota' si la librería lo soporta, o ajustamos a UTC.
-    
-    // Programación: 55 23 * * * (23:55 todos los días)
-    cron.schedule('55 23 * * *', async () => {
-        console.log('[CRON] Iniciando mantenimiento diario...');
-        
-        try {
-            // 1. Finalizar sesiones de asistencia antiguas (zombis)
-            const { data: finalizeData, error: finalizeError } = await supabase
-                .rpc('auto_finalize_stale_sessions');
-            
-            if (finalizeError) {
-                console.error('[CRON] Error al auto-finalizar sesiones:', finalizeError.message);
-            } else {
-                console.log(`[CRON] Sesiones finalizadas automáticamente: ${finalizeData?.[0]?.sessions_finalized ?? 0} en ${finalizeData?.[0]?.school_count ?? 0} escuelas.`);
-            }
-
-            // 2. Refrescar vista materializada de salud de sesiones
-            const { error: refreshError } = await supabase
-                .rpc('refresh_session_health');
-            
-            if (refreshError) {
-                console.error('[CRON] Error al refrescar mv_session_health:', refreshError.message);
-            } else {
-                console.log('[CRON] Vista mv_session_health refrescada exitosamente.');
-            }
-
-            console.log('[CRON] Mantenimiento diario completado.');
-        } catch (err) {
-            console.error('[CRON] Error inesperado durante el mantenimiento:', err);
-        }
-    }, {
-        timezone: "America/Bogota"
-    });
-
-    console.log('[CRON] Trabajos de mantenimiento registrados para las 23:55 COT.');
+    // ────────────────────────────────────────────────────────────────────────
+    // Mantenimiento diario de sesiones (auto_finalize_stale_sessions +
+    // refresh_session_health): NO va acá. Lo corre pg_cron en la base, job
+    // `auto-finalize-stale-sessions`, a las 04:55 UTC — que son las 23:55 COT,
+    // exactamente el minuto en que corría este bloque. Eran dos disparos
+    // simultáneos de las mismas dos RPCs desde dos lados.
+    //
+    // Se dejó el de pg_cron porque es SQL puro: no depende de que el proceso
+    // del BFF esté vivo ni de un redeploy de Render, y se ahorra el viaje de
+    // red. Si alguna vez hay que devolverlo acá, primero hay que quitar el job
+    // de la base (`SELECT cron.unschedule('auto-finalize-stale-sessions')`),
+    // no dejar los dos.
+    // ────────────────────────────────────────────────────────────────────────
 
     // ────────────────────────────────────────────────────────────────────────
     // Auto-cobro de suscripciones recurrentes con token Wompi

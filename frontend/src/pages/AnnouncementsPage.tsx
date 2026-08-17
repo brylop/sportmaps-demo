@@ -98,7 +98,10 @@ export default function AnnouncementsPage() {
         audience: audience as any,
       });
 
-      if (error) throw error;
+      // Habia un `if (error) throw error;` con `error` sin declarar —resto de un
+      // patron `{ data, error }`—: cualquier envio moria en ReferenceError antes
+      // de llegar al toast. `createAnnouncement` ya lanza por dentro y el catch
+      // de abajo lo recoge.
 
       toast({
         title: '📢 Anuncio enviado',

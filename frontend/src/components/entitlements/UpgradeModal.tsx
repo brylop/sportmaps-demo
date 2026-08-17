@@ -224,12 +224,19 @@ export function UpgradeModal({
                         </DialogDescription>
                     </DialogHeader>
                     <div className="rounded-lg bg-muted/50 p-4 text-center">
-                        <p className="text-3xl font-bold">
-                            {formatCop(addonDef.priceCents)}
-                            <span className="text-base font-normal text-muted-foreground">
-                                /mes
-                            </span>
-                        </p>
+                        {/* priceCents < 0 significa «cotizacion» (lo documenta
+                            AddonDefinition). Sin este guard, formatCop(-1) mostraba
+                            «$-1/mes», y un 0 se leia como gratis. */}
+                        {addonDef.priceCents < 0 ? (
+                            <p className="text-2xl font-bold">A cotizar</p>
+                        ) : (
+                            <p className="text-3xl font-bold">
+                                {formatCop(addonDef.priceCents)}
+                                <span className="text-base font-normal text-muted-foreground">
+                                    /mes
+                                </span>
+                            </p>
+                        )}
                         {addonDef.setupCents > 0 && (
                             <p className="text-sm text-muted-foreground mt-1">
                                 + {formatCop(addonDef.setupCents)} setup único

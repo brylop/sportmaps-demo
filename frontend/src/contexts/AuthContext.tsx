@@ -431,6 +431,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // entre en ese dispositivo, aunque no pertenezca a esa escuela.
       clearPwaTenant();
 
+      // Cache del service worker con respuestas de Supabase REST.
+      //
+      // El SW las guarda con la URL como clave, SIN el token: dos usuarios
+      // distintos que piden la misma URL comparten entrada. En un dispositivo
+      // compartido —el celular de una familia, la tablet de la recepcion— si la
+      // red falla un instante despues del cambio de cuenta, el fallback offline
+      // le entrega al segundo usuario los datos del primero.
+      //
+      // Es la misma clase de fuga que la de la marca: el cache es del
+      // DISPOSITIVO, no de la persona. Aca ademas son datos personales.
+      // Fire-and-forget: si falla no se bloquea el cierre de sesion.
+      if ('caches' in window) {
+        void caches.delete('supabase-api').catch(() => { /* no-op */ });
+      }
+
       // Reset BFF module-level school header so the next user doesn't inherit it.
       bffClient.setSchoolId(null);
 

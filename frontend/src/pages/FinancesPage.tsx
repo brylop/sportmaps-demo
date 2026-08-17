@@ -8,7 +8,19 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { DollarSign, AlertCircle, TrendingUp, MessageCircle, CheckCircle2, History, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { ReminderHistoryModal, ReminderRecord } from '@/components/finances/ReminderHistoryModal';
+import { ReminderHistoryModal } from '@/components/finances/ReminderHistoryModal';
+
+// Se importaba `ReminderRecord` de ReminderHistoryModal, que nunca lo exporto.
+// Es la forma del historial LOCAL de esta pagina (el modal carga el suyo desde
+// la base), asi que vive aca.
+interface ReminderRecord {
+  id: string;
+  parent: string;
+  student: string;
+  amount: number;
+  sentAt: string;
+  channel: 'whatsapp' | 'email' | 'sms';
+}
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { todayColombia, daysDiffFromToday, formatDayCO } from '@/lib/dateUtils';
 import { Input } from '@/components/ui/input';
@@ -637,10 +649,13 @@ export default function FinancesPage() {
       </Card>
 
       {/* Reminder History Modal */}
+      {/* Recibia `reminders`, prop que este modal no tiene: carga sus propios
+          registros y para eso necesita `schoolId`, que no se le pasaba. Resultado:
+          el historial salia vacio siempre. */}
       <ReminderHistoryModal
         open={showHistoryModal}
         onOpenChange={setShowHistoryModal}
-        reminders={reminderHistory}
+        schoolId={schoolId ?? ''}
       />
     </div>
   );

@@ -117,9 +117,16 @@ export default function SchoolSetupPage() {
                                     <SelectValue placeholder="Selecciona el tipo" />
                                 </SelectTrigger>
                                 <SelectContent>
+                                    {/* ⚠️ Los `value` NO son etiquetas: son los que
+                                        v_school_entitlements mapea a módulos. Decía
+                                        `academia` (con i), que la vista no reconoce, y
+                                        una escuela que eligiera esa opción nacía con
+                                        has_academy=false Y has_reservations=false — sin
+                                        ningún módulo. Si se agrega una opción acá, tiene
+                                        que existir en esa lista. */}
                                     <SelectItem value="escuela">Escuela Deportiva</SelectItem>
                                     <SelectItem value="club">Club Deportivo</SelectItem>
-                                    <SelectItem value="academia">Academia</SelectItem>
+                                    <SelectItem value="academy">Academia</SelectItem>
                                     <SelectItem value="gimnasio">Gimnasio/Fitness</SelectItem>
                                 </SelectContent>
                             </Select>

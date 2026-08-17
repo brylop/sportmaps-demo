@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { getNavigationByRole, getVendorNavGroup } from '@/config/navigation';
 import { UserRole } from '@/types/dashboard';
 import { useVendorProfile } from '@/hooks/useVendorProfile';
+import { useIsMultiSport } from '@/hooks/useSportVisual';
 import { useEntitlements } from '@/hooks/useEntitlements';
 // NOTE: SchoolSwitcher esta desactivado hasta que el schema soporte sede
 // end-to-end (falta enrollments.branch_id y varios enrollments no tienen
@@ -39,7 +40,7 @@ export function AppSidebar() {
   const location = useLocation();
   const [openSubmenus, setOpenSubmenus] = useState<Record<string, boolean>>({});
   const { hasVendorProfile, canSellProducts, canSellServices, verificationStatus } = useVendorProfile();
-  const { hasAddon } = useEntitlements();
+  const { hasAddon, hasBilling } = useEntitlements();
 
   // En mobile el sidebar siempre muestra contenido expandido (nunca collapsed)
   const isCollapsed = !isMobile && state === 'collapsed';
@@ -125,9 +126,62 @@ export function AppSidebar() {
   );
   const schoolGateOk = !isSchoolRole || hasAddon('store');
   const showVendorGroup = hasVendorProfile && schoolGateOk && !isVendorPrimaryRole;
-  const navigationGroups = showVendorGroup
+  const navigationGroupsBase = showVendorGroup
     ? [...baseNavigationGroups, getVendorNavGroup({ canSellProducts, canSellServices, verificationStatus })]
     : baseNavigationGroups;
+
+  // ── Escuelas que no cobran por SportMaps (CAR-2) ──────────────────────────
+  // Club Carmel y los que vengan igual: las membresías se pagan en el club, así
+  // que la cartera no existe y mostrarla es prometer algo que no opera.
+  //
+  // Se filtra por `href` y no por título: los títulos se repiten («Pagos» es a
+  // la vez la cartera de la escuela y el historial del padre) y cambian con el
+  // idioma, el href no.
+  //
+  // NO se toca `/mi-plan`: ese es lo que la escuela nos paga a NOSOTROS, y
+  // justamente una escuela sin cartera propia sigue necesitando verlo. Tampoco
+  // `/accounting`, que es contabilidad interna (egresos, nómina, proveedores) y
+  // tiene su propio addon.
+  const RUTAS_DE_COBRO = ['/payments-automation', '/finances', '/payment-reminders', '/my-payments'];
+
+  // ── Deportes y categorías: solo cuando hay más de uno ─────────────────────
+  // Una escuela de un solo deporte administra sus categorías dentro de «Crear
+  // equipo», que es donde las usa. Darle una pantalla propia para un único
+  // deporte es un ítem de menú que nadie abre dos veces.
+  const esMultideporte = useIsMultiSport();
+  const RUTAS_MULTIDEPORTE = ['/school-sports'];
+
+  // ── Membresías: al revés que los cobros ───────────────────────────────────
+  // La pantalla existe para clubes que cobran la membresía POR FUERA de
+  // SportMaps (CAR-4), así que se muestra justo cuando los cobros están
+  // apagados. Para una escuela que sí factura por acá es un ítem que no aplica.
+  //
+  // Ojo con el sentido de `hasBilling`: falla ABIERTO (es `true` mientras carga y
+  // cuando el dato no llega), así que por defecto esto queda oculto — que es lo
+  // correcto para una función de nicho. Se prende desde el super admin al
+  // desactivar los cobros de la escuela.
+  const RUTAS_DE_MEMBRESIA = ['/memberships'];
+
+  const navigationGroups = useMemo(() => {
+    const ocultas = [
+      ...(hasBilling ? [] : RUTAS_DE_COBRO),
+      ...(esMultideporte ? [] : RUTAS_MULTIDEPORTE),
+      ...(hasBilling ? RUTAS_DE_MEMBRESIA : []),
+    ];
+    if (ocultas.length === 0) return navigationGroupsBase;
+    const podar = (items: typeof navigationGroupsBase[number]['items']) =>
+      items
+        .filter(i => !i.href || !ocultas.includes(i.href))
+        .map(i => (i.submenu
+          ? { ...i, submenu: i.submenu.filter(s => !s.href || !ocultas.includes(s.href)) }
+          : i))
+        // Un submenú que se quedó sin hijos no debe seguir ocupando lugar.
+        .filter(i => !i.submenu || i.submenu.length > 0);
+    return navigationGroupsBase
+      .map(g => ({ ...g, items: podar(g.items) }))
+      .filter(g => g.items.length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigationGroupsBase, hasBilling, esMultideporte]);
 
   // ── Acordeon de grupos (roadmap I5) ──────────────────────────────────
   // Solo un grupo colapsable queda abierto a la vez; el primero ("Principal")

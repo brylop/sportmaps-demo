@@ -103,8 +103,12 @@ export function InstallmentCheckoutModal({
     setProcessing(true);
     try {
       // 1. Cargar settings de la escuela
+      // Sin el `as any` que llevaba en `.from()`: era un parche de cuando los
+      // tipos generados no conocían la tabla, y con los tipos al día es lo que
+      // rompía la inferencia — TypeScript devolvía SelectQueryError y las cuatro
+      // lecturas de settings quedaban sin tipo.
       const { data: settings } = await supabase
-        .from('school_settings' as any)
+        .from('school_settings')
         .select('allow_installments, max_installments_per_payment, min_installment_amount, installment_require_proof')
         .eq('school_id', schoolId)
         .single();

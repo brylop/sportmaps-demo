@@ -32,10 +32,14 @@ export default function OrganizerProfilePage() {
   const fetchProfile = async () => {
     if (!user) return;
     try {
+      // `event_organizers` NO tiene `user_id`: la FK al perfil es `profile_id`,
+      // que es lo que usan OrganizerGuard y OrganizerSettingsPage. Con la columna
+      // inexistente PostgREST devolvia error y el perfil del organizador nunca
+      // cargaba.
       const { data, error } = await supabase
         .from('event_organizers')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('profile_id', user.id)
         .single();
         
       if (error && error.code !== 'PGRST116') throw error;

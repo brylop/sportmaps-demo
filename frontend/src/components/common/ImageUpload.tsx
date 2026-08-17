@@ -14,6 +14,13 @@ interface ImageUploadProps {
   maxSizeMB?: number;
   className?: string;
   compact?: boolean;
+  /**
+   * Oculta el texto de ayuda del modo compacto. Hace falta cuando el control
+   * va en una columna angosta: `className` dimensiona la FILA completa (cuadro
+   * + texto), no el cuadro, asi que limitarla a w-16 desbordaba el texto sobre
+   * el campo de al lado.
+   */
+  hideHint?: boolean;
 }
 
 export function ImageUpload({
@@ -26,6 +33,7 @@ export function ImageUpload({
   maxSizeMB = 5,
   className,
   compact = false,
+  hideHint = false,
 }: ImageUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const { uploadFile, uploading } = useStorage();
@@ -72,10 +80,14 @@ export function ImageUpload({
   };
 
   if (compact) {
+    // En modo compacto `className` dimensiona EL CUADRO, no la fila. Antes iba
+    // a la fila y quien pasaba `w-16 h-16` —creyendo que apuntaba al cuadro—
+    // apretaba el contenedor y el texto de ayuda se desbordaba encima del campo
+    // vecino. El tamaño por defecto sigue siendo 64x64.
     return (
-      <div className={cn('flex items-center gap-3', className)}>
+      <div className="flex items-center gap-3">
         {preview ? (
-          <div className="relative h-16 w-16 rounded-xl overflow-hidden border border-border/50 bg-muted shrink-0">
+          <div className={cn('relative h-16 w-16 rounded-xl overflow-hidden border border-border/50 bg-muted shrink-0', className)}>
             <img src={preview} alt="Preview" className="h-full w-full object-cover" />
             {uploading && (
               <div className="absolute inset-0 bg-background/60 flex items-center justify-center">
@@ -95,19 +107,26 @@ export function ImageUpload({
             type="button"
             onClick={() => inputRef.current?.click()}
             disabled={uploading}
-            className="h-16 w-16 rounded-xl border-2 border-dashed border-border/60 bg-muted/30 flex items-center justify-center hover:border-primary/40 hover:bg-primary/5 transition-all shrink-0"
+            className={cn('h-16 w-16 rounded-xl border-2 border-dashed border-border/60 bg-muted/30 flex flex-col items-center justify-center gap-0.5 hover:border-primary/40 hover:bg-primary/5 transition-all shrink-0', className)}
           >
             {uploading ? (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             ) : (
-              <ImagePlus className="h-5 w-5 text-muted-foreground" />
+              <>
+                <ImagePlus className="h-5 w-5 text-muted-foreground" />
+                {/* Sin el texto de ayuda al lado, el icono solo no dice que se
+                    puede hacer clic. */}
+                {hideHint && <span className="text-[10px] text-muted-foreground">Subir</span>}
+              </>
             )}
           </button>
         )}
-        <div className="text-xs text-muted-foreground">
-          <p className="font-medium">Clic o arrastra una imagen</p>
-          <p>JPG, PNG o WebP. Max {maxSizeMB}MB</p>
-        </div>
+        {!hideHint && (
+          <div className="text-xs text-muted-foreground">
+            <p className="font-medium">Clic o arrastra una imagen</p>
+            <p>JPG, PNG o WebP. Max {maxSizeMB}MB</p>
+          </div>
+        )}
         <input
           ref={inputRef}
           type="file"

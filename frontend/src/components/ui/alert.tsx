@@ -10,6 +10,9 @@ const alertVariants = cva(
       variant: {
         default: "bg-background text-foreground",
         destructive: "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
+        // OrganizerGuard ya la usaba: sin definirla, cva no aplicaba ninguna
+        // clase y el aviso de «verificacion pendiente» salia sin color.
+        warning: "border-amber-500/50 text-amber-700 dark:text-amber-400 dark:border-amber-500/60 bg-amber-50/60 dark:bg-amber-950/20 [&>svg]:text-amber-600",
       },
     },
     defaultVariants: {

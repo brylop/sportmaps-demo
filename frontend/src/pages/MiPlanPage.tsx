@@ -135,6 +135,7 @@ const ADDON_ICONS: Record<AddonKey, typeof Sparkles> = {
     biomech:        Smartphone,
     nutrition:      Apple,
     whitelabel:     Crown,
+    pwa_branding:   Sparkles,
     whatsapp:       MessageSquare,
     wompi:          CreditCard,
     mp:             CreditCard,

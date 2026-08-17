@@ -58,6 +58,39 @@ const welcomeConfig: Record<UserRole, {
     icon: Shield,
     gradient: 'from-primary/20 to-destructive/10',
   },
+  // Faltaban cinco de los doce roles de UserRole. No reventaba —hay respaldo a
+  // `welcomeConfig.athlete`— pero un administrador de escuela, que es de los
+  // roles más comunes, veía el saludo de atleta.
+  school_admin: {
+    title: '¡Bienvenido!',
+    message: 'Administra tu escuela: atletas, equipos, cobros y reportes en un solo lugar.',
+    icon: GraduationCap,
+    gradient: 'from-primary/20 to-primary/5',
+  },
+  super_admin: {
+    title: '¡Bienvenido, Super Admin!',
+    message: 'Control total de la plataforma: escuelas, planes, seguridad y soporte.',
+    icon: Shield,
+    gradient: 'from-primary/20 to-destructive/10',
+  },
+  organizer: {
+    title: '¡Bienvenido, Organizador!',
+    message: 'Crea y gestiona tus torneos, inscripciones y delegaciones.',
+    icon: Trophy,
+    gradient: 'from-accent/20 to-primary/10',
+  },
+  reporter: {
+    title: '¡Bienvenido!',
+    message: 'Consulta los reportes y estadísticas que te compartieron.',
+    icon: Trophy,
+    gradient: 'from-primary/20 to-accent/10',
+  },
+  personal_trainer: {
+    title: '¡Bienvenido, Entrenador Personal!',
+    message: 'Gestiona tus clientes, rutinas y sesiones desde un solo panel.',
+    icon: Dumbbell,
+    gradient: 'from-primary/20 to-accent/10',
+  },
 };
 
 export function WelcomeMessage({ role, userName }: WelcomeMessageProps) {

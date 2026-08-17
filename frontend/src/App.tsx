@@ -74,6 +74,8 @@ const CalendarPage = lazy(() => import("./pages/CalendarPage"));
 const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const TeamsPage = lazy(() => import("./pages/TeamsPage"));
+const SchoolSportsPage = lazy(() => import("./pages/SchoolSportsPage"));
+const MembershipsPage = lazy(() => import("./pages/MembershipsPage"));
 const OfferingsPage = lazy(() => import("./pages/OfferingsPage"));
 const StatsPage = lazy(() => import("./pages/StatsPage"));
 const MessagesPage = lazy(() => import("./pages/MessagesPage"));
@@ -381,6 +383,21 @@ const App = () => (
 
                       {/* Athlete routes */}
                       <Route path="teams" element={<TeamsPage />} />
+                      {/* Deportes y categorias: util sobre todo en multideporte.
+                          El item del menu se muestra condicionado (AppSidebar). */}
+                      <Route path="school-sports" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <SchoolSportsPage />
+                        </ProtectedRoute>
+                      } />
+                      {/* Membresias del club (CAR-4): para clubes que cobran la
+                          membresia por fuera. El item del menu solo aparece cuando
+                          la escuela NO cobra por SportMaps (AppSidebar). */}
+                      <Route path="memberships" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <MembershipsPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="offerings" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <OfferingsPage />

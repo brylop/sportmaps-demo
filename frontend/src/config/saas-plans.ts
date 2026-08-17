@@ -308,6 +308,24 @@ export const ADDONS: Record<AddonKey, AddonDefinition> = {
     includedIn: ['enterprise'],
     salesLed: true,
   },
+  // Estaba en AddonKey pero NO en este catalogo, y MiPlanPage hace
+  // `ADDONS[key].name` sobre los addons ACTIVOS: las dos escuelas que ya lo
+  // tienen prendido (CLUB DEPORTIVO BESSER y Lopez Romero, desde el 2026-08-14)
+  // reventaban /mi-plan con TypeError.
+  //
+  // priceCents: -1 es la convencion que ya documenta AddonDefinition para
+  // «cotizacion». No hay precio de lista de este addon en ningun lado —
+  // verificado en este catalogo, en school_addons.monthly_price_cents (esta en 0
+  // para todos, incluido whitelabel) y en el landing—, y no se inventa uno.
+  pwa_branding: {
+    key: 'pwa_branding',
+    name: 'PWA con tu marca',
+    description: 'Al instalar la app web sale el logo y el nombre de tu escuela, no el de SportMaps.',
+    priceCents: -1,
+    setupCents: 0,
+    includedIn: ['enterprise'],
+    salesLed: true,
+  },
   whatsapp: {
     key: 'whatsapp',
     name: 'WhatsApp campañas',

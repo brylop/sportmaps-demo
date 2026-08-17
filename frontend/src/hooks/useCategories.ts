@@ -66,7 +66,10 @@ export function useCategories() {
             const byId = new Map<string, Row>();
             const roots: Row[] = [];
 
-            for (const row of (data || []) as Row[]) {
+            // Via unknown: `attribute_schema` es jsonb, asi que la base lo entrega
+            // como Json y el tipo local lo declara AttributeField[]. El estrechamiento
+            // es responsabilidad de quien lo lea.
+            for (const row of (data || []) as unknown as Row[]) {
                 byId.set(row.id, { ...row, children: [] });
             }
             for (const row of byId.values()) {
@@ -101,7 +104,7 @@ export function useCategory(slug: string | undefined) {
                 console.error('useCategory error:', error);
                 return null;
             }
-            return (data as ProductCategory) || null;
+            return (data as unknown as ProductCategory) || null;   // idem: attribute_schema es jsonb
         },
     });
 }
