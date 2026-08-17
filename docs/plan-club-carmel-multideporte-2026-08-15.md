@@ -54,6 +54,40 @@ manual (uno a uno + CSV). Nada de esto toca pagos.
 
 ### 2.2 Multideporte
 
+#### Lo que el club dice de sí mismo (fuente, 2026-08-17)
+
+De <https://www.carmelclub.com.co/procedures/noticia.php?id=2364> («Quiénes somos»). Se anota
+porque una versión anterior del script de alta traía 8 disciplinas, categorías y 16 instalaciones
+**inventadas por nosotros**, y eso no se repite: lo que no esté respaldado va marcado como pregunta.
+
+**Deportes que la página nombra:**
+
+| Deporte | Lo que dice la página | Slug del catálogo |
+|---|---|---|
+| Golf | 18 hoyos, par 70; cancha de práctica; putting green | `golf` |
+| Tenis | 15 canchas | `tenis` |
+| Fútbol 11 | 1 cancha iluminada | `futbol` |
+| Mini fútbol | — | `futbol` (es modalidad, no otro deporte) |
+| Volleyball | — | `voleibol` |
+| Basquetball | — | `baloncesto` |
+| Pádel | 2 canchas iluminadas y cubiertas | `padel` |
+
+**Otras instalaciones que nombra:** piscina, gimnasio, salones para eventos (hasta 4.000 pax),
+parque para niños, sala de cine, coworking, guardería canina, vestidores, sala cuna, restaurante,
+bar inglés. Atiende **martes a domingo y festivos**.
+
+**Lo que la página NO dice, y por lo tanto no se asume:**
+
+- Cuáles de esos deportes tienen **escuela formativa** (con equipos y categorías) y cuáles son solo
+  instalación para socios. Piscina y gimnasio aparecen como instalación, no como disciplina.
+- Ninguna **categoría ni rango de edad**. Por eso las categorías salen del catálogo de cada
+  federación y el eje entra en `division` (ver `scripts/carmel-configurar.mjs`).
+- Ningún **precio ni tarifa** de reserva.
+- Cómo llama a cada cancha (¿«Cancha 1»…«Cancha 15»?).
+
+Los 6 deportes resuelven limpio contra `sports_categories`: golf 5 categorías (R&A/USGA), tenis 7
+(ITF), fútbol 7 (FIFA), voleibol 4 (FIVB), baloncesto 7 (FIBA), pádel 7 (FIP).
+
 **Lo que hay — y esta es la buena noticia:** el modelo multideporte **ya existe**.
 `sport_configs(school_id, sport, categorization_axis, rules, settings)` admite N filas por escuela, y
 `GET /api/v1/school/context` ya devuelve `sports: SportConfig[]` en plural.
