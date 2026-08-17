@@ -37,8 +37,17 @@ export interface CategoriaDeporte {
     } | null;
 }
 
-export function useSportCategories(sport: string | null | undefined) {
-    const { schoolId } = useSchoolContext();
+export function useSportCategories(
+    sport: string | null | undefined,
+    /**
+     * Escuela a consultar. Por defecto la del contexto; se pasa explicita
+     * cuando quien llama ya la recibio como prop (CreateTeamModal), para no
+     * depender de que el contexto apunte a la misma.
+     */
+    schoolIdOverride?: string | null,
+) {
+    const { schoolId: schoolIdCtx } = useSchoolContext();
+    const schoolId = schoolIdOverride ?? schoolIdCtx;
     const qc = useQueryClient();
     const key = ['sport-categories', schoolId, sport];
 
@@ -87,7 +96,14 @@ export function useSportCategories(sport: string | null | undefined) {
         },
     });
 
-    const cats = query.data ?? [];
+    // `categorias_oficiales` guarda el género junto a las categorías de verdad
+    // (en MMA: `genero: [Masculino, Femenino]`). Género es otro eje: ofrecerlo
+    // como categoría de un equipo es lo que hacía ilegible el selector. Se
+    // descarta acá, en un solo lugar, y no en cada pantalla que consuma el hook.
+    const cats = (query.data ?? []).filter(
+        (c) => c.adoptada || c.detalle?.grupo !== 'genero',
+    );
+
     return {
         categorias: cats,
         adoptadas: cats.filter((c) => c.adoptada),
