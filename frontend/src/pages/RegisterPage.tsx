@@ -29,7 +29,6 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '
 import { useSportsCatalog } from '@/hooks/useSportsCatalog';
 import { GoogleSignInButton, AuthDivider } from '@/components/auth/GoogleSignInButton';
 
-const sports = SPORTS_LIST;
 // Roles que representan instituciones/negocios (no personas físicas)
 const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'external_vendor', 'organizer', 'personal_trainer'];
 
@@ -65,7 +64,11 @@ const registerSchema = z.object({
   code: z.string().optional(),
   role: z.string().min(1, 'Selecciona un rol'),
   schoolName: z.string().optional(),
-  sportId: z.number().optional(),
+  // uuid desde que el catálogo se lee de `sports_categories`; number cuando el
+  // hook cae en la constante de respaldo. Estaba en z.number() y el uuid no
+  // pasaba la validación: la escuela elegía su deporte y el formulario se
+  // negaba a enviarse, sin que el error apuntara a nada visible.
+  sportId: z.union([z.string(), z.number()]).optional(),
   acceptTerms: z.boolean().refine(val => val === true, {
     message: 'Debes aceptar los términos y condiciones para continuar',
   }),
