@@ -21,6 +21,8 @@ import { StatFilterBar, type StatFilterTone } from '@/components/common/StatFilt
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin, X, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useMemberships } from '@/hooks/useMemberships';
+import { MembershipBadge } from '@/components/memberships/MembershipBadge';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -709,6 +711,12 @@ export default function SchoolStudentsManagementPage() {
     };
   }, [tabStudents]);
 
+  // Membresias del club (CAR-4). Solo se pinta la insignia si esa persona TIENE
+  // membresia: asi el listado de las escuelas que no usan la funcion queda igual
+  // que antes, sin un «sin membresia» en cada fila. Si la migracion no esta
+  // aplicada la consulta falla y el mapa queda vacio — no rompe el listado.
+  const { porSujeto: membresiasPorSujeto } = useMemberships();
+
   const filteredStudents = tabStudents.filter(student => {
     const q = normalizeText(searchQuery);
     if (q && !(
@@ -974,6 +982,9 @@ export default function SchoolStudentsManagementPage() {
                       <div className="flex items-center gap-1 flex-wrap">
                         <p className="font-semibold text-sm truncate">{student.full_name}</p>
                         <MedicalAlertBadge medicalInfo={student.medical_info} />
+                        {membresiasPorSujeto.get(student.id) && (
+                          <MembershipBadge membresia={membresiasPorSujeto.get(student.id)} compacto />
+                        )}
                       </div>
                       <div className="flex gap-1 flex-wrap mt-1">
                         {student.team_name && <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200 py-0 h-5"><Trophy className="h-2.5 w-2.5 mr-1" /> {student.team_name}</Badge>}
@@ -1014,7 +1025,13 @@ export default function SchoolStudentsManagementPage() {
                       <TableRow key={student.id} className={selectedStudentIds.includes(student.id) ? "bg-primary/5" : ""}>
                         <TableCell><Checkbox checked={selectedStudentIds.includes(student.id)} onCheckedChange={() => toggleSelectStudent(student.id)} /></TableCell>
                         <TableCell className="font-medium">
-                          <div className="flex items-center gap-2"><span>{student.full_name}</span><MedicalAlertBadge medicalInfo={student.medical_info} /></div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span>{student.full_name}</span>
+                            <MedicalAlertBadge medicalInfo={student.medical_info} />
+                            {membresiasPorSujeto.get(student.id) && (
+                              <MembershipBadge membresia={membresiasPorSujeto.get(student.id)} compacto />
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>{calculateAge(student.date_of_birth)}</TableCell>
                         <TableCell>
