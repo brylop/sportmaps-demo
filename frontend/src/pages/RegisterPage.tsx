@@ -26,7 +26,7 @@ import { useInvitationBranding } from '@/hooks/useInvitationBranding';
 import { usePublicTenant } from '@/hooks/usePublicTenant';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
-import { SPORTS_LIST, SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
+import { useSportsCatalog } from '@/hooks/useSportsCatalog';
 import { GoogleSignInButton, AuthDivider } from '@/components/auth/GoogleSignInButton';
 
 const sports = SPORTS_LIST;
@@ -156,7 +156,9 @@ export default function RegisterPage() {
   };
 
   const [sportOpen, setSportOpen] = useState(false);
-  const allSports = SPORTS_CATALOG;
+  // Catálogo leído de la BD (con la constante como respaldo). Antes era
+  // SPORTS_CATALOG directo, y actualizar un deporte exigía desplegar front.
+  const { sports: allSports } = useSportsCatalog();
   
   const inviteId = searchParams.get('invite');
   const inviteEmail = searchParams.get('email');

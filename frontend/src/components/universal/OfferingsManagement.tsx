@@ -19,7 +19,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { EnrollPlanStudentModal } from '@/components/enrollment/EnrollPlanStudentModal';
-import { SPORTS_LIST, SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
+import { useSportsCatalog } from '@/hooks/useSportsCatalog';
 import { getSportVisual } from '@/lib/sportVisuals';
 import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus, Trash2, ArrowRight, Copy } from 'lucide-react';
 import { OfferingCoachesPanel } from './OfferingCoachesPanel';
@@ -292,7 +292,11 @@ function SportSearchCombobox({
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    const allSports = SPORTS_CATALOG;
+    // Catalogo de deportes desde la BD; la constante queda de respaldo.
+
+    const { sports: catalogo } = useSportsCatalog();
+
+    const allSports = catalogo;
 
     const results = useMemo(() => {
         if (!query.trim()) return [];

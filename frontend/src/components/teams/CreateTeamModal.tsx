@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/select';
 import { Loader2, Plus, Users, Check, Pencil, X, Minus } from 'lucide-react';
 import { NumberStepper } from '@/components/ui/number-stepper';
-import { SPORTS_LIST, SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
+import { useSportsCatalog, buscarDeporte } from '@/hooks/useSportsCatalog';
 import { useSchoolFeatures } from '@/hooks/useSchoolFeatures';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -56,6 +56,10 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
         ? sportConfigs.map(sc => sc.sport)
         : SPORTS_LIST;
 
+    // Catalogo de deportes desde la BD; la constante queda de respaldo.
+
+    const { sports: catalogo, nombres: SPORTS_LIST } = useSportsCatalog();
+
     const [formData, setFormData] = useState({
         name: '',
         description: '',
@@ -77,11 +81,13 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
 
     // Dynamic levels list based on selected sport
     const levelOptions = useMemo(() => {
-        const selectedSport = SPORTS_CATALOG.find(s => s.nombre === formData.sport);
+        const selectedSport = buscarDeporte(catalogo, formData.sport);
         const levels: { label: string; value: string }[] = [];
 
         if (selectedSport) {
-            if (selectedSport.id === 121) {
+            // Por slug y no por id numerico: los ids de la BD son uuid.
+            if (selectedSport.slug === 'cheerleading_all_stars'
+                || selectedSport.slug === 'cheerleading_all_star') {
                 // Cheerleading All Stars special case
                 const programs = selectedSport.categoriasCompetencia;
                 Object.entries(programs).forEach(([key, program]: [string, any]) => {
