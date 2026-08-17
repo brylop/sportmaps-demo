@@ -442,7 +442,11 @@ function EmployeeDialog({ open, onOpenChange, schoolId, onSaved, employee }: {
     const { toast } = useToast();
     const [name, setName] = useState(employee?.full_name ?? '');
     const [doc, setDoc] = useState(employee?.document_id ?? '');
-    const [contract, setContract] = useState(employee?.contract_type ?? 'indefinido');
+    // contract_type es un enum de la base. El Select de abajo ofrece exactamente
+    // estos cinco, asi que tipar el estado cierra sin cambiar comportamiento.
+    type TipoContrato = 'indefinido' | 'fijo' | 'obra_labor' | 'prestacion_servicios' | 'aprendizaje';
+    const [contract, setContract] = useState<TipoContrato>(
+        (employee?.contract_type as TipoContrato) ?? 'indefinido');
     const [salary, setSalary] = useState(employee ? String(Number(employee.base_salary)) : '');
     const [aux, setAux] = useState(employee?.transport_aid_eligible ?? true);
     const [arl, setArl] = useState(String(employee?.arl_class ?? 1));
@@ -506,7 +510,7 @@ function EmployeeDialog({ open, onOpenChange, schoolId, onSaved, employee }: {
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
                             <Label>Tipo de contrato</Label>
-                            <Select value={contract} onValueChange={setContract}>
+                            <Select value={contract} onValueChange={(v) => setContract(v as TipoContrato)}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="indefinido">Indefinido</SelectItem>

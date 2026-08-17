@@ -117,7 +117,10 @@ export function usePushSubscription() {
   return { subscribe, status, checkStatus };
 }
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
+// El retorno se declara sobre ArrayBuffer y no sobre el ArrayBufferLike que
+// asume `Uint8Array` pelado: pushManager.subscribe pide un BufferSource, y un
+// Uint8Array<ArrayBufferLike> podria estar respaldado por SharedArrayBuffer.
+function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawData = window.atob(base64);

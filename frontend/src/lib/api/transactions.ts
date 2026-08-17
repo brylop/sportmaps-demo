@@ -162,7 +162,9 @@ class TransactionAPI {
             }
             : { pending: true };
 
-        const orderInsert: Record<string, unknown> = {
+        // Sin `: Record<string, unknown>`: esa anotacion anulaba la inferencia y
+        // el insert dejaba de verificarse contra las columnas reales de `orders`.
+        const orderInsert = {
             user_id: userId,
             vendor_id: primaryVendorId,
             total_amount: totalAmount,
@@ -174,7 +176,15 @@ class TransactionAPI {
             contact_phone: shipping?.contactPhone || null,
             customer_name: shipping?.customerName || null,
             payment_method: paymentMethod,
-            payment_provider: paymentMethod === 'wompi' ? 'wompi' : paymentMethod,
+            // `payment_provider` es un enum de la base con SOLO 'wompi' y
+            // 'mercadopago'. Antes pasaba el valor crudo cuando no era 'wompi', y
+            // CheckoutPage manda 'manual' cuando el pago no va por pasarela: el
+            // insert de la orden fallaba por violacion de enum. La columna admite
+            // NULL, que es justo lo que corresponde a un pago sin pasarela.
+            payment_provider:
+                paymentMethod === 'wompi' ? 'wompi' as const
+                : paymentMethod === 'mercadopago' ? 'mercadopago' as const
+                : null,
             provider_reference: reference,
             wompi_reference: paymentMethod === 'wompi' ? reference : null,
             carrier: shipping?.quote?.carrier_code || null,

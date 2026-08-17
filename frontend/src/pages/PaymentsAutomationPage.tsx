@@ -499,7 +499,12 @@ export default function PaymentsAutomationPage() {
       const accounts = serializePaymentAccounts(billing.payment_accounts ?? []);
       const payload = {
         school_id: schoolId,
-        ...(accountsColumnReady.current ? { payment_accounts: accounts } : {}),
+        // `payment_accounts` es jsonb en la base: PaymentAccount[] no es asignable
+        // a Json (los campos opcionales admiten undefined, que no existe en JSON).
+        // El JSON.parse/stringify normaliza y a la vez tira los undefined.
+        ...(accountsColumnReady.current
+            ? { payment_accounts: JSON.parse(JSON.stringify(accounts)) }
+            : {}),
         ...accountsToLegacyColumns(accounts),
         payment_cutoff_day: billing.payment_cutoff_day,
         payment_grace_days: billing.payment_grace_days,
@@ -2640,4 +2645,4 @@ function BackfillPaymentsCard({
       </CardContent>
     </Card>
   );
-}
+}

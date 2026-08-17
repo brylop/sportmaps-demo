@@ -37,7 +37,7 @@ export default function WellnessPatientsPage() {
   const handleNewEvaluation = (data: any) => {
     createEvaluation.mutate({
       athlete_id: data.athlete_id || crypto.randomUUID(),
-      evaluation_type: data.evaluation_type,
+      type: data.evaluation_type,          // la columna se llama `type`
       score: data.score,
       recommendations: data.recommendations,
       follow_up_date: data.follow_up_date || null,

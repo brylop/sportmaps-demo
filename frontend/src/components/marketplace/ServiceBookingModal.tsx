@@ -124,7 +124,8 @@ export function ServiceBookingModal({ open, onOpenChange, service, isParent }: S
     enabled: !!vendorProfileQuery.data?.id && !!selectedDate,
   });
 
-  const slots: TimeSlot[] = slotsQuery.data?.slots || [];
+  // La RPC devuelve `Json`, asi que hay que estrechar antes de leerle `.slots`.
+  const slots: TimeSlot[] = (slotsQuery.data as { slots?: TimeSlot[] } | null)?.slots ?? [];
 
   // Un servicio es cortesia si viene marcado explicitamente is_courtesy o si su precio es 0.
   // Se autorreferenciaba (`|| isCourtesyBooking`), asi que lanzaba
