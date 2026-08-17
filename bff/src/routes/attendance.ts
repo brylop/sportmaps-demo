@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { supabase } from '../config/supabase';
 import { todayInZone } from '../utils/businessDate';
-import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { requireAuth, requireRole, auditLog, AuthenticatedRequest } from '../middlewares/authMiddleware';
 
 const router = Router();
 
@@ -21,6 +21,80 @@ function todayString(): string {
 // Y registrar la asistencia NUNCA falla por falta de saldo: dejar constancia de
 // que el atleta vino, y cobrarle el crédito, son dos cosas distintas.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Carga retroactiva — decisiones de producto del 2026-08-16
+//
+// Hasta hoy la asistencia solo se podía tomar del día en curso: las tres rutas
+// de escritura calculaban la fecha adentro y no había forma de mandarla. El
+// entrenador que olvidaba un martes no tenía cómo completarlo, y terminábamos
+// cargándolo nosotros por SQL.
+//
+//   · Quién   → el entrenador hasta 7 días atrás; la administración sin tope.
+//               La regla de fondo: quien responde por la plata puede reescribir
+//               más lejos que quien solo pasa lista.
+//   · Créditos→ se descuentan evaluando el saldo COMO ESTABA ESE DÍA (el plan
+//               vencido se compara contra la fecha del evento, no contra hoy).
+//               Sin saldo, la asistencia se registra igual y se avisa — misma
+//               regla que en el día corriente.
+//   · Cerrado → una sesión finalizada se puede reabrir solo si su fecha cae
+//               dentro de la ventana de quien lo pide.
+//
+// No hay columna que marque el registro como retroactivo: la trazabilidad va
+// por `security_audit_log`, que guarda quién, cuándo y para qué fecha.
+// ─────────────────────────────────────────────────────────────────────────────
+const RETRO_DIAS_COACH = 7;
+
+/** Roles que pueden reescribir cualquier fecha. `req.role` sale de school_members. */
+const ROLES_SIN_TOPE = ['owner', 'super_admin', 'admin', 'school_admin', 'school'];
+
+type FechaResuelta =
+  | { ok: true; date: string; esRetroactiva: boolean }
+  | { ok: false; status: number; body: Record<string, unknown> };
+
+/**
+ * Traduce la fecha pedida a la fecha de negocio con la que se va a escribir, y
+ * decide si quien la pide tiene permiso para esa fecha.
+ *
+ * Sin `pedida` se comporta como siempre: hoy. Así ninguna llamada vieja cambia
+ * de significado por este agregado.
+ */
+function resolverFechaDeTrabajo(pedida: string | undefined | null, rol: string): FechaResuelta {
+  const hoy = todayInZone();
+  if (!pedida || pedida === hoy) return { ok: true, date: hoy, esRetroactiva: false };
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(pedida)) {
+    return { ok: false, status: 400, body: { error: 'La fecha debe venir como YYYY-MM-DD.' } };
+  }
+  if (pedida > hoy) {
+    return {
+      ok: false, status: 400,
+      body: { error: 'No se puede pasar lista de un día que todavía no llegó.', reason: 'future_date' },
+    };
+  }
+
+  if (ROLES_SIN_TOPE.includes(rol)) return { ok: true, date: pedida, esRetroactiva: true };
+
+  // El coach: solo dentro de su ventana. La resta se hace sobre la fecha de
+  // negocio, no sobre Date.now(), para no volver a mezclar UTC con Colombia.
+  const limite = new Date(`${hoy}T00:00:00Z`);
+  limite.setUTCDate(limite.getUTCDate() - RETRO_DIAS_COACH);
+  const limiteStr = limite.toISOString().slice(0, 10);
+
+  if (pedida < limiteStr) {
+    return {
+      ok: false, status: 403,
+      body: {
+        error: `Como entrenador puedes completar hasta ${RETRO_DIAS_COACH} días atrás (desde el ${limiteStr}). `
+             + 'Para una fecha más antigua, pídeselo a la administración de la escuela.',
+        reason: 'retro_window_exceeded',
+        limite: limiteStr,
+        dias_permitidos: RETRO_DIAS_COACH,
+      },
+    };
+  }
+  return { ok: true, date: pedida, esRetroactiva: true };
+}
 
 type AthleteRef = { childId?: string | null; userId?: string | null; unregisteredId?: string | null };
 
@@ -130,7 +204,7 @@ function tieneSaldo(c: CreditEnrollment, isSecondary: boolean, today: string): b
  * función es el respaldo para los que todavía no.
  */
 async function findCreditEnrollment(
-  schoolId: string, athlete: AthleteRef, isSecondary = false,
+  schoolId: string, athlete: AthleteRef, isSecondary = false, day?: string,
 ): Promise<CreditEnrollment | null> {
   const key = athleteKey(athlete);
   if (!key || !schoolId) return null;
@@ -148,8 +222,9 @@ async function findCreditEnrollment(
   if (!todas.length) return null;
   if (todas.length === 1) return todas[0];
 
-  const today = todayString();
-  const conSaldo = todas.filter(c => tieneSaldo(c, isSecondary, today));
+  // En una carga retroactiva el saldo se juzga con la fecha del EVENTO: importa
+  // si el plan estaba vigente el día que el atleta entrenó, no si lo está hoy.
+  const conSaldo = todas.filter(c => tieneSaldo(c, isSecondary, day ?? todayString()));
   if (!conSaldo.length) return todas[0];   // la más antigua, para reportar el motivo
 
   // La que vence primero. `expires_at` nulo es "no vence": va al final.
@@ -393,7 +468,11 @@ router.get('/session/:teamId', requireAuth, requireRole('owner', 'super_admin', 
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const teamId = req.params.teamId as string;
-      const today = todayString();
+      // `?date=` para poder abrir un día pasado. Leer no tiene ventana: ver lo
+      // que pasó es distinto de reescribirlo, y el histórico ya es visible en
+      // Supervisión. El permiso se aplica al guardar.
+      const pedida = req.query.date as string | undefined;
+      const today = pedida && /^\d{4}-\d{2}-\d{2}$/.test(pedida) ? pedida : todayInZone();
       const lookup = await findTeamSessionOfDay(
         teamId, today,
         'id, team_id, session_date, finalized, finalized_at, created_by, created_at, start_time',
@@ -814,8 +893,8 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
       // /walk-in por cada atleta presente: con 31 atletas eran 31 requests, y
       // si el token vencía o se caía la red a mitad, media lista quedaba
       // guardada y la otra media no.
-      const { teamId, sessionId, records } = req.body as {
-        teamId?: string; sessionId?: string;
+      const { teamId, sessionId, records, date } = req.body as {
+        teamId?: string; sessionId?: string; date?: string;
         records: {
           childId?: string; userId?: string; unregisteredAthleteId?: string;
           status: string; enrollmentId?: string; isSecondary?: boolean;
@@ -826,7 +905,11 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
       if (records.find(r => !r.childId && !r.userId && !r.unregisteredAthleteId))
         return res.status(400).json({ error: 'Cada record debe tener childId, userId o unregisteredAthleteId.' });
 
-      const today = todayString();
+      const fecha = resolverFechaDeTrabajo(date, req.role);
+      if (!fecha.ok) return res.status(fecha.status).json(fecha.body);
+      // `today` conserva el nombre pero ya no es necesariamente hoy: es la fecha
+      // de trabajo. Todo lo que sigue —sesión, registros y saldo— cuelga de ella.
+      const today = fecha.date;
       let existingSessionId = sessionId;
 
       if (existingSessionId) {
@@ -844,7 +927,14 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
         }
         if (lookup.kind === 'one') {
           if (lookup.session.finalized)
-            return res.status(409).json({ error: 'La sesión de hoy ya fue finalizada.', finalized: true });
+            return res.status(409).json({
+              error: fecha.esRetroactiva
+                ? `La lista del ${today} ya fue cerrada. Para corregirla hay que reabrir la sesión primero.`
+                : 'La sesión de hoy ya fue finalizada.',
+              finalized: true,
+              reason: 'session_finalized',
+              sessionId: lookup.session.id,
+            });
           existingSessionId = lookup.session.id;
         }
       }
@@ -932,7 +1022,7 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
         // saldo y vence primero.
         const credit = record.enrollmentId
           ? await loadCreditEnrollment(record.enrollmentId, schoolId!)
-          : await findCreditEnrollment(schoolId!, athlete, isSecondary);
+          : await findCreditEnrollment(schoolId!, athlete, isSecondary, today);
         if (!credit) { creditOutcomes[key] = 'no_plan'; continue; }
 
         if (isNowPresent) {
@@ -959,7 +1049,24 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
         }
       }
 
-      return res.json({ success: true, sessionId: finalSessionId, credit_outcomes: creditOutcomes });
+      // Reescribir el pasado mueve créditos, y los créditos son plata. Queda
+      // registrado quién lo hizo y para qué fecha. El del día corriente no se
+      // audita: es la operación normal y llenaría la tabla de ruido.
+      if (fecha.esRetroactiva) {
+        await auditLog(req, 'attendance_backdated', 'attendance_sessions', finalSessionId, null, {
+          fecha_registrada: today,
+          fecha_real: todayInZone(),
+          team_id: teamId ?? null,
+          registros: records.length,
+          creditos: creditOutcomes,
+        });
+      }
+
+      return res.json({
+        success: true, sessionId: finalSessionId, date: today,
+        retroactiva: fecha.esRetroactiva,
+        credit_outcomes: creditOutcomes,
+      });
     } catch (err: any) {
       console.error('SESSION ERROR DETAIL:', {
         message: err.message,
@@ -980,9 +1087,9 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { schoolId } = req;
-      const { enrollmentId, teamId, sessionId, offeringId, facilityAvailabilityId, status = 'present', childId, userId, unregisteredAthleteId, is_secondary = false } = req.body as {
+      const { enrollmentId, teamId, sessionId, offeringId, facilityAvailabilityId, status = 'present', childId, userId, unregisteredAthleteId, is_secondary = false, date } = req.body as {
         enrollmentId: string; teamId?: string; sessionId?: string; offeringId?: string; facilityAvailabilityId?: string; status?: string;
-        childId?: string; userId?: string; unregisteredAthleteId?: string; is_secondary?: boolean;
+        childId?: string; userId?: string; unregisteredAthleteId?: string; is_secondary?: boolean; date?: string;
       };
       if (!enrollmentId) return res.status(400).json({ error: 'enrollmentId es requerido.' });
       if (!childId && !userId && !unregisteredAthleteId) return res.status(400).json({ error: 'Debe especificar childId, userId o unregisteredAthleteId.' });
@@ -990,7 +1097,9 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
         return res.status(400).json({ error: 'teamId, sessionId, offeringId o facilityAvailabilityId son requeridos.' });
       }
 
-      const today = todayString();
+      const fecha = resolverFechaDeTrabajo(date, req.role);
+      if (!fecha.ok) return res.status(fecha.status).json(fecha.body);
+      const today = fecha.date;
       let finalSessionId = sessionId;
 
       if (!finalSessionId && facilityAvailabilityId) {
@@ -1215,9 +1324,21 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
         }
       }
 
+      if (fecha.esRetroactiva) {
+        await auditLog(req, 'attendance_backdated', 'attendance_sessions', finalSessionId!, null, {
+          fecha_registrada: today,
+          fecha_real: todayInZone(),
+          enrollment_id: enrollmentId,
+          status,
+          credito: outcome,
+        });
+      }
+
       return res.status(201).json({
         success: true,
         sessionId: finalSessionId,
+        date: today,
+        retroactiva: fecha.esRetroactiva,
         credit_outcome: outcome,
         plan_summary: planSummary(credit, freeBooking),
       });
@@ -1236,7 +1357,60 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
   }
 );
 
-// PATCH /session/:sessionId/finalize — finaliza la sesión (irreversible).
+// ── PATCH /session/:sessionId/reopen ─────────────────────────────────────────
+//
+// Finalizar dejó de ser irreversible. Antes no había forma de deshacerlo: ni
+// ruta, ni RPC. Y como `auto_finalize_stale_sessions` cierra cada noche todo lo
+// que tenga fecha anterior a hoy, una lista mal llena quedaba mal para siempre.
+//
+// Se reabre solo dentro de la ventana de quien lo pide — la misma regla que
+// para escribir. Ojo con una consecuencia natural: el cron la vuelve a cerrar
+// esta noche, así que la corrección hay que terminarla el mismo día.
+router.patch('/session/:sessionId/reopen', requireAuth, requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const sessionId = req.params.sessionId as string;
+      const { data: session, error: fetchErr } = await supabase
+        .from('attendance_sessions')
+        .select('id, finalized, session_date, team_id, school_id')
+        .eq('id', sessionId)
+        .single();
+      if (fetchErr || !session) return res.status(404).json({ error: 'Sesión no encontrada.' });
+      if (session.school_id !== req.schoolId)
+        return res.status(404).json({ error: 'Sesión no encontrada.' });
+      if (!session.finalized)
+        return res.status(409).json({ error: 'Esa sesión ya está abierta.', reason: 'not_finalized' });
+
+      // La ventana se evalúa contra la fecha de la sesión: reabrir el martes
+      // pasado es tan retroactivo como escribirlo.
+      const permiso = resolverFechaDeTrabajo(session.session_date, req.role);
+      if (!permiso.ok) return res.status(permiso.status).json(permiso.body);
+
+      const { error: updErr } = await supabase
+        .from('attendance_sessions')
+        .update({ finalized: false, finalized_at: null, finalized_by: null, updated_at: new Date().toISOString() })
+        .eq('id', sessionId);
+      if (updErr) throw updErr;
+
+      await auditLog(req, 'attendance_session_reopened', 'attendance_sessions', sessionId, null, {
+        session_date: session.session_date,
+        team_id: session.team_id,
+      });
+
+      return res.json({
+        success: true,
+        sessionId,
+        date: session.session_date,
+        aviso: 'La sesión quedó abierta. El cierre automático la vuelve a finalizar esta noche.',
+      });
+    } catch (err: any) {
+      req.log?.error({ err: err.message || err }, 'Error reabriendo sesión de asistencia');
+      return res.status(500).json({ error: 'Error interno reabriendo la sesión.' });
+    }
+  }
+);
+
+// PATCH /session/:sessionId/finalize — finaliza la sesión.
 router.patch('/session/:sessionId/finalize', requireAuth, requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {

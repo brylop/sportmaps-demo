@@ -111,6 +111,14 @@ function describeCredits(t: CreditTally): string | undefined {
   return parts.length ? parts.join(' · ') : undefined;
 }
 
+/** "martes 12 de agosto" — para que el entrenador vea el día, no un ISO. */
+function formatHumanDate(d: string): string {
+  const [y, m, day] = d.split('-').map(Number);
+  return new Date(y, m - 1, day).toLocaleDateString('es-CO', {
+    weekday: 'long', day: 'numeric', month: 'long',
+  });
+}
+
 function formatHour(t: string | null): string | null {
   if (!t) return null;
   const [h, m] = t.split(':');
@@ -289,6 +297,22 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
   // ── 0. Staff profile ────────────────────────────────────────────────────
   const { staffId, estado: estadoFicha, refetch: refetchFicha } = useCoachStaffId();
 
+  // ── Fecha de trabajo ────────────────────────────────────────────────────
+  // Por defecto hoy. El entrenador puede retroceder 7 días para completar lo
+  // que se le pasó; la administración, sin tope. El BFF vuelve a validar esto
+  // mismo: acá solo se evita ofrecer un botón que va a devolver 403.
+  const RETRO_DIAS_COACH = 7;
+  const hoy = todayColombia();
+  const [fechaLista, setFechaLista] = useState<string>(hoy);
+  const esRetroactiva = fechaLista !== hoy;
+
+  const fechaMinima = useMemo(() => {
+    if (isAdmin) return undefined;                       // sin tope
+    const d = new Date(`${hoy}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - RETRO_DIAS_COACH);
+    return d.toISOString().slice(0, 10);
+  }, [hoy, isAdmin]);
+
   // ── 1. Equipos ──────────────────────────────────────────────────────────
   const { data: teams = [], isLoading: loadingTeams } = useQuery<TeamItem[]>({
     queryKey: ['coach-teams', schoolId, user?.id, staffId, isAdmin],
@@ -401,12 +425,12 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
     session: AttendanceSession | null;
     records: { child_id?: string; user_id?: string; unregistered_athlete_id?: string; status: string }[];
   }>({
-    queryKey: ['attendance-session', selectedItem],
+    queryKey: ['attendance-session', selectedItem, fechaLista],
     queryFn: async () => {
       if (!selectedItem) return { session: null, records: [] };
       if (isTeam) {
         const token = await getBearerToken();
-        const res = await fetch(`${BFF_URL}/api/v1/attendance/session/${selectedTeamId}`, {
+        const res = await fetch(`${BFF_URL}/api/v1/attendance/session/${selectedTeamId}?date=${fechaLista}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) throw new Error('Error consultando sesión');
@@ -533,6 +557,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
       if (isTeam || isSession) {
         const sessionPayload: any = {
           records: [...presentEntries, ...otherEntries].map(aRecord),
+          date: fechaLista,
         };
         if (isTeam)      sessionPayload.teamId    = selectedTeamId;
         if (session?.id) sessionPayload.sessionId = session.id;
@@ -654,11 +679,35 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
       return body;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedItem] });
+      queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedItem, fechaLista] });
       toast({ title: '🏁 Sesión finalizada', description: 'Los datos quedan bloqueados.' });
     },
     onError: (err: any) => {
       toast({ title: 'Error al finalizar', description: err?.message, variant: 'destructive' });
+    },
+  });
+
+  // Reabrir una lista ya cerrada. El cierre automático corre cada noche sobre
+  // todo lo que tenga fecha anterior a hoy, así que sin esto una lista mal
+  // llena quedaba mal para siempre.
+  const reopenMutation = useMutation({
+    mutationFn: async () => {
+      if (!session?.id) throw new Error('No hay sesión que reabrir.');
+      const token = await getBearerToken();
+      const res = await fetch(`${BFF_URL}/api/v1/attendance/session/${session.id}/reopen`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Error reabriendo la sesión');
+      return body;
+    },
+    onSuccess: (b: any) => {
+      queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedItem, fechaLista] });
+      toast({ title: '🔓 Lista reabierta', description: b?.aviso });
+    },
+    onError: (err: any) => {
+      toast({ title: 'No se pudo reabrir', description: err?.message, variant: 'destructive' });
     },
   });
 
@@ -1033,12 +1082,21 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
           ) : (
             <>
               {isFinalized && (
-                <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-green-800">
-                  <Lock className="w-5 h-5 shrink-0" />
-                  <div>
-                    <p className="font-semibold">Sesión finalizada</p>
-                    <p className="text-sm">Los registros están bloqueados.</p>
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-green-800 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <Lock className="w-5 h-5 shrink-0" />
+                    <div>
+                      <p className="font-semibold">Sesión finalizada</p>
+                      <p className="text-sm">Los registros están bloqueados.</p>
+                    </div>
                   </div>
+                  <Button
+                    variant="outline" size="sm" className="h-8 text-xs"
+                    disabled={reopenMutation.isPending}
+                    onClick={() => reopenMutation.mutate()}
+                  >
+                    {reopenMutation.isPending ? 'Reabriendo…' : '🔓 Reabrir para corregir'}
+                  </Button>
                 </div>
               )}
 
@@ -1069,6 +1127,44 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
                   )}
                 </div>
               </div>
+
+              {/* ── Fecha de la lista ────────────────────────────────────
+                  Hasta ahora solo se podía pasar lista del día en curso: el
+                  entrenador que olvidaba un día no tenía cómo completarlo. */}
+              <div className="flex items-center justify-between flex-wrap gap-3 rounded-xl border p-3">
+                <div className="flex items-center gap-2">
+                  <CalendarIcon className="w-4 h-4 text-muted-foreground" />
+                  <Label htmlFor="fecha-lista" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Día de la lista
+                  </Label>
+                  <Input
+                    id="fecha-lista"
+                    type="date"
+                    value={fechaLista}
+                    min={fechaMinima}
+                    max={hoy}
+                    onChange={(e) => setFechaLista(e.target.value || hoy)}
+                    className="h-8 w-auto text-sm"
+                  />
+                </div>
+                {esRetroactiva && (
+                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setFechaLista(hoy)}>
+                    Volver a hoy
+                  </Button>
+                )}
+              </div>
+
+              {esRetroactiva && (
+                <Alert>
+                  <CalendarCheck className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    Estás completando la lista del <strong>{formatHumanDate(fechaLista)}</strong>, no la de hoy.
+                    Las clases se descuentan del plan con esa fecha, así que un atleta cuyo plan ya
+                    estaba vencido ese día queda registrado pero sin descuento.
+                    {!isAdmin && ` Puedes retroceder hasta ${RETRO_DIAS_COACH} días; para algo más antiguo, pídeselo a la administración.`}
+                  </AlertDescription>
+                </Alert>
+              )}
 
               {/* Quien no tiene equipo asignado no sale en NINGÚN roster. Sin
                   esto, el entrenador no puede distinguirlo de "ese atleta no

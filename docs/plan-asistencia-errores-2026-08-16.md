@@ -127,6 +127,33 @@ bloqueado por una decisión de producto, no por código.
 
 ---
 
+## 2.b Carga retroactiva — decidido y construido (2026-08-17)
+
+No estaba en la cola: salió de una pregunta de Dynasty. Hasta hoy la asistencia **solo se podía
+tomar del día en curso** — las tres rutas de escritura calculaban la fecha adentro, la pantalla
+de Supervisión tenía selector de fecha que solo servía para leer (guardaba con la fecha de hoy,
+que es peor que no tenerlo: no falla, miente), y `auto_finalize_stale_sessions` cerraba cada
+noche todo lo anterior sin que existiera forma de reabrir.
+
+Las tres decisiones de producto, resueltas:
+
+| | Decisión |
+|---|---|
+| **Quién** | El entrenador hasta **7 días** atrás; la administración **sin tope**. Quien responde por la plata puede reescribir más lejos que quien solo pasa lista. |
+| **Créditos** | Se descuentan evaluando el saldo **como estaba ese día**: el plan vencido se compara contra la fecha del evento, no contra hoy. Sin saldo, la asistencia se registra igual y se avisa — misma regla que en el día corriente. |
+| **Cerrado** | Una sesión finalizada se puede **reabrir**, solo si su fecha cae dentro de la ventana de quien lo pide. |
+
+Sin migración: el gate vive en el BFF (que escribe con service role, así que RLS no es la
+barrera) y la trazabilidad va por `security_audit_log` — `attendance_backdated` y
+`attendance_session_reopened`, con quién, cuándo y para qué fecha. No se agregó columna a
+`attendance_records`.
+
+**Consecuencia que hay que conocer:** el cron vuelve a cerrar esta noche la sesión reabierta,
+así que la corrección hay que terminarla el mismo día. Es deliberado — el cierre automático
+sigue siendo la regla, la reapertura es la excepción puntual.
+
+---
+
 ## 3. Cabos sueltos que no son de este plan
 
 - `bff/_subir-logo-tmp.mjs` — borrador viejo de `scripts/subir-logo-escuela.mjs`, que ya está
