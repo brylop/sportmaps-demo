@@ -22,6 +22,9 @@ const typeConfig: Record<CartItemType, { icon: typeof School; label: string; col
   enrollment: { icon: School, label: 'Inscripción', color: 'bg-primary/10 text-primary' },
   product: { icon: Package, label: 'Producto', color: 'bg-accent/10 text-accent' },
   appointment: { icon: Calendar, label: 'Cita', color: 'bg-green-500/10 text-green-600' },
+  // Faltaba, y CartItemType la incluye: un item de servicio caia en
+  // typeConfig[undefined] y reventaba al leerle el icono.
+  service: { icon: CreditCard, label: 'Servicio', color: 'bg-blue-500/10 text-blue-600' },
 };
 
 export function CartDrawer() {

@@ -64,7 +64,8 @@ const SEQUENCES: Record<Exclude<SoundName, 'none'>, [number, number][]> = {
     tone_soft_low: [[300, 0.22]],
     tick: [[1200, 0.05]],
     attention: [[440, 0.15], [0, 0.06], [440, 0.15], [0, 0.06], [440, 0.2]],
-    none: [],
+    // `none` no va aca: el tipo es Record<Exclude<SoundName, 'none'>, …> porque
+    // «sin sonido» se resuelve antes de buscar la secuencia.
 };
 
 /** Reproduce un tono corto. No-op si no está armado o sin WebAudio. */

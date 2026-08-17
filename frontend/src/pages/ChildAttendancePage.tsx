@@ -249,9 +249,12 @@ export default function ChildAttendancePage() {
                       <Clock className="h-3 w-3" />
                       Año {new Date(record.attendance_date).getFullYear()}
                     </div>
-                    {record.justification_reason && (
+                    {/* Era `justification_reason`, que no existe en
+                        attendance_records: la columna es `notes`, y el select ya
+                        la traia. La nota nunca se mostraba. */}
+                    {record.notes && (
                       <p className="text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded inline-block mt-1 italic">
-                        Nota: {record.justification_reason}
+                        Nota: {record.notes}
                       </p>
                     )}
                   </div>

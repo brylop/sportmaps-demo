@@ -24,7 +24,21 @@ export default function ProductDetailPage() {
     : product.price;
 
   const handleAddToCart = () => {
-    addItem(product, quantity);
+    // Se pasaba el `Product` entero, que es otro tipo: `types/shop.ts` define su
+    // propio CartItem (extiende Product) y el contexto define el suyo, con
+    // `type`, `metadata` e `image`. Hay que traducir, no asumir que calzan.
+    addItem({
+      id: product.id,
+      type: 'product',
+      name: product.name,
+      description: product.description ?? '',
+      price: product.price,
+      image: product.image_url ?? undefined,
+      category: product.category ?? undefined,
+      stock: product.stock ?? undefined,
+      discount: product.discount ?? undefined,
+      metadata: { productId: product.id },
+    }, quantity);
     navigate('/cart');
   };
 

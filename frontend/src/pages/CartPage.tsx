@@ -9,7 +9,11 @@ import { CartCheckoutModal } from '@/components/shop/CartCheckoutModal';
 
 export default function CartPage() {
   const navigate = useNavigate();
-  const { items, removeItem, updateQuantity, total, clearCart } = useCart();
+  // Desestructuraba `total`, que el contexto no expone: es `getTotal()`. `total`
+  // quedaba undefined y la linea del subtotal hacia `total.toLocaleString()`,
+  // asi que el carrito reventaba con TypeError en cuanto tenia algo.
+  const { items, removeItem, updateQuantity, getTotal, clearCart } = useCart();
+  const total = getTotal();
   const [showCheckout, setShowCheckout] = useState(false);
 
   if (items.length === 0) {
@@ -50,7 +54,7 @@ export default function CartPage() {
                   <CardContent className="p-6">
                     <div className="flex gap-4">
                       <img
-                        src={item.image_url || '/placeholder.svg'}
+                        src={item.image || '/placeholder.svg'}
                         alt={item.name}
                         className="w-24 h-24 object-cover rounded-lg bg-muted"
                       />
