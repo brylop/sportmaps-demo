@@ -13,6 +13,19 @@ import { bffClient } from '@/lib/api/bffClient';
 // (trigger create_default_school_subscription); acá se extiende cuando se acuerda.
 const MESES_PRUEBA = [1, 2, 3, 6, 12];
 
+// Los ÚNICOS valores que v_school_entitlements sabe mapear a módulos. Cualquier
+// otro deja a la escuela sin Academia y sin Reservas — por eso el selector es
+// cerrado y la RPC valida contra esta misma lista.
+const TIPOS_ESCUELA = [
+  { value: 'academy',          label: 'Academia — solo formación' },
+  { value: 'club',             label: 'Club deportivo' },
+  { value: 'escuela',          label: 'Escuela deportiva' },
+  { value: 'hybrid',           label: 'Híbrido — formación + reservas' },
+  { value: 'venue',            label: 'Escenario — solo reservas' },
+  { value: 'gimnasio',         label: 'Gimnasio — reservas + formación' },
+  { value: 'personal_trainer', label: 'Entrenador personal' },
+];
+
 // Add-ons que el super-admin puede prender/apagar por escuela.
 const ADDONS: { key: string; label: string; icon: string; note?: string }[] = [
   { key: 'accounting',     label: 'Contabilidad',           icon: '📊' },
@@ -402,6 +415,48 @@ export default function AdminSubscriptionsPage() {
 
                   <p className="text-[11px] text-muted-foreground">
                     Las cuentas marcadas <b>Pruebas</b> o <b>Demo</b> nunca se bloquean ni las toca el cron de expiración.
+                  </p>
+                </div>
+
+                {/* Tipo de escuela — decide qué módulos ve (CAR-1b) */}
+                <div className="rounded-xl border p-4 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Building2 className="h-4 w-4 text-primary" />
+                    <p className="text-sm font-semibold">Tipo de escuela</p>
+                    {ent?.school_type && !TIPOS_ESCUELA.some((t) => t.value === ent.school_type) && (
+                      <Badge variant="destructive">Valor desconocido — sin módulos</Badge>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Select
+                      value={ent?.school_type || 'academy'}
+                      onValueChange={(v) => accionPrueba('admin_set_school_type', { p_school_type: v }, `Tipo cambiado a ${v}`)}
+                    >
+                      <SelectTrigger className="w-[230px]"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {TIPOS_ESCUELA.map((t) => (
+                          <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    {/* El efecto real, no el prometido: cambiar el tipo prende y
+                        apaga módulos completos. */}
+                    <div className="flex gap-2 text-xs">
+                      <Badge variant={ent?.has_academy ? 'default' : 'outline'}>
+                        Academia {ent?.has_academy ? '✓' : '✗'}
+                      </Badge>
+                      <Badge variant={ent?.has_reservations ? 'default' : 'outline'}>
+                        Reservas {ent?.has_reservations ? '✓' : '✗'}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-muted-foreground">
+                    Decide qué módulos ve la escuela: <b>Academia</b> y <b>Reservas</b> se derivan de
+                    acá, no del plan. Un club que además quiera reservar espacios va en <b>Híbrido</b>.
+                    Cambiarlo prende o apaga módulos enteros — no es una preferencia estética.
                   </p>
                 </div>
 
