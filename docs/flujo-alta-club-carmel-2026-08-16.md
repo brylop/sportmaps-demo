@@ -70,13 +70,34 @@ en una escuela que no cobra solo puede terminar en un pago mal dirigido.
 
 ### Después del wizard — `scripts/carmel-configurar.mjs`
 
+El comando exacto, con las 8 disciplinas ya confirmadas contra la página del club (ver
+[plan §2.2](plan-club-carmel-multideporte-2026-08-15.md)). Se puede pasar `--nombre=carmel` en vez
+del uuid; si el nombre coincide con más de una escuela, el script se niega y lista los candidatos
+en vez de elegir por su cuenta.
+
 ```bash
-node scripts/carmel-configurar.mjs --school-id=<uuid>          # ensayo
-node scripts/carmel-configurar.mjs --school-id=<uuid> --apply
+DEP="golf,tenis,futbol,voleibol,baloncesto,padel,natacion,gimnasio"
+
+node scripts/carmel-configurar.mjs --nombre=carmel --deportes="$DEP"           # ensayo
+node scripts/carmel-configurar.mjs --nombre=carmel --deportes="$DEP" --apply
 ```
 
-Deja `school_type='hybrid'`, `billing_enabled=false`, los 8 `sport_configs` con su eje, y las
-instalaciones con los 6 carriles de piscina.
+Deja `school_type='hybrid'`, `account_type='real'`, `billing_enabled=false` y los 8
+`sport_configs` con las categorías oficiales de cada federación.
+
+**Qué NO hace, y es a propósito:**
+
+- **No crea instalaciones.** Decisión del 2026-08-17: las 15 canchas de tenis, las 2 de pádel, la
+  de fútbol 11, el campo de golf, la piscina y el gimnasio los crea el club, con sus nombres y sus
+  tarifas. Nosotros no sabemos cómo las llama ni qué cobra.
+- **No inventa categorías ni rangos de edad.** El eje entra en `division` (solo nombre). Si el club
+  nos da los cortes de edad —«nuestro Sub-11 va de 9 a 11»— se corre con `--eje=age` y ahí sí
+  llevan `min`/`max`; o se ajustan de a una desde «Deportes y categorías».
+- **`gimnasio` queda con eje `none` y sin categorías**, porque no está en el catálogo de deportes
+  (`MOD-16`). Para un gimnasio es lo correcto: no agrupa socios en categorías de competencia.
+
+**Ensayarlo primero en Club Campestre Demo.** La única fila de `sport_configs` en toda la base es de
+una cuenta test, así que el camino multideporte se estrena acá.
 
 ---
 
