@@ -314,6 +314,7 @@
     "migrations": "node scripts/migrations.mjs",
     "migrations:list": "node scripts/migrations.mjs list",
     "seguridad:invariantes": "node scripts/invariantes-seguridad.mjs",
+    "verificar:runtime": "node scripts/verificar-nombres-sin-declarar.mjs",
     "migrations:pendientes": "node scripts/migraciones-pendientes.mjs",
     "migrations:check": "node scripts/migrations.mjs check",
     "migrations:sync": "node scripts/migrations.mjs sync",

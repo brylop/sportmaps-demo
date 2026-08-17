@@ -57,7 +57,12 @@ export function useSportsCatalog() {
                 .order('name');
             if (error) throw error;
 
-            return (data as FilaBD[]).map((f) => ({
+            // Vía `unknown`: los tipos generados de Supabase están
+            // desactualizados y no conocen `sports_categories.slug`, así que
+            // PostgREST devuelve el tipo de error de la consulta y el cast
+            // directo no compila. Se arregla de raíz regenerando los tipos
+            // (INF-8), no acá.
+            return (data as unknown as FilaBD[]).map((f) => ({
                 id: f.id,
                 nombre: f.name,
                 nombreIngles: f.name,
