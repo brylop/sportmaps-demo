@@ -381,7 +381,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
   const {
     data: rosterData,
     isLoading: loadingRoster,
-  } = useQuery<{ athletes: RosterItem[]; bookings: any[] }>({
+  } = useQuery<{ athletes: RosterItem[]; bookings: any[]; atletas_sin_equipo?: number }>({
     queryKey: ['attendance-roster', contextType, contextId],
     queryFn: async () => {
       if (!contextType || !contextId) return { athletes: [], bookings: [] };
@@ -502,24 +502,66 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
       const presentEntries = Object.entries(attendanceState).filter(([, s]) => s === 'present');
       const otherEntries   = Object.entries(attendanceState).filter(([, s]) => s !== 'present');
       const walkInErrors: string[] = [];
-      // El atleta sin inscripción no se puede mandar al BFF (la ruta exige
-      // enrollmentId). Antes se lo saltaba con un `continue` mudo y el guardado
-      // terminaba con el toast verde: el entrenador creía haber pasado lista y
-      // ese atleta no quedaba registrado en ningún lado. Se cuentan y se avisan.
+      // Solo aplica al camino de `offering`, que sigue siendo un POST por
+      // atleta porque la ruta exige enrollmentId. En equipo y sesión ya no se
+      // pierde a nadie: van en el lote y quedan registrados aunque no tengan
+      // inscripción (el crédito sale como `no_plan`, la asistencia se guarda).
       const sinInscripcion: string[] = [];
       const tally = newTally();
 
-      // Presentes → walk-in con descuento
+      /** Traduce una fila del roster al record que espera POST /session. */
+      const aRecord = ([id, status]: [string, string]) => {
+        const a = athletes.find((x) => x.id === id);
+        return {
+          childId:               a?.athlete_type === 'child'        ? id : undefined,
+          userId:                a?.athlete_type === 'adult'        ? id : undefined,
+          unregisteredAthleteId: a?.athlete_type === 'unregistered' ? id : undefined,
+          status,
+          // Que el BFF le cobre a la inscripción que el entrenador vio en
+          // pantalla, en vez de adivinarla por antigüedad.
+          enrollmentId: a?.enrollment_id ?? undefined,
+          isSecondary,
+        };
+      };
+
+      // ── Equipo o sesión: TODO en un solo request ────────────────────────
+      //
+      // Antes eran un POST por atleta presente más uno para el resto: con los
+      // 31 de SENIORS, 31 requests. Si el token vencía o se caía la red a
+      // mitad, media lista quedaba guardada y la otra media no, y el
+      // entrenador no tenía forma de saber cuál era cuál.
+      if (isTeam || isSession) {
+        const sessionPayload: any = {
+          records: [...presentEntries, ...otherEntries].map(aRecord),
+        };
+        if (isTeam)      sessionPayload.teamId    = selectedTeamId;
+        if (session?.id) sessionPayload.sessionId = session.id;
+        else if (isSession) sessionPayload.sessionId = selectedSessionId;
+
+        const res = await fetch(`${BFF_URL}/api/v1/attendance/session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(sessionPayload),
+        });
+        const b = await res.json();
+        if (!res.ok) throw new Error(b.error);
+        for (const [id, outcome] of Object.entries(b.credit_outcomes ?? {})) {
+          addOutcome(tally, outcome as CreditOutcome, athletes.find((x) => x.id === id)?.full_name ?? 'Atleta');
+        }
+        return tally;
+      }
+
+      // ── Offering: un POST por atleta (la ruta pide enrollmentId) ─────────
       for (const [id] of presentEntries) {
         const a = athletes.find((x) => x.id === id);
         if (!a || !a.enrollment_id) {
           sinInscripcion.push(a?.full_name ?? 'Un atleta');
           continue;
         }
-        const payload: any = { enrollmentId: a.enrollment_id, is_secondary: isSecondary, status: 'present' };
-        if (isTeam)     payload.teamId     = selectedTeamId;
-        if (isSession)  payload.sessionId  = selectedSessionId;
-        if (isOffering) payload.offeringId = selectedOfferingId;
+        const payload: any = {
+          enrollmentId: a.enrollment_id, is_secondary: isSecondary, status: 'present',
+          offeringId: selectedOfferingId,
+        };
         if (a.athlete_type === 'child')        payload.childId               = id;
         else if (a.athlete_type === 'adult')   payload.userId                = id;
         else                                    payload.unregisteredAthleteId = id;
@@ -543,68 +585,35 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
         }
       }
 
-      // Otros estados → registro sin descuento
-      if (otherEntries.length > 0) {
-        if (isTeam || isSession) {
-          // Equipo o Sesión existente → POST /session directo
-          const records = otherEntries.map(([id, status]) => {
-            const a = athletes.find((x) => x.id === id);
-            return {
-              childId:               a?.athlete_type === 'child'        ? id : undefined,
-              userId:                a?.athlete_type === 'adult'         ? id : undefined,
-              unregisteredAthleteId: a?.athlete_type === 'unregistered' ? id : undefined,
-              status,
-            };
-          });
-          const sessionPayload: any = { records };
-          if (isTeam)      sessionPayload.teamId    = selectedTeamId;
-          if (session?.id) sessionPayload.sessionId = session.id;
+      // Otros estados del offering → walk-in por atleta (sin descuento, status != present)
+      for (const [id, status] of otherEntries) {
+        const a = athletes.find((x) => x.id === id);
+        if (!a?.enrollment_id) {
+          sinInscripcion.push(a?.full_name ?? 'Un atleta');
+          continue;
+        }
+        const payload: any = {
+          enrollmentId: a.enrollment_id,
+          offeringId:   selectedOfferingId,
+          status,
+          is_secondary: false,
+        };
+        if (a.athlete_type === 'child')        payload.childId               = id;
+        else if (a.athlete_type === 'adult')   payload.userId                = id;
+        else                                    payload.unregisteredAthleteId = id;
 
-          const res = await fetch(`${BFF_URL}/api/v1/attendance/session`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify(sessionPayload),
-          });
-          const b = await res.json();
-          if (!res.ok) throw new Error(b.error);
-          // Esta ruta ahora también mueve créditos (devolución al corregir a
-          // ausente, y descuento cuando la pantalla marca presente por acá).
-          for (const [id, outcome] of Object.entries(b.credit_outcomes ?? {})) {
-            addOutcome(tally, outcome as CreditOutcome, athletes.find((x) => x.id === id)?.full_name ?? 'Atleta');
-          }
-
-        } else if (isOffering) {
-          // Offering → walk-in por cada atleta (sin descuento porque status != present)
-          for (const [id, status] of otherEntries) {
-            const a = athletes.find((x) => x.id === id);
-            if (!a?.enrollment_id) {
-              sinInscripcion.push(a?.full_name ?? 'Un atleta');
-              continue;
-            }
-            const payload: any = {
-              enrollmentId: a.enrollment_id,
-              offeringId:   selectedOfferingId,
-              status,
-              is_secondary: false,
-            };
-            if (a.athlete_type === 'child')        payload.childId               = id;
-            else if (a.athlete_type === 'adult')   payload.userId                = id;
-            else                                    payload.unregisteredAthleteId = id;
-
-            const res = await fetch(`${BFF_URL}/api/v1/attendance/walk-in`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-              body: JSON.stringify(payload),
-            });
-            const b = await res.json();
-            if (!res.ok) {
-              if (!['expired', 'no_credits', 'no_session'].includes(b.reason)) {
-                throw new Error(b.error);
-              }
-            } else {
-              addOutcome(tally, b.credit_outcome, a?.full_name ?? 'Atleta');
-            }
-          }
+        const res = await fetch(`${BFF_URL}/api/v1/attendance/walk-in`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(payload),
+        });
+        const b = await res.json();
+        if (!res.ok) {
+          // `expired` y `no_credits` ya no son errores: la asistencia se
+          // registra igual y el motivo llega en `credit_outcome`.
+          walkInErrors.push(`${a.full_name}: ${b.error}`);
+        } else {
+          addOutcome(tally, b.credit_outcome, a?.full_name ?? 'Atleta');
         }
       }
 
@@ -1060,6 +1069,23 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
                   )}
                 </div>
               </div>
+
+              {/* Quien no tiene equipo asignado no sale en NINGÚN roster. Sin
+                  esto, el entrenador no puede distinguirlo de "ese atleta no
+                  existe" y lo busca donde nunca va a estar. */}
+              {isTeam && (rosterData?.atletas_sin_equipo ?? 0) > 0 && (
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    Hay <strong>{rosterData?.atletas_sin_equipo}</strong>{' '}
+                    {rosterData?.atletas_sin_equipo === 1 ? 'atleta activo' : 'atletas activos'} en la escuela
+                    sin equipo asignado. No {rosterData?.atletas_sin_equipo === 1 ? 'aparece' : 'aparecen'} en
+                    esta lista ni en la de ningún otro equipo. Si {rosterData?.atletas_sin_equipo === 1 ? 'entrena' : 'entrenan'}{' '}
+                    acá, asígnale{rosterData?.atletas_sin_equipo === 1 ? '' : 's'} equipo desde Atletas —
+                    o márca{rosterData?.atletas_sin_equipo === 1 ? 'lo' : 'los'} con Walk-in por hoy.
+                  </AlertDescription>
+                </Alert>
+              )}
 
                 {combinedRoster.map((student) => {
                   const current = attendanceState[student.id];

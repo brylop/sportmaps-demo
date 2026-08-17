@@ -111,6 +111,27 @@ async function findCreditEnrollment(schoolId: string, athlete: AthleteRef): Prom
 }
 
 /**
+ * La inscripción exacta que pidió el caller. Se usa cuando la pantalla ya sabe
+ * de cuál es el crédito — el roster lo resolvió y se lo mostró al entrenador —
+ * en vez de dejar que `findCreditEnrollment` adivine por antigüedad.
+ *
+ * Filtra por `school_id` a propósito: el id viene del cliente y sin eso se
+ * podría descontar de la inscripción de otra escuela.
+ */
+async function loadCreditEnrollment(enrollmentId: string, schoolId: string): Promise<CreditEnrollment | null> {
+  if (!enrollmentId || !schoolId) return null;
+
+  const { data } = await supabase
+    .from('enrollments')
+    .select(`id, sessions_used, secondary_sessions_used, expires_at, ${PLAN_JOIN}`)
+    .eq('id', enrollmentId)
+    .eq('school_id', schoolId)
+    .maybeSingle();
+
+  return data ? toCreditEnrollment(data) : null;
+}
+
+/**
  * Mueve el saldo. `delta` +1 consume, -1 devuelve. Pasa por el RPC porque el
  * read-modify-write desde acá hacía que dos reservas simultáneas consumieran un
  * solo crédito (el RPC toma SELECT … FOR UPDATE sobre la inscripción).
@@ -557,7 +578,29 @@ router.get(
 
       const { data: enrollments, error: enrErr } = await enrollmentQuery;
       if (enrErr) throw enrErr;
-      if (!enrollments?.length) return res.json({ athletes: [], bookings: [] });
+
+      // ── Los que NO van a aparecer, y por qué ──────────────────────────────
+      //
+      // El roster de equipo sale de las inscripciones activas con
+      // `team_id = contextId`. Quien esté en la escuela pero cuya inscripción
+      // no apunte a ningún equipo simplemente no sale, sin una línea que lo
+      // explique — y el entrenador no tiene forma de distinguirlo de "ese
+      // atleta no existe". Se cuentan y se devuelven para que la pantalla lo
+      // diga. Solo aplica a `team`: en `offering` el roster va por plan y no
+      // hay tal cosa como quedarse sin equipo.
+      let sinEquipo = 0;
+      if (contextType === 'team') {
+        const { count } = await supabase
+          .from('enrollments')
+          .select('id', { count: 'exact', head: true })
+          .eq('school_id', schoolId)
+          .eq('status', 'active')
+          .is('team_id', null);
+        sinEquipo = count ?? 0;
+      }
+
+      if (!enrollments?.length)
+        return res.json({ athletes: [], bookings: [], atletas_sin_equipo: sinEquipo });
 
       // ── 3. Resolver nombres e info de cada tipo de atleta ─────────────────
       const childIds        = enrollments.filter((e: any) => e.child_id).map((e: any) => e.child_id);
@@ -703,7 +746,11 @@ router.get(
         }
       }
 
-      return res.json({ athletes, bookings, context_type: contextType, context_id: contextId });
+      return res.json({
+        athletes, bookings,
+        context_type: contextType, context_id: contextId,
+        atletas_sin_equipo: sinEquipo,
+      });
     } catch (err: any) {
       req.log?.error({ err: err.message || err }, 'Error cargando roster');
       return res.status(500).json({ error: 'Error interno cargando el roster.' });
@@ -716,9 +763,17 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { schoolId } = req;
+      // `enrollmentId` e `isSecondary` viajan POR RECORD desde que esta ruta es
+      // también el camino de los presentes. Antes la pantalla mandaba un POST
+      // /walk-in por cada atleta presente: con 31 atletas eran 31 requests, y
+      // si el token vencía o se caía la red a mitad, media lista quedaba
+      // guardada y la otra media no.
       const { teamId, sessionId, records } = req.body as {
         teamId?: string; sessionId?: string;
-        records: { childId?: string; userId?: string; unregisteredAthleteId?: string; status: string; }[];
+        records: {
+          childId?: string; userId?: string; unregisteredAthleteId?: string;
+          status: string; enrollmentId?: string; isSecondary?: boolean;
+        }[];
       };
       if ((!teamId && !sessionId) || !Array.isArray(records) || records.length === 0)
         return res.status(400).json({ error: 'teamId (o sessionId) y records son requeridos.' });
@@ -823,28 +878,38 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
         const isNowPresent = record.status === 'present';
         if (wasPresent === isNowPresent) continue;
 
-        // `is_secondary` no viaja en esta ruta: acá solo se mueve la bolsa principal.
-        const credit = await findCreditEnrollment(schoolId!, athlete);
+        const isSecondary = record.isSecondary === true;
+
+        // La inscripción que mandó la pantalla manda sobre la heurística.
+        // `findCreditEnrollment` toma la más ANTIGUA con plan: con dos
+        // inscripciones activas descuenta de la vieja y la nueva nunca consume.
+        // El roster ya resolvió cuál le está mostrando al entrenador, así que
+        // se le cobra a ESA — la que el entrenador vio en pantalla.
+        const credit = record.enrollmentId
+          ? await loadCreditEnrollment(record.enrollmentId, schoolId!)
+          : await findCreditEnrollment(schoolId!, athlete);
         if (!credit) { creditOutcomes[key] = 'no_plan'; continue; }
 
         if (isNowPresent) {
-          const freeBooking = await findFreeBookingOfDay(schoolId!, athlete, today, false, finalSessionId);
+          const freeBooking = await findFreeBookingOfDay(schoolId!, athlete, today, isSecondary, finalSessionId);
           if (freeBooking) {
             await consumeBooking(freeBooking);
             creditOutcomes[key] = 'covered_by_booking';
             continue;
           }
           if (credit.expires_at && credit.expires_at < today) { creditOutcomes[key] = 'expired'; continue; }
-          if (credit.max_sessions !== null && credit.sessions_used >= credit.max_sessions) {
+          const usadas = isSecondary ? credit.secondary_sessions_used : credit.sessions_used;
+          const tope   = isSecondary ? credit.max_secondary_sessions  : credit.max_sessions;
+          if (tope !== null && usadas >= tope) {
             creditOutcomes[key] = 'no_credits';
             continue;
           }
-          const moved = await moveCredit(credit.id, 1, false);
+          const moved = await moveCredit(credit.id, 1, isSecondary);
           creditOutcomes[key] = moved?.moved ? 'deducted' : 'no_credits';
         } else {
-          const released = await releaseConsumedBooking(schoolId!, athlete, today, false, finalSessionId);
+          const released = await releaseConsumedBooking(schoolId!, athlete, today, isSecondary, finalSessionId);
           if (released) { creditOutcomes[key] = 'booking_released'; continue; }
-          const moved = await moveCredit(credit.id, -1, false);
+          const moved = await moveCredit(credit.id, -1, isSecondary);
           creditOutcomes[key] = moved?.moved ? 'returned' : 'unchanged';
         }
       }
