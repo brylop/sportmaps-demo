@@ -97,8 +97,24 @@ export default defineConfig(({ mode }) => ({
           }
         ]
       },
+      // OJO: con strategies:'injectManifest' la seccion que manda es ESTA, no
+      // el globPatterns de `workbox` (ese queda como config muerta).
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // No precachear los pesos muertos. Medido el 2026-08-17: el precache
+        // eran 401 entradas / 7.4 MB, y sus fetches compiten con las peticiones
+        // criticas de la app al entrar — el login pasaba de 8s a 16s con el SW
+        // activo. Estos chunks se cargan on-demand cuando alguien de verdad
+        // exporta un PDF o corre el OCR; el costo es que esas dos funciones no
+        // sirven sin conexion, que es un intercambio razonable.
+        globIgnores: [
+          '**/vendor-pdfjs-*.js',
+          '**/vendor-tesseract-*.js',
+          '**/tesseract*.js',
+          '**/jspdf*.js',
+          '**/html2canvas*.js',
+          '**/generateCategoricalChart-*.js',
+        ],
       },
       devOptions: {
         // Desactivado: el dev-SW se regenera con cada HMR y provoca recargas en

@@ -17,11 +17,19 @@ import { useToast } from '@/hooks/use-toast';
  * Flujo:
  * 1. Carga info del equipo/escuela/sede via get_team_join_info
  * 2. Acudiente ingresa: email, password, nombre, telefono, documento del menor
- * 3. Buscamos el documento con find_athletes_by_document — GLOBAL: todos los
- *    equipos y todas las escuelas. Antes era validate_child_for_team_join, que
- *    solo miraba DENTRO del equipo del link: con el link del equipo equivocado
- *    el acudiente recibia "no encontrado" aunque su hijo si existiera, se iba al
- *    QR y ahi chocaba con el indice unico de documento.
+ * 3. Buscamos el documento con buscar_menor_por_documento_publico, acotado a la
+ *    ESCUELA del link. Historia de las tres versiones, porque el pendulo se
+ *    paso de largo dos veces:
+ *      · validate_child_for_team_join miraba solo dentro del EQUIPO del link, y
+ *        con el link equivocado el acudiente recibia "no encontrado" aunque su
+ *        hijo existiera; se iba al QR y chocaba con el indice unico de documento.
+ *      · find_athletes_by_document lo abrio a TODAS las escuelas del pais, y
+ *        como esta pagina corre sin sesion, quedo entregandole a cualquier
+ *        anonimo el nombre completo y la fecha de nacimiento de un menor con
+ *        solo su documento (SEG-14).
+ *      · La actual exige la escuela, no devuelve fecha de nacimiento y enmascara
+ *        el nombre. Sigue encontrando al chico si el link es de la escuela
+ *        correcta, que era el problema original.
  * 4. supabase.auth.signUp -> claim_children_by_document -> dashboard
  *
  * Un mismo documento puede devolver VARIAS filas (el mismo chico inscrito en dos
@@ -38,17 +46,24 @@ interface TeamInfo {
   athletes_count: number;
 }
 
+/**
+ * Lo que devuelve `buscar_menor_por_documento_publico`. Es deliberadamente menos
+ * que antes: esta pantalla corre SIN sesion, y la funcion vieja entregaba a
+ * cualquier anonimo el nombre completo y la FECHA DE NACIMIENTO de un menor a
+ * partir de su documento (SEG-14).
+ *
+ * `nombre` viene enmascarado («Carlos S. D.»): alcanza para que el acudiente
+ * reconozca a su hijo —el escribio el documento— y no para que un extrano
+ * arme una ficha. El nombre completo aparece despues del alta, con sesion.
+ */
 interface AthleteMatch {
   child_id: string;
-  full_name: string;
-  date_of_birth: string | null;
+  nombre: string;
   school_id: string;
   school_name: string | null;
-  team_id: string | null;
   team_name: string | null;
   branch_name: string | null;
   already_linked: boolean;
-  is_mine: boolean;
 }
 
 export default function JoinTeamPage() {
@@ -92,9 +107,13 @@ export default function JoinTeamPage() {
     if (!childDoc || childDoc.replace(/[^A-Za-z0-9]/g, '').length < 5) return;
     const timer = setTimeout(async () => {
       setValidating(true);
-      const { data, error } = await (supabase.rpc as any)('find_athletes_by_document', {
+      // `p_school_id` ahora es OBLIGATORIO del lado de la base: sin el, la
+      // busqueda era global —todas las escuelas del pais— para cualquier
+      // anonimo con un numero de documento.
+      if (!teamInfo?.school_id) { setValidating(false); return; }
+      const { data, error } = await (supabase.rpc as any)('buscar_menor_por_documento_publico', {
         p_doc_number: childDoc,
-        p_school_id: teamInfo?.school_id ?? null,
+        p_school_id: teamInfo.school_id,
       });
       setValidating(false);
       setSearched(true);
@@ -363,7 +382,7 @@ export default function JoinTeamPage() {
                     >
                       <span className="flex items-center gap-1.5 text-xs font-semibold">
                         {selectedIds.includes(m.child_id) && <CheckCircle2 className="h-3 w-3 text-green-600" />}
-                        {m.full_name}
+                        {m.nombre}
                       </span>
                       <span className="block text-[11px] text-muted-foreground">
                         {[m.school_name, m.team_name, m.branch_name].filter(Boolean).join(' · ')}
@@ -380,7 +399,7 @@ export default function JoinTeamPage() {
                     <p key={m.child_id} className="flex items-start gap-1">
                       <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
                       <span>
-                        {m.full_name} ({[m.school_name, m.team_name].filter(Boolean).join(' · ')}) ya tiene
+                        {m.nombre} ({[m.school_name, m.team_name].filter(Boolean).join(' · ')}) ya tiene
                         una cuenta de acudiente vinculada.
                       </span>
                     </p>
