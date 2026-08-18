@@ -386,7 +386,7 @@
     {"v":"20260817211633","file":"20260817211633_search_path_en_sync_access_group.sql","sha256":"04e93dd37df148a1e8f85411a2f18f3e4b3546ad7717b33aedcfee1813073a19","added":"2026-08-18","by":"brylop"},
     {"v":"20260817215655","file":"20260817215655_buscar_menor_por_documento_sin_exponer.sql","sha256":"e8c718e4cead8e5294d8604fe3983770f94d5f09e1fa7bd5ac0cb01523e3e113","added":"2026-08-18","by":"brylop"},
     {"v":"20260817222932","file":"20260817222932_blindar_alta_duplicada_de_atleta.sql","sha256":"137c4d5986fcc948ceb9ae3fe792049dc7b87beeb7c052b65c596aefdd80f58e","added":"2026-08-18","by":"brylop"},
-    {"v":"20260818071427","file":"20260818071427_guard_de_prueba_en_rpcs_de_qr.sql","sha256":"9a848c839985d05de06915297c1e07c3c8fa12ed62457098dea795e83a69bfc1","added":"2026-08-18","by":"brylop"},
+    {"v":"20260818071427","file":"20260818071427_guard_de_prueba_en_rpcs_de_qr.sql","sha256":"76169b933e30043aa88b39ff8969603c05867eefa69aa61d3901f10f6d8da06a","added":"2026-08-18","by":"brylop"},
     {"v":"20260818071445","file":"20260818071445_invitacion_adopta_ficha_precargada.sql","sha256":"74034e59979c4e638125043bae52089dd9464f6e382c051ca08019d53a2e1883","added":"2026-08-18","by":"brylop"}
   ]
 }
