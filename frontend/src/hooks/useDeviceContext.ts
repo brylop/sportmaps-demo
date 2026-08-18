@@ -131,6 +131,50 @@ async function getNativePushToken(platform: 'ios' | 'android'): Promise<Pick<Dev
 }
 
 /**
+ * Arma el payload del dispositivo y lo registra en el BFF. Exportado aparte del
+ * hook porque hay que poder re-ejecutarlo: el token FCM solo existe DESPUES de
+ * que el usuario concede el permiso, asi que si al login lo negó (o el prompt
+ * quedó sin responder), el registro de esa sesion viajó sin token. Cuando luego
+ * lo activa a mano desde el banner hay que volver a postear.
+ *
+ * Devuelve si el dispositivo quedó con push token, para que quien lo llame
+ * pueda distinguir "registrado con push" de "registrado sin push".
+ */
+export async function syncDeviceRegistration(): Promise<{ pushGranted: boolean }> {
+    const payload: DevicePlatformInfo = { ...getDevicePlatformInfo() };
+
+    // GUARD nativo: solo aqui se cargan los plugins de Capacitor.
+    if (isNativePlatform() && (payload.platform === 'ios' || payload.platform === 'android')) {
+        const [details, push] = await Promise.all([
+            getNativeDeviceDetails(),
+            getNativePushToken(payload.platform),
+        ]);
+        Object.assign(payload, details, push);
+    }
+
+    await bffClient.post('/api/v1/devices/register', {
+        device_id:     payload.deviceId,
+        platform:      payload.platform,
+        push_token:    payload.pushToken,
+        push_provider: payload.pushProvider,
+        app_version:   payload.appVersion,
+        os_version:    payload.osVersion,
+        device_model:  payload.deviceModel,
+        locale:        payload.locale,
+        timezone:      payload.timezone,
+        // Tracking de instalacion: se manda el modo de visualizacion
+        // en CADA sesion. Es lo unico que funciona en iOS (nunca
+        // dispara `appinstalled`) y ademas clasifica retroactivamente
+        // a los dispositivos que ya existian. installed_at lo sella
+        // un trigger en la BD para que el upsert no lo pise.
+        display_mode:        getDisplayMode(),
+        install_tenant_slug: getPwaTenantSlug(),
+    }, CSRF_HEADERS);
+
+    return { pushGranted: !!payload.pushToken };
+}
+
+/**
  * Hook que se monta una vez por sesion. Al detectar user logueado, registra
  * el device en el BFF. En nativo enriquece con device id real + push token
  * antes de postear. Fire-and-forget (no bloquea UI si falla).

@@ -2,13 +2,25 @@ import { useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { isNativePlatform } from '@/lib/openExternalUrl';
+import { syncDeviceRegistration } from '@/hooks/useDeviceContext';
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
 /**
- * Hook para solicitar permiso de notificaciones push y guardar la suscripción en Supabase.
- * Requiere VITE_VAPID_PUBLIC_KEY en .env.
- * Las notificaciones push se envían desde una Edge Function cuando se inserta en `notifications`.
+ * Hook para solicitar permiso de notificaciones push.
+ *
+ * Dos caminos, y hay que respetarlos:
+ * - NATIVO (Capacitor): permiso del SO + token FCM/APNS via
+ *   @capacitor/push-notifications, y el token viaja al BFF en `user_devices`.
+ * - WEB/PWA: VAPID + service worker + `pushManager`, y la suscripcion queda en
+ *   `push_subscriptions` de Supabase. Requiere VITE_VAPID_PUBLIC_KEY.
+ *
+ * OJO: hasta 2026-08-17 este hook solo tenia el camino web, y el banner lo
+ * llamaba sin mirar la plataforma. Dentro de la app Android el WebView no
+ * implementa la Push API, asi que `pushManager` reventaba siempre y el usuario
+ * veia "No se pudo activar notificaciones push" sin ninguna forma de activarlas.
+ * Si alguien vuelve a quitar el guard de nativo, se repite.
  */
 export function usePushSubscription() {
   const { user } = useAuth();
@@ -19,6 +31,46 @@ export function usePushSubscription() {
       toast.error('Debes iniciar sesión para activar notificaciones push');
       return false;
     }
+
+    // ── Camino NATIVO ────────────────────────────────────────────────────────
+    if (isNativePlatform()) {
+      setStatus('loading');
+      try {
+        const { PushNotifications } = await import('@capacitor/push-notifications');
+
+        let perm = await PushNotifications.checkPermissions();
+        if (perm.receive === 'prompt' || perm.receive === 'prompt-with-rationale') {
+          perm = await PushNotifications.requestPermissions();
+        }
+        if (perm.receive !== 'granted') {
+          setStatus('denied');
+          // En Android, negar dos veces lo deja bloqueado: la app ya no puede
+          // volver a preguntar y hay que ir a los ajustes del sistema.
+          toast.info('Permiso denegado. Actívalo en los ajustes del teléfono, en Notificaciones.');
+          return false;
+        }
+
+        // Re-registrar el device para que el token recien concedido llegue al BFF:
+        // el registro del login pudo haber viajado sin token.
+        const { pushGranted } = await syncDeviceRegistration();
+        if (!pushGranted) {
+          setStatus('denied');
+          toast.error('No se pudo obtener el token de notificaciones. Reintenta en un momento.');
+          return false;
+        }
+
+        setStatus('granted');
+        toast.success('Notificaciones activadas');
+        return true;
+      } catch (err) {
+        console.error('[push] registro nativo fallo:', err);
+        setStatus('denied');
+        toast.error('No se pudo activar notificaciones');
+        return false;
+      }
+    }
+
+    // ── Camino WEB / PWA ─────────────────────────────────────────────────────
     if (!('Notification' in window) || !('serviceWorker' in navigator)) {
       setStatus('unsupported');
       toast.error('Tu navegador no soporta notificaciones push');
