@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { isNativePlatform } from '@/lib/openExternalUrl';
 
 export type PushPermissionState =
   | 'unsupported'   // Navegador no soporta push (Safari sin PWA instalada)
@@ -17,6 +18,25 @@ export function usePushPermissionStatus() {
     if (!user?.id) return;
 
     async function check() {
+      // 0. NATIVO primero. El WebView de Android no expone la Push API del
+      //    navegador, asi que el chequeo de 'PushManager' de abajo lo daria por
+      //    'unsupported' y el usuario se queda sin ninguna via para activarlas.
+      //    En nativo el permiso lo manda el SO y lo lee el plugin de Capacitor.
+      if (isNativePlatform()) {
+        try {
+          const { PushNotifications } = await import('@capacitor/push-notifications');
+          const perm = await PushNotifications.checkPermissions();
+          setState(
+            perm.receive === 'granted' ? 'granted'
+            : perm.receive === 'denied' ? 'denied'
+            : 'prompt'
+          );
+        } catch {
+          setState('unsupported');
+        }
+        return;
+      }
+
       // 1. Soporte del navegador
       if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
         setState('unsupported');

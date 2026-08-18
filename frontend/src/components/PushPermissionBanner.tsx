@@ -3,6 +3,7 @@ import { Bell, X, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePushSubscription } from '@/hooks/usePushSubscription';
 import { usePushPermissionStatus } from '@/hooks/usePushPermissionStatus';
+import { isNativePlatform } from '@/lib/openExternalUrl';
 
 const DISMISSED_KEY = 'sportmaps_push_banner_dismissed';
 const DELAY_MS      = 3000; // Esperar 3s antes de mostrar
@@ -13,6 +14,11 @@ const DELAY_MS      = 3000; // Esperar 3s antes de mostrar
  * - Si el usuario lo cierra sin decidir, no vuelve a aparecer en la sesión
  * - Si el permiso ya fue concedido o denegado, nunca se muestra
  * - En navegadores no soportados (Safari sin PWA), no se muestra
+ *
+ * Funciona igual en web y en la app nativa: `usePushSubscription` ramifica por
+ * plataforma. En nativo lo normal es que este banner NO aparezca, porque
+ * `useDeviceContext` ya pidió el permiso al entrar y el estado queda en
+ * 'granted' o 'denied'; solo sale si el prompt del SO quedó sin responder.
  */
 export function PushPermissionBanner() {
   const permissionState         = usePushPermissionStatus();
@@ -71,11 +77,13 @@ export function PushPermissionBanner() {
             Recibe alertas de pagos, sesiones y accesos directamente en tu dispositivo.
           </p>
 
-          {/* Aviso iOS */}
-          <div className="flex items-center gap-1.5 mt-2 text-[11px] text-muted-foreground/70">
-            <Smartphone className="h-3 w-3 flex-shrink-0" />
-            <span>En iPhone instala la app desde Safari → <em>Agregar a inicio</em></span>
-          </div>
+          {/* Aviso iOS — solo en web: dentro de la app nativa no aplica y confunde */}
+          {!isNativePlatform() && (
+            <div className="flex items-center gap-1.5 mt-2 text-[11px] text-muted-foreground/70">
+              <Smartphone className="h-3 w-3 flex-shrink-0" />
+              <span>En iPhone instala la app desde Safari → <em>Agregar a inicio</em></span>
+            </div>
+          )}
 
           {/* Acciones */}
           <div className="flex gap-2 mt-3">
