@@ -122,9 +122,9 @@ FROM (VALUES
  ('2026-08-15','1bbdfadf-f60a-45cd-8751-d112bfc057a6','27d826e5-ce9a-4cbb-b253-bb3c09af9287'), -- Juan José Peña
  ('2026-08-15','1bbdfadf-f60a-45cd-8751-d112bfc057a6','650bb7d7-228f-45ea-8667-bb6c854c4413'), -- Keneth Alejandro Herrera
  ('2026-08-15','1bbdfadf-f60a-45cd-8751-d112bfc057a6','4c15cf23-d0c4-4018-a97b-9dc1b256aef7'), -- Santiago Suárez Roa
- ('2026-08-15','1bbdfadf-f60a-45cd-8751-d112bfc057a6','974791aa-e0ba-4012-a9f7-edd8c8759338'), -- Jefferson Steven Rojas   (inscripción cancelada)
- ('2026-08-15','1bbdfadf-f60a-45cd-8751-d112bfc057a6','28661485-f914-4e48-89a5-19ecf04e0bf8'), -- Luis Alejandro Parra     (inscripción cancelada)
- ('2026-08-15','1bbdfadf-f60a-45cd-8751-d112bfc057a6','632b0f58-b409-4be9-8633-ce41ec4c38a9'), -- Josué Cortés Sáenz       (sin equipo — ver nota)
+ ('2026-08-15','1bbdfadf-f60a-45cd-8751-d112bfc057a6','e3527635-3652-4418-baf2-638685f9ee10'), -- Jefferson Steven Rojas Preciado
+ ('2026-08-15','1bbdfadf-f60a-45cd-8751-d112bfc057a6','09bb93ff-5a18-477f-9328-1c9cbe92bce3'), -- Luis Alejandro Parra Moreno
+ ('2026-08-15','1bbdfadf-f60a-45cd-8751-d112bfc057a6','cbf0b90e-7ad5-46fc-8e53-d41bfa1c440a'), -- Josué Cortés Sáenz
 
  -- ══ 15/08 · INFANTIL MASCULINO ════════════════════════════════════════════
  ('2026-08-15','81263e50-49e4-4826-a8ac-6818aef0e891','570177f2-d0a2-456f-9957-4037be602ca1'), -- Juan Manuel Torres Bareño
@@ -163,12 +163,22 @@ FROM (VALUES
 ON CONFLICT DO NOTHING;
 -- Esperado: INSERT 41
 --
--- NOTA sobre Josué Cortés Sáenz: es el único de los 41 sin equipo en ninguna
--- inscripción (la suya está cancelada y con plan «SENIORS 8 Clases»). Va a
--- MENORES MASCULINO porque es donde lo listó el entrenador. Si en realidad
--- entrena con SENIORS, moverlo después:
---     UPDATE attendance_records SET team_id = 'fa438446-4092-404b-8858-0939026a34d3'
---      WHERE child_id = '632b0f58-b409-4be9-8633-ce41ec4c38a9' AND attendance_date = '2026-08-15';
+-- ⚠ TRAMPA QUE COSTÓ UNA CORRECCIÓN — leer antes de reusar este patrón
+--
+-- Jefferson Rojas, Luis Alejandro Parra y Josué Cortés existen DOS VECES en
+-- `children`: el mismo nombre y la misma fecha de nacimiento, con un registro
+-- vivo y otro muerto. Resolver el nombre por similitud agarró el muerto en los
+-- tres casos — el que tiene `is_active = false`, la inscripción cancelada y
+-- CERO asistencias.
+--
+-- Insertar sobre el gemelo muerto no habría fallado: la asistencia se habría
+-- guardado en un registro que la familia no ve, sin descontar clase y sin
+-- aparecer en «Plan vs consumo». Un error mudo.
+--
+-- Lo que los distingue no es el nombre, es el estado. Al resolver nombres
+-- contra `children`, filtrar SIEMPRE por `is_active = true` Y por tener una
+-- inscripción activa, y desempatar por el acudiente — que es lo que se ve en
+-- pantalla. Los 41 de este script quedaron verificados con ese criterio.
 
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
