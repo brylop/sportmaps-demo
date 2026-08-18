@@ -1002,3 +1002,113 @@ Y una decisión de negocio que queda abierta, igual que con `pwa_branding`: **cu
 reservas, y si se cobra por espacio, por reserva o plano.** No lo invento — y de esa respuesta
 depende si `per_use_paid` necesita además una comisión por transacción, que hoy no existe en ninguna
 parte del modelo.
+
+---
+
+# 15. «Addon o incluido» — el mecanismo existe, está declarado y está muerto
+
+**Fecha:** 2026-08-18 · **Origen:** ofrecer reservas **de las dos formas** — como addon para quien lo
+compre suelto, e incluido en los planes de arriba — con el argumento de que le genera **ingresos
+adicionales** a la escuela.
+
+---
+
+## 15.1 La buena noticia: no hay que inventar el mecanismo
+
+`AddonDefinition` ya tiene el campo exacto:
+
+```ts
+includedIn: TierCode[]   // tiers donde el addon viene incluido sin costo extra
+```
+
+Y las 12 definiciones lo usan: `tournaments` en `['elite','enterprise']`, `whitelabel` solo en
+`['enterprise']`, `wompi` desde `start`. La intención de «en ambos lados» ya está escrita.
+
+## 15.2 La mala: nada lo lee
+
+Ningún archivo fuera del catálogo menciona `includedIn`. Y se comprueba con datos —
+`tournaments`, que el catálogo dice incluido en elite y enterprise:
+
+| tier | escuelas | `has_tournaments` | con fila en `school_addons` |
+|---|---|---|---|
+| `free` | 331 | **1** | **1** |
+| `enterprise` | 29 | **29** | **29** |
+| `pro` | 6 | **0** | **0** |
+
+El módulo **iguala exactamente** a la fila de addon en los tres tiers. O sea: la inclusión por plan
+no se evalúa en ninguna parte. Lo que hoy llamamos «incluido» es **alguien insertando 29 filas a
+mano**, y eso es lo que se desincroniza en la primera venta que nadie materializa.
+
+## 15.3 Y aunque se cableara, no calzaría: los tiers no coinciden
+
+Los `includedIn` del catálogo apuntan a `start`, `crecimiento`, `profesional`, `elite`,
+`enterprise`. Los tiers que **existen en la base** son:
+
+```
+free (331)  ·  enterprise (29)  ·  pro (6)
+```
+
+`start`, `crecimiento`, `profesional` y `elite` **no existen**. Así que si mañana alguien evalúa
+`includedIn`, `tournaments` seguiría sin incluirse en `pro` —el único tier intermedio real— porque
+el catálogo no lo nombra.
+
+Son **dos vocabularios de tiers** conviviendo: el del catálogo del frontend y el de la base. Antes de
+prometer «incluido en los planes de arriba» hay que decidir cuál es el bueno.
+
+## 15.4 Cómo queda reservas ofrecido de las dos formas
+
+Con el mecanismo cableado y los tiers reconciliados, reservas entra igual que cualquier otro:
+
+```ts
+reservations: {
+  key: 'reservations',
+  name: 'Reservas de espacios',
+  description: 'Alquiler y reserva de canchas, salones y espacios. Genera ingresos con lo que ya tienes.',
+  priceCents: -1,          // a cotizar: el precio no está decidido (ver 14.5)
+  setupCents: 0,
+  includedIn: [ /* los tiers de arriba, cuando se reconcilie el vocabulario */ ],
+  salesLed: true,
+}
+```
+
+Y el derecho al módulo pasa a ser, sin tocar el tipo de escuela:
+
+```
+derecho_a_reservas = fila de addon activa
+                     OR el tier del plan lo incluye
+                     OR derivado del tipo (legacy: hybrid, gimnasio, venue)
+```
+
+Sobre eso sigue mandando el flag operativo de 14.3: **derecho AND no apagado**. Tres fuentes de
+derecho, una sola palanca de apagado, y el tipo de escuela deja de ser la vía por la que entra
+alguien nuevo.
+
+## 15.5 «Ingresos adicionales» — lo que ya está decidido y encaja
+
+El argumento de venta es que la escuela monetiza espacios que ya tiene. Eso cierra sin nada nuevo,
+porque hay una decisión previa que aplica directo:
+
+> **2026-08-02:** SportMaps **no retiene nada por transacción**; monetiza por addon.
+
+Entonces: **la escuela se queda con el ingreso del alquiler, y nosotros cobramos el módulo.** Es
+coherente, es fácil de explicar en una venta, y resuelve la pregunta que quedó abierta en 14.5 —
+`per_use_paid` **no necesita** comisión por transacción, porque el modelo de negocio ya dijo que no
+va por ahí.
+
+Lo que sí queda pendiente de decidir es **la forma del precio del addon**: plano, por espacio
+cargado, o por escalón de reservas mensuales. No lo invento, y de eso depende si hace falta medir
+volumen por escuela antes de poner un número.
+
+## 15.6 Lo que esto agrega al orden de 14.5
+
+| | Qué | Nota |
+|---|---|---|
+| 0 | **Reconciliar el vocabulario de tiers** | Es prerrequisito de todo lo demás. Hoy el catálogo nombra cuatro tiers que no existen |
+| 1 | **Evaluar `includedIn` de verdad** | Beneficia a los 12 addons, no solo a reservas. Y deja de depender de que alguien materialice filas |
+| 2 | F5 · solapamiento padre/hijo | Ya era prerrequisito comercial (14.5) |
+| 3 | F6 · crédito de sesión | Ídem |
+| 4 | El addon `reservations` en el catálogo | Necesita precio |
+
+Los dos primeros no son de reservas: son de **cómo se venden los módulos en general**. Que el
+objetivo sea «cada módulo solo» los vuelve urgentes, porque hoy la inclusión por plan es un acuerdo
+verbal materializado a mano.
