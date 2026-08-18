@@ -27,6 +27,7 @@ import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { calcFirstPayment, BillingCycleType } from '../utils/prorationUtils';
 import { normalizeSchoolName } from '../utils/brandingUtils';
+import { todayInZone } from '../utils/businessDate';
 
 
 const router = Router();
@@ -66,6 +67,10 @@ const ChildSchema = EnrollmentBase.extend({
   send_invite:   z.boolean().default(true),
   /** Confirmación explícita del staff: "ya vi el duplicado, son personas distintas". */
   allow_duplicate: z.boolean().default(false),
+  /** Escape para el mayor de edad que la escuela igual quiere bajo un acudiente
+   *  (caso real: atleta con discapacidad, o deportista de 18 que sigue con el
+   *  papá como responsable de pago). Explícito, nunca por defecto. */
+  allow_adult_as_child: z.boolean().default(false),
 });
 
 const AdultExistingSchema = EnrollmentBase.extend({
@@ -144,6 +149,22 @@ function endOfMonth(startDate: string): string {
 // duplicado contra un `unregistered_athletes` y viceversa. (Que existan tres
 // tablas de identidad es la causa raíz de fondo; mientras siga así, cada flujo
 // nuevo tiene que acordarse de consultar las tres.)
+
+/**
+ * Años cumplidos a la fecha de negocio. `null` si no hay fecha de nacimiento.
+ *
+ * Se usa para decidir QUÉ es cada quien, no solo para mostrarlo: un mayor de
+ * edad registrado como `children` con acudiente arrastra una identidad falsa.
+ * En Dynasty hay 52 así, y en 28 de ellos el "acudiente" es el propio atleta —
+ * se auto-registró como su propio padre porque no había otra forma.
+ */
+function edadCumplida(dob?: string | null): number | null {
+  if (!dob) return null;
+  const hoy = todayInZone();
+  let años = Number(hoy.slice(0, 4)) - Number(dob.slice(0, 4));
+  if (hoy.slice(5) < dob.slice(5)) años -= 1;   // todavía no cumplió este año
+  return años;
+}
 
 /** minúsculas, sin acentos, espacios colapsados. Para comparar nombres escritos a mano. */
 function normalizeName(name: string): string {
@@ -347,6 +368,24 @@ router.post(
       // FLUJO A — Menor de edad
       // ══════════════════════════════════════════════════════════════════════
       if (data.type === 'child') {
+        // 0. ¿De verdad es un menor?
+        //
+        // El tipo lo elige quien llama, y hasta acá nadie lo contrastaba contra
+        // la fecha de nacimiento. Por eso hay 52 adultos en Dynasty modelados
+        // como menores con acudiente ficticio. Un mayor de edad es un ATLETA:
+        // entra con su cuenta, paga y recibe los avisos él mismo.
+        const edad = edadCumplida(data.date_of_birth);
+        if (edad !== null && edad >= 18 && !data.allow_adult_as_child) {
+          return res.status(409).json({
+            error: `${data.full_name} tiene ${edad} años: es mayor de edad y va como atleta, no como menor con acudiente.`,
+            reason: 'mayor_de_edad',
+            edad,
+            sugerencia: 'Usa el alta de atleta adulto (type "adult_invite" si no tiene cuenta, '
+                      + '"adult_existing" si ya se registró). Así entra con su propia cuenta y recibe los avisos.',
+            forzar_con: 'allow_adult_as_child',
+          });
+        }
+
         // 1. Duplicado ya registrado en la escuela.
         //
         // Antes esto solo miraba `children` y solo por `doc_number` exacto. Con eso

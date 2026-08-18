@@ -253,6 +253,78 @@ async function loadCreditEnrollment(enrollmentId: string, schoolId: string): Pro
 }
 
 /**
+ * Avisa cuando el plan llega a un HITO. No en cada clase.
+ *
+ * Notificar cada asistencia sería ruido: 800 atletas por 3 clases semanales son
+ * ~2.400 avisos por semana, y el que importa se pierde entre ellos. Lo que
+ * sirve —y lo que deja constancia— son tres momentos:
+ *
+ *   · `ultima`   se consumió la última clase del plan. Llega ANTES del
+ *                conflicto, que es cuando todavía se puede hacer algo.
+ *   · `excedida` entrenó por encima del tope.
+ *   · `vencida`  entrenó con el plan ya vencido.
+ *
+ * Los dos últimos son el registro que la escuela necesita cuando la familia
+ * reclama «nadie me avisó». Sin esto, la discusión es memoria contra memoria.
+ *
+ * Nunca revienta la asistencia: si el aviso falla, la clase ya quedó registrada
+ * y eso es lo que no se puede perder.
+ */
+type HitoPlan = 'ultima' | 'excedida' | 'vencida';
+
+async function avisarHitoDePlan(
+  schoolId: string, athlete: AthleteRef, hito: HitoPlan,
+  ctx: { fecha: string; plan?: string | null; tope?: number | null; usadas?: number | null },
+): Promise<void> {
+  try {
+    // A quién: el acudiente si es menor, el propio atleta si es adulto.
+    let destinatario: string | null = null;
+    if (athlete.childId) {
+      const { data } = await supabase.from('children').select('parent_id').eq('id', athlete.childId).maybeSingle();
+      destinatario = (data as any)?.parent_id ?? null;
+    } else if (athlete.userId) {
+      destinatario = athlete.userId;
+    }
+    // El atleta no registrado no tiene a quién avisarle. La escuela sí se entera:
+    // el hito le queda igual en «Plan vs consumo».
+    if (!destinatario) return;
+
+    const nombrePlan = ctx.plan?.trim() || 'tu plan';
+    const textos: Record<HitoPlan, { title: string; message: string }> = {
+      ultima: {
+        title: '⏳ Se acabaron las clases del plan',
+        message: `Con la clase del ${ctx.fecha} se consumió la última de ${nombrePlan}`
+               + `${ctx.tope ? ` (${ctx.tope} de ${ctx.tope})` : ''}. `
+               + 'Renueva para seguir entrenando sin interrupciones.',
+      },
+      excedida: {
+        title: '⚠️ Clase por encima del plan',
+        message: `La clase del ${ctx.fecha} quedó por encima de las ${ctx.tope ?? ''} de ${nombrePlan}. `
+               + 'Queda registrada y la escuela puede facturarla aparte.',
+      },
+      vencida: {
+        title: '⚠️ Clase con el plan vencido',
+        message: `La clase del ${ctx.fecha} se dictó con ${nombrePlan} ya vencido. `
+               + 'Queda registrada y la escuela puede facturarla aparte.',
+      },
+    };
+
+    await supabase.from('notifications').insert({
+      user_id:   destinatario,
+      school_id: schoolId,
+      type:      'attendance',
+      title:     textos[hito].title,
+      message:   textos[hito].message,
+      link:      '/attendance',
+      metadata:  { hito, fecha: ctx.fecha, plan: ctx.plan ?? null, tope: ctx.tope ?? null, usadas: ctx.usadas ?? null },
+    });
+  } catch (err) {
+    // Deliberado: un aviso que falla no puede tumbar la toma de asistencia.
+    console.error('[asistencia] no se pudo emitir el aviso de hito:', (err as any)?.message ?? err);
+  }
+}
+
+/**
  * Mueve el saldo. `delta` +1 consume, -1 devuelve. Pasa por el RPC porque el
  * read-modify-write desde acá hacía que dos reservas simultáneas consumieran un
  * solo crédito (el RPC toma SELECT … FOR UPDATE sobre la inscripción).
@@ -1039,15 +1111,28 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
             creditOutcomes[key] = 'covered_by_booking';
             continue;
           }
-          if (credit.expires_at && credit.expires_at < today) { creditOutcomes[key] = 'expired'; continue; }
+          if (credit.expires_at && credit.expires_at < today) {
+            creditOutcomes[key] = 'expired';
+            await avisarHitoDePlan(schoolId!, athlete, 'vencida',
+              { fecha: today, plan: credit.plan_name, tope: credit.max_sessions });
+            continue;
+          }
           const usadas = isSecondary ? credit.secondary_sessions_used : credit.sessions_used;
           const tope   = isSecondary ? credit.max_secondary_sessions  : credit.max_sessions;
           if (tope !== null && usadas >= tope) {
             creditOutcomes[key] = 'no_credits';
+            await avisarHitoDePlan(schoolId!, athlete, 'excedida',
+              { fecha: today, plan: credit.plan_name, tope, usadas });
             continue;
           }
           const moved = await moveCredit(credit.id, 1, isSecondary);
           creditOutcomes[key] = moved?.moved ? 'deducted' : 'no_credits';
+          // La que acaba de consumirse era la última: avisar ANTES de que la
+          // familia se entere por un cobro o por quedarse afuera.
+          if (moved?.moved && tope !== null && usadas + 1 >= tope) {
+            await avisarHitoDePlan(schoolId!, athlete, 'ultima',
+              { fecha: today, plan: credit.plan_name, tope, usadas: usadas + 1 });
+          }
         } else {
           const released = await releaseConsumedBooking(schoolId!, athlete, today, isSecondary, finalSessionId);
           if (released) { creditOutcomes[key] = 'booking_released'; continue; }
