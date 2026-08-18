@@ -94,16 +94,71 @@ Con revisión entre cada una, y **sin escribir migraciones hasta aprobar el plan
 | **F3** | Fusionar las inscripciones duplicadas en una sola pertenencia, con sus períodos colgando | alto — irreversible |
 | **F4** | Quitar de `enrollments` las columnas de consumo y comercial | bajo — el trabajo ya está hecho |
 
-## 7. Lo que hay que decidir antes de F1
+## 7. Decisiones tomadas (2026-08-17)
 
-1. **¿`billing_events` se revive o se deja morir?** Si se revive, el período de plan y el evento
-   de cobro son la misma fila y hay una sola verdad. Si se deja morir, `enrollment_periods` nace
-   limpia pero convive con `payments` como segunda fuente del período.
-2. **¿Un período por mes calendario, o por 30 días desde el pago?** Hoy conviven las dos: los
-   cobros van por mes calendario (`period_year/period_month`) y la vigencia por días
-   (`expires_at`). Es el origen del desfase de vigencias.
-3. **¿Qué pasa con las clases dictadas sin período vigente?** Hoy se registran y no se descuentan.
-   La pestaña «Plan vs consumo» ya las hace visibles; falta decidir si generan un cobro.
+### 7.1 `billing_events` NO se usa para esto — recomendación
+
+**Qué es realmente.** No es un experimento a medias: es una API completa y montada
+(`/api/v1/billing-events` con GET/POST/PATCH), con 4 policies, 1 trigger y 2 funciones. Con
+**cero filas en toda la plataforma**. Está viva y nadie la llama.
+
+**Por qué no sirve como período.** Sus tipos de evento son `charge`, `partial`, `refund`,
+`late_fee`, `adjustment`: es un **libro mayor de cobros**, y su unidad es el movimiento de plata,
+no el mes. Un solo mes puede tener un `charge`, dos `partial`, un `late_fee` y un `refund`: cinco
+filas. Si el período de consumo fuera esa misma fila, **un atleta tendría cinco períodos en un
+mes** y volveríamos a preguntarnos de cuál descontar la clase.
+
+Sería repetir el error exacto que este documento intenta deshacer: meter en una fila dos cosas con
+ritmos distintos. El cobro se mueve varias veces por mes; el derecho a entrenar, una.
+
+**El daño de forzarlo:** cada abono parcial partiría las sesiones del atleta; un reembolso dejaría
+un período fantasma con clases ya consumidas; y las policies y el trigger que hoy están pensados
+para plata pasarían a gobernar también el consumo, con un radio de cambio mucho mayor.
+
+**Recomendación:** `enrollment_periods` nace aparte, con una sola responsabilidad —vigencia y
+sesiones—, y se enlaza al cobro por `payment_id`. `billing_events` queda como lo que es. Que se
+revive o se deja morir es una decisión de facturación, **independiente de esta**, y hoy no
+bloquea nada: `payments` ya cubre el cobro con 682 de 682 filas con período.
+
+**Lo que sí mejoraría de la propuesta original:** enlazar el período al pago con `payment_id`
+*nullable*. Un período puede existir **antes** de estar pagado —el atleta entrena y la familia
+paga el 5— y esa es justamente la fuga que hoy no se ve. Si el enlace fuera obligatorio, no habría
+forma de representar «período abierto, sin pagar».
+
+### 7.2 El período es de 30 días desde la primera inscripción, y lo elige la escuela
+
+**Lo que renueva es el PLAN, no la inscripción.** La inscripción se hace una vez.
+
+El ancla es la **fecha de la primera inscripción del atleta**, no la del pago ni el 1º de cada
+mes: quien entró el 12 de agosto tiene su período del 12 al 11, y el siguiente del 12 de
+septiembre al 11 de octubre. Cada sesión se descuenta contra el plan **que ese atleta o padre está
+pagando en ese período**.
+
+Pero no es único para todos: **depende del método de cobro que la escuela elija**. Hay escuelas que
+cobran por mes calendario —es lo que hace hoy `generate_monthly_charges` con
+`period_year/period_month`— y otras por ciclo de 30 días desde el alta. Las dos tienen que
+convivir, configuradas por escuela.
+
+Implicación de diseño: el período **no** se deriva de `period_year/period_month`. Lleva
+`vigente_desde` y `vigente_hasta` explícitas, y quien las calcula es el motor de renovación según
+el modo de la escuela. Ese es además el fin del desfase de vigencias: hoy `expires_at` se **suma**,
+y con períodos consecutivos se **encadena**.
+
+### 7.3 Las clases sin período vigente no generan cobro — pero se muestran
+
+Por ahora **no** se factura automáticamente. Lo que sí hay que hacer es **mostrarle a la escuela la
+fuga**, con el respaldo de asistencia detrás: cuántas clases se dictaron sin plan vigente, a
+quién, en qué fechas y cuánto vale eso.
+
+La pestaña «Plan vs consumo» ya da el conteo (11 clases vencidas en Dynasty en agosto). Falta:
+
+- **Valorizarlo**: clases fuera de plan × precio de la clase del plan que tenía.
+- **El soporte**: poder abrir el detalle y ver las fechas exactas, que es lo que la escuela le
+  muestra a la familia cuando reclama.
+- **Un total por mes**, para que sea una cifra de negocio y no una curiosidad.
+
+Facturarlo automáticamente queda para después, y como decisión aparte: cobrar sin aviso previo una
+clase que la escuela ya dictó es una discusión con la familia, no un cálculo.
 
 ## 8. Lo que NO resuelve
 
