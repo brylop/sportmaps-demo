@@ -6,7 +6,7 @@
  * Todo sale de un solo GET /api/v1/attendance/history?month=YYYY-MM.
  */
 import { useMemo, useState, type ElementType } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { saveAs } from 'file-saver';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,7 @@ import {
   Percent, CheckCircle2, XCircle, Clock, FileText, Search, RefreshCw,
 } from 'lucide-react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
 import { cn } from '@/lib/utils';
@@ -54,8 +55,18 @@ interface AthleteRow {
     vence: string | null;
     descontadas: number;
     asistidas: number;
-    excedente: number;
-    tras_vencer: number;
+    cubiertas: number;
+    precio_clase: number | null;
+    moneda: string;
+    /** Se pasó del tope teniendo el plan vigente. */
+    excedente: { clases: number; valor: number | null; fechas: string[] };
+    /** Entrenó con el plan ya vencido. Cubo distinto: NO se solapa con el anterior. */
+    vencidas: { clases: number; valor: number | null; fechas: string[] };
+    fuera_de_plan: number;
+    valor: number | null;
+    enrollment_id?: string;
+    plan_id?: string | null;
+    team_id?: string | null;
     estado: 'ok' | 'excedido' | 'vencido' | 'sin_plan';
   };
 }
@@ -80,12 +91,25 @@ interface HistoryResponse {
   desfases?: {
     excedidos: number; con_vencido: number; sin_plan: number;
     clases_de_mas: number; clases_vencidas: number;
+    valor_excedente: number; valor_vencidas: number; valor_total: number;
   };
   totals: {
     records: number; present: number; absent: number; late: number;
     excused: number; rate: number; athletes: number; days: number;
   };
 }
+
+type FacturarItem = {
+  athleteId: string;
+  athleteType: 'child' | 'adult' | 'unregistered';
+  motivo: 'excedente' | 'vencidas';
+  clases: number;
+  precioClase: number;
+  teamId?: string | null;
+  planId?: string | null;
+  nombre?: string;
+  fechas?: string[];
+};
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 const MONTH_NAMES = [
@@ -200,6 +224,30 @@ export default function AttendanceHistoryPage() {
       return bffClient.get<HistoryResponse>(`/api/v1/attendance/history?${params}`);
     },
     enabled: !!schoolId,
+  });
+
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Facturar es plata: se emite por CONCEPTO y por atleta, nunca todo junto en
+  // un cargo. El BFF vuelve a validar contra doble cobro por (atleta, mes,
+  // concepto), asi que dos clics o dos personas a la vez no duplican.
+  const facturar = useMutation({
+    mutationFn: async (items: FacturarItem[]) =>
+      bffClient.post<{ emitidos: number; omitidos: number; total: number; detalle: any }>(
+        '/api/v1/attendance/facturar-fuera-de-plan', { month, items }),
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ['attendance-history'] });
+      const yaEstaban = (r.detalle?.omitidos ?? []).filter((o: any) => o.razon === 'ya_facturado').length;
+      toast({
+        title: r.emitidos > 0 ? `Se emitieron ${r.emitidos} cobros` : 'No se emitió ningún cobro',
+        description: [
+          r.emitidos > 0 ? `Total $${r.total.toLocaleString('es-CO')}.` : null,
+          yaEstaban > 0 ? `${yaEstaban} ya estaban facturados y se omitieron.` : null,
+        ].filter(Boolean).join(' '),
+      });
+    },
+    onError: (e: any) => toast({ title: 'No se pudo facturar', description: e?.message, variant: 'destructive' }),
   });
 
   // Atletas cuyo consumo no cuadra con lo que pagaron. Es la pregunta que la
@@ -603,17 +651,21 @@ export default function AttendanceHistoryPage() {
                 </Card>
               </TabsContent>
 
-              {/* ── Plan vs consumo ────────────────────────────────────── */}
+              {/* Plan vs consumo */}
               <TabsContent value="plan">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-base">Clases tomadas contra el plan pagado</CardTitle>
+                    <CardTitle className="text-base">Clases dictadas contra el plan pagado</CardTitle>
                     <CardDescription>
                       {desfases === 0
-                        ? 'Todos los atletas están dentro de su plan este mes.'
-                        : `${desfases} ${desfases === 1 ? 'atleta entrenó' : 'atletas entrenaron'} por fuera de lo contratado: `
-                          + `${data?.desfases?.clases_de_mas ?? 0} clases por encima del tope y `
-                          + `${data?.desfases?.clases_vencidas ?? 0} con el plan ya vencido.`}
+                        ? `Todos los atletas están dentro de su plan en ${monthLabel(month)}.`
+                        : <>
+                            <strong>{desfases}</strong> {desfases === 1 ? 'atleta entrenó' : 'atletas entrenaron'} por
+                            fuera de lo contratado en {monthLabel(month)}, por un total de{' '}
+                            <strong>${(data?.desfases?.valor_total ?? 0).toLocaleString('es-CO')}</strong> sin cobrar.
+                            {' '}Son {data?.desfases?.clases_de_mas ?? 0} clases por encima del plan y{' '}
+                            {data?.desfases?.clases_vencidas ?? 0} con el plan ya vencido.
+                          </>}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -627,41 +679,98 @@ export default function AttendanceHistoryPage() {
                           <TableRow>
                             <TableHead>Atleta</TableHead>
                             <TableHead>Plan</TableHead>
-                            <TableHead className="text-center">Tope</TableHead>
+                            <TableHead className="text-center">Pagó</TableHead>
                             <TableHead className="text-center">Asistió</TableHead>
-                            <TableHead className="text-center">Descontadas</TableHead>
-                            <TableHead className="text-center">De más</TableHead>
-                            <TableHead className="text-center">Con plan vencido</TableHead>
-                            <TableHead>Vence</TableHead>
+                            <TableHead className="text-right">Valor clase</TableHead>
+                            <TableHead>Por encima del plan</TableHead>
+                            <TableHead>Sin plan vigente</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {desglose.map(a => (
-                            <TableRow key={a.id}>
-                              <TableCell className="font-medium">{a.full_name}</TableCell>
-                              <TableCell className="text-muted-foreground text-xs">
-                                {a.plan?.nombre ?? <span className="text-red-600 font-semibold">Sin plan activo</span>}
-                              </TableCell>
-                              <TableCell className="text-center">{a.plan?.tope ?? '—'}</TableCell>
-                              <TableCell className="text-center font-bold">{a.plan?.asistidas ?? 0}</TableCell>
-                              <TableCell className="text-center text-muted-foreground">{a.plan?.descontadas ?? 0}</TableCell>
-                              <TableCell className="text-center">
-                                {(a.plan?.excedente ?? 0) > 0
-                                  ? <Badge variant="destructive">+{a.plan?.excedente}</Badge>
-                                  : <span className="text-muted-foreground">—</span>}
-                              </TableCell>
-                              <TableCell className="text-center">
-                                {(a.plan?.tras_vencer ?? 0) > 0
-                                  ? <Badge className="bg-amber-500/20 text-amber-700 border-amber-500/30">{a.plan?.tras_vencer}</Badge>
-                                  : <span className="text-muted-foreground">—</span>}
-                              </TableCell>
-                              <TableCell className="text-xs text-muted-foreground">{a.plan?.vence ?? 'sin vencimiento'}</TableCell>
-                            </TableRow>
-                          ))}
+                          {desglose.map(a => {
+                            const pl = a.plan!;
+                            const base = {
+                              athleteId: a.id, athleteType: a.athlete_type,
+                              precioClase: pl.precio_clase ?? 0, teamId: pl.team_id,
+                              planId: pl.plan_id, nombre: a.full_name,
+                            };
+                            return (
+                              <TableRow key={a.id}>
+                                <TableCell className="font-medium">{a.full_name}</TableCell>
+                                <TableCell className="text-xs text-muted-foreground">
+                                  {pl.nombre ?? <span className="text-red-600 font-semibold">Sin plan activo</span>}
+                                  {pl.vence && <div className="text-[10px]">vence {pl.vence}</div>}
+                                </TableCell>
+                                <TableCell className="text-center">{pl.tope ?? '—'}</TableCell>
+                                <TableCell className="text-center font-bold">{pl.asistidas}</TableCell>
+                                <TableCell className="text-right text-xs">
+                                  {pl.precio_clase ? `$${pl.precio_clase.toLocaleString('es-CO')}` : '—'}
+                                </TableCell>
+                                {(['excedente', 'vencidas'] as const).map(motivo => {
+                                  const cubo = pl[motivo];
+                                  return (
+                                    <TableCell key={motivo}>
+                                      {cubo.clases === 0 ? (
+                                        <span className="text-muted-foreground text-xs">—</span>
+                                      ) : (
+                                        <div className="flex flex-col gap-1 items-start">
+                                          <div className="flex items-center gap-2">
+                                            <Badge
+                                              variant={motivo === 'excedente' ? 'destructive' : 'default'}
+                                              className={cn(motivo === 'vencidas' && 'bg-amber-500/20 text-amber-700 border-amber-500/30')}>
+                                              {cubo.clases} {cubo.clases === 1 ? 'clase' : 'clases'}
+                                            </Badge>
+                                            <span className="font-semibold text-sm">
+                                              ${(cubo.valor ?? 0).toLocaleString('es-CO')}
+                                            </span>
+                                          </div>
+                                          {cubo.fechas.length > 0 && (
+                                            <span className="text-[10px] text-muted-foreground">
+                                              {cubo.fechas.map(f => f.slice(8) + '/' + f.slice(5, 7)).join(', ')}
+                                            </span>
+                                          )}
+                                          <Button
+                                            size="sm" variant="outline" className="h-6 text-[10px] px-2"
+                                            disabled={!pl.precio_clase || facturar.isPending}
+                                            onClick={() => facturar.mutate([{ ...base, motivo, clases: cubo.clases, fechas: cubo.fechas }])}>
+                                            Facturar
+                                          </Button>
+                                        </div>
+                                      )}
+                                    </TableCell>
+                                  );
+                                })}
+                              </TableRow>
+                            );
+                          })}
                         </TableBody>
                       </Table>
                     )}
                   </CardContent>
+                  {desfases > 0 && (
+                    <CardHeader className="border-t pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <CardDescription className="text-xs">
+                        Cada concepto se factura por separado. Si ya existe un cobro para ese atleta,
+                        ese mes y ese concepto, se omite — no se duplica.
+                      </CardDescription>
+                      <Button
+                        disabled={facturar.isPending}
+                        onClick={() => facturar.mutate(
+                          desglose.flatMap(a => (['excedente', 'vencidas'] as const)
+                            .filter(m => a.plan![m].clases > 0 && a.plan!.precio_clase)
+                            .map(m => ({
+                              athleteId: a.id, athleteType: a.athlete_type, motivo: m,
+                              clases: a.plan![m].clases, precioClase: a.plan!.precio_clase!,
+                              teamId: a.plan!.team_id, planId: a.plan!.plan_id,
+                              nombre: a.full_name, fechas: a.plan![m].fechas,
+                            })))
+                        )}>
+                        {facturar.isPending
+                          ? 'Emitiendo…'
+                          : `Facturar todo — $${(data?.desfases?.valor_total ?? 0).toLocaleString('es-CO')}`}
+                      </Button>
+                    </CardHeader>
+                  )}
                 </Card>
               </TabsContent>
             </Tabs>

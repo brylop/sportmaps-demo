@@ -461,6 +461,13 @@ async function findTeamSessionOfDay(
   return { kind: 'many', sessions: rows as TeamSessionRow[] };
 }
 
+const MESES_ES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+/** "agosto 2026" — el concepto del cobro lo lee un papá, no un sistema. */
+function monthLabelEs(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  return `${MESES_ES[m - 1]} ${y}`;
+}
+
 const MULTIPLE_SESSIONS_MSG =
   'Este equipo tiene varios bloques hoy. Elige el bloque específico antes de pasar lista.';
 
@@ -1357,6 +1364,134 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
   }
 );
 
+// ── POST /facturar-fuera-de-plan ─────────────────────────────────────────────
+//
+// Emite el cobro de las clases que la escuela dictó por fuera del plan. NO es
+// automático a propósito: cobrarle a una familia una clase que ya se dictó es
+// una conversación, no un cálculo. La escuela decide, atleta por atleta, desde
+// la pestaña «Plan vs consumo».
+//
+// El precio sale del plan que la familia contrató (`price / max_sessions`), que
+// es la única cifra defendible cuando el papá pregunta de dónde salió.
+//
+// Los dos motivos se facturan POR SEPARADO y con conceptos distintos. No es lo
+// mismo pasarse del plan que entrenar sin plan vigente: la conversación con la
+// familia es otra, y mezclarlos en un solo cargo hace imposible saber después
+// qué se cobró. Además, la guarda contra doble cobro es POR MOTIVO — facturar
+// el excedente no puede bloquear el cobro de las vencidas, ni al revés.
+const CONCEPTOS = {
+  excedente: 'Clases por encima del plan',
+  vencidas:  'Clases sin plan vigente',
+} as const;
+
+router.post('/facturar-fuera-de-plan', requireAuth, requireRole('owner', 'super_admin', 'admin', 'school_admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { schoolId } = req;
+      const { month, items } = req.body as {
+        month?: string;
+        items: { athleteId: string; athleteType: 'child' | 'adult' | 'unregistered';
+                 motivo: 'excedente' | 'vencidas';
+                 clases: number; precioClase: number; teamId?: string | null;
+                 planId?: string | null; nombre?: string; fechas?: string[] }[];
+      };
+
+      if (!Array.isArray(items) || !items.length)
+        return res.status(400).json({ error: 'No hay atletas para facturar.' });
+      if (!month || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month))
+        return res.status(400).json({ error: 'El mes debe venir como YYYY-MM.' });
+
+      const [year, mon] = month.split('-').map(Number);
+      const ultimoDia = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+      const vence = `${month}-${String(ultimoDia).padStart(2, '0')}`;
+
+      const emitidos: any[] = [];
+      const omitidos: any[] = [];
+
+      for (const it of items) {
+        const concepto = CONCEPTOS[it.motivo];
+        if (!it.athleteId || !concepto || !it.clases || it.clases < 1 || !it.precioClase) {
+          omitidos.push({ athleteId: it.athleteId, motivo: it.motivo, razon: 'datos_incompletos' });
+          continue;
+        }
+
+        const col = it.athleteType === 'child' ? 'child_id'
+                  : it.athleteType === 'adult' ? 'user_id'
+                  : 'unregistered_athlete_id';
+
+        // Guarda contra doble cobro. Es plata: que la escuela le dé dos veces al
+        // botón, o que dos personas lo hagan a la vez, no puede duplicar el
+        // cargo. La busqueda va por atleta + periodo + ESTE concepto, para que
+        // los dos motivos convivan sin taparse.
+        const { data: yaExiste } = await supabase
+          .from('payments')
+          .select('id, amount')
+          .eq('school_id', schoolId)
+          .eq(col, it.athleteId)
+          .eq('period_year', year)
+          .eq('period_month', mon)
+          .ilike('concept', `${concepto}%`)
+          .maybeSingle();
+
+        if (yaExiste) {
+          omitidos.push({
+            athleteId: it.athleteId, motivo: it.motivo,
+            razon: 'ya_facturado', paymentId: (yaExiste as any).id, monto: (yaExiste as any).amount,
+          });
+          continue;
+        }
+
+        const monto = it.clases * it.precioClase;
+        // Las fechas van en el concepto: es el soporte que la escuela le muestra
+        // a la familia cuando pregunta de dónde salió el cobro.
+        const detalleFechas = it.fechas?.length
+          ? ` (${it.fechas.map(f => f.slice(8) + '/' + f.slice(5, 7)).join(', ')})`
+          : '';
+
+        const { data: creado, error } = await supabase.from('payments').insert({
+          school_id:        schoolId,
+          [col]:            it.athleteId,
+          team_id:          it.teamId ?? null,
+          offering_plan_id: it.planId ?? null,
+          amount:           monto,
+          concept:          `${concepto} — ${monthLabelEs(month)} — ${it.clases} `
+                          + `${it.clases === 1 ? 'clase' : 'clases'} × $${it.precioClase.toLocaleString('es-CO')}`
+                          + `${detalleFechas}${it.nombre ? ` — ${it.nombre}` : ''}`,
+          due_date:         vence,
+          status:           'pending',
+          payment_type:     'one_time',
+          // Explícito: el trigger que rellena el periodo desde due_date manda el
+          // cobro al mes siguiente, y este cargo es del mes que se está mirando.
+          period_year:      year,
+          period_month:     mon,
+        }).select('id').single();
+
+        if (error) {
+          omitidos.push({ athleteId: it.athleteId, motivo: it.motivo, razon: 'error', detalle: error.message });
+          continue;
+        }
+
+        emitidos.push({ athleteId: it.athleteId, motivo: it.motivo, paymentId: (creado as any).id, monto, clases: it.clases });
+        await auditLog(req, 'billed_out_of_plan_classes', 'payments', (creado as any).id, null, {
+          mes: month, motivo: it.motivo, clases: it.clases,
+          precio_clase: it.precioClase, monto, fechas: it.fechas ?? null,
+        });
+      }
+
+      return res.json({
+        success: true,
+        emitidos: emitidos.length,
+        omitidos: omitidos.length,
+        total: emitidos.reduce((s, e) => s + e.monto, 0),
+        detalle: { emitidos, omitidos },
+      });
+    } catch (err: any) {
+      req.log?.error({ err: err.message || err }, 'Error facturando clases fuera de plan');
+      return res.status(500).json({ error: 'Error interno emitiendo los cobros.' });
+    }
+  }
+);
+
 // ── PATCH /session/:sessionId/reopen ─────────────────────────────────────────
 //
 // Finalizar dejó de ser irreversible. Antes no había forma de deshacerlo: ni
@@ -1811,7 +1946,9 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
         const col = tipo === 'child' ? 'child_id' : tipo === 'adult' ? 'user_id' : 'unregistered_athlete_id';
         const { data } = await supabase
           .from('enrollments')
-          .select(`child_id, user_id, unregistered_athlete_id, expires_at, sessions_used, ${PLAN_JOIN}`)
+          .select(`id, child_id, user_id, unregistered_athlete_id, team_id, expires_at, sessions_used,
+            offering_plan_id,
+            offering_plans!enrollments_offering_plan_id_fkey(name, max_sessions, price, currency)`)
           .eq('school_id', schoolId)
           .eq('status', 'active')
           .in(col, ids);
@@ -1822,9 +1959,18 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
           const tope = e.offering_plans?.max_sessions ?? null;
           const prev = planPorAtleta[key];
           if (!prev || (tope ?? 0) > (prev.tope ?? 0)) {
+            const precio = Number(e.offering_plans?.price ?? 0);
             planPorAtleta[key] = {
+              enrollment_id: e.id,
+              plan_id: e.offering_plan_id ?? null,
+              team_id: e.team_id ?? null,
               nombre: e.offering_plans?.name ?? null,
               tope,
+              // Lo que vale una clase suelta de ESE plan. Es la única cifra
+              // defendible frente a la familia: sale del plan que contrató, no
+              // de una tarifa inventada.
+              precio_clase: tope && tope > 0 ? Math.round(precio / tope) : null,
+              moneda: e.offering_plans?.currency ?? 'COP',
               vence: e.expires_at ?? null,
               descontadas: e.sessions_used ?? 0,
             };
@@ -1839,15 +1985,44 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
           row.plan = { estado: 'sin_plan', asistidas, tope: null, vence: null, excedente: 0, tras_vencer: 0, descontadas: 0 };
           continue;
         }
-        const trasVencer = p.vence
-          ? Object.entries(row.by_day as Record<string, string>)
-              .filter(([fecha, st]) => fecha > p.vence && (st === 'present' || st === 'late')).length
-          : 0;
-        const excedente = p.tope !== null ? Math.max(asistidas - p.tope, 0) : 0;
+        // ── Clasificación clase por clase, en cubos EXCLUYENTES ────────────
+        //
+        // Una clase cae en uno y solo uno: o está cubierta, o se pasó del tope,
+        // o el plan ya había vencido. Si el plan vencía el 5 y entrenó el 11, esa
+        // clase NO es "excedente" — el tope ni siquiera aplica ya. Contarla en
+        // los dos cubos la facturaría dos veces, que es justo lo que no puede
+        // pasar cuando esto emite cobros.
+        //
+        // Se ordena por fecha porque el tope se consume en orden: las primeras 8
+        // están cubiertas y de la 9 en adelante son excedente.
+        const diasAsistidos = Object.entries(row.by_day as Record<string, string>)
+          .filter(([, st]) => st === 'present' || st === 'late')
+          .map(([fecha]) => fecha)
+          .sort();
+
+        const diasVigentes = p.vence ? diasAsistidos.filter(f => f <= p.vence) : diasAsistidos;
+        const vencidas   = diasAsistidos.length - diasVigentes.length;
+        const excedente  = p.tope !== null ? Math.max(diasVigentes.length - p.tope, 0) : 0;
+        const cubiertas  = diasVigentes.length - excedente;
+
+        // Ahora SÍ se suman: son disjuntos por construcción.
+        const fueraDePlan = excedente + vencidas;
+        const precio = p.precio_clase;
+
         row.plan = {
           nombre: p.nombre, tope: p.tope, vence: p.vence, descontadas: p.descontadas,
-          asistidas, excedente, tras_vencer: trasVencer,
-          estado: excedente > 0 ? 'excedido' : trasVencer > 0 ? 'vencido' : 'ok',
+          asistidas, cubiertas,
+          precio_clase: precio, moneda: p.moneda,
+          // Los dos conceptos van separados hasta el final: se muestran, se
+          // valorizan y se facturan por su cuenta.
+          excedente:   { clases: excedente, valor: precio ? excedente * precio : null,
+                         fechas: diasVigentes.slice(p.tope ?? 0) },
+          vencidas:    { clases: vencidas,  valor: precio ? vencidas  * precio : null,
+                         fechas: p.vence ? diasAsistidos.filter(f => f > p.vence) : [] },
+          fuera_de_plan: fueraDePlan,
+          valor: precio ? fueraDePlan * precio : null,
+          enrollment_id: p.enrollment_id, plan_id: p.plan_id, team_id: p.team_id,
+          estado: fueraDePlan > 0 ? (vencidas > 0 ? 'vencido' : 'excedido') : 'ok',
         };
       }
 
@@ -1855,8 +2030,11 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
         excedidos:      (athleteRows as any[]).filter(a => a.plan?.estado === 'excedido').length,
         con_vencido:    (athleteRows as any[]).filter(a => a.plan?.estado === 'vencido').length,
         sin_plan:       (athleteRows as any[]).filter(a => a.plan?.estado === 'sin_plan').length,
-        clases_de_mas:  (athleteRows as any[]).reduce((s, a) => s + (a.plan?.excedente ?? 0), 0),
-        clases_vencidas:(athleteRows as any[]).reduce((s, a) => s + (a.plan?.tras_vencer ?? 0), 0),
+        clases_de_mas:   (athleteRows as any[]).reduce((s, a) => s + (a.plan?.excedente?.clases ?? 0), 0),
+        clases_vencidas: (athleteRows as any[]).reduce((s, a) => s + (a.plan?.vencidas?.clases ?? 0), 0),
+        valor_excedente: (athleteRows as any[]).reduce((s, a) => s + (a.plan?.excedente?.valor ?? 0), 0),
+        valor_vencidas:  (athleteRows as any[]).reduce((s, a) => s + (a.plan?.vencidas?.valor ?? 0), 0),
+        valor_total:     (athleteRows as any[]).reduce((s, a) => s + (a.plan?.valor ?? 0), 0),
       };
 
       const totals = athleteRows.reduce(
