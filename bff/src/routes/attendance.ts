@@ -1789,6 +1789,76 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
         }))
         .sort((a, b) => a.date.localeCompare(b.date));
 
+      // ── Plan vs consumo ──────────────────────────────────────────────────
+      //
+      // La asistencia se registra SIEMPRE, tenga saldo o no: es deliberado
+      // (dejar constancia de que el atleta vino y cobrarle la clase son cosas
+      // distintas). El efecto secundario es que nadie ve el desfase, y la
+      // escuela termina regalando clases sin enterarse.
+      //
+      // Se cuenta contra las asistencias DEL MES, no contra `sessions_used`:
+      // ese contador es acumulado y nunca se resetea, así que comparado con un
+      // tope mensual miente a partir del segundo mes.
+      const idsPorTipo = {
+        child: athleteRows.filter(a => a.athlete_type === 'child').map(a => a.id),
+        adult: athleteRows.filter(a => a.athlete_type === 'adult').map(a => a.id),
+        unreg: athleteRows.filter(a => a.athlete_type === 'unregistered').map(a => a.id),
+      };
+
+      const planPorAtleta: Record<string, any> = {};
+      for (const [tipo, ids] of Object.entries(idsPorTipo)) {
+        if (!ids.length) continue;
+        const col = tipo === 'child' ? 'child_id' : tipo === 'adult' ? 'user_id' : 'unregistered_athlete_id';
+        const { data } = await supabase
+          .from('enrollments')
+          .select(`child_id, user_id, unregistered_athlete_id, expires_at, sessions_used, ${PLAN_JOIN}`)
+          .eq('school_id', schoolId)
+          .eq('status', 'active')
+          .in(col, ids);
+        for (const e of (data || []) as any[]) {
+          const key = e.child_id ?? e.user_id ?? e.unregistered_athlete_id;
+          // Si tiene varias, gana la de tope más alto: es la que mejor explica
+          // cuántas clases le corresponden en el mes.
+          const tope = e.offering_plans?.max_sessions ?? null;
+          const prev = planPorAtleta[key];
+          if (!prev || (tope ?? 0) > (prev.tope ?? 0)) {
+            planPorAtleta[key] = {
+              nombre: e.offering_plans?.name ?? null,
+              tope,
+              vence: e.expires_at ?? null,
+              descontadas: e.sessions_used ?? 0,
+            };
+          }
+        }
+      }
+
+      for (const row of athleteRows as any[]) {
+        const p = planPorAtleta[row.id];
+        const asistidas = row.present + row.late;
+        if (!p) {
+          row.plan = { estado: 'sin_plan', asistidas, tope: null, vence: null, excedente: 0, tras_vencer: 0, descontadas: 0 };
+          continue;
+        }
+        const trasVencer = p.vence
+          ? Object.entries(row.by_day as Record<string, string>)
+              .filter(([fecha, st]) => fecha > p.vence && (st === 'present' || st === 'late')).length
+          : 0;
+        const excedente = p.tope !== null ? Math.max(asistidas - p.tope, 0) : 0;
+        row.plan = {
+          nombre: p.nombre, tope: p.tope, vence: p.vence, descontadas: p.descontadas,
+          asistidas, excedente, tras_vencer: trasVencer,
+          estado: excedente > 0 ? 'excedido' : trasVencer > 0 ? 'vencido' : 'ok',
+        };
+      }
+
+      const desfases = {
+        excedidos:      (athleteRows as any[]).filter(a => a.plan?.estado === 'excedido').length,
+        con_vencido:    (athleteRows as any[]).filter(a => a.plan?.estado === 'vencido').length,
+        sin_plan:       (athleteRows as any[]).filter(a => a.plan?.estado === 'sin_plan').length,
+        clases_de_mas:  (athleteRows as any[]).reduce((s, a) => s + (a.plan?.excedente ?? 0), 0),
+        clases_vencidas:(athleteRows as any[]).reduce((s, a) => s + (a.plan?.tras_vencer ?? 0), 0),
+      };
+
       const totals = athleteRows.reduce(
         (acc, a) => ({
           records: acc.records + a.total,
@@ -1804,6 +1874,7 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
         month, from, to,
         days: dayRows,
         athletes: athleteRows,
+        desfases,
         totals: {
           ...totals,
           rate: totals.records > 0

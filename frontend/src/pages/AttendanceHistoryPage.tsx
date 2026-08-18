@@ -47,6 +47,17 @@ interface AthleteRow {
   total: number;
   rate: number;
   by_day: Record<string, Status>;
+  /** Cruce con el plan contratado. Ver "Plan vs consumo" en el BFF. */
+  plan?: {
+    nombre: string | null;
+    tope: number | null;
+    vence: string | null;
+    descontadas: number;
+    asistidas: number;
+    excedente: number;
+    tras_vencer: number;
+    estado: 'ok' | 'excedido' | 'vencido' | 'sin_plan';
+  };
 }
 
 interface DayRow {
@@ -66,6 +77,10 @@ interface HistoryResponse {
   to: string;
   days: DayRow[];
   athletes: AthleteRow[];
+  desfases?: {
+    excedidos: number; con_vencido: number; sin_plan: number;
+    clases_de_mas: number; clases_vencidas: number;
+  };
   totals: {
     records: number; present: number; absent: number; late: number;
     excused: number; rate: number; athletes: number; days: number;
@@ -186,6 +201,15 @@ export default function AttendanceHistoryPage() {
     },
     enabled: !!schoolId,
   });
+
+  // Atletas cuyo consumo no cuadra con lo que pagaron. Es la pregunta que la
+  // escuela no podia hacerse: la asistencia se registra aunque no haya saldo,
+  // asi que el desfase era invisible hasta que alguien sumaba a mano.
+  const desglose = useMemo(
+    () => (data?.athletes ?? []).filter(a => a.plan && a.plan.estado !== 'ok'),
+    [data],
+  );
+  const desfases = desglose.length;
 
   const athletes = useMemo(() => {
     const rows = data?.athletes ?? [];
@@ -371,6 +395,12 @@ export default function AttendanceHistoryPage() {
                 </TabsTrigger>
                 <TabsTrigger value="matriz" className="gap-2">
                   <FileText className="w-4 h-4" /> Día por día
+                </TabsTrigger>
+                <TabsTrigger value="plan" className="gap-2">
+                  <Percent className="w-4 h-4" /> Plan vs consumo
+                  {desfases > 0 && (
+                    <Badge variant="destructive" className="ml-1 h-4 px-1.5 text-[10px]">{desfases}</Badge>
+                  )}
                 </TabsTrigger>
               </TabsList>
 
@@ -569,6 +599,68 @@ export default function AttendanceHistoryPage() {
                         ))}
                       </TableBody>
                     </Table>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* ── Plan vs consumo ────────────────────────────────────── */}
+              <TabsContent value="plan">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Clases tomadas contra el plan pagado</CardTitle>
+                    <CardDescription>
+                      {desfases === 0
+                        ? 'Todos los atletas están dentro de su plan este mes.'
+                        : `${desfases} ${desfases === 1 ? 'atleta entrenó' : 'atletas entrenaron'} por fuera de lo contratado: `
+                          + `${data?.desfases?.clases_de_mas ?? 0} clases por encima del tope y `
+                          + `${data?.desfases?.clases_vencidas ?? 0} con el plan ya vencido.`}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {desfases === 0 ? (
+                      <p className="text-sm text-muted-foreground py-8 text-center">
+                        Sin desfases en {monthLabel(month)}.
+                      </p>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Atleta</TableHead>
+                            <TableHead>Plan</TableHead>
+                            <TableHead className="text-center">Tope</TableHead>
+                            <TableHead className="text-center">Asistió</TableHead>
+                            <TableHead className="text-center">Descontadas</TableHead>
+                            <TableHead className="text-center">De más</TableHead>
+                            <TableHead className="text-center">Con plan vencido</TableHead>
+                            <TableHead>Vence</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {desglose.map(a => (
+                            <TableRow key={a.id}>
+                              <TableCell className="font-medium">{a.full_name}</TableCell>
+                              <TableCell className="text-muted-foreground text-xs">
+                                {a.plan?.nombre ?? <span className="text-red-600 font-semibold">Sin plan activo</span>}
+                              </TableCell>
+                              <TableCell className="text-center">{a.plan?.tope ?? '—'}</TableCell>
+                              <TableCell className="text-center font-bold">{a.plan?.asistidas ?? 0}</TableCell>
+                              <TableCell className="text-center text-muted-foreground">{a.plan?.descontadas ?? 0}</TableCell>
+                              <TableCell className="text-center">
+                                {(a.plan?.excedente ?? 0) > 0
+                                  ? <Badge variant="destructive">+{a.plan?.excedente}</Badge>
+                                  : <span className="text-muted-foreground">—</span>}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {(a.plan?.tras_vencer ?? 0) > 0
+                                  ? <Badge className="bg-amber-500/20 text-amber-700 border-amber-500/30">{a.plan?.tras_vencer}</Badge>
+                                  : <span className="text-muted-foreground">—</span>}
+                              </TableCell>
+                              <TableCell className="text-xs text-muted-foreground">{a.plan?.vence ?? 'sin vencimiento'}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>
