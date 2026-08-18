@@ -111,6 +111,41 @@ type FacturarItem = {
   fechas?: string[];
 };
 
+/**
+ * Los cubos del plan, tolerando la forma vieja del BFF.
+ *
+ * Vercel y Render despliegan por separado, así que la pantalla puede quedar una
+ * versión adelante del BFF. Cuando eso pasó, `plan.excedente` llegaba como
+ * NÚMERO (forma vieja) donde la pantalla esperaba `{clases, valor, fechas}`, y
+ * `cubo.fechas.length` tiraba la página entera con un ErrorBoundary.
+ *
+ * Una pantalla de reportes no puede caerse por un desfase de despliegue: se
+ * degrada a mostrar el conteo sin fechas, que es lo que el BFF viejo sabe dar.
+ */
+type CuboPlan = { clases: number; valor: number | null; fechas: string[] };
+
+function cuboDelPlan(plan: AthleteRow['plan'], motivo: 'excedente' | 'vencidas'): CuboPlan {
+  const vacio: CuboPlan = { clases: 0, valor: null, fechas: [] };
+  if (!plan) return vacio;
+
+  const crudo = (plan as any)[motivo]
+    // Forma vieja: `excedente` numérico y `tras_vencer` en vez de `vencidas`.
+    ?? (motivo === 'vencidas' ? (plan as any).tras_vencer : undefined);
+
+  if (typeof crudo === 'number') {
+    const precio = (plan as any).precio_clase ?? null;
+    return { clases: crudo, valor: precio ? crudo * precio : null, fechas: [] };
+  }
+  if (crudo && typeof crudo === 'object') {
+    return {
+      clases: Number(crudo.clases ?? 0),
+      valor: crudo.valor ?? null,
+      fechas: Array.isArray(crudo.fechas) ? crudo.fechas : [],
+    };
+  }
+  return vacio;
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 const MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -254,10 +289,22 @@ export default function AttendanceHistoryPage() {
   // escuela no podia hacerse: la asistencia se registra aunque no haya saldo,
   // asi que el desfase era invisible hasta que alguien sumaba a mano.
   const desglose = useMemo(
-    () => (data?.athletes ?? []).filter(a => a.plan && a.plan.estado !== 'ok'),
+    () => (data?.athletes ?? []).filter(a => {
+      if (!a.plan) return false;
+      // No confiar solo en `estado`: si el BFF es viejo puede no traerlo. Se
+      // decide por los cubos, que ya vienen normalizados.
+      return cuboDelPlan(a.plan, 'excedente').clases > 0
+          || cuboDelPlan(a.plan, 'vencidas').clases > 0;
+    }),
     [data],
   );
   const desfases = desglose.length;
+  // Se suma en el cliente en vez de leer `desfases.valor_total`: si el BFF es
+  // una version atras ese campo no existe y el encabezado mostraria $0.
+  const totalDesfase = desglose.reduce(
+    (t, a) => t + (cuboDelPlan(a.plan, 'excedente').valor ?? 0) + (cuboDelPlan(a.plan, 'vencidas').valor ?? 0),
+    0,
+  );
 
   const athletes = useMemo(() => {
     const rows = data?.athletes ?? [];
@@ -662,7 +709,7 @@ export default function AttendanceHistoryPage() {
                         : <>
                             <strong>{desfases}</strong> {desfases === 1 ? 'atleta entrenó' : 'atletas entrenaron'} por
                             fuera de lo contratado en {monthLabel(month)}, por un total de{' '}
-                            <strong>${(data?.desfases?.valor_total ?? 0).toLocaleString('es-CO')}</strong> sin cobrar.
+                            <strong>${totalDesfase.toLocaleString('es-CO')}</strong> sin cobrar.
                             {' '}Son {data?.desfases?.clases_de_mas ?? 0} clases por encima del plan y{' '}
                             {data?.desfases?.clases_vencidas ?? 0} con el plan ya vencido.
                           </>}
@@ -707,7 +754,7 @@ export default function AttendanceHistoryPage() {
                                   {pl.precio_clase ? `$${pl.precio_clase.toLocaleString('es-CO')}` : '—'}
                                 </TableCell>
                                 {(['excedente', 'vencidas'] as const).map(motivo => {
-                                  const cubo = pl[motivo];
+                                  const cubo = cuboDelPlan(pl, motivo);
                                   return (
                                     <TableCell key={motivo}>
                                       {cubo.clases === 0 ? (
@@ -757,17 +804,18 @@ export default function AttendanceHistoryPage() {
                         disabled={facturar.isPending}
                         onClick={() => facturar.mutate(
                           desglose.flatMap(a => (['excedente', 'vencidas'] as const)
-                            .filter(m => a.plan![m].clases > 0 && a.plan!.precio_clase)
-                            .map(m => ({
+                            .map(m => ({ m, cubo: cuboDelPlan(a.plan, m) }))
+                            .filter(({ cubo }) => cubo.clases > 0 && a.plan?.precio_clase)
+                            .map(({ m, cubo }) => ({
                               athleteId: a.id, athleteType: a.athlete_type, motivo: m,
-                              clases: a.plan![m].clases, precioClase: a.plan!.precio_clase!,
+                              clases: cubo.clases, precioClase: a.plan!.precio_clase!,
                               teamId: a.plan!.team_id, planId: a.plan!.plan_id,
-                              nombre: a.full_name, fechas: a.plan![m].fechas,
+                              nombre: a.full_name, fechas: cubo.fechas,
                             })))
                         )}>
                         {facturar.isPending
                           ? 'Emitiendo…'
-                          : `Facturar todo — $${(data?.desfases?.valor_total ?? 0).toLocaleString('es-CO')}`}
+                          : `Facturar todo — $${totalDesfase.toLocaleString('es-CO')}`}
                       </Button>
                     </CardHeader>
                   )}

@@ -2067,7 +2067,17 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
         const p = planPorAtleta[row.id];
         const asistidas = row.present + row.late;
         if (!p) {
-          row.plan = { estado: 'sin_plan', asistidas, tope: null, vence: null, excedente: 0, tras_vencer: 0, descontadas: 0 };
+          // MISMA forma que la rama con plan. Antes esta emitia `excedente: 0`
+          // como NUMERO mientras la otra emitia objetos, y la pantalla —que
+          // incluye a los `sin_plan` en el desglose— hacia `cubo.fechas.length`
+          // sobre un 0. Tumbaba el histórico entero con un ErrorBoundary.
+          const vacio = { clases: 0, valor: null, fechas: [] as string[] };
+          row.plan = {
+            estado: 'sin_plan', nombre: null, tope: null, vence: null, descontadas: 0,
+            asistidas, cubiertas: 0, precio_clase: null, moneda: 'COP',
+            excedente: { ...vacio }, vencidas: { ...vacio },
+            fuera_de_plan: 0, valor: null,
+          };
           continue;
         }
         // ── Clasificación clase por clase, en cubos EXCLUYENTES ────────────
