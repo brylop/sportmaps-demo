@@ -1478,6 +1478,10 @@ type HistoryRecord = {
   unregistered_athlete_id: string | null;
   team_id: string | null;
   session_id: string | null;
+  /** Auth uid de quien pasó la lista. Es la única cara del entrenador que nunca
+      viene nula: `attendance_sessions.coach_id` sí lo está cuando marca la
+      administración desde el panel. */
+  marked_by: string | null;
 };
 
 /** El cliente de Supabase corta en 1000 filas: un mes de una escuela grande son más. */
@@ -1490,7 +1494,7 @@ async function fetchAllAttendanceRecords(
   for (let page = 0; ; page++) {
     const { data, error } = await supabase
       .from('attendance_records')
-      .select('attendance_date, status, child_id, user_id, unregistered_athlete_id, team_id, session_id')
+      .select('attendance_date, status, child_id, user_id, unregistered_athlete_id, team_id, session_id, marked_by')
       .eq('school_id', schoolId)
       .gte('attendance_date', from)
       .lte('attendance_date', to)
@@ -1555,6 +1559,23 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
 
       const teamFilter = (req.query.teamId as string) || null;
       const offeringFilter = (req.query.offeringId as string) || null;
+      // `coachId` es un school_staff.id. Para filtrar hacen falta las dos caras:
+      // quién quedó asignado a la sesión (`attendance_sessions.coach_id`, que es
+      // FK a school_staff) y quién efectivamente pasó lista (`marked_by`, que es
+      // el auth uid). No alcanza con una: 11 de las 33 sesiones de Dynasty
+      // tienen coach_id nulo porque las marcó la dueña desde el panel, y al revés
+      // un coach puede figurar asignado y que haya marcado un reemplazo.
+      const coachFilter = (req.query.coachId as string) || null;
+      let coachAuthId: string | null = null;
+      if (coachFilter) {
+        const { data: staff } = await supabase
+          .from('school_staff')
+          .select('coach_auth_id')
+          .eq('id', coachFilter)
+          .eq('school_id', schoolId)
+          .maybeSingle();
+        coachAuthId = (staff as any)?.coach_auth_id ?? null;
+      }
 
       let records = await fetchAllAttendanceRecords(schoolId, from, to);
 
@@ -1562,14 +1583,14 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
       // team_id viene directo en el registro; las asistencias de planes e
       // instalaciones solo se pueden ubicar a través de su sesión.
       const sessionIds = [...new Set(records.map(r => r.session_id).filter(Boolean))] as string[];
-      const sessionCtx: Record<string, { team_id: string | null; offering_id: string | null; facility_id: string | null }> = {};
+      const sessionCtx: Record<string, { team_id: string | null; offering_id: string | null; facility_id: string | null; coach_id: string | null }> = {};
 
       if (sessionIds.length) {
         const CHUNK = 300;
         for (let i = 0; i < sessionIds.length; i += CHUNK) {
           const { data, error } = await supabase
             .from('attendance_sessions')
-            .select('id, team_id, offering_id, facility_id')
+            .select('id, team_id, offering_id, facility_id, coach_id')
             .in('id', sessionIds.slice(i, i + CHUNK));
           if (error) throw error;
           for (const s of data || []) {
@@ -1577,6 +1598,7 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
               team_id: (s as any).team_id ?? null,
               offering_id: (s as any).offering_id ?? null,
               facility_id: (s as any).facility_id ?? null,
+              coach_id: (s as any).coach_id ?? null,
             };
           }
         }
@@ -1588,11 +1610,17 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
           teamId: r.team_id ?? s?.team_id ?? null,
           offeringId: s?.offering_id ?? null,
           facilityId: s?.facility_id ?? null,
+          coachId: s?.coach_id ?? null,
         };
       };
 
       if (teamFilter) records = records.filter(r => ctxOf(r).teamId === teamFilter);
       if (offeringFilter) records = records.filter(r => ctxOf(r).offeringId === offeringFilter);
+      if (coachFilter) {
+        records = records.filter(r =>
+          ctxOf(r).coachId === coachFilter
+          || (!!coachAuthId && r.marked_by === coachAuthId));
+      }
 
       // ── Identidad precargada ya vinculada a una cuenta ───────────────────
       // La asistencia se escribe sobre la columna con la que se pasó lista, así

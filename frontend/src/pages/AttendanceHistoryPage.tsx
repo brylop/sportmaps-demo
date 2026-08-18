@@ -129,7 +129,24 @@ export default function AttendanceHistoryPage() {
   const { schoolId, schoolName } = useSchoolContext();
   const [month, setMonth] = useState(currentMonth);
   const [contextFilter, setContextFilter] = useState<string>('all'); // `team:<id>` | `offering:<id>`
+  const [coachFilter, setCoachFilter] = useState<string>('all');     // school_staff.id
   const [search, setSearch] = useState('');
+
+  // Cuerpo técnico, para filtrar por quién pasó la lista. Solo el staff que
+  // efectivamente aparece tomando asistencia tiene sentido acá, pero se listan
+  // todos los activos: si uno no marcó nada, el filtro devuelve vacío y eso
+  // también es información — dice que ese entrenador no está pasando lista.
+  const { data: coaches = [] } = useQuery<{ id: string; full_name: string }[]>({
+    queryKey: ['history-coaches', schoolId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('school_staff').select('id, full_name')
+        .eq('school_id', schoolId).eq('status', 'active').order('full_name');
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!schoolId,
+  });
 
   // Filtros de contexto: mismos equipos y planes que ve Supervisión.
   const { data: teams = [] } = useQuery<{ id: string; name: string }[]>({
@@ -159,11 +176,12 @@ export default function AttendanceHistoryPage() {
   const {
     data, isLoading, isError, error, isFetching, refetch,
   } = useQuery<HistoryResponse>({
-    queryKey: ['attendance-history', schoolId, month, contextFilter],
+    queryKey: ['attendance-history', schoolId, month, contextFilter, coachFilter],
     queryFn: async () => {
       const params = new URLSearchParams({ month });
       if (contextFilter.startsWith('team:')) params.set('teamId', contextFilter.slice(5));
       if (contextFilter.startsWith('offering:')) params.set('offeringId', contextFilter.slice(9));
+      if (coachFilter !== 'all') params.set('coachId', coachFilter);
       return bffClient.get<HistoryResponse>(`/api/v1/attendance/history?${params}`);
     },
     enabled: !!schoolId,
@@ -279,6 +297,21 @@ export default function AttendanceHistoryPage() {
               ))}
               {offerings.map(o => (
                 <SelectItem key={o.id} value={`offering:${o.id}`}>Plan · {o.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Por entrenador: cruza quién quedó asignado a la sesión con quién
+              efectivamente pasó la lista, así que sirve tanto para ver la carga
+              de un coach como para detectar al que no está marcando. */}
+          <Select value={coachFilter} onValueChange={setCoachFilter}>
+            <SelectTrigger className="w-[210px] h-9">
+              <SelectValue placeholder="Todos los entrenadores" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los entrenadores</SelectItem>
+              {coaches.map(c => (
+                <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
