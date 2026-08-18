@@ -639,3 +639,120 @@ Nada de esto bloquea el trial. Pero dos cosas conviene ajustar antes de configur
 Y una pregunta más para el onboarding, que sale de 11.1: **¿el socio paga algo por reservar, aunque
 sea un depósito?** `facility_reservations` ya tiene `min_deposit_pct`, así que el producto contempla
 depósitos parciales — y «incluida en la membresía» con depósito es una tercera combinación real.
+
+---
+
+# 12. El eje real: **qué** se reserva, no quién paga
+
+**Fecha:** 2026-08-18 · **Corrige:** la sección 11.1 · **Origen:** dos precisiones del negocio —
+los eventos y salones del club **no entran** (SportMaps toma solo la parte deportiva), y reservar
+un cupo en una clase, reservar un espacio de gimnasio y alquilar un sitio son **tres cosas
+distintas**.
+
+---
+
+## 12.1 Lo que se retira de 11.1
+
+Mi argumento tenía dos patas y las dos se caen:
+
+1. **«Carmel va a alquilar sus salones para eventos.»** No: los eventos se manejan por fuera de
+   SportMaps. La inferencia estaba mal.
+2. **«Ya hay escuelas con reservas internas y alquileres a la vez.»** Medido: **las 11 reservas
+   `rental` son todas de Club Campestre Demo** — el tenant que nosotros sembramos. No hay ningún
+   cliente real con las dos cosas.
+
+Así que el eje partido por «quién paga» no hace falta. Lo que sí hace falta es distinguir **qué se
+está reservando**, que es una pregunta anterior y con respuesta en los datos.
+
+---
+
+## 12.2 Los tres casos, tal como se ven en la base
+
+Sobre las 60 reservas existentes:
+
+| | `secondary_class` | `internal` | `rental` |
+|---|---|---|---|
+| Reservas | 10 | 39 | 11 |
+| Escuelas | 1 | 3 | 1 (**el demo**) |
+| Quién reserva | atleta (10/10) | padre 30, atleta 9 | **externo** (11/11) |
+| Organización externa | — | — | 11/11 |
+| Con precio > 0 | **0 de 10** | 30 de 39 | **11 de 11** |
+| Participantes (prom.) | **0** | 3.8 | **17.6** |
+| Estado de pago | `paid` 10/10 | mezclado, incl. 3 `waived` | `paid` 8, `unpaid` 1, `partial` 2 |
+
+Se lee solo:
+
+- **`secondary_class` = cupo en una clase.** Un atleta toma un lugar en una sesión programada.
+  Cero precio en los diez casos, cero participantes porque es *un* lugar, no un grupo. Es
+  «reservar un espacio para una clase».
+- **`internal` = uso de un espacio.** Un socio o un padre aparta un espacio para usarlo él. Sin
+  entrenador, sin clase. Es el caso del gimnasio, y también el de la familia que aparta una cancha.
+- **`rental` = alquiler del sitio.** Un tercero toma el espacio completo para un grupo: 17.6
+  participantes de promedio, siempre con precio, siempre con nombre de organización. **Este es el
+  que queda fuera del alcance.**
+
+Y el dato que ordena la prioridad: de las 29 instalaciones cargadas, **11 son de tipo «Gimnasio» y
+solo una tiene precio**. El caso dominante hoy ya es «uso de espacio, gratis».
+
+---
+
+## 12.3 La corrección: la regla de cobro sale del tipo, no de la escuela
+
+Con los tres casos separados, casi todo queda determinado sin preguntarle nada a la escuela:
+
+| Qué se reserva | ¿Se cobra? | Por qué |
+|---|---|---|
+| **Cupo en una clase** | **Nunca aparte** | La clase ya está pagada — por la mensualidad o por el crédito de sesión. Cobrarla otra vez es cobrar dos veces. Los 10 casos reales tienen precio 0 |
+| **Uso de un espacio** | **La única pregunta real** | Puede estar incluido en la membresía (Carmel) o cobrarse por uso (un gimnasio que vende horas). Es lo único que la escuela tiene que decidir |
+| **Alquiler del sitio** | Siempre por uso | Un tercero no tiene membresía que lo cubra. Fuera de alcance por ahora |
+
+Entonces el flag por escuela se reduce a **una** pregunta, y con dos valores:
+
+```
+school_settings
+  space_use_billing text  -- 'included' | 'per_use'
+                          -- solo aplica al USO DE ESPACIO por un miembro.
+                          -- El cupo en clase nunca se cobra aparte.
+                          -- El alquiler a terceros siempre se cobra (fuera de alcance hoy).
+```
+
+Es más chico que el `reservations_billing` de tres valores de la sección 3, y sobre todo **más
+chico que el eje partido que propuse en 11.1**. Para Carmel: `included`.
+
+`none` desaparece como valor: «no se cobra» ya lo dice `included`, y «no hay reservas» ya lo dice
+`has_reservations_enabled`. Un valor que significa lo mismo que otro es una fuente de
+configuraciones contradictorias.
+
+---
+
+## 12.4 Lo que esto abre y hay que resolver
+
+**a) `secondary_class` con precio 0 pero `payment_status = 'paid'`.** Los diez casos están así. Es
+inconsistente: si no se cobra, el estado natural es `waived` (que ya existe y se usa en 3 reservas
+`internal`). Vale unificarlo, porque cualquier reporte de cartera que sume por `payment_status` va a
+contar diez cobros de cero.
+
+**b) El cupo en clase no está atado al crédito de sesión.** Busqué la relación en las migraciones y
+**no existe**: ninguna toca `sessions_used` desde una reserva. La regla acordada era «la reserva
+descuenta el crédito y la asistencia no vuelve a descontar ese día». Si el cupo en clase es gratis
+*porque* consume un crédito, y el crédito no se descuenta, entonces hoy es **gratis e ilimitado**.
+Eso es más urgente que los cupos de la decisión 7.3, porque acá el límite **existe en el producto**
+y no se está aplicando.
+
+**c) ¿Un no-socio puede apartar una cancha en Carmel?** Es la pregunta que reemplaza a la de los
+salones. Si un particular puede alquilar una cancha de tenis una hora, eso es **parte deportiva** y
+sí entra en alcance — y sería `per_use` conviviendo con el `included` de los socios. Si no, Carmel
+queda con un solo valor y el modelo se simplifica del todo.
+
+---
+
+## 12.5 Qué cambia del checklist de mañana
+
+| Antes | Ahora |
+|---|---|
+| `reservations_billing = 'included_in_membership'` | `space_use_billing = 'included'` — un solo valor, una sola decisión |
+| Eje partido interno/rental (11.1) | **Retirado.** No hace falta: el alquiler está fuera de alcance y los 11 casos eran del demo |
+| Preguntar por alquiler de salones | **Reemplazado por:** ¿un no-socio puede apartar una cancha? |
+
+Sigue en pie de 11.2 lo importante: **no ponerle `memberships_external = true`** hasta resolverlo,
+o mañana no pueden cargar membresías a mano.
