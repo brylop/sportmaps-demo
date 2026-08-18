@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 380,
-  "head": "20260817211633",
+  "count": 381,
+  "head": "20260817215655",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -383,6 +383,7 @@
     {"v":"20260817140943","file":"20260817140943_restaurar_booking_holds_v2.sql","sha256":"cfca505cab519b5acbeed529f0d89c86c241e1682f9b51bc96754eb4116b5cd6","added":"2026-08-17","by":"brylop"},
     {"v":"20260817142331","file":"20260817142331_memberships_del_club.sql","sha256":"c5c463ab44a1a8e4c950e5c71d30d98cf797af2aef444098cb61866851038691","added":"2026-08-17","by":"brylop"},
     {"v":"20260817210308","file":"20260817210308_truncate_no_pasa_por_rls.sql","sha256":"0c536c37ffa9971e68a738b5628576bb52b80d97f02a705e5f70d23033294d38","added":"2026-08-18","by":"brylop"},
-    {"v":"20260817211633","file":"20260817211633_search_path_en_sync_access_group.sql","sha256":"04e93dd37df148a1e8f85411a2f18f3e4b3546ad7717b33aedcfee1813073a19","added":"2026-08-18","by":"brylop"}
+    {"v":"20260817211633","file":"20260817211633_search_path_en_sync_access_group.sql","sha256":"04e93dd37df148a1e8f85411a2f18f3e4b3546ad7717b33aedcfee1813073a19","added":"2026-08-18","by":"brylop"},
+    {"v":"20260817215655","file":"20260817215655_buscar_menor_por_documento_sin_exponer.sql","sha256":"e8c718e4cead8e5294d8604fe3983770f94d5f09e1fa7bd5ac0cb01523e3e113","added":"2026-08-18","by":"brylop"}
   ]
 }
