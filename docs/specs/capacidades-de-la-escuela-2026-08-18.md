@@ -756,3 +756,138 @@ queda con un solo valor y el modelo se simplifica del todo.
 
 Sigue en pie de 11.2 lo importante: **no ponerle `memberships_external = true`** hasta resolverlo,
 o mañana no pueden cargar membresías a mano.
+
+---
+
+# 13. Los dos ejes que faltaban: consumo y granularidad
+
+**Fecha:** 2026-08-18 · **Refina:** la sección 12 · **Origen:** hay que distinguir los que son
+gratis porque tienen **membresía ilimitada** (clubes) de los que **consumen sesiones**; y aparte,
+reservar **todo el espacio** contra reservar **una línea o un carril**.
+
+---
+
+## 13.1 Eje de consumo — reemplaza a `space_use_billing`
+
+La sección 12 lo dejó en dos valores (`included` / `per_use`). Son tres, y la diferencia no es de
+precio sino de **qué se descuenta**:
+
+| Valor | Quién es | Qué pasa al reservar | Límite natural |
+|---|---|---|---|
+| `unlimited` | Club con membresía ilimitada. **Carmel** | Nada. No se cobra y no se descuenta | Ninguno — de acá salen los cupos de 7.3 |
+| `session_credit` | Academia o gimnasio que vende paquetes | **Descuenta un crédito** de la inscripción del atleta | El paquete comprado |
+| `per_use_paid` | Alquiler por hora al público | Genera cobro | El precio |
+
+Lo importante: `unlimited` y `session_credit` **se ven iguales en la caja** —ninguno cobra en el
+momento— y son completamente distintos en el producto. Un solo valor «gratis» los confundiría, y es
+justamente el error que se estaba a punto de cometer.
+
+```
+school_settings
+  space_use_consumption text  -- 'unlimited' | 'session_credit' | 'per_use_paid'
+```
+
+Para Carmel: `unlimited`. Y de ahí que la pregunta de los cupos (7.3) sea **suya y de nadie más**:
+es el único de los tres modelos sin límite propio.
+
+### El agujero que esto destapa, y es el más grave del spec
+
+**`session_credit` no está implementado.** Ninguna migración toca `sessions_used` desde una reserva
+— lo verifiqué. La regla acordada era «la reserva descuenta el crédito y la asistencia no vuelve a
+descontar ese día».
+
+Consecuencia hoy: las 10 reservas de tipo cupo-en-clase que existen son **gratis e ilimitadas**. El
+atleta que compró un paquete de 10 clases puede reservar 40. El límite existe en el producto
+(`sessions_used`, `secondary_sessions_used`) y **no se aplica en el camino de reservas**.
+
+Esto pesa más que los cupos de 7.3: ahí el límite habría que inventarlo; acá ya está vendido.
+
+---
+
+## 13.2 Eje de granularidad — reservar el espacio o una línea
+
+### El problema, en el demo que ya existe
+
+De las 14 instalaciones de Club Campestre Demo:
+
+```
+Piscina completa            cap 40   $150.000
+Piscina carriles 1-2        cap 16    $70.000     ← dos filas INDEPENDIENTES
+Canchas 1-3   (tenis)       cap 18    $60.000     ← tres canchas en UNA fila
+Canchas 4-6   (tenis)       cap 18    $70.000
+```
+
+No existe ninguna tabla de sub-unidades, ni `parent_facility_id`, ni nada que relacione una piscina
+con sus carriles. Lo único que hay es `capacity`. De ahí salen **dos fallas concretas**:
+
+**a) Solapamiento sin detección.** «Piscina completa» y «Piscina carriles 1-2» son filas hermanas
+con disponibilidad independiente. **Nada impide reservar las dos a la misma hora.** El club vende el
+mismo agua dos veces y el sistema no se entera. Es el defecto que el script viejo de Carmel ya
+anotaba como conocido y mitigado «con el nombre y avisando en la inducción» — o sea, no mitigado.
+
+**b) Granularidad insuficiente.** «Canchas 1-3» es una fila para tres canchas: no se puede apartar
+solo la 1. Y si se parten en tres filas para poder hacerlo, se cae en el problema (a) contra la fila
+agrupada.
+
+### `capacity` está haciendo dos trabajos incompatibles
+
+| Instalación | `capacity` | Qué significa realmente |
+|---|---|---|
+| Sala de máquinas | 40 | 40 personas **a la vez**, muchas reservas simultáneas |
+| Cancha fútbol 11 | 60 | 60 personas, pero **una sola reserva** a la vez |
+
+El modelo no puede distinguir «cuánta gente entra» de «cuántas reservas simultáneas admite». Con un
+solo número, el gimnasio y la cancha se comportan igual, y ninguno de los dos queda bien.
+
+### Lo que hace falta
+
+```
+facilities
+  parent_facility_id  uuid    -- NULL = espacio raíz. Si tiene padre, es una sub-unidad
+  slots_simultaneos   integer -- cuántas reservas admite A LA VEZ (1 = exclusivo)
+                              -- `capacity` queda para cuánta gente entra, que es otra cosa
+```
+
+Con el padre declarado, la regla de solapamiento se puede escribir de verdad: **reservar el padre
+bloquea a todos los hijos, y reservar cualquier hijo bloquea al padre.** Hoy eso no se puede
+expresar porque la relación no existe.
+
+Y la piscina de Carmel deja de necesitar el parche: un espacio «Piscina» con 6 carriles hijos, en
+vez de siete filas que no se conocen entre sí.
+
+---
+
+## 13.3 Cómo quedan los tres casos de la sección 12 con estos dos ejes
+
+| Qué se reserva | Consumo | Granularidad típica |
+|---|---|---|
+| **Cupo en una clase** | `session_credit` si hay paquete; si no, cubierto por la mensualidad | Sub-unidad o el espacio, según dónde sea la clase |
+| **Uso de un espacio** | El flag de la escuela: `unlimited` (Carmel), `session_credit` o `per_use_paid` | **Acá vive el carril.** Es el caso que más lo necesita |
+| **Alquiler del sitio** | Siempre `per_use_paid` | El espacio **raíz** — alquilar un carril suelto a un tercero no tiene sentido |
+
+Se lee bien: el alquiler toma el padre, el socio toma un hijo. Y la regla de solapamiento hace que
+las dos cosas no puedan pasar a la vez, que es exactamente lo que un club necesita.
+
+---
+
+## 13.4 Qué cambia en fases y en el checklist
+
+| Antes | Ahora |
+|---|---|
+| `space_use_billing` con 2 valores | `space_use_consumption` con **3**: `unlimited` \| `session_credit` \| `per_use_paid` |
+| Carmel: `included` | Carmel: **`unlimited`** |
+| — | **F5 nuevo:** `parent_facility_id` + `slots_simultaneos` + la regla de solapamiento |
+| — | **F6 nuevo:** cablear `session_credit` al descuento de `sessions_used` |
+
+**Para mañana nada de esto bloquea.** Carmel es `unlimited`, que es el único de los tres que
+funciona hoy sin código nuevo: no cobra y no descuenta nada. Lo que sí conviene es **no cargarle la
+piscina por carriles** hasta tener F5 — con siete filas independientes, el primer solapamiento
+aparece la primera semana. Mejor un solo espacio «Piscina» mientras tanto.
+
+**Prioridad real de lo que quedó abierto**, por daño:
+
+1. **F6 — el crédito de sesión que no se descuenta.** Ya hay paquetes vendidos y el límite no se
+   aplica. Es plata.
+2. **F5 — el solapamiento padre/hijo.** El daño es vender el mismo espacio dos veces; hoy solo pasa
+   en el demo porque ningún cliente real cargó sub-unidades.
+3. **7.3 — cupos para `unlimited`.** Solo afecta a Carmel, y recién cuando se note abuso.
