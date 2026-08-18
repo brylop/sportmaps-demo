@@ -5,6 +5,49 @@ No cambia ninguna regla de negocio.
 
 ---
 
+> ## ⚠️ Este documento extiende un análisis que ya existía
+>
+> El análisis de diseño **se hizo el 2026-08-01** y vive en `ROADMAP.md` §UX, como `UX-1` a `UX-6`.
+> Este documento se escribió sin citarlo y **duplica `UX-3` y `UX-4`**. Queda como extensión, no como
+> propuesta paralela, y con dos correcciones de fondo.
+>
+> ### 1. `UX-1` va primero — y es el que responde a «cómo se adapta la pantalla y los espacios»
+>
+> Yo entré por el menú; el orden correcto es al revés. `UX-1` mide lo que produce la sensación de
+> desorden espacial:
+>
+> | | |
+> |---|---|
+> | Anchos de página distintos | **24** — el `<main>` no fija ninguno |
+> | Páginas con cabecera de ~110 px | **78** |
+> | Tamaños de modal | **17** |
+> | Pasos en la escala de espaciado | **7** |
+>
+> Su propuesta es reducirlos a **4 anchos, 1 cabecera compacta, 3 modales y 4 pasos**, con un
+> `<PageShell>` y un `<PageHeader>`. Estimado en **3–4 días** y anotado como «barato y desbloquea
+> todo lo que se construya después» — incluido cualquier rediseño de menú o de configuración.
+>
+> A eso se suma lo que midió la auditoría de frontend del 2026-08-18, que llega al mismo problema
+> desde el CSS: **`container` con 32 px de gutter fijo** (`padding: "2rem"` escalar, 165 usos) deja
+> **296 px útiles en una pantalla de 360** — el 18 % del ancho en márgenes; **397 grids**
+> `grid-cols-N` sin `grid-cols-1`; y las correcciones existen en `src/App.css`, **que no se importa
+> en ningún lado**.
+>
+> ### 2. Las secciones 3 y 4 de este documento son `UX-3` y `UX-4`
+>
+> La agrupación por trabajo y las tres reglas son una propuesta concreta para `UX-4`. Renombrar los
+> tres «Configuración» y poner `/school-config` en el menú caen en `UX-3`.
+>
+> Los números no coinciden porque cuentan cosas distintas: los **208 items y 62 grupos** de acá son
+> de **todos los roles**; los **36 destinos en 6 grupos** de `UX-4` son solo del rol escuela.
+>
+> ### Orden correcto
+>
+> `UX-1` → `UX-3` → esta propuesta (`UX-4`) → la pantalla de configuración.
+>
+> Reordenar un menú sobre 24 anchos y 17 modales es pintar sobre una pared sin revocar.
+
+
 ## 1. La desorganización, medida
 
 No es una impresión. Los números:
