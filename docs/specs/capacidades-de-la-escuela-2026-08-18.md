@@ -891,3 +891,114 @@ aparece la primera semana. Mejor un solo espacio «Piscina» mientras tanto.
 2. **F5 — el solapamiento padre/hijo.** El daño es vender el mismo espacio dos veces; hoy solo pasa
    en el demo porque ningún cliente real cargó sub-unidades.
 3. **7.3 — cupos para `unlimited`.** Solo afecta a Carmel, y recién cuando se note abuso.
+
+---
+
+# 14. Vender cada módulo solo — qué falta para que reservas sea un producto
+
+**Fecha:** 2026-08-18 · **Origen:** el objetivo de negocio detrás de todo el ejercicio: un solo
+ecosistema, pero **cada módulo vendible por separado**. Reservas es el primer candidato.
+
+---
+
+## 14.1 El hueco: reservas es el único módulo grande que no se puede vender
+
+El catálogo de addons tiene **12 productos**:
+
+```
+tournaments · access_control · biomech · nutrition · whitelabel · pwa_branding
+whatsapp · wompi · mp · store · accounting · invoicing
+```
+
+**`reservations` no está.** Y no es un olvido de catálogo: `has_reservations` **se deriva de
+`school_type`**, así que no hay nada que comprar ni prender. Un club que quiera solo reservas hoy
+no tiene SKU.
+
+El contraste con **`store`** lo deja claro, porque es el mismo tipo de módulo y sí está resuelto:
+
+| | `store` | `reservations` |
+|---|---|---|
+| Está en el catálogo de addons | ✅ | ❌ |
+| Se activa por opt-in en `/mi-plan` | ✅ | ❌ |
+| Escuelas que lo tienen | **6** | — |
+| De dónde sale el permiso | del addon comprado | **del tipo de escuela** |
+
+`store` es el precedente: el rol `school` no auto-activa la tienda, es un addon que se prende. Eso
+es exactamente lo que reservas necesita.
+
+## 14.2 El camino de «solo reservas» está diseñado y nunca se usó
+
+Dos piezas ya existen en el modelo, con **cero uso**:
+
+| Pieza | Estado |
+|---|---|
+| `school_type = 'venue'` | Está en la lista canónica. **0 escuelas** lo tienen |
+| Rol `facility_manager` | Está en el catálogo de roles. **0 miembros** lo tienen |
+
+Es el mismo patrón de `hybrid`, que también estuvo en la lista con cero uso hasta que ayer se le
+puso a Club Campestre Demo. Diseñado, no ejercido. Conviene saberlo antes de venderlo: el primer
+cliente de «solo reservas» va a estrenar dos caminos vírgenes a la vez.
+
+## 14.3 Las dos preguntas que no pueden compartir un gate
+
+Con reservas como addon aparecen **dos** preguntas distintas, y mezclarlas es el error que ya costó
+caro con la marca (`school_has_branding_feature` para «¿puede editar?» contra
+`school_shows_own_brand` para «¿se le muestra?»):
+
+| Pregunta | Naturaleza | Quién la responde |
+|---|---|---|
+| **¿Tiene derecho** al módulo de reservas? | Comercial | El addon comprado, el tier, o el tipo (legacy) |
+| **¿Lo tiene prendido?** | Operativa | El flag `has_reservations_enabled` |
+
+Lo efectivo es la conjunción:
+
+```
+has_reservations = (addon comprado OR tier lo incluye OR derivado del tipo)   -- derecho
+                   AND has_reservations_enabled IS NOT FALSE                   -- no apagado
+```
+
+Así el flag puede **apagar** sin cancelar la venta (una escuela que compró y todavía no arranca), y
+el addon puede **habilitar** sin que nadie toque el tipo de escuela. Son dos palancas con dueños
+distintos: comercial y operación.
+
+La derivación por tipo se mantiene solo como respaldo de lo que ya existe — las 9 escuelas con
+instalaciones invisibles y las que hoy dependen de `hybrid`/`gimnasio`. No se le agrega ninguna
+escuela nueva por esa vía.
+
+## 14.4 Lo que un «solo reservas» necesita y hoy no tiene
+
+Además del SKU, vender reservas suelto rompe supuestos que el resto de la app da por hechos:
+
+**a) El cliente no es un atleta.** `booker_type` admite `parent`, `athlete` y `external`, y los 11
+casos `external` que existen traen `external_org_name` — o sea, **una organización, no una persona**.
+Un particular que aparta una cancha por una hora no tiene modelo: no es atleta de la escuela, no es
+padre de nadie, y no es una empresa.
+
+**b) No hay camino de cobro.** `reservation_payments` tiene **0 filas** con 60 reservas hechas.
+`per_use_paid` (sección 13) nunca se ejerció; el checkout de un no-socio no existe.
+
+**c) El alta asume escuela formativa.** El onboarding pide «Primer Equipo» y «Primer Atleta». Un
+gimnasio que solo alquila canchas no tiene ninguno de los dos, y hoy tendría que inventarlos para
+poder terminar el registro.
+
+**d) `slots_simultaneos` y el solapamiento padre/hijo (13.2) dejan de ser deuda y pasan a ser
+requisito.** Un club puede convivir con «vendimos el mismo carril dos veces» porque lo arregla
+hablando. Un producto de reservas puro no: es literalmente lo único que vende.
+
+## 14.5 Orden que esto sugiere
+
+Nada de esto es para mañana. Pero el orden importa, porque **F5 y F6 pasan de deuda a prerrequisito
+comercial**:
+
+| | Qué | Por qué antes de vender |
+|---|---|---|
+| 1 | **F5** — `parent_facility_id`, `slots_simultaneos`, regla de solapamiento | Es el núcleo del producto. Sin esto se vende doble el mismo espacio |
+| 2 | **F6** — el crédito de sesión que hoy no se descuenta | Es plata ya vendida, y `session_credit` es uno de los tres modelos de consumo |
+| 3 | Addon `reservations` en el catálogo + tier matrix | El SKU. **Sin precio no lo puedo inventar** — mismo caso que `pwa_branding`, que quedó en «a cotizar» |
+| 4 | Cliente no-atleta y checkout de no-socio | Lo que hace posible el «solo reservas» de verdad |
+| 5 | Alta sin equipo ni atleta | Que un venue pueda registrarse sin inventar datos |
+
+Y una decisión de negocio que queda abierta, igual que con `pwa_branding`: **cuánto vale el addon de
+reservas, y si se cobra por espacio, por reserva o plano.** No lo invento — y de esa respuesta
+depende si `per_use_paid` necesita además una comisión por transacción, que hoy no existe en ninguna
+parte del modelo.
