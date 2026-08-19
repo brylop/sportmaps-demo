@@ -43,7 +43,7 @@
       "destination": "https://sportmaps-bff-prod.onrender.com/api/v1/pwa/icon"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!assets/).*)",
       "destination": "/index.html"
     }
   ],
