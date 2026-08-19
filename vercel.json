@@ -1,4 +1,14 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "*": false,
+      "main": true,
+      "staging": true,
+      "develop": true,
+      "production": true
+    }
+  },
   "ignoreCommand": "bash vercel-ignore-build.sh",
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/build",
