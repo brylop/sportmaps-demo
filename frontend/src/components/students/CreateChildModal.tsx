@@ -30,6 +30,7 @@ import {
   Baby, Users, ClipboardList, CalendarDays, Info, Loader2, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
 import { calcFirstPayment, applyDiscount, formatCOP } from '@/lib/prorationUtils';
@@ -273,6 +274,11 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
   const [selectedOfferingId, setSelectedOfferingId] = useState('');
   const [selectedPlanPrice, setSelectedPlanPrice] = useState(0);
   const [startDate, setStartDate]   = useState(() => todayColombia());
+  // `hasBilling` y no el tipo de escuela: la pregunta es si esta escuela
+  // factura por SportMaps, no si ademas alquila espacios. Falla ABIERTO
+  // (true mientras carga), asi que el caso normal no cambia.
+  const { hasBilling } = useEntitlements();
+
   const [monthlyFee, setMonthlyFee] = useState('');
   const [discountPct, setDiscountPct] = useState(0);
 
@@ -734,6 +740,10 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
                   </SelectContent>
                 </Select>
               </div>
+              {/* Cuando la escuela no cobra por SportMaps, Plan y Mensualidad
+                  no aplican: un plan es un producto FACTURABLE. El estado de la
+                  membresia se registra aparte, en «Membresias». */}
+              {hasBilling && (
               <div>
                 <Label>Plan</Label>
                 <p className="text-[11px] text-muted-foreground mb-1">Opcional — independiente del equipo</p>
@@ -749,6 +759,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
                   </SelectContent>
                 </Select>
               </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -789,6 +800,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
                   </PopoverContent>
                 </Popover>
               </div>
+              {hasBilling ? (
               <div>
                 <Label>Mensualidad (COP) *</Label>
                 <Input type="number" placeholder="150000" value={monthlyFee} onChange={e => setMonthlyFee(e.target.value)} min={10000} step={1000} />
@@ -796,15 +808,22 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
                   {selectedPlanId !== 'none' ? 'Cargado desde el plan' : teamId !== 'none' ? 'Cargado desde el equipo' : 'Ingresa manualmente'}
                 </p>
               </div>
+              ) : (
+              <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                Esta escuela no cobra mensualidades por SportMaps, asi que no se pide monto.
+                El estado de la membresia se registra en <b>Membresias</b>, y ahi aparece este
+                atleta en cuanto quede creado.
+              </div>
+              )}
             </div>
 
-            <ProrationCard
+            {hasBilling && <ProrationCard
               startDate={startDate}
               monthlyFee={Number(monthlyFee) || 0}
               billing={billing}
               discountPct={discountPct}
               onDiscountChange={setDiscountPct}
-            />
+            />}
           </Section>
         </div>
 

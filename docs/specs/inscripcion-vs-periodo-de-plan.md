@@ -166,3 +166,57 @@ El multideporte. Un atleta con «Mensualidad Golf» y «Mensualidad Gimnasio» t
 pertenencias legítimas**, no una duplicada. El modelo las soporta —dos inscripciones, cada una con
 sus períodos— pero saber a cuál imputar la clase sigue necesitando que la pantalla mande el
 contexto. Ver `enrollmentId` explícito en `POST /session`.
+
+---
+
+## 9. Censo F0 — hecho (2026-08-18)
+
+La primera fase era medir cuántas inscripciones son **renovación de la misma
+pertenencia** y cuántas son **pertenencias distintas de verdad**, porque
+fusionar las segundas destruiría al atleta multideporte. Medido sobre toda la
+plataforma:
+
+| Tipo | Atletas | Filas | Con más de una activa |
+|---|---|---|---|
+| Una sola — sana | 877 | 877 | 0 |
+| **Renovación** (mismo equipo y plan) | 228 | **466** | 1 |
+| Cambio de plan (mismo equipo, plan distinto) | 23 | 69 | 0 |
+| **Pertenencias distintas** (varios equipos) | 23 | 54 | 14 |
+
+### Lo que dice
+
+**El 60 % de las filas duplicadas son renovación pura.** 466 filas para 228
+personas que están en el mismo equipo con el mismo plan: son la misma
+pertenencia renovada mes a mes. Esas 466 colapsan a 228 inscripciones + sus
+períodos. Sumando los cambios de plan, **284 filas dejan de ser inscripciones**.
+
+**Y solo 23 atletas tienen pertenencias distintas de verdad** — 54 filas que
+NO se tocan. Es el multideporte legítimo, y es exactamente lo que el censo tenía
+que separar antes de escribir la migración.
+
+### El bucket riesgoso, revisado
+
+14 atletas tienen más de una inscripción ACTIVA. Se miraron uno por uno:
+
+| Escuela | Atletas | En equipos distintos | Mismo equipo (duplicado real) |
+|---|---|---|---|
+| SOLO MILLOS LOKA | 7 | 7 | 0 |
+| MMA BLAIR TEAM | 3 | 3 | 0 |
+| ACADEMIA SUPERIOR BOGOTA | 2 | 2 | 0 |
+| Club Campestre Demo | 2 | 2 | 0 |
+| GYM RM | 1 | 0 | **1** |
+
+**13 de 14 son multideporte legítimo** — dos equipos distintos, dos
+pertenencias. Solo uno, en GYM RM, tiene dos activas sobre el **mismo** equipo:
+ése sí es duplicado y es el único que hay que resolver a mano antes de F1.
+
+### Qué habilita esto
+
+F1 (`enrollment_periods` + backfill) ya se puede escribir: el censo dice qué
+fusionar y qué no, con nombre y apellido. La regla de backfill queda:
+
+- **Renovación y cambio de plan** → una inscripción, N períodos ordenados por
+  `created_at`.
+- **Equipos distintos** → se conservan como inscripciones separadas, cada una
+  con sus propios períodos.
+- **El caso de GYM RM** → se resuelve a mano antes, no por regla.
