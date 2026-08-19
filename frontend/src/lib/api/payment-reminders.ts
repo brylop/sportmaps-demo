@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
-import { daysDiffFromToday } from '@/lib/dateUtils';
+import { bffClient } from '@/lib/api/bffClient';
+import { daysDiffFromToday, formatDayCO } from '@/lib/dateUtils';
 
 /**
  * Cleans raw payment concept strings like:
@@ -47,6 +48,62 @@ export interface PaymentReminder {
      */
     posibleDuplicado?: boolean;
     duplicadoMotivo?: string;
+}
+
+/** Lo que hace falta de un cobro para escribirle a quien lo debe. */
+export interface WhatsAppReminderTarget {
+    paymentId: string;
+    contactName: string;
+    contactPhone: string | null;
+    contactEmail?: string | null;
+    athleteName: string;
+    amount: number;
+    dueDate: string;
+    status: 'pending' | 'overdue';
+}
+
+/**
+ * `opened` significa que WhatsApp se abrio con el texto listo — el envio final lo
+ * da la persona. No decirle a la escuela "enviado" cuando todavia falta ese clic.
+ */
+export type ReminderSendResult =
+    | { status: 'no_phone' }
+    /** Hay un numero guardado, pero no es marcable: hay que corregir la ficha. */
+    | { status: 'invalid_phone'; phone: string }
+    | { status: 'opened'; usedFallback: boolean };
+
+/**
+ * `wa.me` quiere solo digitos con indicativo, y la misma columna guarda de todo:
+ * «+573104759194», «+57 310 8642106», «310 475 9194», «(310)475-9194», «03104759194».
+ *
+ * Devuelve `null` cuando el numero no encaja en ninguna forma marcable — y eso pasa
+ * de verdad: en la cartera de Dynasty hay un «33207820654» y un
+ * «32021351573505382189», que son DOS celulares pegados en un mismo campo. Antes de
+ * distinguirlos, esos se los tragaba `wa.me` y WhatsApp abria diciendo "numero
+ * invalido" sin que la escuela supiera que lo que hay que arreglar es la ficha.
+ */
+export function toWaPhone(raw: string | null | undefined): string | null {
+    const trimmed = (raw || '').trim();
+    const digits = trimmed.replace(/\D/g, '').replace(/^0+/, '');
+
+    // Ya viene en formato internacional; se respeta el indicativo que trae (E.164).
+    if (trimmed.startsWith('+') && digits.length >= 11 && digits.length <= 15) return digits;
+    // Celular colombiano pelado.
+    if (digits.length === 10 && digits.startsWith('3')) return `57${digits}`;
+    // Trae el 57 adelante pero sin el «+».
+    if (digits.length === 12 && digits.startsWith('573')) return digits;
+    return null;
+}
+
+const formatCOP = (amount: number) =>
+    new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(amount);
+
+/** El texto que se manda si el BFF de plantillas no responde. */
+function fallbackReminderMessage(t: WhatsAppReminderTarget, schoolName?: string | null): string {
+    const escuela = schoolName || 'la academia';
+    return t.status === 'overdue'
+        ? `Hola ${t.contactName}, le informamos que el pago de *${t.athleteName}* en *${escuela}* (${formatCOP(t.amount)}) esta vencido desde el ${formatDayCO(t.dueDate)}. Por favor realice el pago lo antes posible.`
+        : `Hola ${t.contactName}, le recordamos que el pago de *${t.athleteName}* en *${escuela}* (${formatCOP(t.amount)}) vence el ${formatDayCO(t.dueDate)}. Gracias por su puntualidad.`;
 }
 
 export interface ReminderBatch {
@@ -332,6 +389,64 @@ class PaymentRemindersAPI {
             .rpc('get_athletes_without_payment', { p_school_id: schoolId });
         if (error) throw error;
         return data ?? [];
+    }
+
+    /**
+     * Abre WhatsApp con el recordatorio de UN cobro y lo deja en el historial.
+     *
+     * Vive aca y no en la pantalla porque lo usan dos (Finanzas y Recordatorios), y
+     * las dos partes delicadas no aguantan copia: normalizar el celular a lo que
+     * espera `wa.me`, y registrar TAMBIEN cuando la plantilla del BFF falla — si
+     * solo se registra el camino feliz, la escuela manda el mensaje y el historial
+     * jura que nunca paso.
+     */
+    async sendWhatsAppReminder(
+        target: WhatsAppReminderTarget,
+        opts: { schoolId: string; schoolName?: string | null; templateId?: string | null },
+    ): Promise<ReminderSendResult> {
+        const rawPhone = (target.contactPhone || '').trim();
+        if (!rawPhone) return { status: 'no_phone' };
+        const phone = toWaPhone(rawPhone);
+        if (!phone) return { status: 'invalid_phone', phone: rawPhone };
+
+        let body: string;
+        let usedFallback = false;
+        try {
+            const templateType = target.status === 'overdue' ? 'overdue'
+                : daysDiffFromToday(target.dueDate) <= 0 ? 'reminder_due'
+                    : 'reminder_before';
+            const renderBody: Record<string, string> = {
+                payment_id: target.paymentId,
+                template_type: templateType,
+                channel: 'whatsapp',
+            };
+            if (opts.templateId && opts.templateId !== 'auto') renderBody.template_id = opts.templateId;
+
+            const { message } = await bffClient.post<{ message: { body: string } }>(
+                '/api/v1/templates/render',
+                renderBody,
+            );
+            body = message.body;
+        } catch (err) {
+            usedFallback = true;
+            body = fallbackReminderMessage(target, opts.schoolName);
+            console.warn('Plantilla del BFF no disponible, se uso el mensaje por defecto:', err);
+        }
+
+        const { data: { user } } = await supabase.auth.getUser();
+        await this.logReminder({
+            school_id: opts.schoolId,
+            payment_id: target.paymentId,
+            contact_name: target.contactName,
+            contact_email: target.contactEmail || undefined,
+            contact_phone: target.contactPhone || undefined,
+            amount: target.amount,
+            channel: 'whatsapp',
+            sent_by: user?.id || '',
+        });
+
+        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(body)}`, '_blank');
+        return { status: 'opened', usedFallback };
     }
 
     async logReminder(entry: {
