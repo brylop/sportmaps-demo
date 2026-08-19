@@ -9,6 +9,19 @@ interface FailedAttemptChipProps {
   reason: string | null | undefined;
   /** `payments.last_failure_at`. */
   at: string | null | undefined;
+  /**
+   * Escribir el motivo del banco debajo del chip, además del tooltip. Para la
+   * cartera, donde la escuela está decidiendo qué decirle a la familia y no
+   * puede ir pasando el mouse fila por fila.
+   */
+  showReason?: boolean;
+  /**
+   * `payments.requires_review`. Fuerza el trato de ambiguo aunque no haya
+   * motivo parseable: un cobro marcado sin `last_failure_reason` (los hay,
+   * de antes de que el webhook guardara el motivo) igual tiene que avisar
+   * que no se cobre hasta verificar.
+   */
+  requiresReview?: boolean;
   className?: string;
 }
 
@@ -23,8 +36,11 @@ interface FailedAttemptChipProps {
  * No reemplaza al estado del cobro: el cobro sigue vencido, que es la verdad.
  * Por eso es un chip secundario y no un `status`.
  */
-export function FailedAttemptChip({ reason, at, className }: FailedAttemptChipProps) {
-  const failure = parsePaymentFailure(reason);
+export function FailedAttemptChip({ reason, at, showReason, requiresReview, className }: FailedAttemptChipProps) {
+  const parsed = parsePaymentFailure(reason);
+  const failure = requiresReview
+    ? { ...(parsed ?? { label: '', bankMessage: null }), ambiguous: true, label: 'Verificar en la pasarela' }
+    : parsed;
   if (!failure) return null;
 
   const cuando = at ? format(new Date(at), "d 'de' MMM", { locale: es }) : null;
@@ -39,7 +55,9 @@ export function FailedAttemptChip({ reason, at, className }: FailedAttemptChipPr
 
   const chip = (
     <span
-      className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${tone} ${className ?? ''}`}
+      // `whitespace-nowrap`: en la columna Estado de la cartera el rótulo se
+      // partía en dos líneas y quedaba «Pago / rechazado» pisando la fecha.
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${tone} ${className ?? ''}`}
     >
       <Icon className="h-3 w-3 shrink-0" />
       {failure.label}
@@ -47,9 +65,17 @@ export function FailedAttemptChip({ reason, at, className }: FailedAttemptChipPr
     </span>
   );
 
+  const detalle = showReason && (failure.bankMessage || failure.ambiguous) ? (
+    <span className="mt-0.5 block max-w-[220px] text-[10px] leading-snug text-muted-foreground">
+      {failure.bankMessage
+        ?? 'La pasarela no confirmó el resultado. Verificá antes de volver a cobrar.'}
+    </span>
+  ) : null;
+
+  // Sin nada que ampliar, el tooltip solo estorba.
   if (!failure.bankMessage && !failure.ambiguous) return chip;
 
-  return (
+  const conTooltip = (
     <Tooltip>
       <TooltipTrigger asChild>{chip}</TooltipTrigger>
       <TooltipContent className="max-w-[260px] text-xs">
@@ -61,5 +87,14 @@ export function FailedAttemptChip({ reason, at, className }: FailedAttemptChipPr
         )}
       </TooltipContent>
     </Tooltip>
+  );
+
+  if (!detalle) return conTooltip;
+
+  return (
+    <span className="block">
+      {conTooltip}
+      {detalle}
+    </span>
   );
 }
