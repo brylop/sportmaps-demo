@@ -35,6 +35,7 @@ import { ReconciliationTab } from '@/components/payment/ReconciliationTab';
 import { CreateGlosaDialog } from '@/components/payment/CreateGlosaDialog';
 import { listBySchool as listSchoolGlosas, REASON_ADMIN_LABELS, STATUS_LABELS, OPEN_GLOSA_STATUSES, type Glosa } from '@/lib/api/glosas';
 import { PaymentOriginBadge } from '@/components/payment/PaymentOriginBadge';
+import { FailedAttemptChip } from '@/components/payment/FailedAttemptChip';
 import { isGatewayPayment } from '@/lib/paymentOrigin';
 import { PaymentAccountsEditor } from '@/components/payment/PaymentAccountsEditor';
 import {
@@ -334,7 +335,16 @@ interface TeamSubscription {
   fee_source: 'enrollment' | 'plan' | 'team' | 'none';
   start_date: string;
   /** Cobro del mes en curso si existe. `null` = no se le generó nada. */
-  charge: { status: string; due_date: string | null; amount: number } | null;
+  charge: {
+    status: string;
+    due_date: string | null;
+    amount: number;
+    /** Último intento de pago que se cayó. Se muestra junto al estado del cobro. */
+    last_failure_at: string | null;
+    last_failure_reason: string | null;
+    /** ERROR/VOIDED sin resolver: no sabemos si el dinero se movió. */
+    requires_review: boolean;
+  } | null;
   /** Deuda de meses ANTERIORES que sigue sin pagar. */
   arrears: { count: number; amount: number } | null;
   /** Atleta al que pertenece la fila. Para no sumar su deuda dos veces. */
@@ -571,6 +581,7 @@ export default function PaymentsAutomationPage() {
           provider_transaction_id, qr_id,
           ocr_amount, ocr_currency, ocr_date, ocr_bank, ocr_reference, ocr_provider,
           receipt_verdict, ocr_destination, receipt_verdict_reasons, reconciliation_status,
+          requires_review, last_failure_at, last_failure_reason,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           user:profiles!payments_user_id_fkey(full_name, email),
           child:children!payments_child_id_fkey(full_name),
@@ -777,7 +788,7 @@ export default function PaymentsAutomationPage() {
       // que no se veía en ninguna pantalla— a quién no se le generó el cobro.
       const [periodYear, periodMonth] = todayColombia().split('-').map(Number);
       const { data: periodCharges } = await (supabase.from('payments') as any)
-        .select('child_id, user_id, unregistered_athlete_id, team_id, status, due_date, amount')
+        .select('child_id, user_id, unregistered_athlete_id, team_id, status, due_date, amount, last_failure_at, last_failure_reason, requires_review')
         .eq('school_id', schoolId)
         .eq('period_year', periodYear)
         .eq('period_month', periodMonth)
@@ -829,7 +840,14 @@ export default function PaymentsAutomationPage() {
           (CHARGE_PRIORITY[a.status] ?? 99) - (CHARGE_PRIORITY[b.status] ?? 99) ||
           (a.due_date ?? '9999-12-31').localeCompare(b.due_date ?? '9999-12-31'),
         )[0];
-        return { status: best.status, due_date: best.due_date ?? null, amount: Number(best.amount) || 0 };
+        return {
+          status: best.status,
+          due_date: best.due_date ?? null,
+          amount: Number(best.amount) || 0,
+          last_failure_at: best.last_failure_at ?? null,
+          last_failure_reason: best.last_failure_reason ?? null,
+          requires_review: best.requires_review === true,
+        };
       };
 
       const mapped: TeamSubscription[] = rawEnrollments.map(e => {
@@ -1159,6 +1177,16 @@ export default function PaymentsAutomationPage() {
     // de Finanzas lo muestra (no hay fila que mostrar) ni la cola de aprobación.
     if (!s.charge) {
       return { label: 'Sin cobro generado', className: 'bg-rose-100 text-rose-700 border-rose-200', detail: null };
+    }
+
+    // ERROR/VOIDED de la pasarela: `requires_review` es, desde ago 2026, lo
+    // único que queda marcado — no sabemos si el dinero se movió y hay que
+    // abrir el dashboard del proveedor. Pisa al estado del cobro porque es más
+    // urgente que la fecha: cobrarle otra vez a alguien que ya pagó es peor
+    // que cobrarle tarde. Distinto de «Por validar», que es un comprobante
+    // esperando el ojo del admin, no una duda sobre si entró la plata.
+    if (s.charge.requires_review) {
+      return { label: 'Verificar en la pasarela', className: 'bg-orange-100 text-orange-800 border-orange-300', detail };
     }
     switch (s.charge.status) {
       case 'paid':
@@ -1629,6 +1657,10 @@ export default function PaymentsAutomationPage() {
                         <Badge variant="outline" className={`text-[10px] ${st.className}`}>{st.label}</Badge>
                         {st.detail && <span className="text-[11px] text-muted-foreground">{st.detail}</span>}
                       </div>
+                      <FailedAttemptChip
+                        reason={sub.charge?.last_failure_reason}
+                        at={sub.charge?.last_failure_at}
+                      />
                       {sub.arrears && (
                         <p className="text-[11px] font-medium text-red-600">
                           Debe {formatCurrency(sub.arrears.amount)} de meses anteriores
@@ -1690,6 +1722,14 @@ export default function PaymentsAutomationPage() {
                           <TableCell>
                             <Badge variant="outline" className={`text-xs ${st.className}`}>{st.label}</Badge>
                             {st.detail && <span className="block text-[11px] text-muted-foreground mt-0.5">{st.detail}</span>}
+                            {sub.charge?.last_failure_reason && (
+                              <span className="block mt-1">
+                                <FailedAttemptChip
+                                  reason={sub.charge.last_failure_reason}
+                                  at={sub.charge.last_failure_at}
+                                />
+                              </span>
+                            )}
                             {sub.arrears && (
                               <span className="block text-[11px] font-medium text-red-600 mt-0.5">
                                 Debe {formatCurrency(sub.arrears.amount)} de {sub.arrears.count} cobro
@@ -1935,6 +1975,14 @@ export default function PaymentsAutomationPage() {
                               pend. conciliación
                             </Badge>
                           )}
+                          {(payment as any).last_failure_reason && (
+                            <span className="block mt-1">
+                              <FailedAttemptChip
+                                reason={(payment as any).last_failure_reason}
+                                at={(payment as any).last_failure_at}
+                              />
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center justify-between gap-2">
@@ -2022,7 +2070,19 @@ export default function PaymentsAutomationPage() {
                           {/* Antes: {payment.payment_method || 'TRANSFER'} — inventaba
                               "TRANSFER" en los pagos sin método registrado. */}
                           <TableCell><PaymentOriginBadge payment={payment} /></TableCell>
-                          <TableCell><Badge variant="outline" className={`text-xs ${cfg.className}`}>{cfg.label}</Badge></TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={`text-xs ${cfg.className}`}>{cfg.label}</Badge>
+                            {/* El intento fallido es un hecho aparte del estado: el cobro
+                                puede seguir pendiente Y haber tenido un rechazo. */}
+                            {(payment as any).last_failure_reason && (
+                              <span className="block mt-1">
+                                <FailedAttemptChip
+                                  reason={(payment as any).last_failure_reason}
+                                  at={(payment as any).last_failure_at}
+                                />
+                              </span>
+                            )}
+                          </TableCell>
                           <TableCell>
                             {payment.receipt_url ? (
                               <Button variant="ghost" size="sm" className="h-8 text-blue-600 hover:bg-blue-50" onClick={() => handleShowProof(payment)}>

@@ -145,7 +145,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
 
       let q = supabase
         .from('payments')
-        .select('id, concept, amount, due_date, status')
+        .select('id, concept, amount, due_date, status, requires_review, last_failure_at, last_failure_reason')
         .eq('school_id', schoolId)
         .in('status', ['pending', 'overdue'])
         .order('due_date', { ascending: true });
@@ -226,6 +226,28 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
       .filter((m): m is string => typeof m === 'string' && m.length > 0);
   })();
 
+  const selectedPending = selectedPaymentId !== 'new'
+    ? pendingPayments.find(p => p.id === selectedPaymentId)
+    : undefined;
+
+  /**
+   * Cobro que la pasarela dejo marcado `requires_review` tras un rechazo.
+   *
+   * NO bloquea el registro manual. El lock existe para frenar al PADRE en
+   * reintentos de checkout online; aplicarlo tambien al efectivo/transferencia
+   * era al reves: ese es justamente el camino de salida cuando la tarjeta
+   * rebota, y para entonces el admin ya tiene la plata en la mano. Nueve
+   * cobros de Dynasty quedaron muertos asi — sin ninguna pantalla que los
+   * destrabara — hasta el 19 ago 2026. Se avisa, y aprobar limpia la marca.
+   */
+  const reviewNotice: string | null = selectedPending?.requires_review
+    ? `Un intento de pago con tarjeta fue rechazado${
+        selectedPending.last_failure_at
+          ? ` el ${format(new Date(selectedPending.last_failure_at), "d 'de' MMMM", { locale: es })}`
+          : ''
+      }. Al registrar el pago manualmente este cobro se destraba.`
+    : null;
+
   const handlePendingSelect = (value: string) => {
     setSelectedPaymentId(value);
     if (value === 'new') return;
@@ -259,6 +281,15 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
         ? { receipt_url: receiptUrl, ...buildReceiptOcrFields(ocrResult) }
         : {};
 
+      // Registrar el pago a mano CIERRA la revision de la pasarela: el rechazo
+      // fue de la tarjeta y aca hay plata que el admin ya confirmo. Se conserva
+      // last_failure_at / last_failure_reason como rastro de auditoria.
+      const unblockFields = {
+        requires_review: false,
+        unblocked_at: new Date().toISOString(),
+        unblocked_by: user.id,
+      };
+
       // Resolve correct IDs from the school_athletes view.
       // Payments are created with exactly ONE of these three fields:
       //   Flujo A (menores)      → child_id   (user_id null, parent_id null in view)
@@ -273,25 +304,6 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
 
       // Apply only to the selected pending payment, or create a new one.
       if (selectedPaymentId !== 'new') {
-        // ✅ Guard: no aprobar pagos bloqueados por revisión
-        const { data: existingPaymentData } = await supabase
-          .from('payments' as any)
-          .select('requires_review')
-          .eq('id', selectedPaymentId)
-          .single();
-
-        const existingPayment = existingPaymentData as any;
-
-        if (existingPayment?.requires_review) {
-          toast({
-            title: 'Pago bloqueado',
-            description: 'Este pago está en revisión y no puede procesarse.',
-            variant: 'destructive',
-          });
-          setLoading(false);
-          return;
-        }
-
         const { error: updateError } = await supabase
           .from('payments')
           .update({
@@ -305,6 +317,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
             approved_at: new Date().toISOString(),
             reference,
             amount_paid: numericAmount,
+            ...unblockFields,
             ...receiptFields,
           } as any)
           .eq('id', selectedPaymentId);
@@ -374,6 +387,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
                 approved_at: new Date().toISOString(),
                 reference,
                 amount_paid: numericAmount,
+                ...unblockFields,
                 ...receiptFields,
               } as any).eq('id', conflict.id);
               if (reuseErr) throw reuseErr;
@@ -696,6 +710,17 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
                   ))}
                 </SelectContent>
               </Select>
+
+              {/* Rechazo previo de la pasarela. Informativo: no frena el registro manual. */}
+              {reviewNotice && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-400/40 bg-amber-500/10 p-2">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+                  <div className="space-y-0.5 text-[11px] text-amber-600 dark:text-amber-400">
+                    <p className="font-bold">Este cobro venía marcado en revisión</p>
+                    <p>{reviewNotice}</p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

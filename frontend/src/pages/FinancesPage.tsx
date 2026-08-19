@@ -15,6 +15,7 @@ import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { todayColombia, daysDiffFromToday, formatDayCO } from '@/lib/dateUtils';
 import { Input } from '@/components/ui/input';
 import { PaymentOriginBadge } from '@/components/payment/PaymentOriginBadge';
+import { FailedAttemptChip } from '@/components/payment/FailedAttemptChip';
 import {
   resolvePaymentOrigin,
   ORIGIN_FILTERS,
@@ -117,6 +118,13 @@ interface OverdueAccount {
   daysOverdue: number;
   status: 'overdue' | 'reminder_sent';
   lastContactDate?: string;
+  /**
+   * Último intento de pago que se cayó. Cambia la conversación de cobro: no es
+   * lo mismo una familia que no hizo nada que una a la que el banco le tumbó
+   * el débito — a esa hay que decirle que pruebe con otro medio.
+   */
+  lastFailureAt?: string | null;
+  lastFailureReason?: string | null;
 }
 
 interface Transaction {
@@ -231,6 +239,8 @@ export default function FinancesPage() {
           qr_id,
           period_year,
           period_month,
+          last_failure_at,
+          last_failure_reason,
           student:children(full_name, parent_name_temp, parent_phone_temp),
           parent:profiles!payments_parent_id_fkey(full_name, phone),
           athlete:profiles!payments_user_id_fkey(full_name, phone),
@@ -286,6 +296,8 @@ export default function FinancesPage() {
           dueDate: p.due_date,
           daysOverdue: daysDiffFromToday(p.due_date),
           status: 'overdue' as const,
+          lastFailureAt: (p as any).last_failure_at ?? null,
+          lastFailureReason: (p as any).last_failure_reason ?? null,
         };
       }));
     }
@@ -592,6 +604,14 @@ export default function FinancesPage() {
                   </TableCell>
                   <TableCell>
                     {getStatusBadge(account)}
+                    {account.lastFailureReason && (
+                      <span className="block mt-1">
+                        <FailedAttemptChip
+                          reason={account.lastFailureReason}
+                          at={account.lastFailureAt}
+                        />
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Button
