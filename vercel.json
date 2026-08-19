@@ -1,4 +1,5 @@
 {
+  "ignoreCommand": "bash vercel-ignore-build.sh",
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/build",
   "installCommand": "cd frontend && npm install",
