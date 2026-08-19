@@ -5,7 +5,15 @@ import { requireAuth, requireRole, AuthenticatedRequest } from '../../middleware
 const router = Router();
 
 const STAFF_ROLES = ['owner', 'super_admin', 'admin', 'school_admin', 'coach', 'staff'] as const;
-const VALID_SOURCE_TYPES = ['team_match', 'tournament_match'] as const;
+// Editar el tablero táctico (alineación, plantillas guardadas, flechas) es
+// SOLO de owner/coach -- admin/school_admin/staff pueden ver (STAFF_ROLES en
+// los GET), pero no tocar la táctica. super_admin queda como el rol de
+// soporte de la plataforma, no "alguien más" del staff de la escuela.
+const TACTICAL_EDIT_ROLES = ['owner', 'super_admin', 'coach'] as const;
+// Separados a propósito (P0): un entrenamiento puede tener alineación pero
+// nunca goles/tarjetas, así que solo el primero acepta 'training_session'.
+const VALID_LINEUP_SOURCE_TYPES = ['team_match', 'tournament_match', 'training_session'] as const;
+const VALID_EVENT_SOURCE_TYPES = ['team_match', 'tournament_match'] as const;
 const VALID_SUBJECT_TYPES = ['profile', 'child', 'unregistered'] as const;
 const VALID_POSITION_CODES = ['arquero', 'defensa', 'medio', 'delantero'] as const;
 const VALID_ROLES = ['starter', 'bench'] as const;
@@ -39,6 +47,14 @@ function validateLineupPlayers(players: any[]): string[] {
     }
     if (p.position_code && !VALID_POSITION_CODES.includes(p.position_code)) {
       errors.push(`position_code inválido: ${p.position_code}`);
+    }
+    // Slot libre del tablero táctico (P0, D1). x/y opcionales -- filas viejas
+    // sin tablero siguen sin ellas.
+    if (p.x !== undefined && p.x !== null && (typeof p.x !== 'number' || p.x < 0 || p.x > 100)) {
+      errors.push(`x inválido para ${p.subject_id}: debe estar entre 0 y 100.`);
+    }
+    if (p.y !== undefined && p.y !== null && (typeof p.y !== 'number' || p.y < 0 || p.y > 100)) {
+      errors.push(`y inválido para ${p.subject_id}: debe estar entre 0 y 100.`);
     }
 
     const subjectKey = `${p.subject_type}:${p.subject_id}`;
@@ -247,7 +263,7 @@ router.get(
 
       const { data: players, error: playersErr } = await supabase
         .from('match_lineup_players')
-        .select('id, subject_type, subject_id, position_code, role, jersey_number, minutes_played')
+        .select('id, subject_type, subject_id, position_code, role, jersey_number, minutes_played, slot_label, x, y')
         .eq('lineup_id', id)
         .order('role', { ascending: true });
       if (playersErr) throw playersErr;
@@ -269,15 +285,15 @@ router.get(
 router.post(
   '/football/lineups',
   requireAuth,
-  requireRole(...STAFF_ROLES),
+  requireRole(...TACTICAL_EDIT_ROLES),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { schoolId, user } = req;
       const { team_id, source_type, source_id, formation, players } = req.body;
 
-      if (!team_id || !source_type || !VALID_SOURCE_TYPES.includes(source_type) || !source_id) {
+      if (!team_id || !source_type || !VALID_LINEUP_SOURCE_TYPES.includes(source_type) || !source_id) {
         return res.status(400).json({
-          error: 'team_id, source_type (team_match|tournament_match) y source_id son requeridos.',
+          error: 'team_id, source_type (team_match|tournament_match|training_session) y source_id son requeridos.',
         });
       }
 
@@ -342,6 +358,9 @@ router.post(
           role: p.role,
           jersey_number: p.jersey_number ?? null,
           minutes_played: p.minutes_played ?? null,
+          slot_label: p.slot_label ?? null,
+          x: p.x ?? null,
+          y: p.y ?? null,
         }));
 
         const { error: insertErr } = await supabase.from('match_lineup_players').insert(rows);
@@ -355,7 +374,7 @@ router.post(
         .single();
       const { data: fullPlayers } = await supabase
         .from('match_lineup_players')
-        .select('id, subject_type, subject_id, position_code, role, jersey_number, minutes_played')
+        .select('id, subject_type, subject_id, position_code, role, jersey_number, minutes_played, slot_label, x, y')
         .eq('lineup_id', lineupId);
 
       res.status(existing ? 200 : 201).json({ ...fullLineup, players: fullPlayers ?? [] });
@@ -372,7 +391,7 @@ router.post(
 router.delete(
   '/football/lineups/:id',
   requireAuth,
-  requireRole(...STAFF_ROLES),
+  requireRole(...TACTICAL_EDIT_ROLES),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { schoolId } = req;
@@ -443,7 +462,7 @@ router.post(
       const { schoolId, user } = req;
       const { team_id, source_type, source_id, events } = req.body;
 
-      if (!team_id || !source_type || !VALID_SOURCE_TYPES.includes(source_type) || !source_id) {
+      if (!team_id || !source_type || !VALID_EVENT_SOURCE_TYPES.includes(source_type) || !source_id) {
         return res.status(400).json({
           error: 'team_id, source_type (team_match|tournament_match) y source_id son requeridos.',
         });
@@ -611,6 +630,223 @@ router.get(
       }
 
       res.json({ team_id, stats: Array.from(stats.values()) });
+    } catch (err: any) {
+      req.log?.error({ err }, 'school/football unhandled error');
+      res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  }
+);
+
+// ==========================================
+// Plantillas tácticas guardadas (P2a/P2b) -- ver
+// docs/plan-p2-estrategias-guardadas.md. Guardan SOLO layout (D8): slot_label
+// + x/y, sin subject_id -- un preset viejo nunca intenta ubicar en silencio
+// a un jugador que ya no está en la plantilla.
+// ==========================================
+const VALID_SITUATIONS = ['ataque', 'defensa', 'presion', 'transicion', 'corner', 'tiro_libre', 'penalti'] as const;
+
+function validatePresetSlots(slots: any[]): string[] {
+  const errors: string[] = [];
+  for (const s of slots) {
+    if (typeof s.slot_label !== 'string' || !s.slot_label.trim()) {
+      errors.push('Cada slot necesita slot_label.');
+    }
+    if (typeof s.x !== 'number' || s.x < 0 || s.x > 100) {
+      errors.push(`x inválido en slot "${s.slot_label}": debe estar entre 0 y 100.`);
+    }
+    if (typeof s.y !== 'number' || s.y < 0 || s.y > 100) {
+      errors.push(`y inválido en slot "${s.slot_label}": debe estar entre 0 y 100.`);
+    }
+  }
+  return errors;
+}
+
+const VALID_ARROW_COLORS = ['white', 'yellow', 'red', 'blue'] as const;
+const VALID_SHAPE_TYPES = ['arrow', 'curve', 'zone'] as const;
+
+/** Figuras del modo pizarra (P2d) -- coordenadas en el mismo espacio 0-100
+ *  que slots/x/y, para que el frontend no tenga que manejar dos sistemas.
+ *  "type" es opcional (compat con flechas guardadas antes de curva/zona). */
+function validateArrows(arrows: any[]): string[] {
+  const errors: string[] = [];
+  for (const a of arrows) {
+    for (const key of ['x1', 'y1', 'x2', 'y2'] as const) {
+      if (typeof a[key] !== 'number' || a[key] < 0 || a[key] > 100) {
+        errors.push(`${key} inválido en una flecha: debe estar entre 0 y 100.`);
+      }
+    }
+    if (a.color !== undefined && !VALID_ARROW_COLORS.includes(a.color)) {
+      errors.push(`color de flecha inválido: ${a.color}`);
+    }
+    if (a.type !== undefined && !VALID_SHAPE_TYPES.includes(a.type)) {
+      errors.push(`type de figura inválido: ${a.type}`);
+    }
+  }
+  return errors;
+}
+
+// GET /api/v1/school/football/tactical-presets?team_id=&situation=
+router.get(
+  '/football/tactical-presets',
+  requireAuth,
+  requireRole(...STAFF_ROLES),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { schoolId } = req;
+      const { team_id, situation } = req.query as Record<string, string>;
+
+      let query = supabase
+        .from('team_tactical_presets')
+        .select('id, team_id, name, situation, slots, arrows, created_by, created_at, updated_at')
+        .eq('school_id', schoolId)
+        .order('created_at', { ascending: false });
+
+      if (team_id) query = query.eq('team_id', team_id);
+      if (situation) query = query.eq('situation', situation);
+
+      const { data, error } = await query.limit(100);
+      if (error) throw error;
+
+      res.json(data ?? []);
+    } catch (err: any) {
+      req.log?.error({ err }, 'school/football unhandled error');
+      res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  }
+);
+
+// POST /api/v1/school/football/tactical-presets
+// Body: { team_id, name, situation, slots: [{slot_label, x, y}] }
+router.post(
+  '/football/tactical-presets',
+  requireAuth,
+  requireRole(...TACTICAL_EDIT_ROLES),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { schoolId, user } = req;
+      const { team_id, name, situation, slots, arrows } = req.body;
+
+      if (!team_id || typeof name !== 'string' || !name.trim() || !VALID_SITUATIONS.includes(situation)) {
+        return res.status(400).json({
+          error: `team_id, name y situation (${VALID_SITUATIONS.join('|')}) son requeridos.`,
+        });
+      }
+      const slotList = Array.isArray(slots) ? slots : [];
+      if (slotList.length === 0) {
+        return res.status(400).json({ error: 'El preset necesita al menos un slot.' });
+      }
+      const slotErrors = validatePresetSlots(slotList);
+      if (slotErrors.length > 0) {
+        return res.status(422).json({ error: 'Preset inválido.', details: slotErrors });
+      }
+      const arrowList = Array.isArray(arrows) ? arrows : [];
+      const arrowErrors = validateArrows(arrowList);
+      if (arrowErrors.length > 0) {
+        return res.status(422).json({ error: 'Flechas inválidas.', details: arrowErrors });
+      }
+
+      if (!(await assertTeamBelongsToSchool(team_id, schoolId!))) {
+        return res.status(403).json({ error: 'El equipo no pertenece a esta escuela.' });
+      }
+
+      const { data, error } = await supabase
+        .from('team_tactical_presets')
+        .insert({
+          school_id: schoolId,
+          team_id,
+          name: name.trim(),
+          situation,
+          slots: slotList,
+          arrows: arrowList,
+          created_by: user.id,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+
+      res.status(201).json(data);
+    } catch (err: any) {
+      req.log?.error({ err }, 'school/football unhandled error');
+      res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  }
+);
+
+// PUT /api/v1/school/football/tactical-presets/:id
+router.put(
+  '/football/tactical-presets/:id',
+  requireAuth,
+  requireRole(...TACTICAL_EDIT_ROLES),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { schoolId } = req;
+      const { name, situation, slots, arrows } = req.body;
+
+      const update: Record<string, any> = {};
+      if (name !== undefined) {
+        if (typeof name !== 'string' || !name.trim()) {
+          return res.status(400).json({ error: 'name inválido.' });
+        }
+        update.name = name.trim();
+      }
+      if (situation !== undefined) {
+        if (!VALID_SITUATIONS.includes(situation)) {
+          return res.status(400).json({ error: `situation inválida: ${situation}` });
+        }
+        update.situation = situation;
+      }
+      if (slots !== undefined) {
+        const slotList = Array.isArray(slots) ? slots : [];
+        const slotErrors = validatePresetSlots(slotList);
+        if (slotErrors.length > 0) {
+          return res.status(422).json({ error: 'Preset inválido.', details: slotErrors });
+        }
+        update.slots = slotList;
+      }
+      if (arrows !== undefined) {
+        const arrowList = Array.isArray(arrows) ? arrows : [];
+        const arrowErrors = validateArrows(arrowList);
+        if (arrowErrors.length > 0) {
+          return res.status(422).json({ error: 'Flechas inválidas.', details: arrowErrors });
+        }
+        update.arrows = arrowList;
+      }
+      if (Object.keys(update).length === 0) {
+        return res.status(400).json({ error: 'Nada para actualizar.' });
+      }
+
+      const { data, error } = await supabase
+        .from('team_tactical_presets')
+        .update(update)
+        .eq('id', req.params.id)
+        .eq('school_id', schoolId)
+        .select()
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return res.status(404).json({ error: 'Preset no encontrado.' });
+
+      res.json(data);
+    } catch (err: any) {
+      req.log?.error({ err }, 'school/football unhandled error');
+      res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  }
+);
+
+// DELETE /api/v1/school/football/tactical-presets/:id
+router.delete(
+  '/football/tactical-presets/:id',
+  requireAuth,
+  requireRole(...TACTICAL_EDIT_ROLES),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { error } = await supabase
+        .from('team_tactical_presets')
+        .delete()
+        .eq('id', req.params.id)
+        .eq('school_id', req.schoolId);
+      if (error) throw error;
+      res.status(204).send();
     } catch (err: any) {
       req.log?.error({ err }, 'school/football unhandled error');
       res.status(500).json({ error: 'Error interno del servidor.' });

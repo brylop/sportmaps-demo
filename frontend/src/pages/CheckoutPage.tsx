@@ -39,6 +39,7 @@ export default function CheckoutPage() {
   const { user } = useAuth();
   const { schoolBranding } = useSchoolContext();
   const { toast } = useToast();
+  const pdfBranding = usePdfBranding();
 
   const [paymentFlow, setPaymentFlow] = useState<'wompi' | 'manual'>('wompi');
   const [processing, setProcessing] = useState(false);
@@ -237,8 +238,6 @@ export default function CheckoutPage() {
       handleManualPayment().finally(release);
     }
   };
-
-  const pdfBranding = usePdfBranding();
 
   const handleDownloadReceipt = async () => {
     await downloadReceipt({
