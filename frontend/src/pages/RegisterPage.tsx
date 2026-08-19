@@ -23,12 +23,12 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { useInvitationBranding } from '@/hooks/useInvitationBranding';
+import { usePublicTenant } from '@/hooks/usePublicTenant';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
-import { SPORTS_LIST, SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
+import { useSportsCatalog } from '@/hooks/useSportsCatalog';
 import { GoogleSignInButton, AuthDivider } from '@/components/auth/GoogleSignInButton';
 
-const sports = SPORTS_LIST;
 // Roles que representan instituciones/negocios (no personas físicas)
 const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'external_vendor', 'organizer', 'personal_trainer'];
 
@@ -64,7 +64,11 @@ const registerSchema = z.object({
   code: z.string().optional(),
   role: z.string().min(1, 'Selecciona un rol'),
   schoolName: z.string().optional(),
-  sportId: z.number().optional(),
+  // uuid desde que el catálogo se lee de `sports_categories`; number cuando el
+  // hook cae en la constante de respaldo. Estaba en z.number() y el uuid no
+  // pasaba la validación: la escuela elegía su deporte y el formulario se
+  // negaba a enviarse, sin que el error apuntara a nada visible.
+  sportId: z.union([z.string(), z.number()]).optional(),
   acceptTerms: z.boolean().refine(val => val === true, {
     message: 'Debes aceptar los términos y condiciones para continuar',
   }),
@@ -155,7 +159,9 @@ export default function RegisterPage() {
   };
 
   const [sportOpen, setSportOpen] = useState(false);
-  const allSports = SPORTS_CATALOG;
+  // Catálogo leído de la BD (con la constante como respaldo). Antes era
+  // SPORTS_CATALOG directo, y actualizar un deporte exigía desplegar front.
+  const { sports: allSports } = useSportsCatalog();
   
   const inviteId = searchParams.get('invite');
   const inviteEmail = searchParams.get('email');
@@ -170,6 +176,14 @@ export default function RegisterPage() {
   } | null>(null);
 
   const inviteBranding = useInvitationBranding(inviteId);
+
+  // Esta es LA pantalla donde aterrizan las familias que invita la escuela: los
+  // links de invitacion y el QR de inscripcion llevan ?t=<slug>. Sin esto, el
+  // padre abre el link de su club y lo recibe una pantalla verde de SportMaps.
+  const { tenant } = usePublicTenant();
+  const colorMarca = /^#[0-9A-Fa-f]{6}$/.test(tenant?.branding_settings?.primary_color ?? '')
+    ? tenant!.branding_settings!.primary_color!
+    : null;
 
   const { signUp, user } = useAuth();
 
@@ -416,7 +430,9 @@ export default function RegisterPage() {
   const showDateOfBirth = roleValue && !INSTITUTION_ROLES.includes(roleValue);
 
   return (
-    <div className="min-h-screen flex bg-[#0a1a0d] text-[#f5f7f2] font-['DM_Sans'] overflow-x-hidden">
+    // Con tenant, fondo gris NEUTRO en vez del verde de SportMaps. Se mantiene
+    // oscuro: los campos y placeholders estan estilados para fondo oscuro.
+    <div className={`min-h-screen flex ${tenant ? 'bg-[#0d0f12]' : 'bg-[#0a1a0d]'} text-[#f5f7f2] font-['DM_Sans'] overflow-x-hidden`}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
         .sportmaps-grid {
@@ -443,7 +459,10 @@ export default function RegisterPage() {
         }
       `}</style>
 
-      {/* ── LEFT PANEL ── */}
+      {/* ── LEFT PANEL ──
+          Se oculta con tenant: es copy comercial de SportMaps y el padre esta
+          entrando a la app de SU escuela. */}
+      {!tenant && (
       <div className="hidden lg:flex w-[42%] min-h-screen bg-[#0f2614] relative flex-col justify-between p-12 overflow-hidden border-r border-white/5">
         <div className="absolute inset-0 sportmaps-grid"></div>
         <div className="absolute -top-[120px] -right-[120px] w-[420px] h-[420px] rounded-full bg-[radial-gradient(circle,rgba(36,130,35,.35)_0%,transparent_70%)] pointer-events-none"></div>
@@ -484,16 +503,33 @@ export default function RegisterPage() {
         </div>
       </div>
 
+      )}
+
       {/* ── RIGHT PANEL ── */}
       <div className="flex-1 flex items-center justify-center p-6 md:p-12">
         <div className="w-full max-w-[480px] animate-in slide-in-from-bottom-6 duration-500 ease-out">
-          
-          <div className="lg:hidden flex items-center gap-2 mb-8 justify-center">
-            <div className="w-8 h-8 bg-[#248223] rounded-lg flex items-center justify-center">
-              <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white"><path d="M12 2C8.5 2 6 5 6 8c0 4 6 12 6 12s6-8 6-12c0-3-2.5-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z"/></svg>
+
+          {tenant ? (
+            /* Sin panel izquierdo, la identidad de la escuela pasa a ser el
+               encabezado: logo grande y nombre, en todos los tamanios. */
+            <div className="flex flex-col items-center gap-3 mb-10">
+              {tenant.logo_url && (
+                <img
+                  src={tenant.logo_url}
+                  alt={tenant.name}
+                  className="w-20 h-20 rounded-2xl object-contain bg-white/5 p-2"
+                />
+              )}
+              <span className="logo-name font-bold text-xl text-center">{tenant.name}</span>
             </div>
-            <span className="logo-name font-bold text-lg">SportMaps</span>
-          </div>
+          ) : (
+            <div className="lg:hidden flex items-center gap-2 mb-8 justify-center">
+              <div className="w-8 h-8 bg-[#248223] rounded-lg flex items-center justify-center">
+                <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white"><path d="M12 2C8.5 2 6 5 6 8c0 4 6 12 6 12s6-8 6-12c0-3-2.5-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z"/></svg>
+              </div>
+              <span className="logo-name font-bold text-lg">SportMaps</span>
+            </div>
+          )}
 
           <div className="mb-10">
             <h2 className="hero-title font-bold text-3xl tracking-tight mb-2">Crear cuenta</h2>
@@ -830,8 +866,11 @@ export default function RegisterPage() {
             {errors.acceptTerms && <p className="text-[10px] text-red-500 font-medium px-1 -mt-4">{errors.acceptTerms.message}</p>}
 
             <Button 
-              type="submit" 
-              className="w-full bg-[#248223] hover:bg-[#2ea82d] text-white py-8 rounded-2xl text-base font-bold syne tracking-wide shadow-xl shadow-[#248223]/15 transition-all group"
+              type="submit"
+              // Color de la escuela por estilo inline: es un hex arbitrario y
+              // Tailwind no genera clases para valores que no conoce en build.
+              style={colorMarca ? { backgroundColor: colorMarca } : undefined}
+              className={`w-full ${colorMarca ? 'text-white hover:opacity-90' : 'bg-[#248223] hover:bg-[#2ea82d] text-white shadow-xl shadow-[#248223]/15'} py-8 rounded-2xl text-base font-bold syne tracking-wide transition-all group`}
               disabled={isLoading}
             >
               {isLoading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <ArrowRight className="w-5 h-5 mr-1 group-hover:translate-x-1 transition-transform" />}

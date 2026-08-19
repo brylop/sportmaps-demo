@@ -186,7 +186,7 @@ export function hexToHsl(hex: string | undefined | null): string {
   return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
 }
 
-function getContrastColorHsl(hex: string): string {
+export function getContrastColorHsl(hex: string): string {
   if (!hex || typeof hex !== 'string') return '0 0% 100%';
   hex = hex.replace(/^#/, '');
   if (hex.length === 3) hex = hex.split('').map((c) => c + c).join('');

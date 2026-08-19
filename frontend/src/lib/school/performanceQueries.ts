@@ -134,6 +134,7 @@ export interface RosterSubject {
   subject_type: 'profile' | 'child' | 'unregistered';
   subject_id: string;
   full_name: string;
+  avatar_url?: string | null;
 }
 
 export interface TeamPerformanceRoster {

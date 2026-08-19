@@ -5,6 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useCoachStaffId } from '@/hooks/useCoachStaffId';
+import { AvisoFichaStaff } from '@/components/common/AvisoFichaStaff';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -29,7 +30,7 @@ export default function CoachPlansPage() {
   const [savingAttendance, setSavingAttendance] = useState<string | null>(null);
 
   // ── 1. Resolver school_staff.id vía hook ─────────────────────────────────
-  const { staffId, isLoading: isStaffLoading } = useCoachStaffId();
+  const { staffId, isLoading: isStaffLoading, estado: estadoFicha, refetch: refetchFicha } = useCoachStaffId();
 
   // ── 2. Clases fijas asignadas (attendance_sessions) ───────────────────────
   const { data: appointments, isLoading: isSchoolPlansLoading } = useQuery({
@@ -205,6 +206,12 @@ export default function CoachPlansPage() {
           Gestiona las clases abiertas y planes asignados, tus eventos privados y tu horario de disponibilidad.
         </p>
       </div>
+
+      <AvisoFichaStaff
+        estado={estadoFicha}
+        onReintentar={refetchFicha}
+        queSePierde="tus clases y tu disponibilidad"
+      />
 
       <div className="grid gap-6 xl:grid-cols-2">
         {/* COLUMNA IZQUIERDA: Clases y Planes */}

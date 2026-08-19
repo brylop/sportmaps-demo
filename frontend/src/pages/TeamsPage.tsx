@@ -86,6 +86,7 @@ interface TeamWithRelations {
   }[];
   coach_name?: string;
   is_virtual?: boolean;
+  image_url?: string | null;
 }
 
 export default function TeamsPage() {
@@ -694,8 +695,12 @@ export default function TeamsPage() {
                   <TableRow key={team.id} className="hover:bg-muted/10 transition-colors">
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                          <Crown className="w-4 h-4 text-primary" />
+                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden border">
+                          {team.image_url ? (
+                            <img src={team.image_url} alt={team.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <Crown className="w-4 h-4 text-primary" />
+                          )}
                         </div>
                         <div className="min-w-0">
                           <p className="font-semibold text-sm truncate">{team.name}</p>
@@ -806,8 +811,12 @@ export default function TeamsPage() {
               <CardHeader className="pb-3">
                 <div className="flex justify-between items-start">
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:scale-110 transition-transform">
-                      <Crown className="w-6 h-6 text-primary" />
+                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:scale-110 transition-transform overflow-hidden border">
+                      {team.image_url ? (
+                        <img src={team.image_url} alt={team.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <Crown className="w-6 h-6 text-primary" />
+                      )}
                     </div>
                     <div>
                       <CardTitle className="text-base">{team.name}</CardTitle>

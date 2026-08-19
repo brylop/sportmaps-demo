@@ -51,48 +51,16 @@ export default defineConfig(({ mode }) => ({
       // scope con tipos distintos → controllerchange en bucle → recargas.
       injectRegister: null,
       includeAssets: ['favicon.png', 'sportmaps-logo.png'],
-      manifest: {
-        name: 'SportMaps - Revolucionando el sistema deportivo',
-        short_name: 'SportMaps',
-        description: 'Plataforma integral para la gestión deportiva. Encuentra escuelas, inscribe a tus hijos y sigue su progreso.',
-        theme_color: '#248223',
-        background_color: '#ffffff',
-        display: 'standalone',
-        orientation: 'portrait',
-        scope: '/',
-        start_url: '/',
-        // IMPORTANTE: usar los PNG reales de /icons/. Antes apuntaba a
-        // /sportmaps-logo.png y /favicon.png, que en realidad son JPEG con
-        // extensión .png → Chrome Android los rechaza como iconos inválidos y
-        // NO cumple los criterios de instalabilidad, por lo que
-        // `beforeinstallprompt` nunca se dispara (el banner no aparece).
-        icons: [
-          { src: '/icons/icon-72.png',  sizes: '72x72',   type: 'image/png' },
-          { src: '/icons/icon-96.png',  sizes: '96x96',   type: 'image/png' },
-          { src: '/icons/icon-128.png', sizes: '128x128', type: 'image/png' },
-          { src: '/icons/icon-144.png', sizes: '144x144', type: 'image/png' },
-          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' }
-        ],
-        categories: ['sports', 'education', 'lifestyle'],
-        screenshots: [],
-        shortcuts: [
-          {
-            name: 'Explorar Escuelas',
-            short_name: 'Explorar',
-            description: 'Buscar escuelas deportivas cerca de ti',
-            url: '/explore',
-            icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }]
-          },
-          {
-            name: 'Mi Dashboard',
-            short_name: 'Dashboard',
-            description: 'Acceder a tu panel de control',
-            url: '/dashboard',
-            icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }]
-          }
-        ]
-      },
+      // El manifest ya NO lo genera Vite: lo sirve el BFF por escuela en
+      // /app.webmanifest (rewrite de vercel.json) y el link lo escribe el script
+      // inline de index.html. Si Vite siguiera emitiendo su propio
+      // manifest.webmanifest + <link>, habria DOS links rel=manifest y el
+      // navegador se quedaria con el estatico de SportMaps, anulando la marca
+      // de la escuela.
+      // El contenido por defecto (nombre, colores, iconos de SportMaps) vive
+      // ahora en DEFAULT_MANIFEST de bff/src/routes/pwa.routes.ts, que es lo que
+      // se devuelve cuando la escuela no tiene marca propia.
+      manifest: false,
       workbox: {
         skipWaiting: true,
         clientsClaim: true,
@@ -129,8 +97,24 @@ export default defineConfig(({ mode }) => ({
           }
         ]
       },
+      // OJO: con strategies:'injectManifest' la seccion que manda es ESTA, no
+      // el globPatterns de `workbox` (ese queda como config muerta).
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // No precachear los pesos muertos. Medido el 2026-08-17: el precache
+        // eran 401 entradas / 7.4 MB, y sus fetches compiten con las peticiones
+        // criticas de la app al entrar — el login pasaba de 8s a 16s con el SW
+        // activo. Estos chunks se cargan on-demand cuando alguien de verdad
+        // exporta un PDF o corre el OCR; el costo es que esas dos funciones no
+        // sirven sin conexion, que es un intercambio razonable.
+        globIgnores: [
+          '**/vendor-pdfjs-*.js',
+          '**/vendor-tesseract-*.js',
+          '**/tesseract*.js',
+          '**/jspdf*.js',
+          '**/html2canvas*.js',
+          '**/generateCategoricalChart-*.js',
+        ],
       },
       devOptions: {
         // Desactivado: el dev-SW se regenera con cada HMR y provoca recargas en

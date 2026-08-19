@@ -13,8 +13,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 
 const billingSchema = z.object({
+    // Zod 4 quito `required_error` en favor de `error`. Era el unico uso que
+    // quedaba de la API vieja en todo el frontend.
     document_type: z.enum(['CC', 'CE', 'NIT', 'PASAPORTE', 'TI', 'RC'], {
-        required_error: 'Selecciona un tipo de documento',
+        error: 'Selecciona un tipo de documento',
     }),
     document_number: z.string().min(5, 'Número de documento inválido').max(20),
     billing_address: z.string().min(5, 'Dirección inválida'),

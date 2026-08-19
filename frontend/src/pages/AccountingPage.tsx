@@ -414,7 +414,9 @@ interface ExpensePayload {
     amount: number;
     expense_date: string;
     paid_date: string;
-    payment_method: string;
+    // El enum pay_method de la base, no un string libre: `expenses.payment_method`
+    // lo rechaza si no es uno de estos.
+    payment_method: '' | 'pse' | 'card' | 'transfer' | 'cash' | 'other';
     reference: string;
     notes: string;
     file: File | null;
@@ -434,7 +436,9 @@ function RegisterExpenseDialog({
     const [concept, setConcept] = useState('');
     const [amount, setAmount] = useState('');
     const [expenseDate, setExpenseDate] = useState(todayIso());
-    const [paymentMethod, setPaymentMethod] = useState('transfer');
+    // El enum pay_method de la base, igual que en el pago a proveedores.
+    type MetodoPago = 'pse' | 'card' | 'transfer' | 'cash' | 'other';
+    const [paymentMethod, setPaymentMethod] = useState<MetodoPago>('transfer');
     const [reference, setReference] = useState('');
     const [notes, setNotes] = useState('');
     const [file, setFile] = useState<File | null>(null);
@@ -513,7 +517,7 @@ function RegisterExpenseDialog({
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
                             <Label>Método de pago</Label>
-                            <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                            <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as MetodoPago)}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="transfer">Transferencia</SelectItem>

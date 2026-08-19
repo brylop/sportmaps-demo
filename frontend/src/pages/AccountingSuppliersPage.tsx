@@ -427,7 +427,9 @@ function PayBillDialog({ bill, onOpenChange, onPaid }: {
     const saldo = bill ? Number(bill.amount) - Number(bill.amount_paid) : 0;
     const [amount, setAmount] = useState('');
     const [paidDate, setPaidDate] = useState(todayIso());
-    const [method, setMethod] = useState('transfer');
+    // El enum pay_method de la base, que es lo que espera pay_supplier_bill. El
+    // Select de abajo ofrece exactamente estos cinco, asi que tipar cierra.
+    const [method, setMethod] = useState<'pse' | 'card' | 'transfer' | 'cash' | 'other'>('transfer');
     const [reference, setReference] = useState('');
 
     // Prefill al abrir
@@ -475,7 +477,7 @@ function PayBillDialog({ bill, onOpenChange, onPaid }: {
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
                             <Label>Método</Label>
-                            <Select value={method} onValueChange={setMethod}>
+                            <Select value={method} onValueChange={(v) => setMethod(v as typeof method)}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="transfer">Transferencia</SelectItem>

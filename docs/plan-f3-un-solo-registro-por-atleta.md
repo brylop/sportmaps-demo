@@ -33,11 +33,38 @@ dashboard**.
 
 | # | Puerta | Chequeo hoy | Estado |
 |---|---|---|---|
-| 1 | `submit_qr_signup` (QR público) | documento exacto + nombre | ✅ cubierta |
+| 1 | `submit_qr_signup` (QR público) | documento exacto + nombre | ❌ **ABIERTA — corregido el 12-ago, ver §2.bis** |
 | 2 | `accept_invitation_pro` (link de invitación) | la invitación apunta a la ficha | ✅ cubierta |
 | 3 | `claim_orphan_children` (al entrar al dashboard) | correo exacto, con `trim` | ⚠️ parcial — §3.2 |
 | 4 | `claim_children_by_document` | documento, elige el acudiente | ⚠️ solo se invoca desde el flujo QR |
 | 5 | **`AddChildDialog` → `parentsAPI.addChild`** | **ninguno** | ❌ **abierta** |
+
+## 2.bis · La puerta #1 NO estaba cubierta (hallazgo del 12-ago)
+
+Este plan daba `submit_qr_signup` por ✅ porque "busca por documento antes del INSERT". Lo hace —
+pero **en el caso más común ese chequeo es inalcanzable**. La RPC tiene tres capas:
+
+```sql
+(a) match por documento   IF v_doc IS NOT NULL THEN …   -- sin documento, se salta ENTERA
+(b) match por nombre      WHERE school_id = … AND parent_id = v_user_id
+                                                        -- solo hijos que YA son de esa cuenta;
+                                                        -- la ficha pre-cargada tiene parent_id NULL
+(c) INSERT de cero        ← cae siempre acá
+```
+
+La capa (b), que debería atrapar justo el caso sin documento, filtra por `parent_id = v_user_id` —
+y la ficha que la escuela pre-cargó, por definición, todavía no es de ese acudiente. **Nunca la
+encuentra.** Papá escanea el QR y no teclea documento → ficha nueva, garantizado. No es una carrera:
+es determinístico.
+
+Los 4 duplicados del 10 al 12 de agosto lo confirman: tres entraron **sin documento** y Jefferson lo
+tecleó con dos dígitos cambiados. En los cuatro, la cuenta se creó, la ficha 4-6 segundos después y
+la inscripción en el mismo segundo — es el auto-registro, no el alta manual.
+
+**Corregido en [`20260812183012_qr_signup_adopta_ficha_precargada`](../supabase/migrations/20260812183012_qr_signup_adopta_ficha_precargada.sql)**: la capa (b) busca en toda la escuela por
+nombre normalizado (`normalize_athlete_name`, nueva), adopta solo fichas **libres** y exige que la
+fecha de nacimiento coincida cuando ambas la tienen. Si el nombre coincide con la ficha de otro
+acudiente, no adopta y crea la suya — un homónimo no se resuelve adivinando.
 
 La #5 es un `INSERT INTO children` crudo desde el cliente
 ([parents.ts:83-95](../frontend/src/lib/api/parents.ts#L83-L95)), sin pasar por RPC ni validar

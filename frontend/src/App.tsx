@@ -74,6 +74,8 @@ const CalendarPage = lazy(() => import("./pages/CalendarPage"));
 const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const TeamsPage = lazy(() => import("./pages/TeamsPage"));
+const SchoolSportsPage = lazy(() => import("./pages/SchoolSportsPage"));
+const MembershipsPage = lazy(() => import("./pages/MembershipsPage"));
 const OfferingsPage = lazy(() => import("./pages/OfferingsPage"));
 const StatsPage = lazy(() => import("./pages/StatsPage"));
 const MessagesPage = lazy(() => import("./pages/MessagesPage"));
@@ -85,6 +87,8 @@ const ShopPage = lazy(() => import("./pages/ShopPage"));
 const MyChildrenPage = lazy(() => import("./pages/MyChildrenPage"));
 const ChildProgressPage = lazy(() => import("./pages/ChildProgressPage"));
 const ChildAttendancePage = lazy(() => import("./pages/ChildAttendancePage"));
+const ChildReportsPage = lazy(() => import("./pages/ChildReportsPage"));
+const ChildReportDetailPage = lazy(() => import("./pages/ChildReportDetailPage"));
 const AcademicProgressPage = lazy(() => import("./pages/AcademicProgressPage"));
 const AttendancePage = lazy(() => import("./pages/AttendancePage"));
 const MyPaymentsPage = lazy(() => import("./pages/MyPaymentsPage"));
@@ -379,6 +383,21 @@ const App = () => (
 
                       {/* Athlete routes */}
                       <Route path="teams" element={<TeamsPage />} />
+                      {/* Deportes y categorias: util sobre todo en multideporte.
+                          El item del menu se muestra condicionado (AppSidebar). */}
+                      <Route path="school-sports" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <SchoolSportsPage />
+                        </ProtectedRoute>
+                      } />
+                      {/* Membresias del club (CAR-4): para clubes que cobran la
+                          membresia por fuera. El item del menu solo aparece cuando
+                          la escuela NO cobra por SportMaps (AppSidebar). */}
+                      <Route path="memberships" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <MembershipsPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="offerings" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <OfferingsPage />
@@ -421,6 +440,16 @@ const App = () => (
                       <Route path="children/:id/attendance" element={
                         <ProtectedRoute allowedRoles={['parent']}>
                           <AttendancePage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="children/:id/reports" element={
+                        <ProtectedRoute allowedRoles={['parent']}>
+                          <ChildReportsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="children/:id/reports/:reportId" element={
+                        <ProtectedRoute allowedRoles={['parent']}>
+                          <ChildReportDetailPage />
                         </ProtectedRoute>
                       } />
                       <Route path="academic-progress" element={

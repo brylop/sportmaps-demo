@@ -45,7 +45,20 @@ export function BrandingSettingsForm() {
     const [logoUrl, setLogoUrl] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
 
-    const hasWhitelabel = entitlements.addons.whitelabel;
+    // Gate por ADDON, no por tier. `pwa_branding` (PWA con marca de la escuela)
+    // se vende suelto; `whitelabel` (app nativa de marca blanca) lo incluye y la
+    // vista v_school_entitlements ya resuelve esa equivalencia.
+    //
+    // OJO: no cambiar esto por un chequeo de tier. El gate de la DB
+    // (school_has_branding_feature, que usa el RPC update_school_branding) SI
+    // mira el tier, asi que una escuela puede pasar uno y no el otro. El addon
+    // es el que refleja lo vendido y hace de allowlist del rollout.
+    const hasWhitelabel = entitlements.marcaPropia;
+
+    // El "Powered by SportMaps" solo lo apaga quien contrato la app NATIVA de
+    // marca blanca. Con `pwa_branding` a secas la atribucion es fija: es lo que
+    // hace que subir a app propia tenga sentido. Espejo de school_has_native_app().
+    const puedeApagarWatermark = entitlements.appNativa;
 
     // Re-init defaults cuando cambie schoolId o llegue el branding del context.
     useEffect(() => {
@@ -68,7 +81,7 @@ export function BrandingSettingsForm() {
                         Personalización de Marca
                     </CardTitle>
                     <CardDescription>
-                        La personalización de logo y colores es una característica de los planes Pro y superiores.
+                        La personalización de logo y colores es un complemento que se activa aparte.
                         Tu plan actual usa el branding de SportMaps por defecto.
                     </CardDescription>
                 </CardHeader>
@@ -342,12 +355,19 @@ export function BrandingSettingsForm() {
                             <div className="space-y-0.5">
                                 <Label>Marca de agua de SportMaps</Label>
                                 <p className="text-sm text-muted-foreground">
-                                    Mostrar discretamente "Powered by SportMaps" junto a tu logo.
+                                    {puedeApagarWatermark
+                                        ? 'Mostrar discretamente "Powered by SportMaps" junto a tu logo.'
+                                        : 'Se incluye "Powered by SportMaps". Se puede quitar con la app propia de marca blanca.'}
                                 </p>
                             </div>
+                            {/* Deshabilitado sin el addon `whitelabel`: el RPC
+                                update_school_branding rechaza el apagado y fuerza
+                                true. Dejar el switch activo invitaria a apagarlo
+                                para que la pantalla lo revierta sola al recargar. */}
                             <Switch
-                                checked={showWatermark}
+                                checked={puedeApagarWatermark ? showWatermark : true}
                                 onCheckedChange={setShowWatermark}
+                                disabled={!puedeApagarWatermark}
                             />
                         </div>
                     </div>

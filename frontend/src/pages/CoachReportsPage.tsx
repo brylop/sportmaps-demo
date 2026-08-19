@@ -12,6 +12,7 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useCoachStaffId } from '@/hooks/useCoachStaffId';
+import { AvisoFichaStaff } from '@/components/common/AvisoFichaStaff';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import {
   BarChart3, Download, TrendingUp, Users, Trophy,
@@ -173,7 +174,7 @@ export default function CoachReportsPage() {
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
 
   // 0. Staff profile vía hook (vínculo directo Supabase)
-  const { staffId } = useCoachStaffId();
+  const { staffId, estado: estadoFicha, refetch: refetchFicha } = useCoachStaffId();
 
   // ── 1. Equipos del coach ──────────────────────────────────────────────────
   const {
@@ -468,6 +469,12 @@ export default function CoachReportsPage() {
           Exportar PDF
         </Button>
       </div>
+
+      <AvisoFichaStaff
+        estado={estadoFicha}
+        onReintentar={refetchFicha}
+        queSePierde="tus equipos"
+      />
 
       {/* Banner: error al cargar equipos */}
       {teamsError && (

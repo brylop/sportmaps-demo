@@ -76,12 +76,16 @@ export default function OrganizerSettingsPage() {
       if (error) throw error;
       if (data) {
         setProfile(data as any);
+        // `bank_data` es jsonb, asi que llega como Json y hay que estrecharlo
+        // antes de leerle campos. Se agrego en 20260817131907: antes la columna
+        // no existia y el formulario salia vacio siempre.
+        const banco = (data.bank_data ?? {}) as Record<string, string | undefined>;
         setBankData({
-          bank_name: data.bank_data?.bank_name || '',
-          account_type: data.bank_data?.account_type || 'savings',
-          account_number: data.bank_data?.account_number || '',
-          holder_name: data.bank_data?.holder_name || '',
-          holder_document: data.bank_data?.holder_document || '',
+          bank_name: banco.bank_name || '',
+          account_type: banco.account_type || 'savings',
+          account_number: banco.account_number || '',
+          holder_name: banco.holder_name || '',
+          holder_document: banco.holder_document || '',
         });
         setPaymentMethods(data.payment_methods || []);
         setQrEnabled(data.qr_smart_enabled || false);

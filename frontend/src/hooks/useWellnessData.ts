@@ -20,21 +20,32 @@ export interface WellnessAppointment {
   updated_at: string;
 }
 
+// Esta interfaz describia una tabla que no existe. `wellness_evaluations` en la
+// base tiene ocho columnas —athlete_id, created_at, date, id, notes,
+// professional_id, status, type— y no health_record_id, evaluation_type,
+// evaluation_date, metrics, score, recommendations, follow_up_date ni is_demo.
+// El sintoma: la consulta ordenaba por `evaluation_date`, PostgREST devolvia
+// error y la lista de evaluaciones fallaba SIEMPRE.
+// De todo esto, lo unico que algun consumidor lee es `status`.
 export interface WellnessEvaluation {
   id: string;
+  professional_id: string | null;
+  athlete_id: string | null;
+  /** El tipo de evaluacion. La columna se llama `type`, no `evaluation_type`. */
+  type: string | null;
+  /** La fecha. La columna se llama `date`, no `evaluation_date`. */
+  date: string;
+  notes: string | null;
+  status: string | null;
+  created_at: string | null;
+  // Agregadas en 20260817134532: el formulario ya las llenaba y no tenian donde
+  // ir, asi que el insert fallaba en la base.
   health_record_id: string | null;
-  professional_id: string;
-  athlete_id: string;
-  evaluation_type: string;
-  evaluation_date: string;
-  metrics: Record<string, unknown>;
   score: number | null;
   recommendations: string | null;
   follow_up_date: string | null;
-  status: string;
-  is_demo: boolean | null;
-  created_at: string;
-  updated_at: string;
+  metrics: Record<string, unknown>;
+  updated_at: string | null;
 }
 
 export interface HealthRecord {
@@ -146,7 +157,7 @@ export function useWellnessEvaluations() {
         .from('wellness_evaluations')
         .select('*')
         .eq('professional_id', user.id)
-        .order('evaluation_date', { ascending: false });
+        .order('date', { ascending: false });
       
       if (error) throw error;
       return data as WellnessEvaluation[];
@@ -155,18 +166,25 @@ export function useWellnessEvaluations() {
   });
 
   const createEvaluation = useMutation({
+    // `type` y no `evaluation_type`: asi se llama la columna. El nombre del
+    // formulario se traduce en el llamador, no se duplica la columna.
     mutationFn: async (evaluation: Omit<Partial<WellnessEvaluation>, 'professional_id'> & {
       athlete_id: string;
-      evaluation_type: string;
+      type: string;
     }) => {
       if (!user) throw new Error('Usuario no autenticado');
       
       const { data, error } = await supabase
         .from('wellness_evaluations')
-        .insert({ 
-          ...evaluation, 
-          professional_id: user.id 
-        } as any)
+        // Sin `as any`: era lo que dejaba pasar columnas inexistentes
+        // (evaluation_type, score, metrics…) y hacia que el insert fallara en la
+        // base sin que nada avisara al compilar.
+        .insert({
+          ...evaluation,
+          professional_id: user.id,
+          date: evaluation.date ?? new Date().toISOString().slice(0, 10),
+          metrics: (evaluation.metrics ?? {}) as never,
+        })
         .select()
         .single();
       

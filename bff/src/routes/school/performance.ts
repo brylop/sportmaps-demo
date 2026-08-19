@@ -87,10 +87,10 @@ router.get(
 
       const metrics = await getMetricCatalog([school.category_id]);
 
-      // 2. Roster del equipo o plan, vía la vista unificada school_athletes
+            // 2. Roster del equipo o plan, vía la vista unificada school_athletes
       let rosterQuery = supabase
         .from('school_athletes' as any)
-        .select('id, full_name, athlete_type')
+        .select('id, full_name, athlete_type, avatar_url')
         .eq('school_id', schoolId)
         .eq('is_active', true);
 
@@ -105,6 +105,7 @@ router.get(
         subject_type: a.athlete_type === 'adult' ? 'profile' : a.athlete_type, // 'child' | 'unregistered' pasan igual
         subject_id: a.id,
         full_name: a.full_name,
+        avatar_url: a.avatar_url ?? null,
       }));
 
       // 3. Último valor registrado por atleta+métrica, para precargar la grilla

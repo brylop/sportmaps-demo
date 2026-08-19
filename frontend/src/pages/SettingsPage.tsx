@@ -238,11 +238,14 @@ export default function SettingsPage() {
                   <ServicesSection services={services} schoolName={data?.school?.name} />
                 </TabsContent>
                 
-                {/* Branding tab content temporarily hidden
+                {/* El trigger "Marca" siempre estuvo en el sidebar, pero este
+                    contenido quedo comentado: el tab se seleccionaba y el panel
+                    salia vacio. Reactivado 2026-08-14 para entregar el PWA con
+                    marca de la escuela. El propio form decide si muestra el
+                    editor o el upsell segun el addon pwa_branding. */}
                 <TabsContent value="branding" className="mt-0">
                     <BrandingSettingsForm />
                 </TabsContent>
-                */}
               </>
             )}
 

@@ -45,7 +45,12 @@ jobs:
         run: npm ci
 
       - name: 🔷 TypeScript — verificar tipos
-        run: npx tsc --noEmit
+        # OJO con el `-p`: `frontend/tsconfig.json` es un config de solucion
+        # (`"files": []` + `references`), asi que `npx tsc --noEmit` a secas revisa
+        # CERO archivos y sale 0. Este gate estuvo verde mientras se acumulaban
+        # 275 errores de tipos, y por ahi se desplegaron seis ReferenceError el
+        # 2026-08-17 (ver INF-8). Hay que apuntar a cada proyecto referenciado.
+        run: npx tsc --noEmit -p tsconfig.app.json && npx tsc --noEmit -p tsconfig.node.json
         # Gate duro: si falla hay errores de tipos. No se puede deployar.
 
       - name: 🧹 ESLint — reporte informativo

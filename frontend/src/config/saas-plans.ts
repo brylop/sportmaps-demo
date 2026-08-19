@@ -41,7 +41,8 @@ export type AddonKey =
   | 'access_control'
   | 'biomech'
   | 'nutrition'
-  | 'whitelabel'
+  | 'whitelabel'    // app NATIVA de marca blanca (producto mayor)
+  | 'pwa_branding'  // al instalar la PWA sale el logo + nombre de la escuela
   | 'whatsapp'
   | 'wompi'
   | 'mp'
@@ -94,6 +95,7 @@ export type FeatureKey =
   | 'branding_basic'
   | 'branding_full'
   | 'custom_subdomain'
+  | 'pwa_branded_install'
   // Soporte
   | 'support_docs'
   | 'support_email'
@@ -303,6 +305,24 @@ export const ADDONS: Record<AddonKey, AddonDefinition> = {
     description: 'App propia con tu marca, splash y deep links.',
     priceCents: 29_900_000,
     setupCents: 150_000_000,
+    includedIn: ['enterprise'],
+    salesLed: true,
+  },
+  // Estaba en AddonKey pero NO en este catalogo, y MiPlanPage hace
+  // `ADDONS[key].name` sobre los addons ACTIVOS: las dos escuelas que ya lo
+  // tienen prendido (CLUB DEPORTIVO BESSER y Lopez Romero, desde el 2026-08-14)
+  // reventaban /mi-plan con TypeError.
+  //
+  // priceCents: -1 es la convencion que ya documenta AddonDefinition para
+  // «cotizacion». No hay precio de lista de este addon en ningun lado —
+  // verificado en este catalogo, en school_addons.monthly_price_cents (esta en 0
+  // para todos, incluido whitelabel) y en el landing—, y no se inventa uno.
+  pwa_branding: {
+    key: 'pwa_branding',
+    name: 'PWA con tu marca',
+    description: 'Al instalar la app web sale el logo y el nombre de tu escuela, no el de SportMaps.',
+    priceCents: -1,
+    setupCents: 0,
     includedIn: ['enterprise'],
     salesLed: true,
   },
@@ -662,6 +682,15 @@ export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
     kind: 'tier',
     minTier: 'crecimiento',
     label: 'Branding completo (paleta + tipografía)',
+  },
+  // Addon, NO tier: se vende suelto y actúa como allowlist del rollout.
+  // `whitelabel` (app nativa de marca blanca) ya lo incluye — esa equivalencia
+  // se resuelve en la vista v_school_entitlements, no acá.
+  pwa_branded_install: {
+    key: 'pwa_branded_install',
+    kind: 'addon',
+    addonKey: 'pwa_branding',
+    label: 'App instalable con logo y nombre de la escuela',
   },
   custom_subdomain: {
     key: 'custom_subdomain',

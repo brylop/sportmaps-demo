@@ -12,6 +12,13 @@ export interface CartItem {
   price: number;
   quantity: number;
   image?: string;
+  // Campos de producto que CartPage y ProductDetailPage ya usaban sin que
+  // existieran aca: `discount` para el precio tachado, `stock` para topear el
+  // boton de +, `category` para el subtitulo. Opcionales porque un item de
+  // inscripcion o de cita no los tiene.
+  category?: string;
+  stock?: number;
+  discount?: number;
   metadata: {
     schoolId?: string;
     schoolName?: string;

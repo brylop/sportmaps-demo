@@ -4,6 +4,7 @@ import { AvailabilityManager } from '@/components/school/AvailabilityManager';
 import CoachAttendancePage from '@/pages/CoachAttendancePage';
 import { useTrainerContext } from '@/hooks/useTrainerContext';
 import { useCoachStaffId } from '@/hooks/useCoachStaffId';
+import { AvisoFichaStaff } from '@/components/common/AvisoFichaStaff';
 import { supabase } from '@/integrations/supabase/client';
 import { Calendar } from '@/components/ui/calendar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,7 +31,7 @@ interface PTSession {
 
 export default function TrainerAvailability() {
   const { trainerSchoolId } = useTrainerContext();
-  const { staffId, isLoading } = useCoachStaffId();
+  const { staffId, isLoading, estado: estadoFicha, refetch: refetchFicha } = useCoachStaffId();
 
   // ── Calendario ────────────────────────────────────────────────────────────
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -93,6 +94,16 @@ export default function TrainerAvailability() {
           Gestiona tus sesiones del día y configura tus horarios disponibles.
         </p>
       </div>
+
+      {/* Solo el caso de error: el de "sin ficha" ya tiene su propio mensaje
+          dentro de la pestaña de horarios y duplicarlo sería ruido. */}
+      {estadoFicha === 'error' && (
+        <AvisoFichaStaff
+          estado={estadoFicha}
+          onReintentar={refetchFicha}
+          queSePierde="tus sesiones y tu horario"
+        />
+      )}
 
       <Tabs defaultValue="sessions" className="w-full">
         <TabsList className="grid grid-cols-2 w-full max-w-xs">

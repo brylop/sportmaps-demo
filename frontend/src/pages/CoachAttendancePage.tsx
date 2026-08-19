@@ -23,6 +23,7 @@ import { getSportVisual } from '@/lib/sportVisuals';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useCoachStaffId } from '@/hooks/useCoachStaffId';
+import { AvisoFichaStaff } from '@/components/common/AvisoFichaStaff';
 import { useUpdatePTAttendance, useHandleNoShow } from '@/hooks/useAthleteSessionBookings';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useActiveWorkPage } from '@/hooks/useActiveWorkPage';
@@ -108,6 +109,14 @@ function describeCredits(t: CreditTally): string | undefined {
   if (t.noCredits.length) parts.push(`${t.noCredits.join(', ')} sin clases disponibles en el plan`);
   if (t.noPlan) parts.push(`${t.noPlan} sin plan de clases`);
   return parts.length ? parts.join(' · ') : undefined;
+}
+
+/** "martes 12 de agosto" — para que el entrenador vea el día, no un ISO. */
+function formatHumanDate(d: string): string {
+  const [y, m, day] = d.split('-').map(Number);
+  return new Date(y, m - 1, day).toLocaleDateString('es-CO', {
+    weekday: 'long', day: 'numeric', month: 'long',
+  });
 }
 
 function formatHour(t: string | null): string | null {
@@ -286,7 +295,23 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
   );
 
   // ── 0. Staff profile ────────────────────────────────────────────────────
-  const { staffId } = useCoachStaffId();
+  const { staffId, estado: estadoFicha, refetch: refetchFicha } = useCoachStaffId();
+
+  // ── Fecha de trabajo ────────────────────────────────────────────────────
+  // Por defecto hoy. El entrenador puede retroceder 7 días para completar lo
+  // que se le pasó; la administración, sin tope. El BFF vuelve a validar esto
+  // mismo: acá solo se evita ofrecer un botón que va a devolver 403.
+  const RETRO_DIAS_COACH = 7;
+  const hoy = todayColombia();
+  const [fechaLista, setFechaLista] = useState<string>(hoy);
+  const esRetroactiva = fechaLista !== hoy;
+
+  const fechaMinima = useMemo(() => {
+    if (isAdmin) return undefined;                       // sin tope
+    const d = new Date(`${hoy}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - RETRO_DIAS_COACH);
+    return d.toISOString().slice(0, 10);
+  }, [hoy, isAdmin]);
 
   // ── 1. Equipos ──────────────────────────────────────────────────────────
   const { data: teams = [], isLoading: loadingTeams } = useQuery<TeamItem[]>({
@@ -380,7 +405,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
   const {
     data: rosterData,
     isLoading: loadingRoster,
-  } = useQuery<{ athletes: RosterItem[]; bookings: any[] }>({
+  } = useQuery<{ athletes: RosterItem[]; bookings: any[]; atletas_sin_equipo?: number }>({
     queryKey: ['attendance-roster', contextType, contextId],
     queryFn: async () => {
       if (!contextType || !contextId) return { athletes: [], bookings: [] };
@@ -400,12 +425,12 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
     session: AttendanceSession | null;
     records: { child_id?: string; user_id?: string; unregistered_athlete_id?: string; status: string }[];
   }>({
-    queryKey: ['attendance-session', selectedItem],
+    queryKey: ['attendance-session', selectedItem, fechaLista],
     queryFn: async () => {
       if (!selectedItem) return { session: null, records: [] };
       if (isTeam) {
         const token = await getBearerToken();
-        const res = await fetch(`${BFF_URL}/api/v1/attendance/session/${selectedTeamId}`, {
+        const res = await fetch(`${BFF_URL}/api/v1/attendance/session/${selectedTeamId}?date=${fechaLista}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) throw new Error('Error consultando sesión');
@@ -501,16 +526,67 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
       const presentEntries = Object.entries(attendanceState).filter(([, s]) => s === 'present');
       const otherEntries   = Object.entries(attendanceState).filter(([, s]) => s !== 'present');
       const walkInErrors: string[] = [];
+      // Solo aplica al camino de `offering`, que sigue siendo un POST por
+      // atleta porque la ruta exige enrollmentId. En equipo y sesión ya no se
+      // pierde a nadie: van en el lote y quedan registrados aunque no tengan
+      // inscripción (el crédito sale como `no_plan`, la asistencia se guarda).
+      const sinInscripcion: string[] = [];
       const tally = newTally();
 
-      // Presentes → walk-in con descuento
+      /** Traduce una fila del roster al record que espera POST /session. */
+      const aRecord = ([id, status]: [string, string]) => {
+        const a = athletes.find((x) => x.id === id);
+        return {
+          childId:               a?.athlete_type === 'child'        ? id : undefined,
+          userId:                a?.athlete_type === 'adult'        ? id : undefined,
+          unregisteredAthleteId: a?.athlete_type === 'unregistered' ? id : undefined,
+          status,
+          // Que el BFF le cobre a la inscripción que el entrenador vio en
+          // pantalla, en vez de adivinarla por antigüedad.
+          enrollmentId: a?.enrollment_id ?? undefined,
+          isSecondary,
+        };
+      };
+
+      // ── Equipo o sesión: TODO en un solo request ────────────────────────
+      //
+      // Antes eran un POST por atleta presente más uno para el resto: con los
+      // 31 de SENIORS, 31 requests. Si el token vencía o se caía la red a
+      // mitad, media lista quedaba guardada y la otra media no, y el
+      // entrenador no tenía forma de saber cuál era cuál.
+      if (isTeam || isSession) {
+        const sessionPayload: any = {
+          records: [...presentEntries, ...otherEntries].map(aRecord),
+          date: fechaLista,
+        };
+        if (isTeam)      sessionPayload.teamId    = selectedTeamId;
+        if (session?.id) sessionPayload.sessionId = session.id;
+        else if (isSession) sessionPayload.sessionId = selectedSessionId;
+
+        const res = await fetch(`${BFF_URL}/api/v1/attendance/session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(sessionPayload),
+        });
+        const b = await res.json();
+        if (!res.ok) throw new Error(b.error);
+        for (const [id, outcome] of Object.entries(b.credit_outcomes ?? {})) {
+          addOutcome(tally, outcome as CreditOutcome, athletes.find((x) => x.id === id)?.full_name ?? 'Atleta');
+        }
+        return tally;
+      }
+
+      // ── Offering: un POST por atleta (la ruta pide enrollmentId) ─────────
       for (const [id] of presentEntries) {
         const a = athletes.find((x) => x.id === id);
-        if (!a || !a.enrollment_id) continue;
-        const payload: any = { enrollmentId: a.enrollment_id, is_secondary: isSecondary, status: 'present' };
-        if (isTeam)     payload.teamId     = selectedTeamId;
-        if (isSession)  payload.sessionId  = selectedSessionId;
-        if (isOffering) payload.offeringId = selectedOfferingId;
+        if (!a || !a.enrollment_id) {
+          sinInscripcion.push(a?.full_name ?? 'Un atleta');
+          continue;
+        }
+        const payload: any = {
+          enrollmentId: a.enrollment_id, is_secondary: isSecondary, status: 'present',
+          offeringId: selectedOfferingId,
+        };
         if (a.athlete_type === 'child')        payload.childId               = id;
         else if (a.athlete_type === 'adult')   payload.userId                = id;
         else                                    payload.unregisteredAthleteId = id;
@@ -534,68 +610,44 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
         }
       }
 
-      // Otros estados → registro sin descuento
-      if (otherEntries.length > 0) {
-        if (isTeam || isSession) {
-          // Equipo o Sesión existente → POST /session directo
-          const records = otherEntries.map(([id, status]) => {
-            const a = athletes.find((x) => x.id === id);
-            return {
-              childId:               a?.athlete_type === 'child'        ? id : undefined,
-              userId:                a?.athlete_type === 'adult'         ? id : undefined,
-              unregisteredAthleteId: a?.athlete_type === 'unregistered' ? id : undefined,
-              status,
-            };
-          });
-          const sessionPayload: any = { records };
-          if (isTeam)      sessionPayload.teamId    = selectedTeamId;
-          if (session?.id) sessionPayload.sessionId = session.id;
+      // Otros estados del offering → walk-in por atleta (sin descuento, status != present)
+      for (const [id, status] of otherEntries) {
+        const a = athletes.find((x) => x.id === id);
+        if (!a?.enrollment_id) {
+          sinInscripcion.push(a?.full_name ?? 'Un atleta');
+          continue;
+        }
+        const payload: any = {
+          enrollmentId: a.enrollment_id,
+          offeringId:   selectedOfferingId,
+          status,
+          is_secondary: false,
+        };
+        if (a.athlete_type === 'child')        payload.childId               = id;
+        else if (a.athlete_type === 'adult')   payload.userId                = id;
+        else                                    payload.unregisteredAthleteId = id;
 
-          const res = await fetch(`${BFF_URL}/api/v1/attendance/session`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify(sessionPayload),
-          });
-          const b = await res.json();
-          if (!res.ok) throw new Error(b.error);
-          // Esta ruta ahora también mueve créditos (devolución al corregir a
-          // ausente, y descuento cuando la pantalla marca presente por acá).
-          for (const [id, outcome] of Object.entries(b.credit_outcomes ?? {})) {
-            addOutcome(tally, outcome as CreditOutcome, athletes.find((x) => x.id === id)?.full_name ?? 'Atleta');
-          }
-
-        } else if (isOffering) {
-          // Offering → walk-in por cada atleta (sin descuento porque status != present)
-          for (const [id, status] of otherEntries) {
-            const a = athletes.find((x) => x.id === id);
-            if (!a?.enrollment_id) continue;
-            const payload: any = {
-              enrollmentId: a.enrollment_id,
-              offeringId:   selectedOfferingId,
-              status,
-              is_secondary: false,
-            };
-            if (a.athlete_type === 'child')        payload.childId               = id;
-            else if (a.athlete_type === 'adult')   payload.userId                = id;
-            else                                    payload.unregisteredAthleteId = id;
-
-            const res = await fetch(`${BFF_URL}/api/v1/attendance/walk-in`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-              body: JSON.stringify(payload),
-            });
-            const b = await res.json();
-            if (!res.ok) {
-              if (!['expired', 'no_credits', 'no_session'].includes(b.reason)) {
-                throw new Error(b.error);
-              }
-            } else {
-              addOutcome(tally, b.credit_outcome, a?.full_name ?? 'Atleta');
-            }
-          }
+        const res = await fetch(`${BFF_URL}/api/v1/attendance/walk-in`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(payload),
+        });
+        const b = await res.json();
+        if (!res.ok) {
+          // `expired` y `no_credits` ya no son errores: la asistencia se
+          // registra igual y el motivo llega en `credit_outcome`.
+          walkInErrors.push(`${a.full_name}: ${b.error}`);
+        } else {
+          addOutcome(tally, b.credit_outcome, a?.full_name ?? 'Atleta');
         }
       }
 
+      if (sinInscripcion.length) {
+        walkInErrors.push(
+          `${sinInscripcion.join(', ')}: sin inscripción activa — NO se registró su asistencia. ` +
+          `Asígnale un plan desde Atletas y vuelve a pasarle lista.`
+        );
+      }
       if (walkInErrors.length) throw new Error(walkInErrors.join('\n'));
       return tally;
     },
@@ -604,7 +656,14 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
       queryClient.invalidateQueries({ queryKey: ['attendance-roster', contextType, contextId] });
       toast({ title: '✅ Asistencia guardada', description: describeCredits(t) });
     },
-    onError: (e: any) => toast({ title: 'Algunos registros no se guardaron', description: e.message, variant: 'destructive' }),
+    onError: (e: any) => {
+      // El guardado es atleta por atleta: un fallo parcial deja parte grabada.
+      // Sin refrescar, la pantalla seguiría mostrando el estado optimista y el
+      // entrenador no sabría cuáles sí entraron.
+      queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedItem] });
+      queryClient.invalidateQueries({ queryKey: ['attendance-roster', contextType, contextId] });
+      toast({ title: 'Algunos registros no se guardaron', description: e.message, variant: 'destructive' });
+    },
   });
 
   const finalizeMutation = useMutation({
@@ -620,11 +679,35 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
       return body;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedItem] });
+      queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedItem, fechaLista] });
       toast({ title: '🏁 Sesión finalizada', description: 'Los datos quedan bloqueados.' });
     },
     onError: (err: any) => {
       toast({ title: 'Error al finalizar', description: err?.message, variant: 'destructive' });
+    },
+  });
+
+  // Reabrir una lista ya cerrada. El cierre automático corre cada noche sobre
+  // todo lo que tenga fecha anterior a hoy, así que sin esto una lista mal
+  // llena quedaba mal para siempre.
+  const reopenMutation = useMutation({
+    mutationFn: async () => {
+      if (!session?.id) throw new Error('No hay sesión que reabrir.');
+      const token = await getBearerToken();
+      const res = await fetch(`${BFF_URL}/api/v1/attendance/session/${session.id}/reopen`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Error reabriendo la sesión');
+      return body;
+    },
+    onSuccess: (b: any) => {
+      queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedItem, fechaLista] });
+      toast({ title: '🔓 Lista reabierta', description: b?.aviso });
+    },
+    onError: (err: any) => {
+      toast({ title: 'No se pudo reabrir', description: err?.message, variant: 'destructive' });
     },
   });
 
@@ -701,6 +784,17 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
         <h1 className="text-3xl font-bold tracking-tight">Asistencias</h1>
         <p className="text-muted-foreground mt-1">Toma lista rápidamente</p>
       </div>
+
+      {/* Sin ficha de staff no matchea ningún equipo y la lista queda vacía,
+          igual que si no tuviera nada asignado. El admin no la necesita: ve
+          todos los equipos sin filtrar. */}
+      {!isAdmin && (
+        <AvisoFichaStaff
+          estado={estadoFicha}
+          onReintentar={refetchFicha}
+          queSePierde="tus equipos para pasar lista"
+        />
+      )}
 
       {!selectedItem ? (
         <div className="space-y-8">
@@ -988,12 +1082,21 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
           ) : (
             <>
               {isFinalized && (
-                <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-green-800">
-                  <Lock className="w-5 h-5 shrink-0" />
-                  <div>
-                    <p className="font-semibold">Sesión finalizada</p>
-                    <p className="text-sm">Los registros están bloqueados.</p>
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-green-800 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <Lock className="w-5 h-5 shrink-0" />
+                    <div>
+                      <p className="font-semibold">Sesión finalizada</p>
+                      <p className="text-sm">Los registros están bloqueados.</p>
+                    </div>
                   </div>
+                  <Button
+                    variant="outline" size="sm" className="h-8 text-xs"
+                    disabled={reopenMutation.isPending}
+                    onClick={() => reopenMutation.mutate()}
+                  >
+                    {reopenMutation.isPending ? 'Reabriendo…' : '🔓 Reabrir para corregir'}
+                  </Button>
                 </div>
               )}
 
@@ -1024,6 +1127,61 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
                   )}
                 </div>
               </div>
+
+              {/* ── Fecha de la lista ────────────────────────────────────
+                  Hasta ahora solo se podía pasar lista del día en curso: el
+                  entrenador que olvidaba un día no tenía cómo completarlo. */}
+              <div className="flex items-center justify-between flex-wrap gap-3 rounded-xl border p-3">
+                <div className="flex items-center gap-2">
+                  <CalendarIcon className="w-4 h-4 text-muted-foreground" />
+                  <Label htmlFor="fecha-lista" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Día de la lista
+                  </Label>
+                  <Input
+                    id="fecha-lista"
+                    type="date"
+                    value={fechaLista}
+                    min={fechaMinima}
+                    max={hoy}
+                    onChange={(e) => setFechaLista(e.target.value || hoy)}
+                    className="h-8 w-auto text-sm"
+                  />
+                </div>
+                {esRetroactiva && (
+                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setFechaLista(hoy)}>
+                    Volver a hoy
+                  </Button>
+                )}
+              </div>
+
+              {esRetroactiva && (
+                <Alert>
+                  <CalendarCheck className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    Estás completando la lista del <strong>{formatHumanDate(fechaLista)}</strong>, no la de hoy.
+                    Las clases se descuentan del plan con esa fecha, así que un atleta cuyo plan ya
+                    estaba vencido ese día queda registrado pero sin descuento.
+                    {!isAdmin && ` Puedes retroceder hasta ${RETRO_DIAS_COACH} días; para algo más antiguo, pídeselo a la administración.`}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Quien no tiene equipo asignado no sale en NINGÚN roster. Sin
+                  esto, el entrenador no puede distinguirlo de "ese atleta no
+                  existe" y lo busca donde nunca va a estar. */}
+              {isTeam && (rosterData?.atletas_sin_equipo ?? 0) > 0 && (
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    Hay <strong>{rosterData?.atletas_sin_equipo}</strong>{' '}
+                    {rosterData?.atletas_sin_equipo === 1 ? 'atleta activo' : 'atletas activos'} en la escuela
+                    sin equipo asignado. No {rosterData?.atletas_sin_equipo === 1 ? 'aparece' : 'aparecen'} en
+                    esta lista ni en la de ningún otro equipo. Si {rosterData?.atletas_sin_equipo === 1 ? 'entrena' : 'entrenan'}{' '}
+                    acá, asígnale{rosterData?.atletas_sin_equipo === 1 ? '' : 's'} equipo desde Atletas —
+                    o márca{rosterData?.atletas_sin_equipo === 1 ? 'lo' : 'los'} con Walk-in por hoy.
+                  </AlertDescription>
+                </Alert>
+              )}
 
                 {combinedRoster.map((student) => {
                   const current = attendanceState[student.id];

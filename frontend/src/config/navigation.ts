@@ -262,6 +262,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             icon: Users,
             submenu: [
               { title: 'Mis Equipos', href: '/teams', icon: Users },
+              { title: 'Deportes y Categorías', href: '/school-sports', icon: Trophy },
+              { title: 'Membresías', href: '/memberships', icon: IdCard },
               { title: 'Mis Planes', href: '/offerings', icon: FileText }
             ]
           },
@@ -496,6 +498,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             icon: Users,
             submenu: [
               { title: 'Mis Equipos', href: '/teams', icon: Users },
+              { title: 'Deportes y Categorías', href: '/school-sports', icon: Trophy },
+              { title: 'Membresías', href: '/memberships', icon: IdCard },
               { title: 'Mis Planes', href: '/offerings', icon: FileText }
             ]
           },

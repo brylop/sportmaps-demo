@@ -22,7 +22,9 @@ export interface SchoolTeam {
 export interface SchoolRole {
     schoolId: string;
     schoolName: string;
-    role: 'owner' | 'admin' | 'super_admin' | 'school_admin' | 'school' | 'coach' | 'staff' | 'parent' | 'athlete' | 'viewer' | 'wellness_professional' | 'store_owner' | 'organizer' | 'reporter';
+    // `external_vendor` y `personal_trainer` ya se usan en AppSidebar y en los
+    // guards, pero faltaban aca: el switch por rol no compilaba contra este union.
+    role: 'owner' | 'admin' | 'super_admin' | 'school_admin' | 'school' | 'coach' | 'staff' | 'parent' | 'athlete' | 'viewer' | 'wellness_professional' | 'store_owner' | 'external_vendor' | 'personal_trainer' | 'organizer' | 'reporter';
     branchId: string | null;
     isGlobal?: boolean; // If true, the user has school-wide access
     onboardingStatus?: 'pending' | 'in_progress' | 'completed';

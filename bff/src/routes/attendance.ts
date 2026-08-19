@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { supabase } from '../config/supabase';
 import { todayInZone } from '../utils/businessDate';
-import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { requireAuth, requireRole, auditLog, AuthenticatedRequest } from '../middlewares/authMiddleware';
 
 const router = Router();
 
@@ -21,6 +21,80 @@ function todayString(): string {
 // Y registrar la asistencia NUNCA falla por falta de saldo: dejar constancia de
 // que el atleta vino, y cobrarle el crédito, son dos cosas distintas.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Carga retroactiva — decisiones de producto del 2026-08-16
+//
+// Hasta hoy la asistencia solo se podía tomar del día en curso: las tres rutas
+// de escritura calculaban la fecha adentro y no había forma de mandarla. El
+// entrenador que olvidaba un martes no tenía cómo completarlo, y terminábamos
+// cargándolo nosotros por SQL.
+//
+//   · Quién   → el entrenador hasta 7 días atrás; la administración sin tope.
+//               La regla de fondo: quien responde por la plata puede reescribir
+//               más lejos que quien solo pasa lista.
+//   · Créditos→ se descuentan evaluando el saldo COMO ESTABA ESE DÍA (el plan
+//               vencido se compara contra la fecha del evento, no contra hoy).
+//               Sin saldo, la asistencia se registra igual y se avisa — misma
+//               regla que en el día corriente.
+//   · Cerrado → una sesión finalizada se puede reabrir solo si su fecha cae
+//               dentro de la ventana de quien lo pide.
+//
+// No hay columna que marque el registro como retroactivo: la trazabilidad va
+// por `security_audit_log`, que guarda quién, cuándo y para qué fecha.
+// ─────────────────────────────────────────────────────────────────────────────
+const RETRO_DIAS_COACH = 7;
+
+/** Roles que pueden reescribir cualquier fecha. `req.role` sale de school_members. */
+const ROLES_SIN_TOPE = ['owner', 'super_admin', 'admin', 'school_admin', 'school'];
+
+type FechaResuelta =
+  | { ok: true; date: string; esRetroactiva: boolean }
+  | { ok: false; status: number; body: Record<string, unknown> };
+
+/**
+ * Traduce la fecha pedida a la fecha de negocio con la que se va a escribir, y
+ * decide si quien la pide tiene permiso para esa fecha.
+ *
+ * Sin `pedida` se comporta como siempre: hoy. Así ninguna llamada vieja cambia
+ * de significado por este agregado.
+ */
+function resolverFechaDeTrabajo(pedida: string | undefined | null, rol: string): FechaResuelta {
+  const hoy = todayInZone();
+  if (!pedida || pedida === hoy) return { ok: true, date: hoy, esRetroactiva: false };
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(pedida)) {
+    return { ok: false, status: 400, body: { error: 'La fecha debe venir como YYYY-MM-DD.' } };
+  }
+  if (pedida > hoy) {
+    return {
+      ok: false, status: 400,
+      body: { error: 'No se puede pasar lista de un día que todavía no llegó.', reason: 'future_date' },
+    };
+  }
+
+  if (ROLES_SIN_TOPE.includes(rol)) return { ok: true, date: pedida, esRetroactiva: true };
+
+  // El coach: solo dentro de su ventana. La resta se hace sobre la fecha de
+  // negocio, no sobre Date.now(), para no volver a mezclar UTC con Colombia.
+  const limite = new Date(`${hoy}T00:00:00Z`);
+  limite.setUTCDate(limite.getUTCDate() - RETRO_DIAS_COACH);
+  const limiteStr = limite.toISOString().slice(0, 10);
+
+  if (pedida < limiteStr) {
+    return {
+      ok: false, status: 403,
+      body: {
+        error: `Como entrenador puedes completar hasta ${RETRO_DIAS_COACH} días atrás (desde el ${limiteStr}). `
+             + 'Para una fecha más antigua, pídeselo a la administración de la escuela.',
+        reason: 'retro_window_exceeded',
+        limite: limiteStr,
+        dias_permitidos: RETRO_DIAS_COACH,
+      },
+    };
+  }
+  return { ok: true, date: pedida, esRetroactiva: true };
+}
 
 type AthleteRef = { childId?: string | null; userId?: string | null; unregisteredId?: string | null };
 
@@ -92,7 +166,46 @@ function pickCreditFields(moved: any): Partial<CreditEnrollment> {
 }
 
 /** La inscripción con plan del atleta, o null si no maneja sesiones. */
-async function findCreditEnrollment(schoolId: string, athlete: AthleteRef): Promise<CreditEnrollment | null> {
+/** ¿A esta inscripción le queda algo por consumir hoy, en la bolsa que toca? */
+function tieneSaldo(c: CreditEnrollment, isSecondary: boolean, today: string): boolean {
+  if (c.expires_at && c.expires_at < today) return false;
+  const usadas = isSecondary ? c.secondary_sessions_used : c.sessions_used;
+  const tope   = isSecondary ? c.max_secondary_sessions  : c.max_sessions;
+  return tope === null || usadas < tope;   // sin tope = ilimitado
+}
+
+/**
+ * De cuál inscripción sale el crédito cuando el caller no dice cuál.
+ *
+ * Antes tomaba la más ANTIGUA (`created_at ASC limit 1`). Con dos inscripciones
+ * activas con plan —el bug de doble inscripción reaparece cada tanto— eso
+ * descontaba siempre de la vieja mientras la nueva, que es la que la familia
+ * está pagando, no consumía nunca.
+ *
+ * Regla vigente (decidida 2026-08-16): **la que aún tiene saldo**. Es la que no
+ * sorprende al entrenador — marcó presente y el atleta tenía clases, así que se
+ * descontó de donde las tenía. Entre varias con saldo gana la que **vence
+ * primero**: gastar antes lo que se vence antes es lo que menos plata le hace
+ * perder a la familia.
+ *
+ * Si NINGUNA tiene saldo se devuelve igual la más antigua, para que el llamador
+ * pueda distinguir `expired` de `no_credits` y decírselo al entrenador. Devolver
+ * null acá sería reportar `no_plan`, que es mentira: plan hay, saldo no.
+ *
+ * ── Lo que esta heurística NO puede resolver ────────────────────────────────
+ * El multideporte. Los dos casos reales que hay hoy en la base son atletas de
+ * Club Campestre Demo con «Mensualidad Golf + Mensualidad Gimnasio» y
+ * «Mensualidad Fútbol + Mensualidad Tenis»: las dos con saldo y sin
+ * vencimiento, así que empatan y gana la más antigua. Adivinar desde acá cuál
+ * corresponde a la disciplina de la sesión es imposible sin más contexto.
+ *
+ * Por eso el camino bueno es que el llamador mande `enrollmentId`: el roster ya
+ * sabe cuál le está mostrando al entrenador. Equipo y sesión ya lo hacen. Esta
+ * función es el respaldo para los que todavía no.
+ */
+async function findCreditEnrollment(
+  schoolId: string, athlete: AthleteRef, isSecondary = false, day?: string,
+): Promise<CreditEnrollment | null> {
   const key = athleteKey(athlete);
   if (!key || !schoolId) return null;
 
@@ -103,11 +216,112 @@ async function findCreditEnrollment(schoolId: string, athlete: AthleteRef): Prom
     .match(athleteFilter(athlete))
     .eq('status', 'active')
     .not('offering_plan_id', 'is', null)
-    .order('created_at', { ascending: true })
-    .limit(1);
+    .order('created_at', { ascending: true });
 
-  const row = (data || [])[0];
-  return row ? toCreditEnrollment(row) : null;
+  const todas = (data || []).map(toCreditEnrollment);
+  if (!todas.length) return null;
+  if (todas.length === 1) return todas[0];
+
+  // En una carga retroactiva el saldo se juzga con la fecha del EVENTO: importa
+  // si el plan estaba vigente el día que el atleta entrenó, no si lo está hoy.
+  const conSaldo = todas.filter(c => tieneSaldo(c, isSecondary, day ?? todayString()));
+  if (!conSaldo.length) return todas[0];   // la más antigua, para reportar el motivo
+
+  // La que vence primero. `expires_at` nulo es "no vence": va al final.
+  return conSaldo.sort((a, b) => (a.expires_at ?? '9999-12-31').localeCompare(b.expires_at ?? '9999-12-31'))[0];
+}
+
+/**
+ * La inscripción exacta que pidió el caller. Se usa cuando la pantalla ya sabe
+ * de cuál es el crédito — el roster lo resolvió y se lo mostró al entrenador —
+ * en vez de dejar que `findCreditEnrollment` adivine por antigüedad.
+ *
+ * Filtra por `school_id` a propósito: el id viene del cliente y sin eso se
+ * podría descontar de la inscripción de otra escuela.
+ */
+async function loadCreditEnrollment(enrollmentId: string, schoolId: string): Promise<CreditEnrollment | null> {
+  if (!enrollmentId || !schoolId) return null;
+
+  const { data } = await supabase
+    .from('enrollments')
+    .select(`id, sessions_used, secondary_sessions_used, expires_at, ${PLAN_JOIN}`)
+    .eq('id', enrollmentId)
+    .eq('school_id', schoolId)
+    .maybeSingle();
+
+  return data ? toCreditEnrollment(data) : null;
+}
+
+/**
+ * Avisa cuando el plan llega a un HITO. No en cada clase.
+ *
+ * Notificar cada asistencia sería ruido: 800 atletas por 3 clases semanales son
+ * ~2.400 avisos por semana, y el que importa se pierde entre ellos. Lo que
+ * sirve —y lo que deja constancia— son tres momentos:
+ *
+ *   · `ultima`   se consumió la última clase del plan. Llega ANTES del
+ *                conflicto, que es cuando todavía se puede hacer algo.
+ *   · `excedida` entrenó por encima del tope.
+ *   · `vencida`  entrenó con el plan ya vencido.
+ *
+ * Los dos últimos son el registro que la escuela necesita cuando la familia
+ * reclama «nadie me avisó». Sin esto, la discusión es memoria contra memoria.
+ *
+ * Nunca revienta la asistencia: si el aviso falla, la clase ya quedó registrada
+ * y eso es lo que no se puede perder.
+ */
+type HitoPlan = 'ultima' | 'excedida' | 'vencida';
+
+async function avisarHitoDePlan(
+  schoolId: string, athlete: AthleteRef, hito: HitoPlan,
+  ctx: { fecha: string; plan?: string | null; tope?: number | null; usadas?: number | null },
+): Promise<void> {
+  try {
+    // A quién: el acudiente si es menor, el propio atleta si es adulto.
+    let destinatario: string | null = null;
+    if (athlete.childId) {
+      const { data } = await supabase.from('children').select('parent_id').eq('id', athlete.childId).maybeSingle();
+      destinatario = (data as any)?.parent_id ?? null;
+    } else if (athlete.userId) {
+      destinatario = athlete.userId;
+    }
+    // El atleta no registrado no tiene a quién avisarle. La escuela sí se entera:
+    // el hito le queda igual en «Plan vs consumo».
+    if (!destinatario) return;
+
+    const nombrePlan = ctx.plan?.trim() || 'tu plan';
+    const textos: Record<HitoPlan, { title: string; message: string }> = {
+      ultima: {
+        title: '⏳ Se acabaron las clases del plan',
+        message: `Con la clase del ${ctx.fecha} se consumió la última de ${nombrePlan}`
+               + `${ctx.tope ? ` (${ctx.tope} de ${ctx.tope})` : ''}. `
+               + 'Renueva para seguir entrenando sin interrupciones.',
+      },
+      excedida: {
+        title: '⚠️ Clase por encima del plan',
+        message: `La clase del ${ctx.fecha} quedó por encima de las ${ctx.tope ?? ''} de ${nombrePlan}. `
+               + 'Queda registrada y la escuela puede facturarla aparte.',
+      },
+      vencida: {
+        title: '⚠️ Clase con el plan vencido',
+        message: `La clase del ${ctx.fecha} se dictó con ${nombrePlan} ya vencido. `
+               + 'Queda registrada y la escuela puede facturarla aparte.',
+      },
+    };
+
+    await supabase.from('notifications').insert({
+      user_id:   destinatario,
+      school_id: schoolId,
+      type:      'attendance',
+      title:     textos[hito].title,
+      message:   textos[hito].message,
+      link:      '/attendance',
+      metadata:  { hito, fecha: ctx.fecha, plan: ctx.plan ?? null, tope: ctx.tope ?? null, usadas: ctx.usadas ?? null },
+    });
+  } catch (err) {
+    // Deliberado: un aviso que falla no puede tumbar la toma de asistencia.
+    console.error('[asistencia] no se pudo emitir el aviso de hito:', (err as any)?.message ?? err);
+  }
 }
 
 /**
@@ -244,7 +458,7 @@ async function validatePlanForAttendance(
   // saldo sale de la que tiene el plan, que puede ser esta misma u otra.
   const credit = (enr as any).offering_plan_id
     ? toCreditEnrollment(enr)
-    : (schoolId ? await findCreditEnrollment(schoolId, athlete) : null);
+    : (schoolId ? await findCreditEnrollment(schoolId, athlete, isSecondary) : null);
 
   if (!credit) return { found: true, credit: null, warning: null };
 
@@ -278,17 +492,83 @@ function planSummary(credit: CreditEnrollment | null, booking?: FreeBooking | nu
 }
 
 // GET /session/:teamId — sesión de hoy + registros (ahora incluye unregistered_athlete_id)
+// ─────────────────────────────────────────────────────────────────────────────
+// La sesión del equipo para un día NO es única.
+//
+// El índice único es (team_id, session_date, coalesce(start_time,'00:00')), así
+// que un equipo con dos bloques reservables el mismo día tiene DOS filas. Las
+// tres rutas de equipo resolvían con `.maybeSingle()`, que ante dos filas lanza
+// PGRST116 y le devolvía al entrenador un 500 pelado: ese día el equipo entero
+// se quedaba sin poder pasar lista. La rama de `offering` ya lo resolvía bien
+// (409 `multiple_sessions_today`); esto lleva el mismo criterio a los equipos.
+// ─────────────────────────────────────────────────────────────────────────────
+type TeamSessionRow = { id: string; finalized: boolean | null; start_time: string | null };
+type TeamSessionLookup =
+  | { kind: 'none' }
+  | { kind: 'one';  session: any }
+  | { kind: 'many'; sessions: TeamSessionRow[] };
+
+async function findTeamSessionOfDay(
+  teamId: string,
+  date: string,
+  columns = 'id, finalized, start_time',
+): Promise<TeamSessionLookup> {
+  const { data, error } = await supabase
+    .from('attendance_sessions')
+    .select(columns)
+    .eq('team_id', teamId)
+    .eq('session_date', date)
+    .order('start_time', { ascending: true, nullsFirst: true });
+  if (error) throw error;
+
+  const rows = (data || []) as any[];
+  if (rows.length === 0) return { kind: 'none' };
+  if (rows.length === 1) return { kind: 'one', session: rows[0] };
+
+  // Un bloque sin hora es la clase del día de toda la vida. Si hay exactamente
+  // uno así, no hay ambigüedad: los demás son bloques reservables con horario.
+  const sinHora = rows.filter(r => !r.start_time);
+  if (sinHora.length === 1) return { kind: 'one', session: sinHora[0] };
+
+  return { kind: 'many', sessions: rows as TeamSessionRow[] };
+}
+
+const MESES_ES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+/** "agosto 2026" — el concepto del cobro lo lee un papá, no un sistema. */
+function monthLabelEs(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  return `${MESES_ES[m - 1]} ${y}`;
+}
+
+const MULTIPLE_SESSIONS_MSG =
+  'Este equipo tiene varios bloques hoy. Elige el bloque específico antes de pasar lista.';
+
 router.get('/session/:teamId', requireAuth, requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const { teamId } = req.params;
-      const today = todayString();
-      const { data: session, error: sessionErr } = await supabase
-        .from('attendance_sessions')
-        .select('id, team_id, session_date, finalized, finalized_at, created_by, created_at')
-        .eq('team_id', teamId).eq('session_date', today).maybeSingle();
-      if (sessionErr) throw sessionErr;
-      if (!session) return res.json({ session: null, records: [] });
+      const teamId = req.params.teamId as string;
+      // `?date=` para poder abrir un día pasado. Leer no tiene ventana: ver lo
+      // que pasó es distinto de reescribirlo, y el histórico ya es visible en
+      // Supervisión. El permiso se aplica al guardar.
+      const pedida = req.query.date as string | undefined;
+      const today = pedida && /^\d{4}-\d{2}-\d{2}$/.test(pedida) ? pedida : todayInZone();
+      const lookup = await findTeamSessionOfDay(
+        teamId, today,
+        'id, team_id, session_date, finalized, finalized_at, created_by, created_at, start_time',
+      );
+
+      // Ambiguo: se responde 200 con la lista para que la pantalla ofrezca
+      // elegir bloque, en vez de romperse. El 409 lo dan POST y walk-in.
+      if (lookup.kind === 'many') {
+        return res.json({
+          session: null,
+          records: [],
+          sessions: lookup.sessions,
+          reason: 'multiple_sessions_today',
+        });
+      }
+      if (lookup.kind === 'none') return res.json({ session: null, records: [] });
+      const session = lookup.session;
       const { data: records, error: recordsErr } = await supabase
         .from('attendance_records')
         .select('child_id, user_id, unregistered_athlete_id, status')
@@ -502,7 +782,29 @@ router.get(
 
       const { data: enrollments, error: enrErr } = await enrollmentQuery;
       if (enrErr) throw enrErr;
-      if (!enrollments?.length) return res.json({ athletes: [], bookings: [] });
+
+      // ── Los que NO van a aparecer, y por qué ──────────────────────────────
+      //
+      // El roster de equipo sale de las inscripciones activas con
+      // `team_id = contextId`. Quien esté en la escuela pero cuya inscripción
+      // no apunte a ningún equipo simplemente no sale, sin una línea que lo
+      // explique — y el entrenador no tiene forma de distinguirlo de "ese
+      // atleta no existe". Se cuentan y se devuelven para que la pantalla lo
+      // diga. Solo aplica a `team`: en `offering` el roster va por plan y no
+      // hay tal cosa como quedarse sin equipo.
+      let sinEquipo = 0;
+      if (contextType === 'team') {
+        const { count } = await supabase
+          .from('enrollments')
+          .select('id', { count: 'exact', head: true })
+          .eq('school_id', schoolId)
+          .eq('status', 'active')
+          .is('team_id', null);
+        sinEquipo = count ?? 0;
+      }
+
+      if (!enrollments?.length)
+        return res.json({ athletes: [], bookings: [], atletas_sin_equipo: sinEquipo });
 
       // ── 3. Resolver nombres e info de cada tipo de atleta ─────────────────
       const childIds        = enrollments.filter((e: any) => e.child_id).map((e: any) => e.child_id);
@@ -648,7 +950,11 @@ router.get(
         }
       }
 
-      return res.json({ athletes, bookings, context_type: contextType, context_id: contextId });
+      return res.json({
+        athletes, bookings,
+        context_type: contextType, context_id: contextId,
+        atletas_sin_equipo: sinEquipo,
+      });
     } catch (err: any) {
       req.log?.error({ err: err.message || err }, 'Error cargando roster');
       return res.status(500).json({ error: 'Error interno cargando el roster.' });
@@ -661,16 +967,28 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { schoolId } = req;
-      const { teamId, sessionId, records } = req.body as {
-        teamId?: string; sessionId?: string;
-        records: { childId?: string; userId?: string; unregisteredAthleteId?: string; status: string; }[];
+      // `enrollmentId` e `isSecondary` viajan POR RECORD desde que esta ruta es
+      // también el camino de los presentes. Antes la pantalla mandaba un POST
+      // /walk-in por cada atleta presente: con 31 atletas eran 31 requests, y
+      // si el token vencía o se caía la red a mitad, media lista quedaba
+      // guardada y la otra media no.
+      const { teamId, sessionId, records, date } = req.body as {
+        teamId?: string; sessionId?: string; date?: string;
+        records: {
+          childId?: string; userId?: string; unregisteredAthleteId?: string;
+          status: string; enrollmentId?: string; isSecondary?: boolean;
+        }[];
       };
       if ((!teamId && !sessionId) || !Array.isArray(records) || records.length === 0)
         return res.status(400).json({ error: 'teamId (o sessionId) y records son requeridos.' });
       if (records.find(r => !r.childId && !r.userId && !r.unregisteredAthleteId))
         return res.status(400).json({ error: 'Cada record debe tener childId, userId o unregisteredAthleteId.' });
 
-      const today = todayString();
+      const fecha = resolverFechaDeTrabajo(date, req.role);
+      if (!fecha.ok) return res.status(fecha.status).json(fecha.body);
+      // `today` conserva el nombre pero ya no es necesariamente hoy: es la fecha
+      // de trabajo. Todo lo que sigue —sesión, registros y saldo— cuelga de ella.
+      const today = fecha.date;
       let existingSessionId = sessionId;
 
       if (existingSessionId) {
@@ -678,10 +996,26 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
         if (error) throw error;
         if (existing?.finalized) return res.status(409).json({ error: 'La sesión ya fue finalizada y no puede modificarse.', finalized: true });
       } else if (teamId) {
-        const { data: existing, error } = await supabase.from('attendance_sessions').select('id, finalized').eq('team_id', teamId).eq('session_date', today).maybeSingle();
-        if (error) throw error;
-        if (existing?.finalized) return res.status(409).json({ error: 'La sesión de hoy ya fue finalizada.', finalized: true });
-        if (existing) existingSessionId = existing.id;
+        const lookup = await findTeamSessionOfDay(teamId, today);
+        if (lookup.kind === 'many') {
+          return res.status(409).json({
+            error: MULTIPLE_SESSIONS_MSG,
+            reason: 'multiple_sessions_today',
+            sessions: lookup.sessions,
+          });
+        }
+        if (lookup.kind === 'one') {
+          if (lookup.session.finalized)
+            return res.status(409).json({
+              error: fecha.esRetroactiva
+                ? `La lista del ${today} ya fue cerrada. Para corregirla hay que reabrir la sesión primero.`
+                : 'La sesión de hoy ya fue finalizada.',
+              finalized: true,
+              reason: 'session_finalized',
+              sessionId: lookup.session.id,
+            });
+          existingSessionId = lookup.session.id;
+        }
       }
 
       let finalSessionId = existingSessionId;
@@ -759,33 +1093,72 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
         const isNowPresent = record.status === 'present';
         if (wasPresent === isNowPresent) continue;
 
-        // `is_secondary` no viaja en esta ruta: acá solo se mueve la bolsa principal.
-        const credit = await findCreditEnrollment(schoolId!, athlete);
+        const isSecondary = record.isSecondary === true;
+
+        // La inscripción que mandó la pantalla manda sobre la heurística: el
+        // roster ya resolvió cuál le está mostrando al entrenador, así que se
+        // le cobra a ESA. Sin ella, findCreditEnrollment elige la que tiene
+        // saldo y vence primero.
+        const credit = record.enrollmentId
+          ? await loadCreditEnrollment(record.enrollmentId, schoolId!)
+          : await findCreditEnrollment(schoolId!, athlete, isSecondary, today);
         if (!credit) { creditOutcomes[key] = 'no_plan'; continue; }
 
         if (isNowPresent) {
-          const freeBooking = await findFreeBookingOfDay(schoolId!, athlete, today, false, finalSessionId);
+          const freeBooking = await findFreeBookingOfDay(schoolId!, athlete, today, isSecondary, finalSessionId);
           if (freeBooking) {
             await consumeBooking(freeBooking);
             creditOutcomes[key] = 'covered_by_booking';
             continue;
           }
-          if (credit.expires_at && credit.expires_at < today) { creditOutcomes[key] = 'expired'; continue; }
-          if (credit.max_sessions !== null && credit.sessions_used >= credit.max_sessions) {
-            creditOutcomes[key] = 'no_credits';
+          if (credit.expires_at && credit.expires_at < today) {
+            creditOutcomes[key] = 'expired';
+            await avisarHitoDePlan(schoolId!, athlete, 'vencida',
+              { fecha: today, plan: credit.plan_name, tope: credit.max_sessions });
             continue;
           }
-          const moved = await moveCredit(credit.id, 1, false);
+          const usadas = isSecondary ? credit.secondary_sessions_used : credit.sessions_used;
+          const tope   = isSecondary ? credit.max_secondary_sessions  : credit.max_sessions;
+          if (tope !== null && usadas >= tope) {
+            creditOutcomes[key] = 'no_credits';
+            await avisarHitoDePlan(schoolId!, athlete, 'excedida',
+              { fecha: today, plan: credit.plan_name, tope, usadas });
+            continue;
+          }
+          const moved = await moveCredit(credit.id, 1, isSecondary);
           creditOutcomes[key] = moved?.moved ? 'deducted' : 'no_credits';
+          // La que acaba de consumirse era la última: avisar ANTES de que la
+          // familia se entere por un cobro o por quedarse afuera.
+          if (moved?.moved && tope !== null && usadas + 1 >= tope) {
+            await avisarHitoDePlan(schoolId!, athlete, 'ultima',
+              { fecha: today, plan: credit.plan_name, tope, usadas: usadas + 1 });
+          }
         } else {
-          const released = await releaseConsumedBooking(schoolId!, athlete, today, false, finalSessionId);
+          const released = await releaseConsumedBooking(schoolId!, athlete, today, isSecondary, finalSessionId);
           if (released) { creditOutcomes[key] = 'booking_released'; continue; }
-          const moved = await moveCredit(credit.id, -1, false);
+          const moved = await moveCredit(credit.id, -1, isSecondary);
           creditOutcomes[key] = moved?.moved ? 'returned' : 'unchanged';
         }
       }
 
-      return res.json({ success: true, sessionId: finalSessionId, credit_outcomes: creditOutcomes });
+      // Reescribir el pasado mueve créditos, y los créditos son plata. Queda
+      // registrado quién lo hizo y para qué fecha. El del día corriente no se
+      // audita: es la operación normal y llenaría la tabla de ruido.
+      if (fecha.esRetroactiva) {
+        await auditLog(req, 'attendance_backdated', 'attendance_sessions', finalSessionId, null, {
+          fecha_registrada: today,
+          fecha_real: todayInZone(),
+          team_id: teamId ?? null,
+          registros: records.length,
+          creditos: creditOutcomes,
+        });
+      }
+
+      return res.json({
+        success: true, sessionId: finalSessionId, date: today,
+        retroactiva: fecha.esRetroactiva,
+        credit_outcomes: creditOutcomes,
+      });
     } catch (err: any) {
       console.error('SESSION ERROR DETAIL:', {
         message: err.message,
@@ -806,9 +1179,9 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { schoolId } = req;
-      const { enrollmentId, teamId, sessionId, offeringId, facilityAvailabilityId, status = 'present', childId, userId, unregisteredAthleteId, is_secondary = false } = req.body as {
+      const { enrollmentId, teamId, sessionId, offeringId, facilityAvailabilityId, status = 'present', childId, userId, unregisteredAthleteId, is_secondary = false, date } = req.body as {
         enrollmentId: string; teamId?: string; sessionId?: string; offeringId?: string; facilityAvailabilityId?: string; status?: string;
-        childId?: string; userId?: string; unregisteredAthleteId?: string; is_secondary?: boolean;
+        childId?: string; userId?: string; unregisteredAthleteId?: string; is_secondary?: boolean; date?: string;
       };
       if (!enrollmentId) return res.status(400).json({ error: 'enrollmentId es requerido.' });
       if (!childId && !userId && !unregisteredAthleteId) return res.status(400).json({ error: 'Debe especificar childId, userId o unregisteredAthleteId.' });
@@ -816,7 +1189,9 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
         return res.status(400).json({ error: 'teamId, sessionId, offeringId o facilityAvailabilityId son requeridos.' });
       }
 
-      const today = todayString();
+      const fecha = resolverFechaDeTrabajo(date, req.role);
+      if (!fecha.ok) return res.status(fecha.status).json(fecha.body);
+      const today = fecha.date;
       let finalSessionId = sessionId;
 
       if (!finalSessionId && facilityAvailabilityId) {
@@ -897,7 +1272,15 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
           return res.status(404).json({ error: 'No hay sesión activa para este plan hoy.', reason: 'no_session' });
         }
       } else if (!finalSessionId && teamId) {
-        const { data: existing } = await supabase.from('attendance_sessions').select('id, finalized').eq('team_id', teamId).eq('session_date', today).maybeSingle();
+        const lookup = await findTeamSessionOfDay(teamId, today);
+        if (lookup.kind === 'many') {
+          return res.status(409).json({
+            error: MULTIPLE_SESSIONS_MSG,
+            reason: 'multiple_sessions_today',
+            sessions: lookup.sessions,
+          });
+        }
+        const existing = lookup.kind === 'one' ? lookup.session : null;
         if (existing?.finalized) return res.status(409).json({ error: 'La sesión de hoy ya fue finalizada.' });
         if (existing) {
           finalSessionId = existing.id;
@@ -1033,9 +1416,21 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
         }
       }
 
+      if (fecha.esRetroactiva) {
+        await auditLog(req, 'attendance_backdated', 'attendance_sessions', finalSessionId!, null, {
+          fecha_registrada: today,
+          fecha_real: todayInZone(),
+          enrollment_id: enrollmentId,
+          status,
+          credito: outcome,
+        });
+      }
+
       return res.status(201).json({
         success: true,
         sessionId: finalSessionId,
+        date: today,
+        retroactiva: fecha.esRetroactiva,
         credit_outcome: outcome,
         plan_summary: planSummary(credit, freeBooking),
       });
@@ -1054,7 +1449,188 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
   }
 );
 
-// PATCH /session/:sessionId/finalize — finaliza la sesión (irreversible).
+// ── POST /facturar-fuera-de-plan ─────────────────────────────────────────────
+//
+// Emite el cobro de las clases que la escuela dictó por fuera del plan. NO es
+// automático a propósito: cobrarle a una familia una clase que ya se dictó es
+// una conversación, no un cálculo. La escuela decide, atleta por atleta, desde
+// la pestaña «Plan vs consumo».
+//
+// El precio sale del plan que la familia contrató (`price / max_sessions`), que
+// es la única cifra defendible cuando el papá pregunta de dónde salió.
+//
+// Los dos motivos se facturan POR SEPARADO y con conceptos distintos. No es lo
+// mismo pasarse del plan que entrenar sin plan vigente: la conversación con la
+// familia es otra, y mezclarlos en un solo cargo hace imposible saber después
+// qué se cobró. Además, la guarda contra doble cobro es POR MOTIVO — facturar
+// el excedente no puede bloquear el cobro de las vencidas, ni al revés.
+const CONCEPTOS = {
+  excedente: 'Clases por encima del plan',
+  vencidas:  'Clases sin plan vigente',
+} as const;
+
+router.post('/facturar-fuera-de-plan', requireAuth, requireRole('owner', 'super_admin', 'admin', 'school_admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { schoolId } = req;
+      const { month, items } = req.body as {
+        month?: string;
+        items: { athleteId: string; athleteType: 'child' | 'adult' | 'unregistered';
+                 motivo: 'excedente' | 'vencidas';
+                 clases: number; precioClase: number; teamId?: string | null;
+                 planId?: string | null; nombre?: string; fechas?: string[] }[];
+      };
+
+      if (!Array.isArray(items) || !items.length)
+        return res.status(400).json({ error: 'No hay atletas para facturar.' });
+      if (!month || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month))
+        return res.status(400).json({ error: 'El mes debe venir como YYYY-MM.' });
+
+      const [year, mon] = month.split('-').map(Number);
+      const ultimoDia = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+      const vence = `${month}-${String(ultimoDia).padStart(2, '0')}`;
+
+      const emitidos: any[] = [];
+      const omitidos: any[] = [];
+
+      for (const it of items) {
+        const concepto = CONCEPTOS[it.motivo];
+        if (!it.athleteId || !concepto || !it.clases || it.clases < 1 || !it.precioClase) {
+          omitidos.push({ athleteId: it.athleteId, motivo: it.motivo, razon: 'datos_incompletos' });
+          continue;
+        }
+
+        const col = it.athleteType === 'child' ? 'child_id'
+                  : it.athleteType === 'adult' ? 'user_id'
+                  : 'unregistered_athlete_id';
+
+        // Guarda contra doble cobro. Es plata: que la escuela le dé dos veces al
+        // botón, o que dos personas lo hagan a la vez, no puede duplicar el
+        // cargo. La busqueda va por atleta + periodo + ESTE concepto, para que
+        // los dos motivos convivan sin taparse.
+        const { data: yaExiste } = await supabase
+          .from('payments')
+          .select('id, amount')
+          .eq('school_id', schoolId)
+          .eq(col, it.athleteId)
+          .eq('period_year', year)
+          .eq('period_month', mon)
+          .ilike('concept', `${concepto}%`)
+          .maybeSingle();
+
+        if (yaExiste) {
+          omitidos.push({
+            athleteId: it.athleteId, motivo: it.motivo,
+            razon: 'ya_facturado', paymentId: (yaExiste as any).id, monto: (yaExiste as any).amount,
+          });
+          continue;
+        }
+
+        const monto = it.clases * it.precioClase;
+        // Las fechas van en el concepto: es el soporte que la escuela le muestra
+        // a la familia cuando pregunta de dónde salió el cobro.
+        const detalleFechas = it.fechas?.length
+          ? ` (${it.fechas.map(f => f.slice(8) + '/' + f.slice(5, 7)).join(', ')})`
+          : '';
+
+        const { data: creado, error } = await supabase.from('payments').insert({
+          school_id:        schoolId,
+          [col]:            it.athleteId,
+          team_id:          it.teamId ?? null,
+          offering_plan_id: it.planId ?? null,
+          amount:           monto,
+          concept:          `${concepto} — ${monthLabelEs(month)} — ${it.clases} `
+                          + `${it.clases === 1 ? 'clase' : 'clases'} × $${it.precioClase.toLocaleString('es-CO')}`
+                          + `${detalleFechas}${it.nombre ? ` — ${it.nombre}` : ''}`,
+          due_date:         vence,
+          status:           'pending',
+          payment_type:     'one_time',
+          // Explícito: el trigger que rellena el periodo desde due_date manda el
+          // cobro al mes siguiente, y este cargo es del mes que se está mirando.
+          period_year:      year,
+          period_month:     mon,
+        }).select('id').single();
+
+        if (error) {
+          omitidos.push({ athleteId: it.athleteId, motivo: it.motivo, razon: 'error', detalle: error.message });
+          continue;
+        }
+
+        emitidos.push({ athleteId: it.athleteId, motivo: it.motivo, paymentId: (creado as any).id, monto, clases: it.clases });
+        await auditLog(req, 'billed_out_of_plan_classes', 'payments', (creado as any).id, null, {
+          mes: month, motivo: it.motivo, clases: it.clases,
+          precio_clase: it.precioClase, monto, fechas: it.fechas ?? null,
+        });
+      }
+
+      return res.json({
+        success: true,
+        emitidos: emitidos.length,
+        omitidos: omitidos.length,
+        total: emitidos.reduce((s, e) => s + e.monto, 0),
+        detalle: { emitidos, omitidos },
+      });
+    } catch (err: any) {
+      req.log?.error({ err: err.message || err }, 'Error facturando clases fuera de plan');
+      return res.status(500).json({ error: 'Error interno emitiendo los cobros.' });
+    }
+  }
+);
+
+// ── PATCH /session/:sessionId/reopen ─────────────────────────────────────────
+//
+// Finalizar dejó de ser irreversible. Antes no había forma de deshacerlo: ni
+// ruta, ni RPC. Y como `auto_finalize_stale_sessions` cierra cada noche todo lo
+// que tenga fecha anterior a hoy, una lista mal llena quedaba mal para siempre.
+//
+// Se reabre solo dentro de la ventana de quien lo pide — la misma regla que
+// para escribir. Ojo con una consecuencia natural: el cron la vuelve a cerrar
+// esta noche, así que la corrección hay que terminarla el mismo día.
+router.patch('/session/:sessionId/reopen', requireAuth, requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const sessionId = req.params.sessionId as string;
+      const { data: session, error: fetchErr } = await supabase
+        .from('attendance_sessions')
+        .select('id, finalized, session_date, team_id, school_id')
+        .eq('id', sessionId)
+        .single();
+      if (fetchErr || !session) return res.status(404).json({ error: 'Sesión no encontrada.' });
+      if (session.school_id !== req.schoolId)
+        return res.status(404).json({ error: 'Sesión no encontrada.' });
+      if (!session.finalized)
+        return res.status(409).json({ error: 'Esa sesión ya está abierta.', reason: 'not_finalized' });
+
+      // La ventana se evalúa contra la fecha de la sesión: reabrir el martes
+      // pasado es tan retroactivo como escribirlo.
+      const permiso = resolverFechaDeTrabajo(session.session_date, req.role);
+      if (!permiso.ok) return res.status(permiso.status).json(permiso.body);
+
+      const { error: updErr } = await supabase
+        .from('attendance_sessions')
+        .update({ finalized: false, finalized_at: null, finalized_by: null, updated_at: new Date().toISOString() })
+        .eq('id', sessionId);
+      if (updErr) throw updErr;
+
+      await auditLog(req, 'attendance_session_reopened', 'attendance_sessions', sessionId, null, {
+        session_date: session.session_date,
+        team_id: session.team_id,
+      });
+
+      return res.json({
+        success: true,
+        sessionId,
+        date: session.session_date,
+        aviso: 'La sesión quedó abierta. El cierre automático la vuelve a finalizar esta noche.',
+      });
+    } catch (err: any) {
+      req.log?.error({ err: err.message || err }, 'Error reabriendo sesión de asistencia');
+      return res.status(500).json({ error: 'Error interno reabriendo la sesión.' });
+    }
+  }
+);
+
+// PATCH /session/:sessionId/finalize — finaliza la sesión.
 router.patch('/session/:sessionId/finalize', requireAuth, requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -1122,6 +1698,10 @@ type HistoryRecord = {
   unregistered_athlete_id: string | null;
   team_id: string | null;
   session_id: string | null;
+  /** Auth uid de quien pasó la lista. Es la única cara del entrenador que nunca
+      viene nula: `attendance_sessions.coach_id` sí lo está cuando marca la
+      administración desde el panel. */
+  marked_by: string | null;
 };
 
 /** El cliente de Supabase corta en 1000 filas: un mes de una escuela grande son más. */
@@ -1134,7 +1714,7 @@ async function fetchAllAttendanceRecords(
   for (let page = 0; ; page++) {
     const { data, error } = await supabase
       .from('attendance_records')
-      .select('attendance_date, status, child_id, user_id, unregistered_athlete_id, team_id, session_id')
+      .select('attendance_date, status, child_id, user_id, unregistered_athlete_id, team_id, session_id, marked_by')
       .eq('school_id', schoolId)
       .gte('attendance_date', from)
       .lte('attendance_date', to)
@@ -1199,6 +1779,23 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
 
       const teamFilter = (req.query.teamId as string) || null;
       const offeringFilter = (req.query.offeringId as string) || null;
+      // `coachId` es un school_staff.id. Para filtrar hacen falta las dos caras:
+      // quién quedó asignado a la sesión (`attendance_sessions.coach_id`, que es
+      // FK a school_staff) y quién efectivamente pasó lista (`marked_by`, que es
+      // el auth uid). No alcanza con una: 11 de las 33 sesiones de Dynasty
+      // tienen coach_id nulo porque las marcó la dueña desde el panel, y al revés
+      // un coach puede figurar asignado y que haya marcado un reemplazo.
+      const coachFilter = (req.query.coachId as string) || null;
+      let coachAuthId: string | null = null;
+      if (coachFilter) {
+        const { data: staff } = await supabase
+          .from('school_staff')
+          .select('coach_auth_id')
+          .eq('id', coachFilter)
+          .eq('school_id', schoolId)
+          .maybeSingle();
+        coachAuthId = (staff as any)?.coach_auth_id ?? null;
+      }
 
       let records = await fetchAllAttendanceRecords(schoolId, from, to);
 
@@ -1206,14 +1803,14 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
       // team_id viene directo en el registro; las asistencias de planes e
       // instalaciones solo se pueden ubicar a través de su sesión.
       const sessionIds = [...new Set(records.map(r => r.session_id).filter(Boolean))] as string[];
-      const sessionCtx: Record<string, { team_id: string | null; offering_id: string | null; facility_id: string | null }> = {};
+      const sessionCtx: Record<string, { team_id: string | null; offering_id: string | null; facility_id: string | null; coach_id: string | null }> = {};
 
       if (sessionIds.length) {
         const CHUNK = 300;
         for (let i = 0; i < sessionIds.length; i += CHUNK) {
           const { data, error } = await supabase
             .from('attendance_sessions')
-            .select('id, team_id, offering_id, facility_id')
+            .select('id, team_id, offering_id, facility_id, coach_id')
             .in('id', sessionIds.slice(i, i + CHUNK));
           if (error) throw error;
           for (const s of data || []) {
@@ -1221,6 +1818,7 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
               team_id: (s as any).team_id ?? null,
               offering_id: (s as any).offering_id ?? null,
               facility_id: (s as any).facility_id ?? null,
+              coach_id: (s as any).coach_id ?? null,
             };
           }
         }
@@ -1232,11 +1830,17 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
           teamId: r.team_id ?? s?.team_id ?? null,
           offeringId: s?.offering_id ?? null,
           facilityId: s?.facility_id ?? null,
+          coachId: s?.coach_id ?? null,
         };
       };
 
       if (teamFilter) records = records.filter(r => ctxOf(r).teamId === teamFilter);
       if (offeringFilter) records = records.filter(r => ctxOf(r).offeringId === offeringFilter);
+      if (coachFilter) {
+        records = records.filter(r =>
+          ctxOf(r).coachId === coachFilter
+          || (!!coachAuthId && r.marked_by === coachAuthId));
+      }
 
       // ── Identidad precargada ya vinculada a una cuenta ───────────────────
       // La asistencia se escribe sobre la columna con la que se pasó lista, así
@@ -1405,6 +2009,129 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
         }))
         .sort((a, b) => a.date.localeCompare(b.date));
 
+      // ── Plan vs consumo ──────────────────────────────────────────────────
+      //
+      // La asistencia se registra SIEMPRE, tenga saldo o no: es deliberado
+      // (dejar constancia de que el atleta vino y cobrarle la clase son cosas
+      // distintas). El efecto secundario es que nadie ve el desfase, y la
+      // escuela termina regalando clases sin enterarse.
+      //
+      // Se cuenta contra las asistencias DEL MES, no contra `sessions_used`:
+      // ese contador es acumulado y nunca se resetea, así que comparado con un
+      // tope mensual miente a partir del segundo mes.
+      const idsPorTipo = {
+        child: athleteRows.filter(a => a.athlete_type === 'child').map(a => a.id),
+        adult: athleteRows.filter(a => a.athlete_type === 'adult').map(a => a.id),
+        unreg: athleteRows.filter(a => a.athlete_type === 'unregistered').map(a => a.id),
+      };
+
+      const planPorAtleta: Record<string, any> = {};
+      for (const [tipo, ids] of Object.entries(idsPorTipo)) {
+        if (!ids.length) continue;
+        const col = tipo === 'child' ? 'child_id' : tipo === 'adult' ? 'user_id' : 'unregistered_athlete_id';
+        const { data } = await supabase
+          .from('enrollments')
+          .select(`id, child_id, user_id, unregistered_athlete_id, team_id, expires_at, sessions_used,
+            offering_plan_id,
+            offering_plans!enrollments_offering_plan_id_fkey(name, max_sessions, price, currency)`)
+          .eq('school_id', schoolId)
+          .eq('status', 'active')
+          .in(col, ids);
+        for (const e of (data || []) as any[]) {
+          const key = e.child_id ?? e.user_id ?? e.unregistered_athlete_id;
+          // Si tiene varias, gana la de tope más alto: es la que mejor explica
+          // cuántas clases le corresponden en el mes.
+          const tope = e.offering_plans?.max_sessions ?? null;
+          const prev = planPorAtleta[key];
+          if (!prev || (tope ?? 0) > (prev.tope ?? 0)) {
+            const precio = Number(e.offering_plans?.price ?? 0);
+            planPorAtleta[key] = {
+              enrollment_id: e.id,
+              plan_id: e.offering_plan_id ?? null,
+              team_id: e.team_id ?? null,
+              nombre: e.offering_plans?.name ?? null,
+              tope,
+              // Lo que vale una clase suelta de ESE plan. Es la única cifra
+              // defendible frente a la familia: sale del plan que contrató, no
+              // de una tarifa inventada.
+              precio_clase: tope && tope > 0 ? Math.round(precio / tope) : null,
+              moneda: e.offering_plans?.currency ?? 'COP',
+              vence: e.expires_at ?? null,
+              descontadas: e.sessions_used ?? 0,
+            };
+          }
+        }
+      }
+
+      for (const row of athleteRows as any[]) {
+        const p = planPorAtleta[row.id];
+        const asistidas = row.present + row.late;
+        if (!p) {
+          // MISMA forma que la rama con plan. Antes esta emitia `excedente: 0`
+          // como NUMERO mientras la otra emitia objetos, y la pantalla —que
+          // incluye a los `sin_plan` en el desglose— hacia `cubo.fechas.length`
+          // sobre un 0. Tumbaba el histórico entero con un ErrorBoundary.
+          const vacio = { clases: 0, valor: null, fechas: [] as string[] };
+          row.plan = {
+            estado: 'sin_plan', nombre: null, tope: null, vence: null, descontadas: 0,
+            asistidas, cubiertas: 0, precio_clase: null, moneda: 'COP',
+            excedente: { ...vacio }, vencidas: { ...vacio },
+            fuera_de_plan: 0, valor: null,
+          };
+          continue;
+        }
+        // ── Clasificación clase por clase, en cubos EXCLUYENTES ────────────
+        //
+        // Una clase cae en uno y solo uno: o está cubierta, o se pasó del tope,
+        // o el plan ya había vencido. Si el plan vencía el 5 y entrenó el 11, esa
+        // clase NO es "excedente" — el tope ni siquiera aplica ya. Contarla en
+        // los dos cubos la facturaría dos veces, que es justo lo que no puede
+        // pasar cuando esto emite cobros.
+        //
+        // Se ordena por fecha porque el tope se consume en orden: las primeras 8
+        // están cubiertas y de la 9 en adelante son excedente.
+        const diasAsistidos = Object.entries(row.by_day as Record<string, string>)
+          .filter(([, st]) => st === 'present' || st === 'late')
+          .map(([fecha]) => fecha)
+          .sort();
+
+        const diasVigentes = p.vence ? diasAsistidos.filter(f => f <= p.vence) : diasAsistidos;
+        const vencidas   = diasAsistidos.length - diasVigentes.length;
+        const excedente  = p.tope !== null ? Math.max(diasVigentes.length - p.tope, 0) : 0;
+        const cubiertas  = diasVigentes.length - excedente;
+
+        // Ahora SÍ se suman: son disjuntos por construcción.
+        const fueraDePlan = excedente + vencidas;
+        const precio = p.precio_clase;
+
+        row.plan = {
+          nombre: p.nombre, tope: p.tope, vence: p.vence, descontadas: p.descontadas,
+          asistidas, cubiertas,
+          precio_clase: precio, moneda: p.moneda,
+          // Los dos conceptos van separados hasta el final: se muestran, se
+          // valorizan y se facturan por su cuenta.
+          excedente:   { clases: excedente, valor: precio ? excedente * precio : null,
+                         fechas: diasVigentes.slice(p.tope ?? 0) },
+          vencidas:    { clases: vencidas,  valor: precio ? vencidas  * precio : null,
+                         fechas: p.vence ? diasAsistidos.filter(f => f > p.vence) : [] },
+          fuera_de_plan: fueraDePlan,
+          valor: precio ? fueraDePlan * precio : null,
+          enrollment_id: p.enrollment_id, plan_id: p.plan_id, team_id: p.team_id,
+          estado: fueraDePlan > 0 ? (vencidas > 0 ? 'vencido' : 'excedido') : 'ok',
+        };
+      }
+
+      const desfases = {
+        excedidos:      (athleteRows as any[]).filter(a => a.plan?.estado === 'excedido').length,
+        con_vencido:    (athleteRows as any[]).filter(a => a.plan?.estado === 'vencido').length,
+        sin_plan:       (athleteRows as any[]).filter(a => a.plan?.estado === 'sin_plan').length,
+        clases_de_mas:   (athleteRows as any[]).reduce((s, a) => s + (a.plan?.excedente?.clases ?? 0), 0),
+        clases_vencidas: (athleteRows as any[]).reduce((s, a) => s + (a.plan?.vencidas?.clases ?? 0), 0),
+        valor_excedente: (athleteRows as any[]).reduce((s, a) => s + (a.plan?.excedente?.valor ?? 0), 0),
+        valor_vencidas:  (athleteRows as any[]).reduce((s, a) => s + (a.plan?.vencidas?.valor ?? 0), 0),
+        valor_total:     (athleteRows as any[]).reduce((s, a) => s + (a.plan?.valor ?? 0), 0),
+      };
+
       const totals = athleteRows.reduce(
         (acc, a) => ({
           records: acc.records + a.total,
@@ -1420,6 +2147,7 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
         month, from, to,
         days: dayRows,
         athletes: athleteRows,
+        desfases,
         totals: {
           ...totals,
           rate: totals.records > 0

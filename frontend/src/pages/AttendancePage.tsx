@@ -45,14 +45,20 @@ export default function AttendancePage() {
   };
 
   // ── 2. Asistencia escuela ───────────────────────────────────────────────
+  //
+  // Sale de `attendance_records`, que es donde el entrenador registra. Esta
+  // pantalla leía la tabla legacy `attendance`, que tiene CERO filas: al padre
+  // le aparecía vacío SIEMPRE mientras la escuela pasaba lista con normalidad.
+  // La RLS que lo habilita es "Parents can view attendance of their children"
+  // (child_id contra children.parent_id = auth.uid()).
   const { data: attendance, isLoading: loadingAttendance } = useQuery({
     queryKey: ['attendance', selectedChildId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('attendance')
-        .select('*')
+        .from('attendance_records')
+        .select('id, attendance_date, status, notes')
         .eq('child_id', selectedChildId)
-        .order('class_date', { ascending: false });
+        .order('attendance_date', { ascending: false });
       if (error) throw error;
       return data;
     },
@@ -81,6 +87,7 @@ export default function AttendancePage() {
       case 'present': return <CheckCircle2 className="h-5 w-5 text-green-500" />;
       case 'absent':  return <XCircle className="h-5 w-5 text-red-500" />;
       case 'late':    return <Clock className="h-5 w-5 text-yellow-500" />;
+      case 'excused': return <AlertCircle className="h-5 w-5 text-blue-500" />;
       default:        return <AlertCircle className="h-5 w-5 text-muted-foreground" />;
     }
   };
@@ -90,6 +97,7 @@ export default function AttendancePage() {
       case 'present': return <Badge className="bg-green-500/20 text-green-700 border-green-500/30">Presente</Badge>;
       case 'absent':  return <Badge variant="destructive" className="bg-red-500/20 text-red-700 border-red-500/30">Ausente</Badge>;
       case 'late':    return <Badge className="bg-yellow-500/20 text-yellow-700 border-yellow-500/30">Tardanza</Badge>;
+      case 'excused': return <Badge className="bg-blue-500/20 text-blue-700 border-blue-500/30">Justificada</Badge>;
       default:        return <Badge variant="secondary">{status}</Badge>;
     }
   };
@@ -99,9 +107,15 @@ export default function AttendancePage() {
     present: attendance?.filter(a => a.status === 'present').length || 0,
     late: attendance?.filter(a => a.status === 'late').length || 0,
     absent: attendance?.filter(a => a.status === 'absent').length || 0,
+    excused: attendance?.filter(a => a.status === 'excused').length || 0,
   };
 
-  const attendanceRate = stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0;
+  // Presente + tardanza, igual que GET /attendance/rate/:teamId del BFF. Si se
+  // cuenta solo `present`, al padre le sale un porcentaje distinto del que ve
+  // la escuela para el mismo niño — llegar tarde es haber asistido.
+  const attendanceRate = stats.total > 0
+    ? Math.round(((stats.present + stats.late) / stats.total) * 100)
+    : 0;
   const hasPT = (ptSessions?.length ?? 0) > 0;
   const ptPresent = ptSessions?.filter(s => s.status === 'completed').length ?? 0;
 
@@ -247,10 +261,10 @@ export default function AttendancePage() {
                       </div>
                       <div>
                         <p className="font-bold text-foreground group-hover/row:text-primary transition-colors capitalize">
-                          {new Date(record.class_date).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}
+                          {new Date(record.attendance_date).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}
                         </p>
                         <p className="text-[10px] text-muted-foreground uppercase font-black tracking-tighter mt-0.5">
-                          Año {new Date(record.class_date).getFullYear()}
+                          Año {new Date(record.attendance_date).getFullYear()}
                         </p>
                       </div>
                     </div>

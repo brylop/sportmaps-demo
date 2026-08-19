@@ -78,7 +78,10 @@ export function GlobalSearch({ className, placeholder = "Buscar escuelas, produc
         // Search products
         const { data: productsData } = await supabase
           .from('products')
-          .select('id, name, category, price, rating, image_url')
+          // `products.rating` no existe: la columna es `avg_rating`. PostgREST
+          // devolvia error, el codigo ignora `error`, y los productos NUNCA
+          // aparecian en la busqueda global.
+          .select('id, name, category, price, avg_rating, image_url')
           .or(`name.ilike.%${query}%,category.ilike.%${query}%`)
           .limit(5);
 
@@ -104,7 +107,7 @@ export function GlobalSearch({ className, placeholder = "Buscar escuelas, produc
             type: 'product' as const,
             title: p.name,
             subtitle: p.category,
-            rating: p.rating || 0,
+            rating: p.avg_rating || 0,
             price: p.price,
             image: p.image_url || undefined,
           })),

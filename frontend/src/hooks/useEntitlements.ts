@@ -33,6 +33,12 @@ interface EntitlementsResponse {
     blocking_exempt_reason?: string | null;
     /** Veredicto del bloqueo calculado en la BD (school_is_operational). */
     is_operational?: boolean;
+    /**
+     * false → la escuela NO cobra mensualidades por SportMaps (caso Club Carmel:
+     * las membresías se pagan en el club). Se le ocultan Pagos, Finanzas y
+     * Recordatorios, y ningún cron le genera cartera.
+     */
+    has_billing?: boolean;
     trial_months?: number | null;
     current_period_start: string | null;
     current_period_end: string | null;
@@ -45,6 +51,11 @@ interface EntitlementsResponse {
     has_biomech: boolean;
     has_nutrition: boolean;
     has_whitelabel: boolean;
+    /** PWA con marca de la escuela (addon `pwa_branding`). NO se hereda de
+     *  has_whitelabel: contratar la app nativa inserta su propia fila.
+     *  Opcional: si el BFF es viejo y no manda el campo, se resuelve como false
+     *  y nadie se brandea. */
+    has_pwa_branding?: boolean;
     has_whatsapp: boolean;
     has_wompi: boolean;
     has_mp: boolean;
@@ -93,6 +104,36 @@ export interface Entitlements {
     isBlockingExempt: boolean;
     /** Cuenta nuestra (test/demo): nunca se avisa ni se bloquea. */
     isTestAccount: boolean;
+    /**
+     * La escuela cobra mensualidades por SportMaps. Cuando es false se le
+     * ocultan Pagos, Finanzas y Recordatorios (columna `billing_enabled`).
+     * Por defecto **true**: si el BFF es viejo y no manda el campo no se
+     * esconde nada — ocultar de más es peor que ocultar de menos.
+     */
+    hasBilling: boolean;
+
+    // ── Marca: DOS productos distintos, no confundirlos ──────────────────────
+    //
+    // Se exponen como derivados para que nadie tenga que recordar que addon
+    // mira cada caso. Antes esto vivia como `addons.whitelabel || addons.x`
+    // repetido en BrandingScope, AuthLayout y usePwaTenantSync, y alcanzaba con
+    // que uno quedara desincronizado para que una escuela tuviera el icono con
+    // su logo pero los colores de SportMaps adentro.
+    //
+    // Espejo exacto de las funciones de la BD:
+    //   marcaPropia → school_shows_own_brand()  (addon pwa_branding)
+    //   appNativa   → school_has_native_app()   (addon whitelabel)
+
+    /** Se le MUESTRA su marca: manifest, iconos, login, colores. Web/Android/iOS. */
+    marcaPropia: boolean;
+
+    /**
+     * Tiene app NATIVA propia en App Store / Play Store.
+     * Producto mayor. Es el unico que habilita ocultar el "powered by
+     * SportMaps". Contratarlo debe otorgar TAMBIEN pwa_branding: la herencia se
+     * aplica al otorgar, nunca al leer.
+     */
+    appNativa: boolean;
 }
 
 export interface EntitlementsHelpers {
@@ -131,6 +172,7 @@ const EMPTY_ENTITLEMENTS: Entitlements = {
         biomech: false,
         nutrition: false,
         whitelabel: false,
+        pwa_branding: false,
         whatsapp: false,
         wompi: false,
         mp: false,
@@ -149,6 +191,9 @@ const EMPTY_ENTITLEMENTS: Entitlements = {
     isBlocked: false,
     isBlockingExempt: false,
     isTestAccount: false,
+    hasBilling: true,
+    marcaPropia: false,
+    appNativa: false,
 };
 
 // ============================================================
@@ -231,6 +276,9 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
                 biomech: (import.meta.env.VITE_APP_ENV === 'staging' || (typeof window !== 'undefined' && window.location.hostname.includes('staging'))) ? false : data.has_biomech,
                 nutrition: data.has_nutrition,
                 whitelabel: data.has_whitelabel,
+                // Sin herencia desde whitelabel: contratar la app nativa inserta
+                // su propia fila de addon. Ver migracion 20260814105131.
+                pwa_branding: data.has_pwa_branding ?? false,
                 whatsapp: data.has_whatsapp,
                 wompi: data.has_wompi,
                 mp: data.has_mp,
@@ -252,6 +300,9 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
             isBlocked: data.is_operational === false,
             isBlockingExempt: data.blocking_exempt === true,
             isTestAccount,
+            hasBilling: data.has_billing !== false,
+            marcaPropia: (data.has_pwa_branding ?? false) === true,
+            appNativa: data.has_whitelabel === true,
         };
     }, [query.data]);
 

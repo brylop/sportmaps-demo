@@ -67,6 +67,7 @@ router.get('/entitlements', requireAuth, async (req: Request, res: Response) => 
                 has_biomech:          false,
                 has_nutrition:        false,
                 has_whitelabel:       false,
+                has_pwa_branding:     false,
                 has_whatsapp:         false,
                 has_wompi:            false,
                 has_mp:               false,

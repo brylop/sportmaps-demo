@@ -202,13 +202,15 @@ export function useEvents() {
   }, [updateEvent]);
 
   // Log telemetry
-  const logTelemetry = useCallback(async (eventType: TelemetryEventType, eventId?: string, metadata?: object) => {
+  // `metadata` termina en una columna jsonb: se declara como algo serializable
+  // y no como `object`, que no es asignable a Json.
+  const logTelemetry = useCallback(async (eventType: TelemetryEventType, eventId?: string, metadata?: Record<string, unknown>) => {
     try {
       await supabase.from('event_telemetry').insert({
         event_id: eventId,
         user_id: user?.id,
         event_type: eventType,
-        metadata: metadata || {}
+        metadata: (metadata ?? {}) as never   // jsonb: la forma exacta la decide quien llama
       });
     } catch (error) {
       console.error('Telemetry error:', error);

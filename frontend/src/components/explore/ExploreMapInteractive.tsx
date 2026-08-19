@@ -115,11 +115,13 @@ function useExploreSchools(filters: { query?: string; city?: string; sport?: str
           .eq('status', 'active')
           .not('lat', 'is', null)
           .not('lng', 'is', null),
+        // Vista y no school_settings: el mapa lo ve gente SIN sesión, y la tabla
+        // base tiene número de cuenta, cédula del titular y payment_accounts.
+        // Ver migración 20260814190601.
         supabase
-          .from('school_settings')
+          .from('v_school_settings_publico')
           .select('school_id, public_profile_enabled')
-          .in('school_id', ids)
-          .eq('public_profile_enabled', true),
+          .in('school_id', ids),
       ]);
 
       const branchBy = new Map<string, any>();

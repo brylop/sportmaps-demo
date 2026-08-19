@@ -120,12 +120,20 @@ export function BrandingScope({ children, disable = false }: BrandingScopeProps)
     // Defense in depth: super_admin nunca ve branding aunque este en BRANDING_ROLES
     if (currentUserRole === ('super_admin' as any)) return false;
 
-    // 3. Tier / addon feature gate
-    // has_whitelabel es el flag canonical del entitlement.
-    if (!entitlements.addons.whitelabel) return false;
+    // 3. Addon feature gate: `marcaPropia` (addon pwa_branding).
+    //
+    // Un solo flag, espejo de school_shows_own_brand() en la BD. Antes miraba
+    // solo `whitelabel`, asi que una escuela que compro pwa_branding tenia el
+    // icono de la app con su logo pero por dentro seguia viendo los colores de
+    // SportMaps — la incoherencia que se detecto probando en Android.
+    //
+    // NO se relaja la aislacion: las reglas 1 y 2 (allowlist de rutas,
+    // blocklist que gana) y el filtro de rol siguen intactos, y los CSS vars se
+    // aplican en un contenedor local, nunca en :root.
+    if (!entitlements.marcaPropia) return false;
 
     return true;
-  }, [disable, schoolId, location.pathname, currentUserRole, entitlements.addons.whitelabel]);
+  }, [disable, schoolId, location.pathname, currentUserRole, entitlements.marcaPropia]);
 
   if (!shouldApply) {
     // Sin scope: los children usan los CSS vars del :root (SportMaps default).
