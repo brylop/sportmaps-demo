@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,6 +15,7 @@ import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { todayColombia, daysDiffFromToday, formatDayCO } from '@/lib/dateUtils';
 import { Input } from '@/components/ui/input';
 import { PaymentOriginBadge } from '@/components/payment/PaymentOriginBadge';
+import { FailedAttemptChip } from '@/components/payment/FailedAttemptChip';
 import {
   resolvePaymentOrigin,
   ORIGIN_FILTERS,
@@ -117,7 +118,25 @@ interface OverdueAccount {
   daysOverdue: number;
   status: 'overdue' | 'reminder_sent';
   lastContactDate?: string;
+  /**
+   * Último intento de pago que se cayó. Cambia la conversación de cobro: no es
+   * lo mismo una familia que no hizo nada que una a la que el banco le tumbó
+   * el débito — a esa hay que decirle que pruebe con otro medio.
+   */
+  lastFailureAt?: string | null;
+  lastFailureReason?: string | null;
+  /** ERROR/VOIDED sin resolver: no sabemos si el dinero se movió. */
+  requiresReview?: boolean;
 }
+
+/**
+ * Cómo se agrupa la cartera por lo que pasó con el último intento de pago.
+ *
+ * No es lo mismo una familia que no hizo nada que una a la que el banco le
+ * tumbó el débito: a la primera se le cobra, a la segunda se le explica. Y los
+ * ambiguos no se cobran hasta verificar, porque quizá ya pagaron.
+ */
+type AttemptFilter = 'all' | 'rejected' | 'review' | 'none';
 
 interface Transaction {
   id: string;
@@ -231,6 +250,9 @@ export default function FinancesPage() {
           qr_id,
           period_year,
           period_month,
+          last_failure_at,
+          last_failure_reason,
+          requires_review,
           student:children(full_name, parent_name_temp, parent_phone_temp),
           parent:profiles!payments_parent_id_fkey(full_name, phone),
           athlete:profiles!payments_user_id_fkey(full_name, phone),
@@ -286,18 +308,46 @@ export default function FinancesPage() {
           dueDate: p.due_date,
           daysOverdue: daysDiffFromToday(p.due_date),
           status: 'overdue' as const,
+          lastFailureAt: (p as any).last_failure_at ?? null,
+          lastFailureReason: (p as any).last_failure_reason ?? null,
+          requiresReview: (p as any).requires_review === true,
         };
       }));
     }
   }, [payments]);
 
 
+  // ── Filtro por lo que pasó con el último intento de pago ───────────────────
+  const [attemptFilter, setAttemptFilter] = useState<AttemptFilter>('all');
+
+  const attemptCounts = useMemo(() => {
+    let rejected = 0, review = 0, none = 0;
+    for (const a of overdueAccounts) {
+      if (a.requiresReview) review += 1;
+      else if (a.lastFailureReason) rejected += 1;
+      else none += 1;
+    }
+    return { rejected, review, none };
+  }, [overdueAccounts]);
+
+  const filteredOverdue = useMemo(() => {
+    switch (attemptFilter) {
+      case 'rejected': return overdueAccounts.filter(a => a.lastFailureReason && !a.requiresReview);
+      case 'review':   return overdueAccounts.filter(a => a.requiresReview);
+      case 'none':     return overdueAccounts.filter(a => !a.lastFailureReason && !a.requiresReview);
+      default:         return overdueAccounts;
+    }
+  }, [overdueAccounts, attemptFilter]);
+
+  // Cambiar de filtro con la página 3 abierta dejaba la tabla vacía sin motivo.
+  useEffect(() => { setOdPage(1); }, [attemptFilter]);
+
   // Si la cartera se encoge (alguien pagó, o se cambió de sede) la página en la que
   // estaba parado el usuario puede ya no existir: se acota en vez de mostrar una
   // tabla vacía sin explicación.
-  const odTotalPages = Math.max(1, Math.ceil(overdueAccounts.length / OVERDUE_PAGE_SIZE));
+  const odTotalPages = Math.max(1, Math.ceil(filteredOverdue.length / OVERDUE_PAGE_SIZE));
   const odCurrentPage = Math.min(odPage, odTotalPages);
-  const pagedOverdue = overdueAccounts.slice(
+  const pagedOverdue = filteredOverdue.slice(
     (odCurrentPage - 1) * OVERDUE_PAGE_SIZE,
     odCurrentPage * OVERDUE_PAGE_SIZE,
   );
@@ -558,6 +608,29 @@ export default function FinancesPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          {/* Separar la cartera por lo que pasó con el último intento. «Sin
+              intento» es la mora clásica; «Pago rechazado» es una familia que
+              SÍ trató de pagar — a esa se le escribe distinto. «Verificar en
+              pasarela» no se cobra hasta saber si el dinero se movió. */}
+          <div className="mb-4">
+            <StatFilterBar
+              columns={4}
+              value={attemptFilter === 'all' ? null : attemptFilter}
+              onChange={(v) => setAttemptFilter((v as AttemptFilter) ?? 'all')}
+              items={[
+                { key: null, label: 'Todas', value: overdueAccounts.length, tone: 'neutral' },
+                { key: 'rejected', label: 'Pago rechazado', value: attemptCounts.rejected, tone: 'yellow' },
+                {
+                  key: 'review',
+                  label: 'Verificar en pasarela',
+                  value: attemptCounts.review,
+                  tone: 'orange',
+                  hidden: attemptCounts.review === 0 && attemptFilter !== 'review',
+                },
+                { key: 'none', label: 'Sin intento', value: attemptCounts.none, tone: 'rose' },
+              ]}
+            />
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
@@ -570,6 +643,17 @@ export default function FinancesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
+              {/* Sin esto, filtrar por «Verificar en pasarela» sin resultados
+                  dejaba la tabla en blanco y se leía como que se cayó la carga. */}
+              {pagedOverdue.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
+                    {attemptFilter === 'all'
+                      ? 'No hay cuentas por cobrar.'
+                      : 'Ninguna cuenta por cobrar cae en este filtro.'}
+                  </TableCell>
+                </TableRow>
+              )}
               {pagedOverdue.map((account) => (
                 <TableRow key={account.id}>
                   <TableCell className="font-medium">
@@ -592,6 +676,16 @@ export default function FinancesPage() {
                   </TableCell>
                   <TableCell>
                     {getStatusBadge(account)}
+                    {(account.lastFailureReason || account.requiresReview) && (
+                      <span className="block mt-1">
+                        <FailedAttemptChip
+                          reason={account.lastFailureReason}
+                          at={account.lastFailureAt}
+                          requiresReview={account.requiresReview}
+                          showReason
+                        />
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Button
@@ -628,7 +722,12 @@ export default function FinancesPage() {
             onRefresh={refetch}
             loading={isFetching}
             summary={
-              `${overdueAccounts.length} cuenta(s) por cobrar · $${financialSummary.totalOverdue.toLocaleString('es-CO')}` +
+              // Con un filtro activo el total tiene que ser el de lo FILTRADO,
+              // y el monto también: mostrar «$52M» debajo de 6 filas de $910k
+              // se lee como que el filtro no hizo nada.
+              `${filteredOverdue.length} cuenta(s) por cobrar` +
+              (attemptFilter === 'all' ? '' : ` de ${overdueAccounts.length}`) +
+              ` · $${filteredOverdue.reduce((s, a) => s + a.amount, 0).toLocaleString('es-CO')}` +
               (odTotalPages > 1 ? ` · página ${odCurrentPage} de ${odTotalPages}` : '')
             }
           >

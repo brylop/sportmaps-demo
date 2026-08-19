@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, ClipboardList, Goal, Trophy, Calendar as CalendarIcon, Plus, Trash2 } from 'lucide-react';
+import { Loader2, ClipboardList, Goal, Trophy, Calendar as CalendarIcon, Plus, Trash2, Users } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { todayColombia } from '@/lib/dateUtils';
@@ -31,6 +31,7 @@ import {
 import { LineupModal } from './LineupModal';
 import { MatchEventsModal } from './MatchEventsModal';
 import { FootballSeasonStats } from './FootballSeasonStats';
+import { TacticalBoard } from './TacticalBoard';
 import { useTeamPerformanceRoster } from '@/hooks/usePerformanceData';
 
 interface FootballDashboardModalProps {
@@ -51,6 +52,7 @@ export function FootballDashboardModal({ open, onClose, teamId, teamName }: Foot
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [lineupMatch, setLineupMatch] = useState<{ id: string; label: string; sourceType: 'team_match' | 'tournament_match' } | null>(null);
+  const [tacticalMatch, setTacticalMatch] = useState<{ id: string; label: string; sourceType: 'team_match' | 'tournament_match' } | null>(null);
   const [eventsMatch, setEventsMatch] = useState<{ id: string; label: string; sourceType: 'team_match' | 'tournament_match' } | null>(null);
 
   const eventsLineupList = useFootballLineups({
@@ -184,6 +186,14 @@ export function FootballDashboardModal({ open, onClose, teamId, teamName }: Foot
                           size="sm"
                           variant="outline"
                           className="h-7 gap-1 text-[11px]"
+                          onClick={() => setTacticalMatch({ id: m.id, label: matchLabel(m), sourceType: 'team_match' })}
+                        >
+                          <Users className="w-3 h-3" /> Tablero táctico
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 gap-1 text-[11px]"
                           onClick={() => setEventsMatch({ id: m.id, label: matchLabel(m), sourceType: 'team_match' })}
                         >
                           <Goal className="w-3 h-3" /> Eventos
@@ -256,6 +266,14 @@ export function FootballDashboardModal({ open, onClose, teamId, teamName }: Foot
                           size="sm"
                           variant="outline"
                           className="h-7 gap-1 text-[11px]"
+                          onClick={() => setTacticalMatch({ id: m.id, label: tournamentMatchLabel(m), sourceType: 'tournament_match' })}
+                        >
+                          <Users className="w-3 h-3" /> Tablero táctico
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 gap-1 text-[11px]"
                           onClick={() => setEventsMatch({ id: m.id, label: tournamentMatchLabel(m), sourceType: 'tournament_match' })}
                         >
                           <Goal className="w-3 h-3" /> Eventos
@@ -292,6 +310,18 @@ export function FootballDashboardModal({ open, onClose, teamId, teamName }: Foot
           sourceType={lineupMatch.sourceType}
           sourceId={lineupMatch.id}
           matchLabel={lineupMatch.label}
+        />
+      )}
+
+      {tacticalMatch && (
+        <TacticalBoard
+          open={!!tacticalMatch}
+          onClose={() => setTacticalMatch(null)}
+          teamId={teamId}
+          teamName={teamName}
+          sourceType={tacticalMatch.sourceType}
+          sourceId={tacticalMatch.id}
+          contextLabel={tacticalMatch.label}
         />
       )}
 

@@ -30,7 +30,7 @@ export const zOptionalText = (max = 200) =>
 
 /** Documento/NIT: solo dígitos (con o sin DV separado). */
 export const zDocument = (label = 'El documento') =>
-    z.string().trim().min(4, `${label} es muy corto`).regex(/^\d[\d.\-]*\d$/, `${label} debe ser numérico`);
+    z.string().trim().min(4, `${label} es muy corto`).regex(/^\d[\d.-]*\d$/, `${label} debe ser numérico`);
 
 /** Teléfono colombiano: dígitos, espacios, +, - y paréntesis. */
 export const zPhoneOptional = () =>

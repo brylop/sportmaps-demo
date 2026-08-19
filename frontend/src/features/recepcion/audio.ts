@@ -143,7 +143,8 @@ function drain() {
 
     speaking = true;
     let done = false;
-    let watchdog: ReturnType<typeof setTimeout>;
+    // Declarado despues de `finish`: la closure solo lee `watchdog` cuando
+    // corre, y para entonces ya se asigno mas abajo.
     const finish = () => {
         if (done) return;
         done = true;
@@ -155,7 +156,7 @@ function drain() {
     u.onerror = finish;
     // Watchdog: si onend/onerror no llegan (bug iOS/Safari), no dejamos la cola
     // trabada — liberamos y seguimos con el siguiente anuncio.
-    watchdog = setTimeout(finish, Math.max(4000, u.text.length * 130));
+    const watchdog = setTimeout(finish, Math.max(4000, u.text.length * 130));
 
     try {
         synth.resume();  // Chrome/iOS a veces quedan en pausa tras backgrounding

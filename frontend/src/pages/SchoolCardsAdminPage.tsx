@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Search, IdCard, Plus, Eye, ShieldOff, Download, ExternalLink, RotateCw, Send } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Loader2, Search, IdCard, Plus, Eye, ShieldOff, Download, ExternalLink, RotateCw, Send, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,15 +17,35 @@ import { CardTemplatesManager } from '@/components/cards/CardTemplatesManager';
 import { StatFilterBar } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 
+type AthleteKind = 'child' | 'profile' | 'unregistered';
+
 type Athlete = {
-  kind: 'child' | 'profile';
+  kind: AthleteKind;
   athlete_id: string;
   full_name: string;
   avatar_url: string | null;
+  doc_type: string | null;
   doc_number: string | null;
+  team_id: string | null;
   team_name: string | null;
+  branch_id: string | null;
   branch_name: string | null;
+  issuable: boolean;
+  /** 'active' | 'expired' | null — null es "nunca tuvo carnet". */
+  card_status: string | null;
+  card_valid_until: string | null;
   has_active_card: boolean;
+};
+
+type AthletesPage = {
+  rows: Athlete[];
+  total: number;
+  total_scope: number;
+  with_card: number;
+  without_card: number;
+  not_issuable: number;
+  teams: { id: string; name: string }[];
+  branches: { id: string; name: string }[];
 };
 
 type CardRow = {
@@ -50,6 +70,23 @@ const STATUS_BADGE: Record<string, string> = {
   expired: 'bg-red-100 text-red-700',
 };
 
+const STATUS_LABEL: Record<string, string> = {
+  active: 'Vigente',
+  revoked: 'Revocado',
+  expired: 'Vencido',
+};
+
+const KIND_LABEL: Record<AthleteKind, string> = {
+  child: 'Menor',
+  profile: 'Adulto',
+  unregistered: 'Sin cuenta',
+};
+
+const PAGE_SIZE = 50;
+/** Tope por llamada de la RPC. Se usa al juntar selecciones o carnets de todas
+ *  las páginas, no en el listado normal. */
+const FETCH_ALL_CHUNK = 500;
+
 export default function SchoolCardsAdminPage() {
   const { schoolId } = useSchoolContext();
   const { toast } = useToast();
@@ -58,10 +95,17 @@ export default function SchoolCardsAdminPage() {
   const [templates, setTemplates] = useState<{ id: string; name: string; is_default: boolean }[]>([]);
   const [issueTemplate, setIssueTemplate] = useState<string>('default');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
-  const [athletes, setAthletes] = useState<Athlete[]>([]);
+  const [page, setPage] = useState<AthletesPage>({
+    rows: [], total: 0, total_scope: 0, with_card: 0, without_card: 0, not_issuable: 0, teams: [], branches: [],
+  });
+  const [athleteOffset, setAthleteOffset] = useState(0);
   const [cards, setCards] = useState<CardRow[]>([]);
+  const [cardsTotal, setCardsTotal] = useState(0);
+  const [cardCounts, setCardCounts] = useState<{ active: number; revoked: number; expired: number; all: number }>({ active: 0, revoked: 0, expired: 0, all: 0 });
+  const [cardsOffset, setCardsOffset] = useState(0);
   const [loadingAthletes, setLoadingAthletes] = useState(false);
   const [loadingCards, setLoadingCards] = useState(false);
 
@@ -82,13 +126,16 @@ export default function SchoolCardsAdminPage() {
   const previewRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
 
-  // Emisión masiva + filtros
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Emisión masiva + filtros. La selección guarda el tipo de atleta porque la
+  // RPC de emisión necesita saber si va por child_id o por profile_id, y con
+  // paginación el atleta seleccionado puede no estar ya en pantalla.
+  const [selected, setSelected] = useState<Map<string, Athlete>>(new Map());
   const [teamFilter, setTeamFilter] = useState<string>('all');
   const [branchFilter, setBranchFilter] = useState<string>('all');
   const [cardFilter, setCardFilter] = useState<'all' | 'with' | 'without'>('all');
   const [bulkIssuing, setBulkIssuing] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  const [selectingAll, setSelectingAll] = useState(false);
 
   // Descarga PDF por equipo (encarpetado)
   const [pdfTeam, setPdfTeam] = useState<string>('all');
@@ -102,12 +149,82 @@ export default function SchoolCardsAdminPage() {
     return `${window.location.origin}/c`;
   }, []);
 
+  // El buscador dispara una consulta al servidor; sin esta espera se manda una
+  // por tecla y las respuestas se pisan entre sí.
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 350);
+    return () => clearTimeout(id);
+  }, [search]);
+
+  const loadAthletes = useCallback(async (offset = athleteOffset) => {
+    if (!schoolId) return;
+    setLoadingAthletes(true);
+    const { data, error } = await supabase.rpc('list_school_athletes_for_card_issue_v2' as any, {
+      p_school_id: schoolId,
+      p_search: debouncedSearch || null,
+      p_team_id: teamFilter === 'all' ? null : teamFilter,
+      p_branch_id: branchFilter === 'all' ? null : branchFilter,
+      p_card_filter: cardFilter,
+      p_limit: PAGE_SIZE,
+      p_offset: offset,
+    });
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      setPage((p) => ({ ...p, rows: [] }));
+    } else {
+      const d = data as any;
+      setPage({
+        rows: (d?.rows ?? []) as Athlete[],
+        total: Number(d?.total ?? 0),
+        total_scope: Number(d?.total_scope ?? 0),
+        with_card: Number(d?.with_card ?? 0),
+        without_card: Number(d?.without_card ?? 0),
+        not_issuable: Number(d?.not_issuable ?? 0),
+        teams: (d?.teams ?? []) as { id: string; name: string }[],
+        branches: (d?.branches ?? []) as { id: string; name: string }[],
+      });
+    }
+    setLoadingAthletes(false);
+  }, [schoolId, debouncedSearch, teamFilter, branchFilter, cardFilter, athleteOffset, toast]);
+
+  const loadCards = useCallback(async (offset = cardsOffset) => {
+    if (!schoolId) return;
+    setLoadingCards(true);
+    const { data, error } = await supabase.rpc('list_athlete_id_cards' as any, {
+      p_school_id: schoolId,
+      p_status: statusFilter === 'all' ? null : statusFilter,
+      p_search: debouncedSearch || null,
+      p_limit: PAGE_SIZE,
+      p_offset: offset,
+    });
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      setCards([]);
+    } else {
+      const d = data as any;
+      setCards((d?.rows ?? []) as CardRow[]);
+      setCardsTotal(Number(d?.total ?? 0));
+      setCardCounts({
+        active: Number(d?.counts?.active ?? 0),
+        revoked: Number(d?.counts?.revoked ?? 0),
+        expired: Number(d?.counts?.expired ?? 0),
+        all: Number(d?.counts?.all ?? 0),
+      });
+    }
+    setLoadingCards(false);
+  }, [schoolId, statusFilter, debouncedSearch, cardsOffset, toast]);
+
+  // Cualquier cambio de filtro vuelve a la primera página: quedarse en el
+  // offset viejo con menos resultados dejaba la tabla vacía sin explicación.
+  useEffect(() => { setAthleteOffset(0); }, [debouncedSearch, teamFilter, branchFilter, cardFilter]);
+  useEffect(() => { setCardsOffset(0); }, [debouncedSearch, statusFilter]);
+
   useEffect(() => {
     if (!schoolId) return;
-    if (tab === 'athletes') void loadAthletes();
-    else if (tab === 'cards') void loadCards();
+    if (tab === 'athletes') void loadAthletes(athleteOffset);
+    else if (tab === 'cards') void loadCards(cardsOffset);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schoolId, tab, search, statusFilter]);
+  }, [schoolId, tab, debouncedSearch, statusFilter, teamFilter, branchFilter, cardFilter, athleteOffset, cardsOffset]);
 
   // Plantillas activas (para elegir cuál usar al emitir).
   useEffect(() => {
@@ -125,91 +242,73 @@ export default function SchoolCardsAdminPage() {
   // plantilla predeterminada; un id concreto → esa plantilla).
   const resolveTemplateId = () => (issueTemplate === 'default' ? null : issueTemplate);
 
-  async function loadAthletes() {
-    if (!schoolId) return;
-    setLoadingAthletes(true);
-    const { data, error } = await supabase.rpc('list_school_athletes_for_card_issue' as any, {
-      p_school_id: schoolId,
-      p_search: search || null,
-      p_limit: 100,
-    });
-    if (error) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
-      setAthletes([]);
-    } else {
-      setAthletes((data as Athlete[]) || []);
+  /** Recorre todas las páginas del filtro actual. Se usa para "seleccionar
+   *  todos" y para el PDF: sin esto ambas cosas operaban solo sobre lo visible. */
+  async function fetchAllAthletes(cardFilterOverride: 'all' | 'with' | 'without'): Promise<Athlete[]> {
+    if (!schoolId) return [];
+    const out: Athlete[] = [];
+    let offset = 0;
+    for (;;) {
+      const { data, error } = await supabase.rpc('list_school_athletes_for_card_issue_v2' as any, {
+        p_school_id: schoolId,
+        p_search: debouncedSearch || null,
+        p_team_id: teamFilter === 'all' ? null : teamFilter,
+        p_branch_id: branchFilter === 'all' ? null : branchFilter,
+        p_card_filter: cardFilterOverride,
+        p_limit: FETCH_ALL_CHUNK,
+        p_offset: offset,
+      });
+      if (error) throw error;
+      const rows = ((data as any)?.rows ?? []) as Athlete[];
+      out.push(...rows);
+      const total = Number((data as any)?.total ?? 0);
+      offset += FETCH_ALL_CHUNK;
+      if (out.length >= total || rows.length === 0) break;
     }
-    setLoadingAthletes(false);
+    return out;
   }
 
-  async function loadCards() {
-    if (!schoolId) return;
-    setLoadingCards(true);
-    const { data, error } = await supabase.rpc('list_athlete_id_cards' as any, {
-      p_school_id: schoolId,
-      p_status: statusFilter === 'all' ? null : statusFilter,
-      p_search: search || null,
-      p_limit: 100,
-      p_offset: 0,
-    });
-    if (error) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
-      setCards([]);
-    } else {
-      setCards(((data as any)?.rows ?? []) as CardRow[]);
-    }
-    setLoadingCards(false);
-  }
+  const pageSelectable = page.rows.filter((a) => a.issuable && !a.has_active_card);
+  const selectedCount = selected.size;
 
-  // ── Filtros (cliente) + cobertura ──────────────────────────────────────────
-  const teamOptions = useMemo(
-    () => Array.from(new Set(athletes.map((a) => a.team_name).filter(Boolean))) as string[],
-    [athletes],
-  );
-  const branchOptions = useMemo(
-    () => Array.from(new Set(athletes.map((a) => a.branch_name).filter(Boolean))) as string[],
-    [athletes],
-  );
-  const filteredAthletes = useMemo(
-    () => athletes.filter((a) => {
-      if (teamFilter !== 'all' && a.team_name !== teamFilter) return false;
-      if (branchFilter !== 'all' && a.branch_name !== branchFilter) return false;
-      if (cardFilter === 'with' && !a.has_active_card) return false;
-      if (cardFilter === 'without' && a.has_active_card) return false;
-      return true;
-    }),
-    [athletes, teamFilter, branchFilter, cardFilter],
-  );
-  const coverage = useMemo(() => ({
-    total: athletes.length,
-    withCard: athletes.filter((a) => a.has_active_card).length,
-  }), [athletes]);
-  // Con un estado ya filtrado en el servidor solo se puede contar ese estado.
-  const cardStatusCounts = useMemo(() => {
-    const count = (st: string) =>
-      statusFilter === 'all' || statusFilter === st
-        ? cards.filter((c) => c.status === st).length
-        : ('—' as const);
-    return { active: count('active'), revoked: count('revoked'), expired: count('expired') };
-  }, [cards, statusFilter]);
-  const selectableWithout = filteredAthletes.filter((a) => !a.has_active_card);
-  const selectedCount = filteredAthletes.filter((a) => selected.has(a.athlete_id)).length;
-
-  function toggleSelect(id: string) {
+  function toggleSelect(a: Athlete) {
     setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      const next = new Map(prev);
+      if (next.has(a.athlete_id)) next.delete(a.athlete_id); else next.set(a.athlete_id, a);
       return next;
     });
   }
-  function selectAllWithout() {
-    setSelected(new Set(selectableWithout.map((a) => a.athlete_id)));
+  function selectPage() {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      pageSelectable.forEach((a) => next.set(a.athlete_id, a));
+      return next;
+    });
   }
-  function clearSelection() { setSelected(new Set()); }
+  function clearSelection() { setSelected(new Map()); }
+
+  async function selectAllWithoutCard() {
+    setSelectingAll(true);
+    try {
+      const all = await fetchAllAthletes('without');
+      const next = new Map<string, Athlete>();
+      all.filter((a) => a.issuable).forEach((a) => next.set(a.athlete_id, a));
+      setSelected(next);
+      const skipped = all.length - next.size;
+      toast({
+        title: `${next.size} atleta(s) seleccionados`,
+        description: skipped > 0 ? `${skipped} sin cuenta ni ficha de menor quedaron fuera: no se les puede emitir.` : undefined,
+      });
+    } catch (e: any) {
+      toast({ title: 'No se pudo seleccionar todo', description: e?.message || 'Error', variant: 'destructive' });
+    } finally {
+      setSelectingAll(false);
+    }
+  }
 
   async function bulkIssue() {
     if (!schoolId) return;
-    const targets = filteredAthletes.filter((a) => selected.has(a.athlete_id) && !a.has_active_card);
+    const targets = Array.from(selected.values()).filter((a) => a.issuable && !a.has_active_card);
     if (targets.length === 0) {
       toast({ title: 'Nada que emitir', description: 'Selecciona atletas sin carnet.' });
       return;
@@ -237,27 +336,51 @@ export default function SchoolCardsAdminPage() {
       description: fail ? `${fail} fallaron — revisa e inténtalo de nuevo.` : 'Todos correctos.',
       variant: fail ? 'destructive' : 'default',
     });
-    void loadAthletes();
+    void loadAthletes(athleteOffset);
   }
 
-  // Equipos disponibles entre los carnets emitidos (para descargar por equipo)
-  const cardTeamOptions = useMemo(
-    () => Array.from(new Set(cards.map((c) => c.team_name).filter(Boolean))) as string[],
-    [cards],
-  );
+  // Equipos para el PDF: del catálogo de la escuela, no de la página cargada.
+  const cardTeamOptions = page.teams;
+
+  /** Trae TODOS los carnets vigentes que cumplen el filtro, no solo la página. */
+  async function fetchAllActiveCards(): Promise<CardRow[]> {
+    if (!schoolId) return [];
+    const out: CardRow[] = [];
+    let offset = 0;
+    for (;;) {
+      const { data, error } = await supabase.rpc('list_athlete_id_cards' as any, {
+        p_school_id: schoolId,
+        p_status: 'active',
+        p_search: debouncedSearch || null,
+        p_limit: FETCH_ALL_CHUNK,
+        p_offset: offset,
+      });
+      if (error) throw error;
+      const rows = ((data as any)?.rows ?? []) as CardRow[];
+      out.push(...rows);
+      const total = Number((data as any)?.total ?? 0);
+      offset += FETCH_ALL_CHUNK;
+      if (out.length >= total || rows.length === 0) break;
+    }
+    return out;
+  }
 
   // Genera un PDF (tamaño tarjeta CR80, 9 por hoja) con los carnets activos del
   // equipo elegido (o todos) — para imprimir, plastificar y archivar por equipo.
   async function downloadCardsPdf() {
     if (!schoolId) return;
-    const target = cards.filter((c) => c.status === 'active' && (pdfTeam === 'all' || c.team_name === pdfTeam));
-    if (target.length === 0) {
-      toast({ title: 'Sin carnets', description: 'No hay carnets activos para ese equipo.' });
-      return;
-    }
     setPdfBusy(true);
-    setPdfProgress({ done: 0, total: target.length });
+    setPdfProgress({ done: 0, total: 0 });
     try {
+      const teamName = pdfTeam === 'all' ? null : cardTeamOptions.find((t) => t.id === pdfTeam)?.name || null;
+      const all = await fetchAllActiveCards();
+      const target = teamName ? all.filter((c) => c.team_name === teamName) : all;
+      if (target.length === 0) {
+        toast({ title: 'Sin carnets', description: 'No hay carnets vigentes para ese equipo.' });
+        return;
+      }
+      setPdfProgress({ done: 0, total: target.length });
+
       // 1) Cargar la data completa de cada carnet (branding, foto, estado)
       const datas: { data: CardData; token: string }[] = [];
       for (const c of target) {
@@ -274,7 +397,7 @@ export default function SchoolCardsAdminPage() {
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageW = 210, margin = 10, cols = 3, rows = 3, gap = 6;
       const cardW = (pageW - margin * 2 - gap * (cols - 1)) / cols;   // ≈ 54mm (CR80)
-      const cardH = cardW * (476 / 300);                              // ≈ 85.6mm
+      const cardH = cardW * (540 / 340);                              // ≈ 85.6mm
       const perPage = cols * rows;
 
       let idx = 0;
@@ -293,9 +416,9 @@ export default function SchoolCardsAdminPage() {
         idx++;
         setPdfProgress({ done: idx, total: datas.length });
       }
-      const slug = pdfTeam === 'all' ? 'todos' : pdfTeam.replace(/\s+/g, '-').toLowerCase();
+      const slug = teamName ? teamName.replace(/\s+/g, '-').toLowerCase() : 'todos';
       pdf.save(`carnets-${slug}.pdf`);
-      toast({ title: `PDF generado`, description: `${idx} carnet(s) · listos para imprimir (CR80).` });
+      toast({ title: 'PDF generado', description: `${idx} carnet(s) · listos para imprimir (CR80).` });
     } catch (e: any) {
       toast({ title: 'No se pudo generar el PDF', description: e?.message || 'Error', variant: 'destructive' });
     } finally {
@@ -315,9 +438,11 @@ export default function SchoolCardsAdminPage() {
     setIssuing(true);
     const { data, error } = await supabase.rpc('issue_athlete_id_card' as any, {
       p_school_id: schoolId,
-      p_child_id:  issueTarget.kind === 'child'   ? issueTarget.athlete_id : null,
+      p_child_id:   issueTarget.kind === 'child'   ? issueTarget.athlete_id : null,
       p_profile_id: issueTarget.kind === 'profile' ? issueTarget.athlete_id : null,
-      p_template_id: null,
+      // Antes iba null fijo: la plantilla elegida en este mismo diálogo se
+      // ignoraba y todos los carnets salían con la predeterminada.
+      p_template_id: resolveTemplateId(),
       p_valid_until: validUntil,
       p_photo_url: null,
     });
@@ -329,7 +454,7 @@ export default function SchoolCardsAdminPage() {
     toast({ title: 'Carnet emitido', description: `Versión ${(data as any)?.version || 1}` });
     setIssueOpen(false);
     setIssueTarget(null);
-    void loadAthletes();
+    void loadAthletes(athleteOffset);
 
     const token = (data as any)?.qr_token;
     if (token) await openPreview(token);
@@ -354,7 +479,7 @@ export default function SchoolCardsAdminPage() {
     }
     toast({ title: 'Carnet revocado' });
     setRevokeTarget(null);
-    void loadCards();
+    void loadCards(cardsOffset);
   }
 
   // Comparte el link público del carnet con el padre (WhatsApp o share nativo).
@@ -407,6 +532,8 @@ export default function SchoolCardsAdminPage() {
     }
   }
 
+  const coveragePct = page.total_scope ? Math.round((page.with_card / page.total_scope) * 100) : 0;
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -433,13 +560,13 @@ export default function SchoolCardsAdminPage() {
             <CardHeader>
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <CardTitle>Atletas</CardTitle>
-                {/* Cobertura */}
+                {/* Cobertura — sobre el total filtrado, no sobre la página */}
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-muted-foreground">Cobertura</span>
                   <div className="w-28 h-2 rounded-full bg-muted overflow-hidden">
-                    <div className="h-full bg-primary rounded-full" style={{ width: `${coverage.total ? Math.round((coverage.withCard / coverage.total) * 100) : 0}%` }} />
+                    <div className="h-full bg-primary rounded-full" style={{ width: `${coveragePct}%` }} />
                   </div>
-                  <span className="font-bold tabular-nums">{coverage.withCard}/{coverage.total}</span>
+                  <span className="font-bold tabular-nums">{page.with_card}/{page.total_scope}</span>
                 </div>
               </div>
             </CardHeader>
@@ -459,14 +586,14 @@ export default function SchoolCardsAdminPage() {
                   <SelectTrigger className="w-auto min-w-[150px]"><SelectValue placeholder="Equipo" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todos los equipos</SelectItem>
-                    {teamOptions.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                    {page.teams.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Select value={branchFilter} onValueChange={setBranchFilter}>
                   <SelectTrigger className="w-auto min-w-[130px]"><SelectValue placeholder="Sede" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todas las sedes</SelectItem>
-                    {branchOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                    {page.branches.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -477,20 +604,39 @@ export default function SchoolCardsAdminPage() {
                 value={cardFilter === 'all' ? null : cardFilter}
                 onChange={(v) => setCardFilter((v as 'with' | 'without') ?? 'all')}
                 items={[
-                  { key: null, label: 'Todos', value: coverage.total, tone: 'neutral' },
-                  { key: 'with', label: 'Con carnet', value: coverage.withCard, tone: 'emerald' },
-                  { key: 'without', label: 'Sin carnet', value: coverage.total - coverage.withCard, tone: 'yellow' },
+                  { key: null, label: 'Todos', value: page.total_scope, tone: 'neutral' },
+                  { key: 'with', label: 'Con carnet', value: page.with_card, tone: 'emerald' },
+                  { key: 'without', label: 'Sin carnet', value: page.without_card, tone: 'yellow' },
                 ]}
               />
 
+              {page.not_issuable > 0 && (
+                <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <Info className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>
+                    {page.not_issuable} atleta(s) figuran sin cuenta ni ficha de menor. Aparecen en la lista para que el total cuadre,
+                    pero no se les puede emitir carnet hasta que se registren o se vinculen a un perfil.
+                  </span>
+                </div>
+              )}
+
               {/* Barra de selección masiva */}
-              {selectableWithout.length > 0 && (
+              {(pageSelectable.length > 0 || selectedCount > 0) && (
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
                   <div className="text-sm">
                     <span className="font-semibold text-primary">{selectedCount} seleccionado(s)</span>
-                    {selectedCount < selectableWithout.length && (
-                      <button className="ml-2 text-primary underline underline-offset-2" onClick={selectAllWithout}>
-                        Seleccionar todos sin carnet ({selectableWithout.length})
+                    {pageSelectable.length > 0 && (
+                      <button className="ml-2 text-primary underline underline-offset-2" onClick={selectPage}>
+                        Seleccionar esta página ({pageSelectable.length})
+                      </button>
+                    )}
+                    {page.without_card > 0 && (
+                      <button
+                        className="ml-2 text-primary underline underline-offset-2 disabled:opacity-50"
+                        onClick={selectAllWithoutCard}
+                        disabled={selectingAll}
+                      >
+                        {selectingAll ? 'Buscando…' : `Seleccionar los ${page.without_card} sin carnet`}
                       </button>
                     )}
                     {selectedCount > 0 && (
@@ -514,7 +660,7 @@ export default function SchoolCardsAdminPage() {
 
               {loadingAthletes ? (
                 <div className="py-12 flex justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div>
-              ) : filteredAthletes.length === 0 ? (
+              ) : page.rows.length === 0 ? (
                 <p className="py-8 text-center text-muted-foreground">No se encontraron atletas con esos filtros.</p>
               ) : (
                 <div className="overflow-x-auto">
@@ -524,10 +670,10 @@ export default function SchoolCardsAdminPage() {
                       <TableHead className="w-10">
                         <input
                           type="checkbox"
-                          aria-label="Seleccionar todos sin carnet"
+                          aria-label="Seleccionar los de esta página"
                           className="h-4 w-4 accent-primary align-middle"
-                          checked={selectableWithout.length > 0 && selectedCount === selectableWithout.length}
-                          onChange={(e) => e.target.checked ? selectAllWithout() : clearSelection()}
+                          checked={pageSelectable.length > 0 && pageSelectable.every((a) => selected.has(a.athlete_id))}
+                          onChange={(e) => e.target.checked ? selectPage() : clearSelection()}
                         />
                       </TableHead>
                       <TableHead>Atleta</TableHead>
@@ -538,7 +684,7 @@ export default function SchoolCardsAdminPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredAthletes.map((a) => (
+                    {page.rows.map((a) => (
                       <TableRow key={`${a.kind}-${a.athlete_id}`} className={selected.has(a.athlete_id) ? 'bg-primary/5' : ''}>
                         <TableCell>
                           <input
@@ -546,27 +692,44 @@ export default function SchoolCardsAdminPage() {
                             aria-label={`Seleccionar ${a.full_name}`}
                             className="h-4 w-4 accent-primary align-middle disabled:opacity-40"
                             checked={selected.has(a.athlete_id)}
-                            disabled={a.has_active_card}
-                            title={a.has_active_card ? 'Ya tiene carnet activo' : undefined}
-                            onChange={() => toggleSelect(a.athlete_id)}
+                            disabled={!a.issuable || a.has_active_card}
+                            title={!a.issuable ? 'Sin cuenta ni ficha de menor' : a.has_active_card ? 'Ya tiene carnet vigente' : undefined}
+                            onChange={() => toggleSelect(a)}
                           />
                         </TableCell>
-                        <TableCell className="text-sm font-medium">{a.full_name}</TableCell>
-                        <TableCell className="text-xs tabular-nums">{a.doc_number || '—'}</TableCell>
+                        <TableCell className="text-sm font-medium">
+                          <div className="flex items-center gap-2">
+                            <span>{a.full_name}</span>
+                            {a.kind !== 'child' && (
+                              <Badge variant="outline" className="text-[10px] font-normal">{KIND_LABEL[a.kind]}</Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs tabular-nums">
+                          {a.doc_number ? `${a.doc_type || ''} ${a.doc_number}`.trim() : '—'}
+                        </TableCell>
                         <TableCell className="text-xs">
                           {a.team_name || '—'}{a.branch_name ? ` · ${a.branch_name}` : ''}
                         </TableCell>
                         <TableCell>
-                          {a.has_active_card ? (
-                            <Badge className="bg-green-100 text-green-700">Con carnet activo</Badge>
+                          {a.card_status === 'active' ? (
+                            <Badge className="bg-green-100 text-green-700">Con carnet vigente</Badge>
+                          ) : a.card_status === 'expired' ? (
+                            <Badge className="bg-red-100 text-red-700">Carnet vencido</Badge>
                           ) : (
                             <Badge variant="outline">Sin carnet</Badge>
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button size="sm" onClick={() => openIssueDialog(a)} className="gap-1">
+                          <Button
+                            size="sm"
+                            onClick={() => openIssueDialog(a)}
+                            disabled={!a.issuable}
+                            title={!a.issuable ? 'Necesita cuenta o ficha de menor para emitirle carnet' : undefined}
+                            className="gap-1"
+                          >
                             <Plus className="h-3.5 w-3.5" />
-                            {a.has_active_card ? 'Reemitir' : 'Emitir'}
+                            {a.card_status === 'active' ? 'Reemitir' : a.card_status === 'expired' ? 'Renovar' : 'Emitir'}
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -575,11 +738,20 @@ export default function SchoolCardsAdminPage() {
                 </Table>
                 </div>
               )}
+
+              <Pager
+                offset={athleteOffset}
+                pageCount={page.rows.length}
+                total={page.total}
+                busy={loadingAthletes}
+                onChange={setAthleteOffset}
+              />
+
               <TableRefreshBar
                 className="-mx-6 -mb-6 mt-2 rounded-b-lg"
-                onRefresh={loadAthletes}
+                onRefresh={() => loadAthletes(athleteOffset)}
                 loading={loadingAthletes}
-                summary={`${filteredAthletes.length} de ${athletes.length} atleta(s)`}
+                summary={`${page.total} atleta(s) con los filtros actuales · ${page.total_scope} en la escuela`}
               />
             </CardContent>
           </Card>
@@ -608,7 +780,7 @@ export default function SchoolCardsAdminPage() {
                     <SelectTrigger className="w-auto min-w-[160px]"><SelectValue placeholder="Equipo" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Todos los equipos</SelectItem>
-                      {cardTeamOptions.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                      {cardTeamOptions.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                   <Button size="sm" variant="outline" disabled={pdfBusy} onClick={downloadCardsPdf} className="gap-1">
@@ -618,19 +790,16 @@ export default function SchoolCardsAdminPage() {
                 </div>
               </div>
 
-              {/* El estado se filtra en el servidor, así que los contadores solo
-                  se pueden calcular cuando está seleccionado "Todos"; en un
-                  filtro activo el resto va en '—' en vez de un número falso. */}
               <StatFilterBar
                 className="mb-4"
                 columns={4}
                 value={statusFilter === 'all' ? null : statusFilter}
                 onChange={(v) => setStatusFilter(v ?? 'all')}
                 items={[
-                  { key: null, label: 'Todos', value: statusFilter === 'all' ? cards.length : '—', tone: 'neutral' },
-                  { key: 'active', label: 'Activos', value: cardStatusCounts.active, tone: 'emerald' },
-                  { key: 'revoked', label: 'Revocados', value: cardStatusCounts.revoked, tone: 'rose' },
-                  { key: 'expired', label: 'Vencidos', value: cardStatusCounts.expired, tone: 'yellow' },
+                  { key: null, label: 'Todos', value: cardCounts.all, tone: 'neutral' },
+                  { key: 'active', label: 'Vigentes', value: cardCounts.active, tone: 'emerald' },
+                  { key: 'revoked', label: 'Revocados', value: cardCounts.revoked, tone: 'rose' },
+                  { key: 'expired', label: 'Vencidos', value: cardCounts.expired, tone: 'yellow' },
                 ]}
               />
 
@@ -639,6 +808,7 @@ export default function SchoolCardsAdminPage() {
               ) : cards.length === 0 ? (
                 <p className="py-8 text-center text-muted-foreground">Sin carnets emitidos.</p>
               ) : (
+                <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -655,12 +825,12 @@ export default function SchoolCardsAdminPage() {
                     {cards.map((c) => (
                       <TableRow key={c.id}>
                         <TableCell className="text-sm font-medium">{c.athlete_name}</TableCell>
-                        <TableCell className="text-xs">{c.doc_number || '—'}</TableCell>
+                        <TableCell className="text-xs tabular-nums">{c.doc_number || '—'}</TableCell>
                         <TableCell className="text-xs">{new Date(c.issued_at).toLocaleDateString('es-CO')}</TableCell>
                         <TableCell className="text-xs">{new Date(c.valid_until).toLocaleDateString('es-CO')}</TableCell>
                         <TableCell className="text-xs">{c.version}</TableCell>
                         <TableCell>
-                          <Badge className={STATUS_BADGE[c.status] || ''}>{c.status}</Badge>
+                          <Badge className={STATUS_BADGE[c.status] || ''}>{STATUS_LABEL[c.status] || c.status}</Badge>
                         </TableCell>
                         <TableCell className="text-right space-x-1">
                           <Button size="sm" variant="outline" onClick={() => openPreview(c.qr_token)} className="gap-1">
@@ -684,12 +854,22 @@ export default function SchoolCardsAdminPage() {
                     ))}
                   </TableBody>
                 </Table>
+                </div>
               )}
+
+              <Pager
+                offset={cardsOffset}
+                pageCount={cards.length}
+                total={cardsTotal}
+                busy={loadingCards}
+                onChange={setCardsOffset}
+              />
+
               <TableRefreshBar
                 className="-mx-6 -mb-6 mt-2 rounded-b-lg"
-                onRefresh={loadCards}
+                onRefresh={() => loadCards(cardsOffset)}
                 loading={loadingCards}
-                summary={`${cards.length} carnet(s)`}
+                summary={`${cardsTotal} carnet(s)`}
               />
             </CardContent>
           </Card>
@@ -706,12 +886,22 @@ export default function SchoolCardsAdminPage() {
           <DialogHeader>
             <DialogTitle>Emitir carnet</DialogTitle>
             <DialogDescription>
-              {issueTarget?.has_active_card
-                ? `Esto revocará el carnet activo actual de ${issueTarget?.full_name} y emitirá uno nuevo.`
-                : `Se generará un nuevo carnet para ${issueTarget?.full_name}.`}
+              {issueTarget?.card_status === 'active'
+                ? `Esto revocará el carnet vigente de ${issueTarget?.full_name} y emitirá uno nuevo.`
+                : issueTarget?.card_status === 'expired'
+                  ? `${issueTarget?.full_name} tiene un carnet vencido: se reemplaza por una versión nueva.`
+                  : `Se generará un nuevo carnet para ${issueTarget?.full_name}.`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {issueTarget && (
+              <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground space-y-0.5">
+                <div><span className="font-medium text-foreground">{KIND_LABEL[issueTarget.kind]}</span>
+                  {issueTarget.doc_number ? ` · ${issueTarget.doc_type || ''} ${issueTarget.doc_number}`.trimEnd() : ' · sin documento registrado'}
+                </div>
+                <div>{issueTarget.team_name || 'Sin equipo'}{issueTarget.branch_name ? ` · ${issueTarget.branch_name}` : ''}</div>
+              </div>
+            )}
             {templates.length > 0 && (
               <div>
                 <Label>Plantilla</Label>
@@ -845,6 +1035,48 @@ export default function SchoolCardsAdminPage() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Paginador simple: rango visible + anterior/siguiente. */
+function Pager({ offset, pageCount, total, busy, onChange }: {
+  offset: number;
+  pageCount: number;
+  total: number;
+  busy: boolean;
+  onChange: (offset: number) => void;
+}) {
+  if (total <= PAGE_SIZE) return null;
+  const from = total === 0 ? 0 : offset + 1;
+  const to = offset + pageCount;
+  return (
+    <div className="flex items-center justify-between gap-3 pt-3">
+      <span className="text-xs text-muted-foreground tabular-nums">
+        {from}–{to} de {total}
+      </span>
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1"
+          disabled={busy || offset === 0}
+          onClick={() => onChange(Math.max(0, offset - PAGE_SIZE))}
+        >
+          <ChevronLeft className="h-3.5 w-3.5" />
+          Anterior
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1"
+          disabled={busy || to >= total}
+          onClick={() => onChange(offset + PAGE_SIZE)}
+        >
+          Siguiente
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Button>
+      </div>
     </div>
   );
 }

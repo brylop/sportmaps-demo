@@ -34,6 +34,8 @@ import {
     type InternalStatus,
 } from '../services/mercadopago.service';
 import { loadProviderConfig } from '../services/payment-provider.resolver';
+// Mismo formato de motivo que Wompi para que el frontend lo parsee una sola vez.
+import { buildFailureReason, bankMessageFrom } from './wompi';
 import {
     recordWebhookEvent,
     markWebhookProcessed,
@@ -291,11 +293,11 @@ export async function routeMercadoPagoTransaction(
 }
 
 async function handleSchoolPayment(args: HandlerArgs): Promise<HandlerResult> {
-    const { req, paymentId, externalRef, internalStatus, amount } = args;
+    const { req, paymentId, externalRef, internalStatus, amount, paymentTypeId, payment } = args;
 
     const { data: link, error: linkErr } = await supabase
         .from('payment_links')
-        .select('id, payment_id, school_id, gross_amount, base_amount, sportmaps_fee, status')
+        .select('id, payment_id, school_id, gross_amount, base_amount, sportmaps_fee, status, failed_attempts')
         .eq('provider_reference', externalRef)
         .maybeSingle();
 
@@ -384,24 +386,53 @@ async function handleSchoolPayment(args: HandlerArgs): Promise<HandlerResult> {
         return { status: 200, body: { status: 'ok', kind: 'school_payment' } };
     }
 
-    await supabase
+    // Mismo tratamiento que Wompi (ver wompi.ts): el error del UPDATE se lee —
+    // el CHECK de payment_links no admitía estos estados y el fallo se perdía
+    // en silencio — y solo lo ambiguo (ERROR/VOIDED) bloquea el reintento.
+    const { error: linkUpdErr } = await supabase
         .from('payment_links')
         .update({
             status: internalStatus === 'rejected' ? 'declined' : internalStatus,
-            failed_attempts: 1,
+            failed_attempts: ((link as any).failed_attempts ?? 0) + 1,
             updated_at: new Date().toISOString(),
         })
         .eq('id', link.id);
 
-    await supabase.rpc('flag_payment_for_review', {
-        p_kind: 'payment',
-        p_id: link.payment_id,
-        p_reason: `mp_${internalStatus} (payment_id=${paymentId})`,
+    if (linkUpdErr) {
+        req.log?.error(
+            { err: linkUpdErr, linkId: link.id, internalStatus },
+            'No se pudo marcar el payment_link como fallido — el intento queda sin rastro',
+        );
+    }
+
+    const isAmbiguous = internalStatus === 'failed' || internalStatus === 'refunded';
+
+    const { error: trailErr } = await supabase.rpc(
+        isAmbiguous ? 'flag_payment_for_review' : 'record_payment_failure',
+        {
+            p_kind: 'payment',
+            p_id: link.payment_id,
+            // MP manda el motivo humano en `status_detail` (cc_rejected_call_for_authorize…).
+            p_reason: buildFailureReason('mp', internalStatus, paymentTypeId, payment, paymentId),
+        },
+    );
+    if (trailErr) {
+        req.log?.error({ err: trailErr, paymentId: link.payment_id }, 'No se pudo registrar el fallo del cobro');
+    }
+
+    // Mismo aviso que en Wompi: hasta ahora un rechazo no le llegaba a nadie.
+    const { error: notifErr } = await supabase.rpc('notify_payment_attempt_failed', {
+        p_payment_id: link.payment_id,
+        p_reason: bankMessageFrom(payment),
+        p_ambiguous: isAmbiguous,
     });
+    if (notifErr) {
+        req.log?.warn({ err: notifErr, paymentId: link.payment_id }, 'notify_payment_attempt_failed falló (no-bloqueante)');
+    }
 
     return {
         status: 200,
-        body: { status: 'ok', kind: 'school_payment', internalStatus, flagged_for_review: true },
+        body: { status: 'ok', kind: 'school_payment', internalStatus, flagged_for_review: isAmbiguous },
     };
 }
 

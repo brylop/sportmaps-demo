@@ -93,17 +93,6 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
 
     setLoading(true);
     try {
-      // Guard: no aprobar pagos bloqueados por revisión
-      if (payment?.requires_review) {
-        toast({
-          title: 'Pago bloqueado',
-          description: 'Este pago está en revisión. Desbloquearlo primero desde Negocio › Pagos.',
-          variant: 'destructive',
-        });
-        setLoading(false);
-        return;
-      }
-
       // Conserva el método si ya viene (no se re-pregunta); default transfer.
       const method = (payment.payment_method as string) || 'transfer';
       // amount_paid ACUMULA los abonos previos; en pago completo se salda todo.
@@ -118,6 +107,13 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
         approved_by: user.id,
         approved_at: new Date().toISOString(),
         amount_paid: newAmountPaid,
+        // Aprobar CIERRA la revisión que dejó la pasarela tras un rechazo: el
+        // admin ya vio el comprobante. Antes esto bloqueaba la aprobación y
+        // remitía a una pantalla «Negocio › Pagos» que nunca existió, así que
+        // el cobro quedaba muerto. last_failure_* se conserva como auditoría.
+        requires_review: false,
+        unblocked_at: new Date().toISOString(),
+        unblocked_by: user.id,
       } as any).eq('id', payment.id);
 
       if (updateError) throw updateError;
@@ -233,6 +229,17 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
               <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
               <p className="text-xs text-amber-700">
                 No se pudo leer el monto del comprobante automáticamente. <strong>Abre el comprobante y verifica el valor</strong> antes de aprobar. Si el pago fue menor al esperado, regístralo como <strong>abono</strong> con el monto real.
+              </p>
+            </div>
+          )}
+
+          {/* Rechazo previo de la pasarela. Informativo: aprobar lo destraba. */}
+          {payment?.requires_review && (
+            <div className="p-3 rounded-xl border border-amber-300 bg-amber-50 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-700">
+                Este cobro venía marcado <strong>en revisión</strong> por un intento de pago con tarjeta rechazado
+                {payment.last_failure_reason ? ` (${payment.last_failure_reason})` : ''}. Al aprobarlo se destraba.
               </p>
             </div>
           )}

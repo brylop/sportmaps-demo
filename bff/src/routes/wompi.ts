@@ -51,6 +51,46 @@ const router = Router();
 const SAFE_REFERENCE = /^[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+$/;
 
 /**
+ * Motivo del intento fallido, en formato legible por `parsePaymentFailure` del
+ * frontend: `<proveedor>_<estado> · <medio> · <mensaje del banco> (tx=…)`.
+ *
+ * El mensaje del banco es lo unico que hace util el chip: sin el, la escuela
+ * lee "rechazado" y sigue sin saber si la familia tiene que llamar al banco o
+ * cambiar de medio. Wompi lo manda en `status_message` (p.ej. "La transaccion
+ * fue rechazada (Rechazo General)" o el texto del reto 3DS).
+ */
+/**
+ * Lo que dijo el banco, pelado, para meterlo en una notificacion.
+ *
+ * Distinto de `buildFailureReason`: ese arma la cadena tecnica que se guarda en
+ * last_failure_reason (con el codigo del proveedor y el tx). Esto es lo que
+ * lee un padre en su celular, asi que va sin prefijos ni ids.
+ */
+export function bankMessageFrom(rawTransaction?: any): string | null {
+    const mensaje = rawTransaction?.status_message ?? rawTransaction?.status_detail ?? null;
+    if (!mensaje) return null;
+    return String(mensaje).slice(0, 160);
+}
+
+export function buildFailureReason(
+    provider: 'wompi' | 'mp',
+    internalStatus: string,
+    paymentMethodType?: string | null,
+    rawTransaction?: any,
+    txId?: string,
+): string {
+    const partes = [`${provider}_${internalStatus}`];
+
+    if (paymentMethodType) partes.push(String(paymentMethodType));
+
+    // Se recorta: last_failure_reason no es un log, es el texto de un chip.
+    const mensaje = rawTransaction?.status_message ?? rawTransaction?.status_detail ?? null;
+    if (mensaje) partes.push(String(mensaje).slice(0, 160));
+
+    return `${partes.join(' · ')}${txId ? ` (tx=${txId})` : ''}`;
+}
+
+/**
  * Resuelve las credenciales Wompi del comercio dueño de una referencia.
  *
  * Necesario para escuelas con cuenta propia (payment_mode='direct'): cada una tiene su
@@ -286,12 +326,12 @@ const WOMPI_METHOD_MAP: Record<string, string> = {
 };
 
 async function handleSchoolPayment({
-    req, txId, txReference, internalStatus, txAmountCop, paymentMethodType,
+    req, txId, txReference, internalStatus, txAmountCop, paymentMethodType, rawTransaction,
 }: HandlerArgs): Promise<HandlerResult> {
     // 1. Buscar payment_link por referencia
     const { data: link, error: linkErr } = await supabase
         .from('payment_links')
-        .select('id, payment_id, school_id, gross_amount, base_amount, sportmaps_fee, status, expires_at')
+        .select('id, payment_id, school_id, gross_amount, base_amount, sportmaps_fee, status, expires_at, failed_attempts')
         .eq('wompi_reference', txReference)
         .maybeSingle();
 
@@ -405,24 +445,63 @@ async function handleSchoolPayment({
         return { status: 200, body: { status: 'ok', kind: 'school_payment' } };
     }
 
-    // No-paid (declined/voided/error) → marcar payment para review del negocio
-    await supabase
+    // No-paid (declined/voided/error) → dejar rastro del intento.
+    //
+    // El error de este UPDATE se lee. Durante meses no se leyó: el CHECK de
+    // payment_links no admitía 'declined'/'failed'/'refunded', Postgres tiraba
+    // 23514 y los 10 rechazos de Dynasty quedaron con el link en 'pending' y
+    // failed_attempts en 0, como si nadie hubiera intentado pagar.
+    const { error: linkUpdErr } = await supabase
         .from('payment_links')
         .update({
             status: internalStatus === 'rejected' ? 'declined' : internalStatus,
-            failed_attempts: 1,
+            // Contador, no bandera: tres intentos tienen que leerse como tres.
+            failed_attempts: ((link as any).failed_attempts ?? 0) + 1,
             updated_at: new Date().toISOString(),
         })
         .eq('id', link.id);
 
-    await supabase.rpc('flag_payment_for_review', {
-        p_kind: 'payment',
-        p_id: link.payment_id,
-        p_reason: `wompi_${internalStatus} (tx=${txId})`,
-    });
+    if (linkUpdErr) {
+        req.log?.error(
+            { err: linkUpdErr, linkId: link.id, internalStatus },
+            'No se pudo marcar el payment_link como fallido — el intento queda sin rastro',
+        );
+    }
 
-    req.log?.warn({ paymentId: link.payment_id, internalStatus }, 'School payment flagged for review');
-    return { status: 200, body: { status: 'ok', kind: 'school_payment', internalStatus, flagged_for_review: true } };
+    // Solo lo AMBIGUO bloquea. Una declinación ordinaria (el banco dijo que no,
+    // o el padre abandonó el PSE) no deja plata en el aire: no hay nada que
+    // revisar, hay que reintentar. ERROR y VOIDED sí: ahí no sabemos si el
+    // dinero se movió, y la fila para hasta que alguien mire.
+    const isAmbiguous = internalStatus === 'failed' || internalStatus === 'refunded';
+    const reason = buildFailureReason('wompi', internalStatus, paymentMethodType, rawTransaction, txId);
+
+    const { error: trailErr } = await supabase.rpc(
+        isAmbiguous ? 'flag_payment_for_review' : 'record_payment_failure',
+        { p_kind: 'payment', p_id: link.payment_id, p_reason: reason },
+    );
+    if (trailErr) {
+        req.log?.error({ err: trailErr, paymentId: link.payment_id }, 'No se pudo registrar el fallo del cobro');
+    }
+
+    // Avisar a la familia y al staff. No-bloqueante: si el aviso falla, el
+    // rastro del intento ya quedó igual.
+    const { error: notifErr } = await supabase.rpc('notify_payment_attempt_failed', {
+        p_payment_id: link.payment_id,
+        p_reason: bankMessageFrom(rawTransaction),
+        p_ambiguous: isAmbiguous,
+    });
+    if (notifErr) {
+        req.log?.warn({ err: notifErr, paymentId: link.payment_id }, 'notify_payment_attempt_failed falló (no-bloqueante)');
+    }
+
+    req.log?.warn(
+        { paymentId: link.payment_id, internalStatus, blocked: isAmbiguous },
+        isAmbiguous ? 'School payment flagged for review' : 'School payment declined (reintento habilitado)',
+    );
+    return {
+        status: 200,
+        body: { status: 'ok', kind: 'school_payment', internalStatus, flagged_for_review: isAmbiguous },
+    };
 }
 
 // ─── SVC/EVT/SUB/MKT: marketplace_transactions ─────────────────────────────

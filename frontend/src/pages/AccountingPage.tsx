@@ -226,7 +226,7 @@ export default function AccountingPage() {
                         }
                         // Fase 1: subir comprobante opcional y registrar el puntero.
                         if (payload.file) {
-                            const safeName = payload.file.name.replace(/[^\w.\-]/g, '_');
+                            const safeName = payload.file.name.replace(/[^\w.-]/g, '_');
                             const path = `${created.id}/${Date.now()}-${safeName}`;
                             const up = await supabase.storage
                                 .from('accounting-receipts')
