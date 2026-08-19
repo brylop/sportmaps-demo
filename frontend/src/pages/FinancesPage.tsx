@@ -9,18 +9,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { DollarSign, AlertCircle, TrendingUp, MessageCircle, CheckCircle2, History, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ReminderHistoryModal } from '@/components/finances/ReminderHistoryModal';
+import { paymentRemindersAPI } from '@/lib/api/payment-reminders';
 
-// Se importaba `ReminderRecord` de ReminderHistoryModal, que nunca lo exporto.
-// Es la forma del historial LOCAL de esta pagina (el modal carga el suyo desde
-// la base), asi que vive aca.
-interface ReminderRecord {
-  id: string;
-  parent: string;
-  student: string;
-  amount: number;
-  sentAt: string;
-  channel: 'whatsapp' | 'email' | 'sms';
-}
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { todayColombia, daysDiffFromToday, formatDayCO } from '@/lib/dateUtils';
 import { Input } from '@/components/ui/input';
@@ -47,12 +37,83 @@ const ORIGIN_TONES: Record<string, StatFilterTone> = {
   unknown: 'rose',
 };
 
+/** Una fila embebida de PostgREST llega como objeto o como array de un elemento. */
+const embedded = <T,>(v: unknown): T | null =>
+  (Array.isArray(v) ? (v[0] as T | undefined) : (v as T | null)) ?? null;
+
+/** Un texto en blanco de la base vale lo mismo que un NULL. */
+const clean = (v: unknown): string | null => {
+  const s = typeof v === 'string' ? v.trim() : '';
+  return s.length > 0 ? s : null;
+};
+
+/**
+ * Quién figura como pagador. `account` y `self` ya tienen usuario en la app;
+ * `temp` y `unregistered` son contactos que cargó la escuela y todavía no se
+ * registraron — esa familia no puede pagar en línea, hay que llamarla.
+ */
+type PayerSource = 'account' | 'self' | 'temp' | 'unregistered' | 'none';
+
+/** Lo que hace falta de un cobro para ponerle cara: los cuatro caminos posibles. */
+type PayableRow = {
+  student?: unknown;       // children
+  parent?: unknown;        // profiles vía parent_id
+  athlete?: unknown;       // profiles vía user_id — atleta adulto, se paga solo
+  unregistered?: unknown;  // unregistered_athletes — cargado por la escuela
+};
+
+type PersonRef = { full_name?: string | null; phone?: string | null };
+type ChildRef = { full_name?: string | null; parent_name_temp?: string | null; parent_phone_temp?: string | null };
+
+/**
+ * El acudiente NO siempre está en `payments.parent_id`: ese campo se llena solo
+ * cuando la familia creó su cuenta. La escuela igual cargó el contacto y quedó en
+ * `children.parent_*_temp`, y los atletas adultos se pagan a sí mismos. Mirando
+ * únicamente `parent_id`, 131 de las 221 filas vencidas de Dynasty salían como
+ * "Desconocido" con el nombre y el celular sentados en la base — y sin nombre no
+ * hay a quién cobrarle.
+ */
+const resolvePayer = (p: PayableRow): { name: string | null; phone: string | null; source: PayerSource } => {
+  const child = embedded<ChildRef>(p.student);
+  const account = embedded<PersonRef>(p.parent);
+  const adult = embedded<PersonRef>(p.athlete);
+  const unreg = embedded<PersonRef>(p.unregistered);
+
+  const fromAccount = clean(account?.full_name);
+  if (fromAccount) return { name: fromAccount, phone: clean(account?.phone), source: 'account' };
+
+  const fromTemp = clean(child?.parent_name_temp);
+  if (fromTemp) return { name: fromTemp, phone: clean(child?.parent_phone_temp), source: 'temp' };
+
+  const fromAdult = clean(adult?.full_name);
+  if (fromAdult) return { name: fromAdult, phone: clean(adult?.phone), source: 'self' };
+
+  const fromUnreg = clean(unreg?.full_name);
+  if (fromUnreg) return { name: fromUnreg, phone: clean(unreg?.phone), source: 'unregistered' };
+
+  return { name: null, phone: null, source: 'none' };
+};
+
+/**
+ * El atleta tampoco está siempre en `children`: si es adulto va por `user_id`, y
+ * si la escuela lo cargó sin invitarlo, por `unregistered_athlete_id`.
+ */
+const resolveAthleteName = (p: PayableRow): string | null =>
+  clean(embedded<ChildRef>(p.student)?.full_name)
+  ?? clean(embedded<PersonRef>(p.athlete)?.full_name)
+  ?? clean(embedded<PersonRef>(p.unregistered)?.full_name);
+
 interface OverdueAccount {
   id: string;
   parent: string;
+  /** De dónde salió el nombre del pagador; manda si se le marca "sin cuenta". */
+  payerSource: PayerSource;
+  /** El celular que la escuela tiene para cobrarle, venga de donde venga. */
+  parentPhone: string | null;
   student: string;
   concept: string;
   amount: number;
+  dueDate: string;
   daysOverdue: number;
   status: 'overdue' | 'reminder_sent';
   lastContactDate?: string;
@@ -75,6 +136,8 @@ interface Transaction {
 }
 
 const TX_PAGE_SIZE = 10;
+/** La cartera de Dynasty son 221 filas: sin paginar, la pantalla es una sábana. */
+const OVERDUE_PAGE_SIZE = 25;
 
 /**
  * Tope explícito de la consulta. No es un filtro: es el techo que PostgREST
@@ -129,7 +192,7 @@ const isUpcomingCharge = (p: ChargeState): boolean => isUnpaid(p) && !isOverdueC
 
 export default function FinancesPage() {
   const { toast } = useToast();
-  const { schoolId, activeBranchId } = useSchoolContext();
+  const { schoolId, activeBranchId, schoolName } = useSchoolContext();
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   // Filtros de la tabla de transacciones.
@@ -137,6 +200,11 @@ export default function FinancesPage() {
   const [txOrigin, setTxOrigin] = useState<PaymentOriginKind | 'all'>('all');
   const [txPage, setTxPage] = useState(1);
   useEffect(() => { setTxPage(1); }, [txSearch, txOrigin]);
+
+  // Paginación de la cartera. Se reinicia al cambiar de escuela o sede: la página
+  // 7 de otra sede no significa nada acá.
+  const [odPage, setOdPage] = useState(1);
+  useEffect(() => { setOdPage(1); }, [schoolId, activeBranchId]);
 
   // Fetch payments from Supabase — filtrado por school_id y branch
   const { data: payments, isLoading, isError, isFetching, refetch } = useQuery({
@@ -163,8 +231,10 @@ export default function FinancesPage() {
           qr_id,
           period_year,
           period_month,
-          student:children(full_name),
-          parent:profiles!payments_parent_id_fkey(full_name)
+          student:children(full_name, parent_name_temp, parent_phone_temp),
+          parent:profiles!payments_parent_id_fkey(full_name, phone),
+          athlete:profiles!payments_user_id_fkey(full_name, phone),
+          unregistered:unregistered_athletes(full_name, phone)
         `)
         .in('status', USED_STATUSES as unknown as string[])
         // `id` como último criterio: sin un desempate determinista, dos cargas
@@ -203,18 +273,34 @@ export default function FinancesPage() {
   // Update effect to sync state
   useEffect(() => {
     if (accountsData) {
-      setOverdueAccounts(accountsData.map(p => ({
-        id: p.id,
-        parent: (Array.isArray(p.parent) ? p.parent[0]?.full_name : p.parent?.full_name) || 'Desconocido',
-        student: (Array.isArray(p.student) ? p.student[0]?.full_name : p.student?.full_name) || 'Deportista',
-        concept: p.concept,
-        amount: Number(p.amount),
-        daysOverdue: daysDiffFromToday(p.due_date),
-        status: 'overdue'
-      })));
+      setOverdueAccounts(accountsData.map(p => {
+        const payer = resolvePayer(p);
+        return {
+          id: p.id,
+          parent: payer.name || 'Desconocido',
+          payerSource: payer.source,
+          parentPhone: payer.phone,
+          student: resolveAthleteName(p) || 'Deportista',
+          concept: p.concept,
+          amount: Number(p.amount),
+          dueDate: p.due_date,
+          daysOverdue: daysDiffFromToday(p.due_date),
+          status: 'overdue' as const,
+        };
+      }));
     }
   }, [payments]);
 
+
+  // Si la cartera se encoge (alguien pagó, o se cambió de sede) la página en la que
+  // estaba parado el usuario puede ya no existir: se acota en vez de mostrar una
+  // tabla vacía sin explicación.
+  const odTotalPages = Math.max(1, Math.ceil(overdueAccounts.length / OVERDUE_PAGE_SIZE));
+  const odCurrentPage = Math.min(odPage, odTotalPages);
+  const pagedOverdue = overdueAccounts.slice(
+    (odCurrentPage - 1) * OVERDUE_PAGE_SIZE,
+    odCurrentPage * OVERDUE_PAGE_SIZE,
+  );
 
   // ── Transacciones ──────────────────────────────────────────────────────────
   // Antes: los 5 primeros `paid` ordenados por due_date (no por fecha de pago),
@@ -277,45 +363,70 @@ export default function FinancesPage() {
   const pagedTransactions = transactions.slice((txPage - 1) * TX_PAGE_SIZE, txPage * TX_PAGE_SIZE);
   const txTotal = transactions.reduce((sum, t) => sum + t.amount, 0);
 
-  const [reminderHistory, setReminderHistory] = useState<ReminderRecord[]>([]);
   const [sendingReminder, setSendingReminder] = useState<string | null>(null);
 
+  /**
+   * Antes: un `setTimeout` de 1,5 s y un toast que anunciaba "Recordatorio WhatsApp
+   * enviado" sin mandar nada, con el historial en memoria — se perdía al recargar.
+   * Le afirmaba a la escuela que había cobrado cuando no había cobrado.
+   */
   const handleSendReminder = async (accountId: string) => {
-    setSendingReminder(accountId);
-
-    // Simulate WhatsApp notification
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
     const account = overdueAccounts.find(a => a.id === accountId);
-    if (!account) return;
+    if (!account || !schoolId) return;
 
-    const now = new Date().toISOString();
+    setSendingReminder(accountId);
+    try {
+      const result = await paymentRemindersAPI.sendWhatsAppReminder(
+        {
+          paymentId: account.id,
+          contactName: account.parent,
+          contactPhone: account.parentPhone,
+          athleteName: account.student,
+          amount: account.amount,
+          dueDate: account.dueDate,
+          status: 'overdue',
+        },
+        { schoolId, schoolName },
+      );
 
-    // Add to reminder history
-    const newReminder: ReminderRecord = {
-      id: `reminder-${Date.now()}`,
-      parent: account.parent,
-      student: account.student,
-      amount: account.amount,
-      sentAt: now,
-      channel: 'whatsapp',
-    };
-    setReminderHistory(prev => [newReminder, ...prev]);
+      if (result.status === 'no_phone') {
+        toast({
+          variant: 'destructive',
+          title: 'Sin teléfono para cobrar',
+          description: `No hay celular registrado para ${account.parent}. Agrégalo en la ficha de ${account.student}.`,
+        });
+        return;
+      }
 
-    // Update account status
-    setOverdueAccounts(prev => prev.map(a =>
-      a.id === accountId
-        ? { ...a, status: 'reminder_sent' as const, lastContactDate: now }
-        : a
-    ));
+      if (result.status === 'invalid_phone') {
+        toast({
+          variant: 'destructive',
+          title: 'El teléfono no es marcable',
+          description: `«${result.phone}» no es un celular válido. Corrígelo en la ficha de ${account.student} y vuelve a intentar.`,
+        });
+        return;
+      }
 
-    setSendingReminder(null);
+      // La fila se marca solo cuando WhatsApp se abrió de verdad.
+      setOverdueAccounts(prev => prev.map(a =>
+        a.id === accountId
+          ? { ...a, status: 'reminder_sent' as const, lastContactDate: new Date().toISOString() }
+          : a
+      ));
 
-    // Show WhatsApp simulation toast
-    toast({
-      title: '📱 Recordatorio WhatsApp enviado',
-      description: `Se envió recordatorio de pago a ${account.parent} por $${account.amount.toLocaleString()}`,
-    });
+      toast({
+        title: 'WhatsApp abierto',
+        description: `Revisa el mensaje para ${account.parent} y dale enviar${result.usedFallback ? ' (se usó el texto por defecto: la plantilla no respondió)' : ''}.`,
+      });
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'No se pudo preparar el recordatorio',
+        description: err instanceof Error ? err.message : 'Intenta de nuevo.',
+      });
+    } finally {
+      setSendingReminder(null);
+    }
   };
 
   const getStatusBadge = (account: OverdueAccount) => {
@@ -450,7 +561,7 @@ export default function FinancesPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Padre</TableHead>
+                <TableHead>Acudiente / Pagador</TableHead>
                 <TableHead>Deportista</TableHead>
                 <TableHead>Concepto</TableHead>
                 <TableHead>Monto Vencido</TableHead>
@@ -459,9 +570,21 @@ export default function FinancesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {overdueAccounts.map((account) => (
+              {pagedOverdue.map((account) => (
                 <TableRow key={account.id}>
-                  <TableCell className="font-medium">{account.parent}</TableCell>
+                  <TableCell className="font-medium">
+                    <div className="flex flex-col gap-0.5">
+                      <span>{account.parent}</span>
+                      {(account.payerSource === 'temp' || account.payerSource === 'unregistered') && (
+                        <span className="flex flex-wrap items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                          <Badge variant="outline" className="px-1 py-0 text-[10px] font-normal">
+                            sin cuenta
+                          </Badge>
+                          {account.parentPhone}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell>{account.student}</TableCell>
                   <TableCell>{account.concept}</TableCell>
                   <TableCell className="text-red-500 font-bold">
@@ -504,8 +627,20 @@ export default function FinancesPage() {
             className="-mx-6 -mb-6 mt-2 rounded-b-lg"
             onRefresh={refetch}
             loading={isFetching}
-            summary={`${overdueAccounts.length} cuenta(s) por cobrar`}
-          />
+            summary={
+              `${overdueAccounts.length} cuenta(s) por cobrar · $${financialSummary.totalOverdue.toLocaleString('es-CO')}` +
+              (odTotalPages > 1 ? ` · página ${odCurrentPage} de ${odTotalPages}` : '')
+            }
+          >
+            {odTotalPages > 1 && (
+              <>
+                <Button variant="outline" size="sm" disabled={odCurrentPage <= 1}
+                  onClick={() => setOdPage(odCurrentPage - 1)}>Anterior</Button>
+                <Button variant="outline" size="sm" disabled={odCurrentPage >= odTotalPages}
+                  onClick={() => setOdPage(odCurrentPage + 1)}>Siguiente</Button>
+              </>
+            )}
+          </TableRefreshBar>
         </CardContent>
       </Card>
 

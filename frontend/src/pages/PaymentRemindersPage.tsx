@@ -22,7 +22,6 @@ import { StatFilterBar } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { emailClient } from '@/lib/email-client';
 import { supabase } from '@/integrations/supabase/client';
-import { bffClient } from '@/lib/api/bffClient';
 import { ReminderHistoryModal } from '@/components/finances/ReminderHistoryModal';
 
 export default function PaymentRemindersPage() {
@@ -216,10 +215,6 @@ export default function PaymentRemindersPage() {
     const [sendingWA, setSendingWA] = useState<string | null>(null);
 
     const sendWhatsApp = async (reminder: PaymentReminder) => {
-        if (!reminder.parentPhone) {
-            toast.warning('Este padre no tiene teléfono registrado');
-            return;
-        }
         if (!reminder.paymentId) {
             toast.error('Pago sin ID, no se puede renderizar plantilla');
             return;
@@ -227,54 +222,26 @@ export default function PaymentRemindersPage() {
 
         setSendingWA(reminder.id);
         try {
-            // Determine template type from payment status
-            const templateType = reminder.status === 'overdue' ? 'overdue'
-                : daysDiffFromToday(reminder.dueDate) <= 0 ? 'reminder_due'
-                : 'reminder_before';
-
-            // Build render request — use specific template if selected, otherwise auto-detect
-            const renderBody: Record<string, string> = {
-                payment_id: reminder.paymentId,
-                template_type: templateType,
-                channel: 'whatsapp',
-            };
-            if (selectedTemplateId !== 'auto') {
-                renderBody.template_id = selectedTemplateId;
-            }
-
-            const { message } = await bffClient.post<{ message: { body: string } }>(
-                '/api/v1/templates/render',
-                renderBody,
+            const result = await paymentRemindersAPI.sendWhatsAppReminder(
+                {
+                    paymentId: reminder.paymentId,
+                    contactName: reminder.parentName,
+                    contactPhone: reminder.parentPhone,
+                    contactEmail: reminder.parentEmail,
+                    athleteName: reminder.childName,
+                    amount: reminder.amount,
+                    dueDate: reminder.dueDate,
+                    status: reminder.status === 'overdue' ? 'overdue' : 'pending',
+                },
+                { schoolId: schoolId!, schoolName, templateId: selectedTemplateId },
             );
-
-            // Clean phone number
-            const cleanPhone = reminder.parentPhone.replace(/[\s\-()]/g, '');
-            const phone = cleanPhone.startsWith('+') ? cleanPhone.replace('+', '') : `57${cleanPhone.replace(/^0+/, '')}`;
-
-            // Registrar en historial
-            const { data: { user } } = await supabase.auth.getUser();
-            await paymentRemindersAPI.logReminder({
-                school_id: schoolId!,
-                payment_id: reminder.paymentId || undefined,
-                contact_name: reminder.parentName,
-                contact_email: reminder.parentEmail || undefined,
-                contact_phone: reminder.parentPhone || undefined,
-                amount: reminder.amount,
-                channel: 'whatsapp',
-                sent_by: user?.id || '',
-            });
-
-            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message.body)}`, '_blank');
+            if (result.status === 'no_phone') {
+                toast.warning('Este contacto no tiene teléfono registrado');
+            } else if (result.status === 'invalid_phone') {
+                toast.warning(`«${result.phone}» no es un celular válido: corrígelo en la ficha`);
+            }
         } catch (err: any) {
-            // Fallback: use hardcoded message if BFF fails
-            const cleanPhone = reminder.parentPhone.replace(/[\s\-()]/g, '');
-            const phone = cleanPhone.startsWith('+') ? cleanPhone.replace('+', '') : `57${cleanPhone.replace(/^0+/, '')}`;
-            const isOverdue = reminder.status === 'overdue';
-            const msg = isOverdue
-                ? `Hola ${reminder.parentName}, le informamos que el pago de *${reminder.childName}* en *${schoolName || 'la academia'}* (${formatCurrency(reminder.amount)}) esta vencido desde el ${formatDate(reminder.dueDate)}. Por favor realice el pago lo antes posible.`
-                : `Hola ${reminder.parentName}, le recordamos que el pago de *${reminder.childName}* en *${schoolName || 'la academia'}* (${formatCurrency(reminder.amount)}) vence el ${formatDate(reminder.dueDate)}. Gracias por su puntualidad.`;
-            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
-            console.warn('Template render failed, used fallback:', err.message);
+            toast.error(err?.message || 'No se pudo abrir WhatsApp');
         } finally {
             setSendingWA(null);
         }
