@@ -59,6 +59,19 @@ const SAFE_REFERENCE = /^[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+$/;
  * cambiar de medio. Wompi lo manda en `status_message` (p.ej. "La transaccion
  * fue rechazada (Rechazo General)" o el texto del reto 3DS).
  */
+/**
+ * Lo que dijo el banco, pelado, para meterlo en una notificacion.
+ *
+ * Distinto de `buildFailureReason`: ese arma la cadena tecnica que se guarda en
+ * last_failure_reason (con el codigo del proveedor y el tx). Esto es lo que
+ * lee un padre en su celular, asi que va sin prefijos ni ids.
+ */
+export function bankMessageFrom(rawTransaction?: any): string | null {
+    const mensaje = rawTransaction?.status_message ?? rawTransaction?.status_detail ?? null;
+    if (!mensaje) return null;
+    return String(mensaje).slice(0, 160);
+}
+
 export function buildFailureReason(
     provider: 'wompi' | 'mp',
     internalStatus: string,
@@ -468,6 +481,17 @@ async function handleSchoolPayment({
     );
     if (trailErr) {
         req.log?.error({ err: trailErr, paymentId: link.payment_id }, 'No se pudo registrar el fallo del cobro');
+    }
+
+    // Avisar a la familia y al staff. No-bloqueante: si el aviso falla, el
+    // rastro del intento ya quedó igual.
+    const { error: notifErr } = await supabase.rpc('notify_payment_attempt_failed', {
+        p_payment_id: link.payment_id,
+        p_reason: bankMessageFrom(rawTransaction),
+        p_ambiguous: isAmbiguous,
+    });
+    if (notifErr) {
+        req.log?.warn({ err: notifErr, paymentId: link.payment_id }, 'notify_payment_attempt_failed falló (no-bloqueante)');
     }
 
     req.log?.warn(

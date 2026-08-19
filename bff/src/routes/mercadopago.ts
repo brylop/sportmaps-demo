@@ -35,7 +35,7 @@ import {
 } from '../services/mercadopago.service';
 import { loadProviderConfig } from '../services/payment-provider.resolver';
 // Mismo formato de motivo que Wompi para que el frontend lo parsee una sola vez.
-import { buildFailureReason } from './wompi';
+import { buildFailureReason, bankMessageFrom } from './wompi';
 import {
     recordWebhookEvent,
     markWebhookProcessed,
@@ -418,6 +418,16 @@ async function handleSchoolPayment(args: HandlerArgs): Promise<HandlerResult> {
     );
     if (trailErr) {
         req.log?.error({ err: trailErr, paymentId: link.payment_id }, 'No se pudo registrar el fallo del cobro');
+    }
+
+    // Mismo aviso que en Wompi: hasta ahora un rechazo no le llegaba a nadie.
+    const { error: notifErr } = await supabase.rpc('notify_payment_attempt_failed', {
+        p_payment_id: link.payment_id,
+        p_reason: bankMessageFrom(payment),
+        p_ambiguous: isAmbiguous,
+    });
+    if (notifErr) {
+        req.log?.warn({ err: notifErr, paymentId: link.payment_id }, 'notify_payment_attempt_failed falló (no-bloqueante)');
     }
 
     return {
