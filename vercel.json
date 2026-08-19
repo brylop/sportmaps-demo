@@ -1,4 +1,15 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "*": false,
+      "main": true,
+      "staging": true,
+      "develop": true,
+      "production": true
+    }
+  },
+  "ignoreCommand": "bash vercel-ignore-build.sh",
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/build",
   "installCommand": "cd frontend && npm install",
@@ -32,7 +43,7 @@
       "destination": "https://sportmaps-bff-prod.onrender.com/api/v1/pwa/icon"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!assets/).*)",
       "destination": "/index.html"
     }
   ],
