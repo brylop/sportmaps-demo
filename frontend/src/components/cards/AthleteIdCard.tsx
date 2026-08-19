@@ -2,6 +2,11 @@ import { forwardRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { ShieldCheck, AlertTriangle, XCircle, CalendarDays, Hash, MapPin, Users, Heart, Phone, Shirt, User } from 'lucide-react';
 
+export type CardLayout = 'classic' | 'modern' | 'minimal' | 'photo' | 'stripe';
+export type CardPattern = 'none' | 'diagonal' | 'dots' | 'grid' | 'waves';
+export type CardPhotoShape = 'rounded' | 'circle' | 'square';
+export type CardTextMode = 'auto' | 'light' | 'dark';
+
 export type CardData = {
   found: boolean;
   status: 'active' | 'revoked' | 'expired' | string;
@@ -21,6 +26,12 @@ export type CardData = {
     id: string;
     name: string;
     accent_color?: string | null;
+    secondary_color?: string | null;
+    layout?: CardLayout | null;
+    pattern?: CardPattern | null;
+    photo_shape?: CardPhotoShape | null;
+    text_mode?: CardTextMode | null;
+    background_url?: string | null;
     header_text?: string | null;
     footer_text?: string | null;
     show_fields?: Record<string, boolean>;
@@ -66,6 +77,17 @@ const FEE_BADGE: Record<string, { label: string; bg: string; fg: string; icon: t
   unknown:     { label: 'Estado desconocido', bg: '#6b7280', fg: '#ffffff', icon: AlertTriangle },
 };
 
+const DEFAULT_SHOW: Record<string, boolean> = {
+  photo: true, doc_number: true, team: true, branch: true, plan: true,
+  valid_until: true, fee_status: true, blood_type: false,
+  emergency_contact: false, eps: false, tshirt_size: false,
+};
+
+/** Medidas fijas: la relación 340×540 es la de una CR80 (54 × 85,6 mm), que es
+ *  lo que se imprime y plastifica. Cambiarla descuadra el PDF de 9 por hoja. */
+const CARD_W = 340;
+const CARD_H = 540;
+
 interface Props {
   data: CardData;
   publicUrl: string;
@@ -74,192 +96,82 @@ interface Props {
   face?: 'front' | 'back';
 }
 
+/** Todo lo que los cinco layouts necesitan resuelto una sola vez. */
+type Theme = {
+  layout: CardLayout;
+  primary: string;
+  secondary: string;
+  /** Fondo del lienzo: gradiente de marca (o gris muy claro en los layouts claros). */
+  canvas: string;
+  /** true → el texto va oscuro sobre fondo claro. */
+  darkText: boolean;
+  ink: (a: number) => string;
+  inkColor: string;
+  pattern: string;
+  photoShape: string;
+  backgroundUrl: string | null;
+};
+
 export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUrl, className = '', face = 'front' }, ref) => {
-  const branding = data.school?.branding_settings || {};
-  const primaryColor: string = data.template?.accent_color || branding.primary_color || '#0ea5e9';
-  const secondaryColor: string = branding.secondary_color || '#1e40af';
-  const showWatermark: boolean = branding.show_sportmaps_watermark !== false;
-
-  // Auto-contraste: si el gradiente de la marca es claro (amarillo/lima/pastel),
-  // el texto pasa a oscuro para que se lea. Antes era siempre blanco → ilegible
-  // sobre marcas claras. Se evalúa el promedio de los dos colores del gradiente.
-  const darkText = isLightColor(primaryColor, secondaryColor);
-  const ink = (a: number) => darkText ? `rgba(20,20,20,${a})` : `rgba(255,255,255,${a})`;
-  const inkColor = darkText ? '#141414' : '#ffffff';
-  const logoBg = darkText ? 'rgba(0,0,0,0.86)' : 'rgba(255,255,255,0.95)';
-  const logoFg = darkText ? '#ffffff' : primaryColor;
-  const initials = getInitials(data.athlete?.full_name);
-  const show = data.template?.show_fields || {
-    photo: true, doc_number: true, team: true, branch: true, plan: true,
-    valid_until: true, fee_status: true, blood_type: false,
-    emergency_contact: false, eps: false, tshirt_size: false,
-  };
-
+  const t = resolveTheme(data);
+  const show = { ...DEFAULT_SHOW, ...(data.template?.show_fields || {}) };
   const feeKey = data.fee_status || 'unknown';
   const feeBadge = FEE_BADGE[feeKey] || FEE_BADGE.unknown;
-  const FeeIcon = feeBadge.icon;
-
   const isInactive = data.status === 'revoked' || data.status === 'expired';
+  const showWatermark: boolean = (data.school?.branding_settings || {}).show_sportmaps_watermark !== false;
+
+  const ctx: LayoutCtx = { data, t, show, publicUrl, feeBadge, feeKey };
 
   return (
     <div
       ref={ref}
-      className={`relative w-[340px] h-[540px] rounded-2xl overflow-hidden shadow-2xl ${className}`}
-      style={{
-        background: `linear-gradient(160deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-      }}
+      className={`relative rounded-2xl overflow-hidden shadow-2xl ${className}`}
+      style={{ width: CARD_W, height: CARD_H, background: t.canvas, color: t.inkColor }}
     >
-      {/* Banda lateral derecha decorativa */}
-      <div
-        className="absolute top-0 right-0 w-1/3 h-full opacity-15"
-        style={{
-          background: `repeating-linear-gradient(45deg, ${primaryColor}, ${primaryColor} 10px, transparent 10px, transparent 20px)`,
-        }}
-      />
-
-      {/* Header */}
-      <div className="relative px-5 pt-5 pb-3 flex items-center gap-3" style={{ borderBottom: `1px solid ${ink(0.2)}` }}>
-        {data.school?.logo_url ? (
+      {/* Imagen de fondo de la plantilla, si la escuela subió una. El velo de
+          color encima es lo que mantiene el texto legible sobre cualquier foto. */}
+      {t.backgroundUrl && (
+        <>
           <img
-            src={data.school.logo_url}
+            src={t.backgroundUrl}
             alt=""
-            className="h-12 w-12 rounded-lg object-contain p-1"
-            style={{ background: 'rgba(255,255,255,0.95)' }}
             crossOrigin="anonymous"
+            className="absolute inset-0 w-full h-full object-cover"
           />
-        ) : (
-          <div className="h-12 w-12 rounded-lg flex items-center justify-center text-xl font-bold" style={{ background: logoBg, color: logoFg }}>
-            {data.school?.name?.[0] || '?'}
-          </div>
-        )}
-        <div className="flex-1 min-w-0">
-          <p className="text-[10px] uppercase tracking-wider font-medium" style={{ color: ink(0.7) }}>
-            {data.template?.header_text || 'Carnet deportivo'}
-          </p>
-          <h3 className="font-bold text-base leading-tight truncate" style={{ color: inkColor }}>
-            {data.school?.name}
-          </h3>
-        </div>
-      </div>
-
-      {face === 'front' && (<>
-      {/* Foto + nombre */}
-      <div className="relative px-5 pt-4 flex flex-col items-center text-center">
-        {show.photo && (
-          <div className="mb-3 rounded-2xl overflow-hidden" style={{ width: 110, height: 110, background: 'rgba(255,255,255,0.95)', boxShadow: `0 0 0 4px ${ink(0.35)}` }}>
-            {data.athlete?.avatar_url ? (
-              <img src={data.athlete.avatar_url} alt={data.athlete.full_name} className="w-full h-full object-cover" crossOrigin="anonymous" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center font-extrabold" style={{ fontSize: 40, color: primaryColor }}>
-                {initials || <User className="h-12 w-12 text-gray-400" />}
-              </div>
-            )}
-          </div>
-        )}
-
-        <p className="font-bold text-lg leading-tight max-w-full break-words" style={{ color: inkColor }}>
-          {data.athlete?.full_name || '—'}
-        </p>
-
-        {show.doc_number && data.athlete?.doc_number && (
-          <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: ink(0.85) }}>
-            <Hash className="h-3 w-3" />
-            {data.athlete.doc_type || 'CC'} {data.athlete.doc_number}
-          </p>
-        )}
-      </div>
-
-      {/* Datos */}
-      <div className="relative px-5 mt-3 space-y-1.5">
-        {show.branch && data.branch_name && (
-          <Row icon={MapPin} label="Sede" value={data.branch_name} ink={ink} inkColor={inkColor} />
-        )}
-        {show.team && data.team_name && (
-          <Row icon={Users} label="Equipo" value={data.team_name} ink={ink} inkColor={inkColor} />
-        )}
-        {show.blood_type && data.athlete?.blood_type && (
-          <Row icon={Heart} label="RH" value={data.athlete.blood_type} ink={ink} inkColor={inkColor} />
-        )}
-        {show.eps && data.athlete?.eps_name && (
-          <Row icon={Heart} label="EPS" value={data.athlete.eps_name} ink={ink} inkColor={inkColor} />
-        )}
-        {show.tshirt_size && data.athlete?.tshirt_size && (
-          <Row icon={Shirt} label="Talla" value={data.athlete.tshirt_size} ink={ink} inkColor={inkColor} />
-        )}
-        {show.emergency_contact && data.athlete?.emergency_contact && (
-          <Row icon={Phone} label="Emergencia" value={data.athlete.emergency_contact} ink={ink} inkColor={inkColor} />
-        )}
-      </div>
-
-      {/* Bottom: QR + estado */}
-      <div className="absolute left-0 right-0 bottom-0 px-5 pb-4 pt-3 backdrop-blur-[1px]" style={{ background: darkText ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.18)' }}>
-        {show.fee_status && data.last_payment && (feeKey === 'paid' || feeKey === 'due_soon' || feeKey === 'overdue') && (
-          <div className="mb-2 rounded-md px-2 py-1 text-[10px] leading-tight" style={{ background: ink(0.15), color: ink(0.95) }}>
-            <div className="flex items-center justify-between gap-2">
-              <span className="truncate font-medium">
-                {data.last_payment.concept || 'Último pago'}
-              </span>
-              {typeof (data.last_payment.amount_paid ?? data.last_payment.amount) === 'number' && (
-                <span className="font-semibold tabular-nums">
-                  {formatCop(data.last_payment.amount_paid ?? data.last_payment.amount!)}
-                </span>
-              )}
-            </div>
-            {(data.last_payment.payment_date || data.last_payment.created_at) && (
-              <p className="text-[9px] mt-0.5" style={{ color: ink(0.7) }}>
-                Pagado {new Date((data.last_payment.payment_date || data.last_payment.created_at)!).toLocaleDateString('es-CO')}
-              </p>
-            )}
-          </div>
-        )}
-        <div className="flex items-center justify-between gap-3">
-          <div className="bg-white p-1.5 rounded-lg">
-            <QRCodeSVG value={publicUrl} size={72} level="M" />
-          </div>
-          <div className="flex-1 text-right">
-            {show.fee_status && (
-              <div
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold mb-1"
-                style={{ backgroundColor: feeBadge.bg, color: feeBadge.fg }}
-              >
-                <FeeIcon className="h-3 w-3" />
-                {feeBadge.label}
-              </div>
-            )}
-            {show.valid_until && data.valid_until && (
-              <p className="text-[11px] flex items-center justify-end gap-1" style={{ color: ink(0.85) }}>
-                <CalendarDays className="h-3 w-3" />
-                Vence {new Date(data.valid_until).toLocaleDateString('es-CO')}
-              </p>
-            )}
-            {data.version && data.version > 1 && (
-              <p className="text-[10px] mt-0.5" style={{ color: ink(0.6) }}>v{data.version}</p>
-            )}
-          </div>
-        </div>
-
-        {data.template?.footer_text && (
-          <p className="text-[9px] text-center mt-2 leading-tight" style={{ color: ink(0.6) }}>
-            {data.template.footer_text}
-          </p>
-        )}
-      </div>
-      </>)}
-
-      {face === 'back' && (
-        <BackFace data={data} publicUrl={publicUrl} ink={ink} inkColor={inkColor} />
+          <div className="absolute inset-0" style={{ background: t.canvas, opacity: 0.82 }} />
+        </>
       )}
 
-      {/* Watermark SportMaps si la escuela no es paid-tier */}
+      {/* Textura */}
+      {t.pattern && <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: t.pattern }} />}
+
+      {/* Brillo diagonal: barato en CSS y en impresión da el aire de tarjeta
+          plastificada en vez de papel. */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{ background: `linear-gradient(115deg, ${t.ink(0.12)} 0%, transparent 42%, transparent 58%, ${t.ink(0.07)} 100%)` }}
+      />
+
+      {face === 'back'
+        ? <BackFace ctx={ctx} />
+        : (
+          <>
+            {t.layout === 'modern'  && <ModernFace  ctx={ctx} />}
+            {t.layout === 'minimal' && <MinimalFace ctx={ctx} />}
+            {t.layout === 'photo'   && <PhotoFace   ctx={ctx} />}
+            {t.layout === 'stripe'  && <StripeFace  ctx={ctx} />}
+            {t.layout === 'classic' && <ClassicFace ctx={ctx} />}
+          </>
+        )}
+
       {showWatermark && (
-        <div className="absolute bottom-1 right-2 text-[8px] select-none" style={{ color: ink(0.4) }}>
+        <div className="absolute bottom-1 right-2 text-[8px] select-none z-20" style={{ color: 'rgba(125,125,125,0.75)' }}>
           SportMaps
         </div>
       )}
 
-      {/* Overlay si revocado/expirado */}
       {isInactive && (
-        <div className="absolute inset-0 bg-black/55 flex flex-col items-center justify-center z-10">
+        <div className="absolute inset-0 bg-black/55 flex flex-col items-center justify-center z-30">
           <XCircle className="h-12 w-12 text-red-400 mb-2" />
           <p className="text-white font-bold uppercase tracking-wider">
             {data.status === 'revoked' ? 'Carnet revocado' : 'Carnet vencido'}
@@ -273,6 +185,643 @@ export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUr
 
 AthleteIdCard.displayName = 'AthleteIdCard';
 
+// ───────────────────────────────────────────────────────────────────────────
+// Tema
+// ───────────────────────────────────────────────────────────────────────────
+
+function resolveTheme(data: CardData): Theme {
+  const branding = data.school?.branding_settings || {};
+  const tpl = data.template || ({} as NonNullable<CardData['template']>);
+  const layout: CardLayout = (tpl.layout as CardLayout) || 'classic';
+
+  const primary: string = tpl.accent_color || branding.primary_color || '#0ea5e9';
+  // El segundo color sale de la plantilla; si no hay, de la marca; y si tampoco,
+  // se deriva del primario. Antes caía a un azul fijo, así que toda plantilla
+  // sin marca terminaba en el mismo degradado y ningún carnet se veía propio.
+  const secondary: string = tpl.secondary_color || branding.secondary_color || shade(primary, -0.4);
+
+  const lightCanvas = layout === 'minimal' || layout === 'stripe';
+  const canvas = lightCanvas
+    ? '#f7f8fa'
+    : `linear-gradient(160deg, ${primary} 0%, ${secondary} 100%)`;
+
+  const mode: CardTextMode = (tpl.text_mode as CardTextMode) || 'auto';
+  const darkText = mode === 'dark' ? true
+    : mode === 'light' ? false
+    : lightCanvas ? true : isLightColor(primary, secondary);
+
+  const inkColor = darkText ? '#141414' : '#ffffff';
+  const ink = (a: number) => (darkText ? `rgba(20,20,20,${a})` : `rgba(255,255,255,${a})`);
+
+  return {
+    layout,
+    primary,
+    secondary,
+    canvas,
+    darkText,
+    ink,
+    inkColor,
+    pattern: patternCss((tpl.pattern as CardPattern) || 'diagonal', darkText ? 'rgba(0,0,0,0.035)' : 'rgba(255,255,255,0.10)'),
+    photoShape: photoRadius((tpl.photo_shape as CardPhotoShape) || 'rounded'),
+    backgroundUrl: tpl.background_url || null,
+  };
+}
+
+/** Texturas en CSS puro: html2canvas (que es quien genera el PNG y el PDF) sabe
+ *  rasterizar gradientes lineales y radiales, pero no máscaras ni filtros. */
+function patternCss(pattern: CardPattern, c: string): string {
+  switch (pattern) {
+    case 'none':
+      return '';
+    case 'dots':
+      return `radial-gradient(${c} 1.4px, transparent 1.4px)`;
+    case 'grid':
+      return `linear-gradient(${c} 1px, transparent 1px), linear-gradient(90deg, ${c} 1px, transparent 1px)`;
+    case 'waves':
+      return `radial-gradient(circle at 15% 20%, ${c} 0 90px, transparent 91px), `
+           + `radial-gradient(circle at 85% 55%, ${c} 0 120px, transparent 121px), `
+           + `radial-gradient(circle at 30% 95%, ${c} 0 70px, transparent 71px)`;
+    case 'diagonal':
+    default:
+      return `repeating-linear-gradient(45deg, ${c} 0 10px, transparent 10px 20px)`;
+  }
+}
+
+function photoRadius(shape: CardPhotoShape): string {
+  if (shape === 'circle') return '9999px';
+  if (shape === 'square') return '4px';
+  return '18px';
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Piezas compartidas
+// ───────────────────────────────────────────────────────────────────────────
+
+type LayoutCtx = {
+  data: CardData;
+  t: Theme;
+  show: Record<string, boolean>;
+  publicUrl: string;
+  feeBadge: (typeof FEE_BADGE)[string];
+  feeKey: string;
+};
+
+function Logo({ ctx, size = 48 }: { ctx: LayoutCtx; size?: number }) {
+  const { data, t } = ctx;
+  if (data.school?.logo_url) {
+    return (
+      <img
+        src={data.school.logo_url}
+        alt=""
+        crossOrigin="anonymous"
+        className="rounded-lg object-contain p-1 shrink-0"
+        style={{ height: size, width: size, background: 'rgba(255,255,255,0.95)' }}
+      />
+    );
+  }
+  return (
+    <div
+      className="rounded-lg flex items-center justify-center font-bold shrink-0"
+      style={{
+        height: size,
+        width: size,
+        fontSize: size * 0.42,
+        background: t.darkText ? 'rgba(0,0,0,0.86)' : 'rgba(255,255,255,0.95)',
+        color: t.darkText ? '#ffffff' : t.primary,
+      }}
+    >
+      {data.school?.name?.[0] || '?'}
+    </div>
+  );
+}
+
+function Photo({ ctx, size }: { ctx: LayoutCtx; size: number }) {
+  const { data, t } = ctx;
+  const initials = getInitials(data.athlete?.full_name);
+  return (
+    <div
+      className="overflow-hidden shrink-0"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: t.photoShape,
+        background: 'rgba(255,255,255,0.95)',
+        boxShadow: `0 0 0 4px ${t.ink(0.35)}`,
+      }}
+    >
+      {data.athlete?.avatar_url ? (
+        <img src={data.athlete.avatar_url} alt={data.athlete.full_name} className="w-full h-full object-cover" crossOrigin="anonymous" />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center font-extrabold" style={{ fontSize: size * 0.34, color: t.primary }}>
+          {initials || <User className="h-1/3 w-1/3 text-gray-400" />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DocLine({ ctx, className = '' }: { ctx: LayoutCtx; className?: string }) {
+  const { data, t, show } = ctx;
+  if (!show.doc_number || !data.athlete?.doc_number) return null;
+  return (
+    <p className={`text-xs flex items-center gap-1 tabular-nums ${className}`} style={{ color: t.ink(0.85) }}>
+      <Hash className="h-3 w-3" />
+      {data.athlete.doc_type || 'CC'} {data.athlete.doc_number}
+    </p>
+  );
+}
+
+/** Filas de datos comunes a varios layouts (sede, equipo, RH, EPS, talla…). */
+function dataRows(ctx: LayoutCtx): { icon: typeof ShieldCheck; label: string; value: string }[] {
+  const { data, show } = ctx;
+  const rows: { icon: typeof ShieldCheck; label: string; value: string }[] = [];
+  if (show.branch && data.branch_name) rows.push({ icon: MapPin, label: 'Sede', value: data.branch_name });
+  if (show.team && data.team_name) rows.push({ icon: Users, label: 'Equipo', value: data.team_name });
+  if (show.blood_type && data.athlete?.blood_type) rows.push({ icon: Heart, label: 'RH', value: data.athlete.blood_type });
+  if (show.eps && data.athlete?.eps_name) rows.push({ icon: Heart, label: 'EPS', value: data.athlete.eps_name });
+  if (show.tshirt_size && data.athlete?.tshirt_size) rows.push({ icon: Shirt, label: 'Talla', value: data.athlete.tshirt_size });
+  if (show.emergency_contact && data.athlete?.emergency_contact) rows.push({ icon: Phone, label: 'Emergencia', value: data.athlete.emergency_contact });
+  return rows;
+}
+
+function Row({ icon: Icon, label, value, t }: { icon: typeof ShieldCheck; label: string; value: string; t: Theme }) {
+  return (
+    <div className="flex items-center gap-2" style={{ color: t.inkColor }}>
+      <div className="p-1 rounded" style={{ background: t.ink(0.2) }}>
+        <Icon className="h-3 w-3" />
+      </div>
+      <span className="text-[10px] uppercase tracking-wider w-16" style={{ color: t.ink(0.7) }}>{label}</span>
+      <span className="text-xs font-medium truncate flex-1">{value}</span>
+    </div>
+  );
+}
+
+/** Bloque de datos en dos columnas — el que usan modern y minimal. */
+function DataGrid({ ctx }: { ctx: LayoutCtx }) {
+  const rows = dataRows(ctx);
+  if (rows.length === 0) return null;
+  return (
+    <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+      {rows.map((r) => (
+        <div key={r.label} className="min-w-0">
+          <div className="text-[9px] uppercase tracking-wider" style={{ color: ctx.t.ink(0.6) }}>{r.label}</div>
+          <div className="text-[11px] font-semibold truncate" style={{ color: ctx.t.inkColor }}>{r.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FeeBadge({ ctx }: { ctx: LayoutCtx }) {
+  const { show, feeBadge, feeKey } = ctx;
+  if (!show.fee_status || feeKey === 'unknown') return null;
+  const Icon = feeBadge.icon;
+  return (
+    <div
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
+      style={{ backgroundColor: feeBadge.bg, color: feeBadge.fg }}
+    >
+      <Icon className="h-3 w-3" />
+      {feeBadge.label}
+    </div>
+  );
+}
+
+function ValidUntil({ ctx, align = 'right' }: { ctx: LayoutCtx; align?: 'right' | 'left' }) {
+  const { data, t, show } = ctx;
+  if (!show.valid_until || !data.valid_until) return null;
+  return (
+    <p className={`text-[11px] flex items-center gap-1 ${align === 'right' ? 'justify-end' : ''}`} style={{ color: t.ink(0.85) }}>
+      <CalendarDays className="h-3 w-3" />
+      Vence {new Date(data.valid_until).toLocaleDateString('es-CO')}
+    </p>
+  );
+}
+
+function Qr({ publicUrl, size = 72 }: { publicUrl: string; size?: number }) {
+  return (
+    <div className="bg-white p-1.5 rounded-lg shrink-0">
+      <QRCodeSVG value={publicUrl} size={size} level="M" />
+    </div>
+  );
+}
+
+function LastPayment({ ctx }: { ctx: LayoutCtx }) {
+  const { data, t, show, feeKey } = ctx;
+  if (!show.fee_status || !data.last_payment) return null;
+  if (!['paid', 'due_soon', 'overdue'].includes(feeKey)) return null;
+  const amount = data.last_payment.amount_paid ?? data.last_payment.amount;
+  const when = data.last_payment.payment_date || data.last_payment.created_at;
+  return (
+    <div className="rounded-md px-2 py-1 text-[10px] leading-tight" style={{ background: t.ink(0.15), color: t.ink(0.95) }}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate font-medium">{data.last_payment.concept || 'Último pago'}</span>
+        {typeof amount === 'number' && <span className="font-semibold tabular-nums">{formatCop(amount)}</span>}
+      </div>
+      {when && (
+        <p className="text-[9px] mt-0.5" style={{ color: t.ink(0.7) }}>
+          Pagado {new Date(when).toLocaleDateString('es-CO')}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Footer({ ctx, className = '' }: { ctx: LayoutCtx; className?: string }) {
+  const txt = ctx.data.template?.footer_text;
+  if (!txt) return null;
+  return (
+    <p className={`text-[9px] leading-tight ${className}`} style={{ color: ctx.t.ink(0.6) }}>{txt}</p>
+  );
+}
+
+function Version({ ctx }: { ctx: LayoutCtx }) {
+  if (!ctx.data.version || ctx.data.version <= 1) return null;
+  return <p className="text-[10px]" style={{ color: ctx.t.ink(0.6) }}>v{ctx.data.version}</p>;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Layouts
+// ───────────────────────────────────────────────────────────────────────────
+
+/** Clásico: el de siempre. Escudo arriba, retrato centrado, datos y barra de QR.
+ *
+ *  Va en columna flex y no con la barra en `absolute`: con los diez campos
+ *  encendidos las filas de datos se montaban encima del QR y del último pago.
+ *  Además, pasadas cuatro filas se cambia a dos columnas — en una sola no
+ *  entran sin apretar la tipografía hasta lo ilegible. */
+function ClassicFace({ ctx }: { ctx: LayoutCtx }) {
+  const { data, t, show, publicUrl } = ctx;
+  const rows = dataRows(ctx);
+  const dense = rows.length > 4;
+  return (
+    <div className="absolute inset-0 flex flex-col">
+      <div className="px-5 pt-5 pb-3 flex items-center gap-3 shrink-0" style={{ borderBottom: `1px solid ${t.ink(0.2)}` }}>
+        <Logo ctx={ctx} />
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] uppercase tracking-wider font-medium" style={{ color: t.ink(0.7) }}>
+            {data.template?.header_text || 'Carnet deportivo'}
+          </p>
+          <h3 className="font-bold text-base leading-tight truncate" style={{ color: t.inkColor }}>
+            {data.school?.name}
+          </h3>
+        </div>
+      </div>
+
+      <div className="px-5 pt-4 flex flex-col items-center text-center shrink-0">
+        {show.photo && <div className="mb-3"><Photo ctx={ctx} size={dense ? 92 : 110} /></div>}
+        <p className="font-bold text-lg leading-tight max-w-full break-words" style={{ color: t.inkColor }}>
+          {data.athlete?.full_name || '—'}
+        </p>
+        <DocLine ctx={ctx} className="mt-0.5" />
+      </div>
+
+      <div className="px-5 mt-3 flex-1 min-h-0 overflow-hidden">
+        {dense ? (
+          <DataGrid ctx={ctx} />
+        ) : (
+          <div className="space-y-1.5">
+            {rows.map((r) => <Row key={r.label} icon={r.icon} label={r.label} value={r.value} t={t} />)}
+          </div>
+        )}
+      </div>
+
+      <div
+        className="px-5 pb-4 pt-3 shrink-0"
+        style={{ background: t.darkText ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.18)' }}
+      >
+        <div className="mb-2"><LastPayment ctx={ctx} /></div>
+        <div className="flex items-center justify-between gap-3">
+          <Qr publicUrl={publicUrl} />
+          <div className="flex-1 text-right space-y-1">
+            <FeeBadge ctx={ctx} />
+            <ValidUntil ctx={ctx} />
+            <Version ctx={ctx} />
+          </div>
+        </div>
+        <Footer ctx={ctx} className="text-center mt-2" />
+      </div>
+    </div>
+  );
+}
+
+/** Moderno: bloque de color arriba con el retrato montado sobre el borde y los
+ *  datos en dos columnas sobre un panel claro. El más "tarjeta de socio". */
+function ModernFace({ ctx }: { ctx: LayoutCtx }) {
+  const { data, t, show, publicUrl } = ctx;
+  return (
+    <>
+      <div className="relative px-5 pt-5 flex items-start gap-3" style={{ height: 168 }}>
+        <Logo ctx={ctx} size={40} />
+        <div className="flex-1 min-w-0 pt-0.5">
+          <p className="text-[9px] uppercase tracking-[0.18em] font-medium" style={{ color: t.ink(0.7) }}>
+            {data.template?.header_text || 'Carnet deportivo'}
+          </p>
+          <h3 className="font-bold text-sm leading-tight truncate" style={{ color: t.inkColor }}>
+            {data.school?.name}
+          </h3>
+        </div>
+      </div>
+
+      {/* Panel claro: el contraste con el bloque de arriba es lo que da el look */}
+      <div className="absolute left-0 right-0" style={{ top: 168, bottom: 0, background: 'rgba(255,255,255,0.94)', borderTopLeftRadius: 28, borderTopRightRadius: 28 }} />
+
+      {show.photo && (
+        <div className="absolute z-10" style={{ top: 168 - 52, left: 20 }}>
+          <Photo ctx={ctx} size={104} />
+        </div>
+      )}
+
+      <div className="absolute z-10 left-0 right-0 px-5 overflow-hidden" style={{ top: 168 + 62, bottom: 132, color: '#141414' }}>
+        <p className="font-extrabold text-[17px] leading-tight break-words" style={{ color: '#111827' }}>
+          {data.athlete?.full_name || '—'}
+        </p>
+        {show.doc_number && data.athlete?.doc_number && (
+          <p className="text-xs mt-0.5 flex items-center gap-1 tabular-nums" style={{ color: '#6b7280' }}>
+            <Hash className="h-3 w-3" />
+            {data.athlete.doc_type || 'CC'} {data.athlete.doc_number}
+          </p>
+        )}
+
+        <div className="mt-3 h-px" style={{ background: 'rgba(0,0,0,0.10)' }} />
+
+        <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2">
+          {dataRows(ctx).map((r) => (
+            <div key={r.label} className="min-w-0">
+              <div className="text-[9px] uppercase tracking-wider" style={{ color: '#9ca3af' }}>{r.label}</div>
+              <div className="text-[11px] font-semibold truncate" style={{ color: '#111827' }}>{r.value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="absolute left-0 right-0 bottom-0 px-5 pb-4 z-10">
+        {show.fee_status && data.last_payment && ['paid', 'due_soon', 'overdue'].includes(ctx.feeKey) && (
+          <div className="mb-2 rounded-md px-2 py-1 text-[10px] leading-tight" style={{ background: 'rgba(0,0,0,0.05)', color: '#374151' }}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate font-medium">{data.last_payment.concept || 'Último pago'}</span>
+              {typeof (data.last_payment.amount_paid ?? data.last_payment.amount) === 'number' && (
+                <span className="font-semibold tabular-nums">{formatCop((data.last_payment.amount_paid ?? data.last_payment.amount)!)}</span>
+              )}
+            </div>
+          </div>
+        )}
+        <div className="flex items-end justify-between gap-3">
+          <Qr publicUrl={publicUrl} size={66} />
+          <div className="flex-1 text-right space-y-1">
+            <FeeBadge ctx={ctx} />
+            {show.valid_until && data.valid_until && (
+              <p className="text-[11px] flex items-center justify-end gap-1" style={{ color: '#6b7280' }}>
+                <CalendarDays className="h-3 w-3" />
+                Vence {new Date(data.valid_until).toLocaleDateString('es-CO')}
+              </p>
+            )}
+            {data.version && data.version > 1 && <p className="text-[10px]" style={{ color: '#9ca3af' }}>v{data.version}</p>}
+          </div>
+        </div>
+        {data.template?.footer_text && (
+          <p className="text-[9px] text-center mt-2 leading-tight" style={{ color: '#9ca3af' }}>{data.template.footer_text}</p>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** Minimal: fondo claro, una regla de color arriba y tipografía grande. Es el
+ *  que mejor imprime en impresoras de tarjetas baratas (poca tinta de fondo). */
+function MinimalFace({ ctx }: { ctx: LayoutCtx }) {
+  const { data, t, show, publicUrl } = ctx;
+  return (
+    <div className="absolute inset-0 flex flex-col">
+      <div className="shrink-0" style={{ height: 8, background: `linear-gradient(90deg, ${t.primary}, ${t.secondary})` }} />
+
+      <div className="px-5 pt-5 flex items-center gap-3 shrink-0">
+        <Logo ctx={ctx} size={36} />
+        <div className="min-w-0">
+          <p className="text-[9px] uppercase tracking-[0.2em]" style={{ color: t.ink(0.55) }}>
+            {data.template?.header_text || 'Carnet deportivo'}
+          </p>
+          <h3 className="font-bold text-[13px] leading-tight truncate" style={{ color: t.inkColor }}>{data.school?.name}</h3>
+        </div>
+      </div>
+
+      <div className="px-5 mt-5 flex items-center gap-4 shrink-0">
+        {show.photo && <Photo ctx={ctx} size={92} />}
+        <div className="min-w-0">
+          <p className="font-extrabold text-[18px] leading-[1.15] break-words" style={{ color: t.inkColor }}>
+            {data.athlete?.full_name || '—'}
+          </p>
+          <DocLine ctx={ctx} className="mt-1" />
+        </div>
+      </div>
+
+      <div className="px-5 mt-5 flex-1 min-h-0 overflow-hidden">
+        <div className="h-px mb-3" style={{ background: t.ink(0.12) }} />
+        <DataGrid ctx={ctx} />
+      </div>
+
+      <div className="px-5 pb-4 pt-2 shrink-0">
+        <div className="mb-2"><LastPayment ctx={ctx} /></div>
+        <div className="flex items-end justify-between gap-3">
+          <Qr publicUrl={publicUrl} size={64} />
+          <div className="flex-1 text-right space-y-1">
+            <FeeBadge ctx={ctx} />
+            <ValidUntil ctx={ctx} />
+            <Version ctx={ctx} />
+          </div>
+        </div>
+        <Footer ctx={ctx} className="text-center mt-2" />
+      </div>
+    </div>
+  );
+}
+
+/** Foto: retrato a sangre con degradado encima. El de más impacto, pero exige
+ *  que el atleta tenga foto — sin foto cae a las iniciales gigantes. */
+function PhotoFace({ ctx }: { ctx: LayoutCtx }) {
+  const { data, t, publicUrl } = ctx;
+  const initials = getInitials(data.athlete?.full_name);
+  return (
+    <>
+      <div className="absolute inset-0">
+        {data.athlete?.avatar_url ? (
+          <img src={data.athlete.avatar_url} alt="" crossOrigin="anonymous" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center font-black" style={{ fontSize: 120, color: 'rgba(255,255,255,0.22)' }}>
+            {initials}
+          </div>
+        )}
+      </div>
+      {/* Velo: arriba tinta de marca, abajo negro para que el nombre se lea */}
+      <div
+        className="absolute inset-0"
+        style={{ background: `linear-gradient(180deg, ${hexToRgba(t.primary, 0.92)} 0%, ${hexToRgba(t.primary, 0.25)} 34%, rgba(0,0,0,0.35) 62%, rgba(0,0,0,0.88) 100%)` }}
+      />
+
+      <div className="absolute inset-0 flex flex-col">
+      <div className="px-5 pt-5 flex items-center gap-3 shrink-0">
+        <Logo ctx={ctx} size={40} />
+        <div className="min-w-0">
+          <p className="text-[9px] uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.75)' }}>
+            {data.template?.header_text || 'Carnet deportivo'}
+          </p>
+          <h3 className="font-bold text-[13px] leading-tight truncate text-white">{data.school?.name}</h3>
+        </div>
+      </div>
+
+      <div className="mt-auto px-5 pb-4 text-white">
+        <p className="font-extrabold text-xl leading-tight break-words drop-shadow">{data.athlete?.full_name || '—'}</p>
+        {ctx.show.doc_number && data.athlete?.doc_number && (
+          <p className="text-xs mt-0.5 flex items-center gap-1 tabular-nums" style={{ color: 'rgba(255,255,255,0.85)' }}>
+            <Hash className="h-3 w-3" />
+            {data.athlete.doc_type || 'CC'} {data.athlete.doc_number}
+          </p>
+        )}
+
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+          {dataRows(ctx).slice(0, 4).map((r) => (
+            <div key={r.label} className="min-w-0">
+              <div className="text-[8px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.65)' }}>{r.label}</div>
+              <div className="text-[11px] font-semibold truncate max-w-[130px]">{r.value}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-3 flex items-end justify-between gap-3">
+          <Qr publicUrl={publicUrl} size={62} />
+          <div className="flex-1 text-right space-y-1">
+            <FeeBadge ctx={ctx} />
+            {ctx.show.valid_until && data.valid_until && (
+              <p className="text-[11px] flex items-center justify-end gap-1" style={{ color: 'rgba(255,255,255,0.85)' }}>
+                <CalendarDays className="h-3 w-3" />
+                Vence {new Date(data.valid_until).toLocaleDateString('es-CO')}
+              </p>
+            )}
+          </div>
+        </div>
+        {data.template?.footer_text && (
+          <p className="text-[9px] text-center mt-2 leading-tight" style={{ color: 'rgba(255,255,255,0.6)' }}>{data.template.footer_text}</p>
+        )}
+      </div>
+      </div>
+    </>
+  );
+}
+
+/** Franja: banda de color vertical con el nombre de la escuela rotado. */
+function StripeFace({ ctx }: { ctx: LayoutCtx }) {
+  const { data, t, show, publicUrl } = ctx;
+  const STRIPE = 62;
+  return (
+    <>
+      <div
+        className="absolute top-0 bottom-0 left-0 flex items-center justify-center"
+        style={{ width: STRIPE, background: `linear-gradient(180deg, ${t.primary}, ${t.secondary})` }}
+      >
+        <span
+          className="uppercase font-bold tracking-[0.28em] text-[11px] whitespace-nowrap text-white"
+          style={{ transform: 'rotate(-90deg)' }}
+        >
+          {data.school?.name}
+        </span>
+      </div>
+
+      <div className="absolute top-0 bottom-0 right-0 flex flex-col" style={{ left: STRIPE }}>
+        <div className="px-4 pt-5 flex items-center gap-2 shrink-0">
+          <Logo ctx={ctx} size={34} />
+          <p className="text-[9px] uppercase tracking-[0.18em]" style={{ color: t.ink(0.6) }}>
+            {data.template?.header_text || 'Carnet deportivo'}
+          </p>
+        </div>
+
+        <div className="px-4 mt-4 flex flex-col items-start shrink-0">
+          {show.photo && <div className="mb-3"><Photo ctx={ctx} size={96} /></div>}
+          <p className="font-extrabold text-[17px] leading-tight break-words" style={{ color: t.inkColor }}>
+            {data.athlete?.full_name || '—'}
+          </p>
+          <DocLine ctx={ctx} className="mt-1" />
+        </div>
+
+        <div className="px-4 mt-4 flex-1 min-h-0 overflow-hidden">
+          <div className="h-px mb-3" style={{ background: t.ink(0.12) }} />
+          <DataGrid ctx={ctx} />
+        </div>
+
+        <div className="px-4 pb-4 pt-2 shrink-0">
+          <div className="mb-2"><LastPayment ctx={ctx} /></div>
+          <div className="flex items-end justify-between gap-2">
+            <Qr publicUrl={publicUrl} size={58} />
+            <div className="flex-1 text-right space-y-1">
+              <FeeBadge ctx={ctx} />
+              <ValidUntil ctx={ctx} />
+              <Version ctx={ctx} />
+            </div>
+          </div>
+          <Footer ctx={ctx} className="text-center mt-2" />
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** Reverso: datos médicos / de emergencia + QR + términos. Igual para todos los
+ *  layouts — es la cara que se lee en una urgencia, no el lugar para lucirse. */
+function BackFace({ ctx }: { ctx: LayoutCtx }) {
+  const { data, t, publicUrl } = ctx;
+  const a = data.athlete;
+  const rows: [string, string | null | undefined][] = [
+    ['Contacto de emergencia', a?.emergency_contact],
+    ['EPS', a?.eps_name],
+    ['RH', a?.blood_type],
+    ['Talla', a?.tshirt_size],
+  ];
+  const shown = rows.filter(([, v]) => !!v);
+  return (
+    <div className="relative h-full px-5 pt-5 pb-4 flex flex-col" style={{ color: t.inkColor }}>
+      <div className="flex items-center gap-3 pb-3" style={{ borderBottom: `1px solid ${t.ink(0.2)}` }}>
+        <Logo ctx={ctx} size={36} />
+        <div className="min-w-0">
+          <p className="text-[9px] uppercase tracking-[0.18em]" style={{ color: t.ink(0.6) }}>Datos de emergencia</p>
+          <h3 className="font-bold text-[13px] leading-tight truncate">{data.school?.name}</h3>
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {shown.length > 0 ? (
+          shown.map(([k, v]) => (
+            <div key={k}>
+              <div className="text-[9px] uppercase tracking-wider" style={{ color: t.ink(0.6) }}>{k}</div>
+              <div className="text-sm font-semibold">{v}</div>
+            </div>
+          ))
+        ) : (
+          <p className="text-xs" style={{ color: t.ink(0.6) }}>
+            Sin datos médicos configurados en la plantilla de este carnet.
+          </p>
+        )}
+      </div>
+
+      <div className="my-4" style={{ borderTop: `1px solid ${t.ink(0.2)}` }} />
+
+      <div className="flex items-center gap-3">
+        <Qr publicUrl={publicUrl} size={54} />
+        <p className="text-[10px] leading-snug" style={{ color: t.ink(0.85) }}>
+          Escanea para <strong>validar este carnet</strong> en línea. Estado en tiempo real.
+        </p>
+      </div>
+
+      <p className="text-[9px] leading-relaxed mt-auto" style={{ color: t.ink(0.6) }}>
+        {data.template?.footer_text
+          || 'Documento de identificación deportiva. Válido solo con foto y QR legibles. En caso de pérdida, la escuela puede revocarlo y reemitir una nueva versión.'}
+      </p>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Utilidades
+// ───────────────────────────────────────────────────────────────────────────
+
 function formatCop(amount: number): string {
   try {
     return new Intl.NumberFormat('es-CO', {
@@ -285,65 +834,6 @@ function formatCop(amount: number): string {
   }
 }
 
-function Row({ icon: Icon, label, value, ink, inkColor }: { icon: typeof ShieldCheck; label: string; value: string; ink: (a: number) => string; inkColor: string }) {
-  return (
-    <div className="flex items-center gap-2" style={{ color: inkColor }}>
-      <div className="p-1 rounded" style={{ background: ink(0.2) }}>
-        <Icon className="h-3 w-3" />
-      </div>
-      <span className="text-[10px] uppercase tracking-wider w-16" style={{ color: ink(0.7) }}>{label}</span>
-      <span className="text-xs font-medium truncate flex-1">{value}</span>
-    </div>
-  );
-}
-
-// Reverso del carnet: datos médicos / de emergencia + QR + términos.
-function BackFace({ data, publicUrl, ink, inkColor }: { data: CardData; publicUrl: string; ink: (a: number) => string; inkColor: string }) {
-  const a = data.athlete;
-  const rows: [string, string | null | undefined][] = [
-    ['Contacto de emergencia', a?.emergency_contact],
-    ['EPS', a?.eps_name],
-    ['RH', a?.blood_type],
-    ['Talla', a?.tshirt_size],
-  ];
-  const shown = rows.filter(([, v]) => !!v);
-  return (
-    <div className="relative px-5 pt-4 pb-4 flex flex-col" style={{ color: inkColor, height: 464 }}>
-      <p className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: ink(0.75) }}>
-        Datos de emergencia
-      </p>
-      <div className="mt-3 space-y-3">
-        {shown.length > 0 ? (
-          shown.map(([k, v]) => (
-            <div key={k}>
-              <div className="text-[9px] uppercase tracking-wider" style={{ color: ink(0.6) }}>{k}</div>
-              <div className="text-sm font-semibold">{v}</div>
-            </div>
-          ))
-        ) : (
-          <p className="text-xs" style={{ color: ink(0.6) }}>
-            Sin datos médicos configurados en la plantilla de este carnet.
-          </p>
-        )}
-      </div>
-
-      <div className="my-4" style={{ borderTop: `1px solid ${ink(0.2)}` }} />
-
-      <div className="flex items-center gap-3">
-        <div className="bg-white p-1.5 rounded-lg"><QRCodeSVG value={publicUrl} size={54} level="M" /></div>
-        <p className="text-[10px] leading-snug" style={{ color: ink(0.85) }}>
-          Escanea para <strong>validar este carnet</strong> en línea. Estado en tiempo real.
-        </p>
-      </div>
-
-      <p className="text-[9px] leading-relaxed mt-auto" style={{ color: ink(0.6) }}>
-        {data.template?.footer_text
-          || 'Documento de identificación deportiva. Válido solo con foto y QR legibles. En caso de pérdida, la escuela puede revocarlo y reemitir una nueva versión.'}
-      </p>
-    </div>
-  );
-}
-
 // Iniciales del atleta (primeras letras de las 2 primeras palabras del nombre).
 function getInitials(name?: string): string {
   if (!name) return '';
@@ -354,15 +844,34 @@ function getInitials(name?: string): string {
   return (first + second).toUpperCase();
 }
 
+function parseHex(hex: string): [number, number, number] {
+  const h = (hex || '').replace('#', '').trim();
+  const full = h.length === 3 ? h.split('').map((x) => x + x).join('') : h;
+  return [
+    parseInt(full.slice(0, 2), 16) || 0,
+    parseInt(full.slice(2, 4), 16) || 0,
+    parseInt(full.slice(4, 6), 16) || 0,
+  ];
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const [r, g, b] = parseHex(hex);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+/** Aclara (amount > 0) u oscurece (amount < 0) un color. Se usa para derivar el
+ *  segundo color del gradiente cuando la plantilla no define uno. */
+function shade(hex: string, amount: number): string {
+  const [r, g, b] = parseHex(hex);
+  const mix = (c: number) => Math.round(amount < 0 ? c * (1 + amount) : c + (255 - c) * amount);
+  return `#${[mix(r), mix(g), mix(b)].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+}
+
 // ¿El gradiente de la marca es "claro"? Promedia la luminancia relativa de los
 // dos colores; si supera el umbral, el texto debe ir oscuro para ser legible.
 function isLightColor(c1: string, c2: string): boolean {
   const lum = (hex: string): number => {
-    const h = hex.replace('#', '').trim();
-    const full = h.length === 3 ? h.split('').map((x) => x + x).join('') : h;
-    const r = parseInt(full.slice(0, 2), 16) || 0;
-    const g = parseInt(full.slice(2, 4), 16) || 0;
-    const b = parseInt(full.slice(4, 6), 16) || 0;
+    const [r, g, b] = parseHex(hex);
     // luminancia perceptual (0..255)
     return 0.299 * r + 0.587 * g + 0.114 * b;
   };
