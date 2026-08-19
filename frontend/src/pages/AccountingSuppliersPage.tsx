@@ -23,7 +23,7 @@ const Err = ({ msg }: { msg?: string }) => (msg ? <p className="text-xs text-des
 
 const supplierSchema = z.object({
     name: zRequiredText('El nombre'),
-    nit: z.string().trim().regex(/^[\d.\-]*$/, 'El NIT debe ser numérico').max(20, 'Máximo 20').optional().or(z.literal('')),
+    nit: z.string().trim().regex(/^[\d.-]*$/, 'El NIT debe ser numérico').max(20, 'Máximo 20').optional().or(z.literal('')),
     contact: zOptionalText(120),
     email: zEmailOptional(),
     phone: zPhoneOptional(),
