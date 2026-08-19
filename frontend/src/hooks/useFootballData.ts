@@ -10,12 +10,19 @@ import {
   deleteFootballEvent,
   getFootballSeasonStats,
   getTournamentMatches,
-  type FootballSourceType,
+  getTacticalPresets,
+  createTacticalPreset,
+  deleteTacticalPreset,
+  type LineupSourceType,
+  type EventSourceType,
   type LineupPlayerInput,
   type NewFootballMatchEvent,
+  type TacticalSituation,
+  type TacticalPresetSlot,
+  type TacticalArrow,
 } from '@/lib/school/footballQueries';
 
-export function useFootballLineups(params: { team_id?: string; source_type?: FootballSourceType; source_id?: string }) {
+export function useFootballLineups(params: { team_id?: string; source_type?: LineupSourceType; source_id?: string }) {
   return useQuery({
     queryKey: ['football-lineups', params],
     queryFn: () => getFootballLineups(params),
@@ -36,7 +43,7 @@ export function useSaveFootballLineup() {
   return useMutation({
     mutationFn: (payload: {
       team_id: string;
-      source_type: FootballSourceType;
+      source_type: LineupSourceType;
       source_id: string;
       formation?: string | null;
       players: LineupPlayerInput[];
@@ -58,7 +65,7 @@ export function useDeleteFootballLineup() {
   });
 }
 
-export function useFootballEvents(params: { team_id?: string; source_type?: FootballSourceType; source_id?: string }) {
+export function useFootballEvents(params: { team_id?: string; source_type?: EventSourceType; source_id?: string }) {
   return useQuery({
     queryKey: ['football-events', params],
     queryFn: () => getFootballEvents(params),
@@ -71,7 +78,7 @@ export function useCreateFootballEvents() {
   return useMutation({
     mutationFn: (payload: {
       team_id: string;
-      source_type: FootballSourceType;
+      source_type: EventSourceType;
       source_id: string;
       events: NewFootballMatchEvent[];
     }) => createFootballEvents(payload),
@@ -97,6 +104,35 @@ export function useFootballSeasonStats(teamId?: string) {
     queryKey: ['football-season-stats', teamId],
     queryFn: () => getFootballSeasonStats(teamId!),
     enabled: !!teamId,
+  });
+}
+
+export function useTacticalPresets(params: { team_id?: string; situation?: TacticalSituation }) {
+  return useQuery({
+    queryKey: ['tactical-presets', params],
+    queryFn: () => getTacticalPresets(params),
+    enabled: !!params.team_id,
+  });
+}
+
+export function useCreateTacticalPreset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { team_id: string; name: string; situation: TacticalSituation; slots: TacticalPresetSlot[]; arrows?: TacticalArrow[] }) =>
+      createTacticalPreset(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tactical-presets'] });
+    },
+  });
+}
+
+export function useDeleteTacticalPreset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteTacticalPreset(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tactical-presets'] });
+    },
   });
 }
 
