@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
 import { BrowserRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Mock Supabase client
 vi.mock('@/integrations/supabase/client', () => ({
@@ -40,12 +41,19 @@ function TestConsumer() {
 
 // Helper to render with providers
 function renderWithProviders(ui: React.ReactElement) {
+    // AuthContext usa useQueryClient() -- necesita un QueryClientProvider real,
+    // uno nuevo por render para que los tests no compartan cache entre si.
+    const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+    });
     return render(
-        <BrowserRouter>
-            <AuthProvider>
-                {ui}
-            </AuthProvider>
-        </BrowserRouter>
+        <QueryClientProvider client={queryClient}>
+            <BrowserRouter>
+                <AuthProvider>
+                    {ui}
+                </AuthProvider>
+            </BrowserRouter>
+        </QueryClientProvider>
     );
 }
 
