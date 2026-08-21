@@ -23,6 +23,8 @@ import { downloadExecutivePdf } from '@/lib/export/executivePdf';
 interface KPI {
     label: string;
     value: string | number;
+    /** Valor exacto para tooltip/exportaciones cuando `value` viene abreviado (ej. "$38.5M"). */
+    full?: string;
     sub?: string;
     trend?: 'up' | 'down' | 'neutral';
     trendValue?: string;
@@ -45,6 +47,17 @@ interface PlanRow { id: string; name: string; }
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const currency = (n: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
+
+// Tarjetas de KPI a 7 columnas: una cifra de 8-9 dígitos ("$71.490.000") no
+// entra a texto legible sin abreviar. Solo para la TARJETA — tablas, CSV,
+// PDF y Excel siguen mostrando el monto exacto vía `currency()`.
+const compactCurrency = (n: number): string => {
+    if (Math.abs(n) >= 1_000_000) {
+        const millions = n / 1_000_000;
+        return `$${millions.toFixed(Math.abs(millions) >= 10 ? 0 : 1)}M`;
+    }
+    return currency(n);
+};
 
 // Diferencia en días entre dos 'YYYY-MM-DD' (b − a), positiva si b es posterior.
 const daysBetweenDates = (a: string, b: string): number =>
@@ -134,7 +147,7 @@ function StatCard({ kpi }: { kpi: KPI }) {
             </div>
             <CardContent className="relative p-5">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{kpi.label}</p>
-                <p className="text-xl sm:text-2xl font-bold mt-1 text-foreground truncate" title={String(kpi.value)}>{kpi.value}</p>
+                <p className="text-xl sm:text-2xl font-bold mt-1 text-foreground truncate" title={kpi.full ?? String(kpi.value)}>{kpi.value}</p>
                 {kpi.sub && <p className="text-xs text-muted-foreground mt-1">{kpi.sub}</p>}
                 {kpi.trendValue && (
                     <div className={`flex items-center gap-1 mt-2 text-xs font-medium ${isUp ? 'text-green-600' : isDown ? 'text-red-500' : 'text-muted-foreground'}`}>
@@ -330,9 +343,9 @@ export default function ReporterDashboardPage() {
             // Set all KPIs at once
             setKpis([
                 { label: 'Deportistas Activos', value: active, sub: `${res.athletes_active ?? res.students.length} total`, trend: 'up', trendValue: 'Ver listado', color: 'bg-blue-500' },
-                { label: 'Ingreso Potencial Mensual', value: currency(totalRevenuePotential), sub: 'Si todos pagan', trend: 'neutral', color: 'bg-green-500' },
-                { label: 'Recaudado', value: currency(collected), sub: `Últimos ${dateRange} días`, trend: 'up', trendValue: `${res.payments.filter(r => r.status === 'paid').length} pagos`, color: 'bg-emerald-500' },
-                { label: 'Por Cobrar', value: currency(pending), sub: 'Pendiente de pago', trend: 'neutral', color: 'bg-yellow-500' },
+                { label: 'Ingreso Potencial Mensual', value: compactCurrency(totalRevenuePotential), full: currency(totalRevenuePotential), sub: 'Si todos pagan', trend: 'neutral', color: 'bg-green-500' },
+                { label: 'Recaudado', value: compactCurrency(collected), full: currency(collected), sub: `Últimos ${dateRange} días`, trend: 'up', trendValue: `${res.payments.filter(r => r.status === 'paid').length} pagos`, color: 'bg-emerald-500' },
+                { label: 'Por Cobrar', value: compactCurrency(pending), full: currency(pending), sub: 'Pendiente de pago', trend: 'neutral', color: 'bg-yellow-500' },
                 { label: 'Morosos', value: overdue, sub: 'Con deuda vencida', trend: overdue > 0 ? 'down' : 'neutral', trendValue: overdue > 0 ? 'Requiere atención' : 'Al día', color: 'bg-red-500' },
                 { label: 'Entrenadores', value: res.coaches.length, sub: 'Activos', color: 'bg-purple-500' },
                 { label: 'Sedes', value: res.sedes.length, sub: 'Ubicaciones activas', color: 'bg-orange-500' }
@@ -368,7 +381,9 @@ export default function ReporterDashboardPage() {
             schoolName: schoolName || 'SportMaps',
             dateRangeLabel: `Últimos ${dateRange} días`,
             generatedAt: new Date(),
-            kpis: orderedKpis.map(k => ({ label: k.label, value: String(k.value), sub: k.sub })),
+            // El PDF/Excel siempre llevan el monto exacto, nunca el "$38.5M"
+            // abreviado que se usa solo para que la tarjeta no se corte.
+            kpis: orderedKpis.map(k => ({ label: k.label, value: k.full ?? String(k.value), sub: k.sub })),
             financeBreakdown: [
                 { label: 'Recaudado', value: recaudadoTotal, color: '#10b981' },
                 { label: 'Por Cobrar', value: porCobrarTotal, color: '#f59e0b' },
@@ -398,7 +413,7 @@ export default function ReporterDashboardPage() {
             {
                 name: 'Indicadores',
                 columns: [{ header: 'Métrica', key: 'label', width: 28 }, { header: 'Valor', key: 'value', width: 22 }],
-                rows: orderedKpis.map(k => ({ label: k.label, value: k.value })),
+                rows: orderedKpis.map(k => ({ label: k.label, value: k.full ?? k.value })),
             },
             {
                 name: 'Finanzas',
