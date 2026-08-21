@@ -196,10 +196,19 @@ export async function generateExecutivePdf(data: ExecutivePdfData): Promise<jsPD
     addFooter(doc, page);
 
     // ── Distribución por estado ──────────────────────────────────────────
+    // Sin pagos en el período, un pie chart vacío no aporta nada (y algunas
+    // versiones de Recharts lo dejan en blanco sin avisar) — mejor un texto.
     doc.addPage(); page++;
     addHeader(doc, 'Distribución de Pagos por Estado', data.dateRangeLabel);
-    const statusImg = await renderChartToImage(<StatusPieChart data={data.statusDistribution} />, 640, 320);
-    addImageFullWidth(doc, statusImg, 40, 320 / 640);
+    if (data.statusDistribution.length > 0) {
+        const statusImg = await renderChartToImage(<StatusPieChart data={data.statusDistribution} />, 640, 320);
+        addImageFullWidth(doc, statusImg, 40, 320 / 640);
+    } else {
+        doc.setTextColor(150, 150, 150);
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(11);
+        doc.text('Sin pagos registrados en el período seleccionado.', pageWidth / 2, 100, { align: 'center' });
+    }
     addFooter(doc, page);
 
     // ── Equipos por ingreso ──────────────────────────────────────────────
