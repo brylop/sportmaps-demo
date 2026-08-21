@@ -384,7 +384,11 @@ async function isAdminGlobal(userId: string): Promise<boolean> {
         .select('role')
         .eq('id', userId)
         .maybeSingle();
-    return data?.role === 'admin';
+    // 'super_admin' es estrictamente superior a 'admin'; excluirlo era un
+    // descuido — el resto del producto trata a los dos como staff de
+    // plataforma (ver AppSidebar). Sin esto, el super admin ve el formulario
+    // de pasarelas y recibe 403 al guardar.
+    return data?.role === 'admin' || data?.role === 'super_admin';
 }
 
 async function isSchoolAuthorized(userId: string, schoolId: string): Promise<boolean> {

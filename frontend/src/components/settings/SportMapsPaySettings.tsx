@@ -278,8 +278,8 @@ export function SportMapsPaySettings() {
                         <AlertDescription className="text-sm">
                             <span className="font-medium">Falta conectar tu cuenta de recaudo.</span>{' '}
                             {motivoBloqueo} Sin ella no se puede activar el cobro online: el dinero
-                            no tendría a dónde llegar. Conéctala en <em>Pasarelas de pago</em>, justo
-                            abajo, y vuelve aquí a activar el botón.
+                            no tendría a dónde llegar. Escríbenos para conectarla —no nos mandes tus
+                            llaves por chat— y en cuanto quede lista podrás activar el botón desde acá.
                         </AlertDescription>
                     </Alert>
                 )}

@@ -391,6 +391,9 @@ export default function PaymentsAutomationPage() {
   // Se incrementa al conectar/quitar una pasarela: remonta SportMaps Pay para
   // que su gate vuelva a preguntar si ya hay cuenta de recaudo.
   const [revisionPasarelas, setRevisionPasarelas] = useState(0);
+  // Mismo criterio que AppSidebar. El BFF autoriza a los mismos en
+  // isAdminGlobal(), para no mostrar un formulario que devuelve 403.
+  const esPlatformAdmin = profile?.role === 'admin' || profile?.role === 'super_admin';
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState<PaymentTransaction[]>([]);
   // KPIs agregados en DB (school_payment_kpis). NO se derivan de `payments`:
@@ -2487,10 +2490,14 @@ export default function PaymentsAutomationPage() {
                 <SportMapsPaySettings key={`pay-${revisionPasarelas}`} />
               </div>
 
-              {/* Cuenta de recaudo propia. Va pegado a SportMaps Pay a propósito:
-                  el aviso de ahí manda acá, y sin esto el toggle no se puede
-                  prender. No se le abre entrada de menú propia. */}
-              {schoolId && (
+              {/* Cuenta de recaudo propia. Solo staff de plataforma: §10 del plan
+                  de connected-accounts decidió que a la escuela NO se le piden
+                  llaves ni secretos (pegar la privada de Wompi es entregar la
+                  capacidad de cobrar en su comercio). El camino del cliente es
+                  el wizard "Conectar", que todavía no existe; mientras tanto la
+                  conexión la hace soporte. Va pegado a SportMaps Pay porque el
+                  aviso de ahí manda acá. Sin entrada de menú propia. */}
+              {schoolId && esPlatformAdmin && (
                 <div className="md:col-span-2">
                   <PaymentProvidersAdmin
                     schoolId={schoolId}
