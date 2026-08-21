@@ -105,10 +105,15 @@ webhookRouter.post('/webhook', async (req: Request, res: Response) => {
             vendorId: merchantCtx.vendorId,
         });
 
-        // Cada merchant debe tener su propio webhookSecret configurado en
-        // payment_provider_configs. NO se usa fallback global: un secret
-        // compartido entre escuelas permitiria que una merchant maliciosa
-        // forje webhooks de otras escuelas que tampoco lo configuraron.
+        // Cada merchant debe tener su propio webhookSecret: un secret compartido
+        // entre escuelas permitiria que una merchant maliciosa forje webhooks de
+        // otras que tampoco lo configuraron.
+        //
+        // Este comentario decia "NO se usa fallback global" cuando loadProviderConfig
+        // si caia a ENV. Ya no cae para una escuela en 'direct'/'unset' ni para un
+        // vendor sin credenciales (devuelve null y el secret queda null). Sigue
+        // usando ENV en dos casos legitimos: la escuela en 'aggregator', y un pago
+        // sin dueno identificable — los MP viejos viven en esa cuenta.
         const effectiveSecret = merchantConfig?.webhookSecret ?? null;
         // DIN-9: sin config de comercio, el ambiente lo decide el PREFIJO de la
         // credencial, no `MP_ENV`. MP no tiene host de sandbox: un token
