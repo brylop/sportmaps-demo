@@ -26,15 +26,33 @@ interface KPI {
     color?: string;
 }
 
-interface StudentRow { id: string; full_name: string; team: string; sede: string; status: string; fee: number; joined: string; }
-interface PaymentRow { id: string; student: string; amount: number; status: string; month: string; team: string; }
+interface StudentRow {
+    id: string; full_name: string; team: string; plan: string; sede: string; status: string; fee: number; joined: string;
+    sessions_attended: number | null; sessions_total: number | null;
+}
+interface PaymentRow {
+    id: string; student: string; amount: number; status: string; month: string;
+    team: string; plan: string; concept: string; due_date: string | null; days: number | null;
+}
 interface CoachRow { id: string; name: string; email: string; team: string; sede: string; students: number; }
 interface SedeRow { id: string; name: string; students: number; coaches: number; income: number; }
 interface TeamRow { id: string; name: string; students: number; monthly_fee: number; revenue: number; }
+interface PlanRow { id: string; name: string; }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const currency = (n: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
+
+// `days` > 0 = vencido hace N días, < 0 = faltan N días, null = sin fecha de vencimiento.
+const formatDays = (days: number | null): string => {
+    if (days === null) return '—';
+    if (days > 0) return `Vencido hace ${days} día${days === 1 ? '' : 's'}`;
+    if (days < 0) return `Vence en ${-days} día${-days === 1 ? '' : 's'}`;
+    return 'Vence hoy';
+};
+
+const formatSessions = (attended: number | null, total: number | null): string =>
+    attended === null || total === null ? '—' : `${attended}/${total}`;
 
 function exportCSV(filename: string, headers: string[], rows: (string | number)[][]) {
     const bom = '\uFEFF';
@@ -130,6 +148,8 @@ function MiniTable({ headers, rows }: { headers: string[]; rows: (string | numbe
 export default function ReporterDashboardPage() {
     const { schoolId, schoolName, activeBranchId } = useSchoolContext();
     const [dateRange, setDateRange] = useState('30');
+    const [teamFilter, setTeamFilter] = useState('all');
+    const [planFilter, setPlanFilter] = useState('all');
     const [loading, setLoading] = useState(true);
     const printRef = useRef<HTMLDivElement>(null);
 
@@ -140,11 +160,12 @@ export default function ReporterDashboardPage() {
     const [coaches, setCoaches] = useState<CoachRow[]>([]);
     const [sedes, setSedes] = useState<SedeRow[]>([]);
     const [teams, setTeams] = useState<TeamRow[]>([]);
+    const [plans, setPlans] = useState<PlanRow[]>([]);
 
     useEffect(() => {
         if (!schoolId) return;
         fetchAll();
-    }, [schoolId, activeBranchId, dateRange]);
+    }, [schoolId, activeBranchId, dateRange, teamFilter, planFilter]);
 
     async function fetchAll() {
         setLoading(true);
@@ -153,6 +174,8 @@ export default function ReporterDashboardPage() {
             if (activeBranchId) {
                 queryParams.append('branch_id', activeBranchId);
             }
+            if (teamFilter !== 'all') queryParams.append('team_id', teamFilter);
+            if (planFilter !== 'all') queryParams.append('offering_plan_id', planFilter);
 
             const res = await bffClient.get<{
                 students: StudentRow[];
@@ -160,6 +183,7 @@ export default function ReporterDashboardPage() {
                 coaches: CoachRow[];
                 sedes: SedeRow[];
                 teams: TeamRow[];
+                plans: PlanRow[];
                 revenue_potential?: number;
                 athletes_active?: number;
             }>(`/api/v1/reports/reporter/dashboard?${queryParams.toString()}`);
@@ -185,6 +209,7 @@ export default function ReporterDashboardPage() {
             setCoaches(res.coaches);
             setSedes(res.sedes);
             setTeams(res.teams);
+            setPlans(res.plans || []);
 
             // Set all KPIs at once
             setKpis([
@@ -244,14 +269,14 @@ export default function ReporterDashboardPage() {
 
         <h2>Deportistas (${students.length})</h2>
         <table>
-          <tr><th>Nombre</th><th>Equipo</th><th>Sede</th><th>Estado</th><th>Mensualidad</th><th>Ingreso</th></tr>
-          ${students.slice(0, 50).map(s => `<tr><td>${s.full_name}</td><td>${s.team}</td><td>${s.sede}</td><td>${s.status === 'active' ? 'Activo' : 'Inactivo'}</td><td>${currency(s.fee)}</td><td>${s.joined}</td></tr>`).join('')}
+          <tr><th>Nombre</th><th>Equipo</th><th>Plan</th><th>Sede</th><th>Estado</th><th>Mensualidad</th><th>Ingreso</th><th>Sesiones</th></tr>
+          ${students.slice(0, 50).map(s => `<tr><td>${s.full_name}</td><td>${s.team}</td><td>${s.plan}</td><td>${s.sede}</td><td>${s.status === 'active' ? 'Activo' : 'Inactivo'}</td><td>${currency(s.fee)}</td><td>${s.joined}</td><td>${formatSessions(s.sessions_attended, s.sessions_total)}</td></tr>`).join('')}
         </table>
 
         <h2>Pagos — Últimos ${dateRange} días (${payments.length})</h2>
         <table>
-          <tr><th>Deportista</th><th>Equipo</th><th>Mes</th><th>Monto</th><th>Estado</th></tr>
-          ${payments.slice(0, 50).map(p => `<tr><td>${p.student}</td><td>${p.team}</td><td>${p.month}</td><td>${currency(p.amount)}</td><td>${p.status}</td></tr>`).join('')}
+          <tr><th>Deportista</th><th>Equipo</th><th>Plan</th><th>Mes</th><th>Monto</th><th>Estado</th><th>Días</th></tr>
+          ${payments.slice(0, 50).map(p => `<tr><td>${p.student}</td><td>${p.team}</td><td>${p.plan}</td><td>${p.month}</td><td>${currency(p.amount)}</td><td>${p.status}</td><td>${formatDays(p.days)}</td></tr>`).join('')}
         </table>
 
         <h2>Sedes (${sedes.length})</h2>
@@ -329,6 +354,26 @@ export default function ReporterDashboardPage() {
                             <SelectItem value="365">Último año</SelectItem>
                         </SelectContent>
                     </Select>
+                    <Select value={teamFilter} onValueChange={setTeamFilter}>
+                        <SelectTrigger className="w-40 h-9 text-sm">
+                            <Users className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                            <SelectValue placeholder="Equipo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Todos los equipos</SelectItem>
+                            {teams.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                    <Select value={planFilter} onValueChange={setPlanFilter}>
+                        <SelectTrigger className="w-40 h-9 text-sm">
+                            <FileText className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                            <SelectValue placeholder="Plan" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Todos los planes</SelectItem>
+                            {plans.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
                     <Button onClick={handlePrint} variant="outline" size="sm" className="gap-2 h-9">
                         <Printer className="w-3.5 h-3.5" /> PDF / Imprimir
                     </Button>
@@ -398,8 +443,8 @@ export default function ReporterDashboardPage() {
                                         <Link to="/finances">Ver Finanzas <ChevronRight className="w-3 h-3 ml-1" /></Link>
                                     </Button>
                                     <Button variant="outline" size="sm" className="text-xs h-7 gap-1" onClick={() =>
-                                        exportCSV('finanzas', ['Deportista', 'Equipo', 'Mes', 'Monto', 'Estado'],
-                                            payments.map(p => [p.student, p.team, p.month, p.amount, p.status])
+                                        exportCSV('finanzas', ['Deportista', 'Equipo', 'Plan', 'Mes', 'Monto', 'Estado', 'Días'],
+                                            payments.map(p => [p.student, p.team, p.plan, p.month, p.amount, p.status, formatDays(p.days)])
                                         )
                                     }>
                                         <Download className="w-3 h-3" /> CSV
@@ -425,10 +470,11 @@ export default function ReporterDashboardPage() {
                                 ))}
                             </div>
                             <MiniTable
-                                headers={['Deportista', 'Equipo', 'Mes', 'Monto', 'Estado']}
+                                headers={['Deportista', 'Equipo', 'Plan', 'Mes', 'Monto', 'Estado', 'Días']}
                                 rows={payments.slice(0, 30).map(p => [
-                                    p.student, p.team, p.month, currency(p.amount),
-                                    <StatusBadge key={p.id} status={p.status} />
+                                    p.student, p.team, p.plan, p.month, currency(p.amount),
+                                    <StatusBadge key={p.id} status={p.status} />,
+                                    formatDays(p.days)
                                 ])}
                             />
                             {payments.length > 30 && (
@@ -452,8 +498,8 @@ export default function ReporterDashboardPage() {
                                         <Link to="/students">Ver Deportistas <ChevronRight className="w-3 h-3 ml-1" /></Link>
                                     </Button>
                                     <Button variant="outline" size="sm" className="text-xs h-7 gap-1" onClick={() =>
-                                        exportCSV('deportistas', ['Nombre', 'Equipo', 'Sede', 'Estado', 'Mensualidad', 'Ingreso'],
-                                            students.map(s => [s.full_name, s.team, s.sede, s.status, s.fee, s.joined])
+                                        exportCSV('deportistas', ['Nombre', 'Equipo', 'Plan', 'Sede', 'Estado', 'Mensualidad', 'Ingreso', 'Sesiones'],
+                                            students.map(s => [s.full_name, s.team, s.plan, s.sede, s.status, s.fee, s.joined, formatSessions(s.sessions_attended, s.sessions_total)])
                                         )
                                     }>
                                         <Download className="w-3 h-3" /> CSV
@@ -463,11 +509,11 @@ export default function ReporterDashboardPage() {
                         </CardHeader>
                         <CardContent>
                             <MiniTable
-                                headers={['Nombre', 'Equipo', 'Sede', 'Estado', 'Mensualidad', 'Ingreso']}
+                                headers={['Nombre', 'Equipo', 'Plan', 'Sede', 'Estado', 'Mensualidad', 'Ingreso', 'Sesiones']}
                                 rows={students.slice(0, 30).map(s => [
-                                    s.full_name, s.team, s.sede,
+                                    s.full_name, s.team, s.plan, s.sede,
                                     <StatusBadge key={s.id} status={s.status} />,
-                                    currency(s.fee), s.joined
+                                    currency(s.fee), s.joined, formatSessions(s.sessions_attended, s.sessions_total)
                                 ])}
                             />
                             {students.length > 30 && (

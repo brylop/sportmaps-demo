@@ -34,6 +34,17 @@ async function fetchAllRows<T>(build: () => any): Promise<T[]> {
 const receivedAmount = (p: { status?: string | null; amount?: unknown; amount_paid?: unknown }): number =>
     Number(p.status === 'partial' ? (p.amount_paid ?? 0) : p.amount) || 0;
 
+/**
+ * Días entre dos 'YYYY-MM-DD', positivo si `b` es posterior a `a`. Misma
+ * aritmética UTC pura de `addDaysToDateString` — nada de `Date` construido
+ * desde string, que es de donde salen los corrimientos de un día.
+ */
+const daysBetween = (a: string, b: string): number => {
+    const [ay, am, ad] = a.split('-').map(Number);
+    const [by, bm, bd] = b.split('-').map(Number);
+    return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86_400_000);
+};
+
 // Middleware helper to determine which branch_id to filter by.
 const getBranchFilter = (req: AuthenticatedRequest): string | null => {
     if (req.role === 'school_admin') return req.branchId;
@@ -210,10 +221,13 @@ router.get(
             const { schoolId } = req;
             const branchFilterId = getBranchFilter(req);
             const days = parseInt(req.query.days as string) || 30;
+            const teamFilterId = (req.query.team_id as string) || undefined;
+            const planFilterId = (req.query.offering_plan_id as string) || undefined;
 
             // Ventana en hora Colombia. `toISOString()` sobre el reloj de Render
             // (UTC) corría el inicio de la ventana un día después de las 7 p.m.
-            const since = addDaysToDateString(todayInZone(), -days);
+            const today = todayInZone();
+            const since = addDaysToDateString(today, -days);
 
             // ── 1. Deportistas y su cuota ────────────────────────────────────────
             // El KPI "Ingreso Potencial Mes" se arma sumando la cuota de esta lista, así
@@ -280,7 +294,7 @@ router.get(
                 // teams (sí en children/enrollments) y pedirla hacía fallar el select
                 // completo → 500 en todo el dashboard.
                 athTeamIds.length  ? supabase.from('teams').select('id, name, price_monthly, branch_id').in('id', athTeamIds) : emptyRows,
-                athPlanIds.length  ? supabase.from('offering_plans').select('id, price').in('id', athPlanIds) : emptyRows,
+                athPlanIds.length  ? supabase.from('offering_plans').select('id, name, price').in('id', athPlanIds) : emptyRows,
             ]);
 
             const childMap       = new Map((childRes.data || []).map((c: any) => [c.id, c]));
@@ -320,11 +334,30 @@ router.get(
                 return 0;
             };
 
+            // Asistencia real marcada por el entrenador. `attendance_records` solo
+            // tiene `child_id` (ver mig 20260217000001): adultos y no-registrados
+            // quedan sin fila acá y se marcan como `null` (no aplica), no como 0.
+            const attendanceByChild = new Map<string, { present: number; total: number }>();
+            if (athChildIds.length > 0) {
+                const attendanceRows = await fetchAllRows<any>(() => supabase
+                    .from('attendance_records')
+                    .select('child_id, status')
+                    .in('child_id', athChildIds)
+                    .order('id', { ascending: true }));
+                attendanceRows.forEach((r: any) => {
+                    const bucket = attendanceByChild.get(r.child_id) || { present: 0, total: 0 };
+                    bucket.total++;
+                    if (r.status === 'present' || r.status === 'late') bucket.present++;
+                    attendanceByChild.set(r.child_id, bucket);
+                });
+            }
+
             const athleteRows = chosenEnrollments.map((e: any) => {
                 const child = childMap.get(e.child_id) as any;
                 const team  = teamMap.get(e.team_id) as any;
                 const plan  = planMap.get(e.offering_plan_id) as any;
                 const branchId = branchOf(e);
+                const attendance = e.child_id ? attendanceByChild.get(e.child_id) : undefined;
                 return {
                     id: e.child_id || e.user_id || e.unregistered_athlete_id,
                     full_name: child?.full_name
@@ -332,17 +365,24 @@ router.get(
                         || (uaMap.get(e.unregistered_athlete_id) as any)?.full_name
                         || 'Sin nombre',
                     team: teamNameMap.get(e.team_id) || '—',
+                    plan: plan?.name || '—',
+                    sessions_attended: attendance ? attendance.present : (e.child_id ? 0 : null),
+                    sessions_total: attendance ? attendance.total : (e.child_id ? 0 : null),
                     sede: (branchId && branchNameMap.get(branchId)) || 'Principal',
                     status: 'active',
                     fee: firstNonZero(e.monthly_fee, plan?.price, team?.price_monthly, child?.monthly_fee),
                     joined: child?.created_at || (uaMap.get(e.unregistered_athlete_id) as any)?.created_at || e.created_at,
                     branchId,
+                    teamId: e.team_id || null,
+                    planId: e.offering_plan_id || null,
                 };
             });
 
-            const athletesInScope = branchFilterId
-                ? athleteRows.filter(r => r.branchId === branchFilterId)
-                : athleteRows;
+            const athletesInScope = athleteRows.filter(r =>
+                (!branchFilterId || r.branchId === branchFilterId)
+                && (!teamFilterId || r.teamId === teamFilterId)
+                && (!planFilterId || r.planId === planFilterId)
+            );
 
             // El potencial se calcula sobre TODOS los atletas del alcance y viaja aparte.
             // La lista va capada a 500 filas, y cuando el front sumaba la lista el KPI
@@ -353,7 +393,7 @@ router.get(
                 .slice()
                 .sort((a, b) => String(b.joined ?? '').localeCompare(String(a.joined ?? '')))
                 .slice(0, 500)
-                .map(({ branchId, ...rest }) => rest);
+                .map(({ branchId, teamId, planId, ...rest }) => rest);
 
             // 2. Payments
             // `payments` no tiene `payment_month` ni `student_id`: el periodo vive
@@ -380,6 +420,21 @@ router.get(
             const { data: paymentsRaw, error: paymentsErr } = await paymentsQuery;
             if (paymentsErr) throw paymentsErr;
 
+            // Equipo/plan del cobro salen de la MISMA inscripción elegida arriba para
+            // el atleta — no hay FK directa cobro→equipo. Un cobro cuyo atleta ya no
+            // tiene inscripción activa (se dio de baja) no matchea ningún equipo/plan
+            // y solo se ve si no hay filtro puesto.
+            const paymentAthleteId = (p: any) => p.child_id || p.unregistered_athlete_id || p.user_id || p.parent_id;
+            const paymentsInScope = (teamFilterId || planFilterId)
+                ? (paymentsRaw || []).filter((p: any) => {
+                    const enr = enrollmentByAthlete.get(paymentAthleteId(p));
+                    if (!enr) return false;
+                    if (teamFilterId && enr.team_id !== teamFilterId) return false;
+                    if (planFilterId && enr.offering_plan_id !== planFilterId) return false;
+                    return true;
+                })
+                : (paymentsRaw || []);
+
             // Nombre del deportista según las TRES identidades posibles del cobro.
             const nameMap = new Map<string, string>();
             const collect = async (table: string, ids: string[]) => {
@@ -388,7 +443,7 @@ router.get(
                 (data || []).forEach((r: any) => nameMap.set(r.id, r.full_name));
             };
             const uniq = (key: string) =>
-                [...new Set((paymentsRaw || []).map((p: any) => p[key]).filter(Boolean))] as string[];
+                [...new Set(paymentsInScope.map((p: any) => p[key]).filter(Boolean))] as string[];
             await Promise.all([
                 collect('children', uniq('child_id')),
                 collect('unregistered_athletes', uniq('unregistered_athlete_id')),
@@ -405,18 +460,30 @@ router.get(
                 return `${MESES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
             };
 
-            const payments = (paymentsRaw || []).map((p: any) => ({
-                id: p.id,
-                student: nameMap.get(p.child_id)
-                    || nameMap.get(p.unregistered_athlete_id)
-                    || nameMap.get(p.user_id)
-                    || nameMap.get(p.parent_id)
-                    || 'Desconocido',
-                amount: Number(p.amount) || 0,
-                status: p.status || 'pending',
-                month: periodo(p),
-                team: p.concept || '—',
-            }));
+            const payments = paymentsInScope.map((p: any) => {
+                const enr = enrollmentByAthlete.get(paymentAthleteId(p));
+                const plan = enr?.offering_plan_id ? planMap.get(enr.offering_plan_id) as any : null;
+                return {
+                    id: p.id,
+                    student: nameMap.get(p.child_id)
+                        || nameMap.get(p.unregistered_athlete_id)
+                        || nameMap.get(p.user_id)
+                        || nameMap.get(p.parent_id)
+                        || 'Desconocido',
+                    amount: Number(p.amount) || 0,
+                    status: p.status || 'pending',
+                    month: periodo(p),
+                    // `team` es el EQUIPO real de la inscripción, no el concepto del
+                    // cobro — antes se mostraba `p.concept` bajo la etiqueta "Equipo",
+                    // lo que rompía cualquier filtro/agrupación real por equipo.
+                    team: (enr?.team_id && teamNameMap.get(enr.team_id)) || '—',
+                    plan: plan?.name || '—',
+                    concept: p.concept || '—',
+                    due_date: p.due_date || null,
+                    // + = vencido hace N días, − = faltan N días para vencer, null = sin fecha.
+                    days: p.due_date ? daysBetween(p.due_date, today) : null,
+                };
+            });
 
             // 3. Coaches — sin join ambiguo
             let coachesQuery = supabase
@@ -512,6 +579,17 @@ router.get(
                 })
             );
 
+            // 6. Planes — lista completa de la escuela (independiente del filtro
+            // aplicado) para poblar el selector "Filtrar por plan".
+            const { data: plansData, error: plansErr } = await supabase
+                .from('offering_plans')
+                .select('id, name')
+                .eq('school_id', schoolId)
+                .eq('is_active', true)
+                .order('name');
+            if (plansErr) throw plansErr;
+            const plans = (plansData || []).map((p: any) => ({ id: p.id, name: p.name }));
+
             // `revenue_potential` y `athletes_active` van aparte de `students` a
             // propósito: la lista está capada a 500 filas y ningún KPI puede depender
             // de cuántas quepan.
@@ -521,6 +599,7 @@ router.get(
                 coaches,
                 sedes,
                 teams,
+                plans,
                 revenue_potential: revenuePotential,
                 athletes_active: athletesInScope.length,
             });
