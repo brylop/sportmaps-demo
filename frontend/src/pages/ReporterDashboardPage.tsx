@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
@@ -10,38 +10,105 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
     Download, FileText, TrendingUp, TrendingDown, Users, DollarSign,
     Building, Activity, BarChart3, AlertCircle, CheckCircle, Clock,
-    Printer, Calendar, ChevronRight, ArrowUpRight, ArrowDownRight
+    Printer, Calendar, ChevronRight, ChevronLeft, ChevronUp, ChevronDown,
+    ChevronsUpDown, ArrowUpRight, ArrowDownRight
 } from 'lucide-react';
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Link } from 'react-router-dom';
+import { downloadWorkbook, STATUS_FILL_COLORS, type XlsxSheet } from '@/lib/export/xlsx';
+import { downloadExecutivePdf } from '@/lib/export/executivePdf';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface KPI {
     label: string;
     value: string | number;
+    /** Valor exacto para tooltip/exportaciones cuando `value` viene abreviado (ej. "$38.5M"). */
+    full?: string;
     sub?: string;
     trend?: 'up' | 'down' | 'neutral';
     trendValue?: string;
     color?: string;
 }
 
-interface StudentRow { id: string; full_name: string; team: string; sede: string; status: string; fee: number; joined: string; }
-interface PaymentRow { id: string; student: string; amount: number; status: string; month: string; team: string; }
+interface StudentRow {
+    id: string; full_name: string; team: string; plan: string; sede: string; status: string; fee: number; joined: string;
+    sessions_attended: number | null; sessions_total: number | null;
+}
+interface PaymentRow {
+    id: string; student: string; amount: number; amount_paid: number | null; status: string; month: string;
+    team: string; plan: string; concept: string; due_date: string | null; payment_date: string | null; days: number | null;
+}
 interface CoachRow { id: string; name: string; email: string; team: string; sede: string; students: number; }
 interface SedeRow { id: string; name: string; students: number; coaches: number; income: number; }
 interface TeamRow { id: string; name: string; students: number; monthly_fee: number; revenue: number; }
+interface PlanRow { id: string; name: string; }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const currency = (n: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
 
-function exportCSV(filename: string, headers: string[], rows: (string | number)[][]) {
+// Tarjetas de KPI a 7 columnas: una cifra de 8-9 dígitos ("$71.490.000") no
+// entra a texto legible sin abreviar. Solo para la TARJETA — tablas, CSV,
+// PDF y Excel siguen mostrando el monto exacto vía `currency()`.
+const compactCurrency = (n: number): string => {
+    if (Math.abs(n) >= 1_000_000) {
+        const millions = n / 1_000_000;
+        return `$${millions.toFixed(Math.abs(millions) >= 10 ? 0 : 1)}M`;
+    }
+    return currency(n);
+};
+
+// Diferencia en días entre dos 'YYYY-MM-DD' (b − a), positiva si b es posterior.
+const daysBetweenDates = (a: string, b: string): number =>
+    Math.round((new Date(`${b}T00:00:00Z`).getTime() - new Date(`${a}T00:00:00Z`).getTime()) / 86_400_000);
+
+// `days` (due_date vs hoy) solo describe algo pendiente de cobrar. Un pago ya
+// `paid` no sigue "vencido" aunque su due_date haya pasado — se cobró, tarde
+// o no — así que necesita su propio mensaje en vez de heredar el de pending/overdue.
+const formatDays = (p: Pick<PaymentRow, 'status' | 'days' | 'due_date' | 'payment_date'>): string => {
+    if (p.status === 'paid') {
+        if (p.due_date && p.payment_date) {
+            const lateBy = daysBetweenDates(p.due_date, p.payment_date);
+            if (lateBy <= 0) return 'Pagado a tiempo';
+            return `Pagado con ${lateBy} día${lateBy === 1 ? '' : 's'} de atraso`;
+        }
+        return 'Pagado';
+    }
+    if (p.days === null) return '—';
+    if (p.days > 0) return `Vencido hace ${p.days} día${p.days === 1 ? '' : 's'}`;
+    if (p.days < 0) return `Vence en ${-p.days} día${-p.days === 1 ? '' : 's'}`;
+    return 'Vence hoy';
+};
+
+const formatSessions = (attended: number | null, total: number | null): string =>
+    attended === null || total === null ? '—' : `${attended}/${total}`;
+
+// Orden genérico por columna: numérico si ambos valores son number, texto
+// (localeCompare, sin distinguir mayúsculas) en cualquier otro caso. `null`
+// siempre al final, sin importar la dirección — un dato ausente no es "menor".
+function sortRows<T extends Record<string, any>>(rows: T[], sort: SortState): T[] {
+    if (!sort.key) return rows;
+    const key = sort.key;
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+        const av = a[key];
+        const bv = b[key];
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+        return String(av).localeCompare(String(bv), 'es', { sensitivity: 'base' }) * dir;
+    });
+}
+
+function toggleSort(current: SortState, key: string): SortState {
+    if (current.key !== key) return { key, dir: 'asc' };
+    return { key, dir: current.dir === 'asc' ? 'desc' : 'asc' };
+}
+
+function downloadCSV(filename: string, content: string) {
     const bom = '\uFEFF';
-    const content = [
-        headers.join(','),
-        ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
-    ].join('\n');
     const blob = new Blob([bom + content], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -51,16 +118,36 @@ function exportCSV(filename: string, headers: string[], rows: (string | number)[
     URL.revokeObjectURL(url);
 }
 
+// Un bloque de una sola tabla, con t\u00EDtulo opcional \u2014 as\u00ED "Exportar Todo" puede
+// concatenar varias tablas en un solo archivo sin que se confundan entre s\u00ED.
+function csvSection(title: string | null, headers: string[], rows: (string | number)[][]): string {
+    const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+    return [
+        ...(title ? [esc(title)] : []),
+        headers.map(esc).join(','),
+        ...rows.map(r => r.map(esc).join(',')),
+    ].join('\n');
+}
+
+function exportCSV(filename: string, headers: string[], rows: (string | number)[][]) {
+    downloadCSV(filename, csvSection(null, headers, rows));
+}
+
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 function StatCard({ kpi }: { kpi: KPI }) {
     const isUp = kpi.trend === 'up';
     const isDown = kpi.trend === 'down';
     return (
-        <Card className="relative overflow-hidden border-0 shadow-md bg-gradient-to-br from-card to-card/80">
-            <div className={`absolute top-0 right-0 w-20 h-20 rounded-bl-full opacity-10 ${kpi.color || 'bg-primary'}`} />
-            <CardContent className="p-5">
+        <Card className="relative border-0 shadow-md bg-gradient-to-br from-card to-card/80">
+            {/* La mancha decorativa necesita su propio `overflow-hidden` — ponerlo en
+                la Card entera recortaba el valor del KPI cuando el número era largo
+                (ej. moneda COP de 8+ dígitos en una tarjeta angosta a 7 columnas). */}
+            <div className="absolute inset-0 overflow-hidden rounded-xl pointer-events-none">
+                <div className={`absolute top-0 right-0 w-20 h-20 rounded-bl-full opacity-10 ${kpi.color || 'bg-primary'}`} />
+            </div>
+            <CardContent className="relative p-5">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{kpi.label}</p>
-                <p className="text-3xl font-bold mt-1 text-foreground">{kpi.value}</p>
+                <p className="text-xl sm:text-2xl font-bold mt-1 text-foreground truncate" title={kpi.full ?? String(kpi.value)}>{kpi.value}</p>
                 {kpi.sub && <p className="text-xs text-muted-foreground mt-1">{kpi.sub}</p>}
                 {kpi.trendValue && (
                     <div className={`flex items-center gap-1 mt-2 text-xs font-medium ${isUp ? 'text-green-600' : isDown ? 'text-red-500' : 'text-muted-foreground'}`}>
@@ -97,14 +184,36 @@ function SectionHeader({ title, onExport, linkTo, linkLabel }: {
 }
 
 // ─── Mini Table ───────────────────────────────────────────────────────────────
-function MiniTable({ headers, rows }: { headers: string[]; rows: (string | number | React.ReactNode)[][] }) {
+type MiniTableColumn = string | { label: string; key: string };
+interface SortState { key: string | null; dir: 'asc' | 'desc'; }
+
+function MiniTable({ headers, rows, sort, onSort }: {
+    headers: MiniTableColumn[];
+    rows: (string | number | React.ReactNode)[][];
+    sort?: SortState;
+    onSort?: (key: string) => void;
+}) {
+    const cols = headers.map(h => typeof h === 'string' ? { label: h, key: null as string | null } : h);
     return (
         <div className="overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
                 <thead>
                     <tr className="bg-muted/50 border-b">
-                        {headers.map(h => (
-                            <th key={h} className="text-left text-xs font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">{h}</th>
+                        {cols.map(c => (
+                            <th key={c.label} className="text-left text-xs font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">
+                                {c.key && onSort ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => onSort(c.key!)}
+                                        className="flex items-center gap-1 hover:text-foreground transition-colors"
+                                    >
+                                        {c.label}
+                                        {sort?.key === c.key
+                                            ? (sort.dir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)
+                                            : <ChevronsUpDown className="w-3 h-3 opacity-40" />}
+                                    </button>
+                                ) : c.label}
+                            </th>
                         ))}
                     </tr>
                 </thead>
@@ -126,12 +235,39 @@ function MiniTable({ headers, rows }: { headers: string[]; rows: (string | numbe
     );
 }
 
+const PAGE_SIZE = 30;
+
+// ─── Paginador ────────────────────────────────────────────────────────────────
+function TablePager({ page, total, pageSize, onChange }: {
+    page: number; total: number; pageSize: number; onChange: (page: number) => void;
+}) {
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    if (totalPages <= 1) return null;
+    const from = (page - 1) * pageSize + 1;
+    const to = Math.min(page * pageSize, total);
+    return (
+        <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
+            <span>Mostrando {from}–{to} de {total}</span>
+            <div className="flex items-center gap-1">
+                <Button variant="outline" size="sm" className="h-7 w-7 p-0" disabled={page <= 1} onClick={() => onChange(page - 1)}>
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                </Button>
+                <span className="px-2">Página {page} de {totalPages}</span>
+                <Button variant="outline" size="sm" className="h-7 w-7 p-0" disabled={page >= totalPages} onClick={() => onChange(page + 1)}>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                </Button>
+            </div>
+        </div>
+    );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function ReporterDashboardPage() {
     const { schoolId, schoolName, activeBranchId } = useSchoolContext();
     const [dateRange, setDateRange] = useState('30');
+    const [teamFilter, setTeamFilter] = useState('all');
+    const [planFilter, setPlanFilter] = useState('all');
     const [loading, setLoading] = useState(true);
-    const printRef = useRef<HTMLDivElement>(null);
 
     // Data states
     const [kpis, setKpis] = useState<KPI[]>([]);
@@ -140,11 +276,20 @@ export default function ReporterDashboardPage() {
     const [coaches, setCoaches] = useState<CoachRow[]>([]);
     const [sedes, setSedes] = useState<SedeRow[]>([]);
     const [teams, setTeams] = useState<TeamRow[]>([]);
+    const [plans, setPlans] = useState<PlanRow[]>([]);
+    const [financesPage, setFinancesPage] = useState(1);
+    const [studentsPage, setStudentsPage] = useState(1);
+    const [financesSort, setFinancesSort] = useState<SortState>({ key: null, dir: 'asc' });
+    const [studentsSort, setStudentsSort] = useState<SortState>({ key: null, dir: 'asc' });
+    const [generatingPdf, setGeneratingPdf] = useState(false);
+    const [generatingXlsx, setGeneratingXlsx] = useState(false);
 
     useEffect(() => {
         if (!schoolId) return;
+        setFinancesPage(1);
+        setStudentsPage(1);
         fetchAll();
-    }, [schoolId, activeBranchId, dateRange]);
+    }, [schoolId, activeBranchId, dateRange, teamFilter, planFilter]);
 
     async function fetchAll() {
         setLoading(true);
@@ -153,6 +298,8 @@ export default function ReporterDashboardPage() {
             if (activeBranchId) {
                 queryParams.append('branch_id', activeBranchId);
             }
+            if (teamFilter !== 'all') queryParams.append('team_id', teamFilter);
+            if (planFilter !== 'all') queryParams.append('offering_plan_id', planFilter);
 
             const res = await bffClient.get<{
                 students: StudentRow[];
@@ -160,6 +307,7 @@ export default function ReporterDashboardPage() {
                 coaches: CoachRow[];
                 sedes: SedeRow[];
                 teams: TeamRow[];
+                plans: PlanRow[];
                 revenue_potential?: number;
                 athletes_active?: number;
             }>(`/api/v1/reports/reporter/dashboard?${queryParams.toString()}`);
@@ -177,21 +325,27 @@ export default function ReporterDashboardPage() {
 
             // Process payments for KPIs
             setPayments(res.payments);
-            const collected = res.payments.filter(r => r.status === 'paid').reduce((s, r) => s + r.amount, 0);
-            const pending = res.payments.filter(r => r.status === 'pending').reduce((s, r) => s + r.amount, 0);
+            // Un pago `partial` sí tiene plata adentro: la parte abonada ya se
+            // recaudó y el resto sigue por cobrar. Contarlo solo en un lado (o en
+            // ninguno) es la mentira más común de un dashboard de cobros.
+            const collected = res.payments.filter(r => r.status === 'paid').reduce((s, r) => s + r.amount, 0)
+                + res.payments.filter(r => r.status === 'partial').reduce((s, r) => s + (r.amount_paid ?? 0), 0);
+            const pending = res.payments.filter(r => r.status === 'pending').reduce((s, r) => s + r.amount, 0)
+                + res.payments.filter(r => r.status === 'partial').reduce((s, r) => s + (r.amount - (r.amount_paid ?? 0)), 0);
             const overdue = res.payments.filter(r => r.status === 'overdue').length;
 
             // Process coaches and sedes
             setCoaches(res.coaches);
             setSedes(res.sedes);
             setTeams(res.teams);
+            setPlans(res.plans || []);
 
             // Set all KPIs at once
             setKpis([
                 { label: 'Deportistas Activos', value: active, sub: `${res.athletes_active ?? res.students.length} total`, trend: 'up', trendValue: 'Ver listado', color: 'bg-blue-500' },
-                { label: 'Ingreso Potencial Mes', value: currency(totalRevenuePotential), sub: 'Si todos pagan', trend: 'neutral', color: 'bg-green-500' },
-                { label: 'Recaudado', value: currency(collected), sub: `Últimos ${dateRange} días`, trend: 'up', trendValue: `${res.payments.filter(r => r.status === 'paid').length} pagos`, color: 'bg-emerald-500' },
-                { label: 'Por Cobrar', value: currency(pending), sub: 'Pendiente de pago', trend: 'neutral', color: 'bg-yellow-500' },
+                { label: 'Ingreso Potencial Mensual', value: compactCurrency(totalRevenuePotential), full: currency(totalRevenuePotential), sub: 'Si todos pagan', trend: 'neutral', color: 'bg-green-500' },
+                { label: 'Recaudado', value: compactCurrency(collected), full: currency(collected), sub: `Últimos ${dateRange} días`, trend: 'up', trendValue: `${res.payments.filter(r => r.status === 'paid').length} pagos`, color: 'bg-emerald-500' },
+                { label: 'Por Cobrar', value: compactCurrency(pending), full: currency(pending), sub: 'Pendiente de pago', trend: 'neutral', color: 'bg-yellow-500' },
                 { label: 'Morosos', value: overdue, sub: 'Con deuda vencida', trend: overdue > 0 ? 'down' : 'neutral', trendValue: overdue > 0 ? 'Requiere atención' : 'Al día', color: 'bg-red-500' },
                 { label: 'Entrenadores', value: res.coaches.length, sub: 'Activos', color: 'bg-purple-500' },
                 { label: 'Sedes', value: res.sedes.length, sub: 'Ubicaciones activas', color: 'bg-orange-500' }
@@ -206,77 +360,123 @@ export default function ReporterDashboardPage() {
     }
 
     // ─── PDF Print ───────────────────────────────────────────────────────────────
-    function handlePrint() {
-        const printContent = printRef.current;
-        if (!printContent) return;
-        const win = window.open('', '_blank');
-        if (!win) return;
-        win.document.write(`
-      <!DOCTYPE html><html lang="es">
-      <head>
-        <meta charset="utf-8">
-        <title>Reporte ${schoolName} – ${format(new Date(), 'dd/MM/yyyy')}</title>
-        <style>
-          * { box-sizing: border-box; margin: 0; padding: 0; }
-          body { font-family: Arial, sans-serif; font-size: 12px; color: #1a1a1a; background: #fff; padding: 24px; }
-          h1 { font-size: 20px; color: #1a6118; margin-bottom: 4px; }
-          h2 { font-size: 14px; font-weight: bold; margin: 16px 0 8px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 4px; }
-          .meta { font-size: 11px; color: #666; margin-bottom: 20px; }
-          .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
-          .kpi { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; }
-          .kpi-label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
-          .kpi-value { font-size: 18px; font-weight: bold; color: #1a1a1a; margin-top: 2px; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-          th { background: #f3f4f6; text-align: left; padding: 6px 8px; font-size: 10px; font-weight: 600; color: #555; text-transform: uppercase; }
-          td { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; font-size: 11px; }
-          tr:last-child td { border-bottom: none; }
-          .footer { text-align: center; font-size: 10px; color: #999; margin-top: 30px; border-top: 1px solid #eee; padding-top: 12px; }
-          @media print { body { padding: 0; } }
-        </style>
-      </head><body>
-        <h1>📊 Reporte General — ${schoolName}</h1>
-        <p class="meta">Generado el ${format(new Date(), "dd 'de' MMMM 'de' yyyy 'a las' HH:mm", { locale: es })} · Período: últimos ${dateRange} días</p>
+    // Recaudado/Por Cobrar cuentan la parte de un pago `partial` que le
+    // corresponde a cada lado — ver el resumen de Finanzas más abajo, que
+    // usa estos mismos totales (una sola fuente, no dos cálculos que puedan
+    // desincronizarse).
+    const recaudadoTotal = payments.filter(p => p.status === 'paid').reduce((s, p) => s + p.amount, 0)
+        + payments.filter(p => p.status === 'partial').reduce((s, p) => s + (p.amount_paid ?? 0), 0);
+    const porCobrarTotal = payments.filter(p => p.status === 'pending').reduce((s, p) => s + p.amount, 0)
+        + payments.filter(p => p.status === 'partial').reduce((s, p) => s + (p.amount - (p.amount_paid ?? 0)), 0);
+    const vencidoTotal = payments.filter(p => p.status === 'overdue').reduce((s, p) => s + p.amount, 0);
 
-        <h2>Indicadores Clave</h2>
-        <div class="kpis">
-          ${kpis.map(k => `<div class="kpi"><div class="kpi-label">${k.label}</div><div class="kpi-value">${k.value}</div>${k.sub ? `<div style="font-size:10px;color:#888;margin-top:2px">${k.sub}</div>` : ''}</div>`).join('')}
-        </div>
+    async function handleExecutivePdf() {
+        setGeneratingPdf(true);
+        try {
+        const statusCounts = payments.reduce<Record<string, number>>((acc, p) => {
+            acc[p.status] = (acc[p.status] || 0) + 1;
+            return acc;
+        }, {});
+        await downloadExecutivePdf({
+            schoolName: schoolName || 'SportMaps',
+            dateRangeLabel: `Últimos ${dateRange} días`,
+            generatedAt: new Date(),
+            // El PDF/Excel siempre llevan el monto exacto, nunca el "$38.5M"
+            // abreviado que se usa solo para que la tarjeta no se corte.
+            kpis: orderedKpis.map(k => ({ label: k.label, value: k.full ?? String(k.value), sub: k.sub })),
+            financeBreakdown: [
+                { label: 'Recaudado', value: recaudadoTotal, color: '#10b981' },
+                { label: 'Por Cobrar', value: porCobrarTotal, color: '#f59e0b' },
+                { label: 'Vencido', value: vencidoTotal, color: '#ef4444' },
+            ],
+            statusDistribution: [
+                { label: 'Pagado', value: statusCounts.paid || 0, color: '#10b981' },
+                { label: 'Parcial', value: statusCounts.partial || 0, color: '#fb923c' },
+                { label: 'Pendiente', value: statusCounts.pending || 0, color: '#f59e0b' },
+                { label: 'Vencido', value: statusCounts.overdue || 0, color: '#ef4444' },
+            ].filter(d => d.value > 0),
+            topTeamsByRevenue: [...teams].sort((a, b) => b.revenue - a.revenue).slice(0, 8)
+                .map(t => ({ name: t.name, revenue: t.revenue })),
+            topOverdueStudents: [...payments].filter(p => p.status === 'overdue')
+                .sort((a, b) => (b.days ?? 0) - (a.days ?? 0))
+                .map(p => ({ name: p.student, team: p.team, amount: p.amount, days: p.days ?? 0 })),
+        }, `reporte_ejecutivo_${schoolName || 'sportmaps'}`);
+        } finally {
+            setGeneratingPdf(false);
+        }
+    }
 
-        <h2>Deportistas (${students.length})</h2>
-        <table>
-          <tr><th>Nombre</th><th>Equipo</th><th>Sede</th><th>Estado</th><th>Mensualidad</th><th>Ingreso</th></tr>
-          ${students.slice(0, 50).map(s => `<tr><td>${s.full_name}</td><td>${s.team}</td><td>${s.sede}</td><td>${s.status === 'active' ? 'Activo' : 'Inactivo'}</td><td>${currency(s.fee)}</td><td>${s.joined}</td></tr>`).join('')}
-        </table>
-
-        <h2>Pagos — Últimos ${dateRange} días (${payments.length})</h2>
-        <table>
-          <tr><th>Deportista</th><th>Equipo</th><th>Mes</th><th>Monto</th><th>Estado</th></tr>
-          ${payments.slice(0, 50).map(p => `<tr><td>${p.student}</td><td>${p.team}</td><td>${p.month}</td><td>${currency(p.amount)}</td><td>${p.status}</td></tr>`).join('')}
-        </table>
-
-        <h2>Sedes (${sedes.length})</h2>
-        <table>
-          <tr><th>Sede</th><th>Deportistas</th><th>Entrenadores</th><th>Ingresos</th></tr>
-          ${sedes.map(s => `<tr><td>${s.name}</td><td>${s.students}</td><td>${s.coaches}</td><td>${currency(s.income)}</td></tr>`).join('')}
-        </table>
-
-        <h2>Equipos (${teams.length})</h2>
-        <table>
-          <tr><th>Equipo</th><th>Deportistas</th><th>Mensualidad</th><th>Ingreso Potencial</th></tr>
-          ${teams.map(p => `<tr><td>${p.name}</td><td>${p.students}</td><td>${currency(p.monthly_fee)}</td><td>${currency(p.revenue)}</td></tr>`).join('')}
-        </table>
-
-        <h2>Entrenadores (${coaches.length})</h2>
-        <table>
-          <tr><th>Nombre</th><th>Email</th><th>Equipo</th><th>Sede</th></tr>
-          ${coaches.map(c => `<tr><td>${c.name}</td><td>${c.email}</td><td>${c.team}</td><td>${c.sede}</td></tr>`).join('')}
-        </table>
-
-        <div class="footer">Reporte confidencial de solo lectura — SportMaps © ${new Date().getFullYear()}</div>
-      </body></html>
-    `);
-        win.document.close();
-        setTimeout(() => { win.print(); }, 400);
+    async function handleExcelExport() {
+        setGeneratingXlsx(true);
+        try {
+        const sheets: XlsxSheet[] = [
+            {
+                name: 'Indicadores',
+                columns: [{ header: 'Métrica', key: 'label', width: 28 }, { header: 'Valor', key: 'value', width: 22 }],
+                rows: orderedKpis.map(k => ({ label: k.label, value: k.full ?? k.value })),
+            },
+            {
+                name: 'Finanzas',
+                columns: [
+                    { header: 'Deportista', key: 'student', width: 26 },
+                    { header: 'Equipo', key: 'team', width: 18 },
+                    { header: 'Plan', key: 'plan', width: 22 },
+                    { header: 'Mes', key: 'month', width: 14 },
+                    { header: 'Monto', key: 'amount', width: 14, type: 'currency' },
+                    { header: 'Estado', key: 'status', width: 12, statusColors: STATUS_FILL_COLORS },
+                    { header: 'Días', key: 'daysLabel', width: 22 },
+                ],
+                rows: sortRows(payments, financesSort).map(p => ({ ...p, daysLabel: formatDays(p) })),
+            },
+            {
+                name: 'Deportistas',
+                columns: [
+                    { header: 'Nombre', key: 'full_name', width: 26 },
+                    { header: 'Equipo', key: 'team', width: 18 },
+                    { header: 'Plan', key: 'plan', width: 22 },
+                    { header: 'Sede', key: 'sede', width: 16 },
+                    { header: 'Estado', key: 'status', width: 12, statusColors: STATUS_FILL_COLORS },
+                    { header: 'Mensualidad', key: 'fee', width: 14, type: 'currency' },
+                    { header: 'Ingreso', key: 'joined', width: 14 },
+                    { header: 'Sesiones', key: 'sessionsLabel', width: 12 },
+                ],
+                rows: sortRows(students, studentsSort).map(s => ({ ...s, sessionsLabel: formatSessions(s.sessions_attended, s.sessions_total) })),
+            },
+            {
+                name: 'Sedes',
+                columns: [
+                    { header: 'Sede', key: 'name', width: 22 },
+                    { header: 'Deportistas', key: 'students', width: 14, type: 'integer' },
+                    { header: 'Entrenadores', key: 'coaches', width: 14, type: 'integer' },
+                    { header: 'Ingresos Recaudados', key: 'income', width: 18, type: 'currency' },
+                ],
+                rows: sedes,
+            },
+            {
+                name: 'Equipos',
+                columns: [
+                    { header: 'Equipo', key: 'name', width: 22 },
+                    { header: 'Deportistas', key: 'students', width: 14, type: 'integer' },
+                    { header: 'Mensualidad', key: 'monthly_fee', width: 14, type: 'currency' },
+                    { header: 'Ingreso Potencial', key: 'revenue', width: 18, type: 'currency' },
+                ],
+                rows: teams,
+            },
+            {
+                name: 'Entrenadores',
+                columns: [
+                    { header: 'Nombre', key: 'name', width: 24 },
+                    { header: 'Email', key: 'email', width: 26 },
+                    { header: 'Equipo', key: 'team', width: 18 },
+                    { header: 'Sede', key: 'sede', width: 16 },
+                ],
+                rows: coaches,
+            },
+        ];
+        await downloadWorkbook(sheets, `reporte_completo_${schoolName || 'sportmaps'}_${dateRange}dias`);
+        } finally {
+            setGeneratingXlsx(false);
+        }
     }
 
     // ─── Status Badge ─────────────────────────────────────────────────────────
@@ -287,6 +487,7 @@ export default function ReporterDashboardPage() {
             paid: { label: 'Pagado', className: 'bg-green-100 text-green-700' },
             pending: { label: 'Pendiente', className: 'bg-yellow-100 text-yellow-700' },
             overdue: { label: 'Vencido', className: 'bg-red-100 text-red-700' },
+            partial: { label: 'Parcial', className: 'bg-orange-100 text-orange-700' },
         };
         const s = map[status] || { label: status, className: 'bg-muted text-muted-foreground' };
         return <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${s.className}`}>{s.label}</span>;
@@ -303,7 +504,7 @@ export default function ReporterDashboardPage() {
     ].filter(Boolean);
 
     return (
-        <div className="container mx-auto p-6 space-y-6 max-w-7xl" ref={printRef}>
+        <div className="container mx-auto p-6 space-y-6 max-w-7xl">
             {/* ─── Header ─────────────────────────────────────────────────────── */}
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <div>
@@ -329,16 +530,31 @@ export default function ReporterDashboardPage() {
                             <SelectItem value="365">Último año</SelectItem>
                         </SelectContent>
                     </Select>
-                    <Button onClick={handlePrint} variant="outline" size="sm" className="gap-2 h-9">
-                        <Printer className="w-3.5 h-3.5" /> PDF / Imprimir
+                    <Select value={teamFilter} onValueChange={setTeamFilter}>
+                        <SelectTrigger className="w-40 h-9 text-sm">
+                            <Users className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                            <SelectValue placeholder="Equipo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Todos los equipos</SelectItem>
+                            {teams.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                    <Select value={planFilter} onValueChange={setPlanFilter}>
+                        <SelectTrigger className="w-40 h-9 text-sm">
+                            <FileText className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                            <SelectValue placeholder="Plan" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Todos los planes</SelectItem>
+                            {plans.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                    <Button onClick={handleExecutivePdf} variant="outline" size="sm" className="gap-2 h-9" disabled={loading || generatingPdf}>
+                        <Printer className="w-3.5 h-3.5" /> {generatingPdf ? 'Generando…' : 'PDF Ejecutivo'}
                     </Button>
-                    <Button
-                        onClick={() => exportCSV('reporte_general', ['Sección', 'Métrica', 'Valor'],
-                            orderedKpis.map(k => ['KPI', k.label, String(k.value)])
-                        )}
-                        variant="outline" size="sm" className="gap-2 h-9"
-                    >
-                        <Download className="w-3.5 h-3.5" /> Exportar Todo
+                    <Button onClick={handleExcelExport} variant="outline" size="sm" className="gap-2 h-9" disabled={loading || generatingXlsx}>
+                        <Download className="w-3.5 h-3.5" /> {generatingXlsx ? 'Generando…' : 'Exportar Excel'}
                     </Button>
                 </div>
             </div>
@@ -397,9 +613,9 @@ export default function ReporterDashboardPage() {
                                     <Button asChild variant="ghost" size="sm" className="text-xs h-7">
                                         <Link to="/finances">Ver Finanzas <ChevronRight className="w-3 h-3 ml-1" /></Link>
                                     </Button>
-                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" onClick={() =>
-                                        exportCSV('finanzas', ['Deportista', 'Equipo', 'Mes', 'Monto', 'Estado'],
-                                            payments.map(p => [p.student, p.team, p.month, p.amount, p.status])
+                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" disabled={loading} onClick={() =>
+                                        exportCSV('finanzas', ['Deportista', 'Equipo', 'Plan', 'Mes', 'Monto', 'Estado', 'Días'],
+                                            payments.map(p => [p.student, p.team, p.plan, p.month, p.amount, p.status, formatDays(p)])
                                         )
                                     }>
                                         <Download className="w-3 h-3" /> CSV
@@ -411,9 +627,9 @@ export default function ReporterDashboardPage() {
                             {/* Summary row */}
                             <div className="grid grid-cols-3 gap-3 mb-4">
                                 {[
-                                    { label: 'Total Recaudado', value: currency(payments.filter(p => p.status === 'paid').reduce((s, p) => s + p.amount, 0)), icon: CheckCircle, color: 'text-green-600 bg-green-50' },
-                                    { label: 'Pendiente', value: currency(payments.filter(p => p.status === 'pending').reduce((s, p) => s + p.amount, 0)), icon: Clock, color: 'text-yellow-600 bg-yellow-50' },
-                                    { label: 'Vencido', value: currency(payments.filter(p => p.status === 'overdue').reduce((s, p) => s + p.amount, 0)), icon: AlertCircle, color: 'text-red-600 bg-red-50' },
+                                    { label: 'Total Recaudado', value: currency(recaudadoTotal), icon: CheckCircle, color: 'text-green-600 bg-green-50' },
+                                    { label: 'Pendiente', value: currency(porCobrarTotal), icon: Clock, color: 'text-yellow-600 bg-yellow-50' },
+                                    { label: 'Vencido', value: currency(vencidoTotal), icon: AlertCircle, color: 'text-red-600 bg-red-50' },
                                 ].map(item => (
                                     <div key={item.label} className={`flex items-center gap-3 p-3 rounded-lg ${item.color.split(' ')[1]}`}>
                                         <item.icon className={`w-4 h-4 ${item.color.split(' ')[0]}`} />
@@ -425,14 +641,28 @@ export default function ReporterDashboardPage() {
                                 ))}
                             </div>
                             <MiniTable
-                                headers={['Deportista', 'Equipo', 'Mes', 'Monto', 'Estado']}
-                                rows={payments.slice(0, 30).map(p => [
-                                    p.student, p.team, p.month, currency(p.amount),
-                                    <StatusBadge key={p.id} status={p.status} />
-                                ])}
+                                headers={[
+                                    { label: 'Deportista', key: 'student' },
+                                    { label: 'Equipo', key: 'team' },
+                                    { label: 'Plan', key: 'plan' },
+                                    { label: 'Mes', key: 'due_date' },
+                                    { label: 'Monto', key: 'amount' },
+                                    { label: 'Estado', key: 'status' },
+                                    { label: 'Días', key: 'days' },
+                                ]}
+                                sort={financesSort}
+                                onSort={key => { setFinancesSort(s => toggleSort(s, key)); setFinancesPage(1); }}
+                                rows={sortRows(payments, financesSort)
+                                    .slice((financesPage - 1) * PAGE_SIZE, financesPage * PAGE_SIZE)
+                                    .map(p => [
+                                        p.student, p.team, p.plan, p.month, currency(p.amount),
+                                        <StatusBadge key={p.id} status={p.status} />,
+                                        formatDays(p)
+                                    ])}
                             />
-                            {payments.length > 30 && (
-                                <p className="text-xs text-muted-foreground text-center mt-2">Mostrando 30 de {payments.length}. Exporta CSV para ver todos.</p>
+                            <TablePager page={financesPage} total={payments.length} pageSize={PAGE_SIZE} onChange={setFinancesPage} />
+                            {payments.length > PAGE_SIZE && (
+                                <p className="text-xs text-muted-foreground text-center mt-2">Exporta CSV para ver todos los registros de una vez.</p>
                             )}
                         </CardContent>
                     </Card>
@@ -451,9 +681,9 @@ export default function ReporterDashboardPage() {
                                     <Button asChild variant="ghost" size="sm" className="text-xs h-7">
                                         <Link to="/students">Ver Deportistas <ChevronRight className="w-3 h-3 ml-1" /></Link>
                                     </Button>
-                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" onClick={() =>
-                                        exportCSV('deportistas', ['Nombre', 'Equipo', 'Sede', 'Estado', 'Mensualidad', 'Ingreso'],
-                                            students.map(s => [s.full_name, s.team, s.sede, s.status, s.fee, s.joined])
+                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" disabled={loading} onClick={() =>
+                                        exportCSV('deportistas', ['Nombre', 'Equipo', 'Plan', 'Sede', 'Estado', 'Mensualidad', 'Ingreso', 'Sesiones'],
+                                            students.map(s => [s.full_name, s.team, s.plan, s.sede, s.status, s.fee, s.joined, formatSessions(s.sessions_attended, s.sessions_total)])
                                         )
                                     }>
                                         <Download className="w-3 h-3" /> CSV
@@ -463,15 +693,29 @@ export default function ReporterDashboardPage() {
                         </CardHeader>
                         <CardContent>
                             <MiniTable
-                                headers={['Nombre', 'Equipo', 'Sede', 'Estado', 'Mensualidad', 'Ingreso']}
-                                rows={students.slice(0, 30).map(s => [
-                                    s.full_name, s.team, s.sede,
-                                    <StatusBadge key={s.id} status={s.status} />,
-                                    currency(s.fee), s.joined
-                                ])}
+                                headers={[
+                                    { label: 'Nombre', key: 'full_name' },
+                                    { label: 'Equipo', key: 'team' },
+                                    { label: 'Plan', key: 'plan' },
+                                    { label: 'Sede', key: 'sede' },
+                                    { label: 'Estado', key: 'status' },
+                                    { label: 'Mensualidad', key: 'fee' },
+                                    { label: 'Ingreso', key: 'joined' },
+                                    { label: 'Sesiones', key: 'sessions_attended' },
+                                ]}
+                                sort={studentsSort}
+                                onSort={key => { setStudentsSort(s => toggleSort(s, key)); setStudentsPage(1); }}
+                                rows={sortRows(students, studentsSort)
+                                    .slice((studentsPage - 1) * PAGE_SIZE, studentsPage * PAGE_SIZE)
+                                    .map(s => [
+                                        s.full_name, s.team, s.plan, s.sede,
+                                        <StatusBadge key={s.id} status={s.status} />,
+                                        currency(s.fee), s.joined, formatSessions(s.sessions_attended, s.sessions_total)
+                                    ])}
                             />
-                            {students.length > 30 && (
-                                <p className="text-xs text-muted-foreground text-center mt-2">Mostrando 30 de {students.length}. Exporta CSV para ver todos.</p>
+                            <TablePager page={studentsPage} total={students.length} pageSize={PAGE_SIZE} onChange={setStudentsPage} />
+                            {students.length > PAGE_SIZE && (
+                                <p className="text-xs text-muted-foreground text-center mt-2">Exporta CSV para ver todos los registros de una vez.</p>
                             )}
                         </CardContent>
                     </Card>
@@ -490,7 +734,7 @@ export default function ReporterDashboardPage() {
                                     <Button asChild variant="ghost" size="sm" className="text-xs h-7">
                                         <Link to="/branches">Ver Sedes <ChevronRight className="w-3 h-3 ml-1" /></Link>
                                     </Button>
-                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" onClick={() =>
+                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" disabled={loading} onClick={() =>
                                         exportCSV('sedes', ['Sede', 'Deportistas', 'Entrenadores', 'Ingresos Recaudados'],
                                             sedes.map(s => [s.name, s.students, s.coaches, s.income])
                                         )
@@ -542,7 +786,7 @@ export default function ReporterDashboardPage() {
                                     <Button asChild variant="ghost" size="sm" className="text-xs h-7">
                                         <Link to="/teams">Ver Equipos <ChevronRight className="w-3 h-3 ml-1" /></Link>
                                     </Button>
-                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" onClick={() =>
+                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" disabled={loading} onClick={() =>
                                         exportCSV('equipos', ['Equipo', 'Deportistas', 'Mensualidad', 'Ingreso Potencial'],
                                             teams.map(p => [p.name, p.students, p.monthly_fee, p.revenue])
                                         )
@@ -585,7 +829,7 @@ export default function ReporterDashboardPage() {
                                     <Button asChild variant="ghost" size="sm" className="text-xs h-7">
                                         <Link to="/staff">Ver Staff <ChevronRight className="w-3 h-3 ml-1" /></Link>
                                     </Button>
-                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" onClick={() =>
+                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" disabled={loading} onClick={() =>
                                         exportCSV('entrenadores', ['Nombre', 'Email', 'Equipo', 'Sede'],
                                             coaches.map(c => [c.name, c.email, c.team, c.sede])
                                         )

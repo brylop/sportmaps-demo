@@ -124,7 +124,7 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     '/branches': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Gestión de sedes' },
     '/school-config': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'settings:edit', description: 'Configuración de escuela' },
     '/pickup': { allowedRoles: ['school', 'admin'], description: 'Monitor de salida segura' },
-    '/reporter-dashboard': { allowedRoles: ['reporter'], description: 'Panel del reportero' },
+    '/reporter-dashboard': { allowedRoles: ['reporter', 'school', 'school_admin', 'admin', 'super_admin'], description: 'Panel de reportes — cartera por estado (pagado/pendiente/vencido) con exportación CSV' },
 
     // ── Wellness ──
     '/athletes': { allowedRoles: ['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin'], description: 'Atletas (bienestar)' },

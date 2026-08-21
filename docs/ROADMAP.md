@@ -1,11 +1,79 @@
 # SportMaps — Roadmap Maestro
 
-**Versión:** 2.2 · **Fecha:** 2026-08-12 · **Rama:** `develop`
+**Versión:** 2.5 · **Fecha:** 2026-08-19 · **Rama:** `develop`
 
 > **Este es el único roadmap.** Todo lo demás en `docs/` es *spec* (qué se construye y por qué),
 > *plan de fase* (cómo se migra), *doctrina de arquitectura* (cómo se hace) o *auditoría* (qué está
 > mal). Ninguno de esos documentos define prioridades: las define esta cola. Si un pendiente no
 > aparece aquí, no existe.
+
+**Cambios v2.4 → v2.5** (análisis del tablero de planificación en Canva de **Independiente Santa Fe
+U20B** — 105 diapositivas, 2026-08-19 — cruzado contra el esquema real del eje de entrenamiento):
+- **Nuevo track `PER`** — periodización: microciclos, rótulos de día y carga de entrenamiento. No
+  nace de una idea de producto: nace de un artefacto real, de un club real, que hoy se mantiene a
+  mano en una herramienta de diseño. Spec en
+  [`specs/periodizacion-microciclos-y-carga.md`](specs/periodizacion-microciclos-y-carga.md).
+- **El tablero de Canva tiene tres errores que su formato no puede detectar** —índices MD mal
+  contados (el martes rotulado «MD-3» con partido el miércoles), un día rotulado **«regenerativo»**
+  con hipertrofia y 10 series de RSA a 40 m a 24 h de un partido oficial, y **dos partidos en 72 h**
+  sin un día libre de por medio— y, de fondo, **ni un solo indicador numérico** en las 105
+  diapositivas. Cada error se corrige con una regla de software, y esa correspondencia es la que
+  ordena las fases del track. El módulo no es «Canva pero nuestro»: es el mismo tablero **que sabe
+  sumar**.
+- **`PER-0` es puerta dura y es el mismo trabajo que `MOD-8`.** El eje de entrenamiento está roto y
+  no se había escrito acá: `training_plans` (el contenido) **no tiene `school_id`** —su RLS depende
+  de un JOIN a `teams`— y `training_sessions` (cupo y reserva) **no está vinculada a ella**. Son dos
+  tablas de nombre casi idéntico que modelan cosas distintas y no se conocen. El tablero táctico que
+  se entregó hoy se colgó de la **segunda**. No se construye periodización encima de eso.
+- **§1.3 registra el tablero táctico de fútbol, que se entregó hoy y no figuraba en ningún lado de
+  este archivo.** `P0` y `P2` están en `develop` desde `f1f720d` con tres migraciones aplicadas. Es
+  literalmente lo que denuncia la §4: **trabajo vivo que el tablero no refleja.** Cuarto caso
+  después de `DIN-4`, Android y el ciclo diario de Informes.
+
+**Cambios v2.3 → v2.4** (investigación de video del 2026-08-19, contra la documentación de Veo):
+- **Nuevo track `VID`** — video de partidos: grabación, en vivo y clips. Nace de `CAR-7` pero es
+  capacidad de plataforma, no trabajo de Carmel.
+- **`CAR-7` se reescribe: su supuesto era falso por los dos lados.** No hay API pública de Veo
+  Technologies (sus integraciones son acuerdos de partner) **y no hace falta**: Veo Live acepta
+  destino **RTMP personalizado**, así que la cámara puede emitir directo a un ingest nuestro.
+- **Trampa que queda escrita:** `developer.veo.co.uk` es *Video Enhanced Observation Ltd*, **otra
+  empresa**. Tiene API documentada y no sirve para la cámara. Quien busque «Veo API» cae ahí.
+- Tres decisiones nuevas en §5 — **D-IMAGEN**, **D-VIDEO-RET**, **D-VIDEO-PRECIO** — y un gate duro
+  **`G-IMAGEN`** que bloquea `VID-2`: no se almacena video de menores sin consentimiento registrado.
+
+**Cambios v2.2 → v2.3** (auditoría de frontend responsive y móvil del 2026-08-18, ejecutada **leyendo
+los archivos del repo, el CSS compilado y el manifest Android fusionado**):
+- **Track nuevo `MOV`** — móvil, responsive y app nativa. 12 ítems que salen de los 40 hallazgos de
+  [`auditoria-frontend-responsive-movil-2026-08-18.md`](auditoria-frontend-responsive-movil-2026-08-18.md).
+  No es un track de UI bonita: `MOV-4` es lo que **bloquea el white-label ya vendido** y `MOV-1`
+  son nueve arreglos de una línea que hoy no están.
+- **`BLQ-3` (Mobile) deja de decir «no arranca».** Android **ya está construido, firmado y subido a
+  la prueba interna de Play** — `versionCode 2`, AAB en `android/app/build/outputs/`, App Links
+  verificados, edge-to-edge de Android 16 resuelto en `MainActivity`. Pasó por fuera de la cola,
+  igual que `DIN-4` (§1.2). Lo que queda de `BLQ-3` es N4 (offline) y flavors, no N1–N3.
+- **`iOS` no existe como plataforma.** `frontend/ios/` no está en disco ni versionado, y
+  `@capacitor/ios` está en `node_modules` sin estar declarado en `package.json`. Todo el iOS del
+  producto es hoy la PWA en Safari → nueva decisión abierta **D-IOS**.
+- **Tres piezas de código muerto que hacían creer que el responsive estaba cubierto**: `src/App.css`
+  (241 líneas, **no importado**, incluye el parche de targets táctiles), `ui/responsive.tsx` (sin
+  consumidores y con clases que el JIT no genera) y `components/Layout.tsx`. Es el mismo patrón que
+  `INF-8`: **un gate que parecía verde apuntaba a la nada.**
+- **`UX-1` gana un prerrequisito.** Las primitivas de layout no se pueden diseñar bien mientras
+  `App.css` siga existiendo: define reglas de modal, grid y tabla con `!important` que quien lea el
+  repo va a dar por vigentes.
+
+**Añadido el 2026-08-19** (barrido de trabajos programados y del panel de super admin, medido **contra la base viva**):
+- **`INF-11`** — el mantenimiento nocturno de sesiones tenía **dos dueños** corriendo el mismo minuto,
+  y `mv_session_health` **no la lee nadie**. La mitad del BFF ya está corregida; la otra mitad borra
+  objetos vivos y espera aprobación.
+- **`ADM-6`** — el panel de super admin **sí existe**, y su tarjeta «Actividad Hoy / Sesiones activas»
+  muestra un conteo de **pagos de 30 días**. La tarjeta «Sistema» está hardcodeada en verde.
+- **`MOD-17`** — el ciclo diario del Informe Mensual (F5) ya corre, pero **recorre todas las escuelas**:
+  el «piloto» que promete el comentario no existe.
+- **`DIN-19`** — al inventariar `cron.job` no aparece agendado el autopay canónico. **Verificar.**
+- **`MOD-10` re-medido**: `C-A` y la fase 1 de la UI de evolución **ya están entregadas**; lo que falta
+  es el objetivo de negocio (pesos, normalización, benchmark) y el carril legacy de `/evaluations`.
+- **Regla 9 nueva en §0**: un trabajo programado tiene un solo dueño, y la zona horaria se declara.
 
 **Cambios v2.1 → v2.2** (barrido de seguridad del 2026-08-12, ejecutado **contra la base viva**):
 - **Tres huecos nuevos en P0** — `SEG-8` (un padre puede auto-aprobar su comprobante), `SEG-9`
@@ -68,6 +136,15 @@
    **advisory lock** por clave de negocio, **idempotencia** en toda mutación reintentable, y **una
    sola fuente de verdad**. Doctrina completa, con el inventario de dónde ya está aplicada y dónde
    falta, en [`architecture/concurrencia-y-reservas.md`](architecture/concurrencia-y-reservas.md).
+9. **Un trabajo programado tiene un solo dueño, y la zona horaria se declara.** Conviven dos planos de
+   cron —`node-cron` en el BFF y `pg_cron` en la base— y **no comparten reloj**: `node-cron` acepta
+   `{ timezone: 'America/Bogota' }`, mientras `pg_cron` se rige por `cron.timezone`, que acá está en
+   **GMT** aunque la base entera esté en `America/Bogota` (verificado 2026-08-19: `now()` devuelve
+   `-05` y el cron igual dispara en UTC). Por eso un job de la base se escribe **en UTC** y deja el
+   equivalente COT en el comentario, y uno del BFF **siempre** declara `timezone` o corre en la zona
+   del contenedor de Render. Colombia no tiene horario de verano, así que la conversión no se
+   desfasa; en un país con DST este esquema se rompe dos veces al año. **Antes de agregar un job hay
+   que verificar que la otra capa no lo esté corriendo ya** → `INF-11`.
 
 ### Mantenimiento
 
@@ -85,6 +162,8 @@ tocan para reflejar avance; ellos describen el destino, esta tabla describe dón
 | **Ciclo de mes / cobros duplicados** | 🔍 en revisión → `DIN-1` | **Único bloqueante de producción.** Revisión hecha el 2026-08-01: de los tres hallazgos, **H1 y H2 ya estaban cerrados** por las migraciones del 24-jul (índices de adultos y no registrados creados; `open_month` puebla `period_*` y el cron delega en él). Lo que sigue abierto es la ventana intra-sentencia, que **ninguno** de los tres hallazgos describía |
 | **Entitlements / activación de módulos** | 🟡 el bloqueo de trial ya opera | `DIN-4` **aplicado en producción el 2026-08-12**: 168 escuelas inhabilitadas, Dynasty y GYM RM exentas. Falta su mitad de RLS (`SEG-15`). `SEG-7` sigue abierto |
 | **Fecha externa comprometida** | 🔴 **19-ago-2026** | Inicio de pruebas de **Club Carmel** (~800 deportistas, 8 disciplinas). Bloque `CAR`. Es la única fecha con un tercero del otro lado |
+| **App nativa** | 🟡 Android publicado en prueba interna · **iOS no existe** | Android: AAB firmado `versionCode 2`, 7 plugins, App Links verificados, edge-to-edge de Android 16 resuelto. ⚠️ **El AAB de la prueba interna apunta a `bffdev.sportmaps.co`** — los tokens de los testers quedan en el BFF de dev y los pushes de prod/stg no les llegan. iOS: `frontend/ios/` **no existe**, así que todo el iOS del producto es la PWA en Safari → `D-IOS`. La deuda de UI de lo publicado es el track `MOV` |
+| **Responsive / móvil** | 🟡 estrategia correcta, ejecución con deuda | Mobile-first estricto y bien aplicado (cero prefijos `max-*`, adaptación por CSS y no por JS). Falla en tres frentes concretos: **safe areas** (4 archivos de 491 las usan, contra 15 cabeceras `sticky top-0`), **unidades de viewport** (113 `100vh` contra 9 `dvh`) y **targets táctiles** (nada en la escala base de `Button` llega a 44 pt). Y `MOV-4`: el verde de marca escrito a mano 127 veces **anula el white-label ya vendido** |
 | **Seguridad** | 🟡 1 sin verificar → `SEG-8` | **Reverificado con la LLAVE ANÓNIMA el 2026-08-17** (la pasada del 08-16 se dio por buena sin probarla así, y `SEG-14` resultó abierto de par en par): ~~`SEG-14`~~ **estaba ABIERTO — cerrado y verificado el 08-17**, `SEG-9` (cuatro `/debug-logs` públicos) y `SEG-10` (91 tokens de link de pago + 68 registros de staff a `anon`) **ya están cerrados**. Queda `SEG-8` (41 funciones ejecutables por `anon`), que **no se puede comprobar funcionalmente** —hacerlo sería ejecutar `complete_refund` o `apply_late_fees`— y necesita la verificación por catálogo |
 
 ---
@@ -127,6 +206,20 @@ prioridad del tablero. Dejarlo escrito es lo que evita que `DIN-4` siga figurand
 | **Mapeo `school_type` → módulos** | ✅ `has_academy` cubría solo `academy`/`hybrid`, dejando en **false a 247 escuelas** que sí operan como escuela (83 clubes, 11 entrenadores personales — 5 con atletas activos) | Cablear el menú a estos flags → `CAR-3` |
 | **Separación real / pruebas** | ✅ **38 escuelas marcadas `test`**, 4 conservadas como `demo` curadas. `test` y `demo` ya estaban exentas del bloqueo: el cambio separa lo que se conserva de lo que se puede borrar | Borrado de las 22 vacías → `INF-6` |
 | **Motor de demos por deporte** | 🟡 `scripts/demo/` — un motor y un catálogo por tenant (voleibol, fútbol, patinaje, crossfit, box + club campestre). Cada uno siembra sedes, categorías, tarifas, staff, familias, cartera con mora, asistencia, reservas, control de acceso y torneo. **Validado en `--dry-run`, sin sembrar** | Decidir si se siembran (54 cuentas, ~650 cobros) |
+| **Informe Mensual del Atleta — F5 (ciclo diario)** | ✅ En `develop` (`6896b1b` + `3851316`, 14-ago). Tres RPCs `_system` (`generate_report_drafts_system`, `publish_athlete_report_system`, `publish_team_reports_system`): copias de las humanas **sin el chequeo de `auth.uid()`**, porque bajo `service_role` el cron no pasaría `can_manage_reports()` y rechazaría con `42501` en cada escuela; la puerta es el `GRANT` a `service_role`, no un check interno. El job `athlete-reports.job.ts` corre a las **06:10 COT**: genera borradores → publica lo vencido → envía correo y notificación. Verificado aplicado en la base el 19-ago.<br>⚠️ **Dos cosas que este ítem deja escritas**: el SQL viajó en el commit rotulado «fútbol/logos» y el job en el otro, así que revertir uno solo deja al otro colgando; y la migración está en el archivo como `20260814173709` pero en `schema_migrations` como `20260814174142` — **evidencia fresca de `INF-7`** | Filtro de escuela piloto y recordatorios → `MOD-17` |
+
+---
+
+## 1.3 Lo entregado el 19 de agosto (fuera de la cola)
+
+| Qué | Estado | Falta |
+|---|---|---|
+| **Tablero táctico de fútbol — `P0` + `P2`** | ✅ En `develop` (`f1f720d`). Formación **libre** por drag-and-drop (`@dnd-kit`) sobre `match_lineup_players` con `slot_label` + `x`/`y` normalizados 0–100, `match_lineups.source_type` ampliado a `training_session`, plantillas tácticas guardadas por situación (ataque / defensa / balón parado) y **modo pizarra** con flechas, curvas y zonas sobre la cancha. `TacticalBoard.tsx` (1.426 líneas) + 252 líneas nuevas en `bff/src/routes/school/football.ts`. Tres migraciones: `20260819142728/29/30`. **Extendió las tablas existentes en vez de crear `tactical_sessions`** como proponía el spec — decisión tomada y justificada en el plan de `P0` (la RLS de `match_lineups` ya estaba probada). `PlayerCard.tsx` adelanta parte de `P1` | `P1` completo (tarjetas sobre `performance_entries`) · `P3` (extensión a entrenamientos) → **absorbido por `PER-6`** · `P4` (sugerencias) · ⚠️ **probar el drag-and-drop en el APK real**, no solo en el navegador — es el R1 del propio spec y toca justo lo que falla distinto en un WebView de Capacitor |
+
+> **Por qué está acá y no en la cola:** el spec de fútbol se aprobó y se construyó el mismo día, sin
+> pasar por la §4. Es el cuarto caso después de `DIN-4`, Android y el ciclo diario de Informes — y es
+> exactamente el síntoma que la §4 se corrige a sí misma. **Lo que se entrega se marca el mismo día**
+> (§0). Se marca ahora.
 
 ---
 
@@ -156,6 +249,7 @@ IDs estables. La cola de la §3 los ordena; esta sección los describe.
 | **DIN-16** | 🔵 **Fusionar las identidades ya duplicadas.** **$1.770.000/mes** solo en Dynasty: 13 personas con 2–3 fichas, cada una facturable. Cancelar el cobro no alcanza — hay que trasladar equipo, cuota y pagos a la que sobrevive, vincular la absorbida y cancelar su inscripción. Incluye el patrón **child + adult** (Darwin Hernandez nació en 1972 y su documento es una cédula: atleta adulto cargado como menor; igual Oscar Baquero y Esteban Herrera). El plan existe y **estaba fuera de la cola**. Distinto de `DIN-13`, que evita las próximas. | 🔵 | 1 sem | [plan de fusión](plan-fusion-identidades-duplicadas.md) · [pendientes Dynasty](dynasty-pendientes-2026-08-12.md) |
 | **DIN-17** | 🔵 **Multimes / prepago de mensualidades.** No existe en ninguno de los 62 documentos: hoy se resuelve a mano. La escuela crea el cobro del mes siguiente **después** de recibir la plata (Violeta del Campo: cobro de octubre creado el 4-ago con `payment_date` del 3-ago). El veredicto de comprobantes compara contra **un solo** cobro con **tolerancia 0**, así que pagar dos meses siempre cae en `MONTO_DIFIERE` → revisión manual. Diseño propuesto: `payment_receipts` (la transacción) + `payment_allocations` (cómo se reparte) por encima de `payments`, que sigue siendo un cobro por mes — es lo único que hoy impide duplicados. Bloqueado por 4 decisiones de producto (descuento, cuántos meses adelante, baja con meses prepagados, saldo a favor). | 🔵 | spec + 5 fases | barrido 2026-08-12 |
 | **DIN-18** | 🟡 **73 documentos inválidos de 788.** 50 fichas con documento de **5 dígitos** y 23 con **11 a 15**. Además 59 sin documento (29 en `Club Campestre Demo`). Sin validación de formato al capturar, cualquier matcher por documento falla o empareja mal en esas 73 — por eso **D-DOC y la validación de formato son la misma decisión**. Incluye una colisión que hay que limpiar antes del índice único de `DIN-13` F3.3: **SPIRIT ALL STARS, doc `1016092607` en dos fichas** (Sara Sánchez / Silvana Sánchez — le digitaron el de la hermana a una de las dos). | 🔵 | 1–2 d | barrido 2026-08-12 |
+| **DIN-19** | ⚠️ **El autopay canónico no aparece agendado — verificar antes de actuar.** Al inventariar `cron.job` el 2026-08-19 hay **9 jobs y ninguno llama a `/api/v1/recurring/run`**; los ids 6-9, 11, 13, 15 y 16 están borrados, así que alguna vez hubo más. Lo que sí corre a las 02:00 COT es el autopay **legacy** sobre la tabla `subscriptions` (`maintenance.job.ts`, apagable con `DISABLE_LEGACY_SUBSCRIPTION_AUTOPAY`) — el que la auditoría `H-01` quería jubilar. Si se confirma, los cobros recurrentes de `recurring_subscriptions` **no están saliendo solos** y alguien los está corriendo a mano o no se están cobrando. **No es un hallazgo cerrado:** puede estar disparándose por otra vía (un scheduler externo, un endpoint llamado por otro servicio). Primero verificar; después reagendar y decidir qué pasa con el legacy, que es la otra mitad de `H-01`. | ⚠️ | verificar | inventario de `cron.job` 2026-08-19 |
 
 #### DIN-4 en detalle — «prendo el módulo y no se activa»
 
@@ -230,6 +324,7 @@ pantalla. Hoy no puede: los interruptores existen pero están repartidos y no ha
 | ADM-3 | **Consola por escuela: ver y fijar todo.** Una pantalla con las ~40 opciones agrupadas, y por cada una: valor actual **releído de la BD**, valor por defecto, quién lo cambió, cuándo y desde dónde (`trial_grant` / `admin_toggle` / `seed`). Hereda `G-VERIFY` de `DIN-4`: **nada se pinta por optimismo**. | 🔵 | 1–2 sem |
 | ADM-4 | **Precondiciones en los flags peligrosos.** No todo interruptor puede ser un switch pelado:<br>· `auto_generate_payments = true` en una escuela con inscripciones duplicadas **arma el fallo silencioso del cron** de `DIN-1` — `SOLO MILLOS` es la prueba viva: lo tiene en `true`, tiene 7 atletas duplicados, y su mes no se está facturando sin que nadie vea un error.<br>· `payment_mode = 'direct'` sin llaves validadas **mata el checkout** (`DIN-6` F-B).<br>· bajar de plan puede esconder módulos que la escuela está usando.<br>La consola **verifica la precondición y explica por qué se niega**, en vez de dejar apretar y romper. | 🔵 | 1 sem |
 | ADM-5 | **Auditoría y reversa.** Toda escritura registra actor, momento, valor anterior y nuevo, y se puede revertir al valor previo desde la misma pantalla. | 🔵 | 4 d |
+| **ADM-6** | 🔴 **El panel de super admin ya existe, y sus tarjetas no muestran lo que dicen.** Verificado el 2026-08-19 leyendo `AdminPanelPage.tsx` contra la definición de `admin_global_counts` en la base. La tarjeta titulada **«Actividad Hoy»**, subtitulada **«Sesiones activas (Est.)»**, se alimenta de **`payments_paid_30d`**: dice *hoy* y muestra *30 días*, promete *sesiones* y entrega *pagos*. El «(Est.)» es la confesión de que nadie creyó el número. Al lado, la tarjeta **«Sistema» está hardcodeada en `'Online'` verde** — no consulta nada, nunca se pone en rojo. La RPC devuelve **15 métricas y ninguna toca `attendance_sessions`**, y el dato correcto existe hace tiempo en `mv_session_health`, que **no lee nadie** (`INF-11`). Es el mismo defecto que ya condenamos en `DIN-4` D11 y en `ADM-3` («nada se pinta por optimismo»), pero acá el número ni siquiera es del concepto correcto. Fix: sumar `sessions_today` / `sessions_stale` / `oldest_stale` a `admin_global_counts` —que ya es `SECURITY DEFINER` con `is_super_admin()`, así que el gate no cambia— y cablear las dos tarjetas; «Sistema» en verde solo si `sessions_stale = 0`. | 🔵 | 1 d |
 
 > ⛔ **Lo que esta consola NO es: una caja para correr SQL desde el navegador.** El BFF usa
 > `service_role`, que **salta toda la RLS**: un endpoint que acepte SQL arbitrario del cliente es la
@@ -333,7 +428,7 @@ construir y que sirven a los siguientes clientes de este tipo. El resto sí es e
 | **CAR-4** | **Membresías del club** — CONSTRUIDO 2026-08-17, falta aplicar la migración. Tabla `memberships` deliberadamente **fuera de facturación**: sin montos, sin FK a pagos, ningún cron la mira. Sujeto con la convención de `payments`/`enrollments` (XOR user_id / child_id / unregistered_athlete_id) e índices únicos parciales: una membresía vigente por persona y escuela. RLS del staff con las cuatro policies separadas y `WITH CHECK` explícito (I3), `user_staff_school_ids()` y no `user_school_ids()` (I2), `anon` sin privilegios. **`valid_until` no vence solo** y la UI lo respeta: cuando la fecha pasó y el estado sigue activo, avisa «por revisar» en vez de dar la membresía por vencida — un vencimiento automático con dato rezagado deja socios al día sin acceso. Pantalla `/memberships` con listado, filtro, alta manual y **carga por archivo** (cruza por documento, y lo que no resuelve lo reporta línea por línea sin crear a nadie). La insignia también sale en el listado de atletas, solo para quien tiene membresía. El ítem del menú aparece cuando los cobros están **apagados**. | 🟡 | ✅ aplicada 2026-08-17 | [migración](../supabase/migrations/20260817142331_memberships_del_club.sql) · [plan](plan-club-carmel-multideporte-2026-08-15.md) §2.1 |
 | **CAR-5** | **Métricas de natación y golf.** El catálogo tiene 99 deportes y ambos están; `sport_metric_definitions` cubre solo 6 deportes (voleibol 51, fútbol 12, y cuatro con 4) — **natación y golf en 0**. La UI de captura ya existe: es trabajo de definición deportiva. Las validan los entrenadores. ⚠️ Los parciales de natación son series, no escalares: fuera del set inicial hasta verificar que `performance_entries` los aguanta. Ojo con `higher_is_better=false` (tiempo y hándicap). | 🔵 | pequeño + definición | [plan](plan-club-carmel-multideporte-2026-08-15.md) §4 |
 | **CAR-6** | **Carriles de piscina en reservas.** Hoy una piscina es *una* instalación con capacidad N; «carril 3 de 6» no se puede expresar. Camino barato para el trial: cada carril como `facility` propio (sin código, riesgo: no impide reservar la piscina completa y un carril a la vez). Camino correcto si duele: `facility_units` con «reservar el padre bloquea los hijos» — sirve también para canchas divisibles. | ⚪ | pequeño / mediano | [plan](plan-club-carmel-multideporte-2026-08-15.md) §5 |
-| **CAR-7** | **Video de partidos (Veo).** Cero referencias en el repo, confirmado por dos vías. Lo que piden es **análisis de partidos y comportamiento por jugador**, que depende de qué exponga la API de Veo — y no sabemos si tienen plan con API. Empezar por el enlace manual (`video_url` + embed) cubre «ver el partido desde la ficha del equipo» sin negociar acceso a un tercero **durante un trial**. | ⚪ | pequeño (enlace) / por definir (análisis) | [plan](plan-club-carmel-multideporte-2026-08-15.md) §6 |
+| **CAR-7** | **Video de partidos (Veo).** ⚠️ **Reescrito el 2026-08-19: el supuesto era falso por los dos lados.** Decía que el análisis «depende de qué exponga la API de Veo» y que no sabíamos si el club tiene plan con API. **(a) Veo Technologies no tiene API pública** — sus integraciones (SportsRecruits, Sportify, USA Lacrosse) son acuerdos comerciales de partner, y el *embed* del player sigue siendo un pedido abierto en su ideas board. **(b) Y no hace falta:** Veo Live acepta **destino RTMP personalizado**, así que la cámara emite directo a un ingest nuestro y el video entra a SportMaps sin negociar con nadie. Para el trial sigue en pie el **enlace manual** (`VID-1`, dos días, sin costo de infraestructura); el análisis por jugador es el track `VID` completo y **no cabe en un trial**. ⛔ Ojo: cualquier cosa que **almacene** video de los menores de Carmel pasa por `G-IMAGEN`. | 🔵 | pequeño (enlace) → track `VID` | investigación 2026-08-19 · track `VID` |
 
 ### INF — Infraestructura y deuda de esquema
 
@@ -349,6 +444,7 @@ construir y que sirven a los siguientes clientes de este tipo. El resto sí es e
 | ~~**INF-8**~~ | ✅ **CERRADO el 2026-08-17. La causa era el gate apuntando a la nada.** El pre-commit y el CI **ya corrían** `npx tsc --noEmit` en `frontend/`… pero `frontend/tsconfig.json` es un config de **solución** (`"files": []` + `references`), así que `tsc --noEmit` a secas revisa **cero archivos y sale 0**. El gate estuvo verde mientras se acumulaban **275 errores**, y por ahí se desplegaron seis `ReferenceError` que mataban pantallas enteras (Equipos, registro de escuela, carrito, /mi-plan, reserva de servicios, anuncios). `vite build` tampoco typechequea: transpila con esbuild. **Arreglado:** los dos gates ahora usan `-p tsconfig.app.json` y `-p tsconfig.node.json`; los tipos generados de Supabase se regeneraron (estaban del 9 de agosto, sin `sports_categories.slug`, `vendor_profiles` ni `service_listings` — 200 de los 275 errores eran eso); y los 66 restantes se corrigieron uno por uno, destapando **16 flujos que fallaban en la base**. **tsc queda en 0**, así que cualquier error nuevo es una regresión y el gate por fin muerde. Queda `npm run verificar:runtime` para diagnosticar rápido cuál error de tipos rompe una pantalla (filtra a TS2304/2552/2448/2449). | ✅ | — | [gate](../scripts/verificar-nombres-sin-declarar.mjs) · [ci](../.github/workflows/ci.yml) |
 | **INF-9** | ⚠️ **`20260817133556_restaurar_booking_holds` NO SE CORRE — superseded por `20260817140943_restaurar_booking_holds_v2`.** Abortó con `42883: operator does not exist: uuid = uuid[]`: la policy del staff usaba `= ANY ((SELECT public.user_staff_school_ids()))`, y cuando lo que sigue a `ANY (` es un `SELECT`, PostgreSQL lo parsea como **subconsulta** — compara el uuid contra cada FILA, y cada fila es el `uuid[]` completo. El paréntesis extra no cambia el parseo. La v2 usa `IN (SELECT unnest(...))`, que no admite dos lecturas y sigue resolviéndose una sola vez por consulta (SubPlan hasheado). Iba en `BEGIN/COMMIT`, así que el rollback no dejó nada a medias — verificado: `booking_holds` sigue sin existir. **Lección para el resto de las policies que usan los helpers de alcance:** los tres devuelven `uuid[]`, así que `= ANY (fn())` va sin `SELECT` adentro, o se envuelve con `unnest`. | 🟡 | ✅ v2 aplicada 2026-08-17 | [v2](../supabase/migrations/20260817140943_restaurar_booking_holds_v2.sql) · [la que abortó](../supabase/migrations/20260817133556_restaurar_booking_holds.sql) |
 | **INF-10** | ⚠️ **El aviso de `20260816193602` sobre `school_type='academia'` es FALSO** — verificado el 2026-08-18. Esa migración advierte que «el selector del onboarding ofrece Academia y guarda `academia`», valor que la vista no reconoce, dejando a la escuela sin módulos. **No es así:** el onboarding vivo es `SchoolSetupPage.tsx` y emite **`academy`**, el valor canónico. El componente que emite `academia` es `SchoolRegister.tsx`, que es **código muerto**: no está ruteado en ninguna parte y su submit final solo hace `console.log` («Here you would typically send all data to Supabase»). Medido en la base: **cero** filas con `academia`, `universidad` o `federacion`. Las 151 escuelas sin módulos son `federation` (79), `institute` (62) y `association` (10) — entidades informativas del mapa, donde no tener módulos es **correcto**. La migración no se puede editar (inmutables), así que la corrección vive acá. **Pendiente real y menor:** borrar `SchoolRegister.tsx`, que además ofrece `universidad` y `federacion`, valores que tampoco existen. Y anotar que **ninguna escuela tiene `hybrid` hoy**: Carmel sería la primera. | 🔵 | trivial | [muerto](../frontend/src/components/pages/SchoolRegister.tsx) · [vivo](../frontend/src/pages/SchoolSetupPage.tsx) |
+| **INF-11** | ⚠️ **Un trabajo nocturno con dos dueños, y una matview que no lee nadie.** Medido el 2026-08-19. **(1) La duplicación:** `auto_finalize_stale_sessions()` + `refresh_session_health()` se disparaban **a la vez** desde el BFF (23:55 COT) y desde `pg_cron` (04:55 UTC = el mismo minuto). Lo que **no** pasaba: doble descuento de sesiones —`fn_deduct_sessions_on_finalize` ya no descuenta nada desde `20260730050217`, solo pasa `session_bookings` a `attended` con un `WHERE status='confirmed'` idempotente, y el `UPDATE … WHERE finalized = false` deja 0 filas en el segundo disparo. Tampoco había desfase de fecha: el `TimeZone=America/Bogota` está a nivel de **base**, así que también aplica a los workers de `pg_cron`. Lo que sí pasaba: **cuatro `REFRESH … CONCURRENTLY` por noche donde alcanzaba uno**, porque el trigger de sentencia `trg_attendance_session_finalized` refresca **aunque la sentencia afecte 0 filas**, y encima el cron refresca explícito. **Ya corregido el lado del BFF** (bloque de las 23:55 eliminado; `pg_cron` queda como dueño único). **(2) Lo que falta, y borra objetos vivos:** `mv_session_health` **no la lee nadie** —cero `.from(...)` en el código, cero filas en `pg_depend`— y sus columnas `stale`/`today`/`upcoming` usan **`CURRENT_DATE` dentro de una matview**, que congela la fecha en el instante del refresh: a las 00:01 `today` ya miente. El trigger no es una optimización, es el **parche de un problema que la matview crea**, y lo paga el coach dentro de su request al finalizar asistencia. La query cuesta **90 ms sobre 2.648 sesiones y 365 escuelas, todo desde caché**. Fix: matview → **vista normal** (ahí `CURRENT_DATE` se evalúa al leer y siempre acierta), borrar el trigger, y sacar el `refresh` redundante del comando de `pg_cron` y de `/cleanup`. Su consumidor natural es `ADM-6`. Emparenta con `INF-2` (dos mecanismos de cron), que hasta ahora estaba anotado sin caso concreto. | 🟡 mitad hecha | 1 d | sesión 2026-08-19 |
 
 ### UX — Interfaz, navegación y densidad
 
@@ -360,6 +456,39 @@ construir y que sirven a los siguientes clientes de este tipo. El resto sí es e
 | UX-4 | **Menú lateral — reestructura.** De 36 destinos en 6 grupos a 24, con ningún grupo de más de 5 ítems y 12 pantallas movidas a pestañas dentro de la pantalla a la que pertenecen. Implica tocar páginas, no solo el config. | ⚪ | 1 sem | sesión 2026-08-01 |
 | UX-5 | **Master-detail en los listados.** Sustituir el modal de «ver registro» por un panel de detalle a la derecha en Atletas, Cobros y Comprobantes. Depende de UX-2. | ⚪ | 1 sem | sesión 2026-08-01 |
 | UX-6 | **Matar las features falsas del atleta.** Privacidad 100 % cosmética, `/messages` sin compose ni triggers y con «Contactar» de mentira, botón «Crear Evento» sin gateo en el calendario del atleta, `sports_interests` que nadie consume. ⚠️ El hallazgo de notificaciones cosméticas probablemente quedó resuelto al construir el módulo unificado — **verificar antes de trabajar.** | 🔵 | 1–2 d | [athlete remediation §F0](athlete-modules-remediation-plan.md) |
+
+### MOV — Móvil, responsive y app nativa
+
+Fuente única del track: [`auditoria-frontend-responsive-movil-2026-08-18.md`](auditoria-frontend-responsive-movil-2026-08-18.md),
+con los 40 hallazgos y su evidencia archivo:línea. Tres cosas que conviene tener claras antes de
+priorizar acá:
+
+1. **La estrategia responsive es correcta y no hay que rehacerla.** Mobile-first estricto (**cero**
+   prefijos `max-*` en 1.259 breakpoints), la adaptación es CSS y no JavaScript (`useIsMobile` tiene
+   **un solo consumidor** en toda la app), y el scroll horizontal está resuelto en el primitivo
+   `Table` para los 54 archivos que lo usan. Lo que falla es la **ejecución en tres frentes
+   concretos**: safe areas, unidades de viewport y targets táctiles.
+2. **Android está mitigado a propósito y iOS no tiene red de seguridad.** `MainActivity` paddea el
+   contenedor del WebView con los insets del sistema en vez de auditar 78 páginas, y su comentario lo
+   dice explícitamente. Esa decisión es buena — pero **solo existe en Android**. En la PWA de iOS,
+   que es hoy la única vía iOS, no hay nada equivalente.
+3. **`MOV-4` no es cosmético.** Es lo que impide que el addon `pwa_branding`/`whitelabel` funcione, y
+   ya está vendido. Va emparejado con `BLQ-6`.
+
+| ID | Pendiente | Estado | Esfuerzo | Fuente |
+|---|---|---|---|---|
+| **MOV-1** | **Las nueve correcciones de una línea.** Ninguna toca lógica de negocio y juntas cierran 12 hallazgos: (a) crear `android/app/src/main/res/values/colors.xml` — **hoy no existe**, así que `styles.xml` resuelve `colorPrimary`/`colorAccent` contra los defaults de la librería de Capacitor y **cada campo de texto de la app muestra caret y manejadores de selección rosa Material `#FF4081` sobre una app verde**; (b) `android:windowBackground` en `AppTheme.NoActionBar`, que hoy es `@null` y deja **sin fondo las franjas que `MainActivity` paddea** → bandas negras sobre una app clara en API 35+; (c) el botón de cerrar de `DialogContent` mide **16×16 px** (no tiene padding ni `h-*`, el área táctil es el propio icono) — está a un `p-2` de 32 px y a `h-11 w-11` de cumplir; (d) `pb-20` (80 px) en el `<main>` reserva **menos** que el bottom nav (`h-16` + `env(safe-area-inset-bottom)` = 98 px en iPhone) → 18 px del último elemento tapados; (e) `Textarea` a `text-sm` mientras `Input` ya usa `text-base md:text-sm` → **auto-zoom de Safari** en cada área de texto larga; (f) `container.padding: "2rem"` es un escalar → 32 px de gutter en móvil, 296 px útiles de 360; (g) `overscroll-behavior: contain`, que hoy **no existe en ninguna declaración real**; (h) el manifest por defecto del BFF no declara icono `maskable` (la rama con marca de escuela **sí**); (i) guard de `isNativePlatform()` en `registerSW` → el SW se registra dentro del APK, donde no aporta y arrastra la lógica de recarga por `controllerchange`. | 🟢 | **medio día** | auditoría A-03..A-05, D-05, R-01, R-03, R-07, R-11, V-07 |
+| **MOV-2** | **Borrar el código muerto que simula cobertura responsive.** `src/App.css` — **241 líneas que ningún archivo importa** (`main.tsx` solo trae `index.css`), y adentro está el parche `min-height: 44px` de targets táctiles, el `[role="dialog"]` con `100vh` y `margin !important`, y un `[class*="grid-cols"] { grid-template-columns: 1fr !important }` que **habría aplastado todos los grids intencionales** si el archivo corriera. Dos de sus reglas ni siquiera son CSS válido (`.md\\:grid-cols-2` — el escape correcto es `\:`). Además: `ui/responsive.tsx` (sin consumidores; su `ResponsiveGrid` arma `md:grid-cols-${n}` en template string, que el JIT de Tailwind **nunca genera**), `components/Layout.tsx`, la regla `.main-content-with-nav`, los dos manifests estáticos (`public/manifest.json` trae `theme_color: #0ea5e9` — **celeste, no la marca**) y el bloque `workbox.runtimeCaching` de `vite.config.ts`, que es config muerta bajo `injectManifest`. **Prerrequisito de `UX-1`**: no se pueden diseñar primitivas de layout con un archivo fantasma que define reglas de modal y grid con `!important`. ⚠️ Antes de borrar `App.css`, decidir qué de su contenido debería vivir de verdad en `index.css` — el `min-height: 44px` es justo lo que pide `MOV-6`. | 🟢 | 1 d | auditoría A-02, A-08..A-11, V-04 |
+| **MOV-3** | **Safe areas: 4 archivos de 491 las usan.** `index.css` ya define `.screen-safe`, `.dialog-safe` y `.safe-area-bottom`, bien comentadas — el problema es la adopción. Contra eso hay **15 cabeceras `sticky top-0` sin padding superior** (empezando por `AuthLayout.tsx:48`, que es la de **toda** la app autenticada) y `viewport-fit=cover` en el viewport, que mete el contenido bajo el notch. Falta una utilidad `.sticky-safe` y aplicarla; en Android es idempotente (`MainActivity` ya consumió los insets, así que `env()` da 0 y no hay doble margen), en la PWA de iOS es la diferencia entre usable e inusable. Incluye los tres banners flotantes, que además de ignorar los insets **se dibujan encima del bottom nav** (`z-50` contra `z-30`, `bottom-4`/`bottom-6` contra una barra de 64 px+) y usan paleta celeste fuera de marca sin modo oscuro; y las variantes `top`/`bottom` de `Sheet` y el `Drawer` de vaul, que dejan sus botones de acción bajo el home indicator. | 🔵 | 2–3 d | auditoría R-02, R-04, R-05 |
+| **MOV-4** | 🔴 **El verde de marca escrito a mano anula el white-label.** `BrandingScope` aplica la marca de la escuela **reasignando variables CSS** (`--primary`, `--secondary`), así que todo lo que esté escrito como literal es inmune: **127 `#248223`** + 24 `#FB9F1E` + 162 `bg-green-500` + 172 `text-green-600` + 99 `text-green-500` + 84 `border-green-500`. Una escuela con marca roja o azul ve **verde SportMaps filtrándose** en botones, badges, iconos y bordes de decenas de pantallas — incluido el `bg-[#FB9F1E]` del indicador activo del bottom nav. En total **3.769 clases de paleta Tailwind fija y 641 literales hex en 48 archivos**. Por fases medibles: (1) los 151 hex de marca → tokens; (2) los verdes de Tailwind → tokens; (3) tokens semánticos de estado (`--success`/`--warning`/`--danger`/`--info`) para amber/red/blue/emerald, que **resuelve `MOV-5` en la misma pasada** porque los tokens ya tienen su valor en `.dark`. Cerrar con una regla de lint que falle ante un hex nuevo en `src/`, o la deuda vuelve a crecer. **Va emparejado con `BLQ-6`** — no tiene sentido construir tiers de branding sobre esto. | 🔵 | 1–2 sem por fases | auditoría D-01 |
+| **MOV-5** | **Modo oscuro a medio construir.** `ThemeContext` está bien hecho (tres estados, listener de `prefers-color-scheme`, `.dark` completo en `index.css`); la cobertura no: **452 prefijos `dark:` en 77 de 491 archivos** y **786 líneas con fondos claros `-50`/`-100` sin variante oscura** (`bg-green-50` ×49, `bg-amber-50` ×47, `bg-blue-50` ×43, `bg-red-50` ×40) → paneles casi blancos con texto de color encima. **Agravado en Android**: el tema nativo es `Theme.AppCompat.DayNight`, así que un teléfono en oscuro entra a la app en oscuro por defecto y esas 786 líneas son lo primero que se ve. Aparte, **las 7 pantallas del embudo de entrada** (`LoginPage`, `RegisterPage`, `OnboardingRolePage` + los 4 `*Register` de `components/pages/`) tienen **paleta oscura privada hardcodeada** que ignora el tema y el branding — justo donde el branding más importa. La fase 3 de `MOV-4` cubre la mayor parte. | 🔵 | dentro de MOV-4 + 3 d | auditoría D-02, D-03, A-06 |
+| **MOV-6** | **Targets táctiles y tipografía bajo el mínimo.** La escala base de `Button` no llega en ninguna variante salvo `lg`: `default: h-10` (40 px), `sm: h-9` (36 px, **527 usos**), `icon: h-10 w-10` (40 px, 125 usos), contra 44 pt de Apple y 48 dp de Android. Y encima se reduce por sitio: **16 botones a `h-8 w-8`**, **10 a `h-7 w-7`** y uno a `h-5 w-5` — varios de ellos junto a acciones de **borrar** (`BlockBuilder`, `TeamsPage`, `SchoolFacilitiesPage`). En tipografía, **1.021 ocurrencias por debajo de 12 px** (`text-[10px]` ×673, `text-[11px]` ×187, `text-[9px]` ×142, `text-[8px]` ×18, un `text-[7px]`), incluidos los mensajes de validación del formulario de acceso — que es un problema de conversión, no solo de accesibilidad. **Y no hay escape**: `maximum-scale=1.0, user-scalable=no` incumple WCAG 1.4.4 y Android WebView lo respeta al pie de la letra. Quitar el bloqueo de zoom es seguro: el auto-zoom de iOS ya lo cubren los 16 px de `Input` y el fix de `Textarea` de `MOV-1`. | 🔵 | 1 sem | auditoría D-06, R-08, R-09 |
+| **MOV-7** | **Tipografía remota, bloqueante y sin cachear — y tres familias fantasma.** Cero `@font-face` propios y cero `.woff2` en el repo: Poppins viene de Google Fonts con **5 pesos** en un `<link rel="stylesheet">` que bloquea el render. El `runtimeCaching` que la cachearía es **config muerta** (`injectManifest`), y el `sw.js` real retorna temprano para cross-origin → **el SW nunca la cachea**. En la app nativa eso significa que los assets salen del filesystem local pero **la tipografía sale a Internet en cada arranque frío**, y sin red no carga nunca. Aparte, el código pide tres familias que **no se cargan**: `Inter` (×4), `DM Sans` (×3) y `Lexend` (×1) → las 7 pantallas del embudo caen a San Francisco en iOS y a Roboto en Android, ninguna es la de la marca. Fix: bundlear los 3 pesos que se usan de verdad en `public/fonts/` con `preload`, y borrar las 8 referencias fantasma. | 🟢 | 1 d | auditoría V-04, V-05 |
+| **MOV-8** | **Imágenes sin ninguna optimización.** De **112 `<img>`**, solo 6 tienen `loading="lazy"`; **cero** `srcSet`, **cero** `decoding="async"`, **cero** `width`/`height` → cada avatar y logo que llega **recoloca el layout**, y son los que van dentro de listas. Sin `srcSet` el móvil recibe el archivo de escritorio: `icon-512.png` pesa **335 KB** y `hero-sportsmaps.jpg` **224 KB**. Cero WebP/AVIF en todo el proyecto. Incluye el dedupe de **5 archivos `.png` que son en realidad el mismo JPEG** (magic `ff d8 ff`, md5 idéntico, 63 KB × 5): `favicon.png`, `sportmaps-logo.png`, `logo-bienvenida.png` y sus dos copias en `src/assets/`. El BFF ya esquiva el problema y lo documenta en su código, pero `public/manifest.webmanifest` los sigue declarando `"type": "image/png"` y el `includeAssets` de Vite los precachea. Al ser JPEG **no tienen canal alfa**, así que el logo arrastra un recuadro sólido en cualquier fondo que no sea el suyo. | 🔵 | 3–4 d | auditoría V-03, P-02 |
+| **MOV-9** | **Teclado y scroll: sin `@capacitor/keyboard` y con scroll anidado.** El plugin no está instalado; la única gestión de teclado del proyecto es `MainActivity`, que resuelve bien los insets del IME — **pero solo en Android, y la app no reacciona**: hay 3 `scrollIntoView` en todo el código y ninguno se dispara al enfocar un input, así que en formularios largos (`AddChildDialog`, `SchoolOnboardingWizard`, `CreateTeamModal`) el campo enfocado queda detrás del teclado. En iOS es peor: sin plugin ni compensación nativa, WKWebView no encoge el viewport y los 34 `position: fixed` flotan sobre el teclado. Aparte, el contenedor de scroll es el `<main>` y no el documento, con otro `overflow-auto` por cada `<Table>` adentro → en iOS el momentum se transfiere mal entre contenedores anidados y se pierde el «tocar la barra de estado para subir». Y **113 usos de `100vh`/`min-h-screen` contra 9 de `dvh`**. | 🔵 | 1 sem | auditoría R-10, R-12 |
+| **MOV-10** | **Diálogos: los 41 `max-h-[90vh]` están siendo anulados a `100dvh`.** Verificado en el CSS compilado: `.max-h-[90vh]` está en el byte 32.087 y `.dialog-safe` (que trae `max-height: 100dvh`) en el 153.460 — misma especificidad, gana el segundo. La otra aparición de `90vh` es `.sm:` dentro de `@media (min-width:640px)`, o sea solo desktop. Resultado: en móvil, los 41 diálogos que su autor limitó al 90 % ocupan el 100 % del viewport dinámico y, centrados con `translate-y-[-50%]`, **arrancan en y=0 con el título bajo el notch**. La intención del autor y el resultado no coinciden en ninguno de los 41 sitios. Fix limpio: quitar `max-height` de `.dialog-safe` (dejando `overflow-y` y el `padding-bottom` con `env()`) y normalizar a `max-h-[90dvh]`. Incluye los **397 `grid-cols-N` sin escalón móvil**, priorizando los de 4–7 columnas dentro de diálogos (el selector de 7 días da **40 px por celda** a 360 px de ancho). | 🔵 | 3–4 d | auditoría R-06, R-13 |
+| **MOV-11** | **Chrome nativo y gestos.** (a) Sin `@capacitor/status-bar`: el estilo de los iconos de la barra lo decide el tema `DayNight`, no el tema de la app → con la app en Claro y el SO en Oscuro salen **iconos claros sobre una franja clara**. (b) Sin `<meta name="theme-color">` en `index.html`, y `background_color: #ffffff` fijo en el manifest → **destello blanco en cada arranque** de la PWA instalada, también en modo oscuro. (c) `@capacitor/app` está instalado pero **no registra ningún listener de `backButton`**: la navegación atrás funciona por el `goBack()` por defecto de `BridgeActivity`, pero los diálogos y sheets de Radix no están en el historial, así que el gesto atrás **navega la ruta de fondo dejando el modal montado** — en un modal de pago a medio llenar eso es pérdida de datos. (d) `orientation: portrait` en el manifest pero **`android:screenOrientation` sin fijar** en la Activity: la app nativa rota libre y no hay una sola clase `landscape:` en `src/`. | 🔵 | 2–3 d | auditoría P-04, P-05, D-04, A-07 |
+| **MOV-12** | **Rendimiento visual.** **292 `transition-all`** (observa todas las propiedades animables; cuando el cambio incluye `box-shadow` o dimensiones, cada frame dispara layout + paint) y **70 `backdrop-blur`** sobre elementos `sticky`/`fixed`, incluida la cabecera global de `AuthLayout` — es la fuente clásica de caída de FPS al hacer scroll en Android de gama media, y `will-change` solo aparece en el `App.css` que no se importa, o sea **cero pistas de compositor en el CSS activo**. El `supports-[backdrop-filter]:` está bien puesto para degradar donde no hay soporte, pero falta el escape por rendimiento. Aparte, el chunk `index` pesa **590 KB** y `vendor-react` 469 KB: en el WebView nativo se leen de disco, pero el **parse/compile** se paga en cada arranque frío. El code splitting en sí está bien (todo `lazy()`, vendors apartados a mano, y `globIgnores` ya recortó el precache de 7,4 MB con la medición fechada). | ⚪ | 3–4 d | auditoría V-01, V-02, V-06 |
 
 ### MOD — Módulos de producto
 
@@ -375,12 +504,107 @@ construir y que sirven a los siguientes clientes de este tipo. El resto sí es e
 | MOD-7 | **Torneos: cerrar inscripción → bracket.** `events` + delegaciones ya existen en la base **sin versionar**; el bracket es net-new. | ⚠️🔵 | 4 sem | [decisiones](tournaments-decisions.md) · [inscripción](tournaments-enrollment-flow.md) · [scoring](tournaments-scoring-engine.md) |
 | MOD-8 | **Asistencia y créditos de sesión.** Máx 1 crédito/atleta/día, la reserva descuenta y la asistencia no re-descuenta ese día, bloqueo del día al 2º coach. Incluye el saneamiento del eje plan↔equipo↔sesiones. | 🔵 | 2 sem | [plan créditos](plan-asistencia-y-creditos-de-sesion.md) · [saneamiento](plan-saneamiento-sesiones-plan-equipo.md) |
 | MOD-9 | **Informes de asistencia.** Decisiones de producto cerradas. | 🔵 | 1 sem | [spec](specs/attendance-reports-module.md) |
-| MOD-10 | **Complementos de métricas de rendimiento (C-A…C-K)** + `higher_is_better`, pesos, normalización, benchmark, y la UI de crecimiento. | 🔵 | 3 sem | [complementos](performance-metrics-complements.md) · [spec](performance-metrics-spec.md) |
+| MOD-10 | **Complementos de métricas de rendimiento (C-A…C-K)** + pesos, normalización, benchmark, y la UI de crecimiento. **Re-medido el 2026-08-19:** `C-A` **ya está** —`sport_metric_definitions` tiene `higher_is_better`, `min_value` y `max_value`, y existe `sport_metric_thresholds` con bandas— y la **fase 1 de la UI de evolución está entregada** en las tres vistas (escuela/coach por `/training-plans`, padre por `/academic-progress`, atleta por `/stats`), con `performanceDisplay.ts` y los componentes de `components/performance/`. ⚠️ **Gotcha al tocarla:** hay **dos rutas del BFF** que alimentan lo mismo (`/school/performance/…` y `/athlete/performance/evolution`); un campo de presentación nuevo hay que agregarlo en **las dos**. Sigue faltando el objetivo de negocio —**pesos por escuela (C-B), normalización e índice de mejora (C-F), benchmark (C-G)** e ingesta de dispositivos (C-H)— más las fases 2 y 3 de la UI (historial por sesión de evaluación + radar por categoría; percentil contra el equipo + heatmap de cobertura). ⚠️ **Y un carril paralelo vivo:** `/evaluations` sigue escribiendo a `academic_progress` con `skill_name` de **texto libre** y un slider 0-100, sin pasar por el catálogo ni por `performance_entries`. Lo que produce **no agrega ni compara**, que es exactamente el gap que C-I (puente anti-fragmentación) tenía que cerrar. | 🔵 | 3 sem | [complementos](performance-metrics-complements.md) · [spec](performance-metrics-spec.md) · [legacy](../frontend/src/pages/CoachEvaluationsPage.tsx) |
 | MOD-11 | **Marketplace: desplegar lo que ya está en código.** `marketplace_transactions` no existe en la base — el módulo escolar y externo está construido pero **no desplegado**. Después: M8 planes vendor, M9 split multi-vendor en carrito, M10 3D/AR, M11 Mox real, M12 email transaccional.<br>⛔ **GATE DE DESPLIEGUE: no se despliegan las migraciones de `marketplace_transactions` hasta cerrar F-D del [plan de ruteo de pagos](plan-cierre-ruteo-de-pagos.md).** Cinco de los seis endpoints de `marketplace-checkout.routes.ts` (135, 191, 248, 314, 568) **no llaman a `resolveProvider`** — solo el de carrito (446) lo hace — así que caerían a ENV, que en staging es Dynasty. Hoy el riesgo es teórico **solo porque la tabla no existe**: desplegarla lo arma. | 🔵⛔ | 1 sem + M8–M12 | memoria `project_stores_marketplace_state` · [gate F-D](plan-cierre-ruteo-de-pagos.md) |
 | MOD-12 | **Self-service de planes y addons (fases 1–4).** De activación manual asistida por ventas a autoservicio instantáneo, luego auto-renew, ciclo de vida y onboarding desde la landing. | 🔵 | 3 sem | [roadmap](self-service-planes-addons-roadmap.md) · [vendor subs](saas-vendor-subscriptions-plan.md) |
 | MOD-13 | **Facturación de sesiones y cobro por plan.** | 🔵 | 1 sem | [spec](specs/invoice-plan-sessions-and-collection.md) |
 | MOD-14 | **Carnets: cerrar el editor de plantillas** y quitar las referencias a `programs`. | ⚠️ | 3 d | memoria `project_carnets_digitales` |
 | MOD-15 | **WhatsApp: System User permanente de Meta.** Sin esto el bot muere cada 2 horas. Bloquea WA3–WA5. | 🟢 | 4 h | memoria `project_whatsapp_wa1_wa2_built` |
+| **MOD-17** | 🔴 **Informe Mensual: el «piloto» de F5 no existe, y el cron manda correo real.** El ciclo diario ya corre (§1.2), pero `generate_report_drafts_system()` hace `FOR v_school IN SELECT id FROM public.schools` —**todas**— y el job termina llamando a `deliverPublishedReports`, que manda correo a las familias. El comentario del cron dice «mientras se prueba en **una escuela piloto**» y **no hay ningún filtro por escuela**: el único control es `DISABLE_ATHLETE_REPORTS_CRON`, que es todo-o-nada. Hoy el radio es inocuo **por falta de datos, no por diseño** —medido el 19-ago: los únicos atletas con `performance_entries` de agosto son **7, todos de «Academia Fútbol Demo»**—, pero la primera escuela real que capture métricas del mes entra sola al ciclo. Falta además: **recordatorios** (coach sin nota / padre que no abrió), declarados como segunda pasada, y las fases **F2–F6** del spec (PDF al vuelo, calendario de reparto). ⚠️ Recordar el gotcha del spec: la identidad del coach es `school_staff.id` vía `coach_auth_id`, no `auth.uid()`. ⛔ **Es el R0 de `MOD-19`:** nada de multi-cadencia se construye antes, y `report_schedules.enabled=false` por defecto es este mismo filtro, bien hecho.| 🔵 | 1 sem | [spec](specs/athlete-reports-module.md) · [plan F1](plan-f1-informes-backend.md) |
+
+| MOD-18 | **Cumpleaños y celebraciones.** Tablero de «hoy cumple» para el staff, saludo automático a la familia y anuncio celebratorio en Modo Recepción. Hoy no existe **nada**: ni tabla, ni RPC, ni cron, ni categoría de notificación — solo la fecha de nacimiento guardada, que se usa para edad/categoría, el gate mayor/menor del registro y los carnets. Cobertura medida contra la base el 19-ago: **878 atletas activos tienen fecha** (el tablero les sirve a los 878) pero **solo 410 (47 %) tienen a quién notificar** — los 253 `unregistered` no tienen cuenta, así que el saludo automático **nunca** los alcanza; esa mitad se cubre con plantilla de WhatsApp manual (F4). La plomería de envío ya está puesta: `notification_deliveries` existe y `notifications` ya tiene `category`/`data`, así que el módulo no construye infraestructura de push, se cuelga del trigger de `MOD-4`. **F1 (el tablero) es entregable solo, en 3 d, sin tocar envíos.** El toggle nace apagado: con una sola Supabase para dev/stg/prod el cron es global, y encenderlo sin `WHERE` es un acto de producción sobre 878 familias. | 🟡 | 1–2 sem (F1 solo: 3 d) | [spec](specs/cumpleanos-module.md) |
+| **MOD-19** | **Informes multi-cadencia (R1–R3).** Generaliza el Informe Mensual que ya corre: `period_type` (`daily`/`weekly`/`biweekly`/`monthly`/`semester`/`custom`) y `period_start/end` en `athlete_reports`, más `report_schedules` para la programación. **No es un módulo nuevo** — extiende tablas, RPCs y el job de las 06:10, que pasa de «asumir mensual» a «leer schedules vencidos»: cero jobs nuevos en `pg_cron`. Incluye el **envío manual «como está»** (el coach elige alcance y rango y manda) y la **plantilla brandeada**: el informe lee `schools.branding_settings`, así que el logo de Carmel es **configuración, no desarrollo** — sin editor de plantillas, que es el pozo de `MOD-14`. Entrega por la plomería existente: `notifications` → outbox → push, y Resend con resumen + enlace (el contenido del menor **no** viaja entero por correo). ⚠️ Depende de `MOD-17`: nada se construye mientras el cron recorra todas las escuelas mandando correo real, y `enabled=false` por defecto **es** ese filtro bien hecho. ⚠️ Plantillas contra tokens, cero hex literales (`MOV-4`). | 🔵 | 10–13 d | [spec](specs/informes-multi-cadencia-2026-08-19.md) |
+| **MOD-20** | **Informe grupal y cadencias cortas (R4–R5).** El informe de equipo con **contenido propio** —asistencia promedio, resumen del período, próximos hitos— y no N individuales publicados juntos; la publicación por equipo ya existe (`publish_team_reports_system`). Regla de privacidad: **nunca métricas de otros menores con nombre**; los rankings van anonimizados, misma línea que `D-IMAGEN`. Después, `daily`/`weekly` conectadas a asistencia y el semestral con comparación inicio/fin. Pariente declarado: `PER-5` — cuando `PER-1` exista, el informe semanal **es** la vista semanal exportable. | 🔵 | 2 sem | [spec](specs/informes-multi-cadencia-2026-08-19.md) |
+
+### VID — Video de partidos: grabación, en vivo y clips
+
+Nace de `CAR-7` (pedido de Club Carmel) pero **no es trabajo de Carmel**: es capacidad de
+plataforma, como `CAR-2` y `CAR-3`. Investigado el 2026-08-19 contra la documentación de Veo.
+
+**Los tres hallazgos que ordenan el track:**
+
+1. **Veo Technologies no tiene API pública.** Sus integraciones son acuerdos de partner con BD de
+   por medio. Y **`developer.veo.co.uk` es OTRA empresa** —*Video Enhanced Observation Ltd*,
+   video-coaching educativo—, con API documentada que **no sirve para la cámara**. Es la trampa
+   obvia: quien busque «Veo API» va a caer ahí y a construir contra el proveedor equivocado.
+2. **No hace falta la API.** Veo Live acepta **destino RTMP personalizado** (`app.veo.co` → Veo Live
+   → *Add streaming destination* → **Custom** → URL RTMP + stream key). Apuntándolo a un ingest
+   nuestro, la cámara pasa a ser **un encoder más** y el video entra a nuestra infraestructura,
+   detrás de nuestro RLS y nuestro addon. **Este es el camino.** Depende de dos cosas que hay que
+   confirmar por club antes de prometer nada: que su **plan de Veo incluya Veo Live**, y que **haya
+   red utilizable en la cancha** (WiFi o Ethernet) — este segundo es el punto de falla real.
+3. **La descarga sí está permitida** — partido completo en MP4 y clips individuales — pero solo
+   siendo **admin del Clubhouse** o con el partido asignado al equipo. Lo que baja es el render de
+   seguimiento: la vista panorámica e interactiva es **solo online**, no se puede reproducir fuera.
+
+**La regla de arquitectura del track:** el video **nunca** pasa por el BFF ni vive en Supabase
+Storage — 90 minutos son varios GB y ese egress no está presupuestado. Va a un proveedor dedicado
+(candidato: **Cloudflare Stream**, el único que junta ingest RTMP en vivo + VOD + tokens firmados en
+un solo producto; Mux es mejor herramienta y más caro). El navegador sube **directo** al proveedor
+con una URL de un solo uso que emite el BFF; el proveedor avisa por webhook cuando terminó de
+codificar. El patrón de firma ya existe en el repo y no hay que inventarlo: hoy el BFF firma con
+`service_role` y TTL corto ([`glosa.service.ts:159`](../bff/src/services/glosa.service.ts#L159), 900 s).
+
+**Dos capas de acceso, y la trampa entre ellas.** RLS sobre `recordings` decide quién ve que el
+video **existe**; el BFF, con `service_role`, firma el token de reproducción tras verificar permiso.
+**El cliente nunca firma:** si el `playback_id` queda público, cualquiera con el enlace lo ve y no
+hay paywall que valga. Y para el padre sin cuenta que recibe el enlace por WhatsApp va una RPC
+`SECURITY DEFINER` que reciba el token — **no una policy**, que es exactamente el error del
+`payment_links` con `USING(true)` de `SEG-10`.
+
+**Y el modelo se escribe agnóstico de proveedor desde la primera migración** —
+`recordings.provider` (`veo` | `upload` | `rtmp` | `youtube`)— o hay que rehacerlo entero cuando
+aparezca Pixellot, Spiideo o una cámara propia.
+
+| ID | Pendiente | Estado | Esfuerzo | Fuente |
+|---|---|---|---|---|
+| **VID-1** | **Enlace manual (N0).** `video_url` + `provider` en `tournament_matches` y sesiones; botón «Ver grabación» que abre el Clubhouse de Veo en otra pestaña. **Link-out, no embed** — Veo no permite incrustar. Cero costo, cero infraestructura, cero negociación, y cubre al club que **ya** tiene su Veo. Es lo único de este track que cabe en un trial. | 🔵 | 1–2 d | `CAR-7` |
+| **VID-2** | **VOD propio (N1).** Modelo `recordings` + `recording_clips`, subida directa del navegador al proveedor, webhook de codificación, player con token firmado, RLS de dos capas. Se prueba con un MP4 bajado a mano de Veo — **no depende de la red de la cancha**, por eso va antes que el vivo. ⛔ **GATE `G-IMAGEN`: no se escribe la migración hasta tener contestada `D-IMAGEN`.** El día que almacenemos video de menores identificables, SportMaps es responsable del dato. | ⚪⛔ | spec + 2 sem | spec pendiente |
+| **VID-3** | **En vivo (N2).** El BFF crea el *live input* → devuelve RTMP URL + stream key → se pega **una sola vez** en Veo Live como destino Custom (se reusa en cada partido, no se configura por fecha). El webhook de conexión marca el partido **EN VIVO** y dispara **push a los padres del equipo** — y eso no hay que construirlo: el Despachador Unificado ya está construido y validado. Al terminar queda grabado como VOD en la misma fila de `recordings`. Latencia esperada **10–30 s** (RTMP→HLS): irrelevante para un padre, pero hay que decirlo antes de que alguien lo compare con la TV. | ⚪ | 1 sem sobre `VID-2` | investigación 2026-08-19 |
+| **VID-4** | **Clips por atleta.** `recording_clips.athlete_id` es lo que enchufa el video al **Informe Mensual del Atleta**, al perfil y al carnet. Sin esto el módulo es un reproductor; con esto es la evidencia que justifica la mensualidad ante el padre que paga. | ⚪ | 1 sem sobre `VID-2` | `MOD-10` · memoria `project_athlete_reports` |
+| **VID-5** | **Retención y costo — hay que costearlo antes de poner precio.** El almacenamiento de video **se acumula mes a mes**: 20 partidos son 1.800 minutos que el mes siguiente se suman a los nuevos. Eso convierte la **política de retención** en decisión de producto, no de infra. El orden de magnitud de Cloudflare Stream es bajo (unidades de dólar por cada mil minutos, almacenados y entregados por separado) **pero no está verificado contra su tarifa vigente ni corrido con partidos y padres reales**. Bloquea `D-VIDEO-PRECIO`. | ⚪ | 2–3 d de modelo | — |
+| **VID-6** | **Consentimiento de imagen y propiedad del material** — el gate `G-IMAGEN`. Grabar y almacenar imagen de menores exige consentimiento del acudiente, y define `recordings.visibility`: ¿el club entero ve el partido, o cada familia solo los clips de su hijo? Va junto con **de quién es el archivo** cuando el club pone la cámara y SportMaps pone plataforma, almacenamiento y operación — se escribe **antes**, no cuando el club se va. No es papeleo del final: es lo que define el modelo de datos. | ⚪ | decisión + 2–3 d | `D-IMAGEN` |
+
+### PER — Periodización: microciclos, rótulos de día y carga de entrenamiento
+
+Sale del análisis del tablero de planificación en Canva de **Independiente Santa Fe U20B** (105
+diapositivas, 2026-08-19). Spec:
+[`specs/periodizacion-microciclos-y-carga.md`](specs/periodizacion-microciclos-y-carga.md).
+
+**Lo que SportMaps no sabe decir hoy.** Sabe **quién entrena** y **quién asistió**. No sabe **qué iba
+a ser la semana, cuánta carga cargó, ni si se ejecutó como estaba planeado.** `training_plans` es
+texto libre por día: sin microciclo, sin tipo de día, sin índice MD, sin una sola magnitud.
+
+**Los tres errores del artefacto real, y qué ítem cierra cada uno** — esta correspondencia es la que
+ordena el track, no el gusto por las features:
+
+| Error en el Canva | Lo cierra |
+|---|---|
+| **Índices MD mal contados.** Martes rotulado «MD+1 / MD-3» con partido el miércoles (es MD-1); domingo rotulado MD+1 con partido el viernes (es MD+2). El jueves está atrapado entre dos partidos y el rótulo lo esconde | `PER-1` — el índice se **calcula** desde los días marcados como partido y **nunca se escribe**. Un día entre dos partidos muestra **ambas** etiquetas |
+| **Un día rotulado «regenerativo» que no lo es**: hipertrofia de miembros superiores + espacios reducidos + 10 series de RSA a 40 m, 24 h después de un partido oficial. Quien lee «regenerativo» asume descarga | `PER-3` — validación del rótulo contra el contenido y la carga declarada. **Aviso, nunca bloqueo** (regla 5 del §0: audit antes de enforce) |
+| **Dos partidos en 72 h con un solo día libre en la semana**, y ninguno en la ventana crítica | `PER-3` — alerta de densidad competitiva y de días consecutivos sin descanso |
+| **Ni un indicador numérico en 105 diapositivas.** Las únicas magnitudes trazables son los 40 m de los RSA y el número de series | `PER-2` — es el punto del track entero |
+
+| ID | Pendiente | Estado | Esfuerzo | Fuente |
+|---|---|---|---|---|
+| PER-0 | ⛔ **Sanear el eje de entrenamiento. Puerta dura — no se construye nada de `PER` encima.** Tres cosas que están mal y ninguna se había escrito acá: **(a)** `training_plans` (el contenido de la sesión) **no tiene `school_id`**, así que su RLS cuelga de un JOIN a `teams` —el patrón que encarece cada policy del eje—; **(b)** `training_plans` y `training_sessions` **no se conocen entre sí**: la primera es contenido por `(team_id, plan_date)`, la segunda es cupo y reserva por `(team_id, session_date, session_time, max_capacity, current_bookings)`, y son dos nombres casi idénticos modelando cosas distintas; **(c)** el tablero táctico entregado hoy (§1.3) se cuelga de `training_sessions` —**la de cupos**— vía `source_type='training_session'`, no de la de contenido. **Es el mismo trabajo que `MOD-8` ya tenía marcado como «saneamiento del eje plan↔equipo↔sesiones»: se hace una vez y habilita las dos cosas.** Empieza por medición, no por DDL: cuántas filas de `training_plans` hay por escuela y si alguien las usa | 🔵⛔ | 3–4 d | [spec §1](specs/periodizacion-microciclos-y-carga.md) · [plan créditos](plan-asistencia-y-creditos-de-sesion.md) · [saneamiento](plan-saneamiento-sesiones-plan-equipo.md) |
+| PER-1 | **Microciclo: entidad, rótulos de día e índice MD calculado.** `training_microcycles` (**con `school_id` explícito**, a diferencia de `training_plans`) + `training_microcycle_days` con `day_type` en `text` + `CHECK` —`descanso`/`entrenamiento`/`partido`/`regenerativo`/`activacion`—, y la vista semanal: el equivalente del tablero de Canva con los índices bien. La sesión **no** es tabla nueva: se extiende `training_plans` con `microcycle_day_id`. ⚠️ **Bloqueada por `D-MD`** (§5): `competition_results` registra el partido **después de jugado**, no hay calendario hacia adelante, y eso define el DDL | 🔵 | 1 sem | [spec §3.1, §3.4](specs/periodizacion-microciclos-y-carga.md) |
+| PER-2 | **Carga: sRPE, UA, monotonía, strain y ACWR.** RPE de sesión 0–10 × minutos = unidades arbitrarias, y de ahí los cuatro indicadores derivados. **Todo calculado en la base** (vista/RPC `v_microcycle_load`), nunca en el navegador — el censo de cálculos monetarios ya dejó las 11 divergencias que salen de hacerlo al revés. Modo **audit**: se muestra, no bloquea. ⚠️ **Bloqueada por `D-CARGA`** (§5). El riesgo real no es técnico: es que nadie registre el RPE — `performance_entries` tiene **486 filas en toda la base**, así que la vista de `PER-1` tiene que ser útil **con cero RPE** y la adherencia se mide y se muestra | 🔵 | 1 sem | [spec §3.3](specs/periodizacion-microciclos-y-carga.md) |
+| PER-3 | **Alertas y validación del rótulo.** Aviso cuando el contenido contradice el rótulo del día (el «regenerativo» con RSA), cuando hay dos partidos en menos de 72 h, cuando los días sin descanso se acumulan, y cuando el ACWR se sale de rango. Aditivo: RPE del atleta, que es el uso canónico del método. **Con 28 días de historia mínimos para el ACWR** — antes de eso el estado es «faltan N días», no un número engañoso | 🔵 | 4 d | [spec §4 F3, R2](specs/periodizacion-microciclos-y-carga.md) |
+| PER-4 | **Plantillas de microciclo.** Duplicar la semana anterior como punto de partida editable. Mismo patrón que el tablero táctico duplicando slots: **copiar filas, no catálogo cerrado** | 🔵 | 2 d | [spec §4 F4](specs/periodizacion-microciclos-y-carga.md) |
+| PER-5 | **Exportable: la vista semanal a PDF o imagen.** Es el **gancho comercial** del track, no un adorno: hoy el cuerpo técnico mantiene 105 diapositivas a mano en una herramienta de diseño que además paga aparte. Es lo primero que un coach ve y lo único que puede mandar al grupo de WhatsApp | 🔵 | 3 d | [spec §4 F5](specs/periodizacion-microciclos-y-carga.md) |
+| PER-6 | **Vínculos: tablero táctico + Informe Mensual.** Es la `P3` del spec de fútbol («extensión a entrenamientos») ahora que el contexto `training` ya existe en `match_lineups`, más la carga del mes junto a las métricas en el Informe. **Se hace después de `PER-0`**, o se cablea otra vez contra la tabla de cupos | 🔵 | 1 sem | [spec fútbol §4 P3](specs/football-tactical-experience.md) · [spec §4 F6](specs/periodizacion-microciclos-y-carga.md) |
+
+> **Dos cosas que este track NO hace, y conviene que queden escritas.** **(1)** No mide con GPS ni
+> wearables: `D-CARGA` elige sRPE justamente porque no necesita hardware ni presupuesto, y funciona
+> con un dato que el coach ya tiene en la cabeza al terminar. **(2)** No registra lesiones. En el
+> momento en que la carga se cruza con un diagnóstico, el módulo entra en el terreno de `BLQ-5`
+> (Wellness Pro): datos clínicos inmutables, retención de 5 años, Ley 23/1981. El sRPE solo no es
+> historia clínica; cruzarlo sí lo es. **Fuera de v1, explícitamente.**
+
+> **`PER` es el primer módulo que le habla al cuerpo técnico, no a la administración.** Todo lo
+> demás en este roadmap le sirve a quien cobra, inscribe o audita. Esto le sirve a quien entrena —
+> y es el rol que hoy tiene cero razones para abrir SportMaps un martes.
 
 ### BLQ — Bloques largos
 
@@ -391,7 +615,7 @@ está en los anexos A–F del [roadmap archivado](archived/ROADMAP-v1.3-2026-05-
 |---|---|---|---|---|
 | BLQ-1 | **Reservas** F0 foundation (rol `facility_manager`, `schools.kind`, `DashboardRouter`) → F7 mobile. **El modelo de reserva es `CONC-4`**: soft lock con expiración, no una tabla de reservas confirmadas. | 🔵 | ~17 sem | memoria `project_reservations_module` · [concurrencia §3](architecture/concurrencia-y-reservas.md) |
 | BLQ-2 | **Venue/Gym + control de acceso multi-marca (Fase H).** Secuencia 0→1→3→4→2→H con 10 gates duros (G-ENUM, G-BIO-INTL, G-MINOR, G-FAIL, G-RLS…). H gateada hasta tener 0-4 en producción y un gimnasio pagando. | 🔵 | 12 sem | memoria `project_venue_gym_access_control` |
-| BLQ-3 | **Mobile (Capacitor).** Primero las 7 decisiones abiertas y las compras; después N1 wrapper → N2 nativas → N3 tiendas → N4 offline. Split de cobros, cero IAP. | ⚪ | 6 sem | [plan de ejecución](MOBILE_ROADMAP_EXECUTION.md) · memoria `project_mobile_strategy` |
+| BLQ-3 | ⚠️ **Mobile (Capacitor) — el alcance encogió: N1–N3 ya pasaron, por fuera de la cola.** Decía «no arranca hasta cerrar las 7 decisiones y las compras». **Android ya está construido, firmado y subido a la prueba interna de Play**: `versionCode 2`, AAB en `android/app/build/outputs/`, 7 plugins nativos cableados con import dinámico, App Links verificados sobre `app.sportmaps.co`, el edge-to-edge de Android 16 resuelto en `MainActivity`, y `openExternalUrl` protegiendo el split de cobros (cero IAP). Lo que **sí** sigue abierto: **N4 offline**, la **Fase 8 de flavors**, y ⚠️ **el AAB de la prueba interna apunta a `bffdev.sportmaps.co`** — los tokens de los testers quedan en el BFF de dev y los pushes de prod/stg no les llegan. **iOS no existe** (`frontend/ios/` sin versionar) → `MOV`/D-IOS. De las 7 decisiones, 4 quedaron resueltas de hecho al construir (app unificada, FCM, minSdk 26, build local); siguen abiertas actualización forzada, Sentry (→ `SEG-12`) y localización. **La deuda de UI de la app que ya está en Play es el track `MOV`, no este.** | ⚠️🔵 | N4 + flavors | [auditoría móvil](auditoria-frontend-responsive-movil-2026-08-18.md) · [plan de ejecución](MOBILE_ROADMAP_EXECUTION.md) · memoria `project_mobile_strategy` |
 | BLQ-4 | **WhatsApp WA3–WA5.** Pagos por WA, modo auto + inbox + analytics, y V2 (voz, multi-idioma, multi-sede). Bloqueado por MOD-15. | 🔵 | 10 sem | [anexos WA](archived/ROADMAP-v1.3-2026-05-12.md) |
 | BLQ-5 | **Wellness Pro W1–W5.** Núcleo clínico, ficha + tests funcionales + consentimientos, mensajería contextual + bonos + telesalud, wearables + IA coach, hardening + compliance. Datos clínicos inmutables con retención de 5 años (Ley 23/1981). | 🔵 | 8 sem | [anexos W](archived/ROADMAP-v1.3-2026-05-12.md) |
 | BLQ-6 | **White-label por tiers** (Start/Pro/Elite/Enterprise), fases 1–6. Ojo con el bug histórico de scoping del `ThemeContext`. | 🔵 | 6 sem | memoria `project_white_label_tiers` |
@@ -535,6 +759,7 @@ del tiempo de lo de arriba.
 | 5 | **DIN-1** | Plan consolidado escrito el 2026-08-01, **pendiente de aprobación**. Su primer paso es una puerta dura: verificar contra la base que las tres migraciones del 24-jul están aplicadas. Si no lo están, el alcance vuelve a ser el del plan original. | MOD-3 · todo el track contable |
 | 6 | **DIN-3** | 4 horas de trabajo y la reconciliación deja de contar mal. Plan ya escrito. | Conciliación bancaria · DIN-6 |
 | 7 | **SEG-1** | La Fase −0.5 es un drift **bloqueante**: hasta resolverlo, cualquier migración nueva puede aplicarse sobre un esquema distinto al que el repo cree. El alcance encogió (8 funciones, no ~35) y suma el toggle de contraseñas filtradas, que es gratis. | Toda migración posterior |
+| 8 | **DIN-19** (verificar) | Media hora de comprobación, y lo que hay del otro lado es dinero que quizá no se está cobrando. Si el autopay canónico no está agendado, cada día que pasa es un ciclo de cobro perdido — y si sí lo está por otra vía, cierra el hallazgo en una consulta. | `recurring_subscriptions` · higiene de `H-01` |
 
 > Los cuatro `SEG` de P0 son **independientes entre sí y de todo lo demás**: uno enmascara una
 > respuesta pública, otro es un `REVOKE`, otro borra cuatro handlers, el último reescribe tres
@@ -558,7 +783,9 @@ del tiempo de lo de arriba.
 | 9 | **SEG-11 + SEG-12** | La misma pasada por el BFF: `NODE_ENV` de staging filtrando stack traces, CSRF en 2 routers de N, auth montado por router. Y Sentry, que **la política de privacidad ya le promete al usuario** y no existe — eso hay que cerrarlo en un sentido o en el otro. |
 | ~~10~~ | ~~**DIN-4**~~ | ✅ **Entregado el 2026-08-12** y aplicado en producción (§1.2). Lo que queda de él es `SEG-15`, que subió a P-1. |
 | 11 | **MOD-1** | Evita repetir el envío masivo con datos mal cargados. Plan escrito y ya revisado. |
-| 12 | **UX-1 + UX-3 + ERP-1** | Barato, mecánico, sin tocar lógica, y todo lo que se construya después nace bien. Los tres son la misma pasada por la UI. |
+| 11.5 | **MOV-1 + MOV-2** | **Medio día y un día.** `MOV-1` son nueve arreglos de una línea que cierran 12 hallazgos, ninguno toca lógica: el rosa Material en el caret de todos los inputs, las bandas negras de edge-to-edge, el botón de cerrar de 16 px, los 18 px que el bottom nav tapa, el auto-zoom de iOS en cada textarea. `MOV-2` borra el código muerto y es **prerrequisito de `UX-1`** — no se diseñan primitivas de layout con un `App.css` fantasma que define modal, grid y tabla con `!important`. Es la relación impacto/esfuerzo más alta del roadmap después de `DIN-9`. |
+| 12 | **UX-1 + UX-3 + ERP-1 + MOV-3** | Barato, mecánico, sin tocar lógica, y todo lo que se construya después nace bien. Los cuatro son la misma pasada por la UI, y conviene que `MOV-3` (la utilidad de safe area + las 15 cabeceras) entre junto con `UX-1`: si `<PageShell>` y `<PageHeader>` nacen sin safe area, hay que rehacer las 78 páginas dos veces. ⚠️ `MOV-2` va **antes**. |
+| 12.5 | **MOV-7** | Un día, y es el arreglo que más se nota en la app que ya está en Play: hoy la tipografía **sale a Internet en cada arranque frío** y sin red no carga nunca, porque el `runtimeCaching` que la cachearía es config muerta. De paso mata las 3 familias fantasma que dejan el embudo de registro con Roboto en Android y San Francisco en iOS. |
 | 13 | **CONC-1 + CONC-2** | La idempotencia general es la defensa más barata contra el doble cargo y **prerrequisito de `ERP-2`**; el barrido de `count(*)` sin lock busca el error clásico donde ya sabemos cómo se ve bien hecho. |
 | 14 | **UX-2** | F-01 (un error de fetch se ve como tabla vacía) toca pantallas de dinero. |
 | 15 | **MOD-15** | 4 horas. Sin el System User el bot de WhatsApp muere cada 2 h. |
@@ -566,6 +793,8 @@ del tiempo de lo de arriba.
 | 17 | **UX-6** | Las features cosméticas son lo que hace que un padre vuelva al grupo de WhatsApp. Verificar primero qué quedó resuelto con el módulo de notificaciones. |
 | 18 | **ADM-1 + ADM-2** | El catálogo de flags y el doble store. `ADM-2` es prerrequisito de la consola: sin resolverlo, la consola hereda el mismo defecto de `SEG-7` — leer de un sitio y escribir en otro. |
 | 19 | **Responder D-T, D-MIG, D-PUC, D-CORTE** | Cuatro decisiones sin código de por medio que bloquean las 6–7 semanas de `ERP-2`. Se pueden contestar esta semana. |
+| 20 | **MOD-17** (filtro de piloto) | Es lo único de la lista que **le llega a una familia**. Mientras el cron recorra todas las escuelas, la salvaguarda es que nadie haya cargado métricas — y eso deja de ser cierto el día que una escuela real empieza a usar el módulo, sin aviso. El filtro por escuela es chico; lo que no se puede es dejarlo a la suerte de que no haya datos. |
+| 21 | **INF-11 + ADM-6** | La misma pasada. `INF-11` borra el trigger que refresca una matview que nadie lee —y que el coach paga dentro de su request— y `ADM-6` conecta ese dato al panel que hoy muestra pagos donde dice sesiones. Uno limpia el productor, el otro le da por fin un consumidor. Ambos baratos y sin decisiones abiertas. |
 
 ### P2 — Cuando P0 y P1 estén cerrados
 
@@ -578,19 +807,68 @@ manual) → **DIN-18** (documentos inválidos; su colisión de Spirit bloquea la
 Después, en este orden: **MOD-2** (riesgo nulo, entregable ya) → **MOD-4** (go-live de notificaciones) →
 **MOD-11** (desplegar el marketplace que ya está escrito) → **SEG-13** → **ADM-3 + ADM-4 + ADM-5**
 (la consola) → **DIN-5** → **ERP-2** → **ERP-3** →
-**Ciclo de mes F1** → **ERP-4** → **ERP-5** → **MOD-8** → **MOD-6** → **MOD-9** → **DIN-6** →
-**MOD-12** → **MOD-10** → **MOD-13** → **MOD-14** → **MOD-7** → **SEG-3** → **SEG-4** → **SEG-5** →
+**Ciclo de mes F1** → **ERP-4** → **ERP-5** → **MOD-8 + PER-0** → **MOD-6** → **MOD-9** → **DIN-6** →
+**MOD-12** → **MOD-10 + PER-1 + PER-2** → **MOD-13** → **MOD-14** → **MOD-18** → **MOD-7** → **SEG-3** → **SEG-4** → **SEG-5** →
 **SEG-6** → **INF-2..5** → **UX-5** → **DIN-17** (multimes, detrás de sus 4 decisiones de producto).
+
+> **`VID-1` está fuera de esa cadena a propósito.** Son dos días y no toca dinero ni RLS: si Carmel
+> pide ver los partidos durante el trial, se adelanta sin discutir prioridades. Lo que **no** se
+> adelanta es `VID-2`, que es donde empieza a haber video de menores en nuestro almacenamiento.
+
+> **La F1 de `MOD-18` se puede adelantar como relleno; su F2 no.** El tablero de cumpleaños son tres
+> días, no envía nada y no toca RLS de dinero: cabe en cualquier hueco. El saludo automático (F2) sí
+> espera turno, porque comparte el problema de `MOD-17`: un cron que recorre todas las escuelas
+> escribiendo a familias reales, sobre una única Supabase para dev/stg/prod. Mismo riesgo, misma
+> salvaguarda — el toggle por escuela, apagado por defecto.
+
+> **`PER-0` no es un ítem nuevo: es el saneamiento que `MOD-8` ya tenía marcado.** Van juntos o se
+> hace dos veces el mismo trabajo sobre el mismo eje. Y **`PER-1` + `PER-2` van pegados a `MOD-10`**
+> por la misma razón que `MOD-18` va detrás de `MOD-4`: comparten la capa de métricas y **el mismo
+> problema de captura manual** — `performance_entries` tiene 486 filas en toda la base, y un módulo
+> de carga que nadie llena mide exactamente lo mismo que un Canva. `PER-3..6` van a P3.
+>
+> **`PER-5` (el exportable) se puede adelantar como relleno igual que la F1 de `MOD-18`:** son tres
+> días, no envía nada, no toca RLS ni dinero, y es lo único del track que un coach ve el primer día.
+> Lo que **no** se adelanta es `PER-2`, que sin `PER-0` se cablea contra el eje roto.
 
 > **`SEG-13` va antes de `ADM-3`, no después.** La consola le da a una sola pantalla el control de las
 > ~40 opciones de cualquier escuela; entregarla mientras `super_admin` entra con solo usuario y
 > contraseña es concentrar el radio de daño justo donde no hay segundo factor.
 
+> **`MOV-4` va emparejado con `BLQ-6`, y eso lo saca de la cola por fecha.** El resto del track `MOV`
+> se intercala acá en este orden: **MOV-10** (los 41 diálogos que creen limitarse al 90 % y ocupan el
+> 100 %) → **MOV-6** (targets táctiles y los 1.021 textos bajo 12 px) → **MOV-9** (teclado y scroll
+> anidado) → **MOV-8** (imágenes) → **MOV-11** (chrome nativo y botón atrás) → **MOV-5** (lo que la
+> fase 3 de `MOV-4` no cubra) → **MOV-12** (rendimiento visual).
+>
+> **`MOV-4` no espera su turno acá: espera a que se decida `BLQ-6`.** Es el único ítem del track que
+> bloquea ingreso ya facturado —el addon `pwa_branding` está vendido y el verde de SportMaps se
+> filtra en decenas de pantallas— así que si `BLQ-6` se adelanta, `MOV-4` sube con él. Construir
+> tiers de branding sobre 3.769 clases de paleta fija es rehacer el trabajo dos veces.
+
 ### P3 — Bloques largos
 
 **BLQ-1** (Reservas, con `CONC-4/5` dentro) y **BLQ-2** (Venue/Gym) son los dos que cambian el tamaño
-del producto; el resto va después. **BLQ-3** (Mobile) no arranca hasta cerrar sus 7 decisiones y las
-compras. Cierre del track contable: **Ciclo de mes F2–F6** → **ERP-6 + UX-4** → **DIN-8**.
+del producto; el resto va después. Cierre del track contable: **Ciclo de mes F2–F6** →
+**ERP-6 + UX-4** → **DIN-8**.
+
+**`PER-3..PER-6` cierran el track de periodización acá**, detrás de `PER-1`/`PER-2` de P2: alertas de
+carga y de rótulo, plantillas de microciclo, y el vínculo con el tablero táctico —que es la `P3` del
+spec de fútbol— y con el Informe Mensual. Ninguno toca dinero ni RLS de pagos.
+
+**`BLQ-3` (Mobile) ya no es un bloque de 6 semanas sin arrancar.** N1–N3 pasaron por fuera de la cola
+y Android está en la prueba interna de Play; lo que queda acá es **N4 offline** y la **Fase 8 de
+flavors**, más el arreglo del AAB que apunta a `bffdev`. La deuda de la app que ya está publicada
+vive en el track `MOV`, que se atiende en P1/P2 y no espera a P3.
+
+**iOS es una decisión, no un bloque.** Hasta que se conteste **D-IOS** no hay nada que planear:
+`frontend/ios/` no existe, así que el punto de partida es `cap add ios` y, con él, trasladar a CSS
+todo lo que `MainActivity` resuelve en Java —porque en iOS no hay equivalente—. Es decir: **`MOV-3`
+es prerrequisito duro de cualquier release iOS**, no un adorno.
+
+**`VID-2` → `VID-3` → `VID-4`** (VOD → en vivo → clips) entran acá, y **no antes de tener
+contestadas `D-IMAGEN` y `D-VIDEO-RET`**: la primera define el modelo de datos y la segunda define
+si el costo tiene techo. Escribir la migración antes es fabricar deuda con datos de menores adentro.
 
 ---
 
@@ -619,13 +897,21 @@ compras. Cierre del track contable: **Ciclo de mes F2–F6** → **ERP-6 + UX-4*
 | **D-NOM** — ¿la obligación de nómina nace de un trigger al cerrar la liquidación, o de una RPC explícita? | `ERP-4` | Un trigger es cómodo y difícil de deshacer |
 | **D-ROL** — la matriz Auxiliar/Contador/Administrador del spec externo → roles reales | `ERP-2` | Ya hay dos matrices de permisos de coach que son código muerto (`SEG-4`); no crear una tercera |
 | **CONC-5** — franjas fijas vs solapamiento libre | `BLQ-1` | Índice único simple vs `EXCLUDE USING gist` |
+| **D-IMAGEN** — ¿el consentimiento de imagen del menor se pide una vez por escuela o por evento, quién puede ver a un menor que no es su hijo, y de quién es el archivo cuando el club pone la cámara y nosotros el almacenamiento? | `VID-2` (gate `G-IMAGEN`) | Define `recordings.visibility` y por tanto el modelo de datos. No es papeleo del final: contestarla después obliga a rehacer las policies |
+| **D-VIDEO-RET** — ¿cuánto vive el partido completo, y qué queda cuando se borra: nada, o los clips? | `VID-5` | El almacenamiento se acumula mes a mes. Sin retención el costo no tiene techo y el addon no se puede tarifar |
+| **D-VIDEO-PRECIO** — ¿addon mensual por escuela, o pago por partido de la familia que quiere verlo en vivo? | `VID-5` | Son dos productos distintos: el primero lo paga el club, el segundo cambia el incentivo a transmitir todos los partidos |
 | **D1-pagos** — ¿`PAYMENT_TOKENS_ENC_KEY` está seteada en Render (stg y prod)? | `DIN-6` F-C paso 1 | Sin la clave, `getEncKey()` lanza y el checkout muere. **No hay versionado de clave:** rotarla hoy invalidaría todos los secretos guardados → vale añadir `key_version` mientras la tabla está casi vacía |
 | **D2-pagos** — el dinero de terceros ya recibido (Porras / MMA Blair): ¿se concilia, se devuelve, o se documenta como histórico cerrado? | `DIN-10` | **Decisión de negocio, no técnica** |
 | **D3-pagos** — ¿las credenciales `TEST-` de MP en dev rompen algún flujo que hoy se pruebe contra la cuenta real? | `DIN-9` | Si sí, el fail-fast necesita una excepción explícita en vez de bloquear el arranque |
 | **D4-pagos** — ¿qué receptor de webhook tiene Dynasty configurado en su dashboard: la Edge Function `wompi-webhook` o la ruta del BFF? | `DIN-6` F-F | **Hay dos receptores.** Verificar antes de tocar nada de webhooks |
+| **D-MD** — ¿de dónde salen los partidos que definen el índice MD: tabla de fixtures nueva, reusar `events`, o marcar el día del microciclo a mano? | `PER-1` | **`competition_results` registra el partido después de jugado**, así que hoy no hay calendario hacia adelante contra el cual contar un MD. Define el DDL de `PER-1`: hay que contestarla **antes** de escribir SQL. Propuesta del spec: marcarlo a mano en el día del microciclo (cuesta cero, el día ya se está creando) y fixtures reales como fase posterior si un club los pide |
+| **D-CARGA** — ¿qué unidad mide la carga? sRPE de Foster (RPE de sesión × minutos), o algo que dependa de hardware | `PER-2` | El sRPE no necesita GPS ni presupuesto y sale de un dato que el coach ya tiene al terminar la sesión. Elegir otro modelo **cambia toda la `PER-2`**: monotonía, strain y ACWR se derivan de esa unidad |
 | Pricing de M2 en connected accounts; ¿Fase 3 va a agregador? | DIN-6 | |
 | Módulos no contratados: ¿se ocultan del menú o se muestran con candado como gancho de upgrade? | UX-3 | |
-| Mobile: app unificada vs varias por rol · push provider · versión mínima · actualización forzada · Sentry · localización · build infra | BLQ-3 | 7 decisiones, todas en [MOBILE_ROADMAP_EXECUTION](MOBILE_ROADMAP_EXECUTION.md) |
+| ~~Mobile: app unificada vs varias por rol · push provider · versión mínima · build infra~~ | ~~BLQ-3~~ | ✅ **Resueltas de hecho al construir** (verificado en el repo el 2026-08-18): app **unificada** (`co.sportmaps.app`, con flavors reservados para white-label), **FCM** para iOS+Android, **minSdk 26** / target 36, build **local con keystore** en `android/keystore.properties`. Siguen abiertas las 3 de abajo |
+| **Mobile: actualización forzada · Sentry · localización** | BLQ-3 | Las 3 que quedan de las 7 originales. Sentry es la misma que `SEG-12` — **la política de privacidad ya se lo promete al usuario** y no existe |
+| **D-IOS** — ¿entra iOS al roadmap, y cuándo? | `MOV-3` · release iOS | **No es deuda técnica, es una compra y una decisión.** `frontend/ios/` no existe (0 archivos versionados) y `@capacitor/ios` está en `node_modules` **sin estar declarado en `package.json`**, así que `cap:ios` falla y desaparece en la próxima instalación limpia. Hoy todo el iOS del producto es la PWA en Safari, donde **no existe** la compensación de safe areas que `MainActivity` hace en Android — por eso `MOV-3` es prerrequisito duro, no adorno. Requiere cuenta de Apple Developer y un Mac para firmar |
+| **D-ZOOM** — ¿se quita `user-scalable=no` del viewport? | `MOV-6` | Incumple WCAG 1.4.4 y **Android WebView lo respeta al pie de la letra**, así que con 1.021 textos bajo 12 px el usuario no tiene forma de agrandar lo que no puede leer. Quitarlo es seguro (el auto-zoom de iOS ya lo cubren los 16 px de `Input`), pero **cambia cómo se siente la app** — hay que decidirlo, no colarlo |
 | Torneos: ¿qué quedó entregado de inscripción vs bracket? | MOD-7 | Verificar contra el código antes de planear |
 | Carnets: ¿el editor de plantillas quedó dentro de las 5 fases? | MOD-14 | Verificar |
 
@@ -642,8 +928,10 @@ compras. Cierre del track contable: **Ciclo de mes F2–F6** → **ERP-6 + UX-4*
 | `docs/plan-*.md` | Plan de migraciones de una fase concreta. Se aprueba antes de escribir SQL. |
 | [`architecture/concurrencia-y-reservas.md`](architecture/concurrencia-y-reservas.md) | Doctrina de integridad + diseño de reservas con soft lock. **Aplica a todo el producto**, no solo a reservas. |
 | [`specs/pendientes-cxc-cxp-nomina.md`](specs/pendientes-cxc-cxp-nomina.md) | Spec del módulo Pendientes con libro mayor, aterrizado al modelo real. |
+| [`specs/periodizacion-microciclos-y-carga.md`](specs/periodizacion-microciclos-y-carga.md) | Spec del track `PER`. Su **§0 conserva el análisis del tablero de Canva** —el microciclo 40 día por día y los tres errores que el formato no puede detectar— porque es la justificación funcional de cada fase, no una anécdota de origen. Su **§1 es el inventario de lo que ya existe en el repo**, con las dos trampas del eje: `training_plans` **sin `school_id`**, y `training_sessions` que es **cupo, no contenido**. |
 | `docs/analysis/SUPABASE_LINTER_REMEDIATION_PLAN.md`, `SECURITY_DEFINER_AUDIT.md` | Auditorías con plan de ejecución. Vivas, pero ⚠️ **son del 2026-05-11 y sus conteos ya no cuadran** — el barrido del 12-ago los re-midió contra la base (§2, track `SEG`). El **método** de ambas sigue siendo bueno; las **cifras y la priorización**, no. Y solo cubren Postgres: ninguna ve el BFF. |
 | `docs/AUDITORIA_ARQUITECTURA.md` | Retrato del sistema y su deuda. Vive. |
+| [`auditoria-frontend-responsive-movil-2026-08-18.md`](auditoria-frontend-responsive-movil-2026-08-18.md) | **Fuente única del track `MOV`.** 40 hallazgos con severidad, evidencia archivo:línea e impacto separado por plataforma. Se midió leyendo el repo, el **CSS compilado** (de ahí sale que los 41 `max-h-[90vh]` están anulados, con los offsets en bytes) y el **manifest Android fusionado**. Su §7 es la tabla priorizada por impacto×alcance÷esfuerzo y su §8 separa las 9 correcciones de una línea del trabajo por fases. Trae también una lista de **lo que ya está bien y no hay que romper** — el edge-to-edge de `MainActivity`, `openExternalUrl`, los guards de plugins nativos, `globIgnores`. |
 | `docs/sportmaps-strategic-roadmap.md` | Tesis, mapa competitivo, track D1–D4. **Su §7 queda superseded por este archivo.** |
 | `docs/migrations-workflow.md` | Cómo se crea una migración. Obligatorio. |
 | [`plan-f3-un-solo-registro-por-atleta.md`](plan-f3-un-solo-registro-por-atleta.md) | Plan de `DIN-13`. Incluye el inventario de lo que **ya está construido** y la validación contra la base del 12-ago. |
@@ -677,7 +965,12 @@ No los borro: son decisión del dueño del repo.
    Su paso 1 es el preflight que verifica contra la base las tres migraciones del 24-jul.
 2. **Aprobar `DIN-4` F0 + F0.5** — F0.5 arregla hoy el síntoma de «prendo el módulo y no se activa»,
    y F3 no se puede construir encima de un status que se puede leer falso.
-3. En paralelo, sin dependencias ni decisiones: **`DIN-3`** (4 h) y **`MOD-15`** (4 h).
+3. En paralelo, sin dependencias ni decisiones: **`DIN-3`** (4 h), **`MOD-15`** (4 h) y
+   **`MOV-1` + `MOV-2`** (medio día + 1 día). Los dos de `MOV` no tocan lógica, no tocan la base y no
+   esperan ninguna decisión: son nueve arreglos de una línea sobre la app que **ya está en Play** —
+   el caret rosa Material de todos los inputs, las bandas negras de edge-to-edge, el botón de cerrar
+   de 16 px— más borrar el código muerto que hace creer que el responsive está cubierto. `MOV-2` es
+   además prerrequisito de `UX-1`.
 4. Después: **`SEG-1`** Fase −0.5 y **`SEG-7`**, que destraban migraciones y cierran la lectura falsa.
 5. **Contestar D-PUC, D-T, D-CORTE y D-MIG** — cuatro decisiones sin código de por medio que bloquean
    las 6–7 semanas de `ERP-2`. Se pueden responder esta semana.
