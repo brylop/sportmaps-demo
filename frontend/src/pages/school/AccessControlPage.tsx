@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { bffClient } from '@/lib/api/bffClient';
+import { HourBankSchoolSection } from '@/components/access/HourBankSchoolSection';
 import { dayToLocalDate } from '@/lib/dateUtils';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -433,6 +434,9 @@ export default function AccessControlPage() {
           </Button>
         </div>
       </div>
+
+      {/* Banco de horas (F6) — no renderiza nada si la escuela no tiene atletas con plan de horas */}
+      <HourBankSchoolSection />
 
       {/* Estado de dispositivos */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

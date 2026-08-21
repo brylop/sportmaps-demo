@@ -246,6 +246,7 @@ async function validateAccess(schoolId: string, zkPin: string): Promise<{
   userId?: string;
   unregisteredAthleteId?: string;
   userName?: string;
+  enrollmentId?: string;
 }> {
   const pin = parseInt(zkPin) || 0;
 
@@ -297,6 +298,7 @@ async function validateAccess(schoolId: string, zkPin: string): Promise<{
       reason: 'enrollment_expired',
       userId: mapping.userId ?? undefined,
       unregisteredAthleteId: mapping.unregisteredAthleteId ?? undefined,
+      enrollmentId: enrollment.id,
     };
   }
 
@@ -319,6 +321,7 @@ async function validateAccess(schoolId: string, zkPin: string): Promise<{
       reason: 'payment_overdue',
       userId: mapping.userId ?? undefined,
       unregisteredAthleteId: mapping.unregisteredAthleteId ?? undefined,
+      enrollmentId: enrollment.id,
     };
   }
 
@@ -346,7 +349,234 @@ async function validateAccess(schoolId: string, zkPin: string): Promise<{
     userId: mapping.userId ?? undefined,
     unregisteredAthleteId: mapping.unregisteredAthleteId ?? undefined,
     userName,
+    enrollmentId: enrollment.id,
   };
+}
+
+// ─── Banco de horas (F3, docs/specs/dreamers-banco-de-horas-torniquete.md) ────
+// Trackea la visita real independiente de `access_granted`: el F22 decide el
+// acceso físico con su propia base local de huellas/PIN, el BFF nunca abre ni
+// cierra la puerta — así que alguien puede estar físicamente adentro aunque
+// nuestra capa de negocio lo haya marcado `payment_overdue`. Medir tiempo real
+// es honesto con la escuela; el gate real es simplemente "¿hay inscripción con
+// plan de horas?", que resuelve get_or_open_hour_bank_period devolviendo NULL
+// cuando no aplica.
+//
+// Dos capas de aislamiento de otras escuelas (GYM RM no debe ver NADA nuevo):
+//   1. hours_plan_enabled en caché — corta antes de tocar la base para el 99%
+//      de los eventos de escuelas que no usan esto.
+//   2. get_or_open_hour_bank_period devuelve NULL si la inscripción no tiene
+//      offering_plans.included_minutes_per_period — solo Dreamers lo tiene.
+
+type HourBankSettings = {
+  enabled: boolean;
+  entryGraceMinutes: number;
+  exitGraceMinutes: number;
+  reentryMergeMinutes: number;
+};
+const hourBankSettingsCache = new Map<string, { value: HourBankSettings; at: number }>();
+
+export async function getHourBankSettings(schoolId: string): Promise<HourBankSettings> {
+  const cached = hourBankSettingsCache.get(schoolId);
+  if (cached && Date.now() - cached.at < DEVICE_CACHE_TTL_MS) return cached.value;
+
+  const { data } = await supabase
+    .from('school_settings')
+    .select('hours_plan_enabled, hours_entry_grace_minutes, hours_exit_grace_minutes, hours_reentry_merge_minutes')
+    .eq('school_id', schoolId)
+    .maybeSingle();
+
+  const value: HourBankSettings = {
+    enabled:              data?.hours_plan_enabled ?? false,
+    entryGraceMinutes:    data?.hours_entry_grace_minutes ?? 15,
+    exitGraceMinutes:     data?.hours_exit_grace_minutes ?? 15,
+    reentryMergeMinutes:  data?.hours_reentry_merge_minutes ?? 15,
+  };
+
+  hourBankSettingsCache.set(schoolId, { value, at: Date.now() });
+  return value;
+}
+
+export function invalidateHourBankSettingsCache(schoolId?: string): void {
+  if (schoolId) hourBankSettingsCache.delete(schoolId);
+  else hourBankSettingsCache.clear();
+}
+
+// Cierra una visita 'open': suma sus segmentos, aplica gracia de entrada/salida
+// (D-9: los minutos de gracia NO se facturan, "sin que coma del banco"), y hace
+// el único UPDATE real vía move_hour_bank (F2, FOR UPDATE). No toca
+// reserved_minutes todavía — F4 (reservas) no existe aún, así que hoy no hay
+// nada que liberar.
+async function closeHourBankVisit(
+  visitId: string,
+  schoolId: string,
+  entryGraceMinutes: number,
+  exitGraceMinutes: number,
+  athleteName: string
+): Promise<void> {
+  const { data: visit } = await supabase
+    .from('hour_bank_visits')
+    .select('id, enrollment_id, period_id, status, started_at')
+    .eq('id', visitId)
+    .maybeSingle();
+
+  if (!visit || visit.status !== 'open' || !visit.period_id) return;
+
+  const { data: segments } = await supabase
+    .from('hour_bank_visit_segments')
+    .select('entered_at, exited_at')
+    .eq('visit_id', visitId)
+    .order('entered_at', { ascending: true });
+
+  if (!segments || segments.length === 0) return;
+
+  const rawMinutes = segments.reduce((sum, s) => {
+    if (!s.exited_at) return sum; // segmento sin cerrar — defensivo, no debería pasar acá
+    return sum + Math.round((new Date(s.exited_at).getTime() - new Date(s.entered_at).getTime()) / 60000);
+  }, 0);
+
+  const billedMinutes = Math.max(0, rawMinutes - entryGraceMinutes - exitGraceMinutes);
+  const lastExit = segments[segments.length - 1].exited_at;
+  if (!lastExit) return; // el último segmento sigue abierto — no hay nada que cerrar todavía
+
+  // F4: si había una reserva confirmada para el día de esta visita, se libera
+  // junto con el consumo real en la misma llamada a move_hour_bank — evita que
+  // el saldo quede "reservado" de más una vez que la visita ya lo cubrió.
+  const visitDate = new Date(visit.started_at).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+  const { data: reservation } = await supabase
+    .from('hour_bank_reservations')
+    .select('id, minutes')
+    .eq('enrollment_id', visit.enrollment_id)
+    .eq('reservation_date', visitDate)
+    .eq('status', 'confirmed')
+    .limit(1)
+    .maybeSingle();
+
+  const { data: moveResult } = await supabase.rpc('move_hour_bank', {
+    p_period_id: visit.period_id,
+    p_reserved_delta: reservation ? -reservation.minutes : 0,
+    p_consumed_delta: billedMinutes,
+  });
+
+  if (reservation) {
+    await supabase
+      .from('hour_bank_reservations')
+      .update({ status: 'fulfilled', updated_at: new Date().toISOString() })
+      .eq('id', reservation.id);
+  }
+
+  await supabase
+    .from('hour_bank_visits')
+    .update({ status: 'closed', ended_at: lastExit, billed_minutes: billedMinutes })
+    .eq('id', visitId);
+
+  console.log(`[ADMS] banco de horas: visita ${visitId} cerrada — ${billedMinutes} min facturados`);
+
+  // D-10: sin bloqueo automático de excedente, solo notificación — mismo
+  // patrón que ya usa payment_overdue más arriba en este archivo.
+  const available = (moveResult as any)?.available_minutes;
+  if (typeof available === 'number' && available < 0) {
+    const { data: school } = await supabase.from('schools').select('owner_id').eq('id', schoolId).maybeSingle();
+    if (school?.owner_id) {
+      await supabase.from('notifications').insert({
+        user_id:  school.owner_id,
+        school_id: schoolId,
+        type:     'hour_bank_overage',
+        title:    '⏱️ Banco de horas — saldo excedido',
+        message:  `${athleteName} consumió ${billedMinutes} min y dejó el banco del período en ${available} min (excedido).`,
+        link:     '/school/access-control',
+      });
+    }
+  }
+}
+
+async function trackHourBankVisit(
+  schoolId: string,
+  enrollmentId: string,
+  direction: 'entry' | 'exit',
+  occurredAt: string,
+  eventId: string,
+  athleteName: string
+): Promise<void> {
+  const settings = await getHourBankSettings(schoolId);
+  if (!settings.enabled) return;
+
+  const { data: periodId } = await supabase.rpc('get_or_open_hour_bank_period', { p_enrollment_id: enrollmentId });
+  if (!periodId) return; // esta inscripción no tiene un plan de horas (offering_plans.included_minutes_per_period NULL)
+
+  const { data: openVisit } = await supabase
+    .from('hour_bank_visits')
+    .select('id')
+    .eq('enrollment_id', enrollmentId)
+    .eq('status', 'open')
+    .maybeSingle();
+
+  if (direction === 'entry') {
+    if (openVisit) {
+      const { data: lastSeg } = await supabase
+        .from('hour_bank_visit_segments')
+        .select('id, exited_at')
+        .eq('visit_id', openVisit.id)
+        .order('entered_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (lastSeg && !lastSeg.exited_at) {
+        return; // ya está adentro (entrada duplicada/glitch) — no crear nada
+      }
+
+      if (lastSeg && lastSeg.exited_at) {
+        const gapMinutes = (new Date(occurredAt).getTime() - new Date(lastSeg.exited_at).getTime()) / 60000;
+        if (gapMinutes <= settings.reentryMergeMinutes) {
+          // D-6: reentrada corta — nuevo segmento en la MISMA visita, no se cierra nada
+          await supabase.from('hour_bank_visit_segments').insert({
+            visit_id: openVisit.id, school_id: schoolId, enrollment_id: enrollmentId,
+            entry_event_id: eventId, entered_at: occurredAt,
+          });
+          return;
+        }
+        // Fuera de la ventana: esa visita ya terminó de verdad — cerrarla (con
+        // billing) antes de abrir la nueva.
+        await closeHourBankVisit(openVisit.id, schoolId, settings.entryGraceMinutes, settings.exitGraceMinutes, athleteName);
+      }
+    }
+
+    // Nueva visita. Si dos entradas llegan a la vez para la misma inscripción,
+    // el índice único parcial de F1 (hour_bank_visits_one_open_per_enrollment)
+    // rechaza la segunda — el try/catch del caller la absorbe sin romper el
+    // ATTLOG en vivo.
+    const { data: newVisit } = await supabase
+      .from('hour_bank_visits')
+      .insert({ school_id: schoolId, enrollment_id: enrollmentId, period_id: periodId, started_at: occurredAt })
+      .select('id')
+      .maybeSingle();
+
+    if (newVisit) {
+      await supabase.from('hour_bank_visit_segments').insert({
+        visit_id: newVisit.id, school_id: schoolId, enrollment_id: enrollmentId,
+        entry_event_id: eventId, entered_at: occurredAt,
+      });
+    }
+  } else {
+    if (!openVisit) return; // salida sin entrada trackeada — nada que cerrar acá
+
+    const { data: openSeg } = await supabase
+      .from('hour_bank_visit_segments')
+      .select('id')
+      .eq('visit_id', openVisit.id)
+      .is('exited_at', null)
+      .order('entered_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (openSeg) {
+      await supabase.from('hour_bank_visit_segments')
+        .update({ exited_at: occurredAt, exit_event_id: eventId })
+        .eq('id', openSeg.id);
+    }
+    // La visita queda 'open' — el cierre con billing pasa en la próxima entrada
+    // fuera de la ventana de gracia, o en el cron de auto-cierre (F5).
+  }
 }
 
 // ─── GET /iclock/cdata — Handshake inicial ────────────────────────────────────
@@ -493,6 +723,24 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
             message:  `${validation.userName ?? 'Un miembro'} intentó ingresar pero tiene el pago vencido.`,
             link:     '/school/access-control',
           });
+        }
+      }
+
+      // Banco de horas (F3): trackea la visita real, sin importar access_granted
+      // (ver comentario en trackHourBankVisit). Nunca debe romper el ATTLOG en
+      // vivo — cualquier error acá se loguea y se sigue de largo.
+      if (eventRecord && validation.enrollmentId) {
+        try {
+          await trackHourBankVisit(
+            schoolId,
+            validation.enrollmentId,
+            eventDirection,
+            occurredAt,
+            eventRecord.id,
+            validation.userName ?? 'Atleta'
+          );
+        } catch (err) {
+          console.error('[ADMS] banco de horas: error trackeando visita', err);
         }
       }
 

@@ -1,6 +1,6 @@
 # Allowlist de IP para ADMS/ZKTeco — de env var global a control por dispositivo
 
-Estado: **F0 (BFF listo, datos sin auditar, UI pendiente)**. Migración `20260821112428` aplicada solo al esquema (columna nueva, sin efecto en runtime). Nada de esto está activado en producción — cada escuela sigue igual que antes hasta que alguien la pase de `off` a `warn`/`enforce` a mano.
+Estado: **F0 (BFF listo, datos sin auditar, UI pendiente)**. Columna `ip_check_mode` ya está viva en la base (verificado 2026-08-21 13:01, todas las filas en `'off'`, sin efecto en runtime). **Nota de bookkeeping:** el DDL quedó aplicado bajo `schema_migrations.version = 20260821125138` (`adms_device_ip_check_mode`), corrido por otra sesión en paralelo — no bajo `20260821112428`, el timestamp del archivo `.sql` commiteado en este repo. Mismo esquema resultante, solo el rastro de versión no coincide; ver "Dos sesiones aplicando la misma migración en paralelo" en `docs/gotchas-tecnicos.md`. No reintentar `apply_migration` con el archivo del repo — ya truena con `column already exists`. Nada de esto está activado en producción — cada escuela sigue igual que antes hasta que alguien la pase de `off` a `warn`/`enforce` a mano.
 
 ## 1. Por qué existe esto
 
@@ -21,13 +21,36 @@ from turnstile_devices order by school_id;
 
 | Escuela | Device | ip_address actual | Problema |
 |---|---|---|---|
-| GYM RM (`2137182d-…`) | Lector Salida (898) | `181.63.24.103` | **Desactualizada.** La IP real confirmada hoy es `186.113.249.203`. |
-| GYM RM (`2137182d-…`) | Lector Entrada (899) | `181.63.24.103` | Idem — mismo dato viejo. |
+| GYM RM (`2137182d-…`) | Lector Salida (898) | `181.63.24.103` | **Correcta, no tocar.** Ver corrección abajo — el dato de esta fila estaba mal en la versión anterior de este documento. |
+| GYM RM (`2137182d-…`) | Lector Entrada (899) | `181.63.24.103` | Idem — correcta. |
 | Dreamers Gymnastics (`57ba9352-…`) | LECTOR SALIDA | `192.168.1.201` | **Es una IP de LAN, no pública.** Nunca va a matchear la IP real que ve Render desde internet. |
 | Dreamers Gymnastics (`57ba9352-…`) | LECTOR ENTRADA | `192.168.1.203` | Idem. |
 | Club Campestre Demo (`25a123f0-…`) | Portería × 2 | `null` | Sin dato — inofensivo, cae al fallback. |
 
-**Esto es el hallazgo más importante de todo este documento:** si alguien activa el chequeo por-device usando los datos que YA HAY en la tabla sin corregirlos primero, bloquea a Dreamers Gymnastics de inmediato (IP de LAN nunca matchea) y deja a GYM RM con el mismo dato viejo que ya causó el incidente de hoy. **No activar `enforce` (ni `warn`, para no generar ruido falso) en ningún device hasta corregir esta tabla.**
+> **Corrección (2026-08-21, sesión posterior):** la versión anterior de esta tabla decía que
+> `181.63.24.103` de GYM RM estaba desactualizada y que "la IP real confirmada hoy es
+> `186.113.249.203`" — **eso es un error, no un hallazgo.** `186.113.249.203` es la IP de
+> **Dreamers**, no la de GYM RM; parece un cruce entre las dos escuelas al escribir el
+> documento. Verificado contra `adms_device_log` (evento `handshake`, que registra la IP real
+> de cada conexión): GYM RM sigue conectando desde `181.63.24.103` — la última vez el
+> 2026-08-18, y consistente desde antes. **Si alguien hubiera seguido la instrucción original y
+> cambiado el `ip_address` de GYM RM a `186.113.249.203`, habría roto GYM RM al activar
+> `warn`/`enforce`** (la IP real nunca habría matcheado). GYM RM **no necesita ningún cambio de
+> dato** — solo Dreamers.
+>
+> Dato aparte encontrado en la misma verificación: `adms_device_log` no tiene **ningún** evento
+> `handshake` para Dreamers (cero filas, siempre). GYM RM sí los tiene. No se investigó la causa
+> — podría ser que `dreamers_bridge.py` no reproduce el `GET /iclock/cdata` completo, o algo del
+> pipeline de Dreamers que vale la pena mirar aparte, sin bloquear esto.
+
+**✅ Corregido 2026-08-21 13:xx.** `ip_address` de los dos lectores de Dreamers actualizado a
+`186.113.249.203` (`UPDATE` directo, no migración — es dato, no esquema). `ip_check_mode` se
+dejó en `off` en ambos, sin cambio de comportamiento en runtime. Con esto, la tabla 3 ya no
+tiene ningún dato incorrecto: GYM RM y Dreamers están listos para pasar a `warn` cuando se
+decida empezar el rollout (§5, punto 4). Efecto colateral bueno: `ip_address` también es el
+campo que usa `manual-open` ([access-api.ts:186](../../bff/src/routes/access-api.ts:186)) para
+la apertura remota de puerta — Dreamers debería dejar de fallar ahí también, aunque no se probó
+específicamente esta sesión.
 
 ## 4. Diseño
 

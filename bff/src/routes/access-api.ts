@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
-import { invalidateDeviceCache, invalidateMappingCache } from './access-adms';
+import { invalidateDeviceCache, invalidateMappingCache, getHourBankSettings } from './access-adms';
 import fs from 'fs';
 import path from 'path';
 
@@ -697,6 +697,359 @@ router.get('/overdue', requireAuth, requireRole('owner', 'admin', 'school_admin'
     return res.json({ overdue });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error al listar vencidos' });
+  }
+});
+
+// ─── GET /api/v1/access/hour-bank-balances ───────────────────────────────────
+// F6: vista agregada para owner/coach — saldo de TODOS los atletas con plan de
+// horas de la escuela, de un vistazo. Mismo patrón de resolución de nombre
+// (profiles / unregistered_athletes) que ya usa este archivo en /events y
+// /overdue-payments — child_id no se resuelve porque el ecosistema ADMS
+// (zk_user_mappings, access_events) tampoco lo maneja, ver ese patrón arriba.
+router.get('/hour-bank-balances', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coach'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+
+    const { data: enrollments } = await supabase
+      .from('enrollments')
+      .select('id, user_id, unregistered_athlete_id, offering_plans!inner(name, included_minutes_per_period)')
+      .eq('school_id', schoolId)
+      .eq('status', 'active')
+      .not('offering_plans.included_minutes_per_period', 'is', null);
+
+    if (!enrollments || enrollments.length === 0) return res.json({ balances: [] });
+
+    const userIds = [...new Set(enrollments.map((e: any) => e.user_id).filter(Boolean))];
+    const uaIds   = [...new Set(enrollments.map((e: any) => e.unregistered_athlete_id).filter(Boolean))];
+
+    const profileMap: Record<string, string> = {};
+    if (userIds.length) {
+      const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', userIds);
+      (profiles || []).forEach((p: any) => { profileMap[p.id] = p.full_name; });
+    }
+    const uaMap: Record<string, string> = {};
+    if (uaIds.length) {
+      const { data: uas } = await supabase.from('unregistered_athletes').select('id, full_name').in('id', uaIds);
+      (uas || []).forEach((u: any) => { uaMap[u.id] = u.full_name; });
+    }
+
+    const balances = [];
+    for (const e of enrollments as any[]) {
+      const { data: periodId } = await supabase.rpc('get_or_open_hour_bank_period', { p_enrollment_id: e.id });
+      if (!periodId) continue;
+
+      const { data: period } = await supabase
+        .from('hour_bank_periods')
+        .select('period_start, period_end, included_minutes, reserved_minutes, consumed_minutes')
+        .eq('id', periodId)
+        .maybeSingle();
+      if (!period) continue;
+
+      balances.push({
+        enrollment_id: e.id,
+        athlete_name: e.user_id ? (profileMap[e.user_id] ?? 'Usuario') : (uaMap[e.unregistered_athlete_id] ?? 'Atleta'),
+        plan_name: e.offering_plans?.name ?? 'Plan',
+        period_start: period.period_start,
+        period_end: period.period_end,
+        included_minutes: period.included_minutes,
+        reserved_minutes: period.reserved_minutes,
+        consumed_minutes: period.consumed_minutes,
+        available_minutes: period.included_minutes - period.reserved_minutes - period.consumed_minutes,
+      });
+    }
+
+    return res.json({ balances });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al listar los saldos del banco de horas' });
+  }
+});
+
+// ─── Banco de horas por torniquete (F5) — bandeja de revisión del owner ──────
+// docs/specs/dreamers-banco-de-horas-torniquete.md, D-8. A propósito NO se usa
+// requireRole('owner'): su PRIVILEGED_ROLES deja pasar también a admin/
+// super_admin (ver authMiddleware.ts:47), y acá el negocio pidió "solo owner",
+// sin excepción — por eso el chequeo de rol es manual en cada handler.
+
+// ─── GET /api/v1/access/hour-bank-visits ─────────────────────────────────────
+router.get('/hour-bank-visits', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId, role } = req;
+    if (role !== 'owner') {
+      return res.status(403).json({ error: 'Solo el owner de la escuela puede ver la bandeja de revisión del banco de horas' });
+    }
+
+    const status = (req.query.status as string) || 'pending_review';
+
+    const { data: visits, error } = await supabase
+      .from('hour_bank_visits')
+      .select('id, enrollment_id, period_id, status, started_at, ended_at, billed_minutes, auto_closed, corrected_by, corrected_at, correction_reason')
+      .eq('school_id', schoolId)
+      .eq('status', status)
+      .order('started_at', { ascending: false })
+      .limit(100);
+
+    if (error) return res.status(500).json({ error: 'Error al listar visitas' });
+
+    return res.json({ visits: visits ?? [] });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al listar visitas del banco de horas' });
+  }
+});
+
+// ─── PATCH /api/v1/access/hour-bank-visits/:id/correct ───────────────────────
+// El owner ajusta la hora real de salida de una visita pending_review. Recién
+// acá se factura — mismo cómputo de gracia que closeHourBankVisit en
+// access-adms.ts (F3), pero disparado a mano en vez de por el torniquete.
+router.patch('/hour-bank-visits/:id/correct', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId, role } = req;
+    if (role !== 'owner') {
+      return res.status(403).json({ error: 'Solo el owner de la escuela puede corregir visitas del banco de horas' });
+    }
+
+    const { id } = req.params;
+    const { ended_at, reason } = req.body as { ended_at?: string; reason?: string };
+    if (!ended_at || Number.isNaN(new Date(ended_at).getTime())) {
+      return res.status(400).json({ error: 'ended_at (ISO) es requerido' });
+    }
+
+    const { data: visit } = await supabase
+      .from('hour_bank_visits')
+      .select('id, period_id, status, started_at')
+      .eq('id', id)
+      .eq('school_id', schoolId)
+      .maybeSingle();
+
+    if (!visit) return res.status(404).json({ error: 'Visita no encontrada' });
+    if (visit.status !== 'pending_review') {
+      return res.status(409).json({ error: `Solo se corrigen visitas pending_review (esta está en ${visit.status})` });
+    }
+    if (new Date(ended_at) < new Date(visit.started_at)) {
+      return res.status(400).json({ error: 'ended_at no puede ser anterior a started_at' });
+    }
+    if (!visit.period_id) {
+      return res.status(422).json({ error: 'Visita sin período asociado — no se puede facturar' });
+    }
+
+    // Ajusta el último segmento (el que el auto-cierre cortó con su cutoff) a
+    // la hora real que da el owner.
+    const { data: lastSeg } = await supabase
+      .from('hour_bank_visit_segments')
+      .select('id, entered_at')
+      .eq('visit_id', id)
+      .order('entered_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!lastSeg) return res.status(422).json({ error: 'Visita sin segmentos — dato inconsistente' });
+
+    await supabase
+      .from('hour_bank_visit_segments')
+      .update({ exited_at: ended_at })
+      .eq('id', lastSeg.id);
+
+    const { data: segments } = await supabase
+      .from('hour_bank_visit_segments')
+      .select('entered_at, exited_at')
+      .eq('visit_id', id);
+
+    const settings = await getHourBankSettings(schoolId);
+    const rawMinutes = (segments ?? []).reduce((sum: number, s: any) => {
+      if (!s.exited_at) return sum;
+      return sum + Math.round((new Date(s.exited_at).getTime() - new Date(s.entered_at).getTime()) / 60000);
+    }, 0);
+    const billedMinutes = Math.max(0, rawMinutes - settings.entryGraceMinutes - settings.exitGraceMinutes);
+
+    const { data: moveResult } = await supabase.rpc('move_hour_bank', {
+      p_period_id: visit.period_id,
+      p_reserved_delta: 0,
+      p_consumed_delta: billedMinutes,
+    });
+
+    await supabase
+      .from('hour_bank_visits')
+      .update({
+        status: 'corrected',
+        ended_at,
+        billed_minutes: billedMinutes,
+        corrected_by: req.user.id,
+        corrected_at: new Date().toISOString(),
+        correction_reason: reason?.trim() || null,
+      })
+      .eq('id', id);
+
+    // D-10: mismo patrón de notificación que closeHourBankVisit (F3) y que
+    // payment_overdue — solo avisa, sin bloqueo automático.
+    const available = (moveResult as any)?.available_minutes;
+    if (typeof available === 'number' && available < 0) {
+      const { data: school } = await supabase.from('schools').select('owner_id').eq('id', schoolId).maybeSingle();
+      if (school?.owner_id) {
+        await supabase.from('notifications').insert({
+          user_id:  school.owner_id,
+          school_id: schoolId,
+          type:     'hour_bank_overage',
+          title:    '⏱️ Banco de horas — saldo excedido',
+          message:  `Corrección manual: ${billedMinutes} min facturados, banco del período en ${available} min (excedido).`,
+          link:     '/school/access-control',
+        });
+      }
+    }
+
+    return res.json({ success: true, billed_minutes: billedMinutes, available_minutes: available });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al corregir la visita' });
+  }
+});
+
+// ─── Banco de horas — reservas (F4) ──────────────────────────────────────────
+// docs/specs/dreamers-banco-de-horas-torniquete.md, D-11: reserva flexible
+// ("hoy voy"), sin franja horaria — tabla propia hour_bank_reservations, no
+// session_bookings. Autorización: staff de la escuela, o el dueño de la
+// inscripción (el atleta adulto o el padre del menor).
+
+async function canManageHourBankEnrollment(
+  req: AuthenticatedRequest,
+  enrollment: { user_id: string | null; child_id: string | null }
+): Promise<boolean> {
+  if (['owner', 'admin', 'school_admin', 'coach'].includes(req.role)) return true;
+  if (enrollment.user_id && enrollment.user_id === req.user.id) return true;
+  if (enrollment.child_id) {
+    const { data } = await supabase
+      .from('children')
+      .select('id')
+      .eq('id', enrollment.child_id)
+      .eq('parent_id', req.user.id)
+      .maybeSingle();
+    if (data) return true;
+  }
+  return false;
+}
+
+// ─── GET /api/v1/access/hour-bank-balance/:enrollmentId ──────────────────────
+router.get('/hour-bank-balance/:enrollmentId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const { enrollmentId } = req.params;
+
+    const { data: enrollment } = await supabase
+      .from('enrollments')
+      .select('id, user_id, child_id, school_id')
+      .eq('id', enrollmentId)
+      .eq('school_id', schoolId)
+      .maybeSingle();
+
+    if (!enrollment) return res.status(404).json({ error: 'Inscripción no encontrada' });
+    if (!(await canManageHourBankEnrollment(req, enrollment))) {
+      return res.status(403).json({ error: 'Sin permiso para ver el saldo de esta inscripción' });
+    }
+
+    const { data: periodId } = await supabase.rpc('get_or_open_hour_bank_period', { p_enrollment_id: enrollmentId });
+    if (!periodId) {
+      return res.json({ has_hours_plan: false });
+    }
+
+    const { data: period } = await supabase
+      .from('hour_bank_periods')
+      .select('id, period_start, period_end, included_minutes, reserved_minutes, consumed_minutes')
+      .eq('id', periodId)
+      .maybeSingle();
+
+    if (!period) return res.status(500).json({ error: 'Error al leer el período' });
+
+    return res.json({
+      has_hours_plan: true,
+      period_id: period.id,
+      period_start: period.period_start,
+      period_end: period.period_end,
+      included_minutes: period.included_minutes,
+      reserved_minutes: period.reserved_minutes,
+      consumed_minutes: period.consumed_minutes,
+      available_minutes: period.included_minutes - period.reserved_minutes - period.consumed_minutes,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al leer el saldo del banco de horas' });
+  }
+});
+
+// ─── POST /api/v1/access/hour-bank-reservations ──────────────────────────────
+router.post('/hour-bank-reservations', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const { enrollment_id, reservation_date } = req.body as { enrollment_id?: string; reservation_date?: string };
+
+    if (!enrollment_id || !reservation_date || !/^\d{4}-\d{2}-\d{2}$/.test(reservation_date)) {
+      return res.status(400).json({ error: 'enrollment_id y reservation_date (YYYY-MM-DD) son requeridos' });
+    }
+
+    const { data: enrollment } = await supabase
+      .from('enrollments')
+      .select('id, user_id, child_id, school_id, status')
+      .eq('id', enrollment_id)
+      .eq('school_id', schoolId)
+      .maybeSingle();
+
+    if (!enrollment) return res.status(404).json({ error: 'Inscripción no encontrada' });
+    if (enrollment.status !== 'active') return res.status(400).json({ error: 'La inscripción no está activa' });
+    if (!(await canManageHourBankEnrollment(req, enrollment))) {
+      return res.status(403).json({ error: 'Sin permiso para reservar sobre esta inscripción' });
+    }
+
+    const { data: result, error } = await supabase.rpc('reserve_hour_bank', {
+      p_enrollment_id: enrollment_id,
+      p_reservation_date: reservation_date,
+      p_created_by: req.user.id,
+    });
+
+    if (error) return res.status(500).json({ error: 'Error al reservar' });
+
+    const r = result as any;
+    if (!r?.reserved) {
+      // D-2: el sistema bloquea la reserva si no alcanza el saldo — el 422
+      // lleva available_minutes para que el frontend muestre el saldo real
+      // (D-9-bis) en vez de un mensaje genérico.
+      return res.status(422).json(r);
+    }
+
+    return res.status(201).json(r);
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al reservar en el banco de horas' });
+  }
+});
+
+// ─── POST /api/v1/access/hour-bank-reservations/:id/cancel ───────────────────
+router.post('/hour-bank-reservations/:id/cancel', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const { id } = req.params;
+
+    const { data: reservation } = await supabase
+      .from('hour_bank_reservations')
+      .select('id, school_id, enrollment_id')
+      .eq('id', id)
+      .eq('school_id', schoolId)
+      .maybeSingle();
+
+    if (!reservation) return res.status(404).json({ error: 'Reserva no encontrada' });
+
+    const { data: enrollment } = await supabase
+      .from('enrollments')
+      .select('id, user_id, child_id')
+      .eq('id', reservation.enrollment_id)
+      .maybeSingle();
+
+    if (!enrollment || !(await canManageHourBankEnrollment(req, enrollment))) {
+      return res.status(403).json({ error: 'Sin permiso para cancelar esta reserva' });
+    }
+
+    const { data: result, error } = await supabase.rpc('cancel_hour_bank_reservation', { p_reservation_id: id });
+    if (error) return res.status(500).json({ error: 'Error al cancelar' });
+
+    const r = result as any;
+    if (!r?.cancelled) return res.status(409).json(r);
+
+    return res.json(r);
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al cancelar la reserva' });
   }
 });
 
