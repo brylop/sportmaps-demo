@@ -29,8 +29,10 @@ async function fetchAllRows<T>(build: () => any): Promise<T[]> {
 
 /**
  * Cuántos ids caben en un `.in()` sin reventar el límite de headers HTTP
- * (~16KB, undici/Node). Un uuid con comillas y coma pesa ~39 bytes; 150 ids
- * son ~5.9KB de query string, deja margen para el resto de la URL/headers.
+ * (~16KB, undici/Node). Un uuid con comillas y coma pesa ~39 bytes; 30 ids
+ * son ~1.2KB de query string — de sobra de margen aunque el resto de la URL
+ * crezca (select largo, filtros, otro `.in()` en la misma query). No hace
+ * falta ir al límite: una vuelta más de red no cuesta nada al lado de un 500.
  *
  * Medido en vivo: Dynasty (453 hijos activos) generaba una URL de 17.795
  * caracteres en `.in('id', athChildIds)` y el fetch moría con
@@ -38,7 +40,7 @@ async function fetchAllRows<T>(build: () => any): Promise<T[]> {
  * funciona en escuelas chicas y se cae en las más grandes es peor que uno
  * que nunca funcionó.
  */
-const IN_CHUNK = 150;
+const IN_CHUNK = 30;
 
 /** Como `fetchAllRows`, pero además troceando una lista de ids que puede superar IN_CHUNK. */
 async function fetchRowsForIds<T>(ids: string[], build: (chunk: string[]) => any): Promise<T[]> {
