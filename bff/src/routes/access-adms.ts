@@ -19,9 +19,11 @@ const VERIFY_METHOD: Record<number, string> = {
 };
 
 // ─── Allowlist de IP del/los lector(es) ──────────────────────────────────────
-// Opt-in: si ACCESS_DEVICE_IP_ALLOWLIST está vacío no se aplica (no rompe dev).
-// En prod: setear a la IP pública del gym (RMGYM: 181.63.24.103). El protocolo
-// /iclock no soporta auth por header, así que la IP es la barrera práctica.
+// Fallback GLOBAL: opt-in, si ACCESS_DEVICE_IP_ALLOWLIST está vacío no se aplica
+// (no rompe dev). Solo se usa cuando el device no tiene ip_check_mode propio
+// activo (ver abajo) — o sea, hoy, para TODOS los devices existentes.
+// El protocolo /iclock no soporta auth por header, así que la IP es la barrera
+// práctica.
 const IP_ALLOWLIST = (process.env.ACCESS_DEVICE_IP_ALLOWLIST || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 
@@ -30,15 +32,40 @@ function clientIp(req: Request): string {
   return (xff.split(',')[0] || req.socket?.remoteAddress || '').trim();
 }
 
-// ─── express.text() SOLO para rutas /iclock/* (+ allowlist) ───────────────────
-router.use('/iclock', (req, res, next) => {
-  if (IP_ALLOWLIST.length) {
-    const ip = clientIp(req);
+// ─── express.text() SOLO para rutas /iclock/* (+ allowlist por device) ───────
+// Allowlist POR DISPOSITIVO (turnstile_devices.ip_address + ip_check_mode,
+// migración 20260821112428): cada escuela configura su propia IP pública
+// desde el panel Access Control, sin tocar Render. Modos:
+//   'off'     → no se chequea nada acá, cae al fallback global de arriba.
+//   'warn'    → si no matchea, se loguea + se registra en adms_device_log,
+//               pero NO bloquea (para validar la IP real antes de exigirla).
+//   'enforce' → si no matchea, 403 (igual que el fallback global, pero acotado
+//               a este device — un error de IP no tumba a otras escuelas).
+// TODOS los devices existentes están en 'off' por default de la migración,
+// así que este cambio no altera nada hasta que alguien active warn/enforce
+// por escuela. Ver docs/specs/adms-ip-allowlist-per-device.md.
+router.use('/iclock', async (req, res, next) => {
+  const sn = (req.query.SN || req.query.sn) as string;
+  const ip = clientIp(req);
+  const device = sn ? await getDeviceBySerial(sn) : null;
+
+  if (device && device.ipCheckMode !== 'off' && device.ipAddress) {
+    const matches = ip === device.ipAddress;
+    if (!matches) {
+      console.warn(`[ADMS] IP no coincide (SN:${sn}, modo:${device.ipCheckMode}): recibido ${ip}, esperado ${device.ipAddress}`);
+      logDevice('ip_mismatch', { expected: device.ipAddress, received: ip, mode: device.ipCheckMode }, sn, device.schoolId);
+      if (device.ipCheckMode === 'enforce') {
+        return res.type('text/plain').status(403).send('');
+      }
+      // 'warn': sigue de largo, no bloquea.
+    }
+  } else if (IP_ALLOWLIST.length) {
     if (!IP_ALLOWLIST.includes(ip)) {
-      console.warn(`[ADMS] IP no autorizada en /iclock: ${ip}`);
+      console.warn(`[ADMS] IP no autorizada en /iclock (SN:${sn || '?'}): ${ip}`);
       return res.type('text/plain').status(403).send('');
     }
   }
+
   if (req.method === 'GET') return next();
   express.text({ type: '*/*' })(req, res, next);
 });
@@ -84,7 +111,13 @@ function logDevice(eventType: string, detail: Record<string, unknown>, sn?: stri
 }
 
 // ─── Cache de dispositivos por serial (multi-tenant, perf) ───────────────────
-type DeviceInfo = { id: string; schoolId: string; direction: 'entry' | 'exit' };
+type DeviceInfo = {
+  id: string;
+  schoolId: string;
+  direction: 'entry' | 'exit';
+  ipAddress: string | null;
+  ipCheckMode: 'off' | 'warn' | 'enforce';
+};
 const DEVICE_CACHE_TTL_MS = 5 * 60 * 1000;
 const deviceCache = new Map<string, { value: DeviceInfo | null; at: number }>();
 
@@ -99,13 +132,19 @@ async function getDeviceBySerial(sn: string): Promise<DeviceInfo | null> {
 
   const { data } = await supabase
     .from('turnstile_devices')
-    .select('id, school_id, direction')
+    .select('id, school_id, direction, ip_address, ip_check_mode')
     .eq('serial_number', sn)
     .eq('is_active', true)
     .maybeSingle();
 
   const value: DeviceInfo | null = data
-    ? { id: data.id, schoolId: data.school_id, direction: data.direction as 'entry' | 'exit' }
+    ? {
+        id: data.id,
+        schoolId: data.school_id,
+        direction: data.direction as 'entry' | 'exit',
+        ipAddress: data.ip_address ?? null,
+        ipCheckMode: (data.ip_check_mode as 'off' | 'warn' | 'enforce') ?? 'off',
+      }
     : null;
 
   deviceCache.set(sn, { value, at: Date.now() });

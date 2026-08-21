@@ -413,7 +413,7 @@ router.get('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin'
     const { schoolId } = req;
     const { data: devices, error } = await supabase
       .from('turnstile_devices')
-      .select('id, serial_number, device_name, ip_address, direction, location, is_active, last_seen_at, brand, door_drive_time_seconds')
+      .select('id, serial_number, device_name, ip_address, ip_check_mode, direction, location, is_active, last_seen_at, brand, door_drive_time_seconds')
       .eq('school_id', schoolId)
       .order('direction');
 
@@ -441,8 +441,8 @@ router.get('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin'
 router.post('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { schoolId } = req;
-    const { serial_number, device_name, ip_address, direction, location, brand, door_drive_time_seconds } = req.body as {
-      serial_number: string; device_name: string; ip_address?: string;
+    const { serial_number, device_name, ip_address, ip_check_mode, direction, location, brand, door_drive_time_seconds } = req.body as {
+      serial_number: string; device_name: string; ip_address?: string; ip_check_mode?: 'off' | 'warn' | 'enforce';
       direction: 'entry' | 'exit' | 'both'; location?: string; brand?: string;
       door_drive_time_seconds?: number;
     };
@@ -453,6 +453,9 @@ router.post('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin
     if (!['entry', 'exit', 'both'].includes(direction)) {
       return res.status(400).json({ error: 'direction debe ser entry, exit o both' });
     }
+    if (ip_check_mode && !['off', 'warn', 'enforce'].includes(ip_check_mode)) {
+      return res.status(400).json({ error: 'ip_check_mode debe ser off, warn o enforce' });
+    }
 
     const { data: device, error } = await supabase
       .from('turnstile_devices')
@@ -461,13 +464,14 @@ router.post('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin
         serial_number:  serial_number.trim(),
         device_name:    device_name.trim(),
         ip_address:     ip_address?.trim() || null,
+        ip_check_mode:  ip_check_mode || 'off',
         direction,
         location:       location?.trim() || null,
         is_active:      true,
         brand:          brand?.trim() || 'Genérico',
         door_drive_time_seconds: door_drive_time_seconds ?? 5,
       })
-      .select('id, serial_number, device_name, ip_address, direction, location, is_active, brand, door_drive_time_seconds')
+      .select('id, serial_number, device_name, ip_address, ip_check_mode, direction, location, is_active, brand, door_drive_time_seconds')
       .single();
 
     if (error) {
@@ -504,8 +508,8 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
   try {
     const { schoolId } = req;
     const { id } = req.params;
-    const { serial_number, device_name, ip_address, direction, location, is_active, brand, door_drive_time_seconds } = req.body as {
-      serial_number?: string; device_name?: string; ip_address?: string | null;
+    const { serial_number, device_name, ip_address, ip_check_mode, direction, location, is_active, brand, door_drive_time_seconds } = req.body as {
+      serial_number?: string; device_name?: string; ip_address?: string | null; ip_check_mode?: 'off' | 'warn' | 'enforce';
       direction?: 'entry' | 'exit' | 'both'; location?: string; is_active?: boolean; brand?: string;
       door_drive_time_seconds?: number;
     };
@@ -513,11 +517,15 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
     if (direction && !['entry', 'exit', 'both'].includes(direction)) {
       return res.status(400).json({ error: 'direction debe ser entry, exit o both' });
     }
+    if (ip_check_mode && !['off', 'warn', 'enforce'].includes(ip_check_mode)) {
+      return res.status(400).json({ error: 'ip_check_mode debe ser off, warn o enforce' });
+    }
 
     const updates: Record<string, unknown> = {};
     if (serial_number !== undefined) updates.serial_number = serial_number.trim();
     if (device_name   !== undefined) updates.device_name   = device_name.trim();
     if (ip_address    !== undefined) updates.ip_address     = ip_address?.trim() || null;
+    if (ip_check_mode !== undefined) updates.ip_check_mode  = ip_check_mode;
     if (direction     !== undefined) updates.direction      = direction;
     if (location      !== undefined) updates.location       = location?.trim() || null;
     if (is_active     !== undefined) updates.is_active       = is_active;
@@ -528,20 +536,30 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
       return res.status(400).json({ error: 'Nada que actualizar' });
     }
 
-    // Primero obtenemos el dispositivo actual para saber su serial anterior (por si cambia)
+    // Primero obtenemos el dispositivo actual (serial anterior por si cambia, e
+    // ip_address actual para el guardarraíl de 'enforce' de abajo).
     const { data: oldDevice } = await supabase
       .from('turnstile_devices')
-      .select('serial_number')
+      .select('serial_number, ip_address')
       .eq('id', id)
       .eq('school_id', schoolId)
       .maybeSingle();
+
+    // Guardarraíl: no permitir 'enforce' si no va a quedar ip_address (evita
+    // bloquear al propio device sin ninguna IP contra la que comparar).
+    if (updates.ip_check_mode === 'enforce') {
+      const resultingIp = updates.ip_address !== undefined ? updates.ip_address : oldDevice?.ip_address;
+      if (!resultingIp) {
+        return res.status(400).json({ error: 'No se puede activar enforce sin ip_address' });
+      }
+    }
 
     const { data: device, error } = await supabase
       .from('turnstile_devices')
       .update(updates)
       .eq('id', id)
       .eq('school_id', schoolId) // 🔒 evita editar dispositivos de otra escuela
-      .select('id, serial_number, device_name, ip_address, direction, location, is_active, brand, door_drive_time_seconds')
+      .select('id, serial_number, device_name, ip_address, ip_check_mode, direction, location, is_active, brand, door_drive_time_seconds')
       .maybeSingle();
 
     if (error) {

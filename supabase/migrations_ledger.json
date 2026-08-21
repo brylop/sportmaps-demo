@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 394,
-  "head": "20260819173354",
+  "count": 397,
+  "head": "20260821112428",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -397,6 +397,9 @@
     {"v":"20260819142728","file":"20260819142728_tactical_board_p0.sql","sha256":"4350923032ae1d73cc6d4043c17e35a7feb01ab20fcf7d32d893459c0610b53a","added":"2026-08-19","by":"judegor99"},
     {"v":"20260819142729","file":"20260819142729_tactical_presets_p2.sql","sha256":"371abdc79d266e8d7ee0748c0f3612fddffbf9bad6895681c3e4ac0c932805b0","added":"2026-08-19","by":"judegor99"},
     {"v":"20260819142730","file":"20260819142730_tactical_presets_arrows.sql","sha256":"d8dd52981ba3ed74f664f89c0ca286d2709fc2d12cc570b488156f5e4d233895","added":"2026-08-19","by":"judegor99"},
-    {"v":"20260819173354","file":"20260819173354_cerrar_escritura_team_tactical_presets.sql","sha256":"eb7c15efc977c4f0ff2c6cde63d64d0d248e5cff8e382765c03985b3af8de210","added":"2026-08-19","by":"brylop"}
+    {"v":"20260819173354","file":"20260819173354_cerrar_escritura_team_tactical_presets.sql","sha256":"eb7c15efc977c4f0ff2c6cde63d64d0d248e5cff8e382765c03985b3af8de210","added":"2026-08-19","by":"brylop"},
+    {"v":"20260820124659","file":"20260820124659_lead_capture_school_signup_leads.sql","sha256":"d26d4f9c0b4be4717ae5d90c5bac55c33ca04fb412c122c2dc6be2ffd30a25b9","added":"2026-08-20","by":"brylop"},
+    {"v":"20260820125510","file":"20260820125510_school_signup_leads_revoke_public_execute.sql","sha256":"3dd8c4cd68299d09347d2bd5e3b8bf5e089a71ea2e000ba32d662f0b5b53b92d","added":"2026-08-20","by":"brylop"},
+    {"v":"20260821112428","file":"20260821112428_adms_device_ip_check_mode.sql","sha256":"bc4f8c9c180ddf9aa8e5258625de8866e6581329137573e2c9d5ab9e512ca460","added":"2026-08-21","by":"brylop"}
   ]
 }
