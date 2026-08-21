@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
     Download, FileText, TrendingUp, TrendingDown, Users, DollarSign,
     Building, Activity, BarChart3, AlertCircle, CheckCircle, Clock,
-    Printer, Calendar, ChevronRight, ArrowUpRight, ArrowDownRight
+    Printer, Calendar, ChevronRight, ChevronLeft, ArrowUpRight, ArrowDownRight
 } from 'lucide-react';
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -31,7 +31,7 @@ interface StudentRow {
     sessions_attended: number | null; sessions_total: number | null;
 }
 interface PaymentRow {
-    id: string; student: string; amount: number; status: string; month: string;
+    id: string; student: string; amount: number; amount_paid: number | null; status: string; month: string;
     team: string; plan: string; concept: string; due_date: string | null; days: number | null;
 }
 interface CoachRow { id: string; name: string; email: string; team: string; sede: string; students: number; }
@@ -74,11 +74,16 @@ function StatCard({ kpi }: { kpi: KPI }) {
     const isUp = kpi.trend === 'up';
     const isDown = kpi.trend === 'down';
     return (
-        <Card className="relative overflow-hidden border-0 shadow-md bg-gradient-to-br from-card to-card/80">
-            <div className={`absolute top-0 right-0 w-20 h-20 rounded-bl-full opacity-10 ${kpi.color || 'bg-primary'}`} />
-            <CardContent className="p-5">
+        <Card className="relative border-0 shadow-md bg-gradient-to-br from-card to-card/80">
+            {/* La mancha decorativa necesita su propio `overflow-hidden` — ponerlo en
+                la Card entera recortaba el valor del KPI cuando el número era largo
+                (ej. moneda COP de 8+ dígitos en una tarjeta angosta a 7 columnas). */}
+            <div className="absolute inset-0 overflow-hidden rounded-xl pointer-events-none">
+                <div className={`absolute top-0 right-0 w-20 h-20 rounded-bl-full opacity-10 ${kpi.color || 'bg-primary'}`} />
+            </div>
+            <CardContent className="relative p-5">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{kpi.label}</p>
-                <p className="text-3xl font-bold mt-1 text-foreground">{kpi.value}</p>
+                <p className="text-xl sm:text-2xl font-bold mt-1 text-foreground truncate" title={String(kpi.value)}>{kpi.value}</p>
                 {kpi.sub && <p className="text-xs text-muted-foreground mt-1">{kpi.sub}</p>}
                 {kpi.trendValue && (
                     <div className={`flex items-center gap-1 mt-2 text-xs font-medium ${isUp ? 'text-green-600' : isDown ? 'text-red-500' : 'text-muted-foreground'}`}>
@@ -144,6 +149,32 @@ function MiniTable({ headers, rows }: { headers: string[]; rows: (string | numbe
     );
 }
 
+const PAGE_SIZE = 30;
+
+// ─── Paginador ────────────────────────────────────────────────────────────────
+function TablePager({ page, total, pageSize, onChange }: {
+    page: number; total: number; pageSize: number; onChange: (page: number) => void;
+}) {
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    if (totalPages <= 1) return null;
+    const from = (page - 1) * pageSize + 1;
+    const to = Math.min(page * pageSize, total);
+    return (
+        <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
+            <span>Mostrando {from}–{to} de {total}</span>
+            <div className="flex items-center gap-1">
+                <Button variant="outline" size="sm" className="h-7 w-7 p-0" disabled={page <= 1} onClick={() => onChange(page - 1)}>
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                </Button>
+                <span className="px-2">Página {page} de {totalPages}</span>
+                <Button variant="outline" size="sm" className="h-7 w-7 p-0" disabled={page >= totalPages} onClick={() => onChange(page + 1)}>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                </Button>
+            </div>
+        </div>
+    );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function ReporterDashboardPage() {
     const { schoolId, schoolName, activeBranchId } = useSchoolContext();
@@ -161,9 +192,13 @@ export default function ReporterDashboardPage() {
     const [sedes, setSedes] = useState<SedeRow[]>([]);
     const [teams, setTeams] = useState<TeamRow[]>([]);
     const [plans, setPlans] = useState<PlanRow[]>([]);
+    const [financesPage, setFinancesPage] = useState(1);
+    const [studentsPage, setStudentsPage] = useState(1);
 
     useEffect(() => {
         if (!schoolId) return;
+        setFinancesPage(1);
+        setStudentsPage(1);
         fetchAll();
     }, [schoolId, activeBranchId, dateRange, teamFilter, planFilter]);
 
@@ -201,8 +236,13 @@ export default function ReporterDashboardPage() {
 
             // Process payments for KPIs
             setPayments(res.payments);
-            const collected = res.payments.filter(r => r.status === 'paid').reduce((s, r) => s + r.amount, 0);
-            const pending = res.payments.filter(r => r.status === 'pending').reduce((s, r) => s + r.amount, 0);
+            // Un pago `partial` sí tiene plata adentro: la parte abonada ya se
+            // recaudó y el resto sigue por cobrar. Contarlo solo en un lado (o en
+            // ninguno) es la mentira más común de un dashboard de cobros.
+            const collected = res.payments.filter(r => r.status === 'paid').reduce((s, r) => s + r.amount, 0)
+                + res.payments.filter(r => r.status === 'partial').reduce((s, r) => s + (r.amount_paid ?? 0), 0);
+            const pending = res.payments.filter(r => r.status === 'pending').reduce((s, r) => s + r.amount, 0)
+                + res.payments.filter(r => r.status === 'partial').reduce((s, r) => s + (r.amount - (r.amount_paid ?? 0)), 0);
             const overdue = res.payments.filter(r => r.status === 'overdue').length;
 
             // Process coaches and sedes
@@ -214,7 +254,7 @@ export default function ReporterDashboardPage() {
             // Set all KPIs at once
             setKpis([
                 { label: 'Deportistas Activos', value: active, sub: `${res.athletes_active ?? res.students.length} total`, trend: 'up', trendValue: 'Ver listado', color: 'bg-blue-500' },
-                { label: 'Ingreso Potencial Mes', value: currency(totalRevenuePotential), sub: 'Si todos pagan', trend: 'neutral', color: 'bg-green-500' },
+                { label: 'Ingreso Potencial Mensual', value: currency(totalRevenuePotential), sub: 'Si todos pagan', trend: 'neutral', color: 'bg-green-500' },
                 { label: 'Recaudado', value: currency(collected), sub: `Últimos ${dateRange} días`, trend: 'up', trendValue: `${res.payments.filter(r => r.status === 'paid').length} pagos`, color: 'bg-emerald-500' },
                 { label: 'Por Cobrar', value: currency(pending), sub: 'Pendiente de pago', trend: 'neutral', color: 'bg-yellow-500' },
                 { label: 'Morosos', value: overdue, sub: 'Con deuda vencida', trend: overdue > 0 ? 'down' : 'neutral', trendValue: overdue > 0 ? 'Requiere atención' : 'Al día', color: 'bg-red-500' },
@@ -312,6 +352,7 @@ export default function ReporterDashboardPage() {
             paid: { label: 'Pagado', className: 'bg-green-100 text-green-700' },
             pending: { label: 'Pendiente', className: 'bg-yellow-100 text-yellow-700' },
             overdue: { label: 'Vencido', className: 'bg-red-100 text-red-700' },
+            partial: { label: 'Parcial', className: 'bg-orange-100 text-orange-700' },
         };
         const s = map[status] || { label: status, className: 'bg-muted text-muted-foreground' };
         return <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${s.className}`}>{s.label}</span>;
@@ -456,8 +497,22 @@ export default function ReporterDashboardPage() {
                             {/* Summary row */}
                             <div className="grid grid-cols-3 gap-3 mb-4">
                                 {[
-                                    { label: 'Total Recaudado', value: currency(payments.filter(p => p.status === 'paid').reduce((s, p) => s + p.amount, 0)), icon: CheckCircle, color: 'text-green-600 bg-green-50' },
-                                    { label: 'Pendiente', value: currency(payments.filter(p => p.status === 'pending').reduce((s, p) => s + p.amount, 0)), icon: Clock, color: 'text-yellow-600 bg-yellow-50' },
+                                    {
+                                        label: 'Total Recaudado',
+                                        value: currency(
+                                            payments.filter(p => p.status === 'paid').reduce((s, p) => s + p.amount, 0)
+                                            + payments.filter(p => p.status === 'partial').reduce((s, p) => s + (p.amount_paid ?? 0), 0)
+                                        ),
+                                        icon: CheckCircle, color: 'text-green-600 bg-green-50',
+                                    },
+                                    {
+                                        label: 'Pendiente',
+                                        value: currency(
+                                            payments.filter(p => p.status === 'pending').reduce((s, p) => s + p.amount, 0)
+                                            + payments.filter(p => p.status === 'partial').reduce((s, p) => s + (p.amount - (p.amount_paid ?? 0)), 0)
+                                        ),
+                                        icon: Clock, color: 'text-yellow-600 bg-yellow-50',
+                                    },
                                     { label: 'Vencido', value: currency(payments.filter(p => p.status === 'overdue').reduce((s, p) => s + p.amount, 0)), icon: AlertCircle, color: 'text-red-600 bg-red-50' },
                                 ].map(item => (
                                     <div key={item.label} className={`flex items-center gap-3 p-3 rounded-lg ${item.color.split(' ')[1]}`}>
@@ -471,14 +526,15 @@ export default function ReporterDashboardPage() {
                             </div>
                             <MiniTable
                                 headers={['Deportista', 'Equipo', 'Plan', 'Mes', 'Monto', 'Estado', 'Días']}
-                                rows={payments.slice(0, 30).map(p => [
+                                rows={payments.slice((financesPage - 1) * PAGE_SIZE, financesPage * PAGE_SIZE).map(p => [
                                     p.student, p.team, p.plan, p.month, currency(p.amount),
                                     <StatusBadge key={p.id} status={p.status} />,
                                     formatDays(p.days)
                                 ])}
                             />
-                            {payments.length > 30 && (
-                                <p className="text-xs text-muted-foreground text-center mt-2">Mostrando 30 de {payments.length}. Exporta CSV para ver todos.</p>
+                            <TablePager page={financesPage} total={payments.length} pageSize={PAGE_SIZE} onChange={setFinancesPage} />
+                            {payments.length > PAGE_SIZE && (
+                                <p className="text-xs text-muted-foreground text-center mt-2">Exporta CSV para ver todos los registros de una vez.</p>
                             )}
                         </CardContent>
                     </Card>
@@ -510,14 +566,15 @@ export default function ReporterDashboardPage() {
                         <CardContent>
                             <MiniTable
                                 headers={['Nombre', 'Equipo', 'Plan', 'Sede', 'Estado', 'Mensualidad', 'Ingreso', 'Sesiones']}
-                                rows={students.slice(0, 30).map(s => [
+                                rows={students.slice((studentsPage - 1) * PAGE_SIZE, studentsPage * PAGE_SIZE).map(s => [
                                     s.full_name, s.team, s.plan, s.sede,
                                     <StatusBadge key={s.id} status={s.status} />,
                                     currency(s.fee), s.joined, formatSessions(s.sessions_attended, s.sessions_total)
                                 ])}
                             />
-                            {students.length > 30 && (
-                                <p className="text-xs text-muted-foreground text-center mt-2">Mostrando 30 de {students.length}. Exporta CSV para ver todos.</p>
+                            <TablePager page={studentsPage} total={students.length} pageSize={PAGE_SIZE} onChange={setStudentsPage} />
+                            {students.length > PAGE_SIZE && (
+                                <p className="text-xs text-muted-foreground text-center mt-2">Exporta CSV para ver todos los registros de una vez.</p>
                             )}
                         </CardContent>
                     </Card>

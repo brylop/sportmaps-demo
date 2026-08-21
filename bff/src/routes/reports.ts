@@ -435,6 +435,12 @@ router.get(
                 .from('payments')
                 .select('id, amount, amount_paid, status, concept, due_date, payment_date, period_year, period_month, created_at, child_id, user_id, parent_id, unregistered_athlete_id, branch_id')
                 .eq('school_id', schoolId)
+                // `cancelled`/`failed` no son un cobro vigente en ningún sentido — ni
+                // recaudado, ni por cobrar, ni vencido — pero SÍ entraban al listado y
+                // al total de filas, así que el conteo del reporte ("Mostrando 30 de
+                // 696") no cerraba con la suma de los 3 KPIs (paid+pending+overdue).
+                // Medido en Dynasty: 219 de 696 pagos del período eran `cancelled`.
+                .not('status', 'in', '(cancelled,failed)')
                 // La ventana mira las DOS fechas. Con solo `created_at` se caía del
                 // reporte un pago cobrado dentro del período cuyo cobro se había
                 // emitido antes — que es el caso normal de una mensualidad (48 de
@@ -500,6 +506,8 @@ router.get(
                         || nameMap.get(p.parent_id)
                         || 'Desconocido',
                     amount: Number(p.amount) || 0,
+                    // Solo tiene sentido para `partial`: cuánto de ese cobro ya entró.
+                    amount_paid: p.status === 'partial' ? (Number(p.amount_paid) || 0) : null,
                     status: p.status || 'pending',
                     month: periodo(p),
                     // `team` es el EQUIPO real de la inscripción, no el concepto del
