@@ -27,6 +27,7 @@ import { ReviewInstallmentModal } from '@/components/payment/ReviewInstallmentMo
 import { InstallmentsConfigCard } from '@/components/payment/InstallmentsConfigCard';
 import { todayColombia, formatDayCO, daysDiffFromToday } from '@/lib/dateUtils';
 import { SportMapsPaySettings } from '@/components/settings/SportMapsPaySettings';
+import { PaymentProvidersAdmin } from '@/components/admin/PaymentProvidersAdmin';
 import { RegisterCashPaymentModal } from '@/components/payment/RegisterCashPaymentModal';
 import { ApprovePaymentMethodSheet } from '@/components/payment/ApprovePaymentMethodSheet';
 import { bffClient } from '@/lib/api/bffClient';
@@ -387,6 +388,9 @@ export default function PaymentsAutomationPage() {
   const { profile } = useAuth();
   const { toast } = useToast();
   const { schoolId, activeBranchId, currentUserRole } = useSchoolContext();
+  // Se incrementa al conectar/quitar una pasarela: remonta SportMaps Pay para
+  // que su gate vuelva a preguntar si ya hay cuenta de recaudo.
+  const [revisionPasarelas, setRevisionPasarelas] = useState(0);
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState<PaymentTransaction[]>([]);
   // KPIs agregados en DB (school_payment_kpis). NO se derivan de `payments`:
@@ -2477,10 +2481,23 @@ export default function PaymentsAutomationPage() {
                 </CardContent>
               </Card>
 
-              {/* SportMaps Pay */}
+              {/* SportMaps Pay. La key lo remonta cuando cambian las pasarelas
+                  de abajo, para que el gate se re-evalúe sin recargar. */}
               <div className="md:col-span-2">
-                <SportMapsPaySettings />
+                <SportMapsPaySettings key={`pay-${revisionPasarelas}`} />
               </div>
+
+              {/* Cuenta de recaudo propia. Va pegado a SportMaps Pay a propósito:
+                  el aviso de ahí manda acá, y sin esto el toggle no se puede
+                  prender. No se le abre entrada de menú propia. */}
+              {schoolId && (
+                <div className="md:col-span-2">
+                  <PaymentProvidersAdmin
+                    schoolId={schoolId}
+                    onChange={() => setRevisionPasarelas(n => n + 1)}
+                  />
+                </div>
+              )}
 
               {/* Nueva Sección: Abonos */}
                 <InstallmentsConfigCard 

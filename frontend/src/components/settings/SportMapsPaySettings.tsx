@@ -30,6 +30,7 @@ import { Separator } from '@/components/ui/separator';
 import { AlertTriangle, CreditCard, Shield, Save, Loader2, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { bffClient } from '@/lib/api/bffClient';
 
 /**
  * Modo de cobro de la escuela (schools.payment_mode). Es el interruptor que de
@@ -37,6 +38,14 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
  * payment-provider.resolver.ts. `wompi_enabled` solo controla si el botón se ve.
  */
 type ModoPago = 'unset' | 'aggregator' | 'direct';
+
+/** Lo que devuelve GET /api/v1/payment-providers/school/:id, recortado. */
+interface ProviderEstado {
+    provider: 'wompi' | 'mercadopago';
+    enabled: boolean;
+    connect_status: string;
+    secrets?: { hasAccessToken: boolean; hasPrivateKey: boolean };
+}
 
 interface PaySettings {
     wompi_enabled: boolean;
@@ -132,22 +141,30 @@ export function SportMapsPaySettings() {
 
             if (modo === 'direct') {
                 // 'direct' sin credenciales propias conectadas también bloquea el
-                // cobro. Los dos estados aceptados son los mismos que admite el
-                // resolver: 'connected_pending_webhook' sí cobra, porque el
-                // events_secret de Wompi solo se verifica con el primer webhook.
-                const { data: provs, error: provErr } = await supabase
-                    .from('school_payment_providers')
-                    .select('connect_status')
-                    .eq('school_id', schoolId)
-                    .eq('enabled', true);
-                setProvidersUsables(
-                    provErr
-                        ? null
-                        : (provs ?? []).filter(p =>
-                            ['connected', 'connected_pending_webhook']
-                                .includes((p as any).connect_status),
+                // cobro. Se pregunta al BFF y no a PostgREST a propósito: la RLS
+                // de school_payment_providers solo alcanza al dueño, así que un
+                // admin que no lo sea leería 0 filas y vería "falta conectar"
+                // sobre una escuela bien configurada. El BFF además dice qué
+                // secretos existen, que es lo que el resolver exige de verdad.
+                try {
+                    const res = await bffClient.get<{ providers: ProviderEstado[] }>(
+                        `/api/v1/payment-providers/school/${schoolId}`,
+                    );
+                    setProvidersUsables(
+                        (res.providers ?? []).filter(p =>
+                            p.enabled
+                            && ['connected', 'connected_pending_webhook'].includes(p.connect_status)
+                            // Mismo mínimo que toResolved(): sin este secreto el
+                            // resolver devuelve null y el cobro no sale.
+                            && (p.provider === 'wompi'
+                                ? p.secrets?.hasPrivateKey
+                                : p.secrets?.hasAccessToken),
                         ).length,
-                );
+                    );
+                } catch {
+                    // 403 o red caída: no se sabe, y no se asume lo peor.
+                    setProvidersUsables(null);
+                }
             } else {
                 setProvidersUsables(null);
             }
@@ -261,8 +278,8 @@ export function SportMapsPaySettings() {
                         <AlertDescription className="text-sm">
                             <span className="font-medium">Falta conectar tu cuenta de recaudo.</span>{' '}
                             {motivoBloqueo} Sin ella no se puede activar el cobro online: el dinero
-                            no tendría a dónde llegar. Escríbenos para conectarla y luego vuelve
-                            aquí a activar el botón.
+                            no tendría a dónde llegar. Conéctala en <em>Pasarelas de pago</em>, justo
+                            abajo, y vuelve aquí a activar el botón.
                         </AlertDescription>
                     </Alert>
                 )}
