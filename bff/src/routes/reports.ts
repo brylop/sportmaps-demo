@@ -42,20 +42,20 @@ async function fetchAllRows<T>(build: () => any): Promise<T[]> {
  */
 const IN_CHUNK = 30;
 
-/** Como `fetchAllRows`, pero además troceando una lista de ids que puede superar IN_CHUNK. */
+/**
+ * Como `fetchAllRows`, pero además troceando una lista de ids que puede
+ * superar IN_CHUNK. Los lotes van en PARALELO (`Promise.all`), no uno tras
+ * otro — con IN_CHUNK=30 y una escuela de 453 hijos son ~16 lotes; en serie
+ * eso es ~16 vueltas de red POR CADA .in() del endpoint (children, teams,
+ * planes, asistencia, nameMap de pagos…), y sumado da los 10-20s medidos en
+ * vivo. En paralelo, esas 16 vueltas cuestan lo mismo que 1.
+ */
 async function fetchRowsForIds<T>(ids: string[], build: (chunk: string[]) => any): Promise<T[]> {
-    const out: T[] = [];
-    for (let i = 0; i < ids.length; i += IN_CHUNK) {
-        const chunk = ids.slice(i, i + IN_CHUNK);
-        for (let from = 0; ; from += PG_PAGE) {
-            const { data, error } = await build(chunk).range(from, from + PG_PAGE - 1);
-            if (error) throw error;
-            const page = (data || []) as T[];
-            out.push(...page);
-            if (page.length < PG_PAGE) break;
-        }
-    }
-    return out;
+    if (!ids.length) return [];
+    const chunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += IN_CHUNK) chunks.push(ids.slice(i, i + IN_CHUNK));
+    const pages = await Promise.all(chunks.map(chunk => fetchAllRows<T>(() => build(chunk))));
+    return pages.flat();
 }
 
 /**
@@ -324,7 +324,7 @@ router.get(
                 // teams (sí en children/enrollments) y pedirla hacía fallar el select
                 // completo → 500 en todo el dashboard.
                 fetchRowsForIds<any>(athTeamIds, chunk => supabase.from('teams').select('id, name, price_monthly, branch_id').in('id', chunk)),
-                fetchRowsForIds<any>(athPlanIds, chunk => supabase.from('offering_plans').select('id, name, price').in('id', chunk)),
+                fetchRowsForIds<any>(athPlanIds, chunk => supabase.from('offering_plans').select('id, name, price, max_sessions').in('id', chunk)),
             ]);
 
             const childMap       = new Map(childRows.map((c: any) => [c.id, c]));
@@ -364,21 +364,24 @@ router.get(
                 return 0;
             };
 
-            // Asistencia real marcada por el entrenador. `attendance_records` solo
-            // tiene `child_id` (ver mig 20260217000001): adultos y no-registrados
-            // quedan sin fila acá y se marcan como `null` (no aplica), no como 0.
-            const attendanceByChild = new Map<string, { present: number; total: number }>();
+            // Asistencia real marcada por el entrenador, acotada a la MISMA ventana
+            // que los pagos (`since` → hoy) — igual que un plan de "4 clases al mes"
+            // se mide por mes, no por la vida entera de la inscripción. Sin esto, un
+            // atleta con un año de historial mostraba 40+ asistencias contra un cupo
+            // mensual de 4, un "40/4" que no dice nada.
+            // `attendance_records` solo tiene `child_id` (ver mig 20260217000001):
+            // adultos y no-registrados quedan sin fila acá → `null` (no aplica), no 0.
+            const attendanceByChild = new Map<string, number>();
             if (athChildIds.length > 0) {
                 const attendanceRows = await fetchRowsForIds<any>(athChildIds, chunk => supabase
                     .from('attendance_records')
                     .select('child_id, status')
                     .in('child_id', chunk)
+                    .gte('attendance_date', since)
                     .order('id', { ascending: true }));
                 attendanceRows.forEach((r: any) => {
-                    const bucket = attendanceByChild.get(r.child_id) || { present: 0, total: 0 };
-                    bucket.total++;
-                    if (r.status === 'present' || r.status === 'late') bucket.present++;
-                    attendanceByChild.set(r.child_id, bucket);
+                    if (r.status !== 'present' && r.status !== 'late') return;
+                    attendanceByChild.set(r.child_id, (attendanceByChild.get(r.child_id) || 0) + 1);
                 });
             }
 
@@ -387,7 +390,6 @@ router.get(
                 const team  = teamMap.get(e.team_id) as any;
                 const plan  = planMap.get(e.offering_plan_id) as any;
                 const branchId = branchOf(e);
-                const attendance = e.child_id ? attendanceByChild.get(e.child_id) : undefined;
                 return {
                     id: e.child_id || e.user_id || e.unregistered_athlete_id,
                     full_name: child?.full_name
@@ -396,8 +398,11 @@ router.get(
                         || 'Sin nombre',
                     team: teamNameMap.get(e.team_id) || '—',
                     plan: plan?.name || '—',
-                    sessions_attended: attendance ? attendance.present : (e.child_id ? 0 : null),
-                    sessions_total: attendance ? attendance.total : (e.child_id ? 0 : null),
+                    // Asistidas (en la ventana) contra el CUPO DEL PLAN, no contra el
+                    // total de asistencia marcada — "3/4" = 3 de las 4 clases que el
+                    // plan incluye, no "3 de 3 veces que se pasó lista".
+                    sessions_attended: e.child_id ? (attendanceByChild.get(e.child_id) || 0) : null,
+                    sessions_total: plan?.max_sessions ?? null,
                     sede: (branchId && branchNameMap.get(branchId)) || 'Principal',
                     status: 'active',
                     fee: firstNonZero(e.monthly_fee, plan?.price, team?.price_monthly, child?.monthly_fee),

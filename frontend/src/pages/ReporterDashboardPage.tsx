@@ -92,12 +92,8 @@ function toggleSort(current: SortState, key: string): SortState {
     return { key, dir: current.dir === 'asc' ? 'desc' : 'asc' };
 }
 
-function exportCSV(filename: string, headers: string[], rows: (string | number)[][]) {
+function downloadCSV(filename: string, content: string) {
     const bom = '\uFEFF';
-    const content = [
-        headers.join(','),
-        ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
-    ].join('\n');
     const blob = new Blob([bom + content], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -105,6 +101,21 @@ function exportCSV(filename: string, headers: string[], rows: (string | number)[
     a.download = `${filename}_${format(new Date(), 'yyyy-MM-dd')}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+}
+
+// Un bloque de una sola tabla, con t\u00EDtulo opcional \u2014 as\u00ED "Exportar Todo" puede
+// concatenar varias tablas en un solo archivo sin que se confundan entre s\u00ED.
+function csvSection(title: string | null, headers: string[], rows: (string | number)[][]): string {
+    const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+    return [
+        ...(title ? [esc(title)] : []),
+        headers.map(esc).join(','),
+        ...rows.map(r => r.map(esc).join(',')),
+    ].join('\n');
+}
+
+function exportCSV(filename: string, headers: string[], rows: (string | number)[][]) {
+    downloadCSV(filename, csvSection(null, headers, rows));
 }
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
@@ -477,14 +488,25 @@ export default function ReporterDashboardPage() {
                             {plans.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                         </SelectContent>
                     </Select>
-                    <Button onClick={handlePrint} variant="outline" size="sm" className="gap-2 h-9">
+                    <Button onClick={handlePrint} variant="outline" size="sm" className="gap-2 h-9" disabled={loading}>
                         <Printer className="w-3.5 h-3.5" /> PDF / Imprimir
                     </Button>
                     <Button
-                        onClick={() => exportCSV('reporte_general', ['Sección', 'Métrica', 'Valor'],
-                            orderedKpis.map(k => ['KPI', k.label, String(k.value)])
-                        )}
+                        onClick={() => downloadCSV('reporte_completo', [
+                            csvSection('Indicadores', ['Métrica', 'Valor'], orderedKpis.map(k => [k.label, String(k.value)])),
+                            csvSection('Finanzas', ['Deportista', 'Equipo', 'Plan', 'Mes', 'Monto', 'Estado', 'Días'],
+                                sortRows(payments, financesSort).map(p => [p.student, p.team, p.plan, p.month, p.amount, p.status, formatDays(p)])),
+                            csvSection('Deportistas', ['Nombre', 'Equipo', 'Plan', 'Sede', 'Estado', 'Mensualidad', 'Ingreso', 'Sesiones'],
+                                sortRows(students, studentsSort).map(s => [s.full_name, s.team, s.plan, s.sede, s.status, s.fee, s.joined, formatSessions(s.sessions_attended, s.sessions_total)])),
+                            csvSection('Sedes', ['Sede', 'Deportistas', 'Entrenadores', 'Ingresos Recaudados'],
+                                sedes.map(s => [s.name, s.students, s.coaches, s.income])),
+                            csvSection('Equipos', ['Equipo', 'Deportistas', 'Mensualidad', 'Ingreso Potencial'],
+                                teams.map(t => [t.name, t.students, t.monthly_fee, t.revenue])),
+                            csvSection('Entrenadores', ['Nombre', 'Email', 'Equipo', 'Sede'],
+                                coaches.map(c => [c.name, c.email, c.team, c.sede])),
+                        ].join('\n\n'))}
                         variant="outline" size="sm" className="gap-2 h-9"
+                        disabled={loading}
                     >
                         <Download className="w-3.5 h-3.5" /> Exportar Todo
                     </Button>
@@ -545,7 +567,7 @@ export default function ReporterDashboardPage() {
                                     <Button asChild variant="ghost" size="sm" className="text-xs h-7">
                                         <Link to="/finances">Ver Finanzas <ChevronRight className="w-3 h-3 ml-1" /></Link>
                                     </Button>
-                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" onClick={() =>
+                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" disabled={loading} onClick={() =>
                                         exportCSV('finanzas', ['Deportista', 'Equipo', 'Plan', 'Mes', 'Monto', 'Estado', 'Días'],
                                             payments.map(p => [p.student, p.team, p.plan, p.month, p.amount, p.status, formatDays(p)])
                                         )
@@ -627,7 +649,7 @@ export default function ReporterDashboardPage() {
                                     <Button asChild variant="ghost" size="sm" className="text-xs h-7">
                                         <Link to="/students">Ver Deportistas <ChevronRight className="w-3 h-3 ml-1" /></Link>
                                     </Button>
-                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" onClick={() =>
+                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" disabled={loading} onClick={() =>
                                         exportCSV('deportistas', ['Nombre', 'Equipo', 'Plan', 'Sede', 'Estado', 'Mensualidad', 'Ingreso', 'Sesiones'],
                                             students.map(s => [s.full_name, s.team, s.plan, s.sede, s.status, s.fee, s.joined, formatSessions(s.sessions_attended, s.sessions_total)])
                                         )
@@ -680,7 +702,7 @@ export default function ReporterDashboardPage() {
                                     <Button asChild variant="ghost" size="sm" className="text-xs h-7">
                                         <Link to="/branches">Ver Sedes <ChevronRight className="w-3 h-3 ml-1" /></Link>
                                     </Button>
-                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" onClick={() =>
+                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" disabled={loading} onClick={() =>
                                         exportCSV('sedes', ['Sede', 'Deportistas', 'Entrenadores', 'Ingresos Recaudados'],
                                             sedes.map(s => [s.name, s.students, s.coaches, s.income])
                                         )
@@ -732,7 +754,7 @@ export default function ReporterDashboardPage() {
                                     <Button asChild variant="ghost" size="sm" className="text-xs h-7">
                                         <Link to="/teams">Ver Equipos <ChevronRight className="w-3 h-3 ml-1" /></Link>
                                     </Button>
-                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" onClick={() =>
+                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" disabled={loading} onClick={() =>
                                         exportCSV('equipos', ['Equipo', 'Deportistas', 'Mensualidad', 'Ingreso Potencial'],
                                             teams.map(p => [p.name, p.students, p.monthly_fee, p.revenue])
                                         )
@@ -775,7 +797,7 @@ export default function ReporterDashboardPage() {
                                     <Button asChild variant="ghost" size="sm" className="text-xs h-7">
                                         <Link to="/staff">Ver Staff <ChevronRight className="w-3 h-3 ml-1" /></Link>
                                     </Button>
-                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" onClick={() =>
+                                    <Button variant="outline" size="sm" className="text-xs h-7 gap-1" disabled={loading} onClick={() =>
                                         exportCSV('entrenadores', ['Nombre', 'Email', 'Equipo', 'Sede'],
                                             coaches.map(c => [c.name, c.email, c.team, c.sede])
                                         )
