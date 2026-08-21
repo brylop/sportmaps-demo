@@ -517,7 +517,10 @@ router.get(
                     plan: plan?.name || '—',
                     concept: p.concept || '—',
                     due_date: p.due_date || null,
+                    payment_date: p.payment_date || null,
                     // + = vencido hace N días, − = faltan N días para vencer, null = sin fecha.
+                    // Para `paid` esto NO significa que siga vencido — ya se cobró; el
+                    // frontend decide qué mostrar según el status, no solo este número.
                     days: p.due_date ? daysBetween(p.due_date, today) : null,
                 };
             });

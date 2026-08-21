@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
     Download, FileText, TrendingUp, TrendingDown, Users, DollarSign,
     Building, Activity, BarChart3, AlertCircle, CheckCircle, Clock,
-    Printer, Calendar, ChevronRight, ChevronLeft, ArrowUpRight, ArrowDownRight
+    Printer, Calendar, ChevronRight, ChevronLeft, ChevronUp, ChevronDown,
+    ChevronsUpDown, ArrowUpRight, ArrowDownRight
 } from 'lucide-react';
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -32,7 +33,7 @@ interface StudentRow {
 }
 interface PaymentRow {
     id: string; student: string; amount: number; amount_paid: number | null; status: string; month: string;
-    team: string; plan: string; concept: string; due_date: string | null; days: number | null;
+    team: string; plan: string; concept: string; due_date: string | null; payment_date: string | null; days: number | null;
 }
 interface CoachRow { id: string; name: string; email: string; team: string; sede: string; students: number; }
 interface SedeRow { id: string; name: string; students: number; coaches: number; income: number; }
@@ -43,16 +44,53 @@ interface PlanRow { id: string; name: string; }
 const currency = (n: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
 
-// `days` > 0 = vencido hace N días, < 0 = faltan N días, null = sin fecha de vencimiento.
-const formatDays = (days: number | null): string => {
-    if (days === null) return '—';
-    if (days > 0) return `Vencido hace ${days} día${days === 1 ? '' : 's'}`;
-    if (days < 0) return `Vence en ${-days} día${-days === 1 ? '' : 's'}`;
+// Diferencia en días entre dos 'YYYY-MM-DD' (b − a), positiva si b es posterior.
+const daysBetweenDates = (a: string, b: string): number =>
+    Math.round((new Date(`${b}T00:00:00Z`).getTime() - new Date(`${a}T00:00:00Z`).getTime()) / 86_400_000);
+
+// `days` (due_date vs hoy) solo describe algo pendiente de cobrar. Un pago ya
+// `paid` no sigue "vencido" aunque su due_date haya pasado — se cobró, tarde
+// o no — así que necesita su propio mensaje en vez de heredar el de pending/overdue.
+const formatDays = (p: Pick<PaymentRow, 'status' | 'days' | 'due_date' | 'payment_date'>): string => {
+    if (p.status === 'paid') {
+        if (p.due_date && p.payment_date) {
+            const lateBy = daysBetweenDates(p.due_date, p.payment_date);
+            if (lateBy <= 0) return 'Pagado a tiempo';
+            return `Pagado con ${lateBy} día${lateBy === 1 ? '' : 's'} de atraso`;
+        }
+        return 'Pagado';
+    }
+    if (p.days === null) return '—';
+    if (p.days > 0) return `Vencido hace ${p.days} día${p.days === 1 ? '' : 's'}`;
+    if (p.days < 0) return `Vence en ${-p.days} día${-p.days === 1 ? '' : 's'}`;
     return 'Vence hoy';
 };
 
 const formatSessions = (attended: number | null, total: number | null): string =>
     attended === null || total === null ? '—' : `${attended}/${total}`;
+
+// Orden genérico por columna: numérico si ambos valores son number, texto
+// (localeCompare, sin distinguir mayúsculas) en cualquier otro caso. `null`
+// siempre al final, sin importar la dirección — un dato ausente no es "menor".
+function sortRows<T extends Record<string, any>>(rows: T[], sort: SortState): T[] {
+    if (!sort.key) return rows;
+    const key = sort.key;
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+        const av = a[key];
+        const bv = b[key];
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+        return String(av).localeCompare(String(bv), 'es', { sensitivity: 'base' }) * dir;
+    });
+}
+
+function toggleSort(current: SortState, key: string): SortState {
+    if (current.key !== key) return { key, dir: 'asc' };
+    return { key, dir: current.dir === 'asc' ? 'desc' : 'asc' };
+}
 
 function exportCSV(filename: string, headers: string[], rows: (string | number)[][]) {
     const bom = '\uFEFF';
@@ -120,14 +158,36 @@ function SectionHeader({ title, onExport, linkTo, linkLabel }: {
 }
 
 // ─── Mini Table ───────────────────────────────────────────────────────────────
-function MiniTable({ headers, rows }: { headers: string[]; rows: (string | number | React.ReactNode)[][] }) {
+type MiniTableColumn = string | { label: string; key: string };
+interface SortState { key: string | null; dir: 'asc' | 'desc'; }
+
+function MiniTable({ headers, rows, sort, onSort }: {
+    headers: MiniTableColumn[];
+    rows: (string | number | React.ReactNode)[][];
+    sort?: SortState;
+    onSort?: (key: string) => void;
+}) {
+    const cols = headers.map(h => typeof h === 'string' ? { label: h, key: null as string | null } : h);
     return (
         <div className="overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
                 <thead>
                     <tr className="bg-muted/50 border-b">
-                        {headers.map(h => (
-                            <th key={h} className="text-left text-xs font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">{h}</th>
+                        {cols.map(c => (
+                            <th key={c.label} className="text-left text-xs font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">
+                                {c.key && onSort ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => onSort(c.key!)}
+                                        className="flex items-center gap-1 hover:text-foreground transition-colors"
+                                    >
+                                        {c.label}
+                                        {sort?.key === c.key
+                                            ? (sort.dir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)
+                                            : <ChevronsUpDown className="w-3 h-3 opacity-40" />}
+                                    </button>
+                                ) : c.label}
+                            </th>
                         ))}
                     </tr>
                 </thead>
@@ -194,6 +254,8 @@ export default function ReporterDashboardPage() {
     const [plans, setPlans] = useState<PlanRow[]>([]);
     const [financesPage, setFinancesPage] = useState(1);
     const [studentsPage, setStudentsPage] = useState(1);
+    const [financesSort, setFinancesSort] = useState<SortState>({ key: null, dir: 'asc' });
+    const [studentsSort, setStudentsSort] = useState<SortState>({ key: null, dir: 'asc' });
 
     useEffect(() => {
         if (!schoolId) return;
@@ -316,7 +378,7 @@ export default function ReporterDashboardPage() {
         <h2>Pagos — Últimos ${dateRange} días (${payments.length})</h2>
         <table>
           <tr><th>Deportista</th><th>Equipo</th><th>Plan</th><th>Mes</th><th>Monto</th><th>Estado</th><th>Días</th></tr>
-          ${payments.slice(0, 50).map(p => `<tr><td>${p.student}</td><td>${p.team}</td><td>${p.plan}</td><td>${p.month}</td><td>${currency(p.amount)}</td><td>${p.status}</td><td>${formatDays(p.days)}</td></tr>`).join('')}
+          ${payments.slice(0, 50).map(p => `<tr><td>${p.student}</td><td>${p.team}</td><td>${p.plan}</td><td>${p.month}</td><td>${currency(p.amount)}</td><td>${p.status}</td><td>${formatDays(p)}</td></tr>`).join('')}
         </table>
 
         <h2>Sedes (${sedes.length})</h2>
@@ -485,7 +547,7 @@ export default function ReporterDashboardPage() {
                                     </Button>
                                     <Button variant="outline" size="sm" className="text-xs h-7 gap-1" onClick={() =>
                                         exportCSV('finanzas', ['Deportista', 'Equipo', 'Plan', 'Mes', 'Monto', 'Estado', 'Días'],
-                                            payments.map(p => [p.student, p.team, p.plan, p.month, p.amount, p.status, formatDays(p.days)])
+                                            payments.map(p => [p.student, p.team, p.plan, p.month, p.amount, p.status, formatDays(p)])
                                         )
                                     }>
                                         <Download className="w-3 h-3" /> CSV
@@ -525,12 +587,24 @@ export default function ReporterDashboardPage() {
                                 ))}
                             </div>
                             <MiniTable
-                                headers={['Deportista', 'Equipo', 'Plan', 'Mes', 'Monto', 'Estado', 'Días']}
-                                rows={payments.slice((financesPage - 1) * PAGE_SIZE, financesPage * PAGE_SIZE).map(p => [
-                                    p.student, p.team, p.plan, p.month, currency(p.amount),
-                                    <StatusBadge key={p.id} status={p.status} />,
-                                    formatDays(p.days)
-                                ])}
+                                headers={[
+                                    { label: 'Deportista', key: 'student' },
+                                    { label: 'Equipo', key: 'team' },
+                                    { label: 'Plan', key: 'plan' },
+                                    { label: 'Mes', key: 'due_date' },
+                                    { label: 'Monto', key: 'amount' },
+                                    { label: 'Estado', key: 'status' },
+                                    { label: 'Días', key: 'days' },
+                                ]}
+                                sort={financesSort}
+                                onSort={key => { setFinancesSort(s => toggleSort(s, key)); setFinancesPage(1); }}
+                                rows={sortRows(payments, financesSort)
+                                    .slice((financesPage - 1) * PAGE_SIZE, financesPage * PAGE_SIZE)
+                                    .map(p => [
+                                        p.student, p.team, p.plan, p.month, currency(p.amount),
+                                        <StatusBadge key={p.id} status={p.status} />,
+                                        formatDays(p)
+                                    ])}
                             />
                             <TablePager page={financesPage} total={payments.length} pageSize={PAGE_SIZE} onChange={setFinancesPage} />
                             {payments.length > PAGE_SIZE && (
@@ -565,12 +639,25 @@ export default function ReporterDashboardPage() {
                         </CardHeader>
                         <CardContent>
                             <MiniTable
-                                headers={['Nombre', 'Equipo', 'Plan', 'Sede', 'Estado', 'Mensualidad', 'Ingreso', 'Sesiones']}
-                                rows={students.slice((studentsPage - 1) * PAGE_SIZE, studentsPage * PAGE_SIZE).map(s => [
-                                    s.full_name, s.team, s.plan, s.sede,
-                                    <StatusBadge key={s.id} status={s.status} />,
-                                    currency(s.fee), s.joined, formatSessions(s.sessions_attended, s.sessions_total)
-                                ])}
+                                headers={[
+                                    { label: 'Nombre', key: 'full_name' },
+                                    { label: 'Equipo', key: 'team' },
+                                    { label: 'Plan', key: 'plan' },
+                                    { label: 'Sede', key: 'sede' },
+                                    { label: 'Estado', key: 'status' },
+                                    { label: 'Mensualidad', key: 'fee' },
+                                    { label: 'Ingreso', key: 'joined' },
+                                    { label: 'Sesiones', key: 'sessions_attended' },
+                                ]}
+                                sort={studentsSort}
+                                onSort={key => { setStudentsSort(s => toggleSort(s, key)); setStudentsPage(1); }}
+                                rows={sortRows(students, studentsSort)
+                                    .slice((studentsPage - 1) * PAGE_SIZE, studentsPage * PAGE_SIZE)
+                                    .map(s => [
+                                        s.full_name, s.team, s.plan, s.sede,
+                                        <StatusBadge key={s.id} status={s.status} />,
+                                        currency(s.fee), s.joined, formatSessions(s.sessions_attended, s.sessions_total)
+                                    ])}
                             />
                             <TablePager page={studentsPage} total={students.length} pageSize={PAGE_SIZE} onChange={setStudentsPage} />
                             {students.length > PAGE_SIZE && (
