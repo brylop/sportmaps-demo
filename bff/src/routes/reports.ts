@@ -28,6 +28,35 @@ async function fetchAllRows<T>(build: () => any): Promise<T[]> {
 }
 
 /**
+ * Cuántos ids caben en un `.in()` sin reventar el límite de headers HTTP
+ * (~16KB, undici/Node). Un uuid con comillas y coma pesa ~39 bytes; 150 ids
+ * son ~5.9KB de query string, deja margen para el resto de la URL/headers.
+ *
+ * Medido en vivo: Dynasty (453 hijos activos) generaba una URL de 17.795
+ * caracteres en `.in('id', athChildIds)` y el fetch moría con
+ * HeadersOverflowError antes de llegar a PostgREST — un reporte que
+ * funciona en escuelas chicas y se cae en las más grandes es peor que uno
+ * que nunca funcionó.
+ */
+const IN_CHUNK = 150;
+
+/** Como `fetchAllRows`, pero además troceando una lista de ids que puede superar IN_CHUNK. */
+async function fetchRowsForIds<T>(ids: string[], build: (chunk: string[]) => any): Promise<T[]> {
+    const out: T[] = [];
+    for (let i = 0; i < ids.length; i += IN_CHUNK) {
+        const chunk = ids.slice(i, i + IN_CHUNK);
+        for (let from = 0; ; from += PG_PAGE) {
+            const { data, error } = await build(chunk).range(from, from + PG_PAGE - 1);
+            if (error) throw error;
+            const page = (data || []) as T[];
+            out.push(...page);
+            if (page.length < PG_PAGE) break;
+        }
+    }
+    return out;
+}
+
+/**
  * Suma de dinero realmente recibido. `paid` cuenta por el total del cobro y
  * `partial` solo por lo abonado — sumar `amount` de un abono infla el ingreso.
  */
@@ -285,26 +314,25 @@ router.get(
             const athTeamIds  = uniqIds(chosenEnrollments.map((e: any) => e.team_id));
             const athPlanIds  = uniqIds(chosenEnrollments.map((e: any) => e.offering_plan_id));
 
-            const emptyRows = Promise.resolve({ data: [] as any[] });
-            const [childRes, athProfileRes, uaRes, teamRes, planRes] = await Promise.all([
-                athChildIds.length ? supabase.from('children').select('id, full_name, branch_id, monthly_fee, created_at').in('id', athChildIds) : emptyRows,
-                athUserIds.length  ? supabase.from('profiles').select('id, full_name').in('id', athUserIds) : emptyRows,
-                athUaIds.length    ? supabase.from('unregistered_athletes').select('id, full_name, created_at').in('id', athUaIds) : emptyRows,
+            const [childRows, athProfileRows, uaRows, teamRows, planRows] = await Promise.all([
+                fetchRowsForIds<any>(athChildIds, chunk => supabase.from('children').select('id, full_name, branch_id, monthly_fee, created_at').in('id', chunk)),
+                fetchRowsForIds<any>(athUserIds, chunk => supabase.from('profiles').select('id, full_name').in('id', chunk)),
+                fetchRowsForIds<any>(athUaIds, chunk => supabase.from('unregistered_athletes').select('id, full_name, created_at').in('id', chunk)),
                 // La cuota del equipo es `price_monthly`; `monthly_fee` NO existe en
                 // teams (sí en children/enrollments) y pedirla hacía fallar el select
                 // completo → 500 en todo el dashboard.
-                athTeamIds.length  ? supabase.from('teams').select('id, name, price_monthly, branch_id').in('id', athTeamIds) : emptyRows,
-                athPlanIds.length  ? supabase.from('offering_plans').select('id, name, price').in('id', athPlanIds) : emptyRows,
+                fetchRowsForIds<any>(athTeamIds, chunk => supabase.from('teams').select('id, name, price_monthly, branch_id').in('id', chunk)),
+                fetchRowsForIds<any>(athPlanIds, chunk => supabase.from('offering_plans').select('id, name, price').in('id', chunk)),
             ]);
 
-            const childMap       = new Map((childRes.data || []).map((c: any) => [c.id, c]));
-            const athProfileMap  = new Map((athProfileRes.data || []).map((p: any) => [p.id, p]));
-            const uaMap          = new Map((uaRes.data || []).map((u: any) => [u.id, u]));
-            const teamMap        = new Map((teamRes.data || []).map((t: any) => [t.id, t]));
-            const planMap        = new Map((planRes.data || []).map((p: any) => [p.id, p]));
+            const childMap       = new Map(childRows.map((c: any) => [c.id, c]));
+            const athProfileMap  = new Map(athProfileRows.map((p: any) => [p.id, p]));
+            const uaMap          = new Map(uaRows.map((u: any) => [u.id, u]));
+            const teamMap        = new Map(teamRows.map((t: any) => [t.id, t]));
+            const planMap        = new Map(planRows.map((p: any) => [p.id, p]));
 
             const teamNameMap = new Map<string, string>();
-            (teamRes.data || []).forEach((t: any) => teamNameMap.set(t.id, t.name));
+            teamRows.forEach((t: any) => teamNameMap.set(t.id, t.name));
 
             // La sede sale de `COALESCE(children.branch_id, teams.branch_id)`, igual que
             // en open_month. Un adulto sin equipo no tiene sede: cae en 'Principal'.
@@ -339,10 +367,10 @@ router.get(
             // quedan sin fila acá y se marcan como `null` (no aplica), no como 0.
             const attendanceByChild = new Map<string, { present: number; total: number }>();
             if (athChildIds.length > 0) {
-                const attendanceRows = await fetchAllRows<any>(() => supabase
+                const attendanceRows = await fetchRowsForIds<any>(athChildIds, chunk => supabase
                     .from('attendance_records')
                     .select('child_id, status')
-                    .in('child_id', athChildIds)
+                    .in('child_id', chunk)
                     .order('id', { ascending: true }));
                 attendanceRows.forEach((r: any) => {
                     const bucket = attendanceByChild.get(r.child_id) || { present: 0, total: 0 };
@@ -438,9 +466,8 @@ router.get(
             // Nombre del deportista según las TRES identidades posibles del cobro.
             const nameMap = new Map<string, string>();
             const collect = async (table: string, ids: string[]) => {
-                if (!ids.length) return;
-                const { data } = await supabase.from(table).select('id, full_name').in('id', ids);
-                (data || []).forEach((r: any) => nameMap.set(r.id, r.full_name));
+                const rows = await fetchRowsForIds<any>(ids, chunk => supabase.from(table).select('id, full_name').in('id', chunk));
+                rows.forEach((r: any) => nameMap.set(r.id, r.full_name));
             };
             const uniq = (key: string) =>
                 [...new Set(paymentsInScope.map((p: any) => p[key]).filter(Boolean))] as string[];
