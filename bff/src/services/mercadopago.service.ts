@@ -561,10 +561,24 @@ export async function refundMpPayment(params: {
 
 export type InternalStatus = 'paid' | 'rejected' | 'refunded' | 'failed' | 'pending';
 
+/**
+ * Traduce el estado de MercadoPago al interno.
+ *
+ * `in_mediation` es una disputa abierta: MP RETIENE la plata mientras se
+ * resuelve. No es un fallo — cae en 'pending' porque el dinero sigue vivo.
+ * Antes caía en el `failed` de abajo y le decía a la escuela que el cobro
+ * habia rebotado cuando MP todavía lo tenía.
+ *
+ * El default es 'failed' a propósito y NO se cambia a 'pending' como en Wompi:
+ * los nueve estados documentados de MP están todos arriba, así que llegar acá
+ * significa un estado que no conocemos, y para MP eso es más seguro tratarlo
+ * como fallo (no cobra de más) que como pendiente (dejaría un cobro colgado
+ * esperando para siempre). Si MP agrega un estado, agregarlo arriba.
+ */
 export function mapMpStatus(status: string): InternalStatus {
     const s = (status ?? '').toLowerCase();
     if (s === 'approved') return 'paid';
-    if (s === 'pending' || s === 'in_process' || s === 'authorized') return 'pending';
+    if (s === 'pending' || s === 'in_process' || s === 'authorized' || s === 'in_mediation') return 'pending';
     if (s === 'rejected' || s === 'cancelled') return 'rejected';
     if (s === 'refunded' || s === 'charged_back') return 'refunded';
     return 'failed';
