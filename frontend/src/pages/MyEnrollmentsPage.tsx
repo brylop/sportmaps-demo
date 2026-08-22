@@ -49,6 +49,7 @@ import {
   useCancelPTSession,
   PTAvailabilitySlot,
 } from '@/hooks/useAthleteSessionBookings';
+import { HourBankBalanceCard } from '@/components/access/HourBankBalanceCard';
 
 // ─── Tipos de instalación ─────────────────────────────────────────────────────
 
@@ -336,7 +337,11 @@ export default function MyEnrollmentsPage() {
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {planEnrollments.map((e: any) => (
-                        <PlanCard key={e.id} enrollment={e} onClick={() => setScheduleEnrollment(e)} />
+                        <div key={e.id} className="space-y-3">
+                          <PlanCard enrollment={e} onClick={() => setScheduleEnrollment(e)} />
+                          {/* Banco de horas (F6) — no renderiza nada si la inscripción no tiene un plan por horas */}
+                          <HourBankBalanceCard enrollmentId={e.id} />
+                        </div>
                       ))}
                     </div>
                   )}

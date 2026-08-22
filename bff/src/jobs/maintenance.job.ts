@@ -9,6 +9,7 @@ import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPe
 import { runGlosaNotifications } from './glosa-notifications.job';
 import { runNotificationDispatch } from './notifications-dispatch.job';
 import { runAthleteReportsCycle } from './athlete-reports.job';
+import { runHourBankAutoclose } from './hour-bank-autoclose.job';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -301,4 +302,21 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Despachador de notificaciones registrado (cada minuto).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Banco de horas por torniquete (F5) — auto-cierre de visitas 'open' que
+    // pasaron la hora de cierre de su día de inicio o el tope de seguridad.
+    // NO factura (eso es del owner al corregir). No-op mientras
+    // hours_plan_enabled siga en false en todas las escuelas.
+    // Ver docs/specs/dreamers-banco-de-horas-torniquete.md
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/15 * * * *', async () => {
+        try {
+            await runHourBankAutoclose();
+        } catch (err: any) {
+            console.error('[CRON] Error en auto-cierre de banco de horas:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Auto-cierre de banco de horas registrado (cada 15 min).');
 }

@@ -27,6 +27,7 @@ import { ReviewInstallmentModal } from '@/components/payment/ReviewInstallmentMo
 import { InstallmentsConfigCard } from '@/components/payment/InstallmentsConfigCard';
 import { todayColombia, formatDayCO, daysDiffFromToday } from '@/lib/dateUtils';
 import { SportMapsPaySettings } from '@/components/settings/SportMapsPaySettings';
+import { PaymentProvidersAdmin } from '@/components/admin/PaymentProvidersAdmin';
 import { RegisterCashPaymentModal } from '@/components/payment/RegisterCashPaymentModal';
 import { ApprovePaymentMethodSheet } from '@/components/payment/ApprovePaymentMethodSheet';
 import { bffClient } from '@/lib/api/bffClient';
@@ -387,6 +388,12 @@ export default function PaymentsAutomationPage() {
   const { profile } = useAuth();
   const { toast } = useToast();
   const { schoolId, activeBranchId, currentUserRole } = useSchoolContext();
+  // Se incrementa al conectar/quitar una pasarela: remonta SportMaps Pay para
+  // que su gate vuelva a preguntar si ya hay cuenta de recaudo.
+  const [revisionPasarelas, setRevisionPasarelas] = useState(0);
+  // Mismo criterio que AppSidebar. El BFF autoriza a los mismos en
+  // isAdminGlobal(), para no mostrar un formulario que devuelve 403.
+  const esPlatformAdmin = profile?.role === 'admin' || profile?.role === 'super_admin';
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState<PaymentTransaction[]>([]);
   // KPIs agregados en DB (school_payment_kpis). NO se derivan de `payments`:
@@ -2143,7 +2150,7 @@ export default function PaymentsAutomationPage() {
                     <Label htmlFor="due_day">Día de corte del mes</Label>
                     <div className="flex items-center gap-2">
                       <NumberStepper
-                        min={1} max={28} className="w-28 h-9"
+                        min={1} max={31} className="w-28 h-9"
                         value={billing.payment_cutoff_day}
                         onChange={v => updateBilling('payment_cutoff_day', v === "" ? 5 : v)}
                       />
@@ -2477,10 +2484,27 @@ export default function PaymentsAutomationPage() {
                 </CardContent>
               </Card>
 
-              {/* SportMaps Pay */}
+              {/* SportMaps Pay. La key lo remonta cuando cambian las pasarelas
+                  de abajo, para que el gate se re-evalúe sin recargar. */}
               <div className="md:col-span-2">
-                <SportMapsPaySettings />
+                <SportMapsPaySettings key={`pay-${revisionPasarelas}`} />
               </div>
+
+              {/* Cuenta de recaudo propia. Solo staff de plataforma: §10 del plan
+                  de connected-accounts decidió que a la escuela NO se le piden
+                  llaves ni secretos (pegar la privada de Wompi es entregar la
+                  capacidad de cobrar en su comercio). El camino del cliente es
+                  el wizard "Conectar", que todavía no existe; mientras tanto la
+                  conexión la hace soporte. Va pegado a SportMaps Pay porque el
+                  aviso de ahí manda acá. Sin entrada de menú propia. */}
+              {schoolId && esPlatformAdmin && (
+                <div className="md:col-span-2">
+                  <PaymentProvidersAdmin
+                    schoolId={schoolId}
+                    onChange={() => setRevisionPasarelas(n => n + 1)}
+                  />
+                </div>
+              )}
 
               {/* Nueva Sección: Abonos */}
                 <InstallmentsConfigCard 

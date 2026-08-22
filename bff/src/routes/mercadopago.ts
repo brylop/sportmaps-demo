@@ -50,7 +50,25 @@ const paymentsRouter = Router();
 
 // ─── Webhook ──────────────────────────────────────────────────────────────
 
-webhookRouter.post('/webhook', async (req: Request, res: Response) => {
+/**
+ * Handler del webhook de MercadoPago.
+ *
+ * `schoolIdDeLaRuta` viene de `/webhook/:schoolId` y resuelve un problema real:
+ * para leer el `external_reference` hay que consultarle el pago a MP, y un
+ * payment id está SCOPEADO al comercio. Sin saber de antemano de quién es el
+ * evento, la única opción era preguntar con la llave global — que para una
+ * escuela con cuenta propia ('direct') devuelve 404, así que el pago no se
+ * conciliaba nunca. Con la URL por escuela sabemos el comercio antes de
+ * preguntar. Mismo patrón que el ruteo multi-tenant de Wompi (M5).
+ *
+ * La ruta sin schoolId se conserva para siempre: los webhooks ya configurados
+ * en los dashboards y los pagos en vuelo apuntan ahí.
+ */
+async function manejarWebhookMp(
+    req: Request,
+    res: Response,
+    schoolIdDeLaRuta: string | null,
+) {
     try {
         const body = req.body ?? {};
         const xSignature = (req.headers['x-signature'] || req.headers['X-Signature']) as string | undefined;
@@ -72,20 +90,45 @@ webhookRouter.post('/webhook', async (req: Request, res: Response) => {
 
         // Resolver config: necesitamos el webhook_secret y access_token del merchant
         // que recibio este pago. Estrategia:
-        //  1. Hacer fetch con MP_ACCESS_TOKEN_DEFAULT primero para leer external_reference.
+        //  1. Leer el pago para obtener el external_reference. Con qué token, abajo.
         //  2. Buscar la entidad por external_reference para encontrar school_id/vendor_id.
         //  3. Cargar config especifica de ese merchant.
         //  4. Re-validar signature con su webhook_secret.
         //
-        // Para simplicidad de demo: si no hay config especifica, usar default.
+        // El paso 1 es el delicado: antes usaba SIEMPRE MP_ACCESS_TOKEN_DEFAULT
+        // ("para simplicidad de demo"), y un payment id de otro comercio devuelve
+        // 404 → el pago no se conciliaba. Por eso existe /webhook/:schoolId.
 
-        const fallbackToken = process.env.MP_ACCESS_TOKEN_DEFAULT;
-        if (!fallbackToken) {
-            req.log?.error('MP_ACCESS_TOKEN_DEFAULT not configured');
-            return res.status(500).json({ error: 'mp_not_configured' });
+        // Token con el que se consulta el pago. Si la ruta trae la escuela, se usa
+        // el de SU comercio (para 'aggregator' el resolver devuelve el de ENV, o
+        // sea el mismo de antes). Sin escuela en la ruta, camino legacy.
+        let tokenDeLectura: string | undefined;
+
+        if (schoolIdDeLaRuta) {
+            const cfg = await loadProviderConfig({
+                provider: 'mercadopago',
+                schoolId: schoolIdDeLaRuta,
+            });
+            tokenDeLectura = cfg?.accessToken;
+
+            // Sin credenciales para esa escuela NO se cae a la llave global: seria
+            // volver al bug: preguntar por un pago ajeno con el token de otro.
+            if (!tokenDeLectura) {
+                req.log?.warn(
+                    { schoolId: schoolIdDeLaRuta, dataId },
+                    'MP webhook: la escuela no tiene credenciales resolubles; no se usa la llave global',
+                );
+                return res.status(200).json({ status: 'ignored', reason: 'school_without_credentials' });
+            }
+        } else {
+            tokenDeLectura = process.env.MP_ACCESS_TOKEN_DEFAULT;
+            if (!tokenDeLectura) {
+                req.log?.error('MP_ACCESS_TOKEN_DEFAULT not configured');
+                return res.status(500).json({ error: 'mp_not_configured' });
+            }
         }
 
-        const payment = await fetchMpPayment(String(dataId), fallbackToken);
+        const payment = await fetchMpPayment(String(dataId), tokenDeLectura);
         if (!payment) {
             req.log?.warn({ dataId }, 'Cannot fetch MP payment');
             return res.status(400).json({ error: 'cannot_verify_payment' });
@@ -105,10 +148,15 @@ webhookRouter.post('/webhook', async (req: Request, res: Response) => {
             vendorId: merchantCtx.vendorId,
         });
 
-        // Cada merchant debe tener su propio webhookSecret configurado en
-        // payment_provider_configs. NO se usa fallback global: un secret
-        // compartido entre escuelas permitiria que una merchant maliciosa
-        // forje webhooks de otras escuelas que tampoco lo configuraron.
+        // Cada merchant debe tener su propio webhookSecret: un secret compartido
+        // entre escuelas permitiria que una merchant maliciosa forje webhooks de
+        // otras que tampoco lo configuraron.
+        //
+        // Este comentario decia "NO se usa fallback global" cuando loadProviderConfig
+        // si caia a ENV. Ya no cae para una escuela en 'direct'/'unset' ni para un
+        // vendor sin credenciales (devuelve null y el secret queda null). Sigue
+        // usando ENV en dos casos legitimos: la escuela en 'aggregator', y un pago
+        // sin dueno identificable — los MP viejos viven en esa cuenta.
         const effectiveSecret = merchantConfig?.webhookSecret ?? null;
         // DIN-9: sin config de comercio, el ambiente lo decide el PREFIJO de la
         // credencial, no `MP_ENV`. MP no tiene host de sandbox: un token
@@ -176,7 +224,7 @@ webhookRouter.post('/webhook', async (req: Request, res: Response) => {
 
         // Captura de tarjeta para autopay (si APPROVED y la entidad lo permite)
         if (internalStatus === 'paid') {
-            await maybeCaptureMpCard(req, payment, externalRef, merchantConfig?.accessToken ?? fallbackToken).catch(err => {
+            await maybeCaptureMpCard(req, payment, externalRef, merchantConfig?.accessToken ?? tokenDeLectura).catch(err => {
                 req.log?.warn({ err: err?.message }, 'maybeCaptureMpCard failed (non-blocking)');
             });
         }
@@ -186,6 +234,18 @@ webhookRouter.post('/webhook', async (req: Request, res: Response) => {
         req.log?.error({ err: err?.message || err }, 'Unexpected error in MP webhook');
         return res.status(500).json({ error: 'internal_server_error' });
     }
+}
+
+// Legacy, sin escuela. NO se retira: los webhooks ya dados de alta en los
+// dashboards y los pagos en vuelo apuntan a esta URL.
+webhookRouter.post('/webhook', (req: Request, res: Response) =>
+    manejarWebhookMp(req, res, null));
+
+// Por escuela. Es la que se manda como notification_url en los cobros nuevos:
+// permite saber de qué comercio es el evento ANTES de preguntarle a MP.
+webhookRouter.post('/webhook/:schoolId', (req: Request, res: Response) => {
+    const { schoolId } = req.params as { schoolId?: string };
+    return manejarWebhookMp(req, res, schoolId ?? null);
 });
 
 // ─── Locate merchant from external_reference ──────────────────────────────
@@ -745,7 +805,12 @@ paymentsRouter.post('/create', async (req: Request, res: Response) => {
         }
 
         const baseUrl = process.env.PUBLIC_API_URL ?? `${req.protocol}://${req.get('host')}`;
-        const notificationUrl = `${baseUrl}/api/v1/webhooks/mercadopago/webhook`;
+        // Con escuela conocida se manda la URL por escuela, para que el webhook
+        // sepa a qué comercio preguntarle sin usar la llave global. Sin escuela
+        // (vendor/marketplace) queda la legacy.
+        const notificationUrl = schoolId
+            ? `${baseUrl}/api/v1/webhooks/mercadopago/webhook/${schoolId}`
+            : `${baseUrl}/api/v1/webhooks/mercadopago/webhook`;
 
         const result = await createMpPayment({
             accessToken: config.accessToken!,
