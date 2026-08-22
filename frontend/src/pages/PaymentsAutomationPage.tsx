@@ -2150,7 +2150,7 @@ export default function PaymentsAutomationPage() {
                     <Label htmlFor="due_day">Día de corte del mes</Label>
                     <div className="flex items-center gap-2">
                       <NumberStepper
-                        min={1} max={28} className="w-28 h-9"
+                        min={1} max={31} className="w-28 h-9"
                         value={billing.payment_cutoff_day}
                         onChange={v => updateBilling('payment_cutoff_day', v === "" ? 5 : v)}
                       />
