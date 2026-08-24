@@ -174,6 +174,8 @@ export async function createPendingPayment(opts: {
  * catálogo). Idempotente por período gracias al 23505 que absorbe
  * createPendingPayment.
  */
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
 export async function emitPlanCharge(
     schoolId: string,
     athleteCol: AthleteCol,
@@ -187,13 +189,22 @@ export async function emitPlanCharge(
         .eq('id', planId)
         .maybeSingle();
 
+    // Sin el mes en el texto, dos cobros del mismo atleta y plan (uno de agosto sin
+    // pagar, otro de septiembre recién generado) se ven idénticos en cualquier
+    // pantalla que muestre `concept` crudo (cartera de FinancesPage, WhatsApp
+    // manual) — MyPaymentsPage no lo sufre porque ya arma su propio label desde
+    // period_year/period_month, pero el resto de la app lee `concept` tal cual.
+    const [y, m] = startDate.split('-').map(Number);
+    const periodo = y && m ? `${MESES[m - 1]}/${y}` : null;
+    const planName = (plan as any)?.name || 'Plan';
+
     await createPendingPayment({
         schoolId,
         athleteCol,
         athleteId,
         planId,
         amount: Number((plan as any)?.price ?? 0),
-        concept: `Plan ${(plan as any)?.name || 'Plan'}`,
+        concept: periodo ? `Plan ${planName} - ${periodo}` : `Plan ${planName}`,
         startDate,
     });
 }
