@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { DashboardConfig, UserRole } from '@/types/dashboard';
 import { DashboardStats } from './useDashboardStats';
+import { QUICK_ACTIONS_CATALOG_SCHOOL, DEFAULT_QUICK_ACTIONS_SCHOOL } from '@/config/quickActionsCatalog';
 import {
   Users,
   Calendar,
@@ -21,16 +22,30 @@ import {
   Circle,
   CheckCircle2,
   ArrowRight,
-  DollarSign,
-  Zap
+  DollarSign
 } from 'lucide-react';
 
 /**
  * Custom hook that returns dashboard configuration based on user role
  * Centralizes all role-specific data and layouts
  */
-export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): DashboardConfig {
+export function useDashboardConfig(
+  role: UserRole,
+  statsData?: DashboardStats,
+  savedQuickActionIds?: string[],
+): DashboardConfig {
   return useMemo(() => {
+    // Resuelve los ids guardados contra el catálogo; ids que ya no existan
+    // (pantalla removida/renombrada) se ignoran en vez de romper el render.
+    // Sin nada guardado, son los mismos 5 que ya estaban hardcodeados — cero
+    // cambio de comportamiento para quien no personalizó nada.
+    const schoolQuickActions = (
+      savedQuickActionIds && savedQuickActionIds.length > 0 ? savedQuickActionIds : DEFAULT_QUICK_ACTIONS_SCHOOL
+    )
+      .map(id => QUICK_ACTIONS_CATALOG_SCHOOL.find(c => c.id === id))
+      .filter((c): c is typeof QUICK_ACTIONS_CATALOG_SCHOOL[number] => !!c)
+      .map((c, idx) => ({ label: c.label, icon: c.icon, href: c.href, variant: idx === 0 ? 'default' as const : 'outline' as const }));
+
     // Default empty stats if not provided
     const stats = statsData || {
       children: 0,
@@ -216,7 +231,12 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           onboardingSteps: onboardingConfigs.coach
         };
 
+      // 'school_admin' compartía este case por accidente con el 'default'
+      // (dashboard vacío tipo athlete) — DashboardPage.tsx sí trata a
+      // school_admin como rol de escuela en todos los demás usos, solo a este
+      // switch le faltaba el case.
       case 'school':
+      case 'school_admin':
         return {
           role: 'school',
           title: 'Panel de Escuela',
@@ -251,13 +271,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
             }
           ],
           activities: [],
-          quickActions: [
-            { label: 'Gestionar Deportistas', icon: Users, href: '/students', variant: 'default' },
-            { label: 'Ver Equipos', icon: Trophy, href: '/programs-management', variant: 'outline' },
-            { label: 'Ver Planes', icon: Zap, href: '/offerings', variant: 'outline' },
-            { label: 'Cobros y Pagos', icon: DollarSign, href: '/payments-automation', variant: 'outline' },
-            { label: 'Agregar Entrenador', icon: Users, href: '/staff', variant: 'outline' }
-          ],
+          quickActions: schoolQuickActions,
           onboardingSteps: onboardingConfigs.school
         };
 
@@ -469,5 +483,5 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           onboardingSteps: []
         };
     }
-  }, [role, statsData]);
+  }, [role, statsData, savedQuickActionIds]);
 }
