@@ -159,6 +159,7 @@ const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
 const AdminClubsPage = lazy(() => import("./pages/AdminClubsPage"));
 const AdminSchoolsGlobalPage = lazy(() => import("./pages/AdminSchoolsGlobalPage"));
 const AdminSubscriptionsPage = lazy(() => import("./pages/AdminSubscriptionsPage"));
+const SaasInvoiceReceiptPage = lazy(() => import("./pages/SaasInvoiceReceiptPage"));
 const AdminActivityLogsPage = lazy(() => import("./pages/AdminActivityLogsPage"));
 const PayrollConfigPage = lazy(() => import("./pages/admin/PayrollConfigPage"));
 const AdminAccessLogsPage = lazy(() => import("./pages/AdminAccessLogsPage"));
@@ -637,6 +638,11 @@ const App = () => (
                       <Route path="my-cards" element={
                         <ProtectedRoute>
                           <MyAthleteCardsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="facturacion/recibo/:invoiceId" element={
+                        <ProtectedRoute>
+                          <SaasInvoiceReceiptPage />
                         </ProtectedRoute>
                       } />
                       <Route path="qr-signup" element={

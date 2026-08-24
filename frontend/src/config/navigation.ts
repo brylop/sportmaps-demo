@@ -34,10 +34,12 @@ import {
   ShieldCheck,
   CreditCard,
   MonitorSpeaker,
-  History
+  History,
+  TrendingUp
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 import { SHOW_EXPLORE } from '@/lib/feature-flags';
+import type { AddonKey } from '@/config/saas-plans';
 
 export interface NavItem {
   title: string;
@@ -46,6 +48,8 @@ export interface NavItem {
   badge?: string;
   description?: string;
   submenu?: NavItem[];
+  /** Si la escuela no tiene este addon, el ítem (o el grupo entero, si queda vacío) se oculta. */
+  addon?: AddonKey;
 }
 
 export interface NavGroup {
@@ -92,10 +96,70 @@ export function getVendorNavGroup(opts: {
   return { title: 'Mi Tienda', items };
 }
 
+// ── "Gestión Deportiva" (school / school_admin) ─────────────────────────
+// Única fuente para las dos: comparten exactamente las mismas rutas, y las
+// dos versiones ya habían divergido (a school_admin le faltaba "Métricas y
+// Rendimiento" aunque routePermissions.ts sí lo autoriza). "Entrenamiento"
+// agrupa Métricas+Rutinas igual que ya hacían "Equipos y Planes" y
+// "Asistencias". "Mis Torneos" NO se agrupa con "Resultados": es su propio
+// módulo (`MOD-7` en el roadmap — inscripción + bracket + motor de puntaje,
+// con rutas propias /school/tournaments, /new, /:id), no un simple listado.
+const GESTION_DEPORTIVA_ESCUELA: NavItem[] = [
+  {
+    title: 'Equipos y Planes',
+    icon: Users,
+    submenu: [
+      { title: 'Mis Equipos', href: '/teams', icon: Users },
+      { title: 'Deportes y Categorías', href: '/school-sports', icon: Trophy },
+      { title: 'Membresías', href: '/memberships', icon: IdCard },
+      { title: 'Mis Planes', href: '/offerings', icon: FileText }
+    ]
+  },
+  { title: 'Calendario', href: '/calendar', icon: Calendar },
+  {
+    title: 'Entrenamiento',
+    icon: Activity,
+    submenu: [
+      { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity },
+      { title: 'Gestión de Rutinas', href: '/school/routines', icon: Dumbbell },
+    ]
+  },
+  { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText },
+  {
+    title: 'Asistencias',
+    icon: BarChart3,
+    submenu: [
+      { title: 'Supervisión', href: '/attendance-supervision', icon: BarChart3 },
+      { title: 'Histórico', href: '/attendance-history', icon: History },
+      { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
+    ],
+  },
+  { title: 'Resultados', href: '/results-overview', icon: Trophy },
+  { title: 'Mis Torneos', href: '/school/tournaments', icon: Trophy, addon: 'tournaments' },
+  { title: 'Dotación', href: '/school/equipment', icon: Dumbbell },
+];
+
 /**
- * Returns navigation structure based on user role
+ * Filtra por addon (UX-3): un ítem con `addon` desaparece si la escuela no lo
+ * tiene. Si un ítem tenía `submenu` y todos sus hijos quedaron filtrados, el
+ * ítem completo se oculta en vez de mostrar un padre sin hijos.
  */
-export function getNavigationByRole(role: UserRole): NavGroup[] {
+function filterByAddon(items: NavItem[], hasAddon: (key: AddonKey) => boolean): NavItem[] {
+  return items
+    .filter(item => !item.addon || hasAddon(item.addon))
+    .map(item => item.submenu ? { ...item, submenu: filterByAddon(item.submenu, hasAddon) } : item)
+    .filter(item => !item.submenu || item.submenu.length > 0);
+}
+
+/**
+ * Returns navigation structure based on user role. `hasAddon` es opcional
+ * (default: todo visible) para no romper si algún caller no lo pasa —
+ * `AppSidebar.tsx` sí lo pasa siempre, con el `hasAddon` de `useEntitlements()`.
+ */
+export function getNavigationByRole(
+  role: UserRole,
+  hasAddon: (key: AddonKey) => boolean = () => true,
+): NavGroup[] {
   const baseNav: NavGroup = {
     title: 'Principal',
     items: [
@@ -217,6 +281,14 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Gestión',
         items: [
           {
+            title: 'Entrenamiento',
+            icon: Activity,
+            submenu: [
+              { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity },
+              { title: 'Gestión de Rutinas', href: '/school/routines', icon: Dumbbell },
+            ]
+          },
+          {
             title: 'Asistencias',
             icon: BarChart3,
             submenu: [
@@ -225,8 +297,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             ],
           },
           { title: 'Resultados', href: '/results', icon: Trophy },
-          { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity },
-          { title: 'Gestión de Rutinas', href: '/school/routines', icon: Dumbbell },
           { title: 'Reportes', href: '/coach-reports', icon: FileText },
           { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText }
         ]
@@ -256,56 +326,41 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       },
       {
         title: 'Gestión Deportiva',
-        items: [
-          {
-            title: 'Equipos y Planes',
-            icon: Users,
-            submenu: [
-              { title: 'Mis Equipos', href: '/teams', icon: Users },
-              { title: 'Deportes y Categorías', href: '/school-sports', icon: Trophy },
-              { title: 'Membresías', href: '/memberships', icon: IdCard },
-              { title: 'Mis Planes', href: '/offerings', icon: FileText }
-            ]
-          },
-          { title: 'Calendario', href: '/calendar', icon: Calendar },
-          { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity },
-          { title: 'Gestión de Rutinas', href: '/school/routines', icon: Dumbbell },
-          { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText },
-          {
-            title: 'Asistencias',
-            icon: BarChart3,
-            submenu: [
-              { title: 'Supervisión', href: '/attendance-supervision', icon: BarChart3 },
-              { title: 'Histórico', href: '/attendance-history', icon: History },
-              { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
-            ],
-          },
-          { title: 'Resultados', href: '/results-overview', icon: Trophy },
-          { title: 'Mis Torneos', href: '/school/tournaments', icon: Trophy },
-          { title: 'Dotación', href: '/school/equipment', icon: Dumbbell },
-        ]
+        items: GESTION_DEPORTIVA_ESCUELA
       },
       {
+        // Solo operación de dinero: cobrar, recibir en sede, y contabilidad.
+        // Los destinos de "mirar reportes" se separaron al grupo "Reportes".
         title: 'Finanzas',
         items: [
           { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
           { title: 'Modo Recepción', href: '/recepcion', icon: MonitorSpeaker },
           {
-            title: 'Finanzas y Contabilidad',
+            title: 'Contabilidad',
             icon: BookOpen,
+            // Gateado en el GRUPO, no en cada hijo: si la escuela no tiene el
+            // addon 'accounting', el submenu entero desaparece de una vez.
+            addon: 'accounting',
             submenu: [
-              { title: 'Finanzas', href: '/finances', icon: DollarSign },
               { title: 'Contabilidad', href: '/accounting', icon: BookOpen },
               { title: 'Proveedores', href: '/accounting/suppliers', icon: Truck },
-              { title: 'Nómina', href: '/accounting/payroll', icon: Users },
-              { title: 'Estado de resultados', href: '/accounting/reports', icon: BarChart3 },
+              { title: 'Nómina', href: '/accounting/payroll', icon: Landmark },
+              { title: 'Estado de resultados', href: '/accounting/reports', icon: TrendingUp },
               { title: 'Presupuesto', href: '/accounting/budget', icon: PieChart },
-              { title: 'Reportes', href: '/school-reports', icon: FileText },
-              { title: 'Cartera por Estado', href: '/reporter-dashboard', icon: BarChart3 },
             ],
           },
-          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
-          { title: 'Plantillas de Mensajes', href: '/message-templates', icon: MessageSquare },
+        ]
+      },
+      {
+        // Antes vivían dentro de "Finanzas" junto a Pagos/Contabilidad — se
+        // separan porque son destinos de "ver reportes", no de operar dinero.
+        title: 'Reportes',
+        items: [
+          { title: 'Finanzas', href: '/finances', icon: DollarSign },
+          { title: 'Reportes', href: '/school-reports', icon: FileText },
+          // Antes "Cartera por Estado" en un lado y "📊 Panel de Reportes" en
+          // el rol reporter — mismo destino, dos nombres (y un emoji hardcodeado).
+          { title: 'Panel de Reportes', href: '/reporter-dashboard', icon: BarChart3 },
         ]
       },
       {
@@ -321,6 +376,10 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           },
           { title: 'Constancias', href: '/certificates', icon: FileCheck2 },
           { title: 'QR de Inscripción', href: '/qr-signup', icon: QrCode },
+          // Movidos acá desde "Finanzas": son comunicación con la familia, no
+          // operación de dinero.
+          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
+          { title: 'Plantillas de Mensajes', href: '/message-templates', icon: MessageSquare },
         ]
       },
       {
@@ -328,7 +387,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Sedes', href: '/branches', icon: MapPin },
           { title: 'Instalaciones', href: '/facilities', icon: Building },
-          { title: 'Control de Acceso', href: '/school/access-control', icon: ShieldCheck },
+          { title: 'Control de Acceso', href: '/school/access-control', icon: ShieldCheck, addon: 'access_control' },
         ]
       },
       {
@@ -388,7 +447,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Dashboard Vendedor', href: '/vendor/dashboard', icon: Home },
           { title: 'Mis Productos', href: '/vendor/products', icon: ShoppingBag },
-          { title: 'Pedidos', href: '/orders', icon: FileText },
+          { title: 'Pedidos', href: '/orders', icon: ShoppingBag },
         ]
       },
       {
@@ -493,55 +552,41 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       },
       {
         title: 'Gestión Deportiva',
-        items: [
-          {
-            title: 'Equipos y Planes',
-            icon: Users,
-            submenu: [
-              { title: 'Mis Equipos', href: '/teams', icon: Users },
-              { title: 'Deportes y Categorías', href: '/school-sports', icon: Trophy },
-              { title: 'Membresías', href: '/memberships', icon: IdCard },
-              { title: 'Mis Planes', href: '/offerings', icon: FileText }
-            ]
-          },
-          { title: 'Calendario', href: '/calendar', icon: Calendar },
-          { title: 'Gestión de Rutinas', href: '/school/routines', icon: Dumbbell },
-           { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText },
-          {
-            title: 'Asistencias',
-            icon: BarChart3,
-            submenu: [
-              { title: 'Supervisión', href: '/attendance-supervision', icon: BarChart3 },
-              { title: 'Histórico', href: '/attendance-history', icon: History },
-              { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
-            ],
-          },
-          { title: 'Resultados', href: '/results-overview', icon: Trophy },
-          { title: 'Mis Torneos', href: '/school/tournaments', icon: Trophy },
-          { title: 'Dotación', href: '/school/equipment', icon: Dumbbell },
-        ]
+        items: GESTION_DEPORTIVA_ESCUELA
       },
       {
+        // Solo operación de dinero: cobrar, recibir en sede, y contabilidad.
+        // Los destinos de "mirar reportes" se separaron al grupo "Reportes".
         title: 'Finanzas',
         items: [
           { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
           { title: 'Modo Recepción', href: '/recepcion', icon: MonitorSpeaker },
           {
-            title: 'Finanzas y Contabilidad',
+            title: 'Contabilidad',
             icon: BookOpen,
+            // Gateado en el GRUPO, no en cada hijo: si la escuela no tiene el
+            // addon 'accounting', el submenu entero desaparece de una vez.
+            addon: 'accounting',
             submenu: [
-              { title: 'Finanzas', href: '/finances', icon: DollarSign },
               { title: 'Contabilidad', href: '/accounting', icon: BookOpen },
               { title: 'Proveedores', href: '/accounting/suppliers', icon: Truck },
-              { title: 'Nómina', href: '/accounting/payroll', icon: Users },
-              { title: 'Estado de resultados', href: '/accounting/reports', icon: BarChart3 },
+              { title: 'Nómina', href: '/accounting/payroll', icon: Landmark },
+              { title: 'Estado de resultados', href: '/accounting/reports', icon: TrendingUp },
               { title: 'Presupuesto', href: '/accounting/budget', icon: PieChart },
-              { title: 'Reportes', href: '/school-reports', icon: FileText },
-              { title: 'Cartera por Estado', href: '/reporter-dashboard', icon: BarChart3 },
             ],
           },
-          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
-          { title: 'Plantillas de Mensajes', href: '/message-templates', icon: MessageSquare },
+        ]
+      },
+      {
+        // Antes vivían dentro de "Finanzas" junto a Pagos/Contabilidad — se
+        // separan porque son destinos de "ver reportes", no de operar dinero.
+        title: 'Reportes',
+        items: [
+          { title: 'Finanzas', href: '/finances', icon: DollarSign },
+          { title: 'Reportes', href: '/school-reports', icon: FileText },
+          // Antes "Cartera por Estado" en un lado y "📊 Panel de Reportes" en
+          // el rol reporter — mismo destino, dos nombres (y un emoji hardcodeado).
+          { title: 'Panel de Reportes', href: '/reporter-dashboard', icon: BarChart3 },
         ]
       },
       {
@@ -557,6 +602,10 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           },
           { title: 'Constancias', href: '/certificates', icon: FileCheck2 },
           { title: 'QR de Inscripción', href: '/qr-signup', icon: QrCode },
+          // Movidos acá desde "Finanzas": son comunicación con la familia, no
+          // operación de dinero.
+          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
+          { title: 'Plantillas de Mensajes', href: '/message-templates', icon: MessageSquare },
         ]
       },
       {
@@ -564,7 +613,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Sedes', href: '/branches', icon: MapPin },
           { title: 'Instalaciones', href: '/facilities', icon: Building },
-          { title: 'Control de Acceso', href: '/school/access-control', icon: ShieldCheck },
+          { title: 'Control de Acceso', href: '/school/access-control', icon: ShieldCheck, addon: 'access_control' },
         ]
       },
       {
@@ -608,7 +657,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Reportes',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: '📊 Panel de Reportes', href: '/reporter-dashboard', icon: BarChart3 },
+          { title: 'Panel de Reportes', href: '/reporter-dashboard', icon: BarChart3 },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
         ]
       },
@@ -656,5 +705,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
     ],
   };
 
-  return roleSpecificNav[role] || [baseNav];
+  const groups = roleSpecificNav[role] || [baseNav];
+  return groups
+    .map(group => ({ ...group, items: filterByAddon(group.items, hasAddon) }))
+    .filter(group => group.items.length > 0);
 }

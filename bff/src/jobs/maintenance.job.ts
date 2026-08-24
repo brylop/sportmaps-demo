@@ -10,6 +10,7 @@ import { runGlosaNotifications } from './glosa-notifications.job';
 import { runNotificationDispatch } from './notifications-dispatch.job';
 import { runAthleteReportsCycle } from './athlete-reports.job';
 import { runHourBankAutoclose } from './hour-bank-autoclose.job';
+import { runSaasBillingCycle } from './saas-billing-cycle.job';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -319,4 +320,23 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Auto-cierre de banco de horas registrado (cada 15 min).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Ciclo diario de facturación SaaS SportMaps → escuelas (Fase 1). Llama a
+    // run_saas_billing_cycle() (flip a overdue + avanza período + genera la
+    // próxima factura + calcula recordatorios de 3 etapas) y por cada fila
+    // manda el email/PDF vía sendSaasInvoice. 06:20 COT, después del cron SQL
+    // de mensualidades a familias (06:30 UTC) para no competir por conexiones
+    // en el mismo minuto. Kill-switch: DISABLE_SAAS_BILLING_CRON=true.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('20 6 * * *', async () => {
+        if (process.env.DISABLE_SAAS_BILLING_CRON === 'true') return;
+        try {
+            await runSaasBillingCycle();
+        } catch (err: any) {
+            console.error('[CRON] Error en ciclo de facturación SaaS:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Ciclo de facturación SaaS registrado para las 06:20 COT.');
 }
