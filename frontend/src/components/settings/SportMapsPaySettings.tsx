@@ -30,6 +30,22 @@ import { Separator } from '@/components/ui/separator';
 import { AlertTriangle, CreditCard, Shield, Save, Loader2, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { bffClient } from '@/lib/api/bffClient';
+
+/**
+ * Modo de cobro de la escuela (schools.payment_mode). Es el interruptor que de
+ * verdad decide si se puede cobrar online, y lo lee el BFF en
+ * payment-provider.resolver.ts. `wompi_enabled` solo controla si el botón se ve.
+ */
+type ModoPago = 'unset' | 'aggregator' | 'direct';
+
+/** Lo que devuelve GET /api/v1/payment-providers/school/:id, recortado. */
+interface ProviderEstado {
+    provider: 'wompi' | 'mercadopago';
+    enabled: boolean;
+    connect_status: string;
+    secrets?: { hasAccessToken: boolean; hasPrivateKey: boolean };
+}
 
 interface PaySettings {
     wompi_enabled: boolean;
@@ -61,10 +77,33 @@ export function SportMapsPaySettings() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [termsAccepted, setTermsAccepted] = useState(false);
+    const [modoPago, setModoPago] = useState<ModoPago>('unset');
+    /** Providers propios usables. null = no se pudo leer (no se asume lo peor). */
+    const [providersUsables, setProvidersUsables] = useState<number | null>(null);
 
     useEffect(() => {
         if (schoolId) loadSettings();
     }, [schoolId]);
+
+    // Espejo de la regla del BFF (payment-provider.resolver.ts): quién puede
+    // cobrar online. Si esto se desalinea del resolver, vuelve el botón que no
+    // cobra. Va acá arriba porque handleSave lo usa.
+    const cuentaLista =
+        modoPago === 'aggregator'
+            ? true
+            : modoPago === 'direct'
+                ? (providersUsables === null || providersUsables > 0)
+                : false;
+
+    const motivoBloqueo = cuentaLista
+        ? null
+        : modoPago === 'direct'
+            ? 'Tienes cuenta propia seleccionada, pero no hay credenciales de pasarela conectadas.'
+            : 'Todavía no tienes una cuenta de recaudo conectada.';
+
+    // Estado heredado: el botón ya se les muestra a los padres pero el cobro
+    // muere en el BFF. Se tiene que poder apagar, así que el switch no se bloquea.
+    const incoherente = !!settings?.wompi_enabled && !cuentaLista;
 
     async function loadSettings() {
         if (!schoolId) return;
@@ -88,6 +127,47 @@ export function SportMapsPaySettings() {
                 sportmaps_pay_terms_accepted_by: s?.sportmaps_pay_terms_accepted_by ?? null,
             });
             setTermsAccepted(!!s?.sportmaps_pay_terms_accepted_at);
+
+            // Sin esto la escuela podía prender el botón "Pagar online" con
+            // payment_mode='unset': el padre hacía clic y el resolver del BFF
+            // devolvía null, así que el cobro moría sin explicación.
+            const { data: escuela } = await supabase
+                .from('schools')
+                .select('payment_mode')
+                .eq('id', schoolId)
+                .maybeSingle();
+            const modo = (((escuela as any)?.payment_mode ?? 'unset') as ModoPago);
+            setModoPago(modo);
+
+            if (modo === 'direct') {
+                // 'direct' sin credenciales propias conectadas también bloquea el
+                // cobro. Se pregunta al BFF y no a PostgREST a propósito: la RLS
+                // de school_payment_providers solo alcanza al dueño, así que un
+                // admin que no lo sea leería 0 filas y vería "falta conectar"
+                // sobre una escuela bien configurada. El BFF además dice qué
+                // secretos existen, que es lo que el resolver exige de verdad.
+                try {
+                    const res = await bffClient.get<{ providers: ProviderEstado[] }>(
+                        `/api/v1/payment-providers/school/${schoolId}`,
+                    );
+                    setProvidersUsables(
+                        (res.providers ?? []).filter(p =>
+                            p.enabled
+                            && ['connected', 'connected_pending_webhook'].includes(p.connect_status)
+                            // Mismo mínimo que toResolved(): sin este secreto el
+                            // resolver devuelve null y el cobro no sale.
+                            && (p.provider === 'wompi'
+                                ? p.secrets?.hasPrivateKey
+                                : p.secrets?.hasAccessToken),
+                        ).length,
+                    );
+                } catch {
+                    // 403 o red caída: no se sabe, y no se asume lo peor.
+                    setProvidersUsables(null);
+                }
+            } else {
+                setProvidersUsables(null);
+            }
         } catch (error) {
             console.error('Error loading pay settings:', error);
             toast.error('Error al cargar configuración de pagos.');
@@ -98,6 +178,13 @@ export function SportMapsPaySettings() {
 
     async function handleSave() {
         if (!schoolId || !settings) return;
+
+        // Cinturón además del switch deshabilitado: prender wompi_enabled sin
+        // cuenta de recaudo es justo el bug que esto cierra.
+        if (settings.wompi_enabled && !cuentaLista) {
+            toast.error('No se puede activar el cobro online sin una cuenta de recaudo conectada.');
+            return;
+        }
 
         try {
             setSaving(true);
@@ -155,7 +242,9 @@ export function SportMapsPaySettings() {
                 <CardTitle className="flex items-center gap-2">
                     <CreditCard className="h-5 w-5 text-primary" />
                     SportMaps Pay
-                    {settings.wompi_enabled ? (
+                    {incoherente ? (
+                        <Badge variant="destructive" className="text-xs">Activo, pero sin cobrar</Badge>
+                    ) : settings.wompi_enabled ? (
                         <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs">
                             Activo
                         </Badge>
@@ -169,6 +258,32 @@ export function SportMapsPaySettings() {
             </CardHeader>
 
             <CardContent className="space-y-6">
+                {/* ── Cuenta de recaudo ─────────────────────────────────── */}
+                {incoherente && (
+                    <Alert variant="destructive">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertDescription className="text-sm">
+                            <span className="font-medium">Los pagos online están fallando.</span>{' '}
+                            El botón "Pagar online" se les muestra a los padres, pero el cobro
+                            no puede completarse: {motivoBloqueo?.toLowerCase()} Apaga los pagos
+                            online mientras conectas la cuenta, para que nadie quede a mitad de
+                            camino.
+                        </AlertDescription>
+                    </Alert>
+                )}
+
+                {!cuentaLista && !incoherente && (
+                    <Alert>
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertDescription className="text-sm">
+                            <span className="font-medium">Falta conectar tu cuenta de recaudo.</span>{' '}
+                            {motivoBloqueo} Sin ella no se puede activar el cobro online: el dinero
+                            no tendría a dónde llegar. Escríbenos para conectarla —no nos mandes tus
+                            llaves por chat— y en cuanto quede lista podrás activar el botón desde acá.
+                        </AlertDescription>
+                    </Alert>
+                )}
+
                 {/* ── Toggle principal ──────────────────────────────────── */}
                 <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
@@ -182,6 +297,9 @@ export function SportMapsPaySettings() {
                     <Switch
                         id="wompi-toggle"
                         checked={settings.wompi_enabled}
+                        // Se puede APAGAR siempre (para salir de un estado
+                        // incoherente); prenderlo exige cuenta de recaudo lista.
+                        disabled={!cuentaLista && !settings.wompi_enabled}
                         onCheckedChange={(checked) => setSettings({ ...settings, wompi_enabled: checked })}
                     />
                 </div>
@@ -322,7 +440,11 @@ export function SportMapsPaySettings() {
                 {/* ── Botón guardar ─────────────────────────────────────── */}
                 <Button
                     onClick={handleSave}
-                    disabled={saving || (settings.wompi_enabled && !settings.sportmaps_pay_terms_accepted_at && !termsAccepted)}
+                    disabled={
+                        saving
+                        || (settings.wompi_enabled && !cuentaLista)
+                        || (settings.wompi_enabled && !settings.sportmaps_pay_terms_accepted_at && !termsAccepted)
+                    }
                     className="w-full"
                 >
                     {saving ? (

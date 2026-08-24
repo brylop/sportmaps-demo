@@ -122,6 +122,38 @@ function toResolved(
     };
 }
 
+/**
+ * Lee `schools.payment_mode`, el interruptor que decide de quién es la plata.
+ *
+ * `falloLectura` distingue "no se pudo preguntar" de "dijo unset": si el código
+ * subió antes de la migración que crea la columna, bloquear apagaría el checkout
+ * de todas las escuelas por un desfase de despliegue. En ese caso se degrada al
+ * camino legacy y el log es la alarma.
+ *
+ * Vive acá, compartida por resolveProvider y loadProviderConfig, porque tenerla
+ * duplicada fue justo el origen de que la segunda cayera a ENV donde la primera
+ * bloqueaba.
+ */
+async function leerModoDePago(
+    schoolId: string,
+): Promise<{ modo: string | null; falloLectura: boolean }> {
+    const { data, error } = await supabase
+        .from('schools')
+        .select('payment_mode')
+        .eq('id', schoolId)
+        .maybeSingle();
+
+    if (error) {
+        console.error(
+            `[payment-provider.resolver] no se pudo leer schools.payment_mode (school ${schoolId}): ${error.message}. ` +
+            'Se degrada al camino legacy (ENV). ¿Falta aplicar la migración de payment_mode?',
+        );
+        return { modo: null, falloLectura: true };
+    }
+
+    return { modo: ((data as any)?.payment_mode ?? null), falloLectura: false };
+}
+
 // ─── Listado publico (frontend pide al BFF) ────────────────────────────────
 
 export async function listProvidersForSchool(
@@ -212,26 +244,7 @@ export async function resolveProvider(
 
     if (schoolId) {
         // Modo de pago de la escuela — regla fail-closed [M1].
-        const { data: schoolRow, error: schoolErr } = await supabase
-            .from('schools')
-            .select('payment_mode')
-            .eq('id', schoolId)
-            .maybeSingle();
-
-        // Si la lectura FALLA (p.ej. el código subió antes de aplicar la migración que
-        // crea schools.payment_mode) no se puede decidir el modo. Se degrada al camino
-        // legacy en vez de bloquear: bloquear aquí apagaría el checkout de todas las
-        // escuelas por un desfase de despliegue. El log es la señal de alarma.
-        if (schoolErr) {
-            console.error(
-                `[payment-provider.resolver] no se pudo leer schools.payment_mode (school ${schoolId}): ${schoolErr.message}. ` +
-                'Se degrada al camino legacy (ENV). ¿Falta aplicar la migración de payment_mode?',
-            );
-        }
-
-        const paymentMode: string | null = schoolErr
-            ? null
-            : ((schoolRow as any)?.payment_mode ?? null);
+        const { modo: paymentMode } = await leerModoDePago(schoolId);
 
         // 'unset' = escuela sin decisión de cobro → BLOQUEADA. No cae a ENV.
         // Crítico: las llaves WOMPI_* del ENV son de una escuela real (ver
@@ -392,6 +405,20 @@ export async function loadProviderConfig(params: {
     const { provider, schoolId, vendorId } = params;
 
     if (schoolId) {
+        // Misma regla fail-closed que resolveProvider. Antes esta función NO
+        // miraba payment_mode y caía a ENV, así que una escuela en 'direct' con
+        // secretos ilegibles terminaba creando el cobro (POST /mercadopago/create)
+        // en la cuenta comercial de ENV, que es de otro. Bug de ruteo de dinero,
+        // no una simple incoherencia.
+        const { modo, falloLectura } = await leerModoDePago(schoolId);
+
+        if (!falloLectura && modo === 'unset') {
+            console.warn(
+                `[payment-provider.resolver] loadProviderConfig: school ${schoolId} en 'unset' → sin credenciales (fail-closed).`,
+            );
+            return null;
+        }
+
         const { data } = await supabase
             .from('school_payment_providers')
             .select('id, public_key, sandbox, is_default')
@@ -404,8 +431,17 @@ export async function loadProviderConfig(params: {
             const secrets = await loadDecryptedSecrets((data as any).id);
             const resolved = secrets && toResolved(provider, data as any, secrets);
             if (resolved) return resolved;
-            // Fila sin secretos descifrables → cae al fallback global de abajo.
         }
+
+        if (!falloLectura && modo === 'direct') {
+            console.warn(
+                `[payment-provider.resolver] loadProviderConfig: school ${schoolId} en 'direct' sin credenciales resolubles → null (fail-closed). ` +
+                'No cae a ENV: esas llaves son de otra cuenta.',
+            );
+            return null;
+        }
+
+        // 'aggregator' o lectura fallida → sigue al fallback de ENV, como antes.
     }
 
     if (vendorId) {
@@ -428,9 +464,20 @@ export async function loadProviderConfig(params: {
                 isDefault: data.is_default,
             };
         }
+
+        // Vendor identificado pero sin credenciales propias → null, igual que en
+        // resolveProvider. Caer a ENV le cobraría al cliente de este vendor en la
+        // cuenta comercial de otro.
+        console.warn(
+            `[payment-provider.resolver] loadProviderConfig: vendor ${vendorId} sin provider ${provider} habilitado → null (fail-closed).`,
+        );
+        return null;
     }
 
-    // Fallback global por provider
+    // Fallback de ENV. Solo alcanzable con 'aggregator', con lectura fallida de
+    // payment_mode, o SIN dueño identificable — este último caso es el legacy:
+    // los cobros MP viejos viven en la cuenta de ENV y leer su estado necesita
+    // ese token, así que acá el fallback es lo correcto y no un agujero.
     if (provider === 'mercadopago') {
         const accessToken = process.env.MP_ACCESS_TOKEN_DEFAULT;
         const publicKey = process.env.MP_PUBLIC_KEY_DEFAULT;

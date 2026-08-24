@@ -655,7 +655,7 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="reporter-dashboard" element={
-                        <ProtectedRoute allowedRoles={['reporter']}>
+                        <ProtectedRoute allowedRoles={['reporter', 'school', 'school_admin', 'admin', 'super_admin']}>
                           <ReporterDashboardPage />
                         </ProtectedRoute>
                       } />

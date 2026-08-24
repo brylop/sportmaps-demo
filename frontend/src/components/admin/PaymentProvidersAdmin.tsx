@@ -32,6 +32,12 @@ interface Props {
     schoolId?: string;
     /** Configurar providers de un vendor. Mutuamente excluyente con schoolId. */
     vendorId?: string;
+    /**
+     * Se llama tras crear/editar/borrar o cambiar un toggle. Sirve para que el
+     * gate de SportMaps Pay se entere de que ya hay cuenta conectada, sin que
+     * la escuela tenga que recargar la página para poder prender el cobro.
+     */
+    onChange?: () => void;
 }
 
 /**
@@ -39,7 +45,7 @@ interface Props {
  * escuela o vendor. El access_token y webhook_secret se envian al BFF
  * (que los persiste con service_role) y NUNCA se devuelven en GET.
  */
-export function PaymentProvidersAdmin({ schoolId, vendorId }: Props) {
+export function PaymentProvidersAdmin({ schoolId, vendorId, onChange }: Props) {
     const { toast } = useToast();
     const [rows, setRows] = useState<ProviderRow[]>([]);
     const [loading, setLoading] = useState(false);
@@ -66,13 +72,19 @@ export function PaymentProvidersAdmin({ schoolId, vendorId }: Props) {
         if (schoolId || vendorId) loadRows();
     }, [schoolId, vendorId]);
 
+    /** Recarga y avisa hacia arriba. Solo tras mutaciones, no al montar. */
+    const recargar = async () => {
+        await loadRows();
+        onChange?.();
+    };
+
     const handleToggle = async (row: ProviderRow, field: 'enabled' | 'is_default') => {
         try {
             await bffClient.patch(`/api/v1/payment-providers/${row.id}`, {
                 [field === 'is_default' ? 'isDefault' : 'enabled']: !row[field],
             });
             toast({ title: 'Actualizado', description: `${row.provider} ${field}` });
-            await loadRows();
+            await recargar();
         } catch (err: any) {
             toast({ title: 'Error', description: err.message, variant: 'destructive' });
         }
@@ -83,7 +95,7 @@ export function PaymentProvidersAdmin({ schoolId, vendorId }: Props) {
         try {
             await bffClient.delete(`/api/v1/payment-providers/${row.id}`);
             toast({ title: 'Eliminado' });
-            await loadRows();
+            await recargar();
         } catch (err: any) {
             toast({ title: 'Error', description: err.message, variant: 'destructive' });
         }
@@ -167,7 +179,7 @@ export function PaymentProvidersAdmin({ schoolId, vendorId }: Props) {
             <ProviderForm
                 open={openForm}
                 onClose={() => setOpenForm(false)}
-                onSaved={async () => { setOpenForm(false); await loadRows(); }}
+                onSaved={async () => { setOpenForm(false); await recargar(); }}
                 baseUrl={baseUrl}
                 editing={editingId ? rows.find(r => r.id === editingId) ?? null : null}
             />
@@ -192,9 +204,16 @@ function ProviderForm({ open, onClose, onSaved, baseUrl, editing }: FormProps) {
     const [accessToken, setAccessToken] = useState('');
     const [webhookSecret, setWebhookSecret] = useState('');
     const [integritySecret, setIntegritySecret] = useState('');
+    // Wompi pide cuatro llaves, no dos: la privada y el events_secret son
+    // obligatorias para el BFF (SchoolProviderSchema, rama 'wompi').
+    const [privateKey, setPrivateKey] = useState('');
+    const [eventsSecret, setEventsSecret] = useState('');
     const [sandbox, setSandbox] = useState(true);
     const [isDefault, setIsDefault] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+
+    /** Los secretos de ESCUELA solo se pueden guardar cifrados, vía POST. */
+    const esEscuela = baseUrl.includes('/school/');
 
     useEffect(() => {
         if (editing) {
@@ -203,6 +222,8 @@ function ProviderForm({ open, onClose, onSaved, baseUrl, editing }: FormProps) {
             setAccessToken('');                          // nunca devolvemos el actual
             setWebhookSecret('');
             setIntegritySecret('');
+            setPrivateKey('');
+            setEventsSecret('');
             setSandbox(editing.sandbox);
             setIsDefault(editing.is_default);
         } else {
@@ -211,29 +232,64 @@ function ProviderForm({ open, onClose, onSaved, baseUrl, editing }: FormProps) {
             setAccessToken('');
             setWebhookSecret('');
             setIntegritySecret('');
+            setPrivateKey('');
+            setEventsSecret('');
             setSandbox(true);
             setIsDefault(false);
         }
     }, [editing, open]);
 
     const handleSubmit = async () => {
-        if (!publicKey || !accessToken) {
-            toast({ title: 'Faltan datos', description: 'public_key y access_token son obligatorios.', variant: 'destructive' });
+        // Wompi exige las cuatro llaves; MercadoPago, public + access token.
+        const faltantes = provider === 'wompi'
+            ? [
+                !publicKey && 'llave pública',
+                !privateKey && 'llave privada',
+                !integritySecret && 'secreto de integridad',
+                !eventsSecret && 'secreto de eventos',
+            ].filter(Boolean)
+            : [
+                !publicKey && 'llave pública',
+                !accessToken && 'access token',
+            ].filter(Boolean);
+
+        if (faltantes.length) {
+            toast({
+                title: 'Faltan datos',
+                description: `Wompi no acepta credenciales parciales. Falta: ${faltantes.join(', ')}.`,
+                variant: 'destructive',
+            });
             return;
         }
+
         setSubmitting(true);
         try {
-            const body = {
-                provider,
-                publicKey,
-                accessToken,
-                webhookSecret: webhookSecret || undefined,
-                integritySecret: integritySecret || undefined,
-                sandbox,
-                isDefault,
-                enabled: true,
-            };
-            if (editing) {
+            const body = provider === 'wompi'
+                ? {
+                    provider,
+                    publicKey,
+                    privateKey,
+                    integritySecret,
+                    eventsSecret,
+                    sandbox,
+                    isDefault,
+                    enabled: true,
+                }
+                : {
+                    provider,
+                    publicKey,
+                    accessToken,
+                    webhookSecret: webhookSecret || undefined,
+                    sandbox,
+                    isDefault,
+                    enabled: true,
+                };
+
+            // Reemplazar las llaves de una escuela va por POST, que las cifra y
+            // usa la RPC transaccional. El PATCH rechaza secretos de escuela
+            // (code 'use_encrypted_upsert') porque irían en claro a columnas
+            // legacy que el resolver ya no lee → checkout bloqueado.
+            if (editing && !esEscuela) {
                 await bffClient.patch(`/api/v1/payment-providers/${editing.id}`, body);
             } else {
                 await bffClient.post(baseUrl, body);
@@ -272,7 +328,7 @@ function ProviderForm({ open, onClose, onSaved, baseUrl, editing }: FormProps) {
                     </div>
 
                     <div>
-                        <Label>Public Key</Label>
+                        <Label>Llave pública</Label>
                         <Input
                             value={publicKey}
                             onChange={e => setPublicKey(e.target.value)}
@@ -280,36 +336,70 @@ function ProviderForm({ open, onClose, onSaved, baseUrl, editing }: FormProps) {
                         />
                     </div>
 
-                    <div>
-                        <Label>Access Token / Private Key</Label>
-                        <Input
-                            type="password"
-                            value={accessToken}
-                            onChange={e => setAccessToken(e.target.value)}
-                            placeholder={editing ? 'Dejar vacío para mantener actual' : 'APP_USR-...'}
-                        />
-                    </div>
+                    {provider === 'wompi' ? (
+                        <>
+                            {/* Las cuatro llaves de Wompi van juntas: el BFF no
+                                acepta credenciales parciales, y guardar la mitad
+                                dejaría el checkout bloqueado por fail-closed. */}
+                            <div>
+                                <Label>Llave privada</Label>
+                                <Input
+                                    type="password"
+                                    value={privateKey}
+                                    onChange={e => setPrivateKey(e.target.value)}
+                                    placeholder="prv_test_... o prv_prod_..."
+                                />
+                            </div>
 
-                    <div>
-                        <Label>Webhook Secret</Label>
-                        <Input
-                            type="password"
-                            value={webhookSecret}
-                            onChange={e => setWebhookSecret(e.target.value)}
-                            placeholder="Opcional pero recomendado en producción"
-                        />
-                    </div>
+                            <div>
+                                <Label>Secreto de integridad</Label>
+                                <Input
+                                    type="password"
+                                    value={integritySecret}
+                                    onChange={e => setIntegritySecret(e.target.value)}
+                                    placeholder="test_integrity_... o prod_integrity_..."
+                                />
+                            </div>
 
-                    {provider === 'wompi' && (
-                        <div>
-                            <Label>Integrity Secret (Wompi)</Label>
-                            <Input
-                                type="password"
-                                value={integritySecret}
-                                onChange={e => setIntegritySecret(e.target.value)}
-                                placeholder="Solo Wompi"
-                            />
-                        </div>
+                            <div>
+                                <Label>Secreto de eventos</Label>
+                                <Input
+                                    type="password"
+                                    value={eventsSecret}
+                                    onChange={e => setEventsSecret(e.target.value)}
+                                    placeholder="test_events_... o prod_events_..."
+                                />
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div>
+                                <Label>Access Token</Label>
+                                <Input
+                                    type="password"
+                                    value={accessToken}
+                                    onChange={e => setAccessToken(e.target.value)}
+                                    placeholder="APP_USR-... o TEST-..."
+                                />
+                            </div>
+
+                            <div>
+                                <Label>Webhook Secret</Label>
+                                <Input
+                                    type="password"
+                                    value={webhookSecret}
+                                    onChange={e => setWebhookSecret(e.target.value)}
+                                    placeholder="Opcional pero recomendado en producción"
+                                />
+                            </div>
+                        </>
+                    )}
+
+                    {editing && esEscuela && (
+                        <p className="text-xs text-muted-foreground">
+                            Las llaves no se pueden ver, solo reemplazar: escríbelas
+                            completas para actualizarlas.
+                        </p>
                     )}
 
                     <div className="flex items-center justify-between">

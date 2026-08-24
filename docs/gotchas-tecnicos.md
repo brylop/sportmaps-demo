@@ -51,6 +51,35 @@ Y `offering_plans` es la que el producto lee de verdad para las cuotas —
 escribir solo en `subscription_plans` hace que el plan no aparezca en ningún
 lado.
 
+### `apply_migration` (MCP) nunca usa el timestamp del archivo — siempre pone "ahora"
+
+La herramienta MCP `apply_migration` de Supabase genera su propia versión en
+`supabase_migrations.schema_migrations` al momento de correr, sin importar qué
+timestamp lleve el nombre del `.sql` del repo o el comentario dentro del
+archivo. Aplicar el archivo `20260821112428_algo.sql` puede terminar
+registrado como `20260821130357` — versión distinta, mismo DDL. Confirmado en
+vivo: pasó dos veces en la misma tarde, una vez con dos sesiones corriendo el
+mismo cambio en paralelo, y otra conmigo mismo aplicando un archivo ya
+reservado en el ledger.
+
+Consecuencia práctica: si el DDL ya se aplicó una vez (por otra sesión, o por
+vos mismo con otro nombre), reintentar `apply_migration` con el archivo del
+repo **truena** — `column/relation already exists` — porque Postgres no sabe
+nada de nombres de archivo, solo del objeto que ya existe. No es un bug que
+arreglar; el esquema ya quedó en el estado correcto. Antes de reintentar algo
+que "debería estar pendiente", confirmar contra la base (`to_regclass`,
+`information_schema.columns`, o `select version, name from
+supabase_migrations.schema_migrations order by version desc limit 10`) en vez
+de asumir por el ledger del repo.
+
+Mismo problema con cambios de **datos** (un `INSERT`/`UPDATE` puntual) corridos
+vía `apply_migration`: quedan en `schema_migrations` con nombre y versión
+propios, sin ningún `.sql` que los respalde en `supabase/migrations/` si nadie
+commitea el archivo correspondiente. `npm run migrations:check` no lo detecta
+— solo valida los archivos que SÍ están en el repo. El repo y
+`schema_migrations` son dos historias que hay que cruzar a mano cuando algo no
+cuadra, nunca asumir que una implica la otra.
+
 ### El monto que paga un atleta tiene precedencia
 
 ```
