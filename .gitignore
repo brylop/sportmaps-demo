@@ -215,3 +215,8 @@ revisar-*.csv
 /dynasty*.json
 /cobertura*.json
 /duplicados*.json
+
+# Extracto del Excel de Monster's Volley Club: nombres, documentos, RH, EPS,
+# direccion y contacto del acudiente de menores. Se regenera con
+# scripts/monster-volley-suba-import/01_extraer.mjs, no se versiona nunca.
+scripts/monster-volley-suba-import/data/
