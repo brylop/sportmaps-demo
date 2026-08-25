@@ -45,6 +45,19 @@ const extFromMime = (mime) => ({
   'image/heic': 'heic', 'image/webp': 'webp',
 }[mime] || 'bin');
 
+// El formulario NO pregunta el nombre del acudiente, pero Google Forms
+// sufija cada archivo subido con el nombre de la cuenta que lo subió
+// ("... - Nombre Apellido.ext"). Se rescata de ahí, una sola vez por atleta
+// (no pisa un valor ya cargado ni una corrección manual posterior).
+function extraerNombreAcudiente(title) {
+  if (!title) return null;
+  const sinExt = title.replace(/\.[a-zA-Z0-9]{2,5}$/, '');
+  const idx = sinExt.lastIndexOf(' - ');
+  if (idx === -1) return null;
+  const nombre = sinExt.slice(idx + 3).trim();
+  return nombre.length >= 3 ? nombre : null;
+}
+
 async function main() {
   const { content, mimeType, title } = JSON.parse(fs.readFileSync(JSON_PATH, 'utf8'));
   const buf = Buffer.from(content, 'base64');
@@ -78,6 +91,15 @@ async function main() {
   const insertText = await insert.text();
   if (!insert.ok) throw new Error(`athlete_documents insert -> ${insertText.slice(0, 500)}`);
   console.log('  athlete_documents OK:', JSON.parse(insertText)[0].id);
+
+  const guardianName = extraerNombreAcudiente(title);
+  if (guardianName) {
+    const patch = await fetch(
+      `${BASE}/rest/v1/unregistered_athletes?id=eq.${ATLETA_ID}&guardian_full_name=is.null`,
+      { method: 'PATCH', headers: { ...HEADERS, 'Content-Type': 'application/json' }, body: JSON.stringify({ guardian_full_name: guardianName }) },
+    );
+    if (patch.ok) console.log(`  guardian_full_name completado desde el título del archivo: "${guardianName}"`);
+  }
 }
 
 main().catch((err) => { console.error('ERROR:', err.message); process.exit(1); });

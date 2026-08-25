@@ -191,6 +191,7 @@ export default function SchoolStudentsManagementPage() {
     tshirt_size?: string | null;
     blood_type?: string | null;
     eps_name?: string | null;
+    guardian_full_name?: string | null;
     guardian_phone?: string | null;
     guardian_email?: string | null;
     health_screening?: Record<string, string | null> | null;
@@ -277,19 +278,20 @@ export default function SchoolStudentsManagementPage() {
     } else if (athleteTypeForDocs === 'unregistered') {
       (supabase as any)
         .from('unregistered_athletes')
-        .select('doc_type, doc_number, blood_type, eps_name, guardian_phone, guardian_email, health_screening, intake_form_data')
+        .select('doc_type, doc_number, blood_type, eps_name, guardian_full_name, guardian_phone, guardian_email, health_screening, intake_form_data')
         .eq('id', studentId)
         .maybeSingle()
         .then(({ data }: { data: any }) => {
           setStudentDocInfo({
-            doc_type:         data?.doc_type         || null,
-            doc_number:       data?.doc_number       || null,
-            blood_type:       data?.blood_type        || null,
-            eps_name:         data?.eps_name          || null,
-            guardian_phone:   data?.guardian_phone     || null,
-            guardian_email:   data?.guardian_email     || null,
-            health_screening: data?.health_screening   || null,
-            intake_form_data: data?.intake_form_data    || null,
+            doc_type:           data?.doc_type           || null,
+            doc_number:         data?.doc_number         || null,
+            blood_type:         data?.blood_type          || null,
+            eps_name:           data?.eps_name            || null,
+            guardian_full_name: data?.guardian_full_name   || null,
+            guardian_phone:     data?.guardian_phone       || null,
+            guardian_email:     data?.guardian_email       || null,
+            health_screening:   data?.health_screening     || null,
+            intake_form_data:   data?.intake_form_data      || null,
           });
         });
     } else {
@@ -1681,12 +1683,13 @@ export default function SchoolStudentsManagementPage() {
                   )}
 
                   {/* ── Sección: Acudiente (unregistered — viene del formulario de afiliación) ── */}
-                  {isUnregistered && (studentDocInfo.guardian_phone || studentDocInfo.guardian_email || studentDocInfo.intake_form_data) && (
+                  {isUnregistered && (studentDocInfo.guardian_full_name || studentDocInfo.guardian_phone || studentDocInfo.guardian_email || studentDocInfo.intake_form_data) && (
                     <section>
                       <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
                         <User className="w-4 h-4" /> Acudiente
                       </h3>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                        <InfoRow label="Nombre" value={studentDocInfo.guardian_full_name} />
                         <InfoRow label="Teléfono" value={studentDocInfo.guardian_phone} icon={<Phone className="w-3 h-3" />} />
                         <InfoRow label="Email" value={studentDocInfo.guardian_email} icon={<Mail className="w-3 h-3" />} />
                         <InfoRow label="Ocupación" value={studentDocInfo.intake_form_data?.guardian_occupation} />
