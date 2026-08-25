@@ -58,8 +58,10 @@ export function NextMonthCloseCard({ schoolId, activeBranchId }: NextMonthCloseC
             </p>
           </div>
           <Button asChild variant="outline">
-            <Link to="/payments-automation">
-              Ir a Gestión de Pagos
+            {/* ?tab=config: sin esto caía en el tab "Cobros" por defecto y el
+                botón de abrir el mes (en "Config") quedaba invisible. */}
+            <Link to="/payments-automation?tab=config">
+              Abrir el mes en Gestión de Pagos
             </Link>
           </Button>
         </div>

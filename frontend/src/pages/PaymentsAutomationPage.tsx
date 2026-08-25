@@ -12,7 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { NumberStepper } from '@/components/ui/number-stepper';
 import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loader2, XCircle, Save, Bell, DollarSign, Shield, AlertTriangle, Trophy, Zap, Banknote } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { formatCurrency, maskSensitive } from '@/lib/utils';
 import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { useToast } from '@/hooks/use-toast';
@@ -388,6 +388,13 @@ export default function PaymentsAutomationPage() {
   const { profile } = useAuth();
   const { toast } = useToast();
   const { schoolId, activeBranchId, currentUserRole } = useSchoolContext();
+  // Deep-link a un tab puntual (ej. "Próximo Cierre de Mes" en Finanzas manda
+  // acá a abrir el mes — sin esto, quien llega desde ese link caía siempre en
+  // "Cobros" y el botón de abrir mes, que vive en "Config", quedaba invisible.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const PAYMENTS_TABS = ['recurrent', 'teams', 'glosas', 'conciliacion', 'history', 'config'] as const;
+  const tabParam = searchParams.get('tab');
+  const activeTab = (PAYMENTS_TABS as readonly string[]).includes(tabParam || '') ? tabParam! : 'recurrent';
   // Se incrementa al conectar/quitar una pasarela: remonta SportMaps Pay para
   // que su gate vuelva a preguntar si ya hay cuenta de recaudo.
   const [revisionPasarelas, setRevisionPasarelas] = useState(0);
@@ -1341,7 +1348,15 @@ export default function PaymentsAutomationPage() {
       </div>
 
       {/* ── Tabs: scroll horizontal en mobile ────────────────────────────── */}
-      <Tabs defaultValue="recurrent" className="space-y-4">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setSearchParams(prev => {
+          const next = new URLSearchParams(prev);
+          next.set('tab', v);
+          return next;
+        }, { replace: true })}
+        className="space-y-4"
+      >
         <div className="overflow-x-auto pb-1">
           <TabsList className="w-max min-w-full sm:w-auto">
             <TabsTrigger value="recurrent" className="text-xs sm:text-sm">Cobros</TabsTrigger>
@@ -2665,10 +2680,10 @@ function BackfillPaymentsCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <AlertTriangle className="h-5 w-5 text-amber-500" />
-          Cobros Pendientes por Generar
+          Apertura del Mes — Generar Cobros
         </CardTitle>
         <CardDescription>
-          Atletas inscritos que aún no tienen ningún pago registrado.
+          Crea la mensualidad de este mes para los atletas inscritos que todavía no la tienen.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -2676,7 +2691,7 @@ function BackfillPaymentsCard({
           <Button variant="outline" onClick={loadPreview} disabled={loading} className="w-full">
             {loading
               ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Calculando...</>
-              : <>Verificar atletas sin cobro</>}
+              : <>Ver vista previa del mes a abrir</>}
           </Button>
         ) : preview.length === 0 ? (
           <div className="flex items-center gap-2 text-sm text-green-600">
