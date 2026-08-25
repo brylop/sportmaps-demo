@@ -472,6 +472,14 @@ export function PaymentCheckoutModal({
             : 'pending';
 
       if (mode === 'update' && paymentId) {
+        // NUNCA se reescribe period_year/period_month de un cobro que YA
+        // existía (paymentId venía de afuera, ej. la fila que el padre
+        // clickeó en /my-payments): `effectivePeriod` viene de
+        // next_unpaid_period(), calculado independiente de CUÁL cobro se
+        // está pagando, y podía no coincidir con el período real de esa
+        // fila — el mismo bug que ya se corrigió en
+        // ParentCheckoutPage.recordPaymentWithTraceability, reintroducido
+        // acá porque este componente no tenía el mismo resguardo.
         const { error: updateError } = await supabase.from('payments').update({
           status: internalStatus,
           payment_method: 'card',
@@ -480,8 +488,6 @@ export function PaymentCheckoutModal({
           provider_transaction_id: String(result.paymentId),
           payment_date: todayColombia(),
           receipt_number: reference,
-          period_year: periodYear,
-          period_month: periodMonth,
           early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
           updated_at: new Date().toISOString(),
         } as any).eq('id', paymentId);
@@ -607,6 +613,11 @@ export function PaymentCheckoutModal({
       // mode='update' o el impago del mismo periodo a reutilizar (reuseId).
       // Si es null → se hace INSERT. Evita el 23505 del unique index de periodo.
       const targetId = (mode === 'update' && paymentId) ? paymentId : reuseId;
+      // Solo el caso `reuseId` necesita ESTAMPAR el período (fila encontrada
+      // sin período propio todavía, o el `samePeriod` ya coincide de todos
+      // modos). El caso `paymentId` explícito (mode='update') es una fila que
+      // YA tiene su período real — no se toca, mismo motivo que arriba.
+      const isExplicitPaymentUpdate = mode === 'update' && !!paymentId;
 
       if (selectedMethod === 'transfer') {
         if (!proofUrl) throw new Error('Debes subir un comprobante de pago');
@@ -640,8 +651,7 @@ export function PaymentCheckoutModal({
             payment_method: 'transfer',
             payment_date: todayColombia(),
             receipt_url: proofUrl,
-            period_year: periodYear,
-            period_month: periodMonth,
+            ...(isExplicitPaymentUpdate ? {} : { period_year: periodYear, period_month: periodMonth }),
             early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
             ...receiptOcrFields,
             updated_at: new Date().toISOString()
@@ -736,8 +746,7 @@ export function PaymentCheckoutModal({
           payment_method: selectedMethod,
           payment_date: todayColombia(),
           receipt_number: receiptNumber,
-          period_year: periodYear,
-          period_month: periodMonth,
+          ...(isExplicitPaymentUpdate ? {} : { period_year: periodYear, period_month: periodMonth }),
           early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
           updated_at: new Date().toISOString()
         }).eq('id', targetId);
