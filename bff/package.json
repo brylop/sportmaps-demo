@@ -7,7 +7,7 @@
     "dev": "nodemon src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build": "tsc && node -e \"const fs=require('fs'); fs.mkdirSync('dist/data', {recursive:true}); fs.copyFileSync('src/data/exercises.json', 'dist/data/exercises.json');\""
+    "build": "tsc && node -e \"const fs=require('fs'); fs.mkdirSync('dist/data', {recursive:true}); fs.copyFileSync('src/data/exercises.json', 'dist/data/exercises.json'); fs.mkdirSync('dist/assets', {recursive:true}); fs.copyFileSync('src/assets/sportmaps-logo.png', 'dist/assets/sportmaps-logo.png');\""
   },
   "keywords": [],
   "author": "",
