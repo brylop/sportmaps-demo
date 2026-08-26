@@ -48,7 +48,7 @@ export function AppSidebar() {
   const location = useLocation();
   const [openSubmenus, setOpenSubmenus] = useState<Record<string, boolean>>({});
   const { hasVendorProfile, canSellProducts, canSellServices, verificationStatus } = useVendorProfile();
-  const { hasAddon, hasBilling } = useEntitlements();
+  const { hasAddon, hasBilling, isModuleEnabled } = useEntitlements();
 
   // En mobile el sidebar siempre muestra contenido expandido (nunca collapsed)
   const isCollapsed = !isMobile && state === 'collapsed';
@@ -110,7 +110,7 @@ export function AppSidebar() {
     }
   }
 
-  const baseNavigationGroups = getNavigationByRole(navigationRole, hasAddon);
+  const baseNavigationGroups = getNavigationByRole(navigationRole, hasAddon, isModuleEnabled);
 
   // Mi Tienda: grupo ADICIONAL para roles que NO son primariamente vendor
   // pero que decidieron sumarle marketplace a su cuenta.
