@@ -5,10 +5,11 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { Search, Loader2, Building2, Check, ShieldOff, CalendarClock, DollarSign, Receipt, Send, FileText } from 'lucide-react';
+import { Search, Loader2, Building2, Check, ShieldOff, CalendarClock, DollarSign, Receipt, Send, FileText, LayoutGrid } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { bffClient } from '@/lib/api/bffClient';
 import { toWaPhone } from '@/lib/api/payment-reminders';
+import { MODULE_CATALOG, MODULE_GROUPS } from '@/config/module-catalog';
 
 // Duraciones de prueba que se conceden a mano. El registro nuevo nace con 1 mes
 // (trigger create_default_school_subscription); acá se extiende cuando se acuerda.
@@ -73,6 +74,37 @@ interface SaasInvoiceRow {
 }
 
 const formatCopCents = (cents: number) => `$${Math.round(cents / 100).toLocaleString('es-CO')}`;
+
+/**
+ * Segmented control de 3 posiciones para un módulo del menú. Deliberadamente
+ * NO es el switch binario que usa la grilla de add-ons de arriba: con dos
+ * posiciones se pierde la distinción entre "heredado" (NULL — sigue el
+ * default) y "forzado OFF" (false — apagado a propósito), que es la base de
+ * que F0-F2 no cambien nada hasta que alguien toque este control.
+ */
+function TriStateModuleControl({
+  state, disabled, onChange,
+}: { state: 'heredado' | 'on' | 'off'; disabled: boolean; onChange: (v: boolean | null) => void }) {
+  return (
+    <div className="inline-flex rounded-lg border overflow-hidden text-xs shrink-0">
+      {(['heredado', 'on', 'off'] as const).map((s) => (
+        <button
+          key={s}
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange(s === 'heredado' ? null : s === 'on')}
+          className={`px-2.5 py-1.5 font-medium transition-colors disabled:opacity-50 ${
+            state === s
+              ? s === 'off' ? 'bg-destructive text-destructive-foreground' : 'bg-primary text-primary-foreground'
+              : 'hover:bg-muted text-muted-foreground'
+          }`}
+        >
+          {s === 'heredado' ? 'Heredado' : s === 'on' ? 'ON' : 'OFF'}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function AdminSubscriptionsPage() {
   const [schools, setSchools] = useState<SchoolRow[]>([]);
@@ -731,6 +763,94 @@ export default function AdminSubscriptionsPage() {
                   <p className="text-xs text-muted-foreground mt-3">
                     Prender un módulo lo activa al instante para la escuela (Modelo asistido). El cobro se gestiona aparte.
                   </p>
+                </div>
+
+                {/* Módulos del menú — override UX-only, capa independiente de los
+                    add-ons de arriba. Un ítem con addon asociado (Contabilidad,
+                    Control de Acceso) sigue necesitando el addon: acá solo se
+                    puede apagar por encima, nunca sustituye la compra. */}
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <LayoutGrid className="h-4 w-4 text-primary" />
+                    <p className="text-sm font-semibold">Módulos del menú</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Oculta ítems del menú lateral para esta escuela. <b>Heredado</b> = visible
+                    (o sigue al addon de arriba, si el ítem tiene uno). No reemplaza un addon:
+                    forzar <b>ON</b> acá no activa un módulo que la escuela no compró.
+                  </p>
+
+                  <div className="space-y-4">
+                    {MODULE_GROUPS.map((group) => {
+                      const items = Object.values(MODULE_CATALOG).filter((m) => m.group === group);
+                      return (
+                        <div key={group}>
+                          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+                            {group}
+                          </p>
+                          <div className="space-y-1.5">
+                            {items.map((def) => {
+                              const raw = ent?.module_overrides?.[def.key] as boolean | undefined;
+                              const state: 'heredado' | 'on' | 'off' = raw === undefined ? 'heredado' : raw ? 'on' : 'off';
+                              const hasAddonRight = !def.addon || !!ent?.[`has_${def.addon}`];
+                              return (
+                                <div
+                                  key={def.key}
+                                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-2"
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="text-sm truncate">{def.label}</span>
+                                    {def.addon && !hasAddonRight && (
+                                      <Badge variant="outline" className="border-amber-500 text-amber-600 shrink-0">
+                                        sin addon
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <TriStateModuleControl
+                                    state={state}
+                                    disabled={!!savingKey}
+                                    onChange={(v) => accionPrueba(
+                                      'admin_set_school_module',
+                                      { p_module_key: def.key, p_enabled: v },
+                                      v === null
+                                        ? `${def.label}: vuelto a heredado`
+                                        : `${def.label}: forzado ${v ? 'ON' : 'OFF'}`,
+                                    )}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Valor efectivo ahora mismo — la escuela real puede tener un
+                      addon apagado Y un override en heredado a la vez; esta tabla
+                      resuelve la cuenta en vez de que alguien la haga a mano. */}
+                  <div className="mt-4 rounded-xl border p-3">
+                    <p className="text-xs font-semibold mb-2">Valor efectivo ahora mismo</p>
+                    <div className="space-y-1 text-xs">
+                      {Object.values(MODULE_CATALOG).map((def) => {
+                        const raw = ent?.module_overrides?.[def.key] as boolean | undefined;
+                        const hasAddonRight = !def.addon || !!ent?.[`has_${def.addon}`];
+                        const isOn = raw !== false;
+                        const effective = hasAddonRight && isOn;
+                        const motivo = !hasAddonRight
+                          ? 'sin addon'
+                          : raw === undefined ? 'heredado' : `forzado ${raw ? 'ON' : 'OFF'}`;
+                        return (
+                          <div key={def.key} className="flex items-center justify-between gap-2 py-0.5">
+                            <span className="text-muted-foreground">{def.label}</span>
+                            <span className={effective ? 'text-emerald-600' : 'text-muted-foreground'}>
+                              {effective ? '✅' : '❌'} {motivo}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
