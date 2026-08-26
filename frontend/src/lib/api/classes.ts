@@ -247,10 +247,16 @@ class ClassesAPI {
   /**
    * Enroll a student in a program using BFF endpoint
    */
-  async enrollStudent(classId: string, studentId: string, studentName: string, isAdult: boolean = false): Promise<EnrollmentRecord> {
-    const payload = isAdult
-      ? { user_id: studentId, team_id: classId }
-      : { child_id: studentId, team_id: classId };
+  async enrollStudent(
+    classId: string,
+    studentId: string,
+    studentName: string,
+    athleteType: 'child' | 'adult' | 'unregistered' = 'child'
+  ): Promise<EnrollmentRecord> {
+    const payload =
+      athleteType === 'adult' ? { user_id: studentId, team_id: classId } :
+      athleteType === 'unregistered' ? { unregistered_athlete_id: studentId, team_id: classId } :
+      { child_id: studentId, team_id: classId };
 
     const data = await bffClient.post<{ id: string; created_at: string }>(
       '/api/v1/enrollments',
@@ -275,7 +281,7 @@ class ClassesAPI {
       .from('enrollments')
       .update({ status: 'cancelled' })
       .eq('team_id', classId)
-      .eq('child_id', studentId)
+      .or(`child_id.eq.${studentId},user_id.eq.${studentId},unregistered_athlete_id.eq.${studentId}`)
       .eq('status', 'active');
 
     // Antes esto era un console.warn y la baja fallida pasaba por exitosa.
@@ -291,10 +297,10 @@ class ClassesAPI {
    */
   async getClassStudents(classId: string): Promise<any[]> {
     try {
-      // Obtener enrollments activos con user_id y child_id
+      // Obtener enrollments activos con los tres ejes de sujeto posibles
       const { data: enrollments, error } = await supabase
         .from('enrollments')
-        .select('id, created_at, child_id, user_id')
+        .select('id, created_at, child_id, user_id, unregistered_athlete_id')
         .eq('team_id', classId)
         .eq('status', 'active');
 
@@ -304,10 +310,11 @@ class ClassesAPI {
       }
       if (!enrollments || enrollments.length === 0) return [];
 
-      // Recopilar IDs de ambos tipos
+      // Recopilar IDs de los tres tipos
       const childIds = enrollments.map(e => e.child_id).filter(Boolean) as string[];
       const userIds = enrollments.map(e => e.user_id).filter(Boolean) as string[];
-      const allIds = [...childIds, ...userIds];
+      const unregisteredIds = enrollments.map((e: any) => e.unregistered_athlete_id).filter(Boolean) as string[];
+      const allIds = [...childIds, ...userIds, ...unregisteredIds];
 
       if (allIds.length === 0) return [];
 
@@ -322,7 +329,7 @@ class ClassesAPI {
       );
 
       return enrollments.map((enrollment: any) => {
-        const athleteId = enrollment.child_id ?? enrollment.user_id;
+        const athleteId = enrollment.child_id ?? enrollment.user_id ?? enrollment.unregistered_athlete_id;
         return {
           enrollment_id: enrollment.id,
           enrollment_date: enrollment.created_at,
