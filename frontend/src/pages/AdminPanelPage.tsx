@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Users, School, Activity, Settings, Shield, BarChart3, Search, MoreHorizontal, FileText, DoorOpen } from 'lucide-react';
+import { Users, School, Activity, Settings, Shield, BarChart3, Search, MoreHorizontal, FileText, DoorOpen, Headset } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import {
@@ -140,6 +140,12 @@ export default function AdminPanelPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Link to="/admin/support">
+            <Button variant="outline" className="gap-2">
+              <Headset className="h-4 w-4" />
+              Soporte
+            </Button>
+          </Link>
           <Link to="/admin/access-logs">
             <Button variant="outline" className="gap-2">
               <DoorOpen className="h-4 w-4" />

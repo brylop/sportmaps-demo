@@ -33,6 +33,7 @@ import paymentsRouter from './routes/payments.routes';
 import glosasRouter from './routes/glosas.routes';
 import adminPaymentsRouter from './routes/admin-payments.routes';
 import adminSupportRouter from './routes/admin-support.routes';
+import supportRouter from './routes/support.routes';
 import platformInvoicingRouter from './routes/platform-invoicing.routes';
 import paymentTokensRouter from './routes/payment-tokens.routes';
 import recurringRouter from './routes/recurring.routes';
@@ -365,6 +366,7 @@ app.use('/api/v1/access', generalLimiter, accessApiRouter);
 app.use('/api/v1/admin/access-logs', generalLimiter, accessAdminRouter);
 // Consola de soporte (super_admin) — F0 solo lectura.
 app.use('/api/v1/admin/support', generalLimiter, adminSupportRouter);
+app.use('/api/v1/support', generalLimiter, supportRouter);
 // Facturación SaaS SportMaps → escuelas (super_admin).
 app.use('/api/v1/platform/invoices', generalLimiter, platformInvoicingRouter);
 
