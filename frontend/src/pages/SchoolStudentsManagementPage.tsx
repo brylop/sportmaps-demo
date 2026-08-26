@@ -415,6 +415,30 @@ export default function SchoolStudentsManagementPage() {
       } else {
         data = await studentsAPI.getSchoolView(schoolId, { branchId: activeBranchId, includeInactive: true });
       }
+
+      // school_athletes no trae guardian_full_name de unregistered_athletes —
+      // se completa acá con un solo query bulk (no se toca la vista).
+      const unregisteredIds = (data as any[])
+        .filter(s => s.athlete_type === 'unregistered')
+        .map(s => s.id);
+      if (unregisteredIds.length > 0) {
+        const { data: guardians } = await supabase
+          .from('unregistered_athletes')
+          .select('id, guardian_full_name, guardian_phone, guardian_email')
+          .in('id', unregisteredIds);
+        const guardianMap = Object.fromEntries((guardians || []).map((g: any) => [g.id, g]));
+        data = (data as any[]).map(s => {
+          const g = guardianMap[s.id];
+          if (s.athlete_type !== 'unregistered' || !g) return s;
+          return {
+            ...s,
+            parent_name: g.guardian_full_name || s.parent_name,
+            parent_phone: g.guardian_phone || s.parent_phone,
+            parent_email: g.guardian_email || s.parent_email,
+          };
+        });
+      }
+
       return data as StudentViewRow[];
     },
     enabled: !!schoolId && coachIdResolved,
