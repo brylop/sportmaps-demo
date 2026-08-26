@@ -117,6 +117,7 @@ type DeviceInfo = {
   direction: 'entry' | 'exit';
   ipAddress: string | null;
   ipCheckMode: 'off' | 'warn' | 'enforce';
+  hasLocalBridge: boolean;
 };
 const DEVICE_CACHE_TTL_MS = 5 * 60 * 1000;
 const deviceCache = new Map<string, { value: DeviceInfo | null; at: number }>();
@@ -132,7 +133,7 @@ async function getDeviceBySerial(sn: string): Promise<DeviceInfo | null> {
 
   const { data } = await supabase
     .from('turnstile_devices')
-    .select('id, school_id, direction, ip_address, ip_check_mode')
+    .select('id, school_id, direction, ip_address, ip_check_mode, has_local_bridge')
     .eq('serial_number', sn)
     .eq('is_active', true)
     .maybeSingle();
@@ -144,6 +145,7 @@ async function getDeviceBySerial(sn: string): Promise<DeviceInfo | null> {
         direction: data.direction as 'entry' | 'exit',
         ipAddress: data.ip_address ?? null,
         ipCheckMode: (data.ip_check_mode as 'off' | 'warn' | 'enforce') ?? 'off',
+        hasLocalBridge: !!data.has_local_bridge,
       }
     : null;
 
@@ -778,7 +780,7 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
   await touchDevice(sn);
   const deviceId = device.id;
 
-  const { data: commands } = await supabase
+  let pendingQuery = supabase
     .from('device_commands')
     .select('id, cmd_seq, command_type, metadata')
     .eq('device_id', deviceId)
@@ -786,6 +788,17 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
     .gt('expires_at', new Date().toISOString())
     .order('issued_at', { ascending: true })
     .limit(5);
+
+  // `open_door` en dispositivos con bridge local (pyzk) NO se manda por acá:
+  // el F22ID acepta CONTROL DEVICE con Return:0 sin mover el relé, y de acá
+  // abajo se marcaría `executed` en falso por ese mismo Return code, ganándole
+  // la carrera a GET /bridge/door-commands (que sí lo ejecuta de verdad).
+  // Ver scripts/gymrm-door-bridge/VALIDACION-2026-08-25.md, hallazgo 1.
+  if (device.hasLocalBridge) {
+    pendingQuery = pendingQuery.neq('command_type', 'open_door');
+  }
+
+  const { data: commands } = await pendingQuery;
 
   // Limpiar expirados
   await supabase

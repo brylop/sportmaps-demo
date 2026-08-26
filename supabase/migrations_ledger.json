@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 401,
-  "head": "20260821141913",
+  "count": 402,
+  "head": "20260825231925",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -404,6 +404,7 @@
     {"v":"20260821125525","file":"20260821125525_dreamers_hour_bank_schema.sql","sha256":"ab2e7227b281cd4f5650935d070c5eaa7f23f827cfed03832cacbc7114b892e7","added":"2026-08-21","by":"judegor99"},
     {"v":"20260821131412","file":"20260821131412_hour_bank_move_rpc.sql","sha256":"3d9d0f55a0fa0daf294593836d949ff385cb21c804d730afb705f686e0f322de","added":"2026-08-21","by":"judegor99"},
     {"v":"20260821133157","file":"20260821133157_hour_bank_autoclose_rpc.sql","sha256":"8025302ff4ae01a4a2bc7f69f59382c1ddbfe369a48ed07e45ab12c40f9c5c5d","added":"2026-08-21","by":"judegor99"},
-    {"v":"20260821141913","file":"20260821141913_hour_bank_reservations.sql","sha256":"c37f066a3dd49187c68bd17f0da9ddb91daa7ece7cc48241d35d8b69c6d5f1b2","added":"2026-08-21","by":"judegor99"}
+    {"v":"20260821141913","file":"20260821141913_hour_bank_reservations.sql","sha256":"c37f066a3dd49187c68bd17f0da9ddb91daa7ece7cc48241d35d8b69c6d5f1b2","added":"2026-08-21","by":"judegor99"},
+    {"v":"20260825231925","file":"20260825231925_gymrm_bridge_local_flag.sql","sha256":"3a7dbbfd7f21c9ab84c258ab51707df98ffa9602166bd8e2b3f4fed23e4dfbdd","added":"2026-08-26","by":"judegor99"}
   ]
 }

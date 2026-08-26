@@ -31,6 +31,11 @@ services:
         sync: false
       - key: FRONTEND_URL
         value: https://dev.sportmaps.co
+      # Puente físico GYM RM (scripts/gymrm-door-bridge/) -- valor real solo
+      # en el dashboard de Render, nunca acá. Debe coincidir con
+      # SPORTMAPS_BRIDGE_API_KEY en la PC del gym.
+      - key: BRIDGE_API_KEY
+        sync: false
 
   # ── BFF: Entorno de Staging (Staging) ──────────────────────────────────────
   - type: web
