@@ -40,6 +40,7 @@ import {
 import { UserRole } from '@/types/dashboard';
 import { SHOW_EXPLORE } from '@/lib/feature-flags';
 import type { AddonKey } from '@/config/saas-plans';
+import type { ModuleKey } from '@/config/module-catalog';
 
 export interface NavItem {
   title: string;
@@ -50,6 +51,12 @@ export interface NavItem {
   submenu?: NavItem[];
   /** Si la escuela no tiene este addon, el ítem (o el grupo entero, si queda vacío) se oculta. */
   addon?: AddonKey;
+  /**
+   * Override UX-only del Super Admin (tabla `school_module_overrides`,
+   * catálogo en `module-catalog.ts`). Independiente de `addon`: si el ítem
+   * tiene los dos, la visibilidad efectiva es `hasAddon AND isModuleEnabled`.
+   */
+  moduleKey?: ModuleKey;
 }
 
 export interface NavGroup {
@@ -108,6 +115,7 @@ const GESTION_DEPORTIVA_ESCUELA: NavItem[] = [
   {
     title: 'Equipos y Planes',
     icon: Users,
+    moduleKey: 'gestion_deportiva_equipos_planes',
     submenu: [
       { title: 'Mis Equipos', href: '/teams', icon: Users },
       { title: 'Deportes y Categorías', href: '/school-sports', icon: Trophy },
@@ -115,16 +123,16 @@ const GESTION_DEPORTIVA_ESCUELA: NavItem[] = [
       { title: 'Mis Planes', href: '/offerings', icon: FileText }
     ]
   },
-  { title: 'Calendario', href: '/calendar', icon: Calendar },
+  { title: 'Calendario', href: '/calendar', icon: Calendar, moduleKey: 'gestion_deportiva_calendario' },
   {
     title: 'Entrenamiento',
     icon: Activity,
     submenu: [
-      { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity },
-      { title: 'Gestión de Rutinas', href: '/school/routines', icon: Dumbbell },
+      { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity, moduleKey: 'gestion_deportiva_entrenamiento_metricas' },
+      { title: 'Gestión de Rutinas', href: '/school/routines', icon: Dumbbell, moduleKey: 'gestion_deportiva_entrenamiento_rutinas' },
     ]
   },
-  { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText },
+  { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText, moduleKey: 'gestion_deportiva_informe_mensual' },
   {
     title: 'Asistencias',
     icon: BarChart3,
@@ -152,6 +160,19 @@ function filterByAddon(items: NavItem[], hasAddon: (key: AddonKey) => boolean): 
 }
 
 /**
+ * Filtra por override de módulo del Super Admin (`school_module_overrides`).
+ * Capa independiente de `filterByAddon`, misma poda de submenú huérfano.
+ * `isModuleEnabled` ya resuelve "heredado o forzado ON = visible", así que
+ * acá solo hace falta preguntar.
+ */
+function filterByModuleOverride(items: NavItem[], isModuleEnabled: (key: ModuleKey) => boolean): NavItem[] {
+  return items
+    .filter(item => !item.moduleKey || isModuleEnabled(item.moduleKey))
+    .map(item => item.submenu ? { ...item, submenu: filterByModuleOverride(item.submenu, isModuleEnabled) } : item)
+    .filter(item => !item.submenu || item.submenu.length > 0);
+}
+
+/**
  * Returns navigation structure based on user role. `hasAddon` es opcional
  * (default: todo visible) para no romper si algún caller no lo pasa —
  * `AppSidebar.tsx` sí lo pasa siempre, con el `hasAddon` de `useEntitlements()`.
@@ -159,6 +180,7 @@ function filterByAddon(items: NavItem[], hasAddon: (key: AddonKey) => boolean): 
 export function getNavigationByRole(
   role: UserRole,
   hasAddon: (key: AddonKey) => boolean = () => true,
+  isModuleEnabled: (key: ModuleKey) => boolean = () => true,
 ): NavGroup[] {
   const baseNav: NavGroup = {
     title: 'Principal',
@@ -333,14 +355,15 @@ export function getNavigationByRole(
         // Los destinos de "mirar reportes" se separaron al grupo "Reportes".
         title: 'Finanzas',
         items: [
-          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
-          { title: 'Modo Recepción', href: '/recepcion', icon: MonitorSpeaker },
+          { title: 'Pagos', href: '/payments-automation', icon: DollarSign, moduleKey: 'finanzas_pagos' },
+          { title: 'Modo Recepción', href: '/recepcion', icon: MonitorSpeaker, moduleKey: 'finanzas_recepcion' },
           {
             title: 'Contabilidad',
             icon: BookOpen,
             // Gateado en el GRUPO, no en cada hijo: si la escuela no tiene el
             // addon 'accounting', el submenu entero desaparece de una vez.
             addon: 'accounting',
+            moduleKey: 'finanzas_contabilidad',
             submenu: [
               { title: 'Contabilidad', href: '/accounting', icon: BookOpen },
               { title: 'Proveedores', href: '/accounting/suppliers', icon: Truck },
@@ -356,11 +379,11 @@ export function getNavigationByRole(
         // separan porque son destinos de "ver reportes", no de operar dinero.
         title: 'Reportes',
         items: [
-          { title: 'Finanzas', href: '/finances', icon: DollarSign },
-          { title: 'Reportes', href: '/school-reports', icon: FileText },
+          { title: 'Finanzas', href: '/finances', icon: DollarSign, moduleKey: 'reportes_finanzas' },
+          { title: 'Reportes', href: '/school-reports', icon: FileText, moduleKey: 'reportes_reportes' },
           // Antes "Cartera por Estado" en un lado y "📊 Panel de Reportes" en
           // el rol reporter — mismo destino, dos nombres (y un emoji hardcodeado).
-          { title: 'Panel de Reportes', href: '/reporter-dashboard', icon: BarChart3 },
+          { title: 'Panel de Reportes', href: '/reporter-dashboard', icon: BarChart3, moduleKey: 'reportes_panel' },
         ]
       },
       {
@@ -369,31 +392,32 @@ export function getNavigationByRole(
           {
             title: 'Carnets',
             icon: IdCard,
+            moduleKey: 'documentos_carnets',
             submenu: [
               { title: 'Carnets Digitales', href: '/cards', icon: IdCard },
               { title: 'Plantillas de Carnets', href: '/cards/templates/certificates', icon: FileText },
             ],
           },
-          { title: 'Constancias', href: '/certificates', icon: FileCheck2 },
-          { title: 'QR de Inscripción', href: '/qr-signup', icon: QrCode },
+          { title: 'Constancias', href: '/certificates', icon: FileCheck2, moduleKey: 'documentos_constancias' },
+          { title: 'QR de Inscripción', href: '/qr-signup', icon: QrCode, moduleKey: 'documentos_qr_inscripcion' },
           // Movidos acá desde "Finanzas": son comunicación con la familia, no
           // operación de dinero.
-          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
-          { title: 'Plantillas de Mensajes', href: '/message-templates', icon: MessageSquare },
+          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell, moduleKey: 'documentos_recordatorios' },
+          { title: 'Plantillas de Mensajes', href: '/message-templates', icon: MessageSquare, moduleKey: 'documentos_plantillas_mensajes' },
         ]
       },
       {
         title: 'Sedes e Instalaciones',
         items: [
-          { title: 'Sedes', href: '/branches', icon: MapPin },
-          { title: 'Instalaciones', href: '/facilities', icon: Building },
-          { title: 'Control de Acceso', href: '/school/access-control', icon: ShieldCheck, addon: 'access_control' },
+          { title: 'Sedes', href: '/branches', icon: MapPin, moduleKey: 'sedes_sedes' },
+          { title: 'Instalaciones', href: '/facilities', icon: Building, moduleKey: 'sedes_instalaciones' },
+          { title: 'Control de Acceso', href: '/school/access-control', icon: ShieldCheck, addon: 'access_control', moduleKey: 'sedes_control_acceso' },
         ]
       },
       {
         title: 'Cuenta',
         items: [
-          { title: 'Mi Perfil Público', href: '/school/public-profile', icon: User },
+          { title: 'Mi Perfil Público', href: '/school/public-profile', icon: User, moduleKey: 'cuenta_perfil_publico' },
           { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings },
         ]
@@ -559,14 +583,15 @@ export function getNavigationByRole(
         // Los destinos de "mirar reportes" se separaron al grupo "Reportes".
         title: 'Finanzas',
         items: [
-          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
-          { title: 'Modo Recepción', href: '/recepcion', icon: MonitorSpeaker },
+          { title: 'Pagos', href: '/payments-automation', icon: DollarSign, moduleKey: 'finanzas_pagos' },
+          { title: 'Modo Recepción', href: '/recepcion', icon: MonitorSpeaker, moduleKey: 'finanzas_recepcion' },
           {
             title: 'Contabilidad',
             icon: BookOpen,
             // Gateado en el GRUPO, no en cada hijo: si la escuela no tiene el
             // addon 'accounting', el submenu entero desaparece de una vez.
             addon: 'accounting',
+            moduleKey: 'finanzas_contabilidad',
             submenu: [
               { title: 'Contabilidad', href: '/accounting', icon: BookOpen },
               { title: 'Proveedores', href: '/accounting/suppliers', icon: Truck },
@@ -582,11 +607,11 @@ export function getNavigationByRole(
         // separan porque son destinos de "ver reportes", no de operar dinero.
         title: 'Reportes',
         items: [
-          { title: 'Finanzas', href: '/finances', icon: DollarSign },
-          { title: 'Reportes', href: '/school-reports', icon: FileText },
+          { title: 'Finanzas', href: '/finances', icon: DollarSign, moduleKey: 'reportes_finanzas' },
+          { title: 'Reportes', href: '/school-reports', icon: FileText, moduleKey: 'reportes_reportes' },
           // Antes "Cartera por Estado" en un lado y "📊 Panel de Reportes" en
           // el rol reporter — mismo destino, dos nombres (y un emoji hardcodeado).
-          { title: 'Panel de Reportes', href: '/reporter-dashboard', icon: BarChart3 },
+          { title: 'Panel de Reportes', href: '/reporter-dashboard', icon: BarChart3, moduleKey: 'reportes_panel' },
         ]
       },
       {
@@ -595,25 +620,26 @@ export function getNavigationByRole(
           {
             title: 'Carnets',
             icon: IdCard,
+            moduleKey: 'documentos_carnets',
             submenu: [
               { title: 'Carnets Digitales', href: '/cards', icon: IdCard },
               { title: 'Plantillas de Carnets', href: '/cards/templates/certificates', icon: FileText },
             ],
           },
-          { title: 'Constancias', href: '/certificates', icon: FileCheck2 },
-          { title: 'QR de Inscripción', href: '/qr-signup', icon: QrCode },
+          { title: 'Constancias', href: '/certificates', icon: FileCheck2, moduleKey: 'documentos_constancias' },
+          { title: 'QR de Inscripción', href: '/qr-signup', icon: QrCode, moduleKey: 'documentos_qr_inscripcion' },
           // Movidos acá desde "Finanzas": son comunicación con la familia, no
           // operación de dinero.
-          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
-          { title: 'Plantillas de Mensajes', href: '/message-templates', icon: MessageSquare },
+          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell, moduleKey: 'documentos_recordatorios' },
+          { title: 'Plantillas de Mensajes', href: '/message-templates', icon: MessageSquare, moduleKey: 'documentos_plantillas_mensajes' },
         ]
       },
       {
         title: 'Sedes e Instalaciones',
         items: [
-          { title: 'Sedes', href: '/branches', icon: MapPin },
-          { title: 'Instalaciones', href: '/facilities', icon: Building },
-          { title: 'Control de Acceso', href: '/school/access-control', icon: ShieldCheck, addon: 'access_control' },
+          { title: 'Sedes', href: '/branches', icon: MapPin, moduleKey: 'sedes_sedes' },
+          { title: 'Instalaciones', href: '/facilities', icon: Building, moduleKey: 'sedes_instalaciones' },
+          { title: 'Control de Acceso', href: '/school/access-control', icon: ShieldCheck, addon: 'access_control', moduleKey: 'sedes_control_acceso' },
         ]
       },
       {
@@ -707,6 +733,9 @@ export function getNavigationByRole(
 
   const groups = roleSpecificNav[role] || [baseNav];
   return groups
-    .map(group => ({ ...group, items: filterByAddon(group.items, hasAddon) }))
+    .map(group => ({
+      ...group,
+      items: filterByModuleOverride(filterByAddon(group.items, hasAddon), isModuleEnabled),
+    }))
     .filter(group => group.items.length > 0);
 }

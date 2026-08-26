@@ -9,6 +9,7 @@ import { ThemeProvider } from "@/contexts/ThemeContext";
 import { CartProvider } from "@/contexts/CartContext";
 import { SchoolProvider } from "@/hooks/useSchoolContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { ModuleGate } from "@/components/ModuleGate";
 import { RequirePersonalTrainer } from "@/components/trainer/RequirePersonalTrainer";
 import AuthLayout from "@/layouts/AuthLayout";
 import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
@@ -365,7 +366,9 @@ const App = () => (
                         No usa AuthLayout (sin chrome). SchoolProvider ya vive en la raíz. */}
                     <Route path="/recepcion" element={
                       <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'reporter']}>
-                        <RecepcionPage />
+                        <ModuleGate moduleKey="finanzas_recepcion">
+                          <RecepcionPage />
+                        </ModuleGate>
                       </ProtectedRoute>
                     } />
 
@@ -377,18 +380,28 @@ const App = () => (
                     }>
                       <Route path="dashboard" element={<DashboardPage />} />
                       <Route path="profile" element={<ProfilePage />} />
-                      <Route path="calendar" element={<CalendarPage />} />
+                      <Route path="calendar" element={
+                        <ModuleGate moduleKey="gestion_deportiva_calendario">
+                          <CalendarPage />
+                        </ModuleGate>
+                      } />
                       <Route path="notifications" element={<NotificationsPage />} />
                       <Route path="settings" element={<SettingsPage />} />
                       <Route path="messages" element={<MessagesPage />} />
 
                       {/* Athlete routes */}
-                      <Route path="teams" element={<TeamsPage />} />
+                      <Route path="teams" element={
+                        <ModuleGate moduleKey="gestion_deportiva_equipos_planes">
+                          <TeamsPage />
+                        </ModuleGate>
+                      } />
                       {/* Deportes y categorias: util sobre todo en multideporte.
                           El item del menu se muestra condicionado (AppSidebar). */}
                       <Route path="school-sports" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <SchoolSportsPage />
+                          <ModuleGate moduleKey="gestion_deportiva_equipos_planes">
+                            <SchoolSportsPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       {/* Membresias del club (CAR-4): para clubes que cobran la
@@ -396,12 +409,16 @@ const App = () => (
                           la escuela NO cobra por SportMaps (AppSidebar). */}
                       <Route path="memberships" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <MembershipsPage />
+                          <ModuleGate moduleKey="gestion_deportiva_equipos_planes">
+                            <MembershipsPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="offerings" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <OfferingsPage />
+                          <ModuleGate moduleKey="gestion_deportiva_equipos_planes">
+                            <OfferingsPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="stats" element={<StatsPage />} />
@@ -468,7 +485,11 @@ const App = () => (
                       <Route path="coach-attendance" element={<CoachAttendancePage />} />
                       <Route path="coach-plans" element={<CoachPlansPage />} />
                       <Route path="results" element={<ResultsPage />} />
-                      <Route path="training-plans" element={<TrainingPlansPage />} />
+                      <Route path="training-plans" element={
+                        <ModuleGate moduleKey="gestion_deportiva_entrenamiento_metricas">
+                          <TrainingPlansPage />
+                        </ModuleGate>
+                      } />
                       <Route path="coach-reports" element={<CoachReportsPage />} />
                       <Route path="evaluations" element={<CoachEvaluationsPage />} />
                       <Route path="announcements" element={<AnnouncementsPage />} />
@@ -525,12 +546,16 @@ const App = () => (
                       } />
                       <Route path="school/routines" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
-                          <SchoolRoutines />
+                          <ModuleGate moduleKey="gestion_deportiva_entrenamiento_rutinas">
+                            <SchoolRoutines />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="school/routines/:routineId" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
-                          <TrainerRoutineDetail />
+                          <ModuleGate moduleKey="gestion_deportiva_entrenamiento_rutinas">
+                            <TrainerRoutineDetail />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="students" element={
@@ -582,52 +607,72 @@ const App = () => (
                       } />
                       <Route path="finances" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <FinancesPage />
+                          <ModuleGate moduleKey="reportes_finanzas">
+                            <FinancesPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="accounting" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <AccountingPage />
+                          <ModuleGate moduleKey="finanzas_contabilidad">
+                            <AccountingPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="accounting/suppliers" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <AccountingSuppliersPage />
+                          <ModuleGate moduleKey="finanzas_contabilidad">
+                            <AccountingSuppliersPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="accounting/payroll" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <PayrollPage />
+                          <ModuleGate moduleKey="finanzas_contabilidad">
+                            <PayrollPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="accounting/reports" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <AccountingReportsPage />
+                          <ModuleGate moduleKey="finanzas_contabilidad">
+                            <AccountingReportsPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="accounting/budget" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <AccountingBudgetPage />
+                          <ModuleGate moduleKey="finanzas_contabilidad">
+                            <AccountingBudgetPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="payments-automation" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <PaymentsAutomationPage />
+                          <ModuleGate moduleKey="finanzas_pagos">
+                            <PaymentsAutomationPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="cards" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <SchoolCardsAdminPage />
+                          <ModuleGate moduleKey="documentos_carnets">
+                            <SchoolCardsAdminPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="certificates" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <SchoolCertificatesAdminPage />
+                          <ModuleGate moduleKey="documentos_constancias">
+                            <SchoolCertificatesAdminPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="cards/templates/certificates" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <CertificateTemplatesPage />
+                          <ModuleGate moduleKey="documentos_carnets">
+                            <CertificateTemplatesPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="my-certificates" element={
@@ -647,42 +692,58 @@ const App = () => (
                       } />
                       <Route path="qr-signup" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <SchoolJoinQRsPage />
+                          <ModuleGate moduleKey="documentos_qr_inscripcion">
+                            <SchoolJoinQRsPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="payment-reminders" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <PaymentRemindersPage />
+                          <ModuleGate moduleKey="documentos_recordatorios">
+                            <PaymentRemindersPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="message-templates" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <MessageTemplatesPage />
+                          <ModuleGate moduleKey="documentos_plantillas_mensajes">
+                            <MessageTemplatesPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="reporter-dashboard" element={
                         <ProtectedRoute allowedRoles={['reporter', 'school', 'school_admin', 'admin', 'super_admin']}>
-                          <ReporterDashboardPage />
+                          <ModuleGate moduleKey="reportes_panel">
+                            <ReporterDashboardPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="informe-mensual" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
-                          <MonthlyReportsPage />
+                          <ModuleGate moduleKey="gestion_deportiva_informe_mensual">
+                            <MonthlyReportsPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="school-reports" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <ReportsPage />
+                          <ModuleGate moduleKey="reportes_reportes">
+                            <ReportsPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="facilities" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <SchoolFacilitiesPage />
+                          <ModuleGate moduleKey="sedes_instalaciones">
+                            <SchoolFacilitiesPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="branches" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <SchoolBranchesManagementPage />
+                          <ModuleGate moduleKey="sedes_sedes">
+                            <SchoolBranchesManagementPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="school-config" element={
@@ -692,12 +753,16 @@ const App = () => (
                       } />
                       <Route path="school/public-profile" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <SchoolPublicProfilePage />
+                          <ModuleGate moduleKey="cuenta_perfil_publico">
+                            <SchoolPublicProfilePage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="school/access-control" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <AccessControlPage />
+                          <ModuleGate moduleKey="sedes_control_acceso">
+                            <AccessControlPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="vendor/public-profile" element={
