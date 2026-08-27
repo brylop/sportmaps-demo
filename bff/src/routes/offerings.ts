@@ -44,6 +44,12 @@ const CreatePlanSchema = z.object({
     // el plan se mide en minutos por período en vez de max_sessions. No son excluyentes a
     // nivel de esquema — la UI decide cuál de los dos mostrar/editar por vez.
     included_minutes_per_period: z.number().int().positive().nullable().optional(),
+    // Niveles por horas (docs/specs/dreamers-niveles-por-horas-y-progresion.md, D1/D2/D17):
+    // bloque de sesión y días/semana propios del plan, y cobro de inscripción único aparte
+    // de la mensualidad. Los tres nullable — NULL mantiene el comportamiento actual.
+    session_block_minutes: z.number().int().positive().nullable().optional(),
+    included_sessions_per_week: z.number().int().positive().nullable().optional(),
+    registration_fee: z.number().min(0).nullable().optional(),
 });
 
 const UpdatePlanSchema = z.object({
@@ -60,6 +66,9 @@ const UpdatePlanSchema = z.object({
     metadata: z.record(z.string(), z.unknown()).optional(),
     sort_order: z.number().int().min(0).optional(),
     included_minutes_per_period: z.number().int().positive().nullable().optional(),
+    session_block_minutes: z.number().int().positive().nullable().optional(),
+    included_sessions_per_week: z.number().int().positive().nullable().optional(),
+    registration_fee: z.number().min(0).nullable().optional(),
 });
 
 // ── GET /api/v1/offerings ────────────────────────────────────────────────────
