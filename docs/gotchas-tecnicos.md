@@ -80,6 +80,17 @@ commitea el archivo correspondiente. `npm run migrations:check` no lo detecta
 `schema_migrations` son dos historias que hay que cruzar a mano cuando algo no
 cuadra, nunca asumir que una implica la otra.
 
+### `school_athletes.enrollment_id` era `NULL` para atletas de plan sin equipo
+
+La vista trae `enrollment_id` del lateral `te` (inscripción **con equipo**, `team_id IS NOT NULL`)
+— el lateral `pe` (inscripción **con plan**) nunca seleccionaba `e.id`. Cualquier atleta inscrito
+solo en un plan, sin equipo (el caso normal en escuelas tipo academia, no una rareza), tenía
+`plan_name` correcto pero `enrollment_id` en `NULL`. Corregido 2026-08-27 con
+`COALESCE(te.enrollment_id, pe.enrollment_id)` en las 3 ramas del `UNION ALL`
+(`20260827144226_fix_school_athletes_enrollment_id_plan_only.sql`). Si algo lee
+`school_athletes.enrollment_id` y sale `NULL` para un atleta que sí tiene plan activo, ya no
+debería pasar — pero si aparece de nuevo, es la misma clase de bug.
+
 ### El monto que paga un atleta tiene precedencia
 
 ```

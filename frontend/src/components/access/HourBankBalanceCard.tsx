@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { bffClient } from '@/lib/api/bffClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Clock } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -13,6 +15,11 @@ import { es } from 'date-fns/locale';
  * reservadas / consumidas / disponibles). No renderiza NADA si la inscripción
  * no tiene un plan de horas (`has_hours_plan: false`) — así es seguro montarlo
  * en cualquier vista de cualquier escuela sin afectar a las que no usan esto.
+ *
+ * `showHistory` (default false): agrega un toggle "Ver histórico" con los
+ * períodos (meses) anteriores — "validación de gastos por el mes" del perfil
+ * del estudiante. Apagado por defecto para no meterle ruido a la vista del
+ * padre/atleta (MyEnrollmentsPage), que solo necesita el saldo de hoy.
  */
 
 interface HourBankBalance {
@@ -24,6 +31,16 @@ interface HourBankBalance {
   reserved_minutes?: number;
   consumed_minutes?: number;
   available_minutes?: number;
+}
+
+interface HourBankPeriod {
+  id: string;
+  period_start: string;
+  period_end: string;
+  included_minutes: number;
+  reserved_minutes: number;
+  consumed_minutes: number;
+  available_minutes: number;
 }
 
 function formatMinutes(mins: number): string {
@@ -41,7 +58,38 @@ function fmtDate(d?: string): string {
   return format(parseISO(d), "d 'de' MMM", { locale: es });
 }
 
-export function HourBankBalanceCard({ enrollmentId }: { enrollmentId: string }) {
+function HistoryPanel({ enrollmentId }: { enrollmentId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['hour-bank-periods', enrollmentId],
+    queryFn: () => bffClient.get<{ periods: HourBankPeriod[] }>(`/api/v1/access/hour-bank-periods/${enrollmentId}`),
+    staleTime: 60_000,
+  });
+
+  if (isLoading) return <p className="text-xs text-muted-foreground py-2">Cargando histórico...</p>;
+
+  const periods = data?.periods ?? [];
+  if (periods.length === 0) return <p className="text-xs text-muted-foreground py-2">Sin períodos todavía.</p>;
+
+  return (
+    <div className="pt-2 border-t border-border/20 space-y-1">
+      {periods.map((p) => {
+        const over = p.available_minutes < 0;
+        return (
+          <div key={p.id} className="flex items-center justify-between text-xs py-1">
+            <span className="text-muted-foreground">{fmtDate(p.period_start)} — {fmtDate(p.period_end)}</span>
+            <span className={`font-semibold ${over ? 'text-red-600' : ''}`}>
+              {formatMinutes(p.consumed_minutes + p.reserved_minutes)} / {formatMinutes(p.included_minutes)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function HourBankBalanceCard({ enrollmentId, showHistory = false }: { enrollmentId: string; showHistory?: boolean }) {
+  const [historyOpen, setHistoryOpen] = useState(false);
+
   const { data, isLoading } = useQuery({
     queryKey: ['hour-bank-balance', enrollmentId],
     queryFn: () => bffClient.get<HourBankBalance>(`/api/v1/access/hour-bank-balance/${enrollmentId}`),
@@ -105,6 +153,21 @@ export function HourBankBalanceCard({ enrollmentId }: { enrollmentId: string }) 
           <p className="text-[11px] font-medium text-red-600">
             Saldo excedido — hablá con la escuela para completar horas.
           </p>
+        )}
+
+        {showHistory && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-0 text-[11px] text-muted-foreground"
+              onClick={() => setHistoryOpen((v) => !v)}
+            >
+              {historyOpen ? <ChevronUp className="h-3 w-3 mr-1" /> : <ChevronDown className="h-3 w-3 mr-1" />}
+              Ver histórico de meses
+            </Button>
+            {historyOpen && <HistoryPanel enrollmentId={enrollmentId} />}
+          </>
         )}
       </CardContent>
     </Card>

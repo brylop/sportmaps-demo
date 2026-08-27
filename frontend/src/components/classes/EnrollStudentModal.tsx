@@ -44,7 +44,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
         try {
             setLoading(true);
             const data = await studentsAPI.getSchoolView(classItem?.school_id || 'demo-school');
-            setStudents(data as Student[]);
+            setStudents(data as unknown as Student[]);
         } catch (error: any) {
             console.error('Error loading students:', error);
             toast({

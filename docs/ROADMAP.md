@@ -1,11 +1,48 @@
 # SportMaps — Roadmap Maestro
 
-**Versión:** 2.5 · **Fecha:** 2026-08-19 · **Rama:** `develop`
+**Versión:** 2.7 · **Fecha:** 2026-08-27 · **Rama:** `develop`
 
 > **Este es el único roadmap.** Todo lo demás en `docs/` es *spec* (qué se construye y por qué),
 > *plan de fase* (cómo se migra), *doctrina de arquitectura* (cómo se hace) o *auditoría* (qué está
 > mal). Ninguno de esos documentos define prioridades: las define esta cola. Si un pendiente no
 > aparece aquí, no existe.
+
+**Cambios v2.6 → v2.7** (banco de horas — cierre de brechas encontradas al validar con datos
+reales, 2026-08-27):
+- **Hallazgo del mismo día:** las reservas "por plan" y "por instalaciones" (`session_bookings`,
+  `facility_reservations`) no sabían que el banco de horas existe — movían `sessions_used` sin
+  tocar el saldo real. Peor: con "Máx. sesiones" conviviendo como etiqueta, ese número **sí**
+  actuaba como tope real en el sistema viejo. Corregido en los 6 puntos de entrada reales
+  (`/:id/book`, `/athlete/book-session`, `/athlete/book-secondary` + sus 3 cancelaciones) — el
+  primer intento solo cubrió el endpoint de staff, "Mis Inscripciones" usa uno distinto y quedó
+  descubierto hasta la segunda pasada. Migración `20260827131341_hour_bank_link_bookings.sql`.
+- **Reporte de ingresos/salidas por estudiante** (`GET /student-report/:enrollmentId`) + histórico
+  de períodos mes a mes (`GET /hour-bank-periods/:enrollmentId`) — nuevo endpoint.
+- **Reubicación a escala:** el listado plano de saldos en Control de Acceso no aguanta 50
+  estudiantes y no era el lugar — se movió al perfil del estudiante en Estudiantes
+  (`SchoolStudentsManagementPage.tsx`), con un badge compacto en la tabla/lista y un solo request
+  para toda la escuela (no uno por fila). Control de Acceso se queda solo con la bandeja de
+  `pending_review`, que sí es operativa.
+- ⚠️ **Confirmado con el cliente el 27-ago:** además de Dreamers, `Sub-10 (Beginners)` en Academia
+  Superior Bogotá quedó con banco de horas — una inscripción real de marzo-2026, no de prueba. Fue
+  intencional (validación pedida por el dueño de esa escuela), no un descuido, pero **no está en
+  el alcance original de `MOD-21`** (solo Dreamers) — dejarlo anotado para que quien retome esto
+  sepa que ya no es una sola escuela.
+
+**Cambios v2.5 → v2.6** (banco de horas por torniquete, entregado el 2026-08-21, fuera de la cola):
+- **Nuevo ítem `MOD-21`** — banco de horas por torniquete para Dreamers Gymnastics. F1-F5 en
+  `develop` (`b882f5dd`) con 4 migraciones aplicadas y verificadas en la base viva; F6 (frontend) va
+  en el mismo commit pero **sin verificación visual**. Detalle completo en §1.4 y en el catálogo.
+- **Quinto caso de «trabajo vivo que el tablero no refleja»**, después de `DIN-4`, Android, el ciclo
+  diario de Informes y el tablero táctico de fútbol (v2.5). El patrón se repite: el spec nació y se
+  construyó en la misma sesión, sin pasar por §4. Se marca ahora, como manda §0.
+- **Sale a la luz un incidente aparte, ya cerrado, que tampoco estaba escrito:** el allowlist de IP
+  global de ADMS (env var único en Render, compartido por todas las escuelas) bloqueó ~2 h los
+  lectores reales de GYM RM y Dreamers el mismo día. Se resolvió con control por-dispositivo
+  (`ip_check_mode`, migración `20260821112428` aplicada por otra sesión en paralelo — ver
+  `docs/gotchas-tecnicos.md`) y quedó documentado en
+  [`adms-ip-allowlist-per-device.md`](specs/adms-ip-allowlist-per-device.md). No se abre ítem nuevo
+  para esto: es infraestructura de `MOD-8`/control de acceso, no un módulo de producto.
 
 **Cambios v2.4 → v2.5** (análisis del tablero de planificación en Canva de **Independiente Santa Fe
 U20B** — 105 diapositivas, 2026-08-19 — cruzado contra el esquema real del eje de entrenamiento):
@@ -220,6 +257,32 @@ prioridad del tablero. Dejarlo escrito es lo que evita que `DIN-4` siga figurand
 > pasar por la §4. Es el cuarto caso después de `DIN-4`, Android y el ciclo diario de Informes — y es
 > exactamente el síntoma que la §4 se corrige a sí misma. **Lo que se entrega se marca el mismo día**
 > (§0). Se marca ahora.
+
+---
+
+## 1.4 Lo entregado el 21 de agosto (fuera de la cola)
+
+| Qué | Estado | Falta |
+|---|---|---|
+| **Banco de horas por torniquete — Dreamers Gymnastics (`MOD-21`)** | ✅ En `develop` (`b882f5dd`). El plan de Dreamers pasa de contar clases a contar minutos: banco mensual, la reserva es techo de validación (no descuenta en firme), el torniquete manda en el consumo real. 4 migraciones aplicadas y **verificadas contra la base viva** (no solo commiteadas — `to_regclass`, `pg_proc`, `seguridad:invariantes` sin violaciones nuevas): esquema (`hour_bank_periods/visits/visit_segments`), RPC atómica `move_hour_bank` (`FOR UPDATE`, bloquea sobregiro de reserva, nunca bloquea consumo real), auto-cierre `auto_close_stale_hour_bank_visits` (`FOR UPDATE SKIP LOCKED`, no factura — solo el owner corrige y recién ahí se descuenta), y `hour_bank_reservations` (tabla propia, **no** `session_bookings` — la reserva es flexible sin franja horaria y `session_bookings` exige horario fijo). `access-adms.ts` trackea la visita real **independiente de `access_granted`** (el F22 decide el acceso físico, no el BFF). Cada RPC se probó con asserts dentro de un `BEGIN...ROLLBACK` antes de aplicar, nunca a ciegas. | **F6 (frontend) sin verificación visual** — no hay `.claude/launch.json`, no se armó sesión autenticada real. `hours_plan_enabled` sigue en `false` en Dreamers (probado con datos de prueba en un plan aparte, sin tocar inscripciones reales) — activarlo de verdad espera a que la escuela confirme hora de cierre y minutos de gracia (D-14, provisional). Prueba física en curso: los dos lectores de Dreamers dejaron de reportar heartbeat a media tarde tras detener el bridge local — IP fija y config del dispositivo ya descartadas, diagnóstico abierto. |
+
+> **Por qué está acá y no en la cola:** empezó como una sesión de soporte (validar una IP bloqueada
+> del torniquete) y terminó siendo un módulo completo — spec, decisiones de producto con la escuela,
+> 4 migraciones y 6 fases, todo en la misma sesión, sin pasar por la §4. Es el quinto caso después de
+> `DIN-4`, Android, el ciclo diario de Informes y el tablero táctico de fútbol. **Lo que se entrega se
+> marca el mismo día** (§0). Se marca ahora.
+
+---
+
+## 1.5 Lo entregado el 27 de agosto (fuera de la cola)
+
+| Qué | Estado | Falta |
+|---|---|---|
+| **Banco de horas — cierre de brechas al validar con datos reales (`MOD-21`)** | ✅ En `develop`. **(a)** Las reservas "por plan" y "por instalaciones" no sabían que el banco de horas existe — corregido en los 6 puntos de entrada reales, migración `20260827131341_hour_bank_link_bookings.sql`. Encontrado en dos pasadas: la primera solo cubrió el endpoint de staff (`/:id/book`), "Mis Inscripciones" usa uno distinto (`/athlete/book-session`) que quedó descubierto hasta que se probó con datos reales. **(b)** Reporte de ingresos/salidas por estudiante + histórico de períodos mes a mes — dos endpoints nuevos. **(c)** Reubicación: el listado plano de saldos no aguanta 50 estudiantes — se sacó de Control de Acceso (queda solo la bandeja `pending_review`, que sí es operativa) y se movió al perfil del estudiante en Estudiantes, con un badge compacto en la tabla. **(d)** ⚠️ Al probar con el cliente se confirmó que **ya no es "solo Dreamers"**: Academia Superior Bogotá también tiene `hours_plan_enabled=true`, con una inscripción real de marzo-2026 (`Sub-10 (Beginners)`) convertida a banco de horas — intencional, confirmado con el dueño de esa escuela el mismo día, no un descuido. | Nada bloqueante — el hallazgo (d) es una nota de alcance, no un pendiente técnico. |
+
+> **Por qué está acá y no en la cola:** siguió a `MOD-21` del 21-ago — validar con datos reales
+> (no simulados) sacó a la luz dos brechas de integración que la revisión de código sola no había
+> visto. Mismo patrón que el resto de esta sección: se entrega y se marca el mismo día.
 
 ---
 
@@ -445,6 +508,7 @@ construir y que sirven a los siguientes clientes de este tipo. El resto sí es e
 | **INF-9** | ⚠️ **`20260817133556_restaurar_booking_holds` NO SE CORRE — superseded por `20260817140943_restaurar_booking_holds_v2`.** Abortó con `42883: operator does not exist: uuid = uuid[]`: la policy del staff usaba `= ANY ((SELECT public.user_staff_school_ids()))`, y cuando lo que sigue a `ANY (` es un `SELECT`, PostgreSQL lo parsea como **subconsulta** — compara el uuid contra cada FILA, y cada fila es el `uuid[]` completo. El paréntesis extra no cambia el parseo. La v2 usa `IN (SELECT unnest(...))`, que no admite dos lecturas y sigue resolviéndose una sola vez por consulta (SubPlan hasheado). Iba en `BEGIN/COMMIT`, así que el rollback no dejó nada a medias — verificado: `booking_holds` sigue sin existir. **Lección para el resto de las policies que usan los helpers de alcance:** los tres devuelven `uuid[]`, así que `= ANY (fn())` va sin `SELECT` adentro, o se envuelve con `unnest`. | 🟡 | ✅ v2 aplicada 2026-08-17 | [v2](../supabase/migrations/20260817140943_restaurar_booking_holds_v2.sql) · [la que abortó](../supabase/migrations/20260817133556_restaurar_booking_holds.sql) |
 | **INF-10** | ⚠️ **El aviso de `20260816193602` sobre `school_type='academia'` es FALSO** — verificado el 2026-08-18. Esa migración advierte que «el selector del onboarding ofrece Academia y guarda `academia`», valor que la vista no reconoce, dejando a la escuela sin módulos. **No es así:** el onboarding vivo es `SchoolSetupPage.tsx` y emite **`academy`**, el valor canónico. El componente que emite `academia` es `SchoolRegister.tsx`, que es **código muerto**: no está ruteado en ninguna parte y su submit final solo hace `console.log` («Here you would typically send all data to Supabase»). Medido en la base: **cero** filas con `academia`, `universidad` o `federacion`. Las 151 escuelas sin módulos son `federation` (79), `institute` (62) y `association` (10) — entidades informativas del mapa, donde no tener módulos es **correcto**. La migración no se puede editar (inmutables), así que la corrección vive acá. **Pendiente real y menor:** borrar `SchoolRegister.tsx`, que además ofrece `universidad` y `federacion`, valores que tampoco existen. Y anotar que **ninguna escuela tiene `hybrid` hoy**: Carmel sería la primera. | 🔵 | trivial | [muerto](../frontend/src/components/pages/SchoolRegister.tsx) · [vivo](../frontend/src/pages/SchoolSetupPage.tsx) |
 | **INF-11** | ⚠️ **Un trabajo nocturno con dos dueños, y una matview que no lee nadie.** Medido el 2026-08-19. **(1) La duplicación:** `auto_finalize_stale_sessions()` + `refresh_session_health()` se disparaban **a la vez** desde el BFF (23:55 COT) y desde `pg_cron` (04:55 UTC = el mismo minuto). Lo que **no** pasaba: doble descuento de sesiones —`fn_deduct_sessions_on_finalize` ya no descuenta nada desde `20260730050217`, solo pasa `session_bookings` a `attended` con un `WHERE status='confirmed'` idempotente, y el `UPDATE … WHERE finalized = false` deja 0 filas en el segundo disparo. Tampoco había desfase de fecha: el `TimeZone=America/Bogota` está a nivel de **base**, así que también aplica a los workers de `pg_cron`. Lo que sí pasaba: **cuatro `REFRESH … CONCURRENTLY` por noche donde alcanzaba uno**, porque el trigger de sentencia `trg_attendance_session_finalized` refresca **aunque la sentencia afecte 0 filas**, y encima el cron refresca explícito. **Ya corregido el lado del BFF** (bloque de las 23:55 eliminado; `pg_cron` queda como dueño único). **(2) Lo que falta, y borra objetos vivos:** `mv_session_health` **no la lee nadie** —cero `.from(...)` en el código, cero filas en `pg_depend`— y sus columnas `stale`/`today`/`upcoming` usan **`CURRENT_DATE` dentro de una matview**, que congela la fecha en el instante del refresh: a las 00:01 `today` ya miente. El trigger no es una optimización, es el **parche de un problema que la matview crea**, y lo paga el coach dentro de su request al finalizar asistencia. La query cuesta **90 ms sobre 2.648 sesiones y 365 escuelas, todo desde caché**. Fix: matview → **vista normal** (ahí `CURRENT_DATE` se evalúa al leer y siempre acierta), borrar el trigger, y sacar el `refresh` redundante del comando de `pg_cron` y de `/cleanup`. Su consumidor natural es `ADM-6`. Emparenta con `INF-2` (dos mecanismos de cron), que hasta ahora estaba anotado sin caso concreto. | 🟡 mitad hecha | 1 d | sesión 2026-08-19 |
+| **INF-12** | ✅ **Puente físico de apertura remota — GYM RM (ZKTeco F22ID). Entregado y confirmado en campo el 2026-08-26.** El F22ID acepta el comando ADMS de apertura (`CONTROL DEVICE`) pero no mueve el relé físico — resuelto con `scripts/gymrm-door-bridge/` (SDK `pyzk` local) + `bff/src/routes/bridge.routes.ts` (`GET/POST /bridge/door-commands`, API key fail-closed) + `access-adms.ts` (`getrequest`) excluyendo `open_door` para dispositivos `has_local_bridge`. **Hallazgo grande en el camino:** `conn.unlock(N)` de la librería `pyzk` trunca a entero antes de multiplicar por 10 (`pack("I", int(time)*10)`), así que nunca manda menos de 1 segundo completo — a 1s+ el torniquete de GYM RM (brazo giratorio sin bloqueo mecánico de "una vuelta y se traba") se re-arma varias veces por ventana, confirmado que el acceso normal y el software oficial de ZKTeco NO tienen ese problema (usan un pulso más corto). Se resolvió mandando el mismo `CMD_UNLOCK` de más bajo nivel con el valor en décimas de segundo directo, saltando el truncado — **0.2s (2 décimas) confirmado en los dos lectores, primero con un script de prueba aislado y después por el flujo real del dashboard.** `turnstile_devices.door_drive_time_seconds` (el campo "Tiempo de apertura" del dashboard) quedó **desacoplado** de esto: sigue controlando `Door1Drivertime` por ADMS para el acceso normal (funciona bien), pero ya no tiene ningún efecto sobre el botón manual del bridge — el pulso es un valor fijo en el script (`PULSE_DECISECONDS`, override por env var sin redeploy). El bloqueo de usuarios (`set_group`) se probó en campo y funciona por ADMS sin cambios. De yapa: se agregó `bridge_heartbeats` + cron cada 5 min que avisa al owner si el bridge lleva 10+ min sin sondear (PC apagada/sin red) — antes no había ninguna señal de esto. **Abierto, no bloqueante:** (a) posible discrepancia entre `GET /overdue` (marca vencido con *cualquier* cobro `overdue` histórico) y `validateAccess` (solo mira el cobro *más reciente*) — sin confirmar con un caso real todavía; (b) el campo "Tiempo de apertura" quedó mudo para el botón manual sin ninguna nota en la UI que lo aclare; (c) el mismo heartbeat no se portó al bridge de Dreamers, que tiene el mismo hueco. | ✅ | — | [validación](../scripts/gymrm-door-bridge/VALIDACION-2026-08-25.md) · [spec](../scripts/gymrm-door-bridge/BACKEND_ENDPOINT_SPEC.md) · [bridge](../scripts/gymrm-door-bridge/) |
 
 ### UX — Interfaz, navegación y densidad
 
@@ -515,6 +579,7 @@ priorizar acá:
 | MOD-18 | **Cumpleaños y celebraciones.** Tablero de «hoy cumple» para el staff, saludo automático a la familia y anuncio celebratorio en Modo Recepción. Hoy no existe **nada**: ni tabla, ni RPC, ni cron, ni categoría de notificación — solo la fecha de nacimiento guardada, que se usa para edad/categoría, el gate mayor/menor del registro y los carnets. Cobertura medida contra la base el 19-ago: **878 atletas activos tienen fecha** (el tablero les sirve a los 878) pero **solo 410 (47 %) tienen a quién notificar** — los 253 `unregistered` no tienen cuenta, así que el saludo automático **nunca** los alcanza; esa mitad se cubre con plantilla de WhatsApp manual (F4). La plomería de envío ya está puesta: `notification_deliveries` existe y `notifications` ya tiene `category`/`data`, así que el módulo no construye infraestructura de push, se cuelga del trigger de `MOD-4`. **F1 (el tablero) es entregable solo, en 3 d, sin tocar envíos.** El toggle nace apagado: con una sola Supabase para dev/stg/prod el cron es global, y encenderlo sin `WHERE` es un acto de producción sobre 878 familias. | 🟡 | 1–2 sem (F1 solo: 3 d) | [spec](specs/cumpleanos-module.md) |
 | **MOD-19** | **Informes multi-cadencia (R1–R3).** Generaliza el Informe Mensual que ya corre: `period_type` (`daily`/`weekly`/`biweekly`/`monthly`/`semester`/`custom`) y `period_start/end` en `athlete_reports`, más `report_schedules` para la programación. **No es un módulo nuevo** — extiende tablas, RPCs y el job de las 06:10, que pasa de «asumir mensual» a «leer schedules vencidos»: cero jobs nuevos en `pg_cron`. Incluye el **envío manual «como está»** (el coach elige alcance y rango y manda) y la **plantilla brandeada**: el informe lee `schools.branding_settings`, así que el logo de Carmel es **configuración, no desarrollo** — sin editor de plantillas, que es el pozo de `MOD-14`. Entrega por la plomería existente: `notifications` → outbox → push, y Resend con resumen + enlace (el contenido del menor **no** viaja entero por correo). ⚠️ Depende de `MOD-17`: nada se construye mientras el cron recorra todas las escuelas mandando correo real, y `enabled=false` por defecto **es** ese filtro bien hecho. ⚠️ Plantillas contra tokens, cero hex literales (`MOV-4`). | 🔵 | 10–13 d | [spec](specs/informes-multi-cadencia-2026-08-19.md) |
 | **MOD-20** | **Informe grupal y cadencias cortas (R4–R5).** El informe de equipo con **contenido propio** —asistencia promedio, resumen del período, próximos hitos— y no N individuales publicados juntos; la publicación por equipo ya existe (`publish_team_reports_system`). Regla de privacidad: **nunca métricas de otros menores con nombre**; los rankings van anonimizados, misma línea que `D-IMAGEN`. Después, `daily`/`weekly` conectadas a asistencia y el semestral con comparación inicio/fin. Pariente declarado: `PER-5` — cuando `PER-1` exista, el informe semanal **es** la vista semanal exportable. | 🔵 | 2 sem | [spec](specs/informes-multi-cadencia-2026-08-19.md) |
+| **MOD-21** | ✅ **Banco de horas por torniquete.** Ver detalle completo en §1.4 y §1.5. Cuenta minutos en vez de clases; el torniquete (no la reserva) manda en el consumo real, independiente de `access_granted`. Las reservas "por plan" y "por instalaciones" ya redirigen a `reserve_hour_bank` en los 6 puntos de entrada reales (2026-08-27). Reporte de ingresos/salidas y histórico de meses por estudiante, movidos al perfil en Estudiantes (no en Control de Acceso, no escala a 50). Aislado de `session_bookings` a propósito: tabla propia `hour_bank_reservations` porque la reserva no lleva franja horaria (D-11). No es una decisión de plataforma — `hours_plan_enabled` nace en `false` para cualquier escuela nueva y el diseño no depende de `enrollment_periods` (`DIN`/rediseño de períodos, sin aprobar). ⚠️ **Ya no es "solo Dreamers":** confirmado con el cliente el 27-ago, Academia Superior Bogotá también lo tiene prendido (validación intencional, incluye una inscripción real de marzo-2026 en `Sub-10 (Beginners)`) — ver §1.4. | ✅ código/esquema, probado con datos reales en 2 escuelas | — | [spec](specs/dreamers-banco-de-horas-torniquete.md) |
 
 ### VID — Video de partidos: grabación, en vivo y clips
 

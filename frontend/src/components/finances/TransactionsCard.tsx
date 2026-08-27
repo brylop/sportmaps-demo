@@ -106,8 +106,8 @@ export function TransactionsCard({ payments, onRefresh, refreshing }: Transactio
       concept: p.concept,
       amount: Number(p.status === 'partial' ? (p.amount_paid ?? 0) : p.amount),
       isPartial: p.status === 'partial',
-      origin: resolvePaymentOrigin(p),
-      raw: p as PaymentOriginInput,
+      origin: resolvePaymentOrigin(p as unknown as PaymentOriginInput),
+      raw: p as unknown as PaymentOriginInput,
     }))
     .sort((a, b) => b.sortKey.localeCompare(a.sortKey));
 

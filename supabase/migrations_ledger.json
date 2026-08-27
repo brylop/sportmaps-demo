@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 424,
-  "head": "20260826112433",
+  "count": 425,
+  "head": "20260827170031",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -415,11 +415,7 @@
     {"v":"20260824173813","file":"20260824173813_saas_billing_escuelas.sql","sha256":"d1f1269ab999065581ecd336bdae95e7acfb5fe9061efd5dbf053697eeddc787","added":"2026-08-24","by":"brylop"},
     {"v":"20260824180914","file":"20260824180914_saas_billing_ciclo_automatico.sql","sha256":"13c79f87248b5d7693c42da8a467da3a3b3e68e98c88a147f1c1806025b69348","added":"2026-08-24","by":"brylop"},
     {"v":"20260824182235","file":"20260824182235_rpc_save_dashboard_preferences.sql","sha256":"256c4f83e29b226fe857e2c4686dcc196b790fd8fe97b358f9a3e01207dfbd09","added":"2026-08-24","by":"brylop"},
-    {"v":"20260825114534","file":"20260825114534_support_tickets_s0.sql","sha256":"e9b5c1174f3b3c6efe8e6c0de8dab40dcb1c89f665cd525368299337affbe4d6","added":"2026-08-25","by":"brylop"},
-    {"v":"20260825124513","file":"20260825124513_notifications_support_category.sql","sha256":"c9bb8fd862c8c5cf1ff29f37155848813c91247601f2eb5ad19a6d8ed761dc9f","added":"2026-08-25","by":"brylop"},
-    {"v":"20260825125349","file":"20260825125349_fix_avatars_facility_photos_select_policy.sql","sha256":"672c2c56b97ff161d9209d99ed60837c288b628d37e35c93bd321447932525dc","added":"2026-08-25","by":"brylop"},
     {"v":"20260825125806","file":"20260825125806_monster_volley_athlete_intake.sql","sha256":"9317771300909ced6fb4c7d535dd340263c3da05a9fa22cbb464f3d008d8b28b","added":"2026-08-25","by":"brylop"},
-    {"v":"20260825151250","file":"20260825151250_school_trial_class_slots.sql","sha256":"d55d29233e6155e1823e76f0b19d6f256f56d79a2c56dde0dfb67cf4e2f49e6d","added":"2026-08-25","by":"brylop"},
     {"v":"20260825181210","file":"20260825181210_unregistered_athletes_avatar_url.sql","sha256":"66707c5a3ebe3e0cc6ad7871c23d2b467cae00ecb87b0c9c96a1e8ead80fc566","added":"2026-08-25","by":"brylop"},
     {"v":"20260825183159","file":"20260825183159_unregistered_athletes_guardian_full_name.sql","sha256":"190a17d2030ed8d4d22242d0784d908245fdafc8c4924c6942790166184b6394","added":"2026-08-25","by":"brylop"},
     {"v":"20260825232553","file":"20260825232553_school_module_overrides.sql","sha256":"bc5e80a4a60ff42f4c42bd914139d78c3292544520d320e5792abd17e9926235","added":"2026-08-26","by":"brylop"},
@@ -427,6 +423,11 @@
     {"v":"20260826105957","file":"20260826105957_mod3_school_categories_f1_f2.sql","sha256":"e5eb5f0cffbef3b19a64e75706aad17287ea26271d363187a445d2caca8f3ca7","added":"2026-08-26","by":"brylop"},
     {"v":"20260826110135","file":"20260826110135_mod3_enrollment_categories_f3.sql","sha256":"688fa31cb0eb7323b79850aebc2117173120078e2e433e34c29bc45241a09246","added":"2026-08-26","by":"brylop"},
     {"v":"20260826110449","file":"20260826110449_fix_null_guard_bypass_admin_rpcs.sql","sha256":"da3f5fbb48dfa9906250bd4fa15a91cf247c6b72e78607477f0efc4064870d20","added":"2026-08-26","by":"brylop"},
-    {"v":"20260826112433","file":"20260826112433_fix_is_platform_admin_null_root_cause.sql","sha256":"b5fceedd9153e309470a5605b873b0aa1966b8b4721eefde1e05f2e6d3875b0e","added":"2026-08-26","by":"brylop"}
+    {"v":"20260826112433","file":"20260826112433_fix_is_platform_admin_null_root_cause.sql","sha256":"b5fceedd9153e309470a5605b873b0aa1966b8b4721eefde1e05f2e6d3875b0e","added":"2026-08-26","by":"brylop"},
+    {"v":"20260826190435","file":"20260826190435_gymrm_bridge_local_flag.sql","sha256":"ab0d953edc0c6b17560a3cdde5e1d5bc9c0bd086cc3a982e3d400ec5978f53c2","added":"2026-08-27","by":"judegor99"},
+    {"v":"20260826220634","file":"20260826220634_bridge_heartbeats.sql","sha256":"00240386421525c8d89be27281939837efc38f3859eec095ba00cd3c2c957c41","added":"2026-08-27","by":"judegor99"},
+    {"v":"20260827131341","file":"20260827131341_hour_bank_link_bookings.sql","sha256":"c9dc9ef43d18ae8a1d3cfcf91616a47e12273a0652f6255510da298d3ab1185d","added":"2026-08-27","by":"judegor99"},
+    {"v":"20260827144226","file":"20260827144226_fix_school_athletes_enrollment_id_plan_only.sql","sha256":"243f0cfd6ec4a4f0da5dabd78b0cf57dfd38b56e9376b73556ce6cc1853cbcc7","added":"2026-08-27","by":"judegor99"},
+    {"v":"20260827170031","file":"20260827170031_unregistered_athletes_documents_admin_upload.sql","sha256":"211178ef38b6fa81264d3f40579e744026caabbd06297c9e3938f3acf06e343a","added":"2026-08-27","by":"brylop"}
   ]
 }

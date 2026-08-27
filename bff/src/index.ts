@@ -68,6 +68,7 @@ import { assertMpEnvCoherente } from './services/mercadopago.service';
 import admsRouter from './routes/access-adms';
 import accessApiRouter from './routes/access-api';
 import accessAdminRouter from './routes/access-admin.routes';
+import bridgeRouter from './routes/bridge.routes';
 
 import trainerProfileRouter from './routes/trainer/profile';
 import trainerOnboardingRouter from './routes/trainer/onboarding';
@@ -362,6 +363,10 @@ app.use('/api/v1/marketplace/orders', paymentLimiter, marketplaceOrdersRouter);
 app.use('/api/v1/certificates', generalLimiter, certificatesRouter);
 app.use('/api/v1/join-qr', generalLimiter, joinQrRouter);
 app.use('/api/v1/access', generalLimiter, accessApiRouter);
+// Canal para scripts locales (SDK pyzk, ej. scripts/gymrm-door-bridge/) que
+// ejecutan open_door por fuera de ADMS — no lleva requireAuth, se valida por
+// X-Bridge-Api-Key dentro del router (ver bridge.routes.ts).
+app.use('/bridge', generalLimiter, bridgeRouter);
 app.use('/api/v1/admin/access-logs', generalLimiter, accessAdminRouter);
 // Consola de soporte (super_admin) — F0 solo lectura.
 app.use('/api/v1/admin/support', generalLimiter, adminSupportRouter);
