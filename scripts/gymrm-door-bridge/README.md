@@ -139,14 +139,16 @@ Unregister-ScheduledTask -TaskName "SportMaps-GymRM-DoorBridge" -Confirm:$false
 
 ## Pendiente / mejora futura
 
-- No hay alerta automática si este bridge deja de responder (mismo hueco
-  que quedó pendiente en el bridge de asistencia de Dreamers). Si el
-  supervisor deja de loguear por mucho tiempo, hoy solo se nota si
-  alguien intenta abrir la puerta y falla. Una mejora futura razonable:
-  que el backend marque un comando como `failed` automáticamente si
-  sigue `pending`/`claimed` pasado su `expires_at`, y dispare una
-  notificación al owner de la escuela (reutilizando el mismo patrón que
-  ya existe para `payment_overdue` en `access-adms.ts`).
+- ✅ **Resuelto 2026-08-26: alerta automática si el bridge deja de responder.**
+  Cada sondeo exitoso a `GET /bridge/door-commands` sella
+  `bridge_heartbeats.last_seen_at` (sin cambios en este script — el latido
+  es implícito en el sondeo que ya hace cada 3s). El cron
+  `bridge-heartbeat-check.job.ts` en el BFF (cada 5 min) avisa al owner por
+  notificación si pasan 10+ min sin sondeo — típicamente la PC del gym
+  apagada o sin red. Una sola alerta por caída (se resetea sola al volver).
+  Mismo patrón de notificación que `payment_overdue` en `access-adms.ts`.
+  Falta portar esto al bridge de Dreamers si le sirve (mismo hueco pendiente
+  ahí, con su propio bridge separado).
 - Este bridge solo resuelve apertura remota, a propósito — el bloqueo ya
   funciona por ADMS y no necesita esto (ver validación, punto 3). Falta,
   como mejora barata y no bloqueante, un botón o cron de "re-sincronizar

@@ -44,6 +44,16 @@ router.get('/door-commands', async (req: Request, res: Response) => {
   const schoolId = req.query.school_id as string;
   if (!schoolId) return res.status(400).json({ error: 'school_id requerido' });
 
+  // Latido: cada sondeo exitoso del bridge (haya o no comandos) prueba que
+  // sigue vivo y llegando al backend. alerted_at: null para que, si venia de
+  // una caida ya avisada, el proximo chequeo del cron la vea sana de nuevo y
+  // una caida futura pueda alertar otra vez. Best-effort -- un fallo acá no
+  // debe tumbar el reclamo real de comandos.
+  supabase.from('bridge_heartbeats').upsert(
+    { school_id: schoolId, bridge_name: 'door-bridge', last_seen_at: new Date().toISOString(), alerted_at: null },
+    { onConflict: 'school_id,bridge_name' },
+  ).then(() => {}, () => {});
+
   try {
     const { data: claimed, error } = await supabase
       .from('device_commands')
@@ -64,23 +74,22 @@ router.get('/door-commands', async (req: Request, res: Response) => {
     const deviceIds = [...new Set(claimed.map((c: any) => c.device_id))];
     const { data: devices } = await supabase
       .from('turnstile_devices')
-      .select('id, serial_number, door_drive_time_seconds')
+      .select('id, serial_number')
       .in('id', deviceIds);
 
     const deviceById = new Map((devices || []).map((d: any) => [d.id, d]));
 
-    const commands = claimed.map((c: any) => {
-      const device = deviceById.get(c.device_id);
-      return {
-        id: c.id,
-        device_serial: device?.serial_number ?? null,
-        direction: c.direction,
-        // Mismo campo que "Editar dispositivo" > "Tiempo de apertura" en el
-        // dashboard (turnstile_devices.door_drive_time_seconds) — así el
-        // bridge abre el tiempo configurado, no un valor fijo en el script.
-        door_drive_time_seconds: device?.door_drive_time_seconds ?? null,
-      };
-    });
+    const commands = claimed.map((c: any) => ({
+      id: c.id,
+      device_serial: deviceById.get(c.device_id)?.serial_number ?? null,
+      direction: c.direction,
+      // NO se manda door_drive_time_seconds: el bridge dejo de usarlo (ver
+      // scripts/gymrm-door-bridge/VALIDACION-2026-08-25.md, punto 6-bis del
+      // 2026-08-26) -- ese campo trabaja en segundos enteros (CHECK 1-60) y
+      // el torniquete de GYM RM necesita un pulso de decimas de segundo, una
+      // granularidad que ese campo no puede expresar. El bridge trae su
+      // propio valor fijo (PULSE_DECISECONDS).
+    }));
 
     return res.json({ commands });
   } catch (err: any) {
