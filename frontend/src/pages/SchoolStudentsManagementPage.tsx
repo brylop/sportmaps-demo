@@ -87,6 +87,34 @@ const PAYMENT_STATE_TONES: Record<PaymentState, StatFilterTone> = {
   other:   'blue',
 };
 
+// Etiquetas para athlete_documents.document_type (ver CHECK en la migración
+// 20260825125806_monster_volley_athlete_intake.sql).
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  athlete_photo:             'Foto del deportista',
+  eps_certificate:           'Certificado EPS',
+  guardian_id_front:         'Documento de identidad del acudiente',
+  guardian_id_back:          'Documento de identidad del acudiente (reverso)',
+  athlete_id_front:          'Documento de identidad del deportista',
+  athlete_id_back:           'Documento de identidad del deportista (reverso)',
+  guardian_signature:        'Firma del acudiente',
+  athlete_signature:         'Firma del deportista',
+  good_standing_certificate: 'Paz y salvo',
+  other:                     'Otro documento',
+};
+
+// Etiquetas para las claves de unregistered_athletes.health_screening (ver
+// scripts/monster-volley-suba-import/01_extraer.mjs, que es quien las llena).
+const HEALTH_SCREENING_LABELS: Record<string, string> = {
+  problema_cardiaco:                 'Problema cardíaco reportado',
+  dolor_pecho_reposo:                'Dolor de pecho en reposo (último mes)',
+  mareo_vertigo_perdida_conciencia:  'Mareo, vértigo o pérdida de conciencia',
+  problema_oseo_articular:           'Problema óseo o articular',
+  medicamento_tension_corazon:       'Medicamento para tensión o corazón',
+  otra_razon_no_actividad_fisica:    'Otra razón para no hacer actividad física',
+  medicamento_en_entrenamiento:      'Medicamento requerido en entrenamientos/partidos',
+  alergia_alimento:                  'Alergia alimentaria',
+};
+
 /** Misma lógica que el badge de la tabla, para que filtro y badge nunca difieran. */
 const getPaymentState = (student: any): PaymentState => {
   const ps  = student.payment_status;
@@ -163,6 +191,11 @@ export default function SchoolStudentsManagementPage() {
     tshirt_size?: string | null;
     blood_type?: string | null;
     eps_name?: string | null;
+    guardian_full_name?: string | null;
+    guardian_phone?: string | null;
+    guardian_email?: string | null;
+    health_screening?: Record<string, string | null> | null;
+    intake_form_data?: Record<string, string | null> | null;
   }>({});
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [studentPlanInfo, setStudentPlanInfo] = useState<{
@@ -225,7 +258,9 @@ export default function SchoolStudentsManagementPage() {
     }
     const studentId = viewingStudent.id;
 
-    if (getAthleteType(viewingStudent) === 'child') {
+    const athleteTypeForDocs = getAthleteType(viewingStudent);
+
+    if (athleteTypeForDocs === 'child') {
       (supabase as any)
         .from('children')
         .select('doc_type, doc_number, tshirt_size, blood_type, eps_name')
@@ -240,27 +275,74 @@ export default function SchoolStudentsManagementPage() {
             eps_name:    data?.eps_name    || null,
           });
         });
+    } else if (athleteTypeForDocs === 'unregistered') {
+      (supabase as any)
+        .from('unregistered_athletes')
+        .select('doc_type, doc_number, blood_type, eps_name, guardian_full_name, guardian_phone, guardian_email, health_screening, intake_form_data')
+        .eq('id', studentId)
+        .maybeSingle()
+        .then(({ data }: { data: any }) => {
+          setStudentDocInfo({
+            doc_type:           data?.doc_type           || null,
+            doc_number:         data?.doc_number         || null,
+            blood_type:         data?.blood_type          || null,
+            eps_name:           data?.eps_name            || null,
+            guardian_full_name: data?.guardian_full_name   || null,
+            guardian_phone:     data?.guardian_phone       || null,
+            guardian_email:     data?.guardian_email       || null,
+            health_screening:   data?.health_screening     || null,
+            intake_form_data:   data?.intake_form_data      || null,
+          });
+        });
     } else {
       setStudentDocInfo({});
     }
 
     setLoadingDocs(true);
-    supabase.storage
-      .from('identity-documents')
-      .list(`children/${studentId}/docs`, { limit: 20 })
-      .then(async ({ data: files, error }) => {
-        if (error || !files) { setStudentDocs([]); return; }
-        const docs = await Promise.all(
-          files.map(async (f) => {
-            const { data } = await supabase.storage
-              .from('identity-documents')
-              .createSignedUrl(`children/${studentId}/docs/${f.name}`, 300);
-            return { name: f.name, url: data?.signedUrl || '' };
-          })
-        );
-        setStudentDocs(docs.filter(d => d.url));
-      })
-      .finally(() => setLoadingDocs(false));
+    if (athleteTypeForDocs === 'unregistered') {
+      // unregistered_athletes no tiene la convención vieja de storage.list()
+      // ('children/{id}/docs') — sus documentos se registran en athlete_documents
+      // desde el import (scripts/monster-volley-suba-import), así que se listan
+      // desde ahí en vez de storage.list().
+      (supabase as any)
+        .from('athlete_documents')
+        .select('id, document_type, storage_path')
+        .eq('unregistered_athlete_id', studentId)
+        .order('uploaded_at', { ascending: false })
+        .then(async ({ data: rows, error }: { data: any; error: any }) => {
+          if (error || !rows) { setStudentDocs([]); return; }
+          const docs = await Promise.all(
+            rows.map(async (row: any) => {
+              const { data } = await supabase.storage
+                .from('identity-documents')
+                .createSignedUrl(row.storage_path, 300);
+              return { name: DOCUMENT_TYPE_LABELS[row.document_type] || row.document_type, url: data?.signedUrl || '' };
+            })
+          );
+          setStudentDocs(docs.filter((d) => d.url));
+        })
+        .finally(() => setLoadingDocs(false));
+    } else {
+      // children/adult: sin cambios — siguen viviendo en children/{id}/docs
+      // sin fila en athlete_documents (esa tabla es nueva, ver migración
+      // 20260825125806). No se migra retroactivamente en este piloto.
+      supabase.storage
+        .from('identity-documents')
+        .list(`children/${studentId}/docs`, { limit: 20 })
+        .then(async ({ data: files, error }) => {
+          if (error || !files) { setStudentDocs([]); return; }
+          const docs = await Promise.all(
+            files.map(async (f) => {
+              const { data } = await supabase.storage
+                .from('identity-documents')
+                .createSignedUrl(`children/${studentId}/docs/${f.name}`, 300);
+              return { name: f.name, url: data?.signedUrl || '' };
+            })
+          );
+          setStudentDocs(docs.filter(d => d.url));
+        })
+        .finally(() => setLoadingDocs(false));
+    }
 
     setLoadingPlanInfo(true);
     setStudentPlanInfo(null);
@@ -333,6 +415,30 @@ export default function SchoolStudentsManagementPage() {
       } else {
         data = await studentsAPI.getSchoolView(schoolId, { branchId: activeBranchId, includeInactive: true });
       }
+
+      // school_athletes no trae guardian_full_name de unregistered_athletes —
+      // se completa acá con un solo query bulk (no se toca la vista).
+      const unregisteredIds = (data as any[])
+        .filter(s => s.athlete_type === 'unregistered')
+        .map(s => s.id);
+      if (unregisteredIds.length > 0) {
+        const { data: guardians } = await supabase
+          .from('unregistered_athletes')
+          .select('id, guardian_full_name, guardian_phone, guardian_email')
+          .in('id', unregisteredIds);
+        const guardianMap = Object.fromEntries((guardians || []).map((g: any) => [g.id, g]));
+        data = (data as any[]).map(s => {
+          const g = guardianMap[s.id];
+          if (s.athlete_type !== 'unregistered' || !g) return s;
+          return {
+            ...s,
+            parent_name: g.guardian_full_name || s.parent_name,
+            parent_phone: g.guardian_phone || s.parent_phone,
+            parent_email: g.guardian_email || s.parent_email,
+          };
+        });
+      }
+
       return data as StudentViewRow[];
     },
     enabled: !!schoolId && coachIdResolved,
@@ -1475,7 +1581,30 @@ export default function SchoolStudentsManagementPage() {
                       {!isChild && s.parent_phone && (
                         <InfoRow label="Teléfono" value={s.parent_phone} icon={<Phone className="w-3 h-3" />} />
                       )}
+                      {isUnregistered && studentDocInfo.guardian_phone && (
+                        <InfoRow label="Teléfono acudiente" value={studentDocInfo.guardian_phone} icon={<Phone className="w-3 h-3" />} />
+                      )}
+                      {isUnregistered && studentDocInfo.guardian_email && (
+                        <InfoRow label="Correo acudiente" value={studentDocInfo.guardian_email} icon={<Mail className="w-3 h-3" />} />
+                      )}
                     </div>
+                    {/* Cuestionario de salud autorreportado (no es historia clínica) —
+                        solo se muestra lo que respondió "Sí", para no llenar la
+                        pantalla de negativos. */}
+                    {isUnregistered && studentDocInfo.health_screening && (() => {
+                      const avisos = Object.entries(studentDocInfo.health_screening)
+                        .filter(([, v]) => typeof v === 'string' && v.trim().toLowerCase() === 'sí');
+                      return avisos.length > 0 ? (
+                        <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+                          <p className="font-medium text-amber-700 mb-1">Cuestionario de afiliación — respuestas a revisar</p>
+                          <ul className="list-disc pl-4 space-y-0.5 text-amber-700/90">
+                            {avisos.map(([k]) => <li key={k}>{HEALTH_SCREENING_LABELS[k] || k}</li>)}
+                          </ul>
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-xs text-muted-foreground italic">Cuestionario de afiliación sin antecedentes reportados</p>
+                      );
+                    })()}
                   </section>
 
                   {/* ── Sección: Información médica ─────────────────── */}
@@ -1574,6 +1703,29 @@ export default function SchoolStudentsManagementPage() {
                           <InfoRow label="Teléfono" value={s.parent_phone} icon={<Phone className="w-3 h-3" />} />
                         </div>
                       </div>
+                    </section>
+                  )}
+
+                  {/* ── Sección: Acudiente (unregistered — viene del formulario de afiliación) ── */}
+                  {isUnregistered && (studentDocInfo.guardian_full_name || studentDocInfo.guardian_phone || studentDocInfo.guardian_email || studentDocInfo.intake_form_data) && (
+                    <section>
+                      <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                        <User className="w-4 h-4" /> Acudiente
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                        <InfoRow label="Nombre" value={studentDocInfo.guardian_full_name} />
+                        <InfoRow label="Teléfono" value={studentDocInfo.guardian_phone} icon={<Phone className="w-3 h-3" />} />
+                        <InfoRow label="Email" value={studentDocInfo.guardian_email} icon={<Mail className="w-3 h-3" />} />
+                        <InfoRow label="Ocupación" value={studentDocInfo.intake_form_data?.guardian_occupation} />
+                      </div>
+                      {(studentDocInfo.intake_form_data?.address || studentDocInfo.intake_form_data?.locality || studentDocInfo.intake_form_data?.neighborhood) && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm mt-3">
+                          <InfoRow label="Dirección" value={studentDocInfo.intake_form_data?.address} />
+                          <InfoRow label="Localidad / Barrio" value={
+                            [studentDocInfo.intake_form_data?.locality, studentDocInfo.intake_form_data?.neighborhood].filter(Boolean).join(' — ') || null
+                          } />
+                        </div>
+                      )}
                     </section>
                   )}
 

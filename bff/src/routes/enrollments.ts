@@ -400,6 +400,72 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
             // 'pending' (alta por QR sin pagar), se nombra como tal para que el admin
             // no crea que el atleta ya está adentro.
             const current = openEnrollments!.find((r: any) => r.status === 'active') ?? openEnrollments![0];
+
+            // ── MOD-3 F3: multi-categoría ─────────────────────────────────────
+            // Si lo que llega es SOLO un team_id (sin offering_plan_id) y ese
+            // equipo pertenece a una categoría DISTINTA a la de la inscripción
+            // actual, no es "cambiar de equipo": es agregar una segunda
+            // categoría. Se resuelve con una fila en enrollment_categories,
+            // nunca con una segunda enrollments (ver docs/specs/
+            // sport-categories-and-multi-category.md D3).
+            //
+            // Guard estricto: las dos categorías tienen que ser NOT NULL y
+            // distintas. Si cualquiera de los dos equipos no adoptó el
+            // catálogo (category_id NULL — el caso de las otras 364 escuelas
+            // hoy), este bloque no hace nada y cae al 409 de siempre. No
+            // relajar esta condición: es lo que evita que el cambio afecte a
+            // escuelas que nunca tocaron categorías.
+            if (data.team_id && !data.offering_plan_id && current.status === 'active' && current.team_id && current.team_id !== data.team_id) {
+                const { data: teamsInfo } = await supabase
+                    .from('teams')
+                    .select('id, category_id')
+                    .in('id', [current.team_id, data.team_id]);
+
+                const currentTeam = (teamsInfo || []).find((t: any) => t.id === current.team_id);
+                const newTeam = (teamsInfo || []).find((t: any) => t.id === data.team_id);
+
+                if (currentTeam?.category_id && newTeam?.category_id && currentTeam.category_id !== newTeam.category_id) {
+                    const { data: already } = await supabase
+                        .from('enrollment_categories')
+                        .select('id')
+                        .eq('enrollment_id', current.id)
+                        .eq('category_id', newTeam.category_id)
+                        .eq('status', 'active')
+                        .maybeSingle();
+
+                    if (already) {
+                        return res.status(200).json({
+                            message: 'El atleta ya está en esa categoría.',
+                            enrollment_id: current.id,
+                            category_added: false,
+                        });
+                    }
+
+                    const { data: newCategoryRow, error: catError } = await supabase
+                        .from('enrollment_categories')
+                        .insert({
+                            enrollment_id: current.id,
+                            school_id: schoolId,
+                            category_id: newTeam.category_id,
+                            team_id: data.team_id,
+                            is_primary: false,
+                            billable: true,
+                            status: 'active',
+                            start_date: startDate,
+                        })
+                        .select()
+                        .single();
+
+                    if (catError) throw catError;
+
+                    return res.status(200).json({
+                        message: 'Categoría agregada a la inscripción existente.',
+                        data: newCategoryRow,
+                        category_added: true,
+                    });
+                }
+            }
+
             const isPending = current.status === 'pending';
             let currentTeamName: string | null = null;
             if (current.team_id) {

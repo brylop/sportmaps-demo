@@ -195,6 +195,39 @@ export function useSettings() {
     }
   };
 
+  const updateDashboardPreferences = async (prefs: Record<string, any>) => {
+    setSaving(true);
+    try {
+      const { data: success, error } = await (supabase.rpc as any)('save_dashboard_preferences', {
+        p_preferences: prefs
+      });
+      if (error) throw error;
+
+      if (success) {
+        setData(prev => prev ? {
+          ...prev,
+          profile: {
+            ...prev.profile,
+            preferences: { ...prev.profile.preferences, ...prefs }
+          }
+        } : null);
+
+        toast({
+          title: "Dashboard actualizado",
+          description: "Tus accesos rápidos han sido guardados.",
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: getUserFriendlyError(error),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const updateBranding = async (branding: any) => {
     if (!data?.school?.id) return;
     setSaving(true);
@@ -303,6 +336,7 @@ export function useSettings() {
     updateProfile,
     updateNotificationPreferences,
     updatePrivacyPreferences,
+    updateDashboardPreferences,
     updateBranding,
     updateSchoolInfo,
     changePassword,

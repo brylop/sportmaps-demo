@@ -19,6 +19,14 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import { getNavigationByRole, getVendorNavGroup } from '@/config/navigation';
 import { UserRole } from '@/types/dashboard';
 import { useVendorProfile } from '@/hooks/useVendorProfile';
@@ -40,7 +48,7 @@ export function AppSidebar() {
   const location = useLocation();
   const [openSubmenus, setOpenSubmenus] = useState<Record<string, boolean>>({});
   const { hasVendorProfile, canSellProducts, canSellServices, verificationStatus } = useVendorProfile();
-  const { hasAddon, hasBilling } = useEntitlements();
+  const { hasAddon, hasBilling, isModuleEnabled } = useEntitlements();
 
   // En mobile el sidebar siempre muestra contenido expandido (nunca collapsed)
   const isCollapsed = !isMobile && state === 'collapsed';
@@ -102,7 +110,7 @@ export function AppSidebar() {
     }
   }
 
-  const baseNavigationGroups = getNavigationByRole(navigationRole);
+  const baseNavigationGroups = getNavigationByRole(navigationRole, hasAddon, isModuleEnabled);
 
   // Mi Tienda: grupo ADICIONAL para roles que NO son primariamente vendor
   // pero que decidieron sumarle marketplace a su cuenta.
@@ -325,22 +333,58 @@ export function AppSidebar() {
                     const isSubmenuActive = item.submenu.some(sub => sub.href && location.pathname.startsWith(sub.href));
                     const isOpen = openSubmenus[submenuKey] ?? isSubmenuActive;
 
+                    // En modo icono el acordeon no tiene donde pintar los hijos
+                    // (el bloque de abajo esta condicionado a !isCollapsed): el
+                    // boton quedaba vivo pero sin efecto. Con la sidebar colapsada
+                    // se resuelve con un flyout (DropdownMenu) en vez del toggle.
                     return (
                       <div key={itemIdx}>
                         <SidebarMenuItem>
-                          <SidebarMenuButton
-                            tooltip={item.title}
-                            className="group/menu-button transition-all duration-300 hover:bg-primary/5 active:scale-95 cursor-pointer"
-                            onClick={() => setOpenSubmenus(prev => ({ ...prev, [submenuKey]: !isOpen }))}
-                          >
-                            <div className={`flex items-center gap-3 w-full ${isSubmenuActive ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'}`}>
-                              <item.icon className={`h-4 w-4 shrink-0 transition-transform duration-300 group-hover/menu-button:scale-110 ${isSubmenuActive ? 'text-primary' : ''}`} />
-                              <span className={`truncate ${isCollapsed ? 'sr-only' : ''}`}>{item.title}</span>
-                              {!isCollapsed && (
+                          {isCollapsed ? (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <SidebarMenuButton
+                                  tooltip={item.title}
+                                  className="group/menu-button transition-all duration-300 hover:bg-primary/5 active:scale-95 cursor-pointer"
+                                >
+                                  <div className={`flex items-center gap-3 w-full ${isSubmenuActive ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'}`}>
+                                    <item.icon className={`h-4 w-4 shrink-0 transition-transform duration-300 group-hover/menu-button:scale-110 ${isSubmenuActive ? 'text-primary' : ''}`} />
+                                    <span className="sr-only">{item.title}</span>
+                                  </div>
+                                </SidebarMenuButton>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent side="right" align="start" className="min-w-48">
+                                <DropdownMenuLabel>{item.title}</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                {item.submenu.map((sub, subIdx) => (
+                                  <DropdownMenuItem key={subIdx} asChild>
+                                    <NavLink
+                                      to={sub.href || '#'}
+                                      onClick={() => isMobile && setOpenMobile(false)}
+                                      className={({ isActive }) =>
+                                        `flex items-center gap-2 w-full cursor-pointer ${isActive ? 'text-primary font-semibold' : ''}`
+                                      }
+                                    >
+                                      <sub.icon className="h-3.5 w-3.5 shrink-0" />
+                                      <span className="truncate text-sm">{sub.title}</span>
+                                    </NavLink>
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          ) : (
+                            <SidebarMenuButton
+                              tooltip={item.title}
+                              className="group/menu-button transition-all duration-300 hover:bg-primary/5 active:scale-95 cursor-pointer"
+                              onClick={() => setOpenSubmenus(prev => ({ ...prev, [submenuKey]: !isOpen }))}
+                            >
+                              <div className={`flex items-center gap-3 w-full ${isSubmenuActive ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'}`}>
+                                <item.icon className={`h-4 w-4 shrink-0 transition-transform duration-300 group-hover/menu-button:scale-110 ${isSubmenuActive ? 'text-primary' : ''}`} />
+                                <span className="truncate">{item.title}</span>
                                 <ChevronDown className={`ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
-                              )}
-                            </div>
-                          </SidebarMenuButton>
+                              </div>
+                            </SidebarMenuButton>
+                          )}
                         </SidebarMenuItem>
                         {isOpen && !isCollapsed && (
                           <div className="ml-4 pl-3 border-l border-border/30 space-y-0.5 mt-0.5 mb-1 animate-in slide-in-from-top-2 duration-200">

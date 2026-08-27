@@ -161,6 +161,70 @@ router.get('/stats', requireAuth, requireRole('owner', 'admin', 'school_admin'),
   }
 });
 
+// ─── GET /api/v1/access/occupancy ────────────────────────────────────────────
+// Quién está DENTRO ahora mismo y hace cuánto entró — para la tarjeta "Aforo"
+// filtrada del panel. Por persona: el último evento concedido de hoy; si es
+// 'entry', sigue adentro. Mismo patrón de resolución de nombre que /events.
+router.get('/occupancy', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const today    = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+    const startUTC = `${today}T05:00:00+00:00`;
+    const endUTC   = new Date(new Date(startUTC).getTime() + 86400000).toISOString();
+
+    const { data: events, error } = await supabase
+      .from('access_events')
+      .select('direction, user_id, unregistered_athlete_id, zk_user_id, occurred_at')
+      .eq('school_id', schoolId)
+      .eq('access_granted', true)
+      .gte('occurred_at', startUTC)
+      .lt('occurred_at', endUTC)
+      .order('occurred_at', { ascending: true });
+
+    if (error) throw error;
+
+    // Por identidad, se queda el último evento cronológico (el Map sobreescribe).
+    const lastByIdentity = new Map<string, any>();
+    for (const e of events || []) {
+      const key = e.user_id ? `u:${e.user_id}` : e.unregistered_athlete_id ? `a:${e.unregistered_athlete_id}` : `z:${e.zk_user_id}`;
+      lastByIdentity.set(key, e);
+    }
+
+    const inside = [...lastByIdentity.values()].filter((e) => e.direction === 'entry');
+
+    const userIds = [...new Set(inside.map((e) => e.user_id).filter(Boolean))];
+    const uaIds   = [...new Set(inside.map((e) => e.unregistered_athlete_id).filter(Boolean))];
+
+    const profileMap: Record<string, string> = {};
+    if (userIds.length) {
+      const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', userIds);
+      (profiles || []).forEach((p: any) => { profileMap[p.id] = p.full_name; });
+    }
+    const uaMap: Record<string, string> = {};
+    if (uaIds.length) {
+      const { data: uas } = await supabase.from('unregistered_athletes').select('id, full_name').in('id', uaIds);
+      (uas || []).forEach((u: any) => { uaMap[u.id] = u.full_name; });
+    }
+
+    const now = Date.now();
+    const occupancy = inside
+      .map((e) => ({
+        name: e.user_id
+          ? (profileMap[e.user_id] ?? 'Usuario')
+          : e.unregistered_athlete_id
+            ? (uaMap[e.unregistered_athlete_id] ?? 'Atleta')
+            : `ZK#${e.zk_user_id}`,
+        entered_at: e.occurred_at,
+        minutes_inside: Math.max(0, Math.round((now - new Date(e.occurred_at).getTime()) / 60000)),
+      }))
+      .sort((a, b) => b.minutes_inside - a.minutes_inside);
+
+    return res.json({ occupancy });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al calcular el aforo' });
+  }
+});
+
 // ─── POST /api/v1/access/manual-open ────────────────────────────────────────
 router.post('/manual-open', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
   try {

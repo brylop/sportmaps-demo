@@ -18,6 +18,7 @@ const isValidUUID = (id: string | null | undefined): boolean => {
 export interface Student {
   id: string;
   full_name: string;
+  athlete_type?: 'child' | 'adult' | 'unregistered';
   email?: string;
   phone?: string;
   date_of_birth?: string;

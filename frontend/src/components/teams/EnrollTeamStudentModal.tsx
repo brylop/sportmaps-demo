@@ -102,14 +102,19 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
     const loadEnrolledStudents = async () => {
         if (!team) return;
         try {
+            // Los tres ejes de sujeto (child_id, user_id, unregistered_athlete_id)
+            // son mutuamente excluyentes por fila — faltaba el tercero acá, así
+            // que ningún atleta sin cuenta aparecía nunca como ya inscrito
+            // (el badge "X/20" y el check "Inscrito" quedaban en 0 aunque el
+            // equipo tuviera roster real).
             const { data, error } = await supabase
                 .from('enrollments')
-                .select('user_id, child_id')
+                .select('user_id, child_id, unregistered_athlete_id')
                 .eq('team_id', team.id)
                 .eq('status', 'active');
 
             if (error) throw error;
-            setEnrolledStudentIds(data.map(e => e.child_id ?? e.user_id).filter(Boolean) as string[]);
+            setEnrolledStudentIds(data.map(e => e.child_id ?? e.user_id ?? e.unregistered_athlete_id).filter(Boolean) as string[]);
         } catch (error) {
             console.error('Error loading enrolled students:', error);
         }
@@ -121,14 +126,18 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
         try {
             setEnrolling(student.id);
 
-            const isAdult = student.athlete_type === 'adult';
+            // Los tres ejes son mutuamente excluyentes — antes esto solo distinguía
+            // adult/child, así que un atleta sin cuenta (athlete_type='unregistered')
+            // se mandaba como child_id, un id que la tabla children no reconoce.
+            const subjectField =
+                student.athlete_type === 'adult' ? 'user_id' :
+                student.athlete_type === 'unregistered' ? 'unregistered_athlete_id' :
+                'child_id';
 
-            // Usar BFF para soportar user_id y child_id
+            // Usar BFF para soportar los tres tipos de sujeto
             const { bffClient } = await import('@/lib/api/bffClient');
             await bffClient.post('/api/v1/enrollments', {
-                ...(isAdult
-                    ? { user_id: student.id }
-                    : { child_id: student.id }),
+                [subjectField]: student.id,
                 team_id: team.id,
             });
 
@@ -161,7 +170,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                 .select('id')
                 .eq('team_id', team.id)
                 .eq('status', 'active')
-                .or(`child_id.eq.${student.id},user_id.eq.${student.id}`)
+                .or(`child_id.eq.${student.id},user_id.eq.${student.id},unregistered_athlete_id.eq.${student.id}`)
                 .maybeSingle();
 
             if (enrollment?.id) {

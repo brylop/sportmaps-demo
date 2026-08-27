@@ -43,12 +43,8 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
     const loadStudents = async () => {
         try {
             setLoading(true);
-            const data = await studentsAPI.getStudents({
-                school_id: classItem?.school_id || 'demo-school',
-                status: 'active',
-                limit: 500
-            });
-            setStudents(data);
+            const data = await studentsAPI.getSchoolView(classItem?.school_id || 'demo-school');
+            setStudents(data as unknown as Student[]);
         } catch (error: any) {
             console.error('Error loading students:', error);
             toast({
@@ -76,7 +72,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
 
         try {
             setEnrolling(student.id);
-            await classesAPI.enrollStudent(classItem.id, student.id, student.full_name);
+            await classesAPI.enrollStudent(classItem.id, student.id, student.full_name, student.athlete_type || 'child');
 
             toast({
                 title: '¡Deportista inscrito!',

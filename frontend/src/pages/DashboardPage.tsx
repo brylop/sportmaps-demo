@@ -6,6 +6,8 @@ import { useToast } from '@/hooks/use-toast';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { ActivityList } from '@/components/dashboard/ActivityList';
 import { QuickActions } from '@/components/dashboard/QuickActions';
+import { QuickActionsEditDialog } from '@/components/dashboard/QuickActionsEditDialog';
+import { useSettings } from '@/hooks/useSettings';
 import { NotificationList } from '@/components/dashboard/NotificationList';
 import { WelcomeMessage } from '@/components/dashboard/WelcomeMessage';
 import { PendingEnrollmentModal } from '@/components/dashboard/PendingEnrollmentModal';
@@ -107,10 +109,22 @@ export default function DashboardPage() {
     dashboardRole = 'coach';
   }
 
+  const isSchoolDashboard = dashboardRole === 'school' || dashboardRole === 'school_admin';
+
+  // Acciones Rápidas personalizables — solo escuela/school_admin (ver plan).
+  // `useSettings` ya trae `profiles.preferences` completo, no hace falta un
+  // fetch aparte solo para esto.
+  const { data: settingsData, updateDashboardPreferences, saving: savingSettings } = useSettings();
+  const savedQuickActionIds: string[] | undefined = isSchoolDashboard
+    ? (settingsData?.profile?.preferences?.dashboard_quick_actions as string[] | undefined)
+    : undefined;
+  const [showQuickActionsEdit, setShowQuickActionsEdit] = useState(false);
+
   // For multitenant roles, we pass empty stats to config so cards show 0/loading instead of different demo data
   const config = useDashboardConfig(
     dashboardRole,
-    isMultitenantRole ? undefined : statsData
+    isMultitenantRole ? undefined : statsData,
+    savedQuickActionIds
   );
   const { data: notifications } = useNotifications();
 
@@ -595,7 +609,22 @@ export default function DashboardPage() {
         {/* Quick Actions - Always show */}
         {config.quickActions && config.quickActions.length > 0 && (
           <div data-tour="quick-actions">
-            <QuickActions actions={config.quickActions} />
+            <QuickActions
+              actions={config.quickActions}
+              onEdit={isSchoolDashboard ? () => setShowQuickActionsEdit(true) : undefined}
+            />
+            {isSchoolDashboard && (
+              <QuickActionsEditDialog
+                open={showQuickActionsEdit}
+                onOpenChange={setShowQuickActionsEdit}
+                currentIds={savedQuickActionIds ?? []}
+                saving={savingSettings}
+                onSave={async (ids) => {
+                  await updateDashboardPreferences({ dashboard_quick_actions: ids });
+                  setShowQuickActionsEdit(false);
+                }}
+              />
+            )}
           </div>
         )}
 

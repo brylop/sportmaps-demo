@@ -5,9 +5,11 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { Search, Loader2, Building2, Check, ShieldOff, CalendarClock, DollarSign } from 'lucide-react';
+import { Search, Loader2, Building2, Check, ShieldOff, CalendarClock, DollarSign, Receipt, Send, FileText, LayoutGrid } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { bffClient } from '@/lib/api/bffClient';
+import { toWaPhone } from '@/lib/api/payment-reminders';
+import { MODULE_CATALOG, MODULE_GROUPS } from '@/config/module-catalog';
 
 // Duraciones de prueba que se conceden a mano. El registro nuevo nace con 1 mes
 // (trigger create_default_school_subscription); acá se extiende cuando se acuerda.
@@ -60,6 +62,50 @@ const PLANS = [
 
 interface SchoolRow { id: string; name: string; city: string | null; }
 
+interface SaasInvoiceRow {
+  id: string;
+  invoice_number: string;
+  plan_code: string;
+  amount_cents: number;
+  period_start: string;
+  period_end: string;
+  due_date: string;
+  status: 'pending' | 'paid' | 'overdue' | 'cancelled';
+}
+
+const formatCopCents = (cents: number) => `$${Math.round(cents / 100).toLocaleString('es-CO')}`;
+
+/**
+ * Segmented control de 3 posiciones para un módulo del menú. Deliberadamente
+ * NO es el switch binario que usa la grilla de add-ons de arriba: con dos
+ * posiciones se pierde la distinción entre "heredado" (NULL — sigue el
+ * default) y "forzado OFF" (false — apagado a propósito), que es la base de
+ * que F0-F2 no cambien nada hasta que alguien toque este control.
+ */
+function TriStateModuleControl({
+  state, disabled, onChange,
+}: { state: 'heredado' | 'on' | 'off'; disabled: boolean; onChange: (v: boolean | null) => void }) {
+  return (
+    <div className="inline-flex rounded-lg border overflow-hidden text-xs shrink-0">
+      {(['heredado', 'on', 'off'] as const).map((s) => (
+        <button
+          key={s}
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange(s === 'heredado' ? null : s === 'on')}
+          className={`px-2.5 py-1.5 font-medium transition-colors disabled:opacity-50 ${
+            state === s
+              ? s === 'off' ? 'bg-destructive text-destructive-foreground' : 'bg-primary text-primary-foreground'
+              : 'hover:bg-muted text-muted-foreground'
+          }`}
+        >
+          {s === 'heredado' ? 'Heredado' : s === 'on' ? 'ON' : 'OFF'}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function AdminSubscriptionsPage() {
   const [schools, setSchools] = useState<SchoolRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,6 +115,10 @@ export default function AdminSubscriptionsPage() {
   const [ent, setEnt] = useState<Record<string, any> | null>(null);
   const [loadingEnt, setLoadingEnt] = useState(false);
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [saasBillingEnabled, setSaasBillingEnabled] = useState<boolean | null>(null);
+  const [saasInvoices, setSaasInvoices] = useState<SaasInvoiceRow[]>([]);
+  const [loadingSaas, setLoadingSaas] = useState(false);
+  const [sendingInvoiceId, setSendingInvoiceId] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 300);
@@ -106,9 +156,90 @@ export default function AdminSubscriptionsPage() {
     setLoadingEnt(false);
   }
 
+  async function loadSaasInvoicing(schoolId: string) {
+    setLoadingSaas(true);
+    const [{ data: sub }, { data: invoices }] = await Promise.all([
+      supabase.from('school_subscriptions' as any).select('saas_billing_enabled').eq('school_id', schoolId).maybeSingle(),
+      supabase.from('school_subscription_invoices' as any).select('*').eq('school_id', schoolId).order('period_start', { ascending: false }),
+    ]);
+    setSaasBillingEnabled((sub as any)?.saas_billing_enabled ?? false);
+    setSaasInvoices((invoices as any) || []);
+    setLoadingSaas(false);
+  }
+
   function selectSchool(s: SchoolRow) {
     setSelected(s);
     void loadEnt(s.id);
+    void loadSaasInvoicing(s.id);
+  }
+
+  /** Manda (o reenvía) email + push de una factura, y deja lista la ventana de WhatsApp. */
+  async function sendSaasInvoice(invoiceId: string) {
+    setSendingInvoiceId(invoiceId);
+    try {
+      const r = await bffClient.post<{ ok: boolean; whatsapp: { phone: string | null; message: string } | null }>(
+        `/api/v1/platform/invoices/${invoiceId}/send`,
+        {},
+      );
+      const waPhone = toWaPhone(r?.whatsapp?.phone);
+      if (waPhone && r?.whatsapp?.message) {
+        window.open(`https://wa.me/${waPhone}?text=${encodeURIComponent(r.whatsapp.message)}`, '_blank');
+      }
+      toast({
+        title: 'Factura enviada',
+        description: waPhone
+          ? 'Email y notificación enviados. Se abrió WhatsApp con el mensaje listo.'
+          : 'Email y notificación enviados. La escuela no tiene un celular válido para WhatsApp.',
+      });
+    } catch (e: any) {
+      toast({ title: 'No se pudo enviar la factura', description: e?.message, variant: 'destructive' });
+    } finally {
+      setSendingInvoiceId(null);
+    }
+  }
+
+  async function viewSaasInvoicePdf(invoiceId: string) {
+    try {
+      const r = await bffClient.get<{ ok: boolean; url: string }>(`/api/v1/platform/invoices/${invoiceId}/pdf-url`);
+      window.open(r.url, '_blank');
+    } catch (e: any) {
+      toast({ title: 'No se pudo abrir el PDF', description: e?.message || 'Genera/envía la factura primero.', variant: 'destructive' });
+    }
+  }
+
+  async function markSaasInvoicePaid(invoiceId: string) {
+    setSendingInvoiceId(invoiceId);
+    try {
+      await bffClient.post(`/api/v1/platform/invoices/${invoiceId}/mark-paid`, {});
+      setSaasInvoices((prev) => prev.map((i) => (i.id === invoiceId ? { ...i, status: 'paid' } : i)));
+      toast({ title: 'Factura marcada como pagada' });
+    } catch (e: any) {
+      toast({ title: 'No se pudo marcar como pagada', description: e?.message, variant: 'destructive' });
+    } finally {
+      setSendingInvoiceId(null);
+    }
+  }
+
+  async function toggleSaasBilling(next: boolean) {
+    if (!selected) return;
+    setSavingKey('__saas_billing__');
+    const { data, error } = await supabase.rpc('admin_set_saas_billing_enabled' as any, {
+      p_school_id: selected.id, p_enabled: next,
+    });
+    setSavingKey(null);
+    if (error) {
+      toast({ title: 'No se pudo cambiar', description: error.message, variant: 'destructive' });
+      return;
+    }
+    setSaasBillingEnabled(next);
+    const firstInvoiceId = (data as any)?.first_invoice_id as string | null;
+    await loadSaasInvoicing(selected.id);
+    if (firstInvoiceId) {
+      toast({ title: 'Facturación SaaS activada', description: 'Generando y enviando la primera factura…' });
+      await sendSaasInvoice(firstInvoiceId);
+    } else {
+      toast({ title: next ? 'Facturación SaaS activada' : 'Facturación SaaS desactivada', description: selected.name });
+    }
   }
 
   async function toggleAddon(key: string, next: boolean) {
@@ -496,6 +627,81 @@ export default function AdminSubscriptionsPage() {
                   </p>
                 </div>
 
+                {/* Facturación SportMaps — lo que la escuela NOS paga a nosotros */}
+                <div className="rounded-xl border p-4 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Receipt className="h-4 w-4 text-primary" />
+                    <p className="text-sm font-semibold">Facturación SportMaps</p>
+                    {saasBillingEnabled && <Badge variant="outline" className="border-emerald-500 text-emerald-600">Activa</Badge>}
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    Recibo informal (no factura DIAN) de la mensualidad SaaS que esta escuela nos paga a
+                    nosotros. Activar por primera vez genera y envía la primera factura de inmediato; de
+                    ahí en adelante el ciclo sigue solo cada mes.
+                  </p>
+
+                  <Button
+                    size="sm"
+                    variant={saasBillingEnabled ? 'outline' : 'default'}
+                    disabled={savingKey === '__saas_billing__' || loadingSaas}
+                    onClick={() => toggleSaasBilling(!saasBillingEnabled)}
+                  >
+                    {savingKey === '__saas_billing__' ? <Loader2 className="h-4 w-4 animate-spin" /> : (
+                      saasBillingEnabled ? 'Desactivar facturación' : 'Activar facturación'
+                    )}
+                  </Button>
+
+                  {saasInvoices.length > 0 && (
+                    <div className="space-y-2 pt-2">
+                      {saasInvoices.map((inv) => (
+                        <div key={inv.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-2 text-xs">
+                          <div>
+                            <p className="font-medium">{inv.invoice_number} · {formatCopCents(inv.amount_cents)}</p>
+                            <p className="text-muted-foreground">
+                              Vence {new Date(inv.due_date).toLocaleDateString('es-CO')} ·{' '}
+                              <Badge
+                                variant="outline"
+                                className={
+                                  inv.status === 'paid' ? 'border-emerald-500 text-emerald-600'
+                                  : inv.status === 'overdue' ? 'border-red-500 text-red-600'
+                                  : inv.status === 'cancelled' ? 'border-muted-foreground text-muted-foreground'
+                                  : 'border-amber-500 text-amber-600'
+                                }
+                              >
+                                {inv.status}
+                              </Badge>
+                            </p>
+                          </div>
+                          <div className="flex gap-1">
+                            <Button size="sm" variant="ghost" onClick={() => viewSaasInvoicePdf(inv.id)} title="Ver PDF">
+                              <FileText className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm" variant="ghost"
+                              disabled={sendingInvoiceId === inv.id}
+                              onClick={() => sendSaasInvoice(inv.id)}
+                              title="Enviar / reenviar por email y WhatsApp"
+                            >
+                              {sendingInvoiceId === inv.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                            </Button>
+                            {inv.status !== 'paid' && inv.status !== 'cancelled' && (
+                              <Button
+                                size="sm" variant="ghost"
+                                disabled={sendingInvoiceId === inv.id}
+                                onClick={() => markSaasInvoicePaid(inv.id)}
+                                title="Marcar como pagada"
+                              >
+                                <Check className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {/* Módulos */}
                 <div>
                   <p className="text-sm font-semibold mb-3">Módulos (add-ons)</p>
@@ -557,6 +763,94 @@ export default function AdminSubscriptionsPage() {
                   <p className="text-xs text-muted-foreground mt-3">
                     Prender un módulo lo activa al instante para la escuela (Modelo asistido). El cobro se gestiona aparte.
                   </p>
+                </div>
+
+                {/* Módulos del menú — override UX-only, capa independiente de los
+                    add-ons de arriba. Un ítem con addon asociado (Contabilidad,
+                    Control de Acceso) sigue necesitando el addon: acá solo se
+                    puede apagar por encima, nunca sustituye la compra. */}
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <LayoutGrid className="h-4 w-4 text-primary" />
+                    <p className="text-sm font-semibold">Módulos del menú</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Oculta ítems del menú lateral para esta escuela. <b>Heredado</b> = visible
+                    (o sigue al addon de arriba, si el ítem tiene uno). No reemplaza un addon:
+                    forzar <b>ON</b> acá no activa un módulo que la escuela no compró.
+                  </p>
+
+                  <div className="space-y-4">
+                    {MODULE_GROUPS.map((group) => {
+                      const items = Object.values(MODULE_CATALOG).filter((m) => m.group === group);
+                      return (
+                        <div key={group}>
+                          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+                            {group}
+                          </p>
+                          <div className="space-y-1.5">
+                            {items.map((def) => {
+                              const raw = ent?.module_overrides?.[def.key] as boolean | undefined;
+                              const state: 'heredado' | 'on' | 'off' = raw === undefined ? 'heredado' : raw ? 'on' : 'off';
+                              const hasAddonRight = !def.addon || !!ent?.[`has_${def.addon}`];
+                              return (
+                                <div
+                                  key={def.key}
+                                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-2"
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="text-sm truncate">{def.label}</span>
+                                    {def.addon && !hasAddonRight && (
+                                      <Badge variant="outline" className="border-amber-500 text-amber-600 shrink-0">
+                                        sin addon
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <TriStateModuleControl
+                                    state={state}
+                                    disabled={!!savingKey}
+                                    onChange={(v) => accionPrueba(
+                                      'admin_set_school_module',
+                                      { p_module_key: def.key, p_enabled: v },
+                                      v === null
+                                        ? `${def.label}: vuelto a heredado`
+                                        : `${def.label}: forzado ${v ? 'ON' : 'OFF'}`,
+                                    )}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Valor efectivo ahora mismo — la escuela real puede tener un
+                      addon apagado Y un override en heredado a la vez; esta tabla
+                      resuelve la cuenta en vez de que alguien la haga a mano. */}
+                  <div className="mt-4 rounded-xl border p-3">
+                    <p className="text-xs font-semibold mb-2">Valor efectivo ahora mismo</p>
+                    <div className="space-y-1 text-xs">
+                      {Object.values(MODULE_CATALOG).map((def) => {
+                        const raw = ent?.module_overrides?.[def.key] as boolean | undefined;
+                        const hasAddonRight = !def.addon || !!ent?.[`has_${def.addon}`];
+                        const isOn = raw !== false;
+                        const effective = hasAddonRight && isOn;
+                        const motivo = !hasAddonRight
+                          ? 'sin addon'
+                          : raw === undefined ? 'heredado' : `forzado ${raw ? 'ON' : 'OFF'}`;
+                        return (
+                          <div key={def.key} className="flex items-center justify-between gap-2 py-0.5">
+                            <span className="text-muted-foreground">{def.label}</span>
+                            <span className={effective ? 'text-emerald-600' : 'text-muted-foreground'}>
+                              {effective ? '✅' : '❌'} {motivo}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

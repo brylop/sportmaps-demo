@@ -40,6 +40,10 @@ const CreatePlanSchema = z.object({
     auto_renew: z.boolean().default(false),
     metadata: z.record(z.string(), z.unknown()).optional().default({}),
     sort_order: z.number().int().min(0).optional().default(0),
+    // Banco de horas (docs/specs/dreamers-banco-de-horas-torniquete.md, D-1): si no es null,
+    // el plan se mide en minutos por período en vez de max_sessions. No son excluyentes a
+    // nivel de esquema — la UI decide cuál de los dos mostrar/editar por vez.
+    included_minutes_per_period: z.number().int().positive().nullable().optional(),
 });
 
 const UpdatePlanSchema = z.object({
@@ -55,6 +59,7 @@ const UpdatePlanSchema = z.object({
     is_active: z.boolean().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
     sort_order: z.number().int().min(0).optional(),
+    included_minutes_per_period: z.number().int().positive().nullable().optional(),
 });
 
 // ── GET /api/v1/offerings ────────────────────────────────────────────────────

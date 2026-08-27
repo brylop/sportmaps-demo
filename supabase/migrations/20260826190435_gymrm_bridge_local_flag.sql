@@ -1,6 +1,10 @@
 -- =============================================================================
--- 20260825231925_gymrm_bridge_local_flag.sql
--- Autor: judegor99   Fecha: 2026-08-26   Versión anterior: 20260821141913
+-- 20260826190435_gymrm_bridge_local_flag.sql
+-- Autor: judegor99   Fecha: 2026-08-26   Versión anterior: 20260826112433
+-- Renombrada al mergear develop (colisión con migraciones de otra sesión,
+-- versión original: 20260825231925 -- ver docs/migrations-workflow.md §3).
+-- Contenido SQL sin cambios. TODAVÍA NO APLICADA en la base viva a la fecha
+-- de este rename -- ver scripts/gymrm-door-bridge/VALIDACION-2026-08-25.md.
 -- Objetivo: marcar qué turnstile_devices tienen un bridge local (pyzk) que
 --   resuelve la apertura física por fuera de ADMS, para que `getrequest`
 --   deje de mandarles `CONTROL DEVICE` (comando que el F22ID acepta con

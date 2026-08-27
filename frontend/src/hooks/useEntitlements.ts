@@ -12,6 +12,7 @@ import {
     type SubscriptionStatus,
     type TierCode,
 } from '@/config/saas-plans';
+import type { ModuleKey } from '@/config/module-catalog';
 
 // ============================================================
 // Tipos del payload del BFF
@@ -62,6 +63,13 @@ interface EntitlementsResponse {
     has_store?: boolean;
     has_accounting?: boolean;
     has_invoicing?: boolean;
+    /**
+     * Overrides del Super Admin por módulo del menú (`school_module_overrides`).
+     * Ausencia de clave = heredado (visible). `false` = forzado OFF. `true` =
+     * forzado ON. `null`/`undefined` cuando ninguna escuela tiene overrides
+     * (jsonb_object_agg sobre 0 filas) — se trata como `{}`.
+     */
+    module_overrides?: Record<string, boolean> | null;
 }
 
 // ============================================================
@@ -80,6 +88,8 @@ export interface Entitlements {
         billingCycle: 'monthly' | 'annual' | null;
     };
     addons: Record<AddonKey, boolean>;
+    /** Overrides crudos del Super Admin por módulo. Usar `isModuleEnabled()`, no leer esto directo. */
+    moduleOverrides: Record<string, boolean>;
     /** Derivados convenientes para mensajería de upsell. */
     daysLeftInTrial: number | null;
     isTrialActive: boolean;
@@ -153,6 +163,13 @@ export interface EntitlementsHelpers {
     getLimit: (feature: FeatureKey) => number | null;
     /** True si el addon está activo. */
     hasAddon: (key: AddonKey) => boolean;
+    /**
+     * True salvo que el Super Admin lo haya apagado explícitamente para esta
+     * escuela (`school_module_overrides`). Ausencia de override = heredado =
+     * visible. No reemplaza `hasAddon`: para un ítem con `addon` en el
+     * catálogo, la visibilidad efectiva es `hasAddon(addon) AND isModuleEnabled(key)`.
+     */
+    isModuleEnabled: (key: ModuleKey) => boolean;
 }
 
 const EMPTY_ENTITLEMENTS: Entitlements = {
@@ -180,6 +197,7 @@ const EMPTY_ENTITLEMENTS: Entitlements = {
         accounting: false,
         invoicing: false,
     },
+    moduleOverrides: {},
     daysLeftInTrial: null,
     isTrialActive: false,
     isTrialExpired: false,
@@ -286,6 +304,7 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
                 accounting: data.has_accounting ?? false,
                 invoicing: data.has_invoicing ?? false,
             },
+            moduleOverrides: data.module_overrides ?? {},
             daysLeftInTrial,
             isTrialActive,
             isTrialExpired,
@@ -338,6 +357,12 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
             },
 
             hasAddon: (key: AddonKey): boolean => entitlements.addons[key] === true,
+
+            // Ausencia de clave y `true` explícito dan igual (visible); solo
+            // `false` explícito oculta. Esto es lo que hace que un override
+            // en NULL (nadie lo tocó todavía) sea indistinguible de "siempre
+            // estuvo visible" — cero cambio de comportamiento hasta F3.
+            isModuleEnabled: (key: ModuleKey): boolean => entitlements.moduleOverrides[key] !== false,
         };
     }, [entitlements]);
 
