@@ -910,10 +910,10 @@ export default function SchoolStudentsManagementPage() {
 
   const getPaymentBadge = (student: any) => {
     switch (getPaymentState(student)) {
-      case 'none':    return <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-500">Sin cobro</Badge>;
-      case 'paid':    return <Badge className="bg-green-500 text-xs text-white">Al día</Badge>;
+      case 'none':    return <Badge variant="secondary" className="text-xs bg-muted text-muted-foreground">Sin cobro</Badge>;
+      case 'paid':    return <Badge className="bg-green-500 dark:bg-green-600 text-xs text-white">Al día</Badge>;
       case 'overdue': return <Badge variant="destructive" className="text-xs">Vencido</Badge>;
-      case 'pending': return <Badge variant="secondary" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200">Pendiente</Badge>;
+      case 'pending': return <Badge variant="secondary" className="text-xs bg-yellow-50 dark:bg-yellow-950/20 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-500/40">Pendiente</Badge>;
       default:        return <Badge variant="secondary" className="text-xs">{student.payment_status}</Badge>;
     }
   };
@@ -1122,10 +1122,10 @@ export default function SchoolStudentsManagementPage() {
                         )}
                       </div>
                       <div className="flex gap-1 flex-wrap mt-1">
-                        {student.team_name && <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200 py-0 h-5"><Trophy className="h-2.5 w-2.5 mr-1" /> {student.team_name}</Badge>}
-                        {(student as any).plan_name && <Badge variant="outline" className="text-[10px] bg-purple-50 text-purple-700 border-purple-200 py-0 h-5"><Zap className="h-2.5 w-2.5 mr-1" /> {(student as any).plan_name}</Badge>}
+                        {student.team_name && <Badge variant="outline" className="text-[10px] bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/40 py-0 h-5"><Trophy className="h-2.5 w-2.5 mr-1" /> {student.team_name}</Badge>}
+                        {(student as any).plan_name && <Badge variant="outline" className="text-[10px] bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/40 py-0 h-5"><Zap className="h-2.5 w-2.5 mr-1" /> {(student as any).plan_name}</Badge>}
                         {student.enrollment_id && hourBankByEnrollment.has(student.enrollment_id) && (
-                          <Badge variant="outline" className={`text-[10px] py-0 h-5 ${hourBankByEnrollment.get(student.enrollment_id)! < 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+                          <Badge variant="outline" className={`text-[10px] py-0 h-5 ${hourBankByEnrollment.get(student.enrollment_id)! < 0 ? 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/40' : 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/40'}`}>
                             <Clock className="h-2.5 w-2.5 mr-1" /> {formatHourBankMinutes(hourBankByEnrollment.get(student.enrollment_id)!)}
                           </Badge>
                         )}
@@ -1176,10 +1176,10 @@ export default function SchoolStudentsManagementPage() {
                         <TableCell>{calculateAge(student.date_of_birth)}</TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1">
-                            {student.team_name && <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200 w-fit"><Trophy className="h-3 w-3 mr-1" /> {student.team_name}</Badge>}
-                            {(student as any).plan_name && <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200 w-fit"><Zap className="h-3 w-3 mr-1" /> {(student as any).plan_name}</Badge>}
+                            {student.team_name && <Badge variant="outline" className="text-xs bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/40 w-fit"><Trophy className="h-3 w-3 mr-1" /> {student.team_name}</Badge>}
+                            {(student as any).plan_name && <Badge variant="outline" className="text-xs bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/40 w-fit"><Zap className="h-3 w-3 mr-1" /> {(student as any).plan_name}</Badge>}
                             {student.enrollment_id && hourBankByEnrollment.has(student.enrollment_id) && (
-                              <Badge variant="outline" className={`text-xs w-fit ${hourBankByEnrollment.get(student.enrollment_id)! < 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+                              <Badge variant="outline" className={`text-xs w-fit ${hourBankByEnrollment.get(student.enrollment_id)! < 0 ? 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/40' : 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/40'}`}>
                                 <Clock className="h-3 w-3 mr-1" /> {formatHourBankMinutes(hourBankByEnrollment.get(student.enrollment_id)!)}
                               </Badge>
                             )}
@@ -1545,14 +1545,14 @@ export default function SchoolStudentsManagementPage() {
             const isUnregistered = athleteType === 'unregistered';
 
             const typeBadge = isChild
-              ? <Badge className="bg-blue-500/10 text-blue-700 border-blue-500/30">Menor</Badge>
+              ? <Badge className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30">Menor</Badge>
               : isAdult
-                ? <Badge className="bg-purple-500/10 text-purple-700 border-purple-500/30">Adulto</Badge>
-                : <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/30">Sin cuenta</Badge>;
+                ? <Badge className="bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/30">Adulto</Badge>
+                : <Badge className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30">Sin cuenta</Badge>;
 
             const statusBadge = s.status === 'inactive'
               ? <Badge variant="outline" className="text-muted-foreground">Inactivo</Badge>
-              : <Badge className="bg-green-500/10 text-green-700 border-green-500/30">Activo</Badge>;
+              : <Badge className="bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/30">Activo</Badge>;
 
             // Plan manda (igual que la vista y el motor de cobros): nunca suma
             // equipo + plan; si hay plan, ese es el valor.
@@ -1635,8 +1635,8 @@ export default function SchoolStudentsManagementPage() {
                         .filter(([, v]) => typeof v === 'string' && v.trim().toLowerCase() === 'sí');
                       return avisos.length > 0 ? (
                         <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
-                          <p className="font-medium text-amber-700 mb-1">Cuestionario de afiliación — respuestas a revisar</p>
-                          <ul className="list-disc pl-4 space-y-0.5 text-amber-700/90">
+                          <p className="font-medium text-amber-700 dark:text-amber-400 mb-1">Cuestionario de afiliación — respuestas a revisar</p>
+                          <ul className="list-disc pl-4 space-y-0.5 text-amber-700/90 dark:text-amber-400/90">
                             {avisos.map(([k]) => <li key={k}>{HEALTH_SCREENING_LABELS[k] || k}</li>)}
                           </ul>
                         </div>
@@ -1652,14 +1652,14 @@ export default function SchoolStudentsManagementPage() {
                       <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
                         <Heart className="w-4 h-4 text-red-500" /> Información médica
                       </h3>
-                      <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm whitespace-pre-wrap break-words">
+                      <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-500/40 rounded-lg p-3 text-sm whitespace-pre-wrap break-words">
                         {(() => {
                           try {
                             const parsed = JSON.parse(s.medical_info);
                             if (parsed.has_allergies) {
                               return (
-                                <div className="space-y-1">
-                                  <p className="font-semibold text-red-700">⚠️ Tiene alergias</p>
+                                <div className="space-y-1 text-red-900 dark:text-red-200">
+                                  <p className="font-semibold text-red-700 dark:text-red-400">⚠️ Tiene alergias</p>
                                   {parsed.allergy_type && <p><strong>Tipo:</strong> {parsed.allergy_type}</p>}
                                   {parsed.allergy_severity && <p><strong>Severidad:</strong> {parsed.allergy_severity}</p>}
                                   {parsed.allergy_treatment && <p><strong>Tratamiento:</strong> {parsed.allergy_treatment}</p>}

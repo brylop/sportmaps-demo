@@ -1,11 +1,33 @@
 # SportMaps — Roadmap Maestro
 
-**Versión:** 2.6 · **Fecha:** 2026-08-21 · **Rama:** `develop`
+**Versión:** 2.7 · **Fecha:** 2026-08-27 · **Rama:** `develop`
 
 > **Este es el único roadmap.** Todo lo demás en `docs/` es *spec* (qué se construye y por qué),
 > *plan de fase* (cómo se migra), *doctrina de arquitectura* (cómo se hace) o *auditoría* (qué está
 > mal). Ninguno de esos documentos define prioridades: las define esta cola. Si un pendiente no
 > aparece aquí, no existe.
+
+**Cambios v2.6 → v2.7** (banco de horas — cierre de brechas encontradas al validar con datos
+reales, 2026-08-27):
+- **Hallazgo del mismo día:** las reservas "por plan" y "por instalaciones" (`session_bookings`,
+  `facility_reservations`) no sabían que el banco de horas existe — movían `sessions_used` sin
+  tocar el saldo real. Peor: con "Máx. sesiones" conviviendo como etiqueta, ese número **sí**
+  actuaba como tope real en el sistema viejo. Corregido en los 6 puntos de entrada reales
+  (`/:id/book`, `/athlete/book-session`, `/athlete/book-secondary` + sus 3 cancelaciones) — el
+  primer intento solo cubrió el endpoint de staff, "Mis Inscripciones" usa uno distinto y quedó
+  descubierto hasta la segunda pasada. Migración `20260827131341_hour_bank_link_bookings.sql`.
+- **Reporte de ingresos/salidas por estudiante** (`GET /student-report/:enrollmentId`) + histórico
+  de períodos mes a mes (`GET /hour-bank-periods/:enrollmentId`) — nuevo endpoint.
+- **Reubicación a escala:** el listado plano de saldos en Control de Acceso no aguanta 50
+  estudiantes y no era el lugar — se movió al perfil del estudiante en Estudiantes
+  (`SchoolStudentsManagementPage.tsx`), con un badge compacto en la tabla/lista y un solo request
+  para toda la escuela (no uno por fila). Control de Acceso se queda solo con la bandeja de
+  `pending_review`, que sí es operativa.
+- ⚠️ **Confirmado con el cliente el 27-ago:** además de Dreamers, `Sub-10 (Beginners)` en Academia
+  Superior Bogotá quedó con banco de horas — una inscripción real de marzo-2026, no de prueba. Fue
+  intencional (validación pedida por el dueño de esa escuela), no un descuido, pero **no está en
+  el alcance original de `MOD-21`** (solo Dreamers) — dejarlo anotado para que quien retome esto
+  sepa que ya no es una sola escuela.
 
 **Cambios v2.5 → v2.6** (banco de horas por torniquete, entregado el 2026-08-21, fuera de la cola):
 - **Nuevo ítem `MOD-21`** — banco de horas por torniquete para Dreamers Gymnastics. F1-F5 en
@@ -249,6 +271,18 @@ prioridad del tablero. Dejarlo escrito es lo que evita que `DIN-4` siga figurand
 > 4 migraciones y 6 fases, todo en la misma sesión, sin pasar por la §4. Es el quinto caso después de
 > `DIN-4`, Android, el ciclo diario de Informes y el tablero táctico de fútbol. **Lo que se entrega se
 > marca el mismo día** (§0). Se marca ahora.
+
+---
+
+## 1.5 Lo entregado el 27 de agosto (fuera de la cola)
+
+| Qué | Estado | Falta |
+|---|---|---|
+| **Banco de horas — cierre de brechas al validar con datos reales (`MOD-21`)** | ✅ En `develop`. **(a)** Las reservas "por plan" y "por instalaciones" no sabían que el banco de horas existe — corregido en los 6 puntos de entrada reales, migración `20260827131341_hour_bank_link_bookings.sql`. Encontrado en dos pasadas: la primera solo cubrió el endpoint de staff (`/:id/book`), "Mis Inscripciones" usa uno distinto (`/athlete/book-session`) que quedó descubierto hasta que se probó con datos reales. **(b)** Reporte de ingresos/salidas por estudiante + histórico de períodos mes a mes — dos endpoints nuevos. **(c)** Reubicación: el listado plano de saldos no aguanta 50 estudiantes — se sacó de Control de Acceso (queda solo la bandeja `pending_review`, que sí es operativa) y se movió al perfil del estudiante en Estudiantes, con un badge compacto en la tabla. **(d)** ⚠️ Al probar con el cliente se confirmó que **ya no es "solo Dreamers"**: Academia Superior Bogotá también tiene `hours_plan_enabled=true`, con una inscripción real de marzo-2026 (`Sub-10 (Beginners)`) convertida a banco de horas — intencional, confirmado con el dueño de esa escuela el mismo día, no un descuido. | Nada bloqueante — el hallazgo (d) es una nota de alcance, no un pendiente técnico. |
+
+> **Por qué está acá y no en la cola:** siguió a `MOD-21` del 21-ago — validar con datos reales
+> (no simulados) sacó a la luz dos brechas de integración que la revisión de código sola no había
+> visto. Mismo patrón que el resto de esta sección: se entrega y se marca el mismo día.
 
 ---
 
@@ -545,7 +579,7 @@ priorizar acá:
 | MOD-18 | **Cumpleaños y celebraciones.** Tablero de «hoy cumple» para el staff, saludo automático a la familia y anuncio celebratorio en Modo Recepción. Hoy no existe **nada**: ni tabla, ni RPC, ni cron, ni categoría de notificación — solo la fecha de nacimiento guardada, que se usa para edad/categoría, el gate mayor/menor del registro y los carnets. Cobertura medida contra la base el 19-ago: **878 atletas activos tienen fecha** (el tablero les sirve a los 878) pero **solo 410 (47 %) tienen a quién notificar** — los 253 `unregistered` no tienen cuenta, así que el saludo automático **nunca** los alcanza; esa mitad se cubre con plantilla de WhatsApp manual (F4). La plomería de envío ya está puesta: `notification_deliveries` existe y `notifications` ya tiene `category`/`data`, así que el módulo no construye infraestructura de push, se cuelga del trigger de `MOD-4`. **F1 (el tablero) es entregable solo, en 3 d, sin tocar envíos.** El toggle nace apagado: con una sola Supabase para dev/stg/prod el cron es global, y encenderlo sin `WHERE` es un acto de producción sobre 878 familias. | 🟡 | 1–2 sem (F1 solo: 3 d) | [spec](specs/cumpleanos-module.md) |
 | **MOD-19** | **Informes multi-cadencia (R1–R3).** Generaliza el Informe Mensual que ya corre: `period_type` (`daily`/`weekly`/`biweekly`/`monthly`/`semester`/`custom`) y `period_start/end` en `athlete_reports`, más `report_schedules` para la programación. **No es un módulo nuevo** — extiende tablas, RPCs y el job de las 06:10, que pasa de «asumir mensual» a «leer schedules vencidos»: cero jobs nuevos en `pg_cron`. Incluye el **envío manual «como está»** (el coach elige alcance y rango y manda) y la **plantilla brandeada**: el informe lee `schools.branding_settings`, así que el logo de Carmel es **configuración, no desarrollo** — sin editor de plantillas, que es el pozo de `MOD-14`. Entrega por la plomería existente: `notifications` → outbox → push, y Resend con resumen + enlace (el contenido del menor **no** viaja entero por correo). ⚠️ Depende de `MOD-17`: nada se construye mientras el cron recorra todas las escuelas mandando correo real, y `enabled=false` por defecto **es** ese filtro bien hecho. ⚠️ Plantillas contra tokens, cero hex literales (`MOV-4`). | 🔵 | 10–13 d | [spec](specs/informes-multi-cadencia-2026-08-19.md) |
 | **MOD-20** | **Informe grupal y cadencias cortas (R4–R5).** El informe de equipo con **contenido propio** —asistencia promedio, resumen del período, próximos hitos— y no N individuales publicados juntos; la publicación por equipo ya existe (`publish_team_reports_system`). Regla de privacidad: **nunca métricas de otros menores con nombre**; los rankings van anonimizados, misma línea que `D-IMAGEN`. Después, `daily`/`weekly` conectadas a asistencia y el semestral con comparación inicio/fin. Pariente declarado: `PER-5` — cuando `PER-1` exista, el informe semanal **es** la vista semanal exportable. | 🔵 | 2 sem | [spec](specs/informes-multi-cadencia-2026-08-19.md) |
-| **MOD-21** | ✅ **Banco de horas por torniquete — Dreamers Gymnastics.** Ver detalle completo en §1.4. Cuenta minutos en vez de clases; el torniquete (no la reserva) manda en el consumo real, independiente de `access_granted`. **Solo Dreamers** — no es una decisión de plataforma, `hours_plan_enabled` nace en `false` en las demás escuelas y el diseño no depende de `enrollment_periods` (`DIN`/rediseño de períodos, sin aprobar). Aislado de `session_bookings` a propósito: tabla propia `hour_bank_reservations` porque la reserva no lleva franja horaria (D-11). | ✅ código/esquema · ⚠️ F6 sin verificar en navegador | — | [spec](specs/dreamers-banco-de-horas-torniquete.md) |
+| **MOD-21** | ✅ **Banco de horas por torniquete.** Ver detalle completo en §1.4 y §1.5. Cuenta minutos en vez de clases; el torniquete (no la reserva) manda en el consumo real, independiente de `access_granted`. Las reservas "por plan" y "por instalaciones" ya redirigen a `reserve_hour_bank` en los 6 puntos de entrada reales (2026-08-27). Reporte de ingresos/salidas y histórico de meses por estudiante, movidos al perfil en Estudiantes (no en Control de Acceso, no escala a 50). Aislado de `session_bookings` a propósito: tabla propia `hour_bank_reservations` porque la reserva no lleva franja horaria (D-11). No es una decisión de plataforma — `hours_plan_enabled` nace en `false` para cualquier escuela nueva y el diseño no depende de `enrollment_periods` (`DIN`/rediseño de períodos, sin aprobar). ⚠️ **Ya no es "solo Dreamers":** confirmado con el cliente el 27-ago, Academia Superior Bogotá también lo tiene prendido (validación intencional, incluye una inscripción real de marzo-2026 en `Sub-10 (Beginners)`) — ver §1.4. | ✅ código/esquema, probado con datos reales en 2 escuelas | — | [spec](specs/dreamers-banco-de-horas-torniquete.md) |
 
 ### VID — Video de partidos: grabación, en vivo y clips
 
