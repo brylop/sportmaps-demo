@@ -502,7 +502,13 @@ export default function AccessControlPage() {
     try {
       await bffClient.post('/api/v1/access/set-access-group', { pin, group });
       toast({ title: group === 2 ? 'Acceso bloqueado' : 'Acceso restaurado' });
-      loadOverdue();
+      // Actualizacion optimista: el comando recien encolado queda 'pending'
+      // hasta que el lector fisico haga su propio ciclo ADMS y lo confirme
+      // ('executed') -- puede tardar varios segundos. Un loadOverdue()
+      // inmediato traia ese estado viejo, el boton parecia no responder, y
+      // habia que apretarlo varias veces. Reflejamos la intencion del click
+      // ya mismo en vez de esperar el viaje de ida y vuelta al dispositivo.
+      setOverdue(prev => prev.map(o => (o.zk_pin === pin ? { ...o, blocked: group === 2 } : o)));
     } catch (err: any) {
       toast({ title: 'No se pudo actualizar', description: err?.message, variant: 'destructive' });
     } finally {

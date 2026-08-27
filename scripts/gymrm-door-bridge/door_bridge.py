@@ -22,6 +22,21 @@ Por que existe este script (no borrar sin leer esto):
     del gym) para invocar el desbloqueo directamente sobre el dispositivo,
     igual que hace el software oficial de escritorio de ZKTeco.
 
+    IMPORTANTE (encontrado en campo 2026-08-26): NO se usa `conn.unlock()`
+    de la libreria pyzk. Esa funcion hace `pack("I", int(time)*10)` --
+    trunca el tiempo a entero ANTES de multiplicar por 10, asi que nunca
+    puede mandar menos de 1 segundo completo aunque el protocolo real
+    trabaje en decimas de segundo. A 1s+ el torniquete de GYM RM (brazo
+    giratorio sin bloqueo de "una vuelta y se traba") se re-arma varias
+    veces durante toda la ventana -- confirmado con el acceso normal
+    (huella/tarjeta) y el software oficial de ZKTeco SIN este problema,
+    osea que el defecto es especifico de mantener el rele sostenido por
+    tiempo largo, no del torniquete ni del comando en si. La solucion:
+    mandar el mismo comando (CMD_UNLOCK) pero con el valor en decimas de
+    segundo directo, evitando el truncado -- ver PULSE_DECISECONDS abajo
+    y open_door_physically(). 0.2s confirmado como pulso limpio de una
+    sola pasada en los dos lectores de GYM RM.
+
     ANTES DE INSTALAR — ver VALIDACION-2026-08-25.md en esta misma carpeta.
     El mapeo serial→dirección de abajo ya está confirmado contra la base
     real. Lo que sigue bloqueante es el backend: el endpoint que este
@@ -54,8 +69,10 @@ import time
 import traceback
 from datetime import datetime
 
+from struct import pack
+
 import requests
-from zk import ZK
+from zk import ZK, const
 
 # ------------------------------------------------------------------
 # CONFIGURACION
@@ -94,13 +111,17 @@ DEVICES = [
 ]
 
 POLL_INTERVAL_SECONDS = 3
-# Fallback si el backend todavia no manda door_drive_time_seconds (version
-# vieja del endpoint). El valor real, el que de verdad manda, es el que
-# viene en cada comando -- el mismo que se edita en "Editar dispositivo"
-# > "Tiempo de apertura" en el dashboard (turnstile_devices.door_drive_time_seconds).
-DOOR_OPEN_SECONDS_FALLBACK = 5
 REQUEST_TIMEOUT = 10
 DEVICE_CONNECT_TIMEOUT = 8
+
+# Duracion del pulso de desbloqueo, en DECIMAS de segundo (protocolo nativo
+# del dispositivo) -- 2 = 0.2s. Confirmado en campo el 2026-08-26 en los dos
+# lectores de GYM RM: abre y deja pasar una sola vez, sin re-armarse. NO
+# viene de turnstile_devices.door_drive_time_seconds -- ese campo trabaja en
+# segundos ENTEROS (CHECK 1-60 en la base) para Door1Drivertime por ADMS, una
+# granularidad completamente distinta e insuficiente para este mecanismo.
+# Override para volver a calibrar sin editar este archivo:
+PULSE_DECISECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_PULSE_DECISECONDS", "2"))
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -175,10 +196,19 @@ def ack_command(command_id, success, error_message=None):
 # Ejecucion fisica del comando via SDK local
 # ------------------------------------------------------------------
 
-def open_door_physically(device_info, seconds):
+def open_door_physically(device_info):
     """
-    Conecta por SDK directo al dispositivo y ejecuta el desbloqueo real.
-    Lanza excepcion si algo falla -- el caller decide como manejarlo.
+    Conecta por SDK directo al dispositivo y dispara el pulso de
+    desbloqueo. Lanza excepcion si algo falla -- el caller decide como
+    manejarlo.
+
+    NO usa conn.unlock() -- esa funcion de pyzk trunca el tiempo a entero
+    ANTES de multiplicar por 10 (pack("I", int(time)*10)), asi que nunca
+    puede mandar menos de 1 segundo completo. Se manda el mismo comando
+    (CMD_UNLOCK, el que unlock() llama por dentro) pero construyendo el
+    valor en decimas de segundo directo, via el metodo "privado" de pyzk
+    (_ZK__send_command -- nombre mangled de __send_command, definido en la
+    clase ZK). Es el mismo mecanismo, sin el truncado.
     """
     name = device_info["name"]
     ip = device_info["ip"]
@@ -188,11 +218,11 @@ def open_door_physically(device_info, seconds):
     conn = None
     try:
         conn = zk.connect()
-        # pyzk expone unlock() -- envia el comando binario nativo de
-        # desbloqueo (equivalente a lo que hace el software oficial de
-        # ZKTeco), NO pasa por ADMS/HTTP en absoluto.
-        conn.unlock(seconds)
-        log(f"[{name}] Puerta abierta fisicamente ({seconds}s).")
+        command_string = pack("I", PULSE_DECISECONDS)
+        resp = conn._ZK__send_command(const.CMD_UNLOCK, command_string)
+        if not resp.get('status'):
+            raise Exception(f"CMD_UNLOCK rechazado por el dispositivo: {resp}")
+        log(f"[{name}] Puerta abierta fisicamente (pulso de {PULSE_DECISECONDS/10}s).")
         return True
     finally:
         if conn:
@@ -220,11 +250,9 @@ def process_command(cmd):
         ack_command(cmd_id, success=False, error_message=f"Serial no reconocido por el bridge: {serial}")
         return
 
-    seconds = cmd.get("door_drive_time_seconds") or DOOR_OPEN_SECONDS_FALLBACK
-
-    log(f"Procesando comando {cmd_id} -> {device_info['name']} ({serial}), {seconds}s")
+    log(f"Procesando comando {cmd_id} -> {device_info['name']} ({serial})")
     try:
-        open_door_physically(device_info, seconds)
+        open_door_physically(device_info)
         ack_command(cmd_id, success=True)
     except Exception as e:
         error_msg = f"{type(e).__name__}: {e}"
