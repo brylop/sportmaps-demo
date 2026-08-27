@@ -129,6 +129,8 @@ export interface StudentViewRow {
   plan_start_date?: string | null;
   team_monthly_fee?: number | null;
   plan_monthly_fee?: number | null;
+  fee_is_manual?: boolean;
+  fee_reason?: string | null;
   branch_name?: string;
   medical_info?: string | null;
   display_parent_name?: string;
