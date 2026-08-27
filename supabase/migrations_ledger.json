@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 426,
-  "head": "20260827172229",
+  "count": 427,
+  "head": "20260827174032",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -429,6 +429,7 @@
     {"v":"20260827131341","file":"20260827131341_hour_bank_link_bookings.sql","sha256":"c9dc9ef43d18ae8a1d3cfcf91616a47e12273a0652f6255510da298d3ab1185d","added":"2026-08-27","by":"judegor99"},
     {"v":"20260827144226","file":"20260827144226_fix_school_athletes_enrollment_id_plan_only.sql","sha256":"243f0cfd6ec4a4f0da5dabd78b0cf57dfd38b56e9376b73556ce6cc1853cbcc7","added":"2026-08-27","by":"judegor99"},
     {"v":"20260827170031","file":"20260827170031_unregistered_athletes_documents_admin_upload.sql","sha256":"211178ef38b6fa81264d3f40579e744026caabbd06297c9e3938f3acf06e343a","added":"2026-08-27","by":"brylop"},
-    {"v":"20260827172229","file":"20260827172229_niv_f1_offering_plans_horas_inscripcion.sql","sha256":"d59dd5504e2d54d952fdc2dd34ce8bd0f3fdee98139eabc0dff3dbe77f401ec9","added":"2026-08-27","by":"brylop"}
+    {"v":"20260827172229","file":"20260827172229_niv_f1_offering_plans_horas_inscripcion.sql","sha256":"d59dd5504e2d54d952fdc2dd34ce8bd0f3fdee98139eabc0dff3dbe77f401ec9","added":"2026-08-27","by":"brylop"},
+    {"v":"20260827174032","file":"20260827174032_hour_bank_rpc_auth_y_autocierre_fix.sql","sha256":"4e7720139596a3e728c6c98dbcb7d1cbba8a9abd947f142a7e379180c515c9a5","added":"2026-08-27","by":"brylop"}
   ]
 }
