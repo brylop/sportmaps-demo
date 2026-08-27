@@ -58,6 +58,7 @@ interface PlanOption {
   plan_name: string;
   price: number;
   duration_days: number;
+  registration_fee: number | null; // offering_plans.registration_fee (D17) — null = sin inscripción
 }
 
 interface Branch { id: string; name: string; }
@@ -85,11 +86,12 @@ interface ProrationCardProps {
   billing: BillingSettings;
   discountPct: number;
   onDiscountChange: (pct: number) => void;
+  registrationFee?: number;
 }
 
 // ─── Proration Card ───────────────────────────────────────────────────────────
 
-function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscountChange }: ProrationCardProps) {
+function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscountChange, registrationFee = 0 }: ProrationCardProps) {
   const [discountEnabled, setDiscountEnabled] = useState(false);
 
   if (!startDate || !monthlyFee) return null;
@@ -121,6 +123,16 @@ function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscount
         <CalendarDays className="h-4 w-4 text-primary" />
         Primer cobro
       </div>
+
+      {/* ── Inscripción (D17-D19) — cobro único aparte de la mensualidad, ─────
+          una fila de payments distinta (payment_type='one_time', sin período).
+          No se suma a calc.amount: se muestra por separado a propósito. ── */}
+      {registrationFee > 0 && (
+        <div className="flex justify-between rounded-md bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900 px-2.5 py-1.5 text-sm">
+          <span className="text-orange-700 dark:text-orange-400">Inscripción (pago único)</span>
+          <span className="font-bold text-orange-700 dark:text-orange-400">{formatCOP(registrationFee)}</span>
+        </div>
+      )}
 
       {/* ── Prorated ── */}
       {billing.billing_cycle_type === 'prorated' && (
@@ -269,6 +281,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
   const [selectedPlanId, setSelectedPlanId]   = useState('none');
   const [selectedOfferingId, setSelectedOfferingId] = useState('');
   const [selectedPlanPrice, setSelectedPlanPrice] = useState(0);
+  const [selectedPlanRegistrationFee, setSelectedPlanRegistrationFee] = useState(0);
   const [startDate, setStartDate]             = useState(() => todayColombia());
   const [monthlyFee, setMonthlyFee]           = useState('');
   const [discountPct, setDiscountPct]         = useState(0);
@@ -299,7 +312,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
 
     Promise.all([
       supabase.from('teams').select('id, name, sport, price_monthly').eq('school_id', schoolId).eq('status', 'active').order('name'),
-      supabase.from('offering_plans').select('id, name, price, duration_days, offering_id, offerings(id, name)').eq('school_id', schoolId).eq('is_active', true).order('sort_order'),
+      supabase.from('offering_plans').select('id, name, price, duration_days, registration_fee, offering_id, offerings(id, name)').eq('school_id', schoolId).eq('is_active', true).order('sort_order'),
       supabase.from('school_branches').select('id, name').eq('school_id', schoolId).order('name'),
       supabase.from('school_settings').select('payment_cutoff_day, billing_cycle_type').eq('school_id', schoolId).maybeSingle(),
     ]).then(([teamsRes, plansRes, branchesRes, settingsRes]) => {
@@ -311,6 +324,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
         plan_name:     row.name,
         price:         Number(row.price),
         duration_days: row.duration_days,
+        registration_fee: row.registration_fee != null ? Number(row.registration_fee) : null,
       }));
       setPlans(flatPlans);
       setBranches((branchesRes.data as Branch[]) ?? []);
@@ -338,12 +352,14 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
     if (!planId || planId === 'none') {
       setSelectedOfferingId('');
       setSelectedPlanPrice(0);
+      setSelectedPlanRegistrationFee(0);
       return;
     }
     const p = plans.find(p => p.plan_id === planId);
     if (p) {
       setSelectedOfferingId(p.offering_id);
       setSelectedPlanPrice(p.price);
+      setSelectedPlanRegistrationFee(p.registration_fee ?? 0);
     }
   };
 
@@ -355,7 +371,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
     setFoundProfile(null);
     setBranchId('none'); setTeamId('none');
     setSelectedPlanId('none'); setSelectedOfferingId('');
-    setSelectedPlanPrice(0);
+    setSelectedPlanPrice(0); setSelectedPlanRegistrationFee(0);
     setStartDate(todayColombia());
     setMonthlyFee('');
     setDiscountPct(0);
@@ -802,6 +818,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
               billing={billing}
               discountPct={discountPct}
               onDiscountChange={setDiscountPct}
+              registrationFee={selectedPlanRegistrationFee}
             />
           </Section>
         </div>

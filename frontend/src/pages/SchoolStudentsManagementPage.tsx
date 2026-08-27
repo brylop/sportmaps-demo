@@ -62,6 +62,8 @@ const studentSchema = z.object({
   plan_monthly_fee:  z.preprocess(
     v => (v === '' || v === null || (typeof v === 'number' && Number.isNaN(v))) ? undefined : v,
     z.number().min(0).optional()),
+  fee_is_manual:    z.boolean().optional(),
+  fee_reason:       z.string().max(200).optional(),
   medical_info:     z.string().max(1000).optional(),
   notes:            z.string().max(500).optional(),
   tshirt_size:      z.string().optional(),
@@ -639,6 +641,10 @@ export default function SchoolStudentsManagementPage() {
           team_monthly_fee: data.team_monthly_fee   ?? 0,
           // En el plan, vacío = usar el precio del plan (no forzar 0).
           plan_monthly_fee: data.plan_monthly_fee   ?? null,
+          // Becado / cuota negociada: manda tal cual sin caer al precio del
+          // plan/equipo el mes siguiente (ver migración fee_is_manual).
+          fee_is_manual:    !!data.fee_is_manual,
+          fee_reason:       data.fee_reason || null,
         },
       });
     },
@@ -705,6 +711,8 @@ export default function SchoolStudentsManagementPage() {
       plan_start_date:  planStartDate,
       team_monthly_fee: teamFee,
       plan_monthly_fee: planFee,
+      fee_is_manual:    !!(student as any).fee_is_manual,
+      fee_reason:       (student as any).fee_reason || '',
       medical_info:     student.medical_info     || '',
       notes:            student.notes            || '',
       tshirt_size:      extraFields.tshirt_size,
@@ -1232,7 +1240,13 @@ export default function SchoolStudentsManagementPage() {
                         <span className="text-muted-foreground text-xs ml-1">· {student.branch_name || "Sin sede"}</span>
                       </div>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <span className="text-xs font-semibold text-primary">{(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}</span>
+                        {(student as any).fee_is_manual ? (
+                          <Badge variant="outline" className="text-[10px] bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/40 py-0 h-5">
+                            🎓 Becado
+                          </Badge>
+                        ) : (
+                          <span className="text-xs font-semibold text-primary">{(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}</span>
+                        )}
                         {getPaymentBadge(student)}
                       </div>
                     </div>
@@ -1287,7 +1301,15 @@ export default function SchoolStudentsManagementPage() {
                         </TableCell>
                         <TableCell><span className="text-xs text-muted-foreground">{student.branch_name || <span className="text-muted-foreground text-xs">Sin sede</span>}</span></TableCell>
                         <TableCell>{(student as any).athlete_type === 'adult' || isAdultByBirthdate((student as any).date_of_birth) ? '—' : (student.display_parent_name || student.parent_name || '-')}</TableCell>
-                        <TableCell className="font-semibold text-primary">{(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}</TableCell>
+                        <TableCell className="font-semibold text-primary">
+                          {(student as any).fee_is_manual ? (
+                            <Badge variant="outline" className="text-xs bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/40 w-fit">
+                              🎓 Becado
+                            </Badge>
+                          ) : (
+                            (student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'
+                          )}
+                        </TableCell>
                         <TableCell>{getPaymentBadge(student)}</TableCell>
                         <TableCell>
                           <div className="flex gap-1">
@@ -1532,7 +1554,7 @@ export default function SchoolStudentsManagementPage() {
                   <div className="space-y-1">
                     <Label htmlFor="team_monthly_fee" className="text-xs text-muted-foreground">Mensualidad equipo (COP)</Label>
                     <Input id="team_monthly_fee" type="number" step={1000}
-                      disabled={editingIsInactive || !!form.watch('offering_plan_id')}
+                      disabled={editingIsInactive || !!form.watch('offering_plan_id') || !!form.watch('fee_is_manual')}
                       {...form.register('team_monthly_fee', { valueAsNumber: true })} />
                     {form.watch('offering_plan_id') ? (
                       <p className="text-[11px] text-muted-foreground">El plan define el cobro; el equipo no cobra (queda en 0).</p>
@@ -1612,10 +1634,50 @@ export default function SchoolStudentsManagementPage() {
                   <div className="space-y-1">
                     <Label htmlFor="plan_monthly_fee" className="text-xs text-muted-foreground">Mensualidad plan (COP)</Label>
                     <Input id="plan_monthly_fee" type="number" step={1000}
-                      disabled={editingIsInactive}
+                      disabled={editingIsInactive || !!form.watch('fee_is_manual')}
                       {...form.register('plan_monthly_fee', { valueAsNumber: true })} />
                   </div>
                 </div>
+              </div>
+              <div className="space-y-2 rounded-md border p-3">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="fee_is_manual"
+                    checked={!!form.watch('fee_is_manual')}
+                    disabled={editingIsInactive}
+                    onCheckedChange={(checked) => {
+                      const isBecado = !!checked;
+                      form.setValue('fee_is_manual' as any, isBecado);
+                      // Becado = cuota exenta: en 0 y sin caer al precio del
+                      // plan/equipo el mes siguiente (open_month respeta
+                      // fee_is_manual). Al destildar, vuelve a valer el precio
+                      // vigente del plan/equipo seleccionado.
+                      if (isBecado) {
+                        form.setValue('team_monthly_fee' as any, 0);
+                        form.setValue('plan_monthly_fee' as any, 0);
+                      } else {
+                        form.setValue('fee_reason' as any, '');
+                        const t = teams.find(t => t.id === form.getValues('team_id'));
+                        const p = offeringPlans.find(p => p.id === form.getValues('offering_plan_id'));
+                        form.setValue('team_monthly_fee' as any, form.getValues('offering_plan_id') ? 0 : (t?.monthly_fee ?? 0));
+                        form.setValue('plan_monthly_fee' as any, p?.price ?? 0);
+                      }
+                    }}
+                  />
+                  <Label htmlFor="fee_is_manual" className="text-sm font-medium cursor-pointer">
+                    🎓 Becado / cuota exenta (no genera cobros)
+                  </Label>
+                </div>
+                {form.watch('fee_is_manual') && (
+                  <div className="space-y-1 pl-6">
+                    <Label htmlFor="fee_reason" className="text-xs text-muted-foreground">Motivo (opcional)</Label>
+                    <Input id="fee_reason" placeholder="Ej. Beca deportiva, convenio, hermano"
+                      {...form.register('fee_reason')} />
+                    <p className="text-[11px] text-muted-foreground">
+                      Este atleta no generará cobros mensuales aunque el plan o el equipo tengan precio.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 

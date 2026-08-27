@@ -695,6 +695,19 @@ router.put(
         return res.status(409).json({ error: INACTIVE_ATHLETE_ERROR });
       }
 
+      // Becado / cuota negociada: solo se toca si el caller lo manda explícito
+      // (fee_is_manual !== undefined). Así un PUT que no sabe de este campo
+      // (otro caller futuro) no le resetea la marca a un atleta ya becado.
+      const feeManualPatch: Record<string, any> =
+        enrollment && enrollment.fee_is_manual !== undefined
+          ? {
+              fee_is_manual: !!enrollment.fee_is_manual,
+              fee_reason: enrollment.fee_reason || null,
+              fee_set_by: req.user?.id ?? null,
+              fee_set_at: new Date().toISOString(),
+            }
+          : {};
+
       // ── PASO 2: Actualizar tabla base ─────────────────────────────────────
       if (profile && Object.keys(profile).length > 0) {
         const profileUpdate = {
@@ -979,7 +992,7 @@ router.put(
 
           if (existingTeam) {
             await supabase.from('enrollments')
-              .update({ team_id: enrollment.team_id || null, start_date: teamStartDate, monthly_fee: teamFee, updated_at: new Date().toISOString() })
+              .update({ team_id: enrollment.team_id || null, start_date: teamStartDate, monthly_fee: teamFee, updated_at: new Date().toISOString(), ...feeManualPatch })
               .eq('id', existingTeam.id).eq('school_id', schoolId);
 
             if (hasPlan) {
@@ -1031,7 +1044,7 @@ router.put(
               }
             }
           } else if (enrollment.team_id) {
-            const row: any = { school_id: schoolId, status: 'active', team_id: enrollment.team_id, start_date: teamStartDate, monthly_fee: teamFee };
+            const row: any = { school_id: schoolId, status: 'active', team_id: enrollment.team_id, start_date: teamStartDate, monthly_fee: teamFee, ...feeManualPatch };
             row[athleteCol] = id;
             const { error } = await supabase.from('enrollments').insert(row);
             if (error) throw new Error(`Error creando enrollment equipo: ${error.message}`);
@@ -1069,7 +1082,7 @@ router.put(
 
           if (existingPlan) {
             await supabase.from('enrollments')
-              .update({ offering_plan_id: enrollment.offering_plan_id || null, start_date: planStartDate, expires_at: expiresAtStr, monthly_fee: planFee, updated_at: new Date().toISOString() })
+              .update({ offering_plan_id: enrollment.offering_plan_id || null, start_date: planStartDate, expires_at: expiresAtStr, monthly_fee: planFee, updated_at: new Date().toISOString(), ...feeManualPatch })
               .eq('id', existingPlan.id).eq('school_id', schoolId);
 
             if (oldPlanId && oldPlanId !== enrollment.offering_plan_id) {
@@ -1110,7 +1123,7 @@ router.put(
               }
             }
           } else if (enrollment.offering_plan_id) {
-            const row: any = { school_id: schoolId, status: 'active', offering_plan_id: enrollment.offering_plan_id, start_date: planStartDate, expires_at: expiresAtStr, monthly_fee: planFee };
+            const row: any = { school_id: schoolId, status: 'active', offering_plan_id: enrollment.offering_plan_id, start_date: planStartDate, expires_at: expiresAtStr, monthly_fee: planFee, ...feeManualPatch };
             row[athleteCol] = id;
             const { error } = await supabase.from('enrollments').insert(row);
             if (error) throw new Error(`Error creando enrollment plan: ${error.message}`);

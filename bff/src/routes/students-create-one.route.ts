@@ -321,6 +321,50 @@ async function createEnrollment(params: {
   return data?.id ?? null;
 }
 
+// Cobro de inscripción/matrícula, aparte de la mensualidad (D17-D19,
+// docs/specs/dreamers-niveles-por-horas-y-progresion.md §9.2). Fila `one_time`
+// SIN período — no compite con uniq_payment_active_period_* (esa solo aplica a
+// filas con period_year/period_month no nulos) y no toca calcFirstPayment.
+// NULL/0 en offering_plans.registration_fee = sin cobro, comportamiento actual.
+async function chargeRegistrationFeeIfApplicable(params: {
+  schoolId: string;
+  branchId?: string | null;
+  offeringPlanId: string | null;
+  planName: string | null;
+  registrationFee: number | null;
+  dueDate: string;
+  personName: string;
+  childId?: string | null;
+  userId?: string | null;
+  unregisteredAthleteId?: string | null;
+  log?: any;
+}): Promise<boolean> {
+  const { offeringPlanId, registrationFee } = params;
+  if (!offeringPlanId || !registrationFee || registrationFee <= 0) return false;
+
+  const { error } = await supabase.from('payments').insert({
+    school_id:               params.schoolId,
+    branch_id:               params.branchId || null,
+    child_id:                params.childId || null,
+    user_id:                 params.userId || null,
+    unregistered_athlete_id: params.unregisteredAthleteId || null,
+    offering_plan_id:        offeringPlanId,
+    amount:                  registrationFee,
+    concept:                 `Inscripción — ${params.planName || 'Plan'} — ${params.personName}`,
+    due_date:                params.dueDate,
+    status:                  'pending',
+    payment_type:            'one_time',
+    period_year:             null,
+    period_month:            null,
+  });
+
+  if (error) {
+    params.log?.error({ err: error }, 'Error creando cobro de inscripción');
+    return false;
+  }
+  return true;
+}
+
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 router.post(
@@ -444,10 +488,10 @@ router.post(
           const { data: team } = await supabase.from('teams').select('name, price_monthly').eq('id', data.team_id).single();
           if (team) { teamName = team.name; teamPrice = team.price_monthly != null ? Number(team.price_monthly) : null; }
         }
-        let planName: string | null = null; let planPrice: number | null = null;
+        let planName: string | null = null; let planPrice: number | null = null; let planRegistrationFee: number | null = null;
         if (hasPlan) {
-          const { data: plan } = await supabase.from('offering_plans').select('price, name').eq('id', data.offering_plan_id).single();
-          if (plan) { planName = plan.name; planPrice = plan.price != null ? Number(plan.price) : null; }
+          const { data: plan } = await supabase.from('offering_plans').select('price, name, registration_fee').eq('id', data.offering_plan_id).single();
+          if (plan) { planName = plan.name; planPrice = plan.price != null ? Number(plan.price) : null; planRegistrationFee = plan.registration_fee != null ? Number(plan.registration_fee) : null; }
         }
 
         // plan manda si hay plan; si no, equipo. monthly_fee editado tiene prioridad.
@@ -499,6 +543,14 @@ router.post(
           });
           if (!payErr) paymentCreated = true;
           else req.log?.error({ err: payErr }, 'Error creando pago menor');
+
+          await chargeRegistrationFeeIfApplicable({
+            schoolId, branchId: data.branch_id,
+            offeringPlanId: hasPlan ? data.offering_plan_id : null,
+            planName, registrationFee: planRegistrationFee,
+            dueDate: payCalc.dueDate, personName: data.full_name,
+            childId, log: req.log,
+          });
         }
 
 
@@ -622,10 +674,10 @@ router.post(
           const { data: team } = await supabase.from('teams').select('name, price_monthly').eq('id', data.team_id).single();
           if (team) { teamName = team.name; teamPrice = team.price_monthly != null ? Number(team.price_monthly) : null; }
         }
-        let planName: string | null = null; let planPrice: number | null = null;
+        let planName: string | null = null; let planPrice: number | null = null; let planRegistrationFee: number | null = null;
         if (hasPlan) {
-          const { data: plan } = await supabase.from('offering_plans').select('price, name').eq('id', data.offering_plan_id).single();
-          if (plan) { planName = plan.name; planPrice = plan.price != null ? Number(plan.price) : null; }
+          const { data: plan } = await supabase.from('offering_plans').select('price, name, registration_fee').eq('id', data.offering_plan_id).single();
+          if (plan) { planName = plan.name; planPrice = plan.price != null ? Number(plan.price) : null; planRegistrationFee = plan.registration_fee != null ? Number(plan.registration_fee) : null; }
         }
 
         const baseFee: number | null =
@@ -671,6 +723,14 @@ router.post(
           });
           if (!payErr) paymentCreated = true;
           else req.log?.error({ err: payErr }, 'Error creando pago adulto');
+
+          await chargeRegistrationFeeIfApplicable({
+            schoolId, branchId: data.branch_id,
+            offeringPlanId: hasPlan ? data.offering_plan_id : null,
+            planName, registrationFee: planRegistrationFee,
+            dueDate: payCalc.dueDate, personName: profile.full_name,
+            userId, log: req.log,
+          });
         }
 
 
@@ -703,6 +763,11 @@ router.post(
         // UNA sola inscripción con equipo (roster) y/o plan (cobro).
         let enrollmentsCreated = 0;
         const hasPlan = !!(data.offering_plan_id && data.offering_id);
+        let planName: string | null = null; let planRegistrationFee: number | null = null;
+        if (hasPlan) {
+          const { data: plan } = await supabase.from('offering_plans').select('name, registration_fee').eq('id', data.offering_plan_id).single();
+          if (plan) { planName = plan.name; planRegistrationFee = plan.registration_fee != null ? Number(plan.registration_fee) : null; }
+        }
         if (data.team_id || hasPlan) {
           const eid = await createEnrollment({
             childId: child_id, schoolId,
@@ -740,6 +805,14 @@ router.post(
             period_month: payCalc.periodMonth,
           });
           if (!payErr) paymentCreated = true;
+
+          await chargeRegistrationFeeIfApplicable({
+            schoolId, branchId: data.branch_id,
+            offeringPlanId: hasPlan ? data.offering_plan_id : null,
+            planName, registrationFee: planRegistrationFee,
+            dueDate: payCalc.dueDate, personName: child.full_name,
+            childId: child_id, log: req.log,
+          });
         }
 
         return res.status(201).json({
@@ -859,10 +932,10 @@ router.post(
           const { data: team } = await supabase.from('teams').select('name, price_monthly').eq('id', data.team_id).single();
           if (team) { teamName = team.name; teamPrice = team.price_monthly != null ? Number(team.price_monthly) : null; }
         }
-        let planName: string | null = null; let planPrice: number | null = null;
+        let planName: string | null = null; let planPrice: number | null = null; let planRegistrationFee: number | null = null;
         if (hasPlan) {
-          const { data: plan } = await supabase.from('offering_plans').select('price, name').eq('id', data.offering_plan_id).single();
-          if (plan) { planName = plan.name; planPrice = plan.price != null ? Number(plan.price) : null; }
+          const { data: plan } = await supabase.from('offering_plans').select('price, name, registration_fee').eq('id', data.offering_plan_id).single();
+          if (plan) { planName = plan.name; planPrice = plan.price != null ? Number(plan.price) : null; planRegistrationFee = plan.registration_fee != null ? Number(plan.registration_fee) : null; }
         }
 
         const baseFee: number | null =
@@ -900,6 +973,14 @@ router.post(
             concept: `${conceptName} — ${payCalc.description} — ${data.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
             due_date: payCalc.dueDate, status: 'pending', payment_type: 'subscription',
             period_year: payCalc.periodYear, period_month: payCalc.periodMonth,
+          });
+
+          await chargeRegistrationFeeIfApplicable({
+            schoolId, branchId: data.branch_id,
+            offeringPlanId: hasPlan ? data.offering_plan_id : null,
+            planName, registrationFee: planRegistrationFee,
+            dueDate: payCalc.dueDate, personName: data.full_name,
+            unregisteredAthleteId: uaId, log: req.log,
           });
         }
 
