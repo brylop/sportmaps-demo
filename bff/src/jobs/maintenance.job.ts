@@ -11,6 +11,7 @@ import { runNotificationDispatch } from './notifications-dispatch.job';
 import { runAthleteReportsCycle } from './athlete-reports.job';
 import { runHourBankAutoclose } from './hour-bank-autoclose.job';
 import { runSaasBillingCycle } from './saas-billing-cycle.job';
+import { runBridgeHeartbeatCheck } from './bridge-heartbeat-check.job';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -339,4 +340,21 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Ciclo de facturación SaaS registrado para las 06:20 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Chequeo de latido de bridges locales (ej. scripts/gymrm-door-bridge/).
+    // Cada sondeo exitoso a GET /bridge/door-commands sella bridge_heartbeats
+    // (ver bridge.routes.ts); si un bridge lleva 10+ min sin sondear, avisa al
+    // owner una sola vez por caída. Sin owner_id en la escuela, no hay a quién
+    // avisar -- se sella igual para no reintentar cada corrida.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/5 * * * *', async () => {
+        try {
+            await runBridgeHeartbeatCheck();
+        } catch (err: any) {
+            console.error('[CRON] Error en chequeo de latido de bridges:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Chequeo de latido de bridges registrado (cada 5 min).');
 }

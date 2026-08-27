@@ -48,11 +48,41 @@
 
 | Frente | Ejemplos | Fortaleza | Debilidad |
 |---|---|---|---|
-| SaaS puros gestión | SportEasy, GOATALENT, software local | Herramientas maduras de admin | Sistemas cerrados — no atraen clientes nuevos a la escuela |
+| SaaS puros gestión | SportEasy, GOATALENT, **Controla.Club**, software local | Herramientas maduras de admin | Sistemas cerrados — no atraen clientes nuevos a la escuela |
 | Marketplaces verticales | Doctoralia (salud), Linio/Falabella (e-comm deportivo) | Marca + tráfico | No entienden nicho deportivo ni dan herramientas a clubs |
 | Informal | WhatsApp + Excel | Gratis + cultural | Caos, sin trazabilidad, sin pagos, sin compliance |
 
 **Ventaja competitiva única de SportMaps:** unir los 3 frentes en un solo ecosistema con un mapa geográfico vivo.
+
+### 2.1 Controla.Club — lectura de producto (2026-08-21, ampliada y verificada 2026-08-25)
+
+**v2 reemplaza a v1.** La primera lectura (21-ago) fue sobre capturas de pantalla de su panel. La
+segunda (25-ago) es una auditoría con fetch directo contra `controla.club`, su `sitemap.xml`, sus
+archivos `/llms.txt`/`/llms-full.txt` y Play Store — con la disciplina de marcar cada dato CONFIRMADO
+(con fuente) o NO CONFIRMADO. Un reporte intermedio había inflado dos cosas sin evidencia («bolsa de
+empleo deportivo», expansión a «Ecuador y Centroamérica») — ninguna de las dos se sostuvo al
+verificar. Detalle completo, tabla comparativa y guion de objeciones en
+[`competitor-battlecard-controla-club.md`](competitor-battlecard-controla-club.md); memoria
+`project_competitor_controla_club`.
+
+Sigue siendo un SaaS de gestión pura: sin marketplace, sin mapa geolocalizado — el frente que
+SportMaps ya cubre y extiende (§1). Lo nuevo verificado:
+
+| Qué tienen | Nuestro estado | Lectura |
+|---|---|---|
+| **Controli**: helpdesk conversacional in-app, NO motor analítico (su propio artículo dice «orienta sobre la plataforma», no menciona reportes) | LLM+orquestador ya existen en `whatsapp-bot.service.ts`, sin cablear a chat in-app. Ver `MOD-21` | Objetivamente más angosto de lo que sugería la lectura de capturas — pero está en producción y el nuestro no |
+| **Social Controla / «SportNet»**: foros, reputación tipo Reddit, feed, capa **pública trans-fronteriza** entre clubes/coaches/atletas de LatAm — en producción | Nada construido. Se acerca a `F6.2 Comunidad` (§7 de este documento), que es idea sin fecha | Gap real y el más grande de los tres — nace `MOD-24` |
+| **GEO ejecutado**: publican `/llms.txt`, `/llms-full.txt`, `/llms-faq.txt` — texto estructurado para que un LLM los cite textual («considerado el mejor software... en Colombia/LatAm») | `N4` (SEO técnico local) no contempla esto | Gap real, y **el más barato de cerrar**: es contenido publicado, no desarrollo. Nace `MOD-25` |
+| **Gamificación («ClubPoints») y fitness tracking («MetaFit»)**, ambos en producción | `N2` (gamificación) y Bloque D de `project_gym_member_app` (wearables), ambos diseñados sin construir | Gaps reales ya mapeados en el roadmap — esto sube su prioridad, no crea nada nuevo |
+| **LMS** (contenido formativo/cursos), declarado en su feature list | **No existe ni como idea** en ningún documento nuestro | Gap genuinamente nuevo, sin decisión de producto — nace `MOD-26`, abre ⚪ |
+| **Página de ataque directo** `controlaclub-vs-sportmaps`: nos compara por nombre, con pricing mezclado (el plan Pro que nos atribuyen es exacto; el Start y un plan «Crecimiento» inexistente están mal) y nombra a nuestro CEO | — | No es gap de producto, es de percepción pública. Ver battlecard §4 antes de cualquier conversación de pricing con un prospecto que ya la vio |
+| Filtros de miembro por «Acuerdo de pago»/«Beca» | Sigue sin existir en el esquema | Sin cambios — `MOD-22` |
+| «Página Web del Club» con subdominio propio | Sin cambios — `MOD-23` | Sin cambios |
+| «Directorio Deportivo» | Sigue siendo nuestra tesis central (§1, punto 3) | Ninguna acción |
+| Pricing / trial | Sin página pública de precios; trial 7 días **sin plan gratis permanente** | Nuestro `Free Start` ($0, 20 alumnos, permanente) es ventaja real no comunicada — y somos más baratos en los dos tramos comparables |
+
+Detalle y estado de ejecución de `MOD-21` a `MOD-26` en [`ROADMAP.md`](ROADMAP.md) §2 (track MOD) —
+este documento no ordena trabajo, solo registra la lectura competitiva.
 
 ---
 

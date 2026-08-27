@@ -181,6 +181,59 @@ cuando el guard de reserva entre en juego.
 
 ---
 
+## 7-bis. Integración con las reservas ya existentes de la plataforma (2026-08-27)
+
+**Hallazgo:** `session_bookings` (reserva "por plan") y `facility_reservations` (reserva "por
+instalaciones") llamaban a `move_session_credit` sin condición — ninguna de las dos vías sabía que
+el banco de horas existe. Una inscripción con `included_minutes_per_period` podía reservar por ahí
+moviendo `sessions_used`/`secondary_sessions_used`, un contador que nadie mira, sin tocar el saldo
+real. Y con "Máx. sesiones" conviviendo como etiqueta (D-4), ese número **sí actúa como tope real**
+sobre `sessions_used` en el sistema viejo — riesgo de que un coach vea "0 de 4 disponibles" mientras
+el banco de horas real todavía tiene saldo.
+
+**Fix aplicado, migración `20260827131341_hour_bank_link_bookings.sql`:** columna
+`hour_bank_reservation_id` en ambas tablas. Al reservar, si la inscripción tiene plan de horas,
+`POST /:id/book` y `POST /athlete/book-secondary` llaman a `reserve_hour_bank` **antes** de insertar
+la reserva (D-2: bloquea sin crear nada si no alcanza el saldo) y guardan el `reservation_id`
+devuelto. Al cancelar, si la reserva tiene `hour_bank_reservation_id`, se llama
+`cancel_hour_bank_reservation` en vez de `move_session_credit`. Una sola bolsa de minutos —
+`is_secondary` deja de importar para el banco de horas, aunque siga distinguiendo primaria/
+secundaria en el sistema viejo.
+
+`closeHourBankVisit` (F3) no necesitó cambios: sigue buscando la reserva `confirmed` del día por
+`enrollment_id` + `reservation_date`, sin importar si nació desde el endpoint dedicado o desde
+estas dos vías redirigidas.
+
+**Corrección del mismo día:** el primer arreglo tocó `POST /:id/book` y `DELETE /bookings/:id`
+(servidos también en `/api/v1/sessions/:id/book` — lo usan `AddDropInModal.tsx` y
+`CalendarSessionSlot.tsx`, el flujo de **coach/staff**). Pero "Mis Inscripciones" (padre/atleta)
+llama a un handler **distinto**: `POST /athlete/book-session` y `DELETE /athlete/cancel-booking`
+(`useAthleteSessionBookings.ts` → `useBookSession`/`useCancelBooking`) — mismo patrón de
+`session_bookings` + `move_session_credit`, pero código separado, así que el primer fix no lo
+cubría. Se aplicó el mismo redirect ahí. `POST /athlete/book-secondary` (reserva de instalaciones
+desde "Mis Inscripciones") ya había quedado bien la primera vez porque coincide exactamente con el
+endpoint que usa `useBookSecondarySession`. **Los cuatro puntos de entrada reales quedan
+cubiertos:** `/:id/book`, `DELETE /bookings/:id`, `/athlete/book-session`,
+`/athlete/cancel-booking`, `/athlete/book-secondary`, `/athlete/secondary/:id/cancel`.
+
+## 7-ter. Reubicación a escala (2026-08-27)
+
+Con 50 estudiantes, el listado plano de saldos en `HourBankSchoolSection` (Control de Acceso)
+estorba — esa pantalla es monitoreo operativo del día, no un reporte financiero. Se movió:
+
+- **Saldo + histórico de meses + reporte de ingresos/salidas** → perfil del estudiante en
+  Estudiantes (`SchoolStudentsManagementPage.tsx`), sección "Banco de horas". Nuevo endpoint
+  `GET /hour-bank-periods/:enrollmentId` para el histórico (antes solo existía el período actual
+  vía `/hour-bank-balance`). `HourBankBalanceCard` ganó `showHistory` (opt-in, apagado en la vista
+  del padre en `MyEnrollmentsPage` para no meterle ruido).
+- **Badge compacto** (`⏱ Xh Ymin`) en la tabla/lista de estudiantes — un solo request para toda la
+  escuela (`hour-bank-balances`, ya existía), sin pedir el saldo fila por fila.
+- **Lo que se queda en Control de Acceso:** solo la bandeja de `pending_review` — eso sí es
+  operativo (algo por resolver hoy), no un reporte.
+
+`StudentReportPanel` se extrajo a su propio archivo (`components/access/StudentReportPanel.tsx`)
+para que Estudiantes y Control de Acceso lo puedan compartir sin duplicar código.
+
 ## 7. Pendientes y riesgos
 
 - **F6 no tuvo verificación visual en navegador.** No hay `.claude/launch.json` para levantar el frontend local, y las páginas tocadas requieren sesión autenticada real (padre/owner de Dreamers) — no se armó ese entorno en esta sesión. La validación que sí se hizo: `tsc --noEmit` limpio en todo el frontend, revisión manual del JSX, y que los componentes nuevos devuelven `null` de forma explícita cuando no hay plan de horas (`has_hours_plan: false` / lista vacía), así que no deberían alterar el render de ninguna escuela que no sea Dreamers. **Antes de dar F6 por cerrado de verdad, alguien tiene que abrirlo en el navegador** con `hours_plan_enabled=true` en Dreamers y datos de prueba.

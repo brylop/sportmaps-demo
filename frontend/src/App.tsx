@@ -157,6 +157,7 @@ const WellnessOnboarding = lazy(() => import("./pages/onboarding/WellnessOnboard
 const AdminPanelPage = lazy(() => import("./pages/AdminPanelPage"));
 const AdminAnalyticsPage = lazy(() => import("./pages/AdminAnalyticsPage"));
 const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
+const AdminSupportInboxPage = lazy(() => import("./pages/AdminSupportInboxPage"));
 const AdminClubsPage = lazy(() => import("./pages/AdminClubsPage"));
 const AdminSchoolsGlobalPage = lazy(() => import("./pages/AdminSchoolsGlobalPage"));
 const AdminSubscriptionsPage = lazy(() => import("./pages/AdminSubscriptionsPage"));
@@ -173,6 +174,7 @@ const MyAthleteCardsPage = lazy(() => import("./pages/MyAthleteCardsPage"));
 const CertificateVerifyPublicPage = lazy(() => import("./pages/CertificateVerifyPublicPage"));
 const JoinSchoolPublicPage = lazy(() => import("./pages/JoinSchoolPublicPage"));
 const SchoolJoinQRsPage = lazy(() => import("./pages/SchoolJoinQRsPage"));
+const SchoolLeadFormPage = lazy(() => import("./pages/SchoolLeadFormPage"));
 
 // ─── Vendor/Marketplace pages (lazy) ─────────────────────────────────────────
 const MarketplacePage = lazy(() => import("./pages/MarketplacePage"));
@@ -307,6 +309,7 @@ const App = () => (
                     <Route path="/c/:qrToken" element={<AthleteCardPublicPage />} />
                     <Route path="/cert/:folio" element={<CertificateVerifyPublicPage />} />
                     <Route path="/join/:slug" element={<JoinSchoolPublicPage />} />
+                    <Route path="/inscripcion/:slug" element={<SchoolLeadFormPage />} />
                     <Route path="/agendar/:slug" element={<PublicFacilityBookingPage />} />
                     <Route path="/terminos-y-condiciones" element={<TermsPage />} />
                     <Route path="/terms" element={<Navigate to="/terminos-y-condiciones" replace />} />
@@ -916,6 +919,11 @@ const App = () => (
                       <Route path="admin/users" element={
                         <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
                           <AdminUsersPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/support" element={
+                        <ProtectedRoute allowedRoles={['super_admin']} strictRoleCheck>
+                          <AdminSupportInboxPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/clubs" element={

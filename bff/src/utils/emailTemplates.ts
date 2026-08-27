@@ -238,6 +238,89 @@ export const BrandedEmailTemplates = {
         };
     },
 
+    // ── Intento de pago online rechazado (Wompi/MercadoPago) ─────────────────
+    /** El banco rechazó el intento → acudiente: puede reintentar ya mismo. */
+    paymentAttemptFailed: async (params: {
+        parentName: string; concept: string; amount: string; bankReason: string | null;
+        link: string; schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+        return {
+            subject: `Tu pago no se pudo procesar — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: 'Tu pago no se pudo procesar',
+                greeting: `Hola ${escapeHtml(params.parentName)},`,
+                bodyHtml: `
+                    <p>Intentaste pagar <strong>${escapeHtml(params.concept)}</strong>
+                    (${escapeHtml(params.amount)}) y el banco rechazó la transacción${
+                        params.bankReason ? `: <em>${escapeHtml(params.bankReason)}</em>` : '.'
+                    }</p>
+                    <p>No te preocupes: el cobro sigue disponible, no perdiste el intento.
+                    Podés volver a intentarlo con el mismo medio o con otro.</p>
+                `,
+                cta: { label: 'Reintentar pago', url: params.link },
+                closingHtml: 'Si el problema persiste, contactá directamente a la escuela.',
+            }),
+        };
+    },
+
+    /** Resultado ambiguo (ERROR/VOIDED) → acudiente: que NO reintente todavía. */
+    paymentAttemptAmbiguous: async (params: {
+        parentName: string; concept: string; amount: string; link: string; schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+        return {
+            subject: `No pudimos confirmar tu pago — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: 'No pudimos confirmar tu pago',
+                greeting: `Hola ${escapeHtml(params.parentName)},`,
+                bodyHtml: `
+                    <p>El pago de <strong>${escapeHtml(params.concept)}</strong>
+                    (${escapeHtml(params.amount)}) quedó sin confirmar con la pasarela.</p>
+                    <p><strong>No vuelvas a pagar todavía</strong>: estamos verificando con el
+                    banco si el dinero se movió, y te avisamos apenas lo sepamos.</p>
+                `,
+                cta: { label: 'Ver mis pagos', url: params.link },
+            }),
+        };
+    },
+
+    /** Intento rechazado/ambiguo → escuela: para que responda con el motivo real. */
+    paymentAttemptFailedSchoolAlert: async (params: {
+        payerName: string; studentName: string | null; concept: string; amount: string;
+        bankReason: string | null; ambiguous: boolean; link: string; schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+        const quien = params.studentName
+            ? `${escapeHtml(params.payerName)} (${escapeHtml(params.studentName)})`
+            : escapeHtml(params.payerName);
+        return {
+            subject: params.ambiguous
+                ? `Pago sin confirmar — ${branding.schoolName.replace(/&amp;/g, '&')}`
+                : `Intento de pago rechazado — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: params.ambiguous ? 'Pago sin confirmar' : 'Intento de pago rechazado',
+                greeting: 'Hola,',
+                bodyHtml: params.ambiguous
+                    ? `<p><strong>${quien}</strong> intentó pagar <strong>${escapeHtml(params.concept)}</strong>
+                        (${escapeHtml(params.amount)}) pero la pasarela no confirmó el resultado.
+                        Verificá en el dashboard de la pasarela antes de volver a cobrarle: no sabemos
+                        todavía si el dinero se movió.</p>`
+                    : `<p><strong>${quien}</strong> intentó pagar <strong>${escapeHtml(params.concept)}</strong>
+                        (${escapeHtml(params.amount)}) y el banco lo rechazó${
+                            params.bankReason ? `: <em>${escapeHtml(params.bankReason)}</em>` : '.'
+                        }</p>
+                        <p>El cobro sigue pendiente y la familia ya puede reintentar. Si le escribís,
+                        contale el motivo exacto en vez de solo decir "no ha pagado" — a veces el
+                        rechazo lo dio el banco, no una decisión suya.</p>`,
+                cta: { label: 'Ver cartera', url: params.link },
+            }),
+        };
+    },
+
     /**
      * Bienvenida tras registrarse. Sin schoolId (usuario nuevo sin escuela aún).
      */

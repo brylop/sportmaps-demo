@@ -18,6 +18,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { requireAuth, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { buildUserState } from '../services/support-diagnosis.service';
+import { userClient } from '../utils/userClient';
 
 const router = Router();
 
@@ -72,6 +73,56 @@ router.get('/user-state', async (req: AuthenticatedRequest, res: Response) => {
         req.log?.error({ err, email, userId }, 'Error construyendo user-state');
         res.status(500).json({ error: 'No se pudo construir el diagnóstico.' });
     }
+});
+
+// ─── GET /api/v1/admin/support/tickets ────────────────────────────────────
+// Bandeja mínima (MOD-21 S0, sin panel de diagnóstico embebido todavía —
+// eso es S2 completo). Sin asignar primero, luego lo más viejo; usa el
+// mismo índice `support_tickets_inbox` de la migración.
+router.get('/tickets', async (req: AuthenticatedRequest, res: Response) => {
+    const client = userClient(req); // is_support_agent() debe resolver true vía RLS
+
+    const { data, error } = await client
+        .from('support_tickets')
+        .select('id, requester_id, status, subject, category, priority, assignee_id, school_id, created_at, updated_at, first_response_at')
+        .neq('status', 'resolved')
+        .neq('status', 'closed')
+        .order('assignee_id', { ascending: true, nullsFirst: true })
+        .order('created_at', { ascending: true });
+
+    if (error) {
+        req.log?.error({ err: error }, 'admin/support/tickets: error listando bandeja');
+        return res.status(500).json({ error: 'No se pudo cargar la bandeja de soporte.' });
+    }
+
+    // Nombre del solicitante en un solo viaje — la bandeja sin nombre no sirve.
+    const requesterIds = [...new Set((data || []).map((t: any) => t.requester_id))];
+    let names: Record<string, string> = {};
+    if (requesterIds.length) {
+        const { data: profiles } = await client.from('profiles').select('id, full_name, email').in('id', requesterIds);
+        names = Object.fromEntries((profiles || []).map((p: any) => [p.id, p.full_name || p.email || 'Sin nombre']));
+    }
+
+    res.json({
+        tickets: (data || []).map((t: any) => ({ ...t, requesterName: names[t.requester_id] ?? null })),
+    });
+});
+
+// ─── GET /api/v1/admin/support/tickets/:id/messages ───────────────────────
+// Hilo completo, incluidas notas internas (el agente sí las ve).
+router.get('/tickets/:id/messages', async (req: AuthenticatedRequest, res: Response) => {
+    const client = userClient(req);
+    const { data, error } = await client
+        .from('support_messages')
+        .select('id, author_type, author_id, body, internal_note, created_at')
+        .eq('ticket_id', req.params.id)
+        .order('created_at', { ascending: true });
+
+    if (error) {
+        req.log?.error({ err: error, ticketId: req.params.id }, 'admin/support/tickets/:id/messages: error');
+        return res.status(500).json({ error: 'No se pudo cargar la conversación.' });
+    }
+    res.json({ messages: data || [] });
 });
 
 export default router;

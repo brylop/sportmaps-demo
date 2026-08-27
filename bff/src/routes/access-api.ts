@@ -161,6 +161,70 @@ router.get('/stats', requireAuth, requireRole('owner', 'admin', 'school_admin'),
   }
 });
 
+// ─── GET /api/v1/access/occupancy ────────────────────────────────────────────
+// Quién está DENTRO ahora mismo y hace cuánto entró — para la tarjeta "Aforo"
+// filtrada del panel. Por persona: el último evento concedido de hoy; si es
+// 'entry', sigue adentro. Mismo patrón de resolución de nombre que /events.
+router.get('/occupancy', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const today    = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+    const startUTC = `${today}T05:00:00+00:00`;
+    const endUTC   = new Date(new Date(startUTC).getTime() + 86400000).toISOString();
+
+    const { data: events, error } = await supabase
+      .from('access_events')
+      .select('direction, user_id, unregistered_athlete_id, zk_user_id, occurred_at')
+      .eq('school_id', schoolId)
+      .eq('access_granted', true)
+      .gte('occurred_at', startUTC)
+      .lt('occurred_at', endUTC)
+      .order('occurred_at', { ascending: true });
+
+    if (error) throw error;
+
+    // Por identidad, se queda el último evento cronológico (el Map sobreescribe).
+    const lastByIdentity = new Map<string, any>();
+    for (const e of events || []) {
+      const key = e.user_id ? `u:${e.user_id}` : e.unregistered_athlete_id ? `a:${e.unregistered_athlete_id}` : `z:${e.zk_user_id}`;
+      lastByIdentity.set(key, e);
+    }
+
+    const inside = [...lastByIdentity.values()].filter((e) => e.direction === 'entry');
+
+    const userIds = [...new Set(inside.map((e) => e.user_id).filter(Boolean))];
+    const uaIds   = [...new Set(inside.map((e) => e.unregistered_athlete_id).filter(Boolean))];
+
+    const profileMap: Record<string, string> = {};
+    if (userIds.length) {
+      const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', userIds);
+      (profiles || []).forEach((p: any) => { profileMap[p.id] = p.full_name; });
+    }
+    const uaMap: Record<string, string> = {};
+    if (uaIds.length) {
+      const { data: uas } = await supabase.from('unregistered_athletes').select('id, full_name').in('id', uaIds);
+      (uas || []).forEach((u: any) => { uaMap[u.id] = u.full_name; });
+    }
+
+    const now = Date.now();
+    const occupancy = inside
+      .map((e) => ({
+        name: e.user_id
+          ? (profileMap[e.user_id] ?? 'Usuario')
+          : e.unregistered_athlete_id
+            ? (uaMap[e.unregistered_athlete_id] ?? 'Atleta')
+            : `ZK#${e.zk_user_id}`,
+        entered_at: e.occurred_at,
+        minutes_inside: Math.max(0, Math.round((now - new Date(e.occurred_at).getTime()) / 60000)),
+      }))
+      .sort((a, b) => b.minutes_inside - a.minutes_inside);
+
+    return res.json({ occupancy });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al calcular el aforo' });
+  }
+});
+
 // ─── POST /api/v1/access/manual-open ────────────────────────────────────────
 router.post('/manual-open', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -968,6 +1032,153 @@ router.get('/hour-bank-balance/:enrollmentId', requireAuth, async (req: Authenti
     });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error al leer el saldo del banco de horas' });
+  }
+});
+
+// ─── GET /api/v1/access/hour-bank-periods/:enrollmentId ──────────────────────
+// Histórico de períodos (meses anteriores) de UNA inscripción — para la
+// pregunta "¿cuánto gastó cada mes?" desde el perfil del estudiante. El
+// período actual también sale acá (basta con no filtrar por fecha), así que
+// esta ruta reemplaza a /hour-bank-balance para quien ya está viendo el
+// perfil completo — /hour-bank-balance se queda para el caso rápido (solo el
+// saldo de hoy, como en HourBankBalanceCard).
+router.get('/hour-bank-periods/:enrollmentId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const { enrollmentId } = req.params;
+
+    const { data: enrollment } = await supabase
+      .from('enrollments')
+      .select('id, user_id, child_id, school_id')
+      .eq('id', enrollmentId)
+      .eq('school_id', schoolId)
+      .maybeSingle();
+
+    if (!enrollment) return res.status(404).json({ error: 'Inscripción no encontrada' });
+    if (!(await canManageHourBankEnrollment(req, enrollment))) {
+      return res.status(403).json({ error: 'Sin permiso para ver el histórico de esta inscripción' });
+    }
+
+    // Asegura que el período de hoy exista (mismo efecto que abrirlo desde el
+    // saldo) antes de listar — así el mes actual no falta en el historial la
+    // primera vez que alguien lo consulta.
+    await supabase.rpc('get_or_open_hour_bank_period', { p_enrollment_id: enrollmentId });
+
+    const { data: periods, error } = await supabase
+      .from('hour_bank_periods')
+      .select('id, period_start, period_end, included_minutes, reserved_minutes, consumed_minutes')
+      .eq('enrollment_id', enrollmentId)
+      .order('period_start', { ascending: false });
+
+    if (error) return res.status(500).json({ error: 'Error al leer el histórico' });
+
+    return res.json({
+      periods: (periods || []).map((p) => ({
+        ...p,
+        available_minutes: p.included_minutes - p.reserved_minutes - p.consumed_minutes,
+      })),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al leer el histórico del banco de horas' });
+  }
+});
+
+// ─── GET /api/v1/access/student-report/:enrollmentId ─────────────────────────
+// Reporte de ingresos/salidas de UN estudiante — log crudo del torniquete y,
+// si la inscripción tiene banco de horas, sus visitas y reservas del rango.
+// Sirve para CUALQUIER inscripción (por sesiones o por horas), no solo Dreamers
+// — "validar ingresos/salidas" es auditoría general de acceso.
+router.get('/student-report/:enrollmentId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const { enrollmentId } = req.params;
+
+    const todayBogota = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+    const to   = (req.query.to as string)   || todayBogota;
+    const from = (req.query.from as string) || new Date(new Date(to).getTime() - 29 * 86400000).toISOString().slice(0, 10);
+
+    const { data: enrollment } = await supabase
+      .from('enrollments')
+      .select('id, user_id, child_id, unregistered_athlete_id, school_id')
+      .eq('id', enrollmentId)
+      .eq('school_id', schoolId)
+      .maybeSingle();
+
+    if (!enrollment) return res.status(404).json({ error: 'Inscripción no encontrada' });
+    if (!(await canManageHourBankEnrollment(req, enrollment))) {
+      return res.status(403).json({ error: 'Sin permiso para ver el reporte de esta inscripción' });
+    }
+
+    // Nombre — mismo patrón multi-fuente que el resto del archivo, + children
+    // (que acá sí hace falta: es la única identidad que puede llegar por esta ruta).
+    let athleteName = 'Atleta';
+    if (enrollment.user_id) {
+      const { data: p } = await supabase.from('profiles').select('full_name').eq('id', enrollment.user_id).maybeSingle();
+      athleteName = p?.full_name ?? athleteName;
+    } else if (enrollment.unregistered_athlete_id) {
+      const { data: ua } = await supabase.from('unregistered_athletes').select('full_name').eq('id', enrollment.unregistered_athlete_id).maybeSingle();
+      athleteName = ua?.full_name ?? athleteName;
+    } else if (enrollment.child_id) {
+      const { data: c } = await supabase.from('children').select('full_name').eq('id', enrollment.child_id).maybeSingle();
+      athleteName = c?.full_name ?? athleteName;
+    }
+
+    const startUTC = `${from}T05:00:00+00:00`;
+    const endUTC   = new Date(new Date(`${to}T05:00:00+00:00`).getTime() + 86400000).toISOString();
+
+    // Log crudo del torniquete. child_id NO participa del circuito ADMS
+    // (zk_user_mappings/access_events no tienen esa columna) — se avisa en
+    // `no_turnstile_data` en vez de devolver una lista vacía sin explicación.
+    let events: any[] = [];
+    const noTurnstileData = !enrollment.user_id && !enrollment.unregistered_athlete_id;
+    if (!noTurnstileData) {
+      let q = supabase
+        .from('access_events')
+        .select('direction, access_granted, denial_reason, check_in_method, occurred_at')
+        .eq('school_id', schoolId)
+        .gte('occurred_at', startUTC)
+        .lt('occurred_at', endUTC)
+        .order('occurred_at', { ascending: false });
+      q = enrollment.user_id
+        ? q.eq('user_id', enrollment.user_id)
+        : q.eq('unregistered_athlete_id', enrollment.unregistered_athlete_id);
+      const { data } = await q;
+      events = data || [];
+    }
+
+    // Banco de horas, si la inscripción tiene plan de horas.
+    let hourBank: any = { has_hours_plan: false };
+    const { data: periodId } = await supabase.rpc('get_or_open_hour_bank_period', { p_enrollment_id: enrollmentId });
+    if (periodId) {
+      const { data: visits } = await supabase
+        .from('hour_bank_visits')
+        .select('id, status, started_at, ended_at, billed_minutes, auto_closed')
+        .eq('enrollment_id', enrollmentId)
+        .gte('started_at', startUTC)
+        .lt('started_at', endUTC)
+        .order('started_at', { ascending: false });
+
+      const { data: reservations } = await supabase
+        .from('hour_bank_reservations')
+        .select('id, reservation_date, minutes, status')
+        .eq('enrollment_id', enrollmentId)
+        .gte('reservation_date', from)
+        .lte('reservation_date', to)
+        .order('reservation_date', { ascending: false });
+
+      hourBank = { has_hours_plan: true, visits: visits || [], reservations: reservations || [] };
+    }
+
+    return res.json({
+      enrollment_id: enrollmentId,
+      athlete_name: athleteName,
+      range: { from, to },
+      no_turnstile_data: noTurnstileData,
+      events,
+      hour_bank: hourBank,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al generar el reporte del estudiante' });
   }
 });
 

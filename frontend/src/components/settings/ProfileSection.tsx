@@ -31,7 +31,7 @@ interface ProfileSectionProps {
 }
 
 export function ProfileSection({ data, saving, onSave }: ProfileSectionProps) {
-  const { profile } = useAuth();
+  const { profile, updateProfile: updateAuthProfile } = useAuth();
   const { uploadFile, uploading } = useStorage();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [openSports, setOpenSports] = useState(false);
@@ -76,7 +76,14 @@ export function ProfileSection({ data, saving, onSave }: ProfileSectionProps) {
     try {
       const publicUrl = await uploadFile(file, 'avatars', profile.id);
       if (publicUrl) {
-         await onSave({ ...formData, avatar_url: publicUrl } as any);
+        // Directo via AuthContext, no via el onSave de datos personales:
+        // save_profile_settings (el RPC detrás de onSave) no tiene parámetro
+        // p_avatar_url, así que nunca persiste esta columna. Antes viajaba
+        // igual "de colado" porque onSave reenviaba el objeto completo (con
+        // avatar_url adentro) a updateAuthProfile — funcionaba por
+        // casualidad y quedaba atado al éxito de un guardado que no tiene
+        // nada que ver con la foto.
+        await updateAuthProfile({ avatar_url: publicUrl });
       }
     } catch (error) {
       console.error('Error uploading avatar:', error);

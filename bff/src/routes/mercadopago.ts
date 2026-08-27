@@ -36,6 +36,7 @@ import {
 import { loadProviderConfig } from '../services/payment-provider.resolver';
 // Mismo formato de motivo que Wompi para que el frontend lo parsee una sola vez.
 import { buildFailureReason, bankMessageFrom } from './wompi';
+import { sendPaymentAttemptFailedEmails } from '../services/paymentFailureEmail.service';
 import {
     recordWebhookEvent,
     markWebhookProcessed,
@@ -489,6 +490,8 @@ async function handleSchoolPayment(args: HandlerArgs): Promise<HandlerResult> {
     if (notifErr) {
         req.log?.warn({ err: notifErr, paymentId: link.payment_id }, 'notify_payment_attempt_failed falló (no-bloqueante)');
     }
+
+    void sendPaymentAttemptFailedEmails(link.payment_id, bankMessageFrom(payment), isAmbiguous, req.log);
 
     return {
         status: 200,

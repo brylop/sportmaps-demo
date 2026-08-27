@@ -1,11 +1,134 @@
 # SportMaps — Roadmap Maestro
 
-**Versión:** 2.5 · **Fecha:** 2026-08-19 · **Rama:** `develop`
+**Versión:** 2.10 · **Fecha:** 2026-08-27 · **Rama:** `develop`
 
 > **Este es el único roadmap.** Todo lo demás en `docs/` es *spec* (qué se construye y por qué),
 > *plan de fase* (cómo se migra), *doctrina de arquitectura* (cómo se hace) o *auditoría* (qué está
 > mal). Ninguno de esos documentos define prioridades: las define esta cola. Si un pendiente no
 > aparece aquí, no existe.
+
+**Cambios v2.9 → v2.10** (consolidación de producto del spec `NIV` + verificación de impacto contra
+código real, 2026-08-27 — ver
+[`specs/dreamers-niveles-por-horas-y-progresion.md`](specs/dreamers-niveles-por-horas-y-progresion.md#§8-impacto-verificado-contra-el-código-real-2026-08-27)):
+- **Las 16 decisiones (`D1-D16`) quedaron cerradas.** La sesión de repaso que v2.9 marcaba como
+  pendiente ya ocurrió. `NIV-1` (F1, planes por horas/días) **queda sin bloqueantes verificados y con
+  plan de implementación escrito** (spec §9) — lista para escribir la migración. Quedan 6 datos
+  puntuales pendientes (spec §7, no son decisiones: mapeo de niveles USAG, días por nivel, quién
+  carga resultados, puntajes exactos de FEDECOLGIM, los 2 precios de D16, default de
+  `first_payment_mode`) y **2 correcciones de alcance** que salieron de verificar el spec contra el
+  código real, no de negocio:
+  - `D9/D11` (`NIV-4`, reserva por entrenador): el torniquete ZKTeco (F22) decide el acceso físico
+    localmente — el BFF nunca controla la puerta en tiempo real. Agregar `allowed_days_of_week` a la
+    validación del BFF es barato pero solo afecta log/aviso, no bloquea el paso. Bloquear de verdad
+    exige automatizar los grupos de acceso nativos del dispositivo, un proyecto aparte. Pendiente
+    decidir cuál alcance quiere `NIV-4` antes de dimensionarlo (hoy dice "1 sem", asumiendo lo barato).
+  - `D10` (`NIV-4`, migración `program_id → offering_id`): la premisa ya no es cierta — `school_availability`
+    en la base real no tiene `program_id` ni `offering_id` (tiene `branch_id`); el diagnóstico de marzo
+    quedó desactualizado y hay que rehacerlo antes de escribir esa migración.
+- **Orden de implementación definido:** F1 → F7 → F2 → F3 → F5 → F6 (spec §5) — ya no "todo entra
+  junto a `P3`".
+- **Sigue vigente de v2.9:** Dreamers en `billing_cycle_type='fixed_calendar'` (no `prorated`); el
+  motor de mora activo solo en 3/368 escuelas y apagado en Dynasty (`project_late_fee_engine_status`);
+  Carmel Club como candidata de expansión real para `NIV` el día que prenda la misma config.
+
+**Cambios v2.7 → v2.8** (entrega del mismo día — regla del §0 «lo que se entrega se marca el mismo
+día» — ver [§1.5](#15-lo-entregado-el-25-de-agosto-tarde)):
+- **`MOD-27` (asistente de soporte in-app) pasa de 🟡 a entregado (S0+S1+bandeja mínima), sin
+  commitear.** Migración `20260825114534_support_tickets_s0.sql` aplicada y verificada contra la
+  base viva (RLS línea por línea, `seguridad:invariantes` sin críticos, smoke test de idempotencia).
+  S1 (3 tools de solo lectura sobre `chatWithTools()`) también quedó cableado, no solo S0. Se agregó
+  además una bandeja mínima para el `super_admin` en `/admin/support` — **no estaba en el plan
+  original**: sin eso, un ticket escalado a `waiting_human` no tenía dónde ser visto por un humano,
+  el riesgo que la propia spec (§8) marca como «peor que no tenerlo». Falta S2 completo (panel de
+  diagnóstico embebido, notas internas desde la UI, push de ticket nuevo).
+- **`MOD-25` pasa de ⚪ a entregado.** `llms.txt`/`llms-full.txt` ya vivían en la landing; hoy se
+  sumó el tercer archivo que faltaba (`llms-faq.txt`, ~35 Q&A directas), se referenciaron las 6
+  comparativas (antes solo citaba Clupik) y se corrigió el `robots.txt` con ~20 user-agents de IA
+  explícitos (GPTBot, ClaudeBot, PerplexityBot, Google-Extended, etc.).
+- **La página de ataque de Controla.Club (fila sin ID, abajo del catálogo `MOD`) queda con
+  corrección publicada, no solo documentada.** `/comparar/controla-club` (nuevo) tiene pricing
+  verificado de ambos lados ($69k/50 vs $99k/50 real, no inferido), y `llms-full.txt` lleva una nota
+  fechada explicando que planes como «Crecimiento» ya no existen — para que un LLM que lea ambas
+  fuentes prefiera la nuestra por ser más reciente y explícita.
+- Sitemap de la landing corregido: le faltaban 4 comparativas (QueFluya, Athleos, CuotaQ,
+  AgendaPro) que ya existían en código pero nunca se habían agregado — nunca se estaban indexando.
+
+**Cambios v2.6 → v2.7** (auditoría profunda de **Controla.Club** con fetch directo — no capturas —
+contra su sitio, `sitemap.xml`, `/llms.txt` y Play Store, 2026-08-25 — ver
+[`competitor-battlecard-controla-club.md`](competitor-battlecard-controla-club.md) y
+[`sportmaps-strategic-roadmap.md` §2.1](sportmaps-strategic-roadmap.md#21-controlaclub--lectura-de-producto-2026-08-21-ampliada-y-verificada-2026-08-25)):
+- **Tres ítems nuevos en el track `MOD`.** `MOD-24` (comunidad/red social — su «Social Controla» ya
+  está en producción, el nuestro es idea sin fecha), `MOD-25` (publicar `/llms.txt` propio — GEO
+  ejecutado de su lado, 1-2 días sin código de nuestro lado, entra directo a P1) y `MOD-26` (LMS —
+  gap genuinamente nuevo, sin decisión de producto todavía).
+- **Hallazgo que no es de producto: tienen una página de ataque directo contra SportMaps**
+  (`controlaclub-vs-sportmaps`) con pricing mezclado — el plan Pro que nos atribuyen es exacto, el
+  Start y un plan «Crecimiento» que ya no existe están mal, y nombran a nuestro CEO. No genera un ID
+  de desarrollo: genera una corrección de percepción documentada en el battlecard §4-5.
+- **`MOD-27` (asistente de soporte in-app) se reduce de alcance real:** verificado que Controli es
+  un helpdesk conversacional, no un motor de reportes — la lectura de capturas del 21-ago lo
+  sobrestimaba. Sigue siendo cierto que nuestra versión, una vez cableada, es más profunda.
+- **Corrección de un reporte intermedio que había inflado dos hallazgos sin evidencia**: «bolsa de
+  empleo deportivo» (no existe en ningún fetch) y expansión a «Ecuador y Centroamérica» (los países
+  reales autodeclarados son Colombia/Panamá/Ecuador/Perú; Ecuador sí pero Centroamérica no, y son
+  autodeclarados sin testimonios verificables). Queda como lección de método: verificar con fetch
+  directo antes de escribir un hallazgo en el roadmap, no aceptar un resumen de búsqueda como fuente.
+
+**Cambios v2.5 → v2.6** (lectura del competidor **Controla.Club** — capturas de su panel,
+2026-08-21 — ver [`sportmaps-strategic-roadmap.md` §2.1](sportmaps-strategic-roadmap.md#21-controlaclub--lectura-de-producto-2026-08-21)):
+- **`MOD-27` — el asistente de IA in-app no tenía ID en la cola, y es lo que menos falta construir
+  de los tres.** El «Controli» de la competencia es exactamente lo que describe
+  [`specs/soporte-in-app-chat-y-bot.md`](specs/soporte-in-app-chat-y-bot.md): LLM, orquestador y
+  regla de cero alucinaciones **ya funcionan** (portados de WhatsApp), el plan de migración S0
+  está escrito y **nunca entró a la cola de este archivo**. Entra directo a P1 — ver §3.
+- **`MOD-22` — «beca» y «acuerdo de pago» como excepción de cobro no existen en el esquema.**
+  Gap real, verificado por grep en `supabase/migrations`: cero resultados para `beca`/`scholarship`.
+  Sin spec ni decisión de producto todavía (¿descuento %, monto fijo, o solo una etiqueta que
+  saca al miembro de mora y reportes?) — nace ⚪.
+- **`MOD-23` — sitio público del club con subdominio y plantillas.** Gap real, pero no arranca de
+  cero: el patrón `<slug>.sportmaps.co` y los dominios propios de Enterprise
+  (`CUSTOM_DOMAINS_SETUP.md`) ya resuelven la mitad de la infraestructura de dominios. Falta el
+  generador de sitio en sí. Nace ⚪.
+- **El «Directorio Deportivo» de la competencia no genera ítem.** Es literalmente la tesis del
+  mapa vivo geolocalizado (`sportmaps-strategic-roadmap.md` §1) — ya es nuestra ventaja, no un
+  hueco que cerrar.
+
+**Cambios v2.6 → v2.7** (banco de horas — cierre de brechas encontradas al validar con datos
+reales, 2026-08-27):
+- **Hallazgo del mismo día:** las reservas "por plan" y "por instalaciones" (`session_bookings`,
+  `facility_reservations`) no sabían que el banco de horas existe — movían `sessions_used` sin
+  tocar el saldo real. Peor: con "Máx. sesiones" conviviendo como etiqueta, ese número **sí**
+  actuaba como tope real en el sistema viejo. Corregido en los 6 puntos de entrada reales
+  (`/:id/book`, `/athlete/book-session`, `/athlete/book-secondary` + sus 3 cancelaciones) — el
+  primer intento solo cubrió el endpoint de staff, "Mis Inscripciones" usa uno distinto y quedó
+  descubierto hasta la segunda pasada. Migración `20260827131341_hour_bank_link_bookings.sql`.
+- **Reporte de ingresos/salidas por estudiante** (`GET /student-report/:enrollmentId`) + histórico
+  de períodos mes a mes (`GET /hour-bank-periods/:enrollmentId`) — nuevo endpoint.
+- **Reubicación a escala:** el listado plano de saldos en Control de Acceso no aguanta 50
+  estudiantes y no era el lugar — se movió al perfil del estudiante en Estudiantes
+  (`SchoolStudentsManagementPage.tsx`), con un badge compacto en la tabla/lista y un solo request
+  para toda la escuela (no uno por fila). Control de Acceso se queda solo con la bandeja de
+  `pending_review`, que sí es operativa.
+- ⚠️ **Confirmado con el cliente el 27-ago:** además de Dreamers, `Sub-10 (Beginners)` en Academia
+  Superior Bogotá quedó con banco de horas — una inscripción real de marzo-2026, no de prueba. Fue
+  intencional (validación pedida por el dueño de esa escuela), no un descuido, pero **no está en
+  el alcance original de `MOD-21`** (solo Dreamers) — dejarlo anotado para que quien retome esto
+  sepa que ya no es una sola escuela.
+
+**Cambios v2.5 → v2.6** (banco de horas por torniquete, entregado el 2026-08-21, fuera de la cola):
+- **Nuevo ítem `MOD-21`** — banco de horas por torniquete para Dreamers Gymnastics. F1-F5 en
+  `develop` (`b882f5dd`) con 4 migraciones aplicadas y verificadas en la base viva; F6 (frontend) va
+  en el mismo commit pero **sin verificación visual**. Detalle completo en §1.4 y en el catálogo.
+- **Quinto caso de «trabajo vivo que el tablero no refleja»**, después de `DIN-4`, Android, el ciclo
+  diario de Informes y el tablero táctico de fútbol (v2.5). El patrón se repite: el spec nació y se
+  construyó en la misma sesión, sin pasar por §4. Se marca ahora, como manda §0.
+- **Sale a la luz un incidente aparte, ya cerrado, que tampoco estaba escrito:** el allowlist de IP
+  global de ADMS (env var único en Render, compartido por todas las escuelas) bloqueó ~2 h los
+  lectores reales de GYM RM y Dreamers el mismo día. Se resolvió con control por-dispositivo
+  (`ip_check_mode`, migración `20260821112428` aplicada por otra sesión en paralelo — ver
+  `docs/gotchas-tecnicos.md`) y quedó documentado en
+  [`adms-ip-allowlist-per-device.md`](specs/adms-ip-allowlist-per-device.md). No se abre ítem nuevo
+  para esto: es infraestructura de `MOD-8`/control de acceso, no un módulo de producto.
 
 **Cambios v2.4 → v2.5** (análisis del tablero de planificación en Canva de **Independiente Santa Fe
 U20B** — 105 diapositivas, 2026-08-19 — cruzado contra el esquema real del eje de entrenamiento):
@@ -220,6 +343,49 @@ prioridad del tablero. Dejarlo escrito es lo que evita que `DIN-4` siga figurand
 > pasar por la §4. Es el cuarto caso después de `DIN-4`, Android y el ciclo diario de Informes — y es
 > exactamente el síntoma que la §4 se corrige a sí misma. **Lo que se entrega se marca el mismo día**
 > (§0). Se marca ahora.
+
+---
+
+## 1.4 Lo entregado el 21 de agosto (fuera de la cola)
+
+| Qué | Estado | Falta |
+|---|---|---|
+| **Banco de horas por torniquete — Dreamers Gymnastics (`MOD-21`)** | ✅ En `develop` (`b882f5dd`). El plan de Dreamers pasa de contar clases a contar minutos: banco mensual, la reserva es techo de validación (no descuenta en firme), el torniquete manda en el consumo real. 4 migraciones aplicadas y **verificadas contra la base viva** (no solo commiteadas — `to_regclass`, `pg_proc`, `seguridad:invariantes` sin violaciones nuevas): esquema (`hour_bank_periods/visits/visit_segments`), RPC atómica `move_hour_bank` (`FOR UPDATE`, bloquea sobregiro de reserva, nunca bloquea consumo real), auto-cierre `auto_close_stale_hour_bank_visits` (`FOR UPDATE SKIP LOCKED`, no factura — solo el owner corrige y recién ahí se descuenta), y `hour_bank_reservations` (tabla propia, **no** `session_bookings` — la reserva es flexible sin franja horaria y `session_bookings` exige horario fijo). `access-adms.ts` trackea la visita real **independiente de `access_granted`** (el F22 decide el acceso físico, no el BFF). Cada RPC se probó con asserts dentro de un `BEGIN...ROLLBACK` antes de aplicar, nunca a ciegas. | **F6 (frontend) sin verificación visual** — no hay `.claude/launch.json`, no se armó sesión autenticada real. `hours_plan_enabled` sigue en `false` en Dreamers (probado con datos de prueba en un plan aparte, sin tocar inscripciones reales) — activarlo de verdad espera a que la escuela confirme hora de cierre y minutos de gracia (D-14, provisional). Prueba física en curso: los dos lectores de Dreamers dejaron de reportar heartbeat a media tarde tras detener el bridge local — IP fija y config del dispositivo ya descartadas, diagnóstico abierto. |
+
+> **Por qué está acá y no en la cola:** empezó como una sesión de soporte (validar una IP bloqueada
+> del torniquete) y terminó siendo un módulo completo — spec, decisiones de producto con la escuela,
+> 4 migraciones y 6 fases, todo en la misma sesión, sin pasar por la §4. Es el quinto caso después de
+> `DIN-4`, Android, el ciclo diario de Informes y el tablero táctico de fútbol. **Lo que se entrega se
+> marca el mismo día** (§0). Se marca ahora.
+
+---
+
+## 1.5 Lo entregado el 27 de agosto (fuera de la cola)
+
+| Qué | Estado | Falta |
+|---|---|---|
+| **Banco de horas — cierre de brechas al validar con datos reales (`MOD-21`)** | ✅ En `develop`. **(a)** Las reservas "por plan" y "por instalaciones" no sabían que el banco de horas existe — corregido en los 6 puntos de entrada reales, migración `20260827131341_hour_bank_link_bookings.sql`. Encontrado en dos pasadas: la primera solo cubrió el endpoint de staff (`/:id/book`), "Mis Inscripciones" usa uno distinto (`/athlete/book-session`) que quedó descubierto hasta que se probó con datos reales. **(b)** Reporte de ingresos/salidas por estudiante + histórico de períodos mes a mes — dos endpoints nuevos. **(c)** Reubicación: el listado plano de saldos no aguanta 50 estudiantes — se sacó de Control de Acceso (queda solo la bandeja `pending_review`, que sí es operativa) y se movió al perfil del estudiante en Estudiantes, con un badge compacto en la tabla. **(d)** ⚠️ Al probar con el cliente se confirmó que **ya no es "solo Dreamers"**: Academia Superior Bogotá también tiene `hours_plan_enabled=true`, con una inscripción real de marzo-2026 (`Sub-10 (Beginners)`) convertida a banco de horas — intencional, confirmado con el dueño de esa escuela el mismo día, no un descuido. | Nada bloqueante — el hallazgo (d) es una nota de alcance, no un pendiente técnico. |
+
+> **Por qué está acá y no en la cola:** siguió a `MOD-21` del 21-ago — validar con datos reales
+> (no simulados) sacó a la luz dos brechas de integración que la revisión de código sola no había
+> visto. Mismo patrón que el resto de esta sección: se entrega y se marca el mismo día.
+
+---
+
+## 1.6 Lo entregado el 25 de agosto (tarde)
+
+Igual que §1.2 y §1.3: entregado el mismo día en que se detectó la oportunidad (auditoría de
+Controla.Club, ver §2.1 de `sportmaps-strategic-roadmap.md`), sin pasar primero por la cola de §4.
+
+| Qué | Estado | Falta |
+|---|---|---|
+| **`MOD-27` S0 — canal de soporte real** | ✅ código, ⚠️ sin commitear | Migración `20260825114534_support_tickets_s0.sql` aplicada a la base viva: `support_tickets` + `support_messages`, RLS revisada línea por línea (`is_support_agent()` por rol, nunca por UUID — mismo escape hatch que ya obligó a `requireSuperAdminStrict` en F0), RPCs `support_open_ticket`/`support_post_message` con idempotencia (índice único parcial) y `FOR UPDATE` contra la carrera de doble mensaje. `npm run seguridad:invariantes` sin críticos. Smoke test de idempotencia corrido contra la BD real. |
+| **`MOD-27` S1 — el bot, no solo la spec** | ✅ código, ⚠️ sin commitear | `bff/src/services/inapp-support-bot.service.ts` reusa `chatWithTools()` (mismo LLM/orquestador de WhatsApp, Groq/Gemini/DeepSeek) con las 3 tools de solo lectura del spec: `get_my_state` (→ `buildUserState(scope:'self')`), `get_payment_status` (→ reusa `wa_get_payment_status`), `search_help_articles` (corpus portado a `bff/src/data/help-articles.ts`) + `escalate_to_human`. Se calla solo si ya hay un mensaje de agente en el hilo — no le pisa la conversación a un humano. Responde sincrónico en la misma request de `POST /api/v1/support/messages`. |
+| **Bandeja del `super_admin` con S2 completo** | ✅ código, ⚠️ sin commitear | `/admin/support` (frontend) + `GET /api/v1/admin/support/tickets` y `.../:id/messages` (BFF). **Panel de diagnóstico embebido** (`TicketDiagnosisPanel.tsx`, reusa `GET /admin/support/user-state?userId=` de F0, ya no hace falta el correo a mano) visible en la misma pantalla del hilo. **Notas internas** desde la UI (checkbox, la RPC ya las soportaba, faltaba el botón). **Push al `super_admin`** en el primer mensaje de cada ticket, reusando el Despachador Unificado — migración chica aparte (`20260825124513`) para sumar `'support'` al `CHECK` de `notifications.category`, que antes solo aceptaba 9 valores fijos. Enruta por ROL (`role='super_admin'`), nunca por UUID hardcodeado. |
+| **GEO propio de la landing (`MOD-25`)** | ✅ | `llms-faq.txt` nuevo (~35 Q&A directas — el tercer archivo que le faltaba frente a Controla.Club, que publica los tres). `llms.txt`/`llms-full.txt` ahora referencian las 6 comparativas (`clupik`, `quefluya`, `athleos`, `cuotaq`, `agendapro`, `controla-club` — antes solo citaban Clupik). `robots.txt` con ~20 user-agents de IA explícitos (GPTBot, ChatGPT-User, OAI-SearchBot, ClaudeBot, PerplexityBot, Google-Extended, Meta-ExternalAgent, Bytespider, CCBot…). Sitemap corregido: le faltaban 4 comparativas que ya existían en código y nunca se habían indexado. |
+| **`/comparar/controla-club` — nueva, con pricing verificado de ambos lados** | ✅ | No «no publica precios»: se verificó su plan de entrada ($99.000 COP/mes, ≤50 miembros) contra su propio `llms-full.txt`, dato público. Para la misma capacidad, SportMaps ($69.000/50) cuesta ~30% menos al año — pero la comparativa es honesta en los gaps reales (gamificación `ClubPoints`, comunidad `Social Controla`, LMS, prospección de leads con IA: ninguna existe en SportMaps hoy). |
+| **Corrección de percepción publicada, no solo documentada** | ✅ | `llms-full.txt` lleva una nota fechada (2026-08-25) explicando que su artículo de ataque cita un plan «Crecimiento» que ya no existe en el pricing vigente — para que un LLM que lea ambas fuentes prefiera la nuestra por ser más reciente y explícita. El battlecard (`competitor-battlecard-controla-club.md`) sigue siendo la referencia interna para conversaciones de venta. |
+| **Mapa competitivo ampliado — 3 comparativas nuevas verificadas** | ✅ | Investigación de 14 competidores adicionales (dos pasadas independientes de investigación, mismos hallazgos): **SportMember, 360Player, Jonas Club Software, Upper Hand, PlayMetrics, director11, Sphaira Tech, SoluSoftDeportiva y Colixeum descartados** — otro mercado (EE.UU./Europa/golf enterprise) o sin evidencia de operación en Colombia. **GOLAPP** (colombiano, Medellín, pricing público en COP, sin DIAN ni WhatsApp AI confirmados), **DeporteApp** (LatAm-wide con cliente colombiano nombrado, sin precios públicos, con `llms.txt` propio — el más sofisticado en GEO de los investigados) y **Driblin** (Venezuela+Colombia, ángulo de scouting/monetización de club, no cobranza recurrente) sí son competencia real: `/comparar/golapp`, `/comparar/deporteapp`, `/comparar/driblin` publicadas con el mismo estándar de honestidad. |
 
 ---
 
@@ -445,6 +611,7 @@ construir y que sirven a los siguientes clientes de este tipo. El resto sí es e
 | **INF-9** | ⚠️ **`20260817133556_restaurar_booking_holds` NO SE CORRE — superseded por `20260817140943_restaurar_booking_holds_v2`.** Abortó con `42883: operator does not exist: uuid = uuid[]`: la policy del staff usaba `= ANY ((SELECT public.user_staff_school_ids()))`, y cuando lo que sigue a `ANY (` es un `SELECT`, PostgreSQL lo parsea como **subconsulta** — compara el uuid contra cada FILA, y cada fila es el `uuid[]` completo. El paréntesis extra no cambia el parseo. La v2 usa `IN (SELECT unnest(...))`, que no admite dos lecturas y sigue resolviéndose una sola vez por consulta (SubPlan hasheado). Iba en `BEGIN/COMMIT`, así que el rollback no dejó nada a medias — verificado: `booking_holds` sigue sin existir. **Lección para el resto de las policies que usan los helpers de alcance:** los tres devuelven `uuid[]`, así que `= ANY (fn())` va sin `SELECT` adentro, o se envuelve con `unnest`. | 🟡 | ✅ v2 aplicada 2026-08-17 | [v2](../supabase/migrations/20260817140943_restaurar_booking_holds_v2.sql) · [la que abortó](../supabase/migrations/20260817133556_restaurar_booking_holds.sql) |
 | **INF-10** | ⚠️ **El aviso de `20260816193602` sobre `school_type='academia'` es FALSO** — verificado el 2026-08-18. Esa migración advierte que «el selector del onboarding ofrece Academia y guarda `academia`», valor que la vista no reconoce, dejando a la escuela sin módulos. **No es así:** el onboarding vivo es `SchoolSetupPage.tsx` y emite **`academy`**, el valor canónico. El componente que emite `academia` es `SchoolRegister.tsx`, que es **código muerto**: no está ruteado en ninguna parte y su submit final solo hace `console.log` («Here you would typically send all data to Supabase»). Medido en la base: **cero** filas con `academia`, `universidad` o `federacion`. Las 151 escuelas sin módulos son `federation` (79), `institute` (62) y `association` (10) — entidades informativas del mapa, donde no tener módulos es **correcto**. La migración no se puede editar (inmutables), así que la corrección vive acá. **Pendiente real y menor:** borrar `SchoolRegister.tsx`, que además ofrece `universidad` y `federacion`, valores que tampoco existen. Y anotar que **ninguna escuela tiene `hybrid` hoy**: Carmel sería la primera. | 🔵 | trivial | [muerto](../frontend/src/components/pages/SchoolRegister.tsx) · [vivo](../frontend/src/pages/SchoolSetupPage.tsx) |
 | **INF-11** | ⚠️ **Un trabajo nocturno con dos dueños, y una matview que no lee nadie.** Medido el 2026-08-19. **(1) La duplicación:** `auto_finalize_stale_sessions()` + `refresh_session_health()` se disparaban **a la vez** desde el BFF (23:55 COT) y desde `pg_cron` (04:55 UTC = el mismo minuto). Lo que **no** pasaba: doble descuento de sesiones —`fn_deduct_sessions_on_finalize` ya no descuenta nada desde `20260730050217`, solo pasa `session_bookings` a `attended` con un `WHERE status='confirmed'` idempotente, y el `UPDATE … WHERE finalized = false` deja 0 filas en el segundo disparo. Tampoco había desfase de fecha: el `TimeZone=America/Bogota` está a nivel de **base**, así que también aplica a los workers de `pg_cron`. Lo que sí pasaba: **cuatro `REFRESH … CONCURRENTLY` por noche donde alcanzaba uno**, porque el trigger de sentencia `trg_attendance_session_finalized` refresca **aunque la sentencia afecte 0 filas**, y encima el cron refresca explícito. **Ya corregido el lado del BFF** (bloque de las 23:55 eliminado; `pg_cron` queda como dueño único). **(2) Lo que falta, y borra objetos vivos:** `mv_session_health` **no la lee nadie** —cero `.from(...)` en el código, cero filas en `pg_depend`— y sus columnas `stale`/`today`/`upcoming` usan **`CURRENT_DATE` dentro de una matview**, que congela la fecha en el instante del refresh: a las 00:01 `today` ya miente. El trigger no es una optimización, es el **parche de un problema que la matview crea**, y lo paga el coach dentro de su request al finalizar asistencia. La query cuesta **90 ms sobre 2.648 sesiones y 365 escuelas, todo desde caché**. Fix: matview → **vista normal** (ahí `CURRENT_DATE` se evalúa al leer y siempre acierta), borrar el trigger, y sacar el `refresh` redundante del comando de `pg_cron` y de `/cleanup`. Su consumidor natural es `ADM-6`. Emparenta con `INF-2` (dos mecanismos de cron), que hasta ahora estaba anotado sin caso concreto. | 🟡 mitad hecha | 1 d | sesión 2026-08-19 |
+| **INF-12** | ✅ **Puente físico de apertura remota — GYM RM (ZKTeco F22ID). Entregado y confirmado en campo el 2026-08-26.** El F22ID acepta el comando ADMS de apertura (`CONTROL DEVICE`) pero no mueve el relé físico — resuelto con `scripts/gymrm-door-bridge/` (SDK `pyzk` local) + `bff/src/routes/bridge.routes.ts` (`GET/POST /bridge/door-commands`, API key fail-closed) + `access-adms.ts` (`getrequest`) excluyendo `open_door` para dispositivos `has_local_bridge`. **Hallazgo grande en el camino:** `conn.unlock(N)` de la librería `pyzk` trunca a entero antes de multiplicar por 10 (`pack("I", int(time)*10)`), así que nunca manda menos de 1 segundo completo — a 1s+ el torniquete de GYM RM (brazo giratorio sin bloqueo mecánico de "una vuelta y se traba") se re-arma varias veces por ventana, confirmado que el acceso normal y el software oficial de ZKTeco NO tienen ese problema (usan un pulso más corto). Se resolvió mandando el mismo `CMD_UNLOCK` de más bajo nivel con el valor en décimas de segundo directo, saltando el truncado — **0.2s (2 décimas) confirmado en los dos lectores, primero con un script de prueba aislado y después por el flujo real del dashboard.** `turnstile_devices.door_drive_time_seconds` (el campo "Tiempo de apertura" del dashboard) quedó **desacoplado** de esto: sigue controlando `Door1Drivertime` por ADMS para el acceso normal (funciona bien), pero ya no tiene ningún efecto sobre el botón manual del bridge — el pulso es un valor fijo en el script (`PULSE_DECISECONDS`, override por env var sin redeploy). El bloqueo de usuarios (`set_group`) se probó en campo y funciona por ADMS sin cambios. De yapa: se agregó `bridge_heartbeats` + cron cada 5 min que avisa al owner si el bridge lleva 10+ min sin sondear (PC apagada/sin red) — antes no había ninguna señal de esto. **Abierto, no bloqueante:** (a) posible discrepancia entre `GET /overdue` (marca vencido con *cualquier* cobro `overdue` histórico) y `validateAccess` (solo mira el cobro *más reciente*) — sin confirmar con un caso real todavía; (b) el campo "Tiempo de apertura" quedó mudo para el botón manual sin ninguna nota en la UI que lo aclare; (c) el mismo heartbeat no se portó al bridge de Dreamers, que tiene el mismo hueco. | ✅ | — | [validación](../scripts/gymrm-door-bridge/VALIDACION-2026-08-25.md) · [spec](../scripts/gymrm-door-bridge/BACKEND_ENDPOINT_SPEC.md) · [bridge](../scripts/gymrm-door-bridge/) |
 
 ### UX — Interfaz, navegación y densidad
 
@@ -515,6 +682,14 @@ priorizar acá:
 | MOD-18 | **Cumpleaños y celebraciones.** Tablero de «hoy cumple» para el staff, saludo automático a la familia y anuncio celebratorio en Modo Recepción. Hoy no existe **nada**: ni tabla, ni RPC, ni cron, ni categoría de notificación — solo la fecha de nacimiento guardada, que se usa para edad/categoría, el gate mayor/menor del registro y los carnets. Cobertura medida contra la base el 19-ago: **878 atletas activos tienen fecha** (el tablero les sirve a los 878) pero **solo 410 (47 %) tienen a quién notificar** — los 253 `unregistered` no tienen cuenta, así que el saludo automático **nunca** los alcanza; esa mitad se cubre con plantilla de WhatsApp manual (F4). La plomería de envío ya está puesta: `notification_deliveries` existe y `notifications` ya tiene `category`/`data`, así que el módulo no construye infraestructura de push, se cuelga del trigger de `MOD-4`. **F1 (el tablero) es entregable solo, en 3 d, sin tocar envíos.** El toggle nace apagado: con una sola Supabase para dev/stg/prod el cron es global, y encenderlo sin `WHERE` es un acto de producción sobre 878 familias. | 🟡 | 1–2 sem (F1 solo: 3 d) | [spec](specs/cumpleanos-module.md) |
 | **MOD-19** | **Informes multi-cadencia (R1–R3).** Generaliza el Informe Mensual que ya corre: `period_type` (`daily`/`weekly`/`biweekly`/`monthly`/`semester`/`custom`) y `period_start/end` en `athlete_reports`, más `report_schedules` para la programación. **No es un módulo nuevo** — extiende tablas, RPCs y el job de las 06:10, que pasa de «asumir mensual» a «leer schedules vencidos»: cero jobs nuevos en `pg_cron`. Incluye el **envío manual «como está»** (el coach elige alcance y rango y manda) y la **plantilla brandeada**: el informe lee `schools.branding_settings`, así que el logo de Carmel es **configuración, no desarrollo** — sin editor de plantillas, que es el pozo de `MOD-14`. Entrega por la plomería existente: `notifications` → outbox → push, y Resend con resumen + enlace (el contenido del menor **no** viaja entero por correo). ⚠️ Depende de `MOD-17`: nada se construye mientras el cron recorra todas las escuelas mandando correo real, y `enabled=false` por defecto **es** ese filtro bien hecho. ⚠️ Plantillas contra tokens, cero hex literales (`MOV-4`). | 🔵 | 10–13 d | [spec](specs/informes-multi-cadencia-2026-08-19.md) |
 | **MOD-20** | **Informe grupal y cadencias cortas (R4–R5).** El informe de equipo con **contenido propio** —asistencia promedio, resumen del período, próximos hitos— y no N individuales publicados juntos; la publicación por equipo ya existe (`publish_team_reports_system`). Regla de privacidad: **nunca métricas de otros menores con nombre**; los rankings van anonimizados, misma línea que `D-IMAGEN`. Después, `daily`/`weekly` conectadas a asistencia y el semestral con comparación inicio/fin. Pariente declarado: `PER-5` — cuando `PER-1` exista, el informe semanal **es** la vista semanal exportable. | 🔵 | 2 sem | [spec](specs/informes-multi-cadencia-2026-08-19.md) |
+| **MOD-21** | ✅ **Banco de horas por torniquete.** Ver detalle completo en §1.4 y §1.5. Cuenta minutos en vez de clases; el torniquete (no la reserva) manda en el consumo real, independiente de `access_granted`. Las reservas "por plan" y "por instalaciones" ya redirigen a `reserve_hour_bank` en los 6 puntos de entrada reales (2026-08-27). Reporte de ingresos/salidas y histórico de meses por estudiante, movidos al perfil en Estudiantes (no en Control de Acceso, no escala a 50). Aislado de `session_bookings` a propósito: tabla propia `hour_bank_reservations` porque la reserva no lleva franja horaria (D-11). No es una decisión de plataforma — `hours_plan_enabled` nace en `false` para cualquier escuela nueva y el diseño no depende de `enrollment_periods` (`DIN`/rediseño de períodos, sin aprobar). ⚠️ **Ya no es "solo Dreamers":** confirmado con el cliente el 27-ago, Academia Superior Bogotá también lo tiene prendido (validación intencional, incluye una inscripción real de marzo-2026 en `Sub-10 (Beginners)`) — ver §1.4. | ✅ código/esquema, probado con datos reales en 2 escuelas | — | [spec](specs/dreamers-banco-de-horas-torniquete.md) |
+| **MOD-27** | **Asistente de soporte in-app con IA («Controli»-equivalente).** ✅ **S0 + S1 (3 tools) + S2 (bandeja, panel de diagnóstico embebido, notas internas, push al super_admin) construidos el 2026-08-25** — ver [§1.6](#16-lo-entregado-el-25-de-agosto-tarde). Migración aplicada y verificada contra la base viva, bot cableado sobre `chatWithTools()` (no solo diseñado), FAB + chat portados al frontend. Nada de esto tocó dinero ni RLS de pagos: fue tabla nueva + RLS nueva, sin dato productivo de por medio. | ✅ código · ⚠️ sin commitear | S3-S5 (acciones en burbuja, un hilo todos los canales, métricas) | [spec](specs/soporte-in-app-chat-y-bot.md) · [consola](specs/consola-de-soporte-super-admin.md) · [plan S0](plan-soporte-s0-migracion.md) · §1.6 |
+| **MOD-22** | **Becas y «acuerdo de pago» como excepción de cobro por miembro.** Detectado al leer a Controla.Club: filtra miembros por «Beca: becados/sin beca» y «Acuerdo de pago: con/sin acuerdo», dos estados que hoy **no existen en ninguna tabla** (verificado por grep en `supabase/migrations`, cero resultados para `beca`/`scholarship`). Antes de escribir spec hace falta resolver de producto: ¿una beca es % de descuento, monto fijo, o solo una etiqueta que saca al miembro de mora/reportes de cobro sin tocar `monthly_fee`? ¿Un «acuerdo de pago» es lo mismo que una beca con otro nombre, o es el gancho para plazos especiales (relacionado con el prepago/multimes de `DIN-17`)? Sin esas dos respuestas no hay diseño de esquema — dos estados mal definidos aquí ya causaron dolor (`payments.status` como TEXT, ver `CLAUDE.md`). | ⚪ | spec + decisión de producto | detectado 2026-08-21, `sportmaps-strategic-roadmap.md` §2.1 |
+| **MOD-23** | **Sitio público del club con subdominio propio.** Detectado al leer a Controla.Club: «Página Web del Club» (marcada NUEVA en su panel) — plantilla + subdominio, conectado a la data del club, para que la escuela tenga presencia pública sin depender de Instagram. No arranca de cero: el patrón de subdominio (`<slug>.sportmaps.co`) y los dominios propios para Enterprise (`CUSTOM_DOMAINS_SETUP.md`, Fase 5 white-label) ya resuelven el enrutamiento y la verificación DNS. Falta el generador de sitio (plantillas, editor, qué datos de la escuela se publican — cruza con la regla de `docs/` de que RLS filtra filas, no columnas: una página pública necesita una vista `_publico`, no exponer la tabla completa). Sin spec todavía; sin decidir si es addon de un tier de branding existente (`project_white_label_tiers`) o producto nuevo. | ⚪ | spec + decisión de producto | detectado 2026-08-21, `sportmaps-strategic-roadmap.md` §2.1 |
+| **MOD-24** | **Comunidad/red social entre clubes y atletas («Social Controla»-equivalente).** Verificado el 2026-08-25 con fetch directo (no capturas): tienen una red social en producción con foros temáticos, sistema de reputación tipo Reddit, «Noticias del Club» y una capa **pública trans-fronteriza** que conecta clubes/coaches/atletas de toda LatAm. Es el gap más grande de los tres nuevos — no tenemos nada construido, y se acerca conceptualmente a `F6.2 Comunidad` del roadmap estratégico (posts, rutas, retos, grupos), que hoy es idea sin fecha ni spec. No se abre spec todavía: primero decidir si el foco es la capa privada por escuela (moat de retención, más barato) o la capa pública trans-escuela (moat de red, mucho más caro y con moderación de contenido de por medio). | ⚪ | spec + decisión de producto | verificado 2026-08-25, memoria `project_competitor_controla_club` |
+| **MOD-25** | **GEO — publicar `/llms.txt` propio.** ✅ **Entregado el 2026-08-25** — ver [§1.6](#16-lo-entregado-el-25-de-agosto-tarde). `llms.txt`/`llms-full.txt` ya vivían en la landing; se sumó `llms-faq.txt` (el tercer archivo que faltaba frente a Controla.Club), se referenciaron las 6 comparativas y se corrigió `robots.txt` con ~20 user-agents de IA explícitos. Complementa `N4` (SEO técnico local), que no contemplaba este ángulo. | ✅ | — | §1.6 · memoria `project_competitor_controla_club` |
+| **MOD-26** | **LMS (contenido formativo/cursos) — gap sin mapear.** Verificado el 2026-08-25: aparece en su feature list declarada (`llms-full.txt`) y no tiene ningún equivalente ni idea abierta en ningún documento nuestro — a diferencia de gamificación (`N2`) y fitness tracking (Bloque D de `project_gym_member_app`), que ya estaban mapeados y solo suben de prioridad. No hay decisión de producto: ¿contenido para coaches, certificaciones para escuelas, o cursos vendibles a padres/atletas? Sin esa respuesta no hay spec posible. | ⚪ | decisión de producto | verificado 2026-08-25, memoria `project_competitor_controla_club` |
+| — | ⚠️ **Página de ataque directo — corrección ya publicada, no solo documentada.** `controla.club/blog/controlaclub-vs-sportmaps` nos compara por nombre con pricing mezclado (el plan Pro que nos atribuyen es exacto; el Start y un plan «Crecimiento» que ya no existe están mal) y nombra a nuestro CEO. ✅ **25-ago:** `/comparar/controla-club` (nueva) tiene el pricing real de ambos lados, y `llms-full.txt` lleva una nota fechada explicando que su artículo cita planes desactualizados — para que un LLM que lea ambas fuentes prefiera la nuestra. El battlecard sigue siendo la referencia para conversaciones de venta: [`competitor-battlecard-controla-club.md`](competitor-battlecard-controla-club.md) §4-5. | ✅ publicado | — | §1.6 · verificado 2026-08-25 |
 
 ### VID — Video de partidos: grabación, en vivo y clips
 
@@ -605,6 +780,52 @@ ordena el track, no el gusto por las features:
 > **`PER` es el primer módulo que le habla al cuerpo técnico, no a la administración.** Todo lo
 > demás en este roadmap le sirve a quien cobra, inscribe o audita. Esto le sirve a quien entrena —
 > y es el rol que hoy tiene cero razones para abrir SportMaps un martes.
+
+### NIV — Niveles por horas, entrenador y progresión (Dreamers)
+
+Nace de un pedido directo sobre **Dreamers Gymnastics** (2026-08-24/25): planes que se
+diferencien por horas de entrenamiento por día y por semana (2h/3h/4h), reserva de
+clases adicionales respetando el horario real de cada entrenador (no todos trabajan
+todos los días), y que una atleta que gane una competencia con puntaje federado suba a
+un plan de más horas. Spec:
+[`specs/dreamers-niveles-por-horas-y-progresion.md`](specs/dreamers-niveles-por-horas-y-progresion.md).
+
+**No es trabajo aislado de un solo cliente ni una feature chica.** Se apoya directo en
+el banco de horas de Dreamers (`F1-F6` ya construidos, sin activar) y toca tres ejes que
+ya existen pero no se hablan entre sí: `offering_plans` (planes), `school_availability`
+(horario real por entrenador) y `competition_results` (resultados deportivos, 0 filas en
+toda la base hoy). **Las 16 decisiones de producto (D1-D16) ya cerraron** (spec §2,
+consolidación 2026-08-25) y se verificaron contra el código real el 2026-08-27 (spec §8):
+`NIV-1` queda sin bloqueantes, con plan de implementación escrito (spec §9). `NIV-4`
+tiene dos correcciones de alcance que salieron de esa verificación, no decisiones nuevas
+de producto — ver notas en la tabla.
+
+**Aislamiento verificado, no solo prometido.** Toda columna nueva es nullable con
+NULL = comportamiento actual; la única mecánica activa nueva (aviso de ascenso de nivel)
+va detrás de `school_settings.level_progression_enabled`, default `false`. Cero
+referencias a Dreamers en código — **Carmel Club** (real, en trial, 0 inscripciones
+activas hoy, ya origen de `CAR-7`/`CAR-2`/`CAR-3` en el track `VID`) es candidata directa
+de expansión el día que prenda la misma config.
+
+**Orden de implementación (spec §5): `F1 → F7 → F2 → F3 → F5 → F6`** — es lo que
+Dreamers necesita operar primero, no el orden de la numeración.
+
+| ID | Pendiente | Estado | Esfuerzo | Fuente |
+|---|---|---|---|---|
+| NIV-0 | **Puerta de datos (F0), cerrada.** Flujo confirmado: la federación envía el puntaje, la escuela lo carga en `competition_results` (0 filas hoy). Falta un dato, no una decisión: quién en Dreamers carga (owner o coach) → a quién le llega el aviso de `NIV-3`. | 🟡 | — | [spec §2 Grupo B](specs/dreamers-niveles-por-horas-y-progresion.md) |
+| NIV-1 | **Plan por horas/días + cobro de inscripción.** `session_block_minutes` + `included_sessions_per_week` + `registration_fee` nullable en `offering_plans`. Vista comparativa 2h/3h/4h × días/semana para vender. **Hallazgo 2026-08-27: SportMaps no tenía ningún cobro de inscripción/matrícula separado de la mensualidad — Dreamers sí lo maneja.** Se resuelve con una 3ª fila de `payments` (`one_time`, sin período) en el mismo alta, sin tocar la fórmula de prorrateo. **Sin bloqueantes verificados — plan de implementación completo (migración, BFF, frontend, QA).** Primero en el orden de implementación. | 🟢 | 4-5 d | `D1, D2, D17, D18, D19` · [spec §9](specs/dreamers-niveles-por-horas-y-progresion.md) |
+| NIV-6 | **Alta a mitad de mes / plan de enganche.** Dreamers en `fixed_calendar` (cobra mes completo sin importar el día de alta). Resuelto con input manual del owner: `clases_restantes × (price ÷ (included_minutes_per_period ÷ session_block_minutes))` — sin columna nueva, se deriva de lo que F1 y el banco de horas ya crean — fórmula nueva que nace solo en el BFF. `first_payment_mode` (`full_month`/`remaining_classes`) por alta. Dos filas de `payments` siempre (D14). Segundo en el orden de implementación, detrás de `NIV-1`. Falta un dato: los 2 precios exactos del recargo de `NIV-7`, si se resuelve en la misma fase. | 🟢 | 4-5 d | `D12, D13, D14, D14b` |
+| NIV-2 | **Puntaje estructurado.** `points` + `competition_level` en `competition_results` (hoy libres en `result_data` jsonb) + vista de elegibilidad calculada, nunca persistida. **Antes de escribir el `ALTER TABLE`: el `CHECK` de `result_type` que trae la migración de regularización no coincide con lo que el BFF inserta hoy (`preparatorio`/`competencia_oficial` vs. `score`/`time`/...) — volcar el `CHECK` real de la base viva primero, 5 minutos, no reabre la decisión.** | 🟡 | 2-3 d | `D3, D15` · [spec §8.1](specs/dreamers-niveles-por-horas-y-progresion.md) |
+| NIV-3 | **Aviso de ascenso.** Notificación a owner/coach cuando una atleta cumple el umbral — sugerido, nunca automático (cambia `monthly_fee`). Sin cambio de plan solo. Patrón de notificación ya verificado y listo para clonar (`saasInvoicing.service.ts`). | 🟡 | 3 d | `D4, D6` · `NIV-1, NIV-2` |
+| NIV-5 | **Cobro de horas excedentes.** `valor_hora = price ÷ horas_incluidas`, cargo *sugerido* pre-calculado cuando un padre toma horas fuera del plan — extiende (no reemplaza) `D-10` del banco de horas: notifica con cargo pre-calculado, sin facturación automática. | 🟢 | 3 d | `D8` |
+| NIV-4 | **Reserva de clases adicionales por entrenador/día/nivel.** `allowed_days_of_week` en `offering_plans` + migrar `school_availability`. **Dos correcciones de alcance verificadas 2026-08-27, no solo `MOD-14`:** (1) el torniquete ZKTeco decide el acceso físico localmente — el BFF nunca controla la puerta, así que validar `allowed_days_of_week` ahí es solo log/aviso, no bloqueo real, salvo que se automaticen los grupos de acceso nativos del F22 (proyecto aparte); (2) la premisa de "cuelga de `program_id`" ya no es cierta — la tabla real no tiene `program_id` ni `offering_id` (tiene `branch_id`), hay que rediagnosticar antes de migrar. Va al final del orden de implementación. | 🔴⛔ | 1 sem+ | `D9, D10, D11` · `MOD-14` · [spec §8.2, §8.4](specs/dreamers-niveles-por-horas-y-progresion.md) |
+| NIV-7 | **Pronto pago simétrico a la mora ya activa.** Dreamers ya tiene `late_fee_percentage=5` prendido. Opción (a) reusar `earlyPaymentDiscount.ts` es "cero código" solo si el descuento sigue viviendo en frontend, como hoy (el BFF no tiene contraparte); opción (b) recargo real requiere columna nueva. Falta el dato de los 2 precios exactos de Dreamers para cerrar cuál gana. | 🟡 | 1 d | `D16` |
+
+> **`NIV` entra a la cola detrás de `PER` y `VID`.** Con las decisiones ya cerradas,
+> `NIV-1` puede escribirse en cuanto le toque turno de prioridad — no espera ninguna
+> sesión de repaso adicional. `NIV-4` es la única pieza que sigue con estado 🔴⛔ real
+> (dos correcciones de alcance sin resolver, no solo esfuerzo); el resto está en 🟢/🟡
+> por datos puntuales (spec §7) o una verificación barata de 5 minutos (`NIV-2`).
 
 ### BLQ — Bloques largos
 
@@ -789,6 +1010,8 @@ del tiempo de lo de arriba.
 | 13 | **CONC-1 + CONC-2** | La idempotencia general es la defensa más barata contra el doble cargo y **prerrequisito de `ERP-2`**; el barrido de `count(*)` sin lock busca el error clásico donde ya sabemos cómo se ve bien hecho. |
 | 14 | **UX-2** | F-01 (un error de fetch se ve como tabla vacía) toca pantallas de dinero. |
 | 15 | **MOD-15** | 4 horas. Sin el System User el bot de WhatsApp muere cada 2 h. |
+| ~~15.5~~ | ~~**MOD-21 (S0+S1+bandeja)**~~ | ✅ **Construido el 2026-08-25** — ver §1.4. Falta commitear y S2 completo (panel de diagnóstico embebido, notas internas desde la UI, push de ticket nuevo). |
+| ~~15.7~~ | ~~**MOD-25**~~ | ✅ **Entregado el 2026-08-25** — ver §1.4. `llms-faq.txt` publicado, 6 comparativas referenciadas, `robots.txt` con ~20 user-agents de IA. |
 | 16 | **INF-1 (por dominio)** | Versionar el dominio que bloquee la siguiente fase, no los 336 objetos de golpe. |
 | 17 | **UX-6** | Las features cosméticas son lo que hace que un padre vuelva al grupo de WhatsApp. Verificar primero qué quedó resuelto con el módulo de notificaciones. |
 | 18 | **ADM-1 + ADM-2** | El catálogo de flags y el doble store. `ADM-2` es prerrequisito de la consola: sin resolverlo, la consola hereda el mismo defecto de `SEG-7` — leer de un sitio y escribir en otro. |
@@ -870,6 +1093,11 @@ es prerrequisito duro de cualquier release iOS**, no un adorno.
 contestadas `D-IMAGEN` y `D-VIDEO-RET`**: la primera define el modelo de datos y la segunda define
 si el costo tiene techo. Escribir la migración antes es fabricar deuda con datos de menores adentro.
 
+**`NIV-1, NIV-6, NIV-2, NIV-3, NIV-5` entran acá completas**, en ese orden (spec §5) — las decisiones
+`D1-D16` ya cerraron, no esperan sesión de repaso. **`NIV-4` es la excepción:** queda fuera de la
+cadena de `P3` hasta resolver sus dos correcciones de alcance (spec §8.2, §8.4) — su esfuerzo real
+todavía no está acotado.
+
 ---
 
 ## 5. Decisiones abiertas que bloquean trabajo
@@ -886,6 +1114,7 @@ si el costo tiene techo. Escribir la migración antes es fabricar deuda con dato
 | Decisión | Bloquea | Nota |
 |---|---|---|
 | Las 4 de `DIN-1` §8 | P0 completo | `students.ts:829` · las 16 huérfanas · backfill de `period_*` · GYM RM |
+| `D9/D11` de `NIV-4` — ¿bloqueo real por día vía grupos de acceso del F22, o solo log/aviso en el BFF? | `NIV-4` | El BFF no controla la puerta; automatizar bloqueo real es proyecto aparte — [spec §8.2](specs/dreamers-niveles-por-horas-y-progresion.md) |
 | **D-DUP** — ante un casi-duplicado, ¿el guard **bloquea** la creación o **crea y avisa** a la escuela? | `DIN-13` (F3) | Bloquear frustra al acudiente cuando el matcher se equivoca —Gabriela y **Juliana** Simbaqueva comparten fecha de nacimiento y tienen documentos consecutivos: son **gemelas**— y crear-y-avisar deja pasar el duplicado. Define toda la UX de F3 |
 | **D-DOC** — ¿el documento es **obligatorio** al crear la ficha, y con qué validación de formato? | `DIN-13` · `DIN-18` | Son la misma decisión: exigirlo sin validar longitud no sirve, hay 73 documentos imposibles de 788 |
 | **D-ORACULO** — ¿se acepta que un anónimo pueda saber si un documento existe? | `SEG-14` cierre total | Cerrarlo exige invertir `/join-team`: registrarse primero, buscar después. Es un cambio de UX del onboarding público |

@@ -40,6 +40,7 @@ export interface OfferingPlan {
     name: string;
     description: string | null;
     max_sessions: number | null;
+    included_minutes_per_period: number | null;
     max_secondary_sessions: number;
     duration_days: number;
     auto_renew: boolean;

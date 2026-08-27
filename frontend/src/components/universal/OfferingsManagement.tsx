@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -94,11 +95,11 @@ const hideSpinnersCSS = `
 // ═══════════════════════════════════════════════════════════════════
 
 function NumberStepper({
-    id, value, onChange, placeholder, min = 0, step = 1, prefix, label, isCurrency = false,
+    id, value, onChange, placeholder, min = 0, step = 1, prefix, label, isCurrency = false, disabled = false,
 }: {
     id: string; value: string; onChange: (v: string) => void;
     placeholder?: string; min?: number; step?: number; prefix?: string; label?: string;
-    isCurrency?: boolean;
+    isCurrency?: boolean; disabled?: boolean;
 }) {
     const rawVal = isCurrency ? parseCurrency(value) : value;
     const numVal = rawVal ? parseFloat(rawVal) : 0;
@@ -114,7 +115,7 @@ function NumberStepper({
                 <button
                     type="button"
                     onClick={decrease}
-                    disabled={numVal <= min}
+                    disabled={disabled || numVal <= min}
                     className="h-9 w-9 flex items-center justify-center rounded-l-md border border-r-0 bg-muted/60 hover:bg-muted text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
                 >
                     <Minus className="h-3.5 w-3.5" />
@@ -127,6 +128,7 @@ function NumberStepper({
                         id={id}
                         placeholder={placeholder}
                         type={isCurrency ? "text" : "number"}
+                        disabled={disabled}
                         className={`rounded-none border-x-0 h-9 text-center ${prefix ? 'pl-6' : ''}`}
                         value={isCurrency ? formatCurrency(value) : value}
                         onChange={(e) => {
@@ -145,7 +147,8 @@ function NumberStepper({
                 <button
                     type="button"
                     onClick={increase}
-                    className="h-9 w-9 flex items-center justify-center rounded-r-md border border-l-0 bg-muted/60 hover:bg-muted text-foreground transition-colors shrink-0"
+                    disabled={disabled}
+                    className="h-9 w-9 flex items-center justify-center rounded-r-md border border-l-0 bg-muted/60 hover:bg-muted text-foreground transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                     <Plus className="h-3.5 w-3.5" />
                 </button>
@@ -461,6 +464,11 @@ export function OfferingsManagement() {
         secondary_session_label: '', duration_days: '30', price: '', auto_renew: false,
         schedule_type: 'general' as 'general' | 'specific',
         schedule: [] as ScheduleSlot[],
+        // Banco de horas (docs/specs/dreamers-banco-de-horas-torniquete.md) — mutuamente
+        // excluyente con "máx. sesiones" a nivel de UI (el negocio nunca usa los dos a la vez,
+        // aunque el esquema no lo impida).
+        is_hours_plan: false,
+        included_minutes_per_period: '',
     });
 
     const [isCustomDays, setIsCustomDays] = useState(false);
@@ -472,7 +480,7 @@ export function OfferingsManagement() {
     };
 
     const resetPlanForm = () => {
-        setNewPlan({ name: '', max_sessions: '', max_secondary_sessions: '0', secondary_session_label: '', duration_days: '30', price: '', auto_renew: false, schedule_type: 'general', schedule: [] });
+        setNewPlan({ name: '', max_sessions: '', max_secondary_sessions: '0', secondary_session_label: '', duration_days: '30', price: '', auto_renew: false, schedule_type: 'general', schedule: [], is_hours_plan: false, included_minutes_per_period: '' });
         setIsCustomDays(false);
         setCustomDays('30');
         setEditingPlanId(null);
@@ -508,7 +516,13 @@ export function OfferingsManagement() {
 
         const payload = {
             name: newPlan.name,
+            // "Máx. sesiones" no se limpia cuando el plan es por horas: puede
+            // quedar como etiqueta informativa ("480 min ≈ 4 clases de 2h"), no
+            // es un tope aparte — el único límite real es included_minutes_per_period.
             max_sessions: newPlan.max_sessions ? parseInt(newPlan.max_sessions) : null,
+            included_minutes_per_period: newPlan.is_hours_plan
+                ? (parseInt(newPlan.included_minutes_per_period) || null)
+                : null,
             max_secondary_sessions: parseInt(newPlan.max_secondary_sessions) || 0,
             duration_days: durationValue || 30,
             price: parseFloat(newPlan.price) || 0,
@@ -561,6 +575,8 @@ export function OfferingsManagement() {
                 auto_renew: plan.auto_renew || false,
                 schedule_type: (plan.metadata?.schedule_type as 'general' | 'specific') || 'general',
                 schedule: (plan.metadata?.schedule as ScheduleSlot[]) || [],
+                is_hours_plan: plan.included_minutes_per_period != null,
+                included_minutes_per_period: plan.included_minutes_per_period?.toString() || '',
             });
             setIsCustomDays(!isPreset);
             setCustomDays(!isPreset ? durationStr : '30');
@@ -905,6 +921,38 @@ export function OfferingsManagement() {
                             </div>
                         )}
 
+                        {/* Banco de horas — mutuamente excluyente con "máx. sesiones" */}
+                        <div className="flex items-center justify-between rounded-lg border p-3">
+                            <div className="space-y-0.5">
+                                <Label className="text-sm font-medium flex items-center gap-1.5">
+                                    <Clock className="h-3.5 w-3.5 text-primary" /> Plan por horas (banco de horas)
+                                </Label>
+                                <p className="text-[10px] text-muted-foreground">
+                                    En vez de contar clases, cuenta minutos que el atleta consume libremente vía torniquete.
+                                </p>
+                            </div>
+                            <Switch
+                                checked={newPlan.is_hours_plan}
+                                onCheckedChange={(checked) => setNewPlan((prev) => ({ ...prev, is_hours_plan: checked }))}
+                            />
+                        </div>
+
+                        {newPlan.is_hours_plan && (
+                            <div className="space-y-2">
+                                <Label className="text-sm font-medium">Minutos incluidos por período</Label>
+                                <NumberStepper
+                                    id="plan-hours-minutes"
+                                    value={newPlan.included_minutes_per_period}
+                                    onChange={(v) => setNewPlan((prev) => ({ ...prev, included_minutes_per_period: v }))}
+                                    placeholder="480"
+                                    step={30}
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                    Ej: 480 min = 8 horas al mes. El período lo define el ciclo de facturación de la escuela.
+                                </p>
+                            </div>
+                        )}
+
                         {/* Sessions row */}
                         <div className="grid grid-cols-2 gap-3">
                             <div className="space-y-2">
@@ -918,7 +966,11 @@ export function OfferingsManagement() {
                                     placeholder="∞"
                                     step={1}
                                 />
-                                <p className="text-[10px] text-muted-foreground">Vacío = ilimitado</p>
+                                <p className="text-[10px] text-muted-foreground">
+                                    {newPlan.is_hours_plan
+                                        ? 'Con banco de horas activo, esto es solo una etiqueta ("480 min ≈ 4 clases de 2h") — no bloquea nada, el único tope real son los minutos.'
+                                        : 'Vacío = ilimitado'}
+                                </p>
                             </div>
                             <div className="space-y-2">
                                 <Label className="text-sm font-medium">Nombre de clase secundaria</Label>
@@ -1185,8 +1237,17 @@ function OfferingCard({
                                         </div>
                                         <div className="flex items-center gap-2 flex-wrap text-muted-foreground mt-0.5 font-medium">
                                             <span className="flex items-center gap-0.5">
-                                                <Zap className="h-3 w-3 text-amber-500" />
-                                                {plan.max_sessions ? `${plan.max_sessions} ses.` : '∞ ses.'}
+                                                {plan.included_minutes_per_period ? (
+                                                    <>
+                                                        <Clock className="h-3 w-3 text-primary" />
+                                                        {Math.floor(plan.included_minutes_per_period / 60)}h banco
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Zap className="h-3 w-3 text-amber-500" />
+                                                        {plan.max_sessions ? `${plan.max_sessions} ses.` : '∞ ses.'}
+                                                    </>
+                                                )}
                                             </span>
                                             {plan.max_secondary_sessions > 0 && (
                                                 <Badge variant="secondary" className="text-[9px] h-4 px-1 py-0 bg-blue-50 text-blue-700 border-blue-200">

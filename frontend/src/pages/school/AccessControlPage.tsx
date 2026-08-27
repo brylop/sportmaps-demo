@@ -116,12 +116,106 @@ function deviceOnline(lastSeen: string | null): boolean {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
+// ─── Detalle filtrado de una tarjeta de stats (Entradas/Salidas/Aforo/Denegados) ──
+// Inline, no modal — a propósito: el pedido fue "tarjetas filtradas que al
+// seleccionar se muestren los datos", no una ventana encima del panel.
+function StatCategoryDetail({
+  category, events, occupancy, loadingOccupancy,
+}: {
+  category: 'entries' | 'exits' | 'occupancy' | 'denied';
+  events: AccessEvent[];
+  occupancy: { name: string; entered_at: string; minutes_inside: number }[];
+  loadingOccupancy: boolean;
+}) {
+  const title = {
+    entries:   'Entradas de hoy',
+    exits:     'Salidas de hoy',
+    occupancy: 'Quién está adentro',
+    denied:    'Accesos denegados hoy',
+  }[category];
+
+  if (category === 'occupancy') {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-bold">{title} ({occupancy.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loadingOccupancy && occupancy.length === 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {[1,2,3,4].map(i => <Skeleton key={i} className="h-16" />)}
+            </div>
+          ) : occupancy.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">Nadie adentro en este momento.</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {occupancy.map((o, i) => {
+                const h = Math.floor(o.minutes_inside / 60);
+                const m = o.minutes_inside % 60;
+                return (
+                  <div key={i} className="rounded-lg border bg-card px-3 py-2.5">
+                    <p className="text-sm font-semibold truncate">{o.name}</p>
+                    <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                      <Clock className="h-3 w-3" />
+                      {h > 0 ? `${h}h ${m}min` : `${m} min`} dentro
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Entró {formatTime(o.entered_at)}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const filtered = events.filter((e) => {
+    if (category === 'entries') return e.access_granted && e.direction === 'entry';
+    if (category === 'exits')   return e.access_granted && e.direction === 'exit';
+    return !e.access_granted; // denied
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-bold">{title} ({filtered.length})</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {filtered.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">Sin eventos todavía.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {filtered.map((e) => (
+              <div key={e.id} className="rounded-lg border bg-card px-3 py-2.5">
+                <p className="text-sm font-semibold truncate">{e.user_name}</p>
+                <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                  {METHOD_ICON[e.check_in_method] ?? <User className="h-3.5 w-3.5" />}
+                  {formatTime(e.occurred_at)}
+                </p>
+                {category === 'denied' && e.denial_reason && (
+                  <Badge variant="outline" className="mt-1 text-[9px] h-4 px-1 py-0 border-destructive/30 text-destructive">
+                    {DENIAL_LABEL[e.denial_reason] ?? e.denial_reason}
+                  </Badge>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AccessControlPage() {
   const { toast } = useToast();
 
   const [stats,        setStats]        = useState<AccessStats | null>(null);
   const [events,       setEvents]       = useState<AccessEvent[]>([]);
   const [devices,      setDevices]      = useState<TurnstileDevice[]>([]);
+  const [occupancy,    setOccupancy]    = useState<{ name: string; entered_at: string; minutes_inside: number }[]>([]);
+  const [loadingOccupancy, setLoadingOccupancy] = useState(false);
+  const [statCategory, setStatCategory] = useState<'entries' | 'exits' | 'occupancy' | 'denied' | null>(null);
   const [loadingStats, setLoadingStats] = useState(true);
   const [loadingLog,   setLoadingLog]   = useState(true);
   const [openingEntry, setOpeningEntry] = useState(false);
@@ -182,8 +276,11 @@ export default function AccessControlPage() {
   const loadEvents = useCallback(async () => {
     try {
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+      // limit=200: las tarjetas filtradas de Entradas/Salidas/Denegados leen de
+      // esta misma lista (no piden aparte), así que tiene que cubrir el día
+      // completo, no solo el log reciente.
       const data = await bffClient.get<{ events: AccessEvent[] }>(
-        `/api/v1/access/events?limit=30&date=${today}`
+        `/api/v1/access/events?limit=200&date=${today}`
       );
       setEvents(data.events || []);
       setLastRefresh(new Date());
@@ -191,6 +288,18 @@ export default function AccessControlPage() {
       // silencioso
     } finally {
       setLoadingLog(false);
+    }
+  }, []);
+
+  const loadOccupancy = useCallback(async () => {
+    setLoadingOccupancy(true);
+    try {
+      const data = await bffClient.get<{ occupancy: typeof occupancy }>('/api/v1/access/occupancy');
+      setOccupancy(data.occupancy || []);
+    } catch {
+      // silencioso
+    } finally {
+      setLoadingOccupancy(false);
     }
   }, []);
 
@@ -231,6 +340,16 @@ export default function AccessControlPage() {
     }, 15_000);
     return () => clearInterval(interval);
   }, [loadStats, loadEvents]);
+
+  // Aforo es la única tarjeta con su propio endpoint (necesita "hace cuánto
+  // entró", que la lista de eventos no da directo) — se pide solo cuando está
+  // seleccionada, y se refresca cada 15s mientras lo esté.
+  useEffect(() => {
+    if (statCategory !== 'occupancy') return;
+    loadOccupancy();
+    const interval = setInterval(loadOccupancy, 15_000);
+    return () => clearInterval(interval);
+  }, [statCategory, loadOccupancy]);
 
   // ── Apertura manual ─────────────────────────────────────────────────────────
 
@@ -383,7 +502,13 @@ export default function AccessControlPage() {
     try {
       await bffClient.post('/api/v1/access/set-access-group', { pin, group });
       toast({ title: group === 2 ? 'Acceso bloqueado' : 'Acceso restaurado' });
-      loadOverdue();
+      // Actualizacion optimista: el comando recien encolado queda 'pending'
+      // hasta que el lector fisico haga su propio ciclo ADMS y lo confirme
+      // ('executed') -- puede tardar varios segundos. Un loadOverdue()
+      // inmediato traia ese estado viejo, el boton parecia no responder, y
+      // habia que apretarlo varias veces. Reflejamos la intencion del click
+      // ya mismo en vez de esperar el viaje de ida y vuelta al dispositivo.
+      setOverdue(prev => prev.map(o => (o.zk_pin === pin ? { ...o, blocked: group === 2 } : o)));
     } catch (err: any) {
       toast({ title: 'No se pudo actualizar', description: err?.message, variant: 'destructive' });
     } finally {
@@ -480,13 +605,16 @@ export default function AccessControlPage() {
         )}
       </div>
 
-      {/* Stats del día */}
+      {/* Stats del día — cada tarjeta es un selector, no un número suelto */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {loadingStats ? (
           [1,2,3,4].map(i => <Skeleton key={i} className="h-24" />)
         ) : (
           <>
-            <Card>
+            <Card
+              onClick={() => setStatCategory(prev => prev === 'entries' ? null : 'entries')}
+              className={`cursor-pointer transition-all hover:border-green-300 ${statCategory === 'entries' ? 'ring-2 ring-green-500 border-green-500' : ''}`}
+            >
               <CardContent className="pt-5 pb-4">
                 <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
                   <TrendingUp className="h-3.5 w-3.5 text-green-500" />
@@ -496,7 +624,10 @@ export default function AccessControlPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card
+              onClick={() => setStatCategory(prev => prev === 'exits' ? null : 'exits')}
+              className={`cursor-pointer transition-all hover:border-blue-300 ${statCategory === 'exits' ? 'ring-2 ring-blue-500 border-blue-500' : ''}`}
+            >
               <CardContent className="pt-5 pb-4">
                 <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
                   <TrendingDown className="h-3.5 w-3.5 text-blue-500" />
@@ -506,7 +637,10 @@ export default function AccessControlPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card
+              onClick={() => setStatCategory(prev => prev === 'occupancy' ? null : 'occupancy')}
+              className={`cursor-pointer transition-all hover:border-primary/50 ${statCategory === 'occupancy' ? 'ring-2 ring-primary border-primary' : ''}`}
+            >
               <CardContent className="pt-5 pb-4">
                 <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
                   <Users className="h-3.5 w-3.5 text-primary" />
@@ -516,7 +650,10 @@ export default function AccessControlPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card
+              onClick={() => setStatCategory(prev => prev === 'denied' ? null : 'denied')}
+              className={`cursor-pointer transition-all hover:border-destructive/50 ${statCategory === 'denied' ? 'ring-2 ring-destructive border-destructive' : ''}`}
+            >
               <CardContent className="pt-5 pb-4">
                 <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
                   <ShieldX className="h-3.5 w-3.5 text-destructive" />
@@ -528,6 +665,16 @@ export default function AccessControlPage() {
           </>
         )}
       </div>
+
+      {/* Detalle filtrado de la tarjeta seleccionada — inline, no modal */}
+      {statCategory && (
+        <StatCategoryDetail
+          category={statCategory}
+          events={events}
+          occupancy={occupancy}
+          loadingOccupancy={loadingOccupancy}
+        />
+      )}
 
       {/* Control manual */}
       <Card>

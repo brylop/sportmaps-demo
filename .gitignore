@@ -220,3 +220,8 @@ revisar-*.csv
 # direccion y contacto del acudiente de menores. Se regenera con
 # scripts/monster-volley-suba-import/01_extraer.mjs, no se versiona nunca.
 scripts/monster-volley-suba-import/data/
+scripts/monster-volley-suba-import/_reporte_datos_faltantes.json
+
+# Excel original de la escuela con datos reales de menores (documento, RH,
+# EPS, direccion, contacto del acudiente). Nunca versionar.
+Datos Plataforma Sede Suba.xlsx

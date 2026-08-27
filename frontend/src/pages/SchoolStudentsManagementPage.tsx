@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { bffClient } from '@/lib/api/bffClient';
 import { useAuth } from '@/contexts/AuthContext';
 import { normalizeText } from '@/lib/normalizeText';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -19,7 +20,9 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { StatFilterBar, type StatFilterTone } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
-import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin, X, RefreshCw } from 'lucide-react';
+import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin, X, RefreshCw, Clock, Upload } from 'lucide-react';
+import { HourBankBalanceCard } from '@/components/access/HourBankBalanceCard';
+import { StudentReportPanel } from '@/components/access/StudentReportPanel';
 import { useToast } from '@/hooks/use-toast';
 import { useMemberships } from '@/hooks/useMemberships';
 import { MembershipBadge } from '@/components/memberships/MembershipBadge';
@@ -68,6 +71,16 @@ const studentSchema = z.object({
 
 type StudentFormData = z.infer<typeof studentSchema>;
 
+function formatHourBankMinutes(mins: number): string {
+  const abs = Math.abs(Math.round(mins));
+  const h = Math.floor(abs / 60);
+  const m = abs % 60;
+  const sign = mins < 0 ? '-' : '';
+  if (h === 0) return `${sign}${m}min`;
+  if (m === 0) return `${sign}${h}h`;
+  return `${sign}${h}h${m}min`;
+}
+
 // ── Helpers de filtrado (puros, compartidos por los filtros y los badges) ─────
 type PaymentState = 'paid' | 'overdue' | 'pending' | 'none' | 'other';
 
@@ -101,6 +114,12 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   good_standing_certificate: 'Paz y salvo',
   other:                     'Otro documento',
 };
+
+// Los 7 tipos que pide el formulario de afiliación real (ver scripts/monster-volley-suba-import).
+const ATHLETE_DOCUMENT_TYPES = [
+  'athlete_photo', 'eps_certificate', 'guardian_id_front', 'athlete_id_front',
+  'guardian_signature', 'athlete_signature', 'good_standing_certificate',
+];
 
 // Etiquetas para las claves de unregistered_athletes.health_screening (ver
 // scripts/monster-volley-suba-import/01_extraer.mjs, que es quien las llena).
@@ -181,10 +200,12 @@ export default function SchoolStudentsManagementPage() {
   const [planFilter, setPlanFilter] = useState('all');
   const [paymentFilter, setPaymentFilter] = useState('all');
   const [viewingStudent, setViewingStudent] = useState<(StudentViewRow & { display_parent_name?: string | null, display_parent_phone?: string | null }) | null>(null);
+  const [showStudentAccessReport, setShowStudentAccessReport] = useState(false);
   const [editingStudent, setEditingStudent] = useState<StudentViewRow | null>(null);
   const [editingAthleteType, setEditingAthleteType] = useState<'child' | 'adult' | 'unregistered' | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
-  const [studentDocs, setStudentDocs] = useState<{ name: string; url: string }[]>([]);
+  const [studentDocs, setStudentDocs] = useState<{ id?: string; document_type?: string; storage_path?: string; name: string; url: string }[]>([]);
+  const [uploadingDocType, setUploadingDocType] = useState<string | null>(null);
   const [studentDocInfo, setStudentDocInfo] = useState<{
     doc_type?: string | null;
     doc_number?: string | null;
@@ -249,7 +270,103 @@ export default function SchoolStudentsManagementPage() {
     }
   }, [profile?.role, profile?.email, schoolId]);
 
+  const loadUnregisteredAthleteDocs = async (studentId: string) => {
+    const { data: rows, error } = await (supabase as any)
+      .from('athlete_documents')
+      .select('id, document_type, storage_path')
+      .eq('unregistered_athlete_id', studentId)
+      .order('uploaded_at', { ascending: false });
+    if (error || !rows) { setStudentDocs([]); return; }
+    const docs = await Promise.all(
+      rows.map(async (row: any) => {
+        const { data } = await supabase.storage
+          .from('identity-documents')
+          .createSignedUrl(row.storage_path, 300);
+        return {
+          id: row.id,
+          document_type: row.document_type,
+          storage_path: row.storage_path,
+          name: DOCUMENT_TYPE_LABELS[row.document_type] || row.document_type,
+          url: data?.signedUrl || '',
+        };
+      })
+    );
+    setStudentDocs(docs.filter((d) => d.url));
+  };
+
+  /** Sube (o reemplaza) un documento de un unregistered_athlete. Espeja el patrón de
+   * scripts/monster-volley-suba-import/02b_subir_documento.mjs + 02c_subir_avatar.mjs:
+   * identity-documents (privado) para el registro, y además avatars (público) +
+   * avatar_url cuando el tipo es athlete_photo. */
+  const handleUploadAthleteDocument = async (documentType: string, file: File) => {
+    if (!viewingStudent || !schoolId) return;
+    const athleteId = viewingStudent.id;
+
+    if (file.size > 15 * 1024 * 1024) {
+      toast({ title: 'Archivo muy grande', description: 'Máximo 15 MB', variant: 'destructive' });
+      return;
+    }
+    if (!/\.(pdf|jpg|jpeg|png)$/i.test(file.name)) {
+      toast({ title: 'Formato no permitido', description: 'Sube un PDF o imagen (JPG/PNG)', variant: 'destructive' });
+      return;
+    }
+
+    setUploadingDocType(documentType);
+    try {
+      // Reemplazo: si ya había un documento de este tipo, se borra (storage + fila)
+      // antes de subir el nuevo, para no dejar duplicados/huérfanos.
+      const previous = studentDocs.find((d) => d.document_type === documentType);
+      if (previous?.id) {
+        if (previous.storage_path) {
+          await supabase.storage.from('identity-documents').remove([previous.storage_path]);
+        }
+        await (supabase as any).from('athlete_documents').delete().eq('id', previous.id);
+      }
+
+      const timestamp = Date.now();
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'bin';
+      const safeName = file.name.replace(/\.[a-zA-Z0-9]{2,5}$/, '').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 60);
+      const storagePath = `unregistered_athletes/${athleteId}/docs/${documentType}-${timestamp}-${safeName}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('identity-documents')
+        .upload(storagePath, file, { cacheControl: '3600', upsert: false });
+      if (uploadError) throw uploadError;
+
+      const { error: insertError } = await (supabase as any).from('athlete_documents').insert({
+        school_id: schoolId,
+        unregistered_athlete_id: athleteId,
+        document_type: documentType,
+        storage_path: storagePath,
+      });
+      if (insertError) throw insertError;
+
+      if (documentType === 'athlete_photo') {
+        const avatarPath = `unregistered_athletes/${athleteId}/${timestamp}.${ext}`;
+        const { error: avatarUploadError } = await supabase.storage
+          .from('avatars')
+          .upload(avatarPath, file, { cacheControl: '3600', upsert: true });
+        if (!avatarUploadError) {
+          const { data: pub } = supabase.storage.from('avatars').getPublicUrl(avatarPath);
+          await (supabase as any)
+            .from('unregistered_athletes')
+            .update({ avatar_url: pub.publicUrl })
+            .eq('id', athleteId);
+          queryClient.invalidateQueries({ queryKey: ['school-students'] });
+        }
+      }
+
+      toast({ title: '✅ Subido', description: `${DOCUMENT_TYPE_LABELS[documentType] || documentType} cargado` });
+      await loadUnregisteredAthleteDocs(athleteId);
+    } catch (err: any) {
+      toast({ title: 'Error al subir', description: err.message, variant: 'destructive' });
+    } finally {
+      setUploadingDocType(null);
+    }
+  };
+
   useEffect(() => {
+    setShowStudentAccessReport(false);
     if (!viewingStudent) {
       setStudentDocs([]);
       setStudentDocInfo({});
@@ -304,24 +421,7 @@ export default function SchoolStudentsManagementPage() {
       // ('children/{id}/docs') — sus documentos se registran en athlete_documents
       // desde el import (scripts/monster-volley-suba-import), así que se listan
       // desde ahí en vez de storage.list().
-      (supabase as any)
-        .from('athlete_documents')
-        .select('id, document_type, storage_path')
-        .eq('unregistered_athlete_id', studentId)
-        .order('uploaded_at', { ascending: false })
-        .then(async ({ data: rows, error }: { data: any; error: any }) => {
-          if (error || !rows) { setStudentDocs([]); return; }
-          const docs = await Promise.all(
-            rows.map(async (row: any) => {
-              const { data } = await supabase.storage
-                .from('identity-documents')
-                .createSignedUrl(row.storage_path, 300);
-              return { name: DOCUMENT_TYPE_LABELS[row.document_type] || row.document_type, url: data?.signedUrl || '' };
-            })
-          );
-          setStudentDocs(docs.filter((d) => d.url));
-        })
-        .finally(() => setLoadingDocs(false));
+      loadUnregisteredAthleteDocs(studentId).finally(() => setLoadingDocs(false));
     } else {
       // children/adult: sin cambios — siguen viviendo en children/{id}/docs
       // sin fila en athlete_documents (esa tabla es nueva, ver migración
@@ -823,6 +923,20 @@ export default function SchoolStudentsManagementPage() {
   // aplicada la consulta falla y el mapa queda vacio — no rompe el listado.
   const { porSujeto: membresiasPorSujeto } = useMemberships();
 
+  // Banco de horas (docs/specs/dreamers-banco-de-horas-torniquete.md) — un solo
+  // request para TODA la escuela, igual que useMemberships arriba: en la tabla
+  // de 50 estudiantes no se puede pedir el saldo fila por fila. Si la escuela
+  // no usa esto, `balances` sale vacío y el badge simplemente no aparece.
+  const { data: hourBankBalancesData } = useQuery({
+    queryKey: ['hour-bank-balances', schoolId],
+    queryFn: () => bffClient.get<{ balances: { enrollment_id: string; available_minutes: number }[] }>('/api/v1/access/hour-bank-balances'),
+    staleTime: 60_000,
+    enabled: !!schoolId,
+  });
+  const hourBankByEnrollment = new Map(
+    (hourBankBalancesData?.balances ?? []).map((b) => [b.enrollment_id, b.available_minutes])
+  );
+
   const filteredStudents = tabStudents.filter(student => {
     const q = normalizeText(searchQuery);
     if (q && !(
@@ -881,10 +995,10 @@ export default function SchoolStudentsManagementPage() {
 
   const getPaymentBadge = (student: any) => {
     switch (getPaymentState(student)) {
-      case 'none':    return <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-500">Sin cobro</Badge>;
-      case 'paid':    return <Badge className="bg-green-500 text-xs text-white">Al día</Badge>;
+      case 'none':    return <Badge variant="secondary" className="text-xs bg-muted text-muted-foreground">Sin cobro</Badge>;
+      case 'paid':    return <Badge className="bg-green-500 dark:bg-green-600 text-xs text-white">Al día</Badge>;
       case 'overdue': return <Badge variant="destructive" className="text-xs">Vencido</Badge>;
-      case 'pending': return <Badge variant="secondary" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200">Pendiente</Badge>;
+      case 'pending': return <Badge variant="secondary" className="text-xs bg-yellow-50 dark:bg-yellow-950/20 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-500/40">Pendiente</Badge>;
       default:        return <Badge variant="secondary" className="text-xs">{student.payment_status}</Badge>;
     }
   };
@@ -1093,8 +1207,13 @@ export default function SchoolStudentsManagementPage() {
                         )}
                       </div>
                       <div className="flex gap-1 flex-wrap mt-1">
-                        {student.team_name && <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200 py-0 h-5"><Trophy className="h-2.5 w-2.5 mr-1" /> {student.team_name}</Badge>}
-                        {(student as any).plan_name && <Badge variant="outline" className="text-[10px] bg-purple-50 text-purple-700 border-purple-200 py-0 h-5"><Zap className="h-2.5 w-2.5 mr-1" /> {(student as any).plan_name}</Badge>}
+                        {student.team_name && <Badge variant="outline" className="text-[10px] bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/40 py-0 h-5"><Trophy className="h-2.5 w-2.5 mr-1" /> {student.team_name}</Badge>}
+                        {(student as any).plan_name && <Badge variant="outline" className="text-[10px] bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/40 py-0 h-5"><Zap className="h-2.5 w-2.5 mr-1" /> {(student as any).plan_name}</Badge>}
+                        {student.enrollment_id && hourBankByEnrollment.has(student.enrollment_id) && (
+                          <Badge variant="outline" className={`text-[10px] py-0 h-5 ${hourBankByEnrollment.get(student.enrollment_id)! < 0 ? 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/40' : 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/40'}`}>
+                            <Clock className="h-2.5 w-2.5 mr-1" /> {formatHourBankMinutes(hourBankByEnrollment.get(student.enrollment_id)!)}
+                          </Badge>
+                        )}
                         {!student.team_name && !(student as any).plan_name && <span className="text-xs text-muted-foreground">Sin asignar</span>}
                         <span className="text-muted-foreground text-xs ml-1">· {student.branch_name || "Sin sede"}</span>
                       </div>
@@ -1142,8 +1261,13 @@ export default function SchoolStudentsManagementPage() {
                         <TableCell>{calculateAge(student.date_of_birth)}</TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1">
-                            {student.team_name && <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200 w-fit"><Trophy className="h-3 w-3 mr-1" /> {student.team_name}</Badge>}
-                            {(student as any).plan_name && <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200 w-fit"><Zap className="h-3 w-3 mr-1" /> {(student as any).plan_name}</Badge>}
+                            {student.team_name && <Badge variant="outline" className="text-xs bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/40 w-fit"><Trophy className="h-3 w-3 mr-1" /> {student.team_name}</Badge>}
+                            {(student as any).plan_name && <Badge variant="outline" className="text-xs bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/40 w-fit"><Zap className="h-3 w-3 mr-1" /> {(student as any).plan_name}</Badge>}
+                            {student.enrollment_id && hourBankByEnrollment.has(student.enrollment_id) && (
+                              <Badge variant="outline" className={`text-xs w-fit ${hourBankByEnrollment.get(student.enrollment_id)! < 0 ? 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/40' : 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/40'}`}>
+                                <Clock className="h-3 w-3 mr-1" /> {formatHourBankMinutes(hourBankByEnrollment.get(student.enrollment_id)!)}
+                              </Badge>
+                            )}
                             {!student.team_name && !(student as any).plan_name && <span className="text-xs text-muted-foreground">Sin asignar</span>}
                           </div>
                         </TableCell>
@@ -1506,14 +1630,14 @@ export default function SchoolStudentsManagementPage() {
             const isUnregistered = athleteType === 'unregistered';
 
             const typeBadge = isChild
-              ? <Badge className="bg-blue-500/10 text-blue-700 border-blue-500/30">Menor</Badge>
+              ? <Badge className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30">Menor</Badge>
               : isAdult
-                ? <Badge className="bg-purple-500/10 text-purple-700 border-purple-500/30">Adulto</Badge>
-                : <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/30">Sin cuenta</Badge>;
+                ? <Badge className="bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/30">Adulto</Badge>
+                : <Badge className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30">Sin cuenta</Badge>;
 
             const statusBadge = s.status === 'inactive'
               ? <Badge variant="outline" className="text-muted-foreground">Inactivo</Badge>
-              : <Badge className="bg-green-500/10 text-green-700 border-green-500/30">Activo</Badge>;
+              : <Badge className="bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/30">Activo</Badge>;
 
             // Plan manda (igual que la vista y el motor de cobros): nunca suma
             // equipo + plan; si hay plan, ese es el valor.
@@ -1596,8 +1720,8 @@ export default function SchoolStudentsManagementPage() {
                         .filter(([, v]) => typeof v === 'string' && v.trim().toLowerCase() === 'sí');
                       return avisos.length > 0 ? (
                         <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
-                          <p className="font-medium text-amber-700 mb-1">Cuestionario de afiliación — respuestas a revisar</p>
-                          <ul className="list-disc pl-4 space-y-0.5 text-amber-700/90">
+                          <p className="font-medium text-amber-700 dark:text-amber-400 mb-1">Cuestionario de afiliación — respuestas a revisar</p>
+                          <ul className="list-disc pl-4 space-y-0.5 text-amber-700/90 dark:text-amber-400/90">
                             {avisos.map(([k]) => <li key={k}>{HEALTH_SCREENING_LABELS[k] || k}</li>)}
                           </ul>
                         </div>
@@ -1613,14 +1737,14 @@ export default function SchoolStudentsManagementPage() {
                       <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
                         <Heart className="w-4 h-4 text-red-500" /> Información médica
                       </h3>
-                      <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm whitespace-pre-wrap break-words">
+                      <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-500/40 rounded-lg p-3 text-sm whitespace-pre-wrap break-words">
                         {(() => {
                           try {
                             const parsed = JSON.parse(s.medical_info);
                             if (parsed.has_allergies) {
                               return (
-                                <div className="space-y-1">
-                                  <p className="font-semibold text-red-700">⚠️ Tiene alergias</p>
+                                <div className="space-y-1 text-red-900 dark:text-red-200">
+                                  <p className="font-semibold text-red-700 dark:text-red-400">⚠️ Tiene alergias</p>
                                   {parsed.allergy_type && <p><strong>Tipo:</strong> {parsed.allergy_type}</p>}
                                   {parsed.allergy_severity && <p><strong>Severidad:</strong> {parsed.allergy_severity}</p>}
                                   {parsed.allergy_treatment && <p><strong>Tratamiento:</strong> {parsed.allergy_treatment}</p>}
@@ -1676,6 +1800,27 @@ export default function SchoolStudentsManagementPage() {
                       )}
                     </div>
                   </section>
+
+                  {/* ── Sección: Banco de horas (docs/specs/dreamers-banco-de-horas-torniquete.md) ──
+                      No renderiza nada si esta inscripción no tiene un plan de horas —
+                      HourBankBalanceCard ya hace ese chequeo por su cuenta. */}
+                  {s.enrollment_id && (
+                    <section>
+                      <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-primary" /> Banco de horas
+                      </h3>
+                      <HourBankBalanceCard enrollmentId={s.enrollment_id} showHistory />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-0 mt-2 text-xs text-muted-foreground"
+                        onClick={() => setShowStudentAccessReport((v) => !v)}
+                      >
+                        {showStudentAccessReport ? 'Ocultar' : 'Ver'} reporte de ingresos/salidas
+                      </Button>
+                      {showStudentAccessReport && <StudentReportPanel enrollmentId={s.enrollment_id} />}
+                    </section>
+                  )}
 
                   {/* ── Sección: Acudiente (solo child) ──────────────── */}
                   {isChild && (s.display_parent_name || s.parent_name || s.parent_email || s.parent_phone) && (
@@ -1737,6 +1882,55 @@ export default function SchoolStudentsManagementPage() {
                     {loadingDocs ? (
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Loader2 className="w-4 h-4 animate-spin" /> Cargando documentos...
+                      </div>
+                    ) : isUnregistered ? (
+                      <div className="space-y-2">
+                        {ATHLETE_DOCUMENT_TYPES.map((docType) => {
+                          const doc = studentDocs.find((d) => d.document_type === docType);
+                          const isUploading = uploadingDocType === docType;
+                          return (
+                            <div
+                              key={docType}
+                              className="flex items-center gap-3 rounded-lg border bg-card p-3"
+                            >
+                              <FileText className={`w-5 h-5 flex-shrink-0 ${doc ? 'text-muted-foreground' : 'text-muted-foreground/40'}`} />
+                              <span className="flex-1 text-sm truncate">{DOCUMENT_TYPE_LABELS[docType]}</span>
+                              {doc ? (
+                                <a href={doc.url} target="_blank" rel="noopener noreferrer">
+                                  <Button variant="ghost" size="sm" className="h-7 px-2">
+                                    <Download className="w-3.5 h-3.5" />
+                                  </Button>
+                                </a>
+                              ) : (
+                                <Badge variant="outline" className="text-xs text-muted-foreground">Sin cargar</Badge>
+                              )}
+                              {canManageStudents && (
+                                <label>
+                                  <input
+                                    type="file"
+                                    accept=".pdf,.jpg,.jpeg,.png"
+                                    className="hidden"
+                                    disabled={isUploading}
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) handleUploadAthleteDocument(docType, file);
+                                      e.target.value = '';
+                                    }}
+                                  />
+                                  <Button asChild variant="outline" size="sm" className="h-7 px-2 cursor-pointer" disabled={isUploading}>
+                                    <span>
+                                      {isUploading ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      ) : (
+                                        <Upload className="w-3.5 h-3.5" />
+                                      )}
+                                    </span>
+                                  </Button>
+                                </label>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : studentDocs.length === 0 ? (
                       <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
