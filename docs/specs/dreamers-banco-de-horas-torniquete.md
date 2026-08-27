@@ -216,6 +216,24 @@ endpoint que usa `useBookSecondarySession`. **Los cuatro puntos de entrada reale
 cubiertos:** `/:id/book`, `DELETE /bookings/:id`, `/athlete/book-session`,
 `/athlete/cancel-booking`, `/athlete/book-secondary`, `/athlete/secondary/:id/cancel`.
 
+## 7-ter. Reubicación a escala (2026-08-27)
+
+Con 50 estudiantes, el listado plano de saldos en `HourBankSchoolSection` (Control de Acceso)
+estorba — esa pantalla es monitoreo operativo del día, no un reporte financiero. Se movió:
+
+- **Saldo + histórico de meses + reporte de ingresos/salidas** → perfil del estudiante en
+  Estudiantes (`SchoolStudentsManagementPage.tsx`), sección "Banco de horas". Nuevo endpoint
+  `GET /hour-bank-periods/:enrollmentId` para el histórico (antes solo existía el período actual
+  vía `/hour-bank-balance`). `HourBankBalanceCard` ganó `showHistory` (opt-in, apagado en la vista
+  del padre en `MyEnrollmentsPage` para no meterle ruido).
+- **Badge compacto** (`⏱ Xh Ymin`) en la tabla/lista de estudiantes — un solo request para toda la
+  escuela (`hour-bank-balances`, ya existía), sin pedir el saldo fila por fila.
+- **Lo que se queda en Control de Acceso:** solo la bandeja de `pending_review` — eso sí es
+  operativo (algo por resolver hoy), no un reporte.
+
+`StudentReportPanel` se extrajo a su propio archivo (`components/access/StudentReportPanel.tsx`)
+para que Estudiantes y Control de Acceso lo puedan compartir sin duplicar código.
+
 ## 7. Pendientes y riesgos
 
 - **F6 no tuvo verificación visual en navegador.** No hay `.claude/launch.json` para levantar el frontend local, y las páginas tocadas requieren sesión autenticada real (padre/owner de Dreamers) — no se armó ese entorno en esta sesión. La validación que sí se hizo: `tsc --noEmit` limpio en todo el frontend, revisión manual del JSX, y que los componentes nuevos devuelven `null` de forma explícita cuando no hay plan de horas (`has_hours_plan: false` / lista vacía), así que no deberían alterar el render de ninguna escuela que no sea Dreamers. **Antes de dar F6 por cerrado de verdad, alguien tiene que abrirlo en el navegador** con `hours_plan_enabled=true` en Dreamers y datos de prueba.

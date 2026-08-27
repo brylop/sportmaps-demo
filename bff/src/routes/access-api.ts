@@ -1035,6 +1035,54 @@ router.get('/hour-bank-balance/:enrollmentId', requireAuth, async (req: Authenti
   }
 });
 
+// ─── GET /api/v1/access/hour-bank-periods/:enrollmentId ──────────────────────
+// Histórico de períodos (meses anteriores) de UNA inscripción — para la
+// pregunta "¿cuánto gastó cada mes?" desde el perfil del estudiante. El
+// período actual también sale acá (basta con no filtrar por fecha), así que
+// esta ruta reemplaza a /hour-bank-balance para quien ya está viendo el
+// perfil completo — /hour-bank-balance se queda para el caso rápido (solo el
+// saldo de hoy, como en HourBankBalanceCard).
+router.get('/hour-bank-periods/:enrollmentId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const { enrollmentId } = req.params;
+
+    const { data: enrollment } = await supabase
+      .from('enrollments')
+      .select('id, user_id, child_id, school_id')
+      .eq('id', enrollmentId)
+      .eq('school_id', schoolId)
+      .maybeSingle();
+
+    if (!enrollment) return res.status(404).json({ error: 'Inscripción no encontrada' });
+    if (!(await canManageHourBankEnrollment(req, enrollment))) {
+      return res.status(403).json({ error: 'Sin permiso para ver el histórico de esta inscripción' });
+    }
+
+    // Asegura que el período de hoy exista (mismo efecto que abrirlo desde el
+    // saldo) antes de listar — así el mes actual no falta en el historial la
+    // primera vez que alguien lo consulta.
+    await supabase.rpc('get_or_open_hour_bank_period', { p_enrollment_id: enrollmentId });
+
+    const { data: periods, error } = await supabase
+      .from('hour_bank_periods')
+      .select('id, period_start, period_end, included_minutes, reserved_minutes, consumed_minutes')
+      .eq('enrollment_id', enrollmentId)
+      .order('period_start', { ascending: false });
+
+    if (error) return res.status(500).json({ error: 'Error al leer el histórico' });
+
+    return res.json({
+      periods: (periods || []).map((p) => ({
+        ...p,
+        available_minutes: p.included_minutes - p.reserved_minutes - p.consumed_minutes,
+      })),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al leer el histórico del banco de horas' });
+  }
+});
+
 // ─── GET /api/v1/access/student-report/:enrollmentId ─────────────────────────
 // Reporte de ingresos/salidas de UN estudiante — log crudo del torniquete y,
 // si la inscripción tiene banco de horas, sus visitas y reservas del rango.

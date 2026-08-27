@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { bffClient } from '@/lib/api/bffClient';
 import { useAuth } from '@/contexts/AuthContext';
 import { normalizeText } from '@/lib/normalizeText';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -19,7 +20,9 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { StatFilterBar, type StatFilterTone } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
-import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin, X, RefreshCw } from 'lucide-react';
+import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin, X, RefreshCw, Clock } from 'lucide-react';
+import { HourBankBalanceCard } from '@/components/access/HourBankBalanceCard';
+import { StudentReportPanel } from '@/components/access/StudentReportPanel';
 import { useToast } from '@/hooks/use-toast';
 import { useMemberships } from '@/hooks/useMemberships';
 import { MembershipBadge } from '@/components/memberships/MembershipBadge';
@@ -67,6 +70,16 @@ const studentSchema = z.object({
 });
 
 type StudentFormData = z.infer<typeof studentSchema>;
+
+function formatHourBankMinutes(mins: number): string {
+  const abs = Math.abs(Math.round(mins));
+  const h = Math.floor(abs / 60);
+  const m = abs % 60;
+  const sign = mins < 0 ? '-' : '';
+  if (h === 0) return `${sign}${m}min`;
+  if (m === 0) return `${sign}${h}h`;
+  return `${sign}${h}h${m}min`;
+}
 
 // ── Helpers de filtrado (puros, compartidos por los filtros y los badges) ─────
 type PaymentState = 'paid' | 'overdue' | 'pending' | 'none' | 'other';
@@ -181,6 +194,7 @@ export default function SchoolStudentsManagementPage() {
   const [planFilter, setPlanFilter] = useState('all');
   const [paymentFilter, setPaymentFilter] = useState('all');
   const [viewingStudent, setViewingStudent] = useState<(StudentViewRow & { display_parent_name?: string | null, display_parent_phone?: string | null }) | null>(null);
+  const [showStudentAccessReport, setShowStudentAccessReport] = useState(false);
   const [editingStudent, setEditingStudent] = useState<StudentViewRow | null>(null);
   const [editingAthleteType, setEditingAthleteType] = useState<'child' | 'adult' | 'unregistered' | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
@@ -250,6 +264,7 @@ export default function SchoolStudentsManagementPage() {
   }, [profile?.role, profile?.email, schoolId]);
 
   useEffect(() => {
+    setShowStudentAccessReport(false);
     if (!viewingStudent) {
       setStudentDocs([]);
       setStudentDocInfo({});
@@ -823,6 +838,20 @@ export default function SchoolStudentsManagementPage() {
   // aplicada la consulta falla y el mapa queda vacio — no rompe el listado.
   const { porSujeto: membresiasPorSujeto } = useMemberships();
 
+  // Banco de horas (docs/specs/dreamers-banco-de-horas-torniquete.md) — un solo
+  // request para TODA la escuela, igual que useMemberships arriba: en la tabla
+  // de 50 estudiantes no se puede pedir el saldo fila por fila. Si la escuela
+  // no usa esto, `balances` sale vacío y el badge simplemente no aparece.
+  const { data: hourBankBalancesData } = useQuery({
+    queryKey: ['hour-bank-balances', schoolId],
+    queryFn: () => bffClient.get<{ balances: { enrollment_id: string; available_minutes: number }[] }>('/api/v1/access/hour-bank-balances'),
+    staleTime: 60_000,
+    enabled: !!schoolId,
+  });
+  const hourBankByEnrollment = new Map(
+    (hourBankBalancesData?.balances ?? []).map((b) => [b.enrollment_id, b.available_minutes])
+  );
+
   const filteredStudents = tabStudents.filter(student => {
     const q = normalizeText(searchQuery);
     if (q && !(
@@ -1095,6 +1124,11 @@ export default function SchoolStudentsManagementPage() {
                       <div className="flex gap-1 flex-wrap mt-1">
                         {student.team_name && <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200 py-0 h-5"><Trophy className="h-2.5 w-2.5 mr-1" /> {student.team_name}</Badge>}
                         {(student as any).plan_name && <Badge variant="outline" className="text-[10px] bg-purple-50 text-purple-700 border-purple-200 py-0 h-5"><Zap className="h-2.5 w-2.5 mr-1" /> {(student as any).plan_name}</Badge>}
+                        {student.enrollment_id && hourBankByEnrollment.has(student.enrollment_id) && (
+                          <Badge variant="outline" className={`text-[10px] py-0 h-5 ${hourBankByEnrollment.get(student.enrollment_id)! < 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+                            <Clock className="h-2.5 w-2.5 mr-1" /> {formatHourBankMinutes(hourBankByEnrollment.get(student.enrollment_id)!)}
+                          </Badge>
+                        )}
                         {!student.team_name && !(student as any).plan_name && <span className="text-xs text-muted-foreground">Sin asignar</span>}
                         <span className="text-muted-foreground text-xs ml-1">· {student.branch_name || "Sin sede"}</span>
                       </div>
@@ -1144,6 +1178,11 @@ export default function SchoolStudentsManagementPage() {
                           <div className="flex flex-col gap-1">
                             {student.team_name && <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200 w-fit"><Trophy className="h-3 w-3 mr-1" /> {student.team_name}</Badge>}
                             {(student as any).plan_name && <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200 w-fit"><Zap className="h-3 w-3 mr-1" /> {(student as any).plan_name}</Badge>}
+                            {student.enrollment_id && hourBankByEnrollment.has(student.enrollment_id) && (
+                              <Badge variant="outline" className={`text-xs w-fit ${hourBankByEnrollment.get(student.enrollment_id)! < 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+                                <Clock className="h-3 w-3 mr-1" /> {formatHourBankMinutes(hourBankByEnrollment.get(student.enrollment_id)!)}
+                              </Badge>
+                            )}
                             {!student.team_name && !(student as any).plan_name && <span className="text-xs text-muted-foreground">Sin asignar</span>}
                           </div>
                         </TableCell>
@@ -1676,6 +1715,27 @@ export default function SchoolStudentsManagementPage() {
                       )}
                     </div>
                   </section>
+
+                  {/* ── Sección: Banco de horas (docs/specs/dreamers-banco-de-horas-torniquete.md) ──
+                      No renderiza nada si esta inscripción no tiene un plan de horas —
+                      HourBankBalanceCard ya hace ese chequeo por su cuenta. */}
+                  {s.enrollment_id && (
+                    <section>
+                      <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-primary" /> Banco de horas
+                      </h3>
+                      <HourBankBalanceCard enrollmentId={s.enrollment_id} showHistory />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-0 mt-2 text-xs text-muted-foreground"
+                        onClick={() => setShowStudentAccessReport((v) => !v)}
+                      >
+                        {showStudentAccessReport ? 'Ocultar' : 'Ver'} reporte de ingresos/salidas
+                      </Button>
+                      {showStudentAccessReport && <StudentReportPanel enrollmentId={s.enrollment_id} />}
+                    </section>
+                  )}
 
                   {/* ── Sección: Acudiente (solo child) ──────────────── */}
                   {isChild && (s.display_parent_name || s.parent_name || s.parent_email || s.parent_phone) && (
