@@ -113,21 +113,67 @@ router.post('/:id/book', requireAuth, async (req: Request, res: Response) => {
 
     const { enrollment_id, user_id, child_id, is_secondary, booking_type } = parsed.data;
 
+    // Banco de horas (docs/specs/dreamers-banco-de-horas-torniquete.md): si la
+    // inscripción tiene un plan por horas, la reserva mueve reserve_hour_bank
+    // en vez de move_session_credit — un solo saldo, sin importar is_secondary
+    // (el banco es una sola bolsa de minutos, no cuenta primaria/secundaria
+    // por separado como sí hace el sistema viejo).
+    const { data: enrollmentPlan } = await supabase
+      .from('enrollments')
+      .select('id, offering_plans(included_minutes_per_period)')
+      .eq('id', enrollment_id)
+      .maybeSingle();
+    const isHoursPlan = (enrollmentPlan as any)?.offering_plans?.included_minutes_per_period != null;
+
+    let hourBankReservationId: string | null = null;
+    if (isHoursPlan) {
+      const { data: session } = await supabase
+        .from('attendance_sessions')
+        .select('session_date')
+        .eq('id', sessionId)
+        .maybeSingle();
+      const reservationDate = session?.session_date
+        || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+
+      const { data: reserveResult } = await supabase.rpc('reserve_hour_bank', {
+        p_enrollment_id: enrollment_id, p_reservation_date: reservationDate, p_created_by: req.user.id,
+      });
+      const r = reserveResult as any;
+      if (!r?.reserved) {
+        // D-2: sin saldo, la reserva se bloquea ANTES de crear el booking —
+        // el 422 lleva available_minutes para que el frontend muestre el
+        // saldo real, no un genérico "no se pudo reservar".
+        return res.status(422).json(r);
+      }
+      hourBankReservationId = r.reservation_id;
+    }
+
     const { data, error } = await supabase.from('session_bookings').insert({
       school_id: schoolId, session_id: sessionId, enrollment_id,
       user_id: user_id || null, child_id: child_id || null,
       is_secondary, booking_type, status: 'confirmed',
+      hour_bank_reservation_id: hourBankReservationId,
     }).select().single();
 
-    if (error) return res.status(409).json({ error: error.message });
+    if (error) {
+      // El insert del booking falló (ej. choque de horario) DESPUÉS de haber
+      // reservado el saldo de horas — liberar para no dejarlo fantasma.
+      if (hourBankReservationId) {
+        await supabase.rpc('cancel_hour_bank_reservation', { p_reservation_id: hourBankReservationId });
+      }
+      return res.status(409).json({ error: error.message });
+    }
 
-    // El saldo se mueve SOLO por el RPC. El read-modify-write que había acá
-    // (leer sessions_used, sumar 1 en Node, escribir) hacía que dos reservas
-    // simultáneas del mismo atleta consumieran una sola clase: las dos leían el
-    // mismo valor. El RPC toma SELECT … FOR UPDATE sobre la inscripción.
-    await supabase.rpc('move_session_credit', {
-      p_enrollment_id: enrollment_id, p_delta: 1, p_is_secondary: !!is_secondary,
-    });
+    // El saldo del sistema VIEJO se mueve SOLO por el RPC. El read-modify-write
+    // que había acá (leer sessions_used, sumar 1 en Node, escribir) hacía que
+    // dos reservas simultáneas del mismo atleta consumieran una sola clase:
+    // las dos leían el mismo valor. El RPC toma SELECT … FOR UPDATE sobre la
+    // inscripción. No se llama si ya se movió el banco de horas arriba.
+    if (!isHoursPlan) {
+      await supabase.rpc('move_session_credit', {
+        p_enrollment_id: enrollment_id, p_delta: 1, p_is_secondary: !!is_secondary,
+      });
+    }
 
     res.status(201).json({ booking: data });
   } catch (err: any) {
@@ -188,7 +234,7 @@ router.delete('/bookings/:id', requireAuth, async (req: Request, res: Response) 
     const userId = req.user.id;
     const { data: b, error } = await supabase
       .from('session_bookings')
-      .select('id, user_id, child_id, status, session_id, enrollment_id, is_secondary')
+      .select('id, user_id, child_id, status, session_id, enrollment_id, is_secondary, hour_bank_reservation_id')
       .eq('id', id).single();
 
     if (error || !b) return res.status(404).json({ error: 'Reserva no encontrada' });
@@ -207,9 +253,15 @@ router.delete('/bookings/:id', requireAuth, async (req: Request, res: Response) 
       .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
       .eq('id', id);
 
-    await supabase.rpc('move_session_credit', {
-      p_enrollment_id: b.enrollment_id, p_delta: -1, p_is_secondary: !!b.is_secondary,
-    });
+    // Banco de horas si esta reserva se hizo por esa vía; si no, el sistema
+    // viejo — nunca los dos (ver hour_bank_reservation_id en la migración).
+    if (b.hour_bank_reservation_id) {
+      await supabase.rpc('cancel_hour_bank_reservation', { p_reservation_id: b.hour_bank_reservation_id });
+    } else {
+      await supabase.rpc('move_session_credit', {
+        p_enrollment_id: b.enrollment_id, p_delta: -1, p_is_secondary: !!b.is_secondary,
+      });
+    }
 
     res.json({ success: true });
   } catch (err: any) {
@@ -1014,6 +1066,36 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
       }
     }
 
+    // ── 3c. Banco de horas — mismo criterio que el resto de las vías de
+    // reserva: si la inscripción tiene included_minutes_per_period, se
+    // reserva ANTES de insertar el booking (D-2, bloquea sin crear nada).
+    const { data: enrollmentPlan } = await supabase
+      .from('enrollments')
+      .select('id, offering_plans(included_minutes_per_period)')
+      .eq('id', enrollment_id)
+      .maybeSingle();
+    const isHoursPlan = (enrollmentPlan as any)?.offering_plans?.included_minutes_per_period != null;
+
+    let hourBankReservationId: string | null = null;
+    if (isHoursPlan) {
+      const { data: sessDate } = await supabase
+        .from('attendance_sessions')
+        .select('session_date')
+        .eq('id', actualSessionId)
+        .maybeSingle();
+      const reservationDate = sessDate?.session_date
+        || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+
+      const { data: reserveResult } = await supabase.rpc('reserve_hour_bank', {
+        p_enrollment_id: enrollment_id, p_reservation_date: reservationDate, p_created_by: userId,
+      });
+      const r = reserveResult as any;
+      if (!r?.reserved) {
+        return res.status(422).json(r);
+      }
+      hourBankReservationId = r.reservation_id;
+    }
+
     // ── 4. Insertar booking ───────────────────────────────────────────────
     const { data: b, error } = await supabase.from('session_bookings').insert({
       school_id: s.school_id,
@@ -1023,14 +1105,23 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
       user_id: child_id ? null : userId,
       child_id: child_id || null,
       status: 'confirmed',
+      hour_bank_reservation_id: hourBankReservationId,
     }).select().single();
 
-    if (error) return res.status(409).json({ error: error.message });
+    if (error) {
+      if (hourBankReservationId) {
+        await supabase.rpc('cancel_hour_bank_reservation', { p_reservation_id: hourBankReservationId });
+      }
+      return res.status(409).json({ error: error.message });
+    }
 
-    // ── 5. Consumir la clase (atómico, ver move_session_credit) ───────────
-    await supabase.rpc('move_session_credit', {
-      p_enrollment_id: enrollment_id, p_delta: 1, p_is_secondary: !!is_secondary,
-    });
+    // ── 5. Consumir la clase (atómico, ver move_session_credit) — solo el
+    // sistema viejo, si no se movió el banco de horas arriba. ─────────────
+    if (!isHoursPlan) {
+      await supabase.rpc('move_session_credit', {
+        p_enrollment_id: enrollment_id, p_delta: 1, p_is_secondary: !!is_secondary,
+      });
+    }
 
     res.status(201).json({ booking: b });
   } catch (err: any) {
@@ -1198,7 +1289,7 @@ router.delete('/athlete/cancel-booking', requireAuth, async (req: Request, res: 
     // ── 1. Intentar en session_bookings (Regular/Grupales) ────────────────
     const { data: booking } = await supabase
       .from('session_bookings')
-      .select(`id, status, user_id, child_id, enrollment_id, is_secondary,
+      .select(`id, status, user_id, child_id, enrollment_id, is_secondary, hour_bank_reservation_id,
         attendance_sessions ( session_date, start_time, facility_id, facilities ( min_cancellation_hours ) )`)
       .eq('id', booking_id)
       .maybeSingle();
@@ -1241,10 +1332,15 @@ router.delete('/athlete/cancel-booking', requireAuth, async (req: Request, res: 
 
       if (updateError) throw updateError;
 
-      // Reembolso de crédito
-      await supabase.rpc('move_session_credit', {
-        p_enrollment_id: booking.enrollment_id, p_delta: -1, p_is_secondary: !!booking.is_secondary,
-      });
+      // Reembolso de crédito — banco de horas si esta reserva se hizo por
+      // esa vía, si no el sistema viejo (nunca los dos).
+      if (booking.hour_bank_reservation_id) {
+        await supabase.rpc('cancel_hour_bank_reservation', { p_reservation_id: booking.hour_bank_reservation_id });
+      } else {
+        await supabase.rpc('move_session_credit', {
+          p_enrollment_id: booking.enrollment_id, p_delta: -1, p_is_secondary: !!booking.is_secondary,
+        });
+      }
 
       return res.json({ success: true });
     }
@@ -1488,6 +1584,28 @@ router.post('/athlete/book-secondary', requireAuth, async (req: Request, res: Re
     if (!enrollmentValid)
       return res.status(403).json({ error: 'enrollment_unauthorized' });
 
+    // ── 3b. Banco de horas — mismo criterio que /:id/book: si la inscripción
+    // tiene plan por horas, reserve_hour_bank ANTES de insertar (D-2: bloquea
+    // sin saldo, no crea la reserva a medias).
+    const { data: enrollmentPlan } = await supabase
+      .from('enrollments')
+      .select('id, offering_plans(included_minutes_per_period)')
+      .eq('id', enrollment_id)
+      .maybeSingle();
+    const isHoursPlan = (enrollmentPlan as any)?.offering_plans?.included_minutes_per_period != null;
+
+    let hourBankReservationId: string | null = null;
+    if (isHoursPlan) {
+      const { data: reserveResult } = await supabase.rpc('reserve_hour_bank', {
+        p_enrollment_id: enrollment_id, p_reservation_date: reservation_date, p_created_by: userId,
+      });
+      const r = reserveResult as any;
+      if (!r?.reserved) {
+        return res.status(422).json(r);
+      }
+      hourBankReservationId = r.reservation_id;
+    }
+
     // ── 3. Insertar reserva ───────────────────────────────────────────────
     const { data: b, error } = await supabase.from('facility_reservations').insert({
       facility_id,
@@ -1500,9 +1618,13 @@ router.post('/athlete/book-secondary', requireAuth, async (req: Request, res: Re
       end_time: slots[slots.length - 1].end_time,
       status: 'confirmed',
       resv_type: 'secondary_class',
+      hour_bank_reservation_id: hourBankReservationId,
     }).select().single();
 
     if (error) {
+      if (hourBankReservationId) {
+        await supabase.rpc('cancel_hour_bank_reservation', { p_reservation_id: hourBankReservationId });
+      }
       // Trigger fn_check_facility_reservation_overlap (DB) rechaza choques de horario
       if (error.message?.includes('facility_slot_conflict')) {
         return res.status(409).json({
@@ -1513,10 +1635,13 @@ router.post('/athlete/book-secondary', requireAuth, async (req: Request, res: Re
       throw error;
     }
 
-    // ── 4. Consumir una secundaria (atómico, ver move_session_credit) ──────
-    await supabase.rpc('move_session_credit', {
-      p_enrollment_id: enrollment_id, p_delta: 1, p_is_secondary: true,
-    });
+    // ── 4. Consumir una secundaria (atómico, ver move_session_credit) — solo
+    // el sistema viejo, si no se movió el banco de horas arriba. ───────────
+    if (!isHoursPlan) {
+      await supabase.rpc('move_session_credit', {
+        p_enrollment_id: enrollment_id, p_delta: 1, p_is_secondary: true,
+      });
+    }
 
     res.status(201).json({ reservation: b });
   } catch (err: any) {
@@ -1595,7 +1720,7 @@ router.delete('/athlete/secondary/:id/cancel', requireAuth, async (req: Request,
     // ── 2. Fetch reserva ──────────────────────────────────────────────────
     const { data: r } = await supabase
       .from('facility_reservations')
-      .select('id, user_id, child_id, enrollment_id, status')
+      .select('id, user_id, child_id, enrollment_id, status, hour_bank_reservation_id')
       .eq('id', id)
       .maybeSingle();
 
@@ -1615,9 +1740,13 @@ router.delete('/athlete/secondary/:id/cancel', requireAuth, async (req: Request,
       .update({ status: 'cancelled' })
       .eq('id', id);
 
-    await supabase.rpc('move_session_credit', {
-      p_enrollment_id: r.enrollment_id, p_delta: -1, p_is_secondary: true,
-    });
+    if (r.hour_bank_reservation_id) {
+      await supabase.rpc('cancel_hour_bank_reservation', { p_reservation_id: r.hour_bank_reservation_id });
+    } else {
+      await supabase.rpc('move_session_credit', {
+        p_enrollment_id: r.enrollment_id, p_delta: -1, p_is_secondary: true,
+      });
+    }
 
     res.json({ success: true });
   } catch (err: any) {

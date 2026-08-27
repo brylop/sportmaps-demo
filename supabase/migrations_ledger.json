@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 422,
-  "head": "20260826220634",
+  "count": 423,
+  "head": "20260827131341",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -425,6 +425,7 @@
     {"v":"20260826110449","file":"20260826110449_fix_null_guard_bypass_admin_rpcs.sql","sha256":"da3f5fbb48dfa9906250bd4fa15a91cf247c6b72e78607477f0efc4064870d20","added":"2026-08-26","by":"brylop"},
     {"v":"20260826112433","file":"20260826112433_fix_is_platform_admin_null_root_cause.sql","sha256":"b5fceedd9153e309470a5605b873b0aa1966b8b4721eefde1e05f2e6d3875b0e","added":"2026-08-26","by":"brylop"},
     {"v":"20260826190435","file":"20260826190435_gymrm_bridge_local_flag.sql","sha256":"ab0d953edc0c6b17560a3cdde5e1d5bc9c0bd086cc3a982e3d400ec5978f53c2","added":"2026-08-27","by":"judegor99"},
-    {"v":"20260826220634","file":"20260826220634_bridge_heartbeats.sql","sha256":"00240386421525c8d89be27281939837efc38f3859eec095ba00cd3c2c957c41","added":"2026-08-27","by":"judegor99"}
+    {"v":"20260826220634","file":"20260826220634_bridge_heartbeats.sql","sha256":"00240386421525c8d89be27281939837efc38f3859eec095ba00cd3c2c957c41","added":"2026-08-27","by":"judegor99"},
+    {"v":"20260827131341","file":"20260827131341_hour_bank_link_bookings.sql","sha256":"c9dc9ef43d18ae8a1d3cfcf91616a47e12273a0652f6255510da298d3ab1185d","added":"2026-08-27","by":"judegor99"}
   ]
 }
