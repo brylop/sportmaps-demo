@@ -1014,6 +1014,20 @@ export default function SchoolStudentsManagementPage() {
     return `${age} años`;
   };
 
+  // unregistered_athletes no tiene athlete_type='adult' (siempre es 'unregistered',
+  // sin importar la edad) — a diferencia de children/profiles, acá la única señal
+  // real de mayoría de edad es la fecha de nacimiento.
+  const isAdultByBirthdate = (dateOfBirth?: string | null): boolean => {
+    if (!dateOfBirth) return false;
+    const birthDate = new Date(dateOfBirth);
+    if (isNaN(birthDate.getTime())) return false;
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+    return age >= 18;
+  };
+
   // ── PATCH: label del item "Invitar" cambia según tipo de atleta ───────────
   const StudentActions = ({ student }: { student: any }) => (
     <DropdownMenu>
@@ -1272,7 +1286,7 @@ export default function SchoolStudentsManagementPage() {
                           </div>
                         </TableCell>
                         <TableCell><span className="text-xs text-muted-foreground">{student.branch_name || <span className="text-muted-foreground text-xs">Sin sede</span>}</span></TableCell>
-                        <TableCell>{(student as any).athlete_type === 'adult' ? '—' : (student.display_parent_name || student.parent_name || '-')}</TableCell>
+                        <TableCell>{(student as any).athlete_type === 'adult' || isAdultByBirthdate((student as any).date_of_birth) ? '—' : (student.display_parent_name || student.parent_name || '-')}</TableCell>
                         <TableCell className="font-semibold text-primary">{(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}</TableCell>
                         <TableCell>{getPaymentBadge(student)}</TableCell>
                         <TableCell>
@@ -1851,8 +1865,11 @@ export default function SchoolStudentsManagementPage() {
                     </section>
                   )}
 
-                  {/* ── Sección: Acudiente (unregistered — viene del formulario de afiliación) ── */}
-                  {isUnregistered && (studentDocInfo.guardian_full_name || studentDocInfo.guardian_phone || studentDocInfo.guardian_email || studentDocInfo.intake_form_data) && (
+                  {/* ── Sección: Acudiente (unregistered — viene del formulario de afiliación) ──
+                       Solo para menores: un mayor de edad no tiene acudiente aunque el intake
+                       haya guardado un nombre (heurística de nombre de archivo de Drive, ver
+                       02b_subir_documento.mjs — para adultos ese "acudiente" es la propia persona). */}
+                  {isUnregistered && !isAdultByBirthdate(s.date_of_birth) && (studentDocInfo.guardian_full_name || studentDocInfo.guardian_phone || studentDocInfo.guardian_email || studentDocInfo.intake_form_data) && (
                     <section>
                       <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
                         <User className="w-4 h-4" /> Acudiente
