@@ -469,6 +469,12 @@ export function OfferingsManagement() {
         // aunque el esquema no lo impida).
         is_hours_plan: false,
         included_minutes_per_period: '',
+        // Niveles por horas (docs/specs/dreamers-niveles-por-horas-y-progresion.md, D1/D2/D17):
+        // bloque de sesión y días/semana propios del plan, y cobro de inscripción único.
+        // Los tres vacíos = NULL = comportamiento actual (hereda de la escuela / sin cobro).
+        session_block_minutes: '',
+        included_sessions_per_week: '',
+        registration_fee: '',
     });
 
     const [isCustomDays, setIsCustomDays] = useState(false);
@@ -480,7 +486,7 @@ export function OfferingsManagement() {
     };
 
     const resetPlanForm = () => {
-        setNewPlan({ name: '', max_sessions: '', max_secondary_sessions: '0', secondary_session_label: '', duration_days: '30', price: '', auto_renew: false, schedule_type: 'general', schedule: [], is_hours_plan: false, included_minutes_per_period: '' });
+        setNewPlan({ name: '', max_sessions: '', max_secondary_sessions: '0', secondary_session_label: '', duration_days: '30', price: '', auto_renew: false, schedule_type: 'general', schedule: [], is_hours_plan: false, included_minutes_per_period: '', session_block_minutes: '', included_sessions_per_week: '', registration_fee: '' });
         setIsCustomDays(false);
         setCustomDays('30');
         setEditingPlanId(null);
@@ -527,6 +533,11 @@ export function OfferingsManagement() {
             duration_days: durationValue || 30,
             price: parseFloat(newPlan.price) || 0,
             auto_renew: newPlan.auto_renew,
+            // Niveles por horas (D1/D2) y cobro de inscripción (D17) — vacío = NULL,
+            // comportamiento actual (hereda bloque de escuela / sin cobro de inscripción).
+            session_block_minutes: newPlan.session_block_minutes ? parseInt(newPlan.session_block_minutes) : null,
+            included_sessions_per_week: newPlan.included_sessions_per_week ? parseInt(newPlan.included_sessions_per_week) : null,
+            registration_fee: newPlan.registration_fee ? parseFloat(newPlan.registration_fee) : null,
             metadata: {
                 secondary_session_label: newPlan.secondary_session_label || undefined,
                 schedule_type: newPlan.schedule_type,
@@ -577,6 +588,9 @@ export function OfferingsManagement() {
                 schedule: (plan.metadata?.schedule as ScheduleSlot[]) || [],
                 is_hours_plan: plan.included_minutes_per_period != null,
                 included_minutes_per_period: plan.included_minutes_per_period?.toString() || '',
+                session_block_minutes: plan.session_block_minutes?.toString() || '',
+                included_sessions_per_week: plan.included_sessions_per_week?.toString() || '',
+                registration_fee: plan.registration_fee?.toString() || '',
             });
             setIsCustomDays(!isPreset);
             setCustomDays(!isPreset ? durationStr : '30');
@@ -879,9 +893,28 @@ export function OfferingsManagement() {
                             </div>
                             <div className="space-y-2">
                                 <Label className="text-sm font-medium flex items-center gap-1.5">
-                                    <Clock className="h-3.5 w-3.5 text-blue-500" /> Duración
+                                    <DollarSign className="h-3.5 w-3.5 text-orange-500" /> Inscripción
                                 </Label>
-                                <Select
+                                <NumberStepper
+                                    id="plan-registration-fee"
+                                    value={newPlan.registration_fee}
+                                    onChange={(v) => setNewPlan((prev) => ({ ...prev, registration_fee: v }))}
+                                    placeholder="Sin cobro"
+                                    prefix="$"
+                                    step={5000}
+                                    isCurrency={true}
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                    Cobro único al inscribirse, aparte de la mensualidad. Vacío = sin inscripción.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label className="text-sm font-medium flex items-center gap-1.5">
+                                <Clock className="h-3.5 w-3.5 text-blue-500" /> Duración
+                            </Label>
+                            <Select
                                     value={newPlan.duration_days}
                                     onValueChange={(v) => {
                                         setNewPlan((prev) => ({ ...prev, duration_days: v }));
@@ -899,7 +932,6 @@ export function OfferingsManagement() {
                                         ))}
                                     </SelectContent>
                                 </Select>
-                            </div>
                         </div>
 
                         {isCustomDays && (
@@ -950,6 +982,40 @@ export function OfferingsManagement() {
                                 <p className="text-[10px] text-muted-foreground">
                                     Ej: 480 min = 8 horas al mes. El período lo define el ciclo de facturación de la escuela.
                                 </p>
+                            </div>
+                        )}
+
+                        {/* Niveles por horas (D1/D2): bloque de sesión propio del plan + días/semana
+                            informativo — para vender "3 días × 2h" sin depender del valor global de la
+                            escuela. Vacío = NULL = hereda school_settings.hours_session_block_minutes. */}
+                        {newPlan.is_hours_plan && (
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-2">
+                                    <Label className="text-sm font-medium">Minutos por sesión (bloque)</Label>
+                                    <NumberStepper
+                                        id="plan-session-block-minutes"
+                                        value={newPlan.session_block_minutes}
+                                        onChange={(v) => setNewPlan((prev) => ({ ...prev, session_block_minutes: v }))}
+                                        placeholder="Hereda de la escuela"
+                                        step={15}
+                                    />
+                                    <p className="text-[10px] text-muted-foreground">
+                                        Vacío = usa el bloque general de la escuela. Para tener 2h/3h/4h a la vez, cada nivel necesita su propio valor.
+                                    </p>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="text-sm font-medium">Días de entrenamiento/semana</Label>
+                                    <NumberStepper
+                                        id="plan-sessions-per-week"
+                                        value={newPlan.included_sessions_per_week}
+                                        onChange={(v) => setNewPlan((prev) => ({ ...prev, included_sessions_per_week: v }))}
+                                        placeholder="Ej: 3"
+                                        step={1}
+                                    />
+                                    <p className="text-[10px] text-muted-foreground">
+                                        Solo informativo — la fuente de verdad de horas sigue siendo los minutos incluidos.
+                                    </p>
+                                </div>
                             </div>
                         )}
 
@@ -1258,6 +1324,24 @@ function OfferingCard({
                                                 <Clock className="h-3 w-3" />
                                                 {formatFriendlyDuration(plan.duration_days)}
                                             </span>
+                                            {/* Niveles por horas (D1/D2) — bloque de sesión propio × días/semana,
+                                                para diferenciar 2h/3h/4h a la vez en la misma escuela. */}
+                                            {plan.session_block_minutes && (
+                                                <Badge variant="secondary" className="text-[9px] h-4 px-1 py-0 bg-purple-50 text-purple-700 border-purple-200">
+                                                    {(plan.session_block_minutes / 60).toFixed(plan.session_block_minutes % 60 === 0 ? 0 : 1)}h/clase
+                                                </Badge>
+                                            )}
+                                            {plan.included_sessions_per_week && (
+                                                <Badge variant="secondary" className="text-[9px] h-4 px-1 py-0 bg-purple-50 text-purple-700 border-purple-200">
+                                                    {plan.included_sessions_per_week} días/sem
+                                                </Badge>
+                                            )}
+                                            {/* Cobro de inscripción (D17) — aparte de la mensualidad. */}
+                                            {plan.registration_fee > 0 && (
+                                                <Badge variant="secondary" className="text-[9px] h-4 px-1 py-0 bg-orange-50 text-orange-700 border-orange-200">
+                                                    +${formatCurrency(plan.registration_fee)} inscripción
+                                                </Badge>
+                                            )}
                                             <span className="font-bold text-primary ml-1">
                                                 ${formatCurrency(plan.price)}
                                             </span>
