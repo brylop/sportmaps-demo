@@ -19,7 +19,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { StatFilterBar, type StatFilterTone } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
-import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin, X, RefreshCw } from 'lucide-react';
+import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin, X, RefreshCw, Upload } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useMemberships } from '@/hooks/useMemberships';
 import { MembershipBadge } from '@/components/memberships/MembershipBadge';
@@ -101,6 +101,12 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   good_standing_certificate: 'Paz y salvo',
   other:                     'Otro documento',
 };
+
+// Los 7 tipos que pide el formulario de afiliación real (ver scripts/monster-volley-suba-import).
+const ATHLETE_DOCUMENT_TYPES = [
+  'athlete_photo', 'eps_certificate', 'guardian_id_front', 'athlete_id_front',
+  'guardian_signature', 'athlete_signature', 'good_standing_certificate',
+];
 
 // Etiquetas para las claves de unregistered_athletes.health_screening (ver
 // scripts/monster-volley-suba-import/01_extraer.mjs, que es quien las llena).
@@ -184,7 +190,8 @@ export default function SchoolStudentsManagementPage() {
   const [editingStudent, setEditingStudent] = useState<StudentViewRow | null>(null);
   const [editingAthleteType, setEditingAthleteType] = useState<'child' | 'adult' | 'unregistered' | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
-  const [studentDocs, setStudentDocs] = useState<{ name: string; url: string }[]>([]);
+  const [studentDocs, setStudentDocs] = useState<{ id?: string; document_type?: string; storage_path?: string; name: string; url: string }[]>([]);
+  const [uploadingDocType, setUploadingDocType] = useState<string | null>(null);
   const [studentDocInfo, setStudentDocInfo] = useState<{
     doc_type?: string | null;
     doc_number?: string | null;
@@ -249,6 +256,101 @@ export default function SchoolStudentsManagementPage() {
     }
   }, [profile?.role, profile?.email, schoolId]);
 
+  const loadUnregisteredAthleteDocs = async (studentId: string) => {
+    const { data: rows, error } = await (supabase as any)
+      .from('athlete_documents')
+      .select('id, document_type, storage_path')
+      .eq('unregistered_athlete_id', studentId)
+      .order('uploaded_at', { ascending: false });
+    if (error || !rows) { setStudentDocs([]); return; }
+    const docs = await Promise.all(
+      rows.map(async (row: any) => {
+        const { data } = await supabase.storage
+          .from('identity-documents')
+          .createSignedUrl(row.storage_path, 300);
+        return {
+          id: row.id,
+          document_type: row.document_type,
+          storage_path: row.storage_path,
+          name: DOCUMENT_TYPE_LABELS[row.document_type] || row.document_type,
+          url: data?.signedUrl || '',
+        };
+      })
+    );
+    setStudentDocs(docs.filter((d) => d.url));
+  };
+
+  /** Sube (o reemplaza) un documento de un unregistered_athlete. Espeja el patrón de
+   * scripts/monster-volley-suba-import/02b_subir_documento.mjs + 02c_subir_avatar.mjs:
+   * identity-documents (privado) para el registro, y además avatars (público) +
+   * avatar_url cuando el tipo es athlete_photo. */
+  const handleUploadAthleteDocument = async (documentType: string, file: File) => {
+    if (!viewingStudent || !schoolId) return;
+    const athleteId = viewingStudent.id;
+
+    if (file.size > 15 * 1024 * 1024) {
+      toast({ title: 'Archivo muy grande', description: 'Máximo 15 MB', variant: 'destructive' });
+      return;
+    }
+    if (!/\.(pdf|jpg|jpeg|png)$/i.test(file.name)) {
+      toast({ title: 'Formato no permitido', description: 'Sube un PDF o imagen (JPG/PNG)', variant: 'destructive' });
+      return;
+    }
+
+    setUploadingDocType(documentType);
+    try {
+      // Reemplazo: si ya había un documento de este tipo, se borra (storage + fila)
+      // antes de subir el nuevo, para no dejar duplicados/huérfanos.
+      const previous = studentDocs.find((d) => d.document_type === documentType);
+      if (previous?.id) {
+        if (previous.storage_path) {
+          await supabase.storage.from('identity-documents').remove([previous.storage_path]);
+        }
+        await (supabase as any).from('athlete_documents').delete().eq('id', previous.id);
+      }
+
+      const timestamp = Date.now();
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'bin';
+      const safeName = file.name.replace(/\.[a-zA-Z0-9]{2,5}$/, '').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 60);
+      const storagePath = `unregistered_athletes/${athleteId}/docs/${documentType}-${timestamp}-${safeName}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('identity-documents')
+        .upload(storagePath, file, { cacheControl: '3600', upsert: false });
+      if (uploadError) throw uploadError;
+
+      const { error: insertError } = await (supabase as any).from('athlete_documents').insert({
+        school_id: schoolId,
+        unregistered_athlete_id: athleteId,
+        document_type: documentType,
+        storage_path: storagePath,
+      });
+      if (insertError) throw insertError;
+
+      if (documentType === 'athlete_photo') {
+        const avatarPath = `unregistered_athletes/${athleteId}/${timestamp}.${ext}`;
+        const { error: avatarUploadError } = await supabase.storage
+          .from('avatars')
+          .upload(avatarPath, file, { cacheControl: '3600', upsert: true });
+        if (!avatarUploadError) {
+          const { data: pub } = supabase.storage.from('avatars').getPublicUrl(avatarPath);
+          await (supabase as any)
+            .from('unregistered_athletes')
+            .update({ avatar_url: pub.publicUrl })
+            .eq('id', athleteId);
+          queryClient.invalidateQueries({ queryKey: ['school-students'] });
+        }
+      }
+
+      toast({ title: '✅ Subido', description: `${DOCUMENT_TYPE_LABELS[documentType] || documentType} cargado` });
+      await loadUnregisteredAthleteDocs(athleteId);
+    } catch (err: any) {
+      toast({ title: 'Error al subir', description: err.message, variant: 'destructive' });
+    } finally {
+      setUploadingDocType(null);
+    }
+  };
+
   useEffect(() => {
     if (!viewingStudent) {
       setStudentDocs([]);
@@ -304,24 +406,7 @@ export default function SchoolStudentsManagementPage() {
       // ('children/{id}/docs') — sus documentos se registran en athlete_documents
       // desde el import (scripts/monster-volley-suba-import), así que se listan
       // desde ahí en vez de storage.list().
-      (supabase as any)
-        .from('athlete_documents')
-        .select('id, document_type, storage_path')
-        .eq('unregistered_athlete_id', studentId)
-        .order('uploaded_at', { ascending: false })
-        .then(async ({ data: rows, error }: { data: any; error: any }) => {
-          if (error || !rows) { setStudentDocs([]); return; }
-          const docs = await Promise.all(
-            rows.map(async (row: any) => {
-              const { data } = await supabase.storage
-                .from('identity-documents')
-                .createSignedUrl(row.storage_path, 300);
-              return { name: DOCUMENT_TYPE_LABELS[row.document_type] || row.document_type, url: data?.signedUrl || '' };
-            })
-          );
-          setStudentDocs(docs.filter((d) => d.url));
-        })
-        .finally(() => setLoadingDocs(false));
+      loadUnregisteredAthleteDocs(studentId).finally(() => setLoadingDocs(false));
     } else {
       // children/adult: sin cambios — siguen viviendo en children/{id}/docs
       // sin fila en athlete_documents (esa tabla es nueva, ver migración
@@ -415,6 +500,30 @@ export default function SchoolStudentsManagementPage() {
       } else {
         data = await studentsAPI.getSchoolView(schoolId, { branchId: activeBranchId, includeInactive: true });
       }
+
+      // school_athletes no trae guardian_full_name de unregistered_athletes —
+      // se completa acá con un solo query bulk (no se toca la vista).
+      const unregisteredIds = (data as any[])
+        .filter(s => s.athlete_type === 'unregistered')
+        .map(s => s.id);
+      if (unregisteredIds.length > 0) {
+        const { data: guardians } = await supabase
+          .from('unregistered_athletes')
+          .select('id, guardian_full_name, guardian_phone, guardian_email')
+          .in('id', unregisteredIds);
+        const guardianMap = Object.fromEntries((guardians || []).map((g: any) => [g.id, g]));
+        data = (data as any[]).map(s => {
+          const g = guardianMap[s.id];
+          if (s.athlete_type !== 'unregistered' || !g) return s;
+          return {
+            ...s,
+            parent_name: g.guardian_full_name || s.parent_name,
+            parent_phone: g.guardian_phone || s.parent_phone,
+            parent_email: g.guardian_email || s.parent_email,
+          };
+        });
+      }
+
       return data as StudentViewRow[];
     },
     enabled: !!schoolId && coachIdResolved,
@@ -1713,6 +1822,55 @@ export default function SchoolStudentsManagementPage() {
                     {loadingDocs ? (
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Loader2 className="w-4 h-4 animate-spin" /> Cargando documentos...
+                      </div>
+                    ) : isUnregistered ? (
+                      <div className="space-y-2">
+                        {ATHLETE_DOCUMENT_TYPES.map((docType) => {
+                          const doc = studentDocs.find((d) => d.document_type === docType);
+                          const isUploading = uploadingDocType === docType;
+                          return (
+                            <div
+                              key={docType}
+                              className="flex items-center gap-3 rounded-lg border bg-card p-3"
+                            >
+                              <FileText className={`w-5 h-5 flex-shrink-0 ${doc ? 'text-muted-foreground' : 'text-muted-foreground/40'}`} />
+                              <span className="flex-1 text-sm truncate">{DOCUMENT_TYPE_LABELS[docType]}</span>
+                              {doc ? (
+                                <a href={doc.url} target="_blank" rel="noopener noreferrer">
+                                  <Button variant="ghost" size="sm" className="h-7 px-2">
+                                    <Download className="w-3.5 h-3.5" />
+                                  </Button>
+                                </a>
+                              ) : (
+                                <Badge variant="outline" className="text-xs text-muted-foreground">Sin cargar</Badge>
+                              )}
+                              {canManageStudents && (
+                                <label>
+                                  <input
+                                    type="file"
+                                    accept=".pdf,.jpg,.jpeg,.png"
+                                    className="hidden"
+                                    disabled={isUploading}
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) handleUploadAthleteDocument(docType, file);
+                                      e.target.value = '';
+                                    }}
+                                  />
+                                  <Button asChild variant="outline" size="sm" className="h-7 px-2 cursor-pointer" disabled={isUploading}>
+                                    <span>
+                                      {isUploading ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      ) : (
+                                        <Upload className="w-3.5 h-3.5" />
+                                      )}
+                                    </span>
+                                  </Button>
+                                </label>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : studentDocs.length === 0 ? (
                       <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">

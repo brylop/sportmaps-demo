@@ -174,6 +174,7 @@ const MyAthleteCardsPage = lazy(() => import("./pages/MyAthleteCardsPage"));
 const CertificateVerifyPublicPage = lazy(() => import("./pages/CertificateVerifyPublicPage"));
 const JoinSchoolPublicPage = lazy(() => import("./pages/JoinSchoolPublicPage"));
 const SchoolJoinQRsPage = lazy(() => import("./pages/SchoolJoinQRsPage"));
+const SchoolLeadFormPage = lazy(() => import("./pages/SchoolLeadFormPage"));
 
 // ─── Vendor/Marketplace pages (lazy) ─────────────────────────────────────────
 const MarketplacePage = lazy(() => import("./pages/MarketplacePage"));
@@ -308,6 +309,7 @@ const App = () => (
                     <Route path="/c/:qrToken" element={<AthleteCardPublicPage />} />
                     <Route path="/cert/:folio" element={<CertificateVerifyPublicPage />} />
                     <Route path="/join/:slug" element={<JoinSchoolPublicPage />} />
+                    <Route path="/inscripcion/:slug" element={<SchoolLeadFormPage />} />
                     <Route path="/agendar/:slug" element={<PublicFacilityBookingPage />} />
                     <Route path="/terminos-y-condiciones" element={<TermsPage />} />
                     <Route path="/terms" element={<Navigate to="/terminos-y-condiciones" replace />} />
