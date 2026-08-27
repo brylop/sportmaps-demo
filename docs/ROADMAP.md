@@ -1,11 +1,32 @@
 # SportMaps — Roadmap Maestro
 
-**Versión:** 2.7 · **Fecha:** 2026-08-27 · **Rama:** `develop`
+**Versión:** 2.8 · **Fecha:** 2026-08-27 · **Rama:** `develop`
 
 > **Este es el único roadmap.** Todo lo demás en `docs/` es *spec* (qué se construye y por qué),
 > *plan de fase* (cómo se migra), *doctrina de arquitectura* (cómo se hace) o *auditoría* (qué está
 > mal). Ninguno de esos documentos define prioridades: las define esta cola. Si un pendiente no
 > aparece aquí, no existe.
+
+**Cambios v2.7 → v2.8** (spec nuevo sobre pedido directo de **Dreamers Gymnastics**, consolidado y
+verificado contra el código real el 2026-08-27 — ver
+[`specs/dreamers-niveles-por-horas-y-progresion.md`](specs/dreamers-niveles-por-horas-y-progresion.md)):
+- **Track `NIV` nuevo** (`NIV-0..NIV-7`): niveles por horas/día diferenciadas (2h/3h/4h) ligados a
+  progresión competitiva, cobro de inscripción/matrícula separado de la mensualidad (gap real: no
+  existía en ningún lado del producto), alta a mitad de mes con "plan de enganche", y reserva de
+  clases adicionales por entrenador/horario. **19 decisiones de producto (D1-D19), todas cerradas**
+  — no es una cola de decisiones, es una cola de código. `NIV-1` (F1: planes por horas + inscripción)
+  tiene plan de implementación completo (spec §9) y **cero bloqueantes verificados** — listo para
+  escribir la migración.
+- **Dos correcciones de alcance sobre decisiones que el spec daba por cerradas**, encontradas al
+  verificar contra el código real (no de negocio, spec §8): el torniquete ZKTeco decide el acceso
+  físico localmente — el BFF nunca controla la puerta, así que bloquear por día de la semana
+  (`NIV-4`) requiere automatizar los grupos de acceso nativos del dispositivo, un proyecto aparte de
+  lo estimado; y `school_availability` ya no cuelga de `program_id` en la base real (tiene
+  `branch_id`) — la migración de deuda de `NIV-4`/`MOD-14` necesita rediagnóstico antes de escribirse.
+- **Orden de implementación definido:** `F1 → F7 → F2 → F3 → F5 → F6` (spec §5) — es lo que Dreamers
+  necesita operar primero, no el orden de la numeración.
+- **Carmel Club identificado como candidata de expansión real** (no hipotética) para `NIV`: escuela
+  real, en trial, 0 inscripciones activas, mismo deporte federado.
 
 **Cambios v2.6 → v2.7** (banco de horas — cierre de brechas encontradas al validar con datos
 reales, 2026-08-27):
@@ -671,6 +692,50 @@ ordena el track, no el gusto por las features:
 > demás en este roadmap le sirve a quien cobra, inscribe o audita. Esto le sirve a quien entrena —
 > y es el rol que hoy tiene cero razones para abrir SportMaps un martes.
 
+### NIV — Niveles por horas, entrenador y progresión (Dreamers)
+
+Nace de un pedido directo sobre **Dreamers Gymnastics** (2026-08-24/27): planes que se diferencien
+por bloque de sesión (2h/3h/4h por clase) × días de entrenamiento por semana, reserva de clases
+adicionales respetando el horario real de cada entrenador, que una atleta que gane una competencia
+con puntaje federado suba a un plan de más horas, y un cobro de inscripción/matrícula separado de la
+mensualidad. Spec: [`specs/dreamers-niveles-por-horas-y-progresion.md`](specs/dreamers-niveles-por-horas-y-progresion.md).
+
+**No es trabajo aislado de un solo cliente ni una feature chica.** Se apoya directo en el banco de
+horas de Dreamers (`hours_plan_enabled`, ya en producción vía este roadmap v2.5-v2.7, activo hoy solo
+en Dreamers) y toca ejes que ya existen pero no se hablan entre sí: `offering_plans` (planes),
+`school_availability` (horario real por entrenador), `competition_results` (resultados deportivos, 0
+filas en toda la base hoy) y `payments` (que hoy solo sabe generar un cobro de mensualidad, nunca uno
+de inscripción). **Las 19 decisiones de producto (D1-D19) ya cerraron** (spec §2) y se verificaron
+contra el código real el 2026-08-27 (spec §8): `NIV-1` queda sin bloqueantes, con plan de
+implementación escrito (spec §9). `NIV-4` tiene dos correcciones de alcance que salieron de esa
+verificación, no decisiones nuevas de producto — ver notas en la tabla.
+
+**Aislamiento verificado, no solo prometido.** Toda columna nueva es nullable con NULL =
+comportamiento actual; la única mecánica activa nueva (aviso de ascenso de nivel) va detrás de
+`school_settings.level_progression_enabled`, default `false`. Cero referencias a Dreamers en código
+— **Carmel Club** (real, en trial, 0 inscripciones activas hoy, mismo deporte federado) es candidata
+directa de expansión el día que prenda la misma config.
+
+**Orden de implementación (spec §5): `F1 → F7 → F2 → F3 → F5 → F6`** — es lo que Dreamers necesita
+operar primero, no el orden de la numeración.
+
+| ID | Pendiente | Estado | Esfuerzo | Fuente |
+|---|---|---|---|---|
+| NIV-0 | **Puerta de datos (F0), cerrada.** Flujo confirmado: la federación envía el puntaje, la escuela lo carga en `competition_results` (0 filas hoy). Falta un dato, no una decisión: quién en Dreamers carga (owner o coach) → a quién le llega el aviso de `NIV-3`. | 🟡 | — | [spec §2 Grupo B](specs/dreamers-niveles-por-horas-y-progresion.md) |
+| NIV-1 | **Plan por horas/días + cobro de inscripción.** `session_block_minutes` + `included_sessions_per_week` + `registration_fee` nullable en `offering_plans`. Vista comparativa 2h/3h/4h × días/semana para vender. **Hallazgo 2026-08-27: SportMaps no tenía ningún cobro de inscripción/matrícula separado de la mensualidad — Dreamers sí lo maneja.** Se resuelve con una 3ª fila de `payments` (`one_time`, sin período) en el mismo alta, sin tocar la fórmula de prorrateo. **Sin bloqueantes verificados — plan de implementación completo (migración, BFF, frontend, QA).** Primero en el orden de implementación. | 🟢 | 4-5 d | `D1, D2, D17, D18, D19` · [spec §9](specs/dreamers-niveles-por-horas-y-progresion.md) |
+| NIV-6 | **Alta a mitad de mes / plan de enganche.** Dreamers en `fixed_calendar` (cobra mes completo sin importar el día de alta). Resuelto con input manual del owner: `clases_restantes × (price ÷ (included_minutes_per_period ÷ session_block_minutes))` — sin columna nueva, se deriva de lo que F1 y el banco de horas ya crean — fórmula nueva que nace solo en el BFF. `first_payment_mode` (`full_month`/`remaining_classes`) por alta. Dos filas de `payments` siempre (D14), tres si además hay inscripción (D19). Segundo en el orden de implementación, detrás de `NIV-1`. Falta un dato: los 2 precios exactos del recargo de `NIV-7`, si se resuelve en la misma fase. | 🟢 | 4-5 d | `D12, D13, D14, D14b` |
+| NIV-2 | **Puntaje estructurado.** `points` + `competition_level` en `competition_results` (hoy libres en `result_data` jsonb) + vista de elegibilidad calculada, nunca persistida. **Antes de escribir el `ALTER TABLE`: el `CHECK` de `result_type` que trae la migración de regularización no coincide con lo que el BFF inserta hoy (`preparatorio`/`competencia_oficial` vs. `score`/`time`/...) — volcar el `CHECK` real de la base viva primero, 5 minutos, no reabre la decisión.** | 🟡 | 2-3 d | `D3, D15` · [spec §8.1](specs/dreamers-niveles-por-horas-y-progresion.md) |
+| NIV-3 | **Aviso de ascenso.** Notificación a owner/coach cuando una atleta cumple el umbral — sugerido, nunca automático (cambia `monthly_fee`). Sin cambio de plan solo. Patrón de notificación ya verificado y listo para clonar (`saasInvoicing.service.ts`). | 🟡 | 3 d | `D4, D6` · `NIV-1, NIV-2` |
+| NIV-5 | **Cobro de horas excedentes.** `valor_hora = price ÷ horas_incluidas`, cargo *sugerido* pre-calculado cuando un padre toma horas fuera del plan — extiende (no reemplaza) `D-10` del banco de horas: notifica con cargo pre-calculado, sin facturación automática. | 🟢 | 3 d | `D8` |
+| NIV-4 | **Reserva de clases adicionales por entrenador/día/nivel.** `allowed_days_of_week` en `offering_plans` + migrar `school_availability`. **Dos correcciones de alcance verificadas 2026-08-27:** (1) el torniquete ZKTeco decide el acceso físico localmente — el BFF nunca controla la puerta, así que validar `allowed_days_of_week` ahí es solo log/aviso, no bloqueo real, salvo que se automaticen los grupos de acceso nativos del F22 (proyecto aparte); (2) la premisa de "cuelga de `program_id`" ya no es cierta — la tabla real no tiene `program_id` ni `offering_id` (tiene `branch_id`), hay que rediagnosticar antes de migrar. Va al final del orden de implementación. | 🔴⛔ | 1 sem+ | `D9, D10, D11` · `MOD-14` · [spec §8.2, §8.4](specs/dreamers-niveles-por-horas-y-progresion.md) |
+| NIV-7 | **Pronto pago simétrico a la mora ya activa.** Dreamers ya tiene `late_fee_percentage=5` prendido. Opción (a) reusar `earlyPaymentDiscount.ts` es "cero código" solo si el descuento sigue viviendo en frontend, como hoy (el BFF no tiene contraparte); opción (b) recargo real requiere columna nueva. Falta el dato de los 2 precios exactos de Dreamers para cerrar cuál gana. | 🟡 | 1 d | `D16` |
+
+> **`NIV` entra a la cola detrás de `PER` y `VID`.** Con las decisiones ya cerradas, `NIV-1` puede
+> escribirse en cuanto le toque turno de prioridad — no espera ninguna sesión de repaso adicional.
+> `NIV-4` es la única pieza que sigue con estado 🔴⛔ real (dos correcciones de alcance sin resolver,
+> no solo esfuerzo); el resto está en 🟢/🟡 por datos puntuales (spec §7) o una verificación barata
+> de 5 minutos (`NIV-2`).
+
 ### BLQ — Bloques largos
 
 No arrancan hasta que P0 y P1 estén cerrados. El detalle técnico (DDL, RLS, endpoints, tests)
@@ -935,6 +1000,11 @@ es prerrequisito duro de cualquier release iOS**, no un adorno.
 contestadas `D-IMAGEN` y `D-VIDEO-RET`**: la primera define el modelo de datos y la segunda define
 si el costo tiene techo. Escribir la migración antes es fabricar deuda con datos de menores adentro.
 
+**`NIV-1, NIV-6, NIV-2, NIV-3, NIV-5` entran acá completas**, en ese orden (spec §5) — las 19
+decisiones ya cerraron, no esperan sesión de repaso. **`NIV-4` es la excepción:** queda fuera de la
+cadena hasta resolver sus dos correcciones de alcance (spec §8.2, §8.4) — su esfuerzo real todavía
+no está acotado.
+
 ---
 
 ## 5. Decisiones abiertas que bloquean trabajo
@@ -979,6 +1049,8 @@ si el costo tiene techo. Escribir la migración antes es fabricar deuda con dato
 | **D-ZOOM** — ¿se quita `user-scalable=no` del viewport? | `MOV-6` | Incumple WCAG 1.4.4 y **Android WebView lo respeta al pie de la letra**, así que con 1.021 textos bajo 12 px el usuario no tiene forma de agrandar lo que no puede leer. Quitarlo es seguro (el auto-zoom de iOS ya lo cubren los 16 px de `Input`), pero **cambia cómo se siente la app** — hay que decidirlo, no colarlo |
 | Torneos: ¿qué quedó entregado de inscripción vs bracket? | MOD-7 | Verificar contra el código antes de planear |
 | Carnets: ¿el editor de plantillas quedó dentro de las 5 fases? | MOD-14 | Verificar |
+| `D9/D11` de `NIV-4` — ¿bloqueo real por día vía grupos de acceso del F22, o solo log/aviso en el BFF? | `NIV-4` | El BFF no controla la puerta; automatizar bloqueo real es proyecto aparte — [spec §8.2](specs/dreamers-niveles-por-horas-y-progresion.md) |
+| `D10` de `NIV-4` — migración `program_id → offering_id` de `school_availability`: la premisa ya no es cierta (la tabla real tiene `branch_id`, no `program_id`) | `NIV-4` | Rediagnosticar contra la base viva antes de escribir la migración — [spec §8.4](specs/dreamers-niveles-por-horas-y-progresion.md) |
 
 ---
 
