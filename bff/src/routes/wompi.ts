@@ -44,6 +44,7 @@ import {
     markWebhookFailed,
     markWebhookIgnored,
 } from '../services/webhook-events.service';
+import { sendPaymentAttemptFailedEmails } from '../services/paymentFailureEmail.service';
 
 const router = Router();
 
@@ -493,6 +494,9 @@ async function handleSchoolPayment({
     if (notifErr) {
         req.log?.warn({ err: notifErr, paymentId: link.payment_id }, 'notify_payment_attempt_failed falló (no-bloqueante)');
     }
+
+    // Correo, además del in-app: no todo padre vive pendiente de la app.
+    void sendPaymentAttemptFailedEmails(link.payment_id, bankMessageFrom(rawTransaction), isAmbiguous, req.log);
 
     req.log?.warn(
         { paymentId: link.payment_id, internalStatus, blocked: isAmbiguous },

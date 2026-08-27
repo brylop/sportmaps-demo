@@ -12,6 +12,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
 import { GlosaRespondModal } from '@/components/payment/GlosaRespondModal';
+import { FailedAttemptChip } from '@/components/payment/FailedAttemptChip';
 import { listMine as listMyGlosas, OPEN_GLOSA_STATUSES, REASON_LABELS, type Glosa } from '@/lib/api/glosas';
 import { InstallmentCheckoutModal } from '@/components/payment/InstallmentCheckoutModal';
 import { formatCurrency } from '@/lib/utils';
@@ -70,6 +71,9 @@ interface Transaction {
   discount_amount?: number;
   discount_eligible?: boolean;
   discount_valid_until?: string | null;
+  last_failure_reason?: string | null;
+  last_failure_at?: string | null;
+  requires_review?: boolean | null;
 }
 
 const MONTH_NAMES_ES = [
@@ -92,7 +96,22 @@ const statusConfig: Record<string, { label: string; icon: any; color: string }> 
 
 // Estados que cuentan como "pendiente de pago" (dinero por cobrar). Los
 // terminales negativos (rejected/failed/cancelled) NO son pendientes.
+//
+// OJO: no incluye 'overdue' — `payments.status` sí puede venir así (línea
+// ~275, solo 'paid' se remapea a 'approved') y statusConfig cae a
+// "Pendiente" para ese caso por el fallback `|| statusConfig.pending`. No
+// agregar 'overdue' acá porque también gatea el descuento por pronto pago
+// (otro feature, otro alcance); para el chip de intento fallido se usa
+// TERMINAL_STATES_FOR_FAILURE_CHIP en su lugar, con la lista invertida.
 const PENDING_STATES = ['pending', 'awaiting_approval', 'partial', 'glosado'];
+
+// Estados donde un intento fallido previo ya no es relevante: el pago
+// terminó (a favor o en contra) y mostrar "pago rechazado" encima sería
+// engañoso o redundante. Todo lo demás (pending, overdue, partial,
+// glosado, awaiting_approval, o cualquier estado futuro no listado) sí lo
+// muestra — lista negra en vez de blanca para no repetir el bug de dejar
+// 'overdue' afuera.
+const TERMINAL_STATES_FOR_FAILURE_CHIP = ['approved', 'cancelled', 'rejected', 'failed'];
 
 interface Subscription {
   id: string;
@@ -214,11 +233,11 @@ export default function MyPaymentsPage() {
       // se regenera incluyendo estos campos, esta query se vuelve redundante
       // pero no rompe nada (devuelve los mismos valores).
       const paymentIds = (payments || []).map((p: any) => p.id).filter(Boolean);
-      let periodMap: Record<string, { period_year: number | null; period_month: number | null; late_fee_amount?: number | null; created_at: string; early_payment_discount_applied?: number | null; child_id?: string | null; parent_id?: string | null; school_id: string }> = {};
+      let periodMap: Record<string, { period_year: number | null; period_month: number | null; late_fee_amount?: number | null; created_at: string; early_payment_discount_applied?: number | null; child_id?: string | null; parent_id?: string | null; school_id: string; last_failure_reason?: string | null; last_failure_at?: string | null; requires_review?: boolean | null }> = {};
       if (paymentIds.length > 0) {
         const { data: periodRows } = await supabase
           .from('payments')
-          .select('id, period_year, period_month, late_fee_amount, created_at, early_payment_discount_applied, child_id, parent_id, school_id')
+          .select('id, period_year, period_month, late_fee_amount, created_at, early_payment_discount_applied, child_id, parent_id, school_id, last_failure_reason, last_failure_at, requires_review')
           .in('id', paymentIds);
         periodMap = Object.fromEntries(
           (periodRows || []).map((r: any) => [r.id, {
@@ -230,6 +249,9 @@ export default function MyPaymentsPage() {
             child_id: r.child_id,
             parent_id: r.parent_id,
             school_id: r.school_id,
+            last_failure_reason: r.last_failure_reason,
+            last_failure_at: r.last_failure_at,
+            requires_review: r.requires_review,
           }]),
         );
       }
@@ -311,6 +333,9 @@ export default function MyPaymentsPage() {
           discount_amount: discount.discountAmount,
           discount_eligible: discount.eligible,
           discount_valid_until: discount.validUntil,
+          last_failure_reason: periodMap[p.id]?.last_failure_reason ?? null,
+          last_failure_at: periodMap[p.id]?.last_failure_at ?? null,
+          requires_review: periodMap[p.id]?.requires_review ?? null,
         };
       });
       setTransactions(txns);
@@ -988,6 +1013,17 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice
                 REF: <span className="font-mono">{txn.reference}</span>
               </div>
             </div>
+
+            {!TERMINAL_STATES_FOR_FAILURE_CHIP.includes(txn.status) && (
+              <div className="mt-1">
+                <FailedAttemptChip
+                  reason={txn.last_failure_reason}
+                  at={txn.last_failure_at}
+                  requiresReview={txn.requires_review}
+                  showReason
+                />
+              </div>
+            )}
 
             {txn.status === 'glosado' && (
               <div className="mt-2 rounded-md border border-orange-300 bg-orange-50 dark:bg-orange-950/30 p-2 text-xs text-orange-800 dark:text-orange-300">

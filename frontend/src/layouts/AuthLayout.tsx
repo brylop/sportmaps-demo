@@ -13,6 +13,7 @@ import { useDeviceContext } from "@/hooks/useDeviceContext";
 import { usePwaTenantSync } from "@/hooks/usePwaTenantSync";
 import { PushPermissionBanner } from "@/components/PushPermissionBanner";
 import { TrialStatusBanner } from "@/components/entitlements/TrialStatusBanner";
+import { SupportChatButton } from "@/components/support/SupportChatButton";
 
 export default function AuthLayout() {
   const { user, profile } = useAuth();
@@ -133,6 +134,7 @@ export default function AuthLayout() {
         </div>
       </div>
       <PushPermissionBanner />
+      <SupportChatButton />
     </SidebarProvider>
   );
 }

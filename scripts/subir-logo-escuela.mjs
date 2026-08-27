@@ -17,20 +17,12 @@
 // Ejemplo:
 //   node scripts/subir-logo-escuela.mjs club-deportivo-besser "C:/ruta/logo.jpg"
 
-// Import por ruta explícita y no `@supabase/supabase-js` a secas: el
-// node_modules de la raíz no tiene el paquete, vive solo en bff/. Con el
-// specifier normal, Node resuelve desde la carpeta del script (scripts/), sube a
-// la raíz y falla con ERR_MODULE_NOT_FOUND.
-import { createClient } from '../bff/node_modules/@supabase/supabase-js/dist/index.mjs';
-import { config } from '../bff/node_modules/dotenv/lib/main.js';
+import { createClient } from '@supabase/supabase-js';
 import { readFile } from 'node:fs/promises';
-import { basename, extname, dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { basename, extname } from 'node:path';
+import { config } from 'dotenv';
 
-// Relativo al script, no al cwd: así corre igual desde la raíz o desde cualquier
-// otra carpeta.
-const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-config({ path: resolve(RAIZ, 'bff/.env') });
+config({ path: 'bff/.env' });
 
 const URL = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;

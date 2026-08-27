@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.app.json",
+  "include": [
+    "src/App.tsx",
+    "src/components/AppSidebar.tsx",
+    "src/components/common/ImageUpload.tsx",
+    "src/components/teams/CreateTeamModal.tsx",
+    "src/config/navigation.ts",
+    "src/hooks/useSportCategories.ts",
+    "src/hooks/useSportsCatalog.ts",
+    "src/pages/RegisterPage.tsx",
+    "src/pages/SchoolSportsPage.tsx",
+    "src/vite-env.d.ts"
+  ]
+}
