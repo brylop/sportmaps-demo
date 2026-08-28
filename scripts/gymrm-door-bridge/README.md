@@ -147,8 +147,17 @@ Unregister-ScheduledTask -TaskName "SportMaps-GymRM-DoorBridge" -Confirm:$false
   notificación si pasan 10+ min sin sondeo — típicamente la PC del gym
   apagada o sin red. Una sola alerta por caída (se resetea sola al volver).
   Mismo patrón de notificación que `payment_overdue` en `access-adms.ts`.
-  Falta portar esto al bridge de Dreamers si le sirve (mismo hueco pendiente
-  ahí, con su propio bridge separado).
+  **Corrección 2026-08-27: Dreamers NO necesita esto.** Existe otro pg_cron
+  ya vivo en la base (`alert_offline_access_devices()`, cada 5 min, solo en
+  la base — sin migración) que revisa `turnstile_devices.last_seen_at` y
+  avisa igual. Para GYM RM ese mecanismo no alcanzaba porque el lector habla
+  ADMS directo y sigue actualizando `last_seen_at` aunque la PC del bridge
+  esté apagada — de ahí que hiciera falta `bridge_heartbeats`, una señal
+  aparte. Para Dreamers, en cambio, la ÚNICA vía que toca `last_seen_at` es
+  el propio `send_heartbeat()` de `scripts/dreamers-bridge/dreamers_bridge.py`
+  (llama a `GET /iclock/getrequest`, que ya hace `touchDevice()`) — así que
+  el cron que ya existe cubre exactamente el caso "PC de Dreamers apagada"
+  sin que haga falta tocar ese script ni duplicar nada.
 - Este bridge solo resuelve apertura remota, a propósito — el bloqueo ya
   funciona por ADMS y no necesita esto (ver validación, punto 3). Falta,
   como mejora barata y no bloqueante, un botón o cron de "re-sincronizar

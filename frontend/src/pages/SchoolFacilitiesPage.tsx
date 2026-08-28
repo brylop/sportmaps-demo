@@ -5,7 +5,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import {
   Building2, MapPin, Trash2, Users, Calendar, Clock,
-  CheckCircle2, XCircle, Eye, Pencil, Ban, MoreHorizontal, CalendarCheck, RefreshCw, Link2, Check
+  CheckCircle2, XCircle, Eye, Pencil, Ban, MoreHorizontal, CalendarCheck, RefreshCw, Link2, Check,
+  GraduationCap, Settings, UserX, PartyPopper, Mail,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -13,9 +14,12 @@ import { useSchoolFacilities } from '@/hooks/useSchoolData';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useFacilityReservations } from '@/hooks/useFacilityReservations';
 import type { FacilityReservation } from '@/hooks/useFacilityReservations';
+import { useTrialClasses, type TrialClassBooking, type TrialClassStatus } from '@/hooks/useTrialClasses';
 import { FacilityFormDialog } from '@/components/school/FacilityFormDialog';
 import { OwnerReservationModal } from '@/components/school/OwnerReservationModal';
 import { FacilityAvailabilityModal } from '@/components/school/FacilityAvailabilityModal';
+import { TrialClassBookingModal } from '@/components/school/TrialClassBookingModal';
+import { TrialClassSettingsModal } from '@/components/school/TrialClassSettingsModal';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { StatFilterBar } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
@@ -64,6 +68,98 @@ function StatusBadge({ status }: { status: string }) {
       {STATUS_ICONS[status]}
       {STATUS_LABELS[status] ?? status}
     </Badge>
+  );
+}
+
+// ─── Trial class status helpers ────────────────────────────────────────────────
+
+const TRIAL_STATUS_LABELS: Record<TrialClassStatus, string> = {
+  agendada: 'Agendada',
+  realizada: 'Realizada',
+  no_show: 'No-show',
+  cancelada: 'Cancelada',
+  convertida: 'Convertida',
+};
+
+const TRIAL_STATUS_COLORS: Record<TrialClassStatus, string> = {
+  agendada: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-500 border-yellow-500/20',
+  realizada: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-500 border-emerald-500/20',
+  no_show: 'bg-rose-500/10 text-rose-600 dark:text-rose-500 border-rose-500/20',
+  cancelada: 'bg-rose-500/10 text-rose-600 dark:text-rose-500 border-rose-500/20',
+  convertida: 'bg-blue-500/10 text-blue-600 dark:text-blue-500 border-blue-500/20',
+};
+
+function TrialStatusBadge({ status }: { status: TrialClassStatus }) {
+  return (
+    <Badge variant="outline" className={`text-[11px] font-bold py-0.5 flex items-center w-fit shadow-sm backdrop-blur-[2px] ${TRIAL_STATUS_COLORS[status]}`}>
+      {TRIAL_STATUS_LABELS[status]}
+    </Badge>
+  );
+}
+
+function TrialClassRow({
+  booking, onMarkRealizada, onMarkNoShow, onMarkConvertida, onCancel, onResendEmail,
+}: {
+  booking: TrialClassBooking;
+  onMarkRealizada: () => void;
+  onMarkNoShow: () => void;
+  onMarkConvertida: () => void;
+  onCancel: () => void;
+  onResendEmail: () => void;
+}) {
+  return (
+    <TableRow className="group hover:bg-muted/5 transition-colors">
+      <TableCell className="font-bold py-5">
+        <span className="text-sm">{booking.is_minor ? booking.child_name : booking.prospect_name}</span>
+        <span className="block text-[10px] text-muted-foreground font-medium mt-0.5">
+          {booking.is_minor ? `Acudiente: ${booking.prospect_name}` : booking.prospect_email}
+        </span>
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Calendar className="h-3.5 w-3.5 text-primary opacity-60" />
+          {format(parseISO(booking.scheduled_date), 'dd MMM yyyy', { locale: es })}
+          <span className="opacity-40">·</span>
+          <span className="font-bold">{booking.start_time.slice(0, 5)}</span>
+        </div>
+      </TableCell>
+      <TableCell>
+        <TrialStatusBadge status={booking.status} />
+      </TableCell>
+      <TableCell className="text-right">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full hover:bg-muted font-black">
+              <MoreHorizontal className="h-5 w-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56 p-1.5 bg-card border-border/40 backdrop-blur-md shadow-2xl">
+            {booking.status === 'agendada' && (
+              <>
+                <DropdownMenuItem className="py-2.5 font-bold cursor-pointer text-emerald-600 focus:text-emerald-700 focus:bg-emerald-500/10" onClick={onMarkRealizada}>
+                  <CheckCircle2 className="h-4 w-4 mr-3" /> Marcar realizada
+                </DropdownMenuItem>
+                <DropdownMenuItem className="py-2.5 font-bold cursor-pointer text-amber-600 focus:text-amber-700 focus:bg-amber-500/10" onClick={onMarkNoShow}>
+                  <UserX className="h-4 w-4 mr-3" /> Marcar no-show
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="my-1.5 opacity-40" />
+                <DropdownMenuItem className="py-2.5 font-bold cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-500/10" onClick={onCancel}>
+                  <Ban className="h-4 w-4 mr-3" /> Cancelar
+                </DropdownMenuItem>
+              </>
+            )}
+            {booking.status === 'realizada' && (
+              <DropdownMenuItem className="py-2.5 font-bold cursor-pointer text-blue-600 focus:text-blue-700 focus:bg-blue-500/10" onClick={onMarkConvertida}>
+                <PartyPopper className="h-4 w-4 mr-3" /> Marcar convertida
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem className="py-2.5 font-bold cursor-pointer" onClick={onResendEmail}>
+              <Mail className="h-4 w-4 mr-3 text-primary" /> Reenviar correo
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -199,12 +295,28 @@ export default function SchoolFacilitiesPage() {
     getBookedSlots,
   } = useFacilityReservations();
 
+  const {
+    bookings: trialBookings,
+    isLoading: trialLoading,
+    isFetching: trialFetching,
+    refetch: refetchTrialBookings,
+    stats: trialStats,
+    updateStatus: updateTrialStatus,
+    resendConfirmation: resendTrialConfirmation,
+  } = useTrialClasses();
+
   const facilities = supaFacilities ?? [];
 
   // UI state
   const [facilityDialogOpen, setFacilityDialogOpen] = useState(false);
   const [editingFacility, setEditingFacility] = useState<any | null>(null);
   const [deleteFacilityId, setDeleteFacilityId] = useState<string | null>(null);
+
+  // Trial classes UI state
+  const [trialBookingModalOpen, setTrialBookingModalOpen] = useState(false);
+  const [trialSettingsModalOpen, setTrialSettingsModalOpen] = useState(false);
+  const [trialStatusFilter, setTrialStatusFilter] = useState<TrialClassStatus | null>(null);
+  const [cancelingTrialId, setCancelingTrialId] = useState<string | null>(null);
 
   // Reservation CRUD state
   const [reservationModalOpen, setReservationModalOpen] = useState(false);
@@ -339,6 +451,14 @@ export default function SchoolFacilitiesPage() {
               {stats.pending > 0 && (
                 <Badge className="ml-2 bg-yellow-500 text-white text-[10px] px-1.5 py-0 min-w-[18px] flex items-center justify-center font-black">
                   {stats.pending}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="trial-classes" className="px-6 py-2.5 font-bold data-[state=active]:shadow-md">
+              Clases de Prueba
+              {trialStats.agendada > 0 && (
+                <Badge className="ml-2 bg-primary text-primary-foreground text-[10px] px-1.5 py-0 min-w-[18px] flex items-center justify-center font-black">
+                  {trialStats.agendada}
                 </Badge>
               )}
             </TabsTrigger>
@@ -603,6 +723,105 @@ export default function SchoolFacilitiesPage() {
             />
           </Card>
         </TabsContent>
+
+        {/* ═══════════════ CLASES DE PRUEBA ═══════════════ */}
+        <TabsContent value="trial-classes" className="space-y-8 animate-in slide-in-from-right-4 duration-300">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-4xl font-black tracking-tight">Agenda de Clases de Prueba</h1>
+              <p className="text-muted-foreground font-medium mt-1.5 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                {trialStats.total} clases agendadas en total · <span className="text-foreground font-bold">{trialStats.agendada}</span> pendientes
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" className="font-bold h-11" onClick={() => setTrialSettingsModalOpen(true)}>
+                <Settings className="mr-2 h-4 w-4" /> <span className="hidden sm:inline">Configurar</span>
+              </Button>
+              <Button
+                variant="outline"
+                className="font-bold h-11"
+                onClick={() => void refetchTrialBookings()}
+                disabled={trialFetching}
+              >
+                <RefreshCw className={`mr-2 h-4 w-4 ${trialFetching ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Actualizar</span>
+              </Button>
+              <Button className="font-bold h-11 shadow-lg shadow-primary/20" onClick={() => setTrialBookingModalOpen(true)}>
+                <GraduationCap className="mr-2 h-4 w-4" /> Agendar Clase de Prueba
+              </Button>
+            </div>
+          </div>
+
+          <StatFilterBar
+            value={trialStatusFilter}
+            onChange={(v) => setTrialStatusFilter(v as TrialClassStatus | null)}
+            items={[
+              { key: null, label: 'Total', value: trialStats.total, tone: 'neutral' },
+              { key: 'agendada', label: 'Agendadas', value: trialStats.agendada, tone: 'yellow' },
+              { key: 'realizada', label: 'Realizadas', value: trialStats.realizada, tone: 'emerald' },
+              { key: 'no_show', label: 'No-show', value: trialStats.no_show, tone: 'rose' },
+              { key: 'convertida', label: 'Convertidas', value: trialStats.convertida, tone: 'blue' },
+              { key: 'cancelada', label: 'Canceladas', value: trialStats.cancelada, tone: 'rose' },
+            ]}
+          />
+
+          <Card className="border-border/40 overflow-hidden shadow-xl shadow-foreground/5 mb-10">
+            <div className="p-0">
+              {trialLoading ? (
+                <div className="p-12 text-center space-y-4">
+                  <Loader2 className="h-10 w-10 text-primary animate-spin mx-auto" />
+                  <p className="text-muted-foreground font-medium animate-pulse">Cargando agenda…</p>
+                </div>
+              ) : (trialStatusFilter ? trialBookings.filter((b) => b.status === trialStatusFilter) : trialBookings).length === 0 ? (
+                <div className="p-20 text-center space-y-6">
+                  <div className="bg-muted/30 w-16 h-16 rounded-full flex items-center justify-center mx-auto ring-4 ring-muted/10">
+                    <GraduationCap className="h-8 w-8 text-muted-foreground/60" />
+                  </div>
+                  <div className="max-w-xs mx-auto space-y-2">
+                    <p className="text-foreground font-bold text-lg">
+                      No hay clases de prueba {trialStatusFilter ? `en estado '${TRIAL_STATUS_LABELS[trialStatusFilter]}'` : 'agendadas'}
+                    </p>
+                    <p className="text-muted-foreground text-sm">
+                      Agenda la primera clase de prueba para un prospecto atado a la disponibilidad de un entrenador.
+                    </p>
+                  </div>
+                  {!trialStatusFilter && (
+                    <Button variant="outline" className="font-bold border-2 hover:bg-primary hover:text-primary-foreground transition-all" onClick={() => setTrialBookingModalOpen(true)}>
+                      Agendar primera clase de prueba
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader className="bg-muted/20">
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead className="py-4 font-black text-xs uppercase tracking-widest">Prospecto</TableHead>
+                        <TableHead className="py-4 font-black text-xs uppercase tracking-widest">Fecha</TableHead>
+                        <TableHead className="py-4 font-black text-xs uppercase tracking-widest">Estado</TableHead>
+                        <TableHead className="py-4 font-black text-xs uppercase tracking-widest text-right">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(trialStatusFilter ? trialBookings.filter((b) => b.status === trialStatusFilter) : trialBookings).map((b) => (
+                        <TrialClassRow
+                          key={b.id}
+                          booking={b}
+                          onMarkRealizada={() => updateTrialStatus({ id: b.id, status: 'realizada' })}
+                          onMarkNoShow={() => updateTrialStatus({ id: b.id, status: 'no_show' })}
+                          onMarkConvertida={() => updateTrialStatus({ id: b.id, status: 'convertida' })}
+                          onCancel={() => setCancelingTrialId(b.id)}
+                          onResendEmail={() => resendTrialConfirmation(b.id)}
+                        />
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* ── Reservation detail ── */}
@@ -680,6 +899,44 @@ export default function SchoolFacilitiesPage() {
               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-black shadow-lg shadow-destructive/20"
             >
               Eliminar espacio
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Clase de prueba: agendar ── */}
+      <TrialClassBookingModal
+        open={trialBookingModalOpen}
+        onOpenChange={setTrialBookingModalOpen}
+        facilities={facilities}
+      />
+
+      {/* ── Clase de prueba: configuración ── */}
+      <TrialClassSettingsModal
+        open={trialSettingsModalOpen}
+        onOpenChange={setTrialSettingsModalOpen}
+      />
+
+      {/* ── Clase de prueba: confirmar cancelación ── */}
+      <AlertDialog open={!!cancelingTrialId} onOpenChange={() => setCancelingTrialId(null)}>
+        <AlertDialogContent className="bg-card text-card-foreground border-border/40 overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-destructive" />
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-xl font-black">¿Cancelar clase de prueba?</AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground/80 font-medium">
+              El prospecto no recibirá un aviso automático de la cancelación — coordínalo por WhatsApp o correo si ya fue notificado.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="pt-4">
+            <AlertDialogCancel className="font-bold border-border/60">No, conservar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (cancelingTrialId) updateTrialStatus({ id: cancelingTrialId, status: 'cancelada' });
+                setCancelingTrialId(null);
+              }}
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-black shadow-lg shadow-destructive/20 active:scale-95 transition-all"
+            >
+              Sí, cancelar clase
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

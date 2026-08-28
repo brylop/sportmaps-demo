@@ -83,6 +83,20 @@ update/delete para no tocar presets de otra escuela.
 - Al cargar un preset, si ya había jugadores puestos, se pide confirmación
   (reemplaza el layout actual) — no se pisa en silencio.
 
+### 5.1 Bug encontrado y corregido (post-implementación, con flechas/curvas/zonas ya en juego)
+
+El `PUT` de la sección 4 estaba en el BFF desde el principio, pero el
+frontend **nunca lo llamaba** -- `handleSaveAsPreset` siempre hacía `POST`,
+así que "editar" una plantilla cargada en realidad creaba una copia nueva
+cada vez, dejando la original intacta. Se agregó `updateTacticalPreset` +
+`useUpdateTacticalPreset`, y el toolbar ahora distingue **Actualizar**
+(PUT sobre la plantilla cargada) de **Guardar como nueva** (POST, ícono `+`,
+solo visible cuando ya hay una cargada).
+
+De paso, `handleLoadPreset` reconstruía cada flecha sin su campo `type` --
+una curva o zona guardada volvía como flecha recta al recargarla. Corregido
+en el mismo pase.
+
 ## 6. Qué necesito de ti para seguir
 
 D8 y "compartir tabla" (sección 0) son los cambios de diseño reales — los

@@ -12,6 +12,7 @@ import {
   getTournamentMatches,
   getTacticalPresets,
   createTacticalPreset,
+  updateTacticalPreset,
   deleteTacticalPreset,
   type LineupSourceType,
   type EventSourceType,
@@ -120,6 +121,19 @@ export function useCreateTacticalPreset() {
   return useMutation({
     mutationFn: (payload: { team_id: string; name: string; situation: TacticalSituation; slots: TacticalPresetSlot[]; arrows?: TacticalArrow[] }) =>
       createTacticalPreset(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tactical-presets'] });
+    },
+  });
+}
+
+/** El CRUD tenía create/read/delete pero nunca update -- "editar" una
+ *  plantilla cargada siempre terminaba creando una nueva por POST. */
+export function useUpdateTacticalPreset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...payload }: { id: string; name?: string; situation?: TacticalSituation; slots?: TacticalPresetSlot[]; arrows?: TacticalArrow[] }) =>
+      updateTacticalPreset(id, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tactical-presets'] });
     },
