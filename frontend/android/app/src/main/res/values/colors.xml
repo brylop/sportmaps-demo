@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Marca SportMaps (frontend/src/index.css: Verde Oficial / Naranja Acento).
+         Sin este archivo, styles.xml resolvía colorPrimary/colorAccent contra
+         los defaults de la librería de Capacitor (rosa Material #FF4081) en
+         vez de la marca — visible en el caret y los manejadores de selección
+         de cualquier campo de texto. -->
+    <color name="colorPrimary">#248223</color>
+    <color name="colorPrimaryDark">#1B611A</color>
+    <color name="colorAccent">#FB9F1E</color>
+    <color name="windowBackground">#FFFFFF</color>
+</resources>
