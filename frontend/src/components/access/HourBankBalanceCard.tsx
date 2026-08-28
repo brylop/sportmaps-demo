@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { bffClient } from '@/lib/api/bffClient';
+import { bffClient, BFFError } from '@/lib/api/bffClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -90,7 +90,7 @@ function HistoryPanel({ enrollmentId }: { enrollmentId: string }) {
 export function HourBankBalanceCard({ enrollmentId, showHistory = false }: { enrollmentId: string; showHistory?: boolean }) {
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ['hour-bank-balance', enrollmentId],
     queryFn: () => bffClient.get<HourBankBalance>(`/api/v1/access/hour-bank-balance/${enrollmentId}`),
     enabled: !!enrollmentId,
@@ -99,6 +99,17 @@ export function HourBankBalanceCard({ enrollmentId, showHistory = false }: { enr
 
   if (isLoading) {
     return <Skeleton className="h-24 w-full rounded-lg" />;
+  }
+
+  // La consulta falló de verdad (red, permisos, 500) — esto es distinto de "no
+  // tiene plan de horas" y antes se veían exactamente igual (nada), sin pista
+  // de que algo se rompió. Ahora se avisa en vez de desaparecer en silencio.
+  if (isError) {
+    return (
+      <p className="text-xs text-destructive/80 py-2">
+        No se pudo cargar el banco de horas{error instanceof BFFError ? `: ${error.message}` : ''}.
+      </p>
+    );
   }
 
   // Sin plan de horas (el caso normal para casi todas las escuelas) — no

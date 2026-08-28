@@ -8,7 +8,7 @@ import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
 import { resolveSchoolBranding } from '../utils/schoolBrandingResolver';
 import { buildBrandedEmail } from '../utils/emailLayout';
-import { generateSaasInvoicePdf, SaasInvoiceForPdf } from './saasInvoicePdf.service';
+import { generateSaasInvoicePdf, SaasInvoiceForPdf, loadActivePaymentAccounts } from './saasInvoicePdf.service';
 import { ACADEMY_PLAN_NAMES } from './saasInvoicing.constants';
 
 const INVOICE_BUCKET = 'saas-invoices';
@@ -66,6 +66,27 @@ function formatCop(cents: number): string {
     return `$${Math.round(cents / 100).toLocaleString('es-CO')}`;
 }
 
+/** Texto plano para WhatsApp — una línea por cuenta activa. */
+function formatAccountsForWhatsapp(accounts: Awaited<ReturnType<typeof loadActivePaymentAccounts>>): string {
+    if (accounts.length === 0) return 'Escríbenos para confirmar el método de pago vigente.';
+    return accounts
+        .map((a) => `${a.label}: ${a.value} (a nombre de ${a.holder_name})`)
+        .join('\n');
+}
+
+/** Filas de tabla HTML para el email — mismo dato que ya va en el PDF. */
+function formatAccountsForEmail(accounts: Awaited<ReturnType<typeof loadActivePaymentAccounts>>): string {
+    if (accounts.length === 0) {
+        return '<p style="margin:4px 0;">Escríbenos para confirmar el método de pago vigente.</p>';
+    }
+    return accounts
+        .map((a) => `
+            <p style="margin:8px 0 0;"><strong>${a.label}:</strong> ${a.value}</p>
+            <p style="margin:0; font-size:12px; color:#6b7280;">A nombre de ${a.holder_name}</p>
+        `)
+        .join('');
+}
+
 export type SaasInvoiceSendReason = 'new' | 'reminder_before' | 'reminder_due' | 'reminder_overdue';
 
 const REASON_COPY: Record<SaasInvoiceSendReason, { title: string; intro: string }> = {
@@ -108,10 +129,10 @@ export async function sendSaasInvoice(invoiceId: string, reason: SaasInvoiceSend
     }
 
     const admins = await loadSchoolAdmins(invoice.school_id);
+    const accounts = await loadActivePaymentAccounts();
     const planName = ACADEMY_PLAN_NAMES[invoice.plan_code] ?? invoice.plan_code;
     const amountStr = formatCop(invoice.amount_cents);
     const dueDateStr = new Date(invoice.due_date).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
-    const invoiceLink = `${(process.env.FRONTEND_URL || 'https://app.sportmaps.co').replace(/\/$/, '')}/facturacion/recibo/${invoice.id}`;
 
     const copy = REASON_COPY[reason];
 
@@ -134,8 +155,12 @@ export async function sendSaasInvoice(invoiceId: string, reason: SaasInvoiceSend
                         <p style="margin:4px 0;"><strong>N.° factura:</strong> ${invoice.invoice_number}</p>
                     </td></tr>
                 </table>
+                <p style="margin:16px 0 4px; font-weight:bold;">Cómo pagar</p>
+                ${formatAccountsForEmail(accounts)}
+                <p style="margin:12px 0 0; font-size:12px; color:#6b7280;">
+                    Envía el comprobante de pago por WhatsApp o correo para que confirmemos tu factura.
+                </p>
             `,
-            cta: { label: 'Ver factura y cómo pagar', url: invoiceLink },
         });
 
         for (const admin of admins) {
@@ -175,7 +200,9 @@ export async function sendSaasInvoice(invoiceId: string, reason: SaasInvoiceSend
     const firstAdminWithPhone = admins.find((a: any) => a.phone);
     const whatsapp = {
         phone: firstAdminWithPhone?.phone ?? null,
-        message: `Hola ${schoolName}, les compartimos la factura SportMaps ${invoice.invoice_number} por ${amountStr} (vence ${dueDateStr}): ${invoiceLink}`,
+        message: `Hola ${schoolName}, les compartimos la factura SportMaps ${invoice.invoice_number} por ${amountStr} (vence ${dueDateStr}).\n\n`
+            + `Cómo pagar:\n${formatAccountsForWhatsapp(accounts)}\n\n`
+            + `Envíanos el comprobante por acá para confirmar tu pago.`,
     };
 
     return { ok: true, pdfObjectPath, emailSent, pushSent, whatsapp };

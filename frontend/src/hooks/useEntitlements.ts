@@ -70,6 +70,12 @@ interface EntitlementsResponse {
      * (jsonb_object_agg sobre 0 filas) — se trata como `{}`.
      */
     module_overrides?: Record<string, boolean> | null;
+    /**
+     * true → la escuela activó que sus coaches den de alta y editen atletas
+     * (excepción a la regla general, `school_settings.coach_can_create_athletes`,
+     * caso Carmel Club). Default false: no cambia nada para el resto.
+     */
+    coach_can_create_athletes?: boolean;
 }
 
 // ============================================================
@@ -144,6 +150,10 @@ export interface Entitlements {
      * aplica al otorgar, nunca al leer.
      */
     appNativa: boolean;
+
+    /** El coach de esta escuela puede dar de alta y editar atletas (excepción
+     *  activada por la escuela, `coach_can_create_athletes`). Default false. */
+    coachCanCreateAthletes: boolean;
 }
 
 export interface EntitlementsHelpers {
@@ -212,6 +222,7 @@ const EMPTY_ENTITLEMENTS: Entitlements = {
     hasBilling: true,
     marcaPropia: false,
     appNativa: false,
+    coachCanCreateAthletes: false,
 };
 
 // ============================================================
@@ -322,6 +333,7 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
             hasBilling: data.has_billing !== false,
             marcaPropia: (data.has_pwa_branding ?? false) === true,
             appNativa: data.has_whitelabel === true,
+            coachCanCreateAthletes: data.coach_can_create_athletes === true,
         };
     }, [query.data]);
 

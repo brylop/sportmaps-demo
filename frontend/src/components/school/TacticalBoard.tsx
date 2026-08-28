@@ -31,7 +31,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, X, Bookmark, Trash2, Eye, EyeOff, ChevronUp, ChevronDown, PenLine, Undo2, Eraser, Ruler, Sparkles } from 'lucide-react';
+import { Loader2, X, Bookmark, Trash2, Eye, EyeOff, ChevronUp, ChevronDown, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useTeamPerformanceRoster } from '@/hooks/usePerformanceData';
 import {
@@ -40,6 +40,7 @@ import {
   useSaveFootballLineup,
   useTacticalPresets,
   useCreateTacticalPreset,
+  useUpdateTacticalPreset,
   useDeleteTacticalPreset,
   useFootballEvents,
   useFootballSeasonStats,
@@ -308,6 +309,7 @@ function ArrowLayer({
   const [preview, setPreview] = useState<{ start: ArrowPoint; current: ArrowPoint } | null>(null);
   const [measurePoints, setMeasurePoints] = useState<ArrowPoint[]>([]);
   const draggingHandle = useRef<{ index: number; endpoint: 'start' | 'end' } | null>(null);
+  const draggingMeasurePoint = useRef<0 | 1 | null>(null);
 
   const toSvg = (p: ArrowPoint) => ({ x: p.x * 3, y: p.y * 3.4 });
 
@@ -347,9 +349,32 @@ function ArrowLayer({
 
   function handleCanvasClick(e: ReactMouseEvent<SVGSVGElement>) {
     if (!measureMode) return;
+    // Con los 2 puntos ya puestos, un click en la cancha NO reinicia la
+    // medición -- antes sí, y por eso "solo dejaba usarla una vez": para
+    // ajustarla había que empezar de cero. Ahora se ajusta arrastrando los
+    // puntos (ver handleMeasure*), y se borra tocando la línea entre ellos.
+    if (measurePoints.length >= 2) return;
     const p = pctFromEvent(e);
     if (!p) return;
-    setMeasurePoints((prev) => (prev.length >= 2 ? [p] : [...prev, p]));
+    setMeasurePoints((prev) => [...prev, p]);
+  }
+
+  function handleMeasurePointerDown(index: 0 | 1, e: ReactPointerEvent<SVGCircleElement>) {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    draggingMeasurePoint.current = index;
+  }
+
+  function handleMeasurePointerMove(e: ReactPointerEvent<SVGCircleElement>) {
+    const idx = draggingMeasurePoint.current;
+    if (idx === null) return;
+    const p = pctFromEvent(e);
+    if (!p) return;
+    setMeasurePoints((prev) => prev.map((pt, i) => (i === idx ? p : pt)));
+  }
+
+  function handleMeasurePointerUp() {
+    draggingMeasurePoint.current = null;
   }
 
   function handleHandlePointerDown(index: number, endpoint: 'start' | 'end', e: ReactPointerEvent<SVGCircleElement>) {
@@ -394,9 +419,11 @@ function ArrowLayer({
       onClick={handleCanvasClick}
     >
       <defs>
+        {/* Punta más chica que antes (era 8x8) -- se sentía muy pesada sobre
+            una cancha con jugadores y etiquetas ya de por sí cargada. */}
         {(Object.keys(ARROW_COLOR_HEX) as TacticalArrowColor[]).map((c) => (
-          <marker key={c} id={`arrowhead-${c}`} markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
-            <path d="M0,0 L8,4 L0,8 Z" fill={ARROW_COLOR_HEX[c]} />
+          <marker key={c} id={`arrowhead-${c}`} markerWidth="5.5" markerHeight="5.5" refX="4" refY="2.75" orient="auto">
+            <path d="M0,0 L5.5,2.75 L0,5.5 Z" fill={ARROW_COLOR_HEX[c]} />
           </marker>
         ))}
       </defs>
@@ -413,7 +440,7 @@ function ArrowLayer({
               <rect
                 x={Math.min(p1.x, p2.x)} y={Math.min(p1.y, p2.y)}
                 width={Math.abs(p2.x - p1.x)} height={Math.abs(p2.y - p1.y)}
-                rx={6} fill={color} fillOpacity={0.18} stroke={color} strokeOpacity={0.7} strokeWidth={1.5}
+                rx={5} fill={color} fillOpacity={0.1} stroke={color} strokeOpacity={0.55} strokeWidth={1}
                 className="pointer-events-auto cursor-pointer"
                 onClick={(e) => { e.stopPropagation(); onDeleteShape(i); }}
               />
@@ -421,30 +448,32 @@ function ArrowLayer({
               const c = curveControlPoint(p1, p2);
               return (
                 <>
-                  {/* Trazo ancho invisible = área de click más generosa para borrar. */}
-                  <path d={`M ${p1.x} ${p1.y} Q ${c.x} ${c.y} ${p2.x} ${p2.y}`} stroke="transparent" strokeWidth={16} fill="none"
+                  {/* Trazo ancho invisible = área de click más generosa para
+                      borrar, sin engordar la línea que se ve. */}
+                  <path d={`M ${p1.x} ${p1.y} Q ${c.x} ${c.y} ${p2.x} ${p2.y}`} stroke="transparent" strokeWidth={12} fill="none"
                     className="pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); onDeleteShape(i); }} />
-                  <path d={`M ${p1.x} ${p1.y} Q ${c.x} ${c.y} ${p2.x} ${p2.y}`} stroke={color} strokeWidth={3.5} fill="none"
+                  <path d={`M ${p1.x} ${p1.y} Q ${c.x} ${c.y} ${p2.x} ${p2.y}`} stroke={color} strokeWidth={2} fill="none"
                     strokeLinecap="round" markerEnd={`url(#arrowhead-${s.color ?? 'white'})`} className="pointer-events-none" />
                 </>
               );
             })() : (
               <>
-                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth={16}
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth={12}
                   className="pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); onDeleteShape(i); }} />
-                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={color} strokeWidth={3.5} strokeLinecap="round"
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={color} strokeWidth={2} strokeLinecap="round"
                   markerEnd={`url(#arrowhead-${s.color ?? 'white'})`} className="pointer-events-none" />
               </>
             )}
 
-            {/* Handles -- siempre interactivos, muevan o no drawMode/measureMode. */}
-            <circle cx={p1.x} cy={p1.y} r={5} fill="white" stroke={color} strokeWidth={2}
+            {/* Handles -- más chicos que antes (r=5), siguen siendo
+                interactivos siempre, muevan o no drawMode/measureMode. */}
+            <circle cx={p1.x} cy={p1.y} r={3.2} fill="white" stroke={color} strokeWidth={1.5}
               className="pointer-events-auto cursor-grab"
               onPointerDown={(e) => handleHandlePointerDown(i, 'start', e)}
               onPointerMove={handleHandlePointerMove}
               onPointerUp={handleHandlePointerUp}
             />
-            <circle cx={p2.x} cy={p2.y} r={5} fill="white" stroke={color} strokeWidth={2}
+            <circle cx={p2.x} cy={p2.y} r={3.2} fill="white" stroke={color} strokeWidth={1.5}
               className="pointer-events-auto cursor-grab"
               onPointerDown={(e) => handleHandlePointerDown(i, 'end', e)}
               onPointerMove={handleHandlePointerMove}
@@ -469,30 +498,48 @@ function ArrowLayer({
         }
         if (drawShapeType === 'curve') {
           const c = curveControlPoint(p1, p2);
-          return <path d={`M ${p1.x} ${p1.y} Q ${c.x} ${c.y} ${p2.x} ${p2.y}`} stroke="#f8fafc" strokeOpacity={0.7} strokeWidth={3.5} fill="none" strokeDasharray="6 5" strokeLinecap="round" />;
+          return <path d={`M ${p1.x} ${p1.y} Q ${c.x} ${c.y} ${p2.x} ${p2.y}`} stroke="#f8fafc" strokeOpacity={0.7} strokeWidth={2} fill="none" strokeDasharray="5 4" strokeLinecap="round" />;
         }
-        return <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#f8fafc" strokeOpacity={0.7} strokeWidth={3.5} strokeDasharray="6 5" strokeLinecap="round" />;
+        return <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#f8fafc" strokeOpacity={0.7} strokeWidth={2} strokeDasharray="5 4" strokeLinecap="round" />;
       })()}
 
-      {/* Regla de medir (no se guarda con la plantilla -- es una consulta puntual). */}
-      {measurePoints.map((p, i) => {
-        const svgP = toSvg(p);
-        return <circle key={i} cx={svgP.x} cy={svgP.y} r={4} fill="#facc15" stroke="#78350f" strokeWidth={1} />;
-      })}
+      {/* Regla de medir (no se guarda con la plantilla -- es una consulta
+          puntual). Los puntos se arrastran para ajustar la medición sin
+          reiniciarla, y tocar la línea la borra -- antes un 3er click
+          simplemente arrancaba una medición nueva, sin forma de afinar la
+          que ya estaba ni de borrarla explícitamente. */}
       {measurePoints.length === 2 && measureDistanceM !== null && (() => {
         const a = toSvg(measurePoints[0]);
         const b = toSvg(measurePoints[1]);
         const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
         return (
           <>
-            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#facc15" strokeWidth={2} strokeDasharray="4 4" />
-            <rect x={mid.x - 26} y={mid.y - 11} width={52} height={18} rx={4} fill="#111827" fillOpacity={0.9} />
-            <text x={mid.x} y={mid.y + 2} textAnchor="middle" fontSize={11} fontWeight={700} fill="#facc15">
+            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth={12}
+              className="pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); setMeasurePoints([]); }} />
+            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#facc15" strokeWidth={1.25} strokeDasharray="4 3" className="pointer-events-none" />
+            <rect x={mid.x - 22} y={mid.y - 9} width={44} height={16} rx={4} fill="#111827" fillOpacity={0.9} className="pointer-events-none" />
+            <text x={mid.x} y={mid.y + 1.5} textAnchor="middle" fontSize={9.5} fontWeight={700} fill="#facc15" className="pointer-events-none">
               ~{measureDistanceM.toFixed(1)}m
             </text>
           </>
         );
       })()}
+      {/* Puntos de la regla -- arrastrables (antes eran fijos: la única forma
+          de "ajustar" era borrar todo y volver a medir desde cero). Más
+          chicos que las figuras (r=2.6) porque son solo una referencia, no
+          algo que se guarda. */}
+      {measurePoints.map((p, i) => {
+        const svgP = toSvg(p);
+        return (
+          <circle
+            key={i} cx={svgP.x} cy={svgP.y} r={2.6} fill="#facc15" stroke="#78350f" strokeWidth={1}
+            className="pointer-events-auto cursor-grab"
+            onPointerDown={(e) => handleMeasurePointerDown(i as 0 | 1, e)}
+            onPointerMove={handleMeasurePointerMove}
+            onPointerUp={handleMeasurePointerUp}
+          />
+        );
+      })}
     </svg>
   );
 }
@@ -617,6 +664,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   const [loadedPresetId, setLoadedPresetId] = useState<string | null>(null);
   const { data: presets } = useTacticalPresets({ team_id: teamId, situation });
   const createPreset = useCreateTacticalPreset();
+  const updatePreset = useUpdateTacticalPreset();
   const deletePreset = useDeleteTacticalPreset();
   const [showZones, setShowZones] = useState(false);
   const [rosterOpen, setRosterOpen] = useState(false);
@@ -874,7 +922,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     const preset = presets?.find((p) => p.id === presetId);
     if (!preset) return;
     setEmptySlots(preset.slots.map((s, i) => ({ id: `${preset.id}:${i}`, slot_label: s.slot_label, x: Number(s.x), y: Number(s.y) })));
-    setArrows((preset.arrows ?? []).map((a) => ({ x1: Number(a.x1), y1: Number(a.y1), x2: Number(a.x2), y2: Number(a.y2), color: a.color })));
+    setArrows((preset.arrows ?? []).map((a) => ({ type: a.type, x1: Number(a.x1), y1: Number(a.y1), x2: Number(a.x2), y2: Number(a.y2), color: a.color })));
     setLoadedPresetId(preset.id);
   }
 
@@ -887,11 +935,35 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       return;
     }
     try {
-      await createPreset.mutateAsync({ team_id: teamId, name, situation, slots, arrows });
+      const created = await createPreset.mutateAsync({ team_id: teamId, name, situation, slots, arrows });
       toast({ title: 'Plantilla guardada', description: `"${name}" para ${SITUATION_LABEL[situation]}.` });
       setSavingName(null);
+      // Queda "cargada" la que se acaba de crear -- así un ajuste siguiente
+      // usa Actualizar en vez de crear otra copia sin querer.
+      setLoadedPresetId(created.id);
     } catch (err: any) {
       toast({ title: 'No se pudo guardar la plantilla', description: err?.message, variant: 'destructive' });
+    }
+  }
+
+  /** Actualiza EN EL MISMO registro la plantilla que está cargada -- antes no
+   *  existía este camino: "editar" una plantilla siempre terminaba en
+   *  handleSaveAsPreset, que crea una fila nueva (POST), nunca actualiza la
+   *  que se cargó (PUT). Ese era el bug: cargar, mover una flecha, "guardar"
+   *  → aparecía una plantilla duplicada con el cambio, la original quedaba
+   *  intacta y el coach no entendía por qué "no editaba bien". */
+  async function handleUpdatePreset() {
+    if (!loadedPresetId) return;
+    const slots = Object.values(placed).map((s) => ({ slot_label: s.slot_label, x: s.x, y: s.y }));
+    if (slots.length === 0) {
+      toast({ title: 'Nada que guardar', description: 'Ubica al menos un jugador en la cancha primero.', variant: 'destructive' });
+      return;
+    }
+    try {
+      await updatePreset.mutateAsync({ id: loadedPresetId, slots, arrows });
+      toast({ title: 'Plantilla actualizada' });
+    } catch (err: any) {
+      toast({ title: 'No se pudo actualizar la plantilla', description: err?.message, variant: 'destructive' });
     }
   }
 
@@ -1071,6 +1143,32 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     OK
                   </Button>
                   <Button size="sm" variant="ghost" className="h-7 text-[11px] px-2 text-white/60 hover:text-white hover:bg-white/10" onClick={() => setSavingName(null)}>✕</Button>
+                </div>
+              ) : loadedPresetId ? (
+                // Con una plantilla cargada, "Actualizar" guarda los cambios
+                // SOBRE ESA MISMA fila (PUT) -- antes esto no existía, y la
+                // única opción (crear nueva) dejaba la original intacta y
+                // duplicaba una plantilla por cada ajuste.
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    className="h-7 gap-1 text-[11px] px-2 bg-emerald-600 hover:bg-emerald-500 text-white"
+                    disabled={updatePreset.isPending}
+                    onClick={handleUpdatePreset}
+                    title="Guarda los cambios sobre la plantilla cargada"
+                  >
+                    {updatePreset.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Bookmark className="h-3.5 w-3.5" />}
+                    Actualizar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0 text-white/60 hover:text-white hover:bg-white/10"
+                    title="Guardar como plantilla NUEVA (no toca la que está cargada)"
+                    onClick={() => setSavingName('')}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
               ) : (
                 <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-white/60 hover:text-white hover:bg-white/10" title="Guardar como plantilla" onClick={() => setSavingName('')}>

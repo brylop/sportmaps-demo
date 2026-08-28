@@ -32,6 +32,30 @@ import { todayInZone } from '../utils/businessDate';
 
 const router = Router();
 
+// ─── Auditoría — alta/edición de atleta por un coach ────────────────────────
+// Excepción a la decisión de negocio de docs/coach-athlete-scoping.md, habilitada
+// por escuela vía school_settings.coach_can_create_athletes (mig 20260828174117).
+// Se deja rastro explícito de quién (coach) creó a quién, porque reabre un
+// permiso que el resto de las escuelas tiene cerrado.
+async function auditCoachAthleteAction(
+  req: AuthenticatedRequest,
+  tableName: string,
+  recordId: string,
+  action: string,
+  newData: Record<string, any>,
+): Promise<void> {
+  if (req.role !== 'coach') return;
+  const { error } = await supabase.from('audit_logs').insert({
+    school_id:  req.schoolId,
+    profile_id: req.user?.id || null,
+    table_name: tableName,
+    record_id:  recordId,
+    action,
+    new_data:   newData,
+  });
+  if (error) req.log?.error({ err: error }, 'Error registrando auditoría de alta por coach');
+}
+
 // ─── Helpers de schema ─────────────────────────────────────────────────────
 // Convierte string vacío o "none" a null antes de validar el UUID
 const uuid_or_null = z
@@ -370,9 +394,11 @@ async function chargeRegistrationFeeIfApplicable(params: {
 router.post(
   '/create-one',
   requireAuth,
-  // Alta de atletas: SOLO admin/owner de la escuela. Un coach de escuela ya
-  // no crea atletas (decisión de negocio) — solo ve/gestiona los de sus equipos.
-  requireRole('owner', 'admin', 'super_admin', 'school_admin', 'school'),
+  // Alta de atletas: admin/owner de la escuela, o coach si la escuela lo activó
+  // (school_settings.coach_can_create_athletes — excepción de Carmel Club, ver
+  // mig 20260828174117). Por default el coach sigue sin poder: se rechaza más
+  // abajo, después de leer settings, no en esta lista estática.
+  requireRole('owner', 'admin', 'super_admin', 'school_admin', 'school', 'coach'),
   async (req: AuthenticatedRequest, res: Response) => {
     const { schoolId } = req;
 
@@ -388,7 +414,7 @@ router.post(
       const [{ data: school }, { data: settings }] = await Promise.all([
         supabase.from('schools').select('name').eq('id', schoolId).single(),
         supabase.from('school_settings')
-          .select('billing_cycle_type, payment_cutoff_day, require_payment_proof')
+          .select('billing_cycle_type, payment_cutoff_day, require_payment_proof, coach_can_create_athletes')
           .eq('school_id', schoolId)
           .maybeSingle(),
       ]);
@@ -396,6 +422,14 @@ router.post(
       const cycleType      = (settings?.billing_cycle_type || 'prorated') as BillingCycleType;
       const cutoffDay      = settings?.payment_cutoff_day || 10;
       const requireProof   = settings?.require_payment_proof ?? true;
+
+      // Sin fila de settings se aplica el default de la columna (false): un
+      // coach solo pasa si la escuela lo activó explícitamente.
+      if (req.role === 'coach' && !settings?.coach_can_create_athletes) {
+        return res.status(403).json({
+          error: 'Esta escuela no permite que un entrenador dé de alta atletas. Pídelo a la escuela.',
+        });
+      }
 
       // Fuente del link de invitacion, en orden de preferencia:
       //   1. Origin del request (dominio desde donde se invita: stg / dev / app).
@@ -612,6 +646,10 @@ router.post(
           ? `${origin}/register?email=${encodeURIComponent(data.parent_email)}&role=parent&invite=${invite?.id ?? ''}`
           : null;
 
+        await auditCoachAthleteAction(req, 'children', childId, 'COACH_CREATE_ATHLETE', {
+          full_name: data.full_name, type: 'child',
+        });
+
         return res.status(201).json({
           success: true,
           child_id: childId,
@@ -734,6 +772,10 @@ router.post(
         }
 
 
+        await auditCoachAthleteAction(req, 'profiles', userId, 'COACH_CREATE_ATHLETE', {
+          full_name: profile.full_name, type: 'adult_existing',
+        });
+
         return res.status(201).json({
           success: true,
           user_id: userId,
@@ -815,6 +857,10 @@ router.post(
           });
         }
 
+        await auditCoachAthleteAction(req, 'children', child_id, 'COACH_CREATE_ATHLETE', {
+          full_name: child.full_name, type: 'child_existing',
+        });
+
         return res.status(201).json({
           success: true,
           child_id: child_id,
@@ -878,6 +924,10 @@ router.post(
         } catch (e: any) {
           req.log?.error({ email: data.email, err: e }, 'Fallo template branded');
         }
+
+        await auditCoachAthleteAction(req, 'invitations', invite.id, 'COACH_CREATE_ATHLETE', {
+          email: data.email, type: 'adult_invite',
+        });
 
         return res.status(201).json({
           success: true,
@@ -1048,6 +1098,10 @@ router.post(
             }
           }
         }
+
+        await auditCoachAthleteAction(req, 'unregistered_athletes', uaId, 'COACH_CREATE_ATHLETE', {
+          full_name: data.full_name, type: 'unregistered_adult',
+        });
 
         return res.status(201).json({
           success: true,

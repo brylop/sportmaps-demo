@@ -119,6 +119,13 @@ export default function AdminSubscriptionsPage() {
   const [saasInvoices, setSaasInvoices] = useState<SaasInvoiceRow[]>([]);
   const [loadingSaas, setLoadingSaas] = useState(false);
   const [sendingInvoiceId, setSendingInvoiceId] = useState<string | null>(null);
+  const [customPriceCents, setCustomPriceCents] = useState<number | null>(null);
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
+  const [customPriceDraft, setCustomPriceDraft] = useState('');
+  const [billingCycleDraft, setBillingCycleDraft] = useState<'monthly' | 'annual'>('monthly');
+  const [periodStartDraft, setPeriodStartDraft] = useState('');
+  const [savingCustomPrice, setSavingCustomPrice] = useState(false);
+  const [currentPeriod, setCurrentPeriod] = useState<{ start: string; end: string } | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 300);
@@ -159,12 +166,51 @@ export default function AdminSubscriptionsPage() {
   async function loadSaasInvoicing(schoolId: string) {
     setLoadingSaas(true);
     const [{ data: sub }, { data: invoices }] = await Promise.all([
-      supabase.from('school_subscriptions' as any).select('saas_billing_enabled').eq('school_id', schoolId).maybeSingle(),
+      supabase.from('school_subscriptions' as any)
+        .select('saas_billing_enabled, custom_price_cents, billing_cycle, current_period_start, current_period_end')
+        .eq('school_id', schoolId).maybeSingle(),
       supabase.from('school_subscription_invoices' as any).select('*').eq('school_id', schoolId).order('period_start', { ascending: false }),
     ]);
     setSaasBillingEnabled((sub as any)?.saas_billing_enabled ?? false);
     setSaasInvoices((invoices as any) || []);
+    const cents = (sub as any)?.custom_price_cents ?? null;
+    const cycle = ((sub as any)?.billing_cycle as 'monthly' | 'annual') ?? 'monthly';
+    setCustomPriceCents(cents);
+    setBillingCycle(cycle);
+    setCustomPriceDraft(cents != null ? String(Math.round(cents / 100)) : '');
+    setBillingCycleDraft(cycle);
+    setPeriodStartDraft('');
+    const periodStart = (sub as any)?.current_period_start ?? null;
+    const periodEnd = (sub as any)?.current_period_end ?? null;
+    setCurrentPeriod(periodStart && periodEnd ? { start: periodStart, end: periodEnd } : null);
     setLoadingSaas(false);
+  }
+
+  async function saveCustomPrice() {
+    if (!selected) return;
+    const trimmed = customPriceDraft.trim();
+    const pesos = trimmed === '' ? null : Number(trimmed.replace(/\./g, '').replace(/,/g, ''));
+    if (pesos !== null && (Number.isNaN(pesos) || pesos < 0)) {
+      toast({ title: 'Valor inválido', description: 'Escribe un monto en pesos, sin puntos ni signos.', variant: 'destructive' });
+      return;
+    }
+    setSavingCustomPrice(true);
+    const { error } = await supabase.rpc('admin_set_school_custom_price' as any, {
+      p_school_id: selected.id,
+      p_custom_price_cents: pesos === null ? null : Math.round(pesos * 100),
+      p_billing_cycle: billingCycleDraft,
+      p_period_start: periodStartDraft || null,
+    });
+    setSavingCustomPrice(false);
+    if (error) {
+      toast({ title: 'No se pudo guardar el precio negociado', description: error.message, variant: 'destructive' });
+      return;
+    }
+    await loadSaasInvoicing(selected.id);
+    toast({
+      title: pesos === null ? 'Override quitado — vuelve al precio de catálogo' : 'Precio negociado guardado',
+      description: selected.name,
+    });
   }
 
   function selectSchool(s: SchoolRow) {
@@ -700,6 +746,87 @@ export default function AdminSubscriptionsPage() {
                       ))}
                     </div>
                   )}
+                </div>
+
+                {/* Precio negociado — override del catálogo para tratos comerciales */}
+                <div className="rounded-xl border p-4 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <DollarSign className="h-4 w-4 text-primary" />
+                    <p className="text-sm font-semibold">Precio negociado</p>
+                    {customPriceCents != null && (
+                      <Badge variant="outline" className="border-emerald-500 text-emerald-600">
+                        {formatCopCents(customPriceCents)} · {billingCycle === 'annual' ? 'anual' : 'mensual'}
+                      </Badge>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    Override del precio de catálogo para esta escuela — para tratos comerciales con valor distinto
+                    al de lista. Vacío = usa el precio de catálogo del plan de arriba. Con valor, la próxima factura
+                    que se genere (botón "Activar/reenviar facturación") sale con este monto, no con el de catálogo.
+                  </p>
+
+                  {currentPeriod && (
+                    <p className="text-xs text-muted-foreground">
+                      Período vigente: <b>{new Date(currentPeriod.start).toLocaleDateString('es-CO')}</b> —{' '}
+                      <b>{new Date(currentPeriod.end).toLocaleDateString('es-CO')}</b>
+                    </p>
+                  )}
+
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Valor (COP)</label>
+                      <Input
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="Ej: 249000"
+                        value={customPriceDraft}
+                        onChange={(e) => setCustomPriceDraft(e.target.value)}
+                        className="w-[160px]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Ciclo</label>
+                      <Select value={billingCycleDraft} onValueChange={(v) => setBillingCycleDraft(v as 'monthly' | 'annual')}>
+                        <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="monthly">Mensual</SelectItem>
+                          <SelectItem value="annual">Anual</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Reiniciar período desde</label>
+                      <Input
+                        type="date"
+                        value={periodStartDraft}
+                        onChange={(e) => setPeriodStartDraft(e.target.value)}
+                        className="w-[150px]"
+                      />
+                    </div>
+                    <Button size="sm" disabled={savingCustomPrice} onClick={saveCustomPrice}>
+                      {savingCustomPrice ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
+                    </Button>
+                    {customPriceCents != null && (
+                      <Button
+                        size="sm" variant="outline" disabled={savingCustomPrice}
+                        onClick={() => { setCustomPriceDraft(''); void saveCustomPrice(); }}
+                      >
+                        Quitar override
+                      </Button>
+                    )}
+                  </div>
+
+                  <p className="text-[11px] text-muted-foreground">
+                    "Reiniciar período desde" es opcional — solo úsalo si el período vigente quedó desfasado
+                    (ej. arrastrado de un ciclo mensual viejo) y el trato nuevo arranca en otro mes. El fin de
+                    período se calcula solo (+1 mes o +1 año según el ciclo elegido arriba).
+                  </p>
+
+                  <p className="text-[11px] text-muted-foreground">
+                    Anual queda fuera del ciclo automático de renovación (por diseño — hoy solo <code>monthly</code>{' '}
+                    se auto-renueva); la factura anual se genera y reenvía a mano desde este panel.
+                  </p>
                 </div>
 
                 {/* Módulos */}

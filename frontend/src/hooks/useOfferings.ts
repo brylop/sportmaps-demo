@@ -47,6 +47,9 @@ export interface OfferingPlan {
     price: number;
     currency: string;
     slot_duration_minutes: number | null;
+    session_block_minutes?: number | null;
+    included_sessions_per_week?: number | null;
+    registration_fee?: number | null;
     is_active: boolean;
     sort_order: number;
     metadata: Record<string, unknown>;

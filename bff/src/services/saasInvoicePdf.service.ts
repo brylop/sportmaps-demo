@@ -41,7 +41,7 @@ function loadLogo(): Buffer | null {
     return cachedLogo;
 }
 
-interface PlatformPaymentAccount {
+export interface PlatformPaymentAccount {
     id: string;
     type: string;
     label: string;
@@ -50,7 +50,7 @@ interface PlatformPaymentAccount {
     active: boolean;
 }
 
-async function loadActivePaymentAccounts(): Promise<PlatformPaymentAccount[]> {
+export async function loadActivePaymentAccounts(): Promise<PlatformPaymentAccount[]> {
     const { data } = await supabase
         .from('platform_config')
         .select('value')
