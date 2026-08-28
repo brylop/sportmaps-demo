@@ -43,6 +43,11 @@ const SPORTMAPS_ICONS = [
     { src: '/icons/icon-144.png', sizes: '144x144', type: 'image/png' },
     { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
     { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+    // Sin variante 'maskable', Android recorta este ícono al ícono adaptable
+    // genérico en vez del real — la rama con marca de escuela (más abajo) ya
+    // declara las dos.
+    { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+    { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
 ];
 
 const DEFAULT_MANIFEST = {

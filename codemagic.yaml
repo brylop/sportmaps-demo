@@ -1,0 +1,135 @@
+workflows:
+  # ──────────────────────────────────────────────────────────────────────
+  # ios-simulator-smoke — valida el pipeline COMPLETO (build web → Capacitor
+  # → CocoaPods → compilar) SIN necesitar firma ni cuenta Apple Developer
+  # activa: un build para simulador no la pide. Es el primer workflow a
+  # correr, mientras se espera la activación de la cuenta y se configura
+  # la integración de App Store Connect.
+  #
+  # ios/ TODAVÍA NO ESTÁ VERSIONADO (no se puede correr `cap add ios` en
+  # Windows) — este workflow lo genera desde cero en cada corrida con
+  # `npx cap add ios`. Una vez que este smoke build pase limpio, el paso
+  # que sigue (fuera de este archivo) es correr `cap add ios` UNA VEZ acá,
+  # bajar el artifact `frontend/ios/` y commitearlo al repo — igual que ya
+  # se hizo con `frontend/android/` — para poder editar Info.plist
+  # (usage strings), agregar GoogleService-Info.plist, etc. a mano en vez
+  # de perderlos en cada corrida.
+  # ──────────────────────────────────────────────────────────────────────
+  ios-simulator-smoke:
+    name: iOS — smoke build para simulador (sin firma)
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+    environment:
+      vars:
+        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+        XCODE_SCHEME: "App"
+      xcode: 26.4.1 # requisito Apple vigente desde 2026-04-28 (docs/MOBILE_ROADMAP_EXECUTION.md) — no bajar de imagen
+      cocoapods: default
+    scripts:
+      - name: Instalar dependencias del frontend
+        script: |
+          cd frontend
+          npm ci
+      - name: Build web (Vite → build/, ver capacitor.config.ts)
+        script: |
+          cd frontend
+          npm run build
+      - name: Agregar plataforma iOS (no versionada aún) + sync
+        script: |
+          cd frontend
+          test -d ios || npx cap add ios
+          npx cap sync ios
+      - name: CocoaPods
+        script: |
+          cd frontend/ios/App
+          pod install
+      - name: Compilar para simulador (CODE_SIGNING_ALLOWED=NO)
+        script: |
+          cd frontend/ios/App
+          xcodebuild \
+            -workspace "$XCODE_WORKSPACE" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -derivedDataPath "$CM_BUILD_DIR/frontend/ios/build" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+    artifacts:
+      - frontend/ios/build/**/*.app
+      - /tmp/xcodebuild_logs/*.log
+
+  # ──────────────────────────────────────────────────────────────────────
+  # ios-testflight — el workflow real de release. NO FUNCIONA TODAVÍA:
+  # requiere, en este orden:
+  #   1. Cuenta Apple Developer activa (comprada 2026-08-27, tipo Individual
+  #      — hasta 2 días hábiles de activación).
+  #   2. Registrar el App ID `co.sportmaps.app` en developer.apple.com y
+  #      crear el registro de la app en App Store Connect (da el
+  #      APP_STORE_APPLE_ID numérico que falta abajo).
+  #   3. Conectar la integración "App Store Connect" en Codemagic
+  #      (Team settings → Integrations) — reemplaza `auth: integration`
+  #      por el nombre real que le den ahí si no se llama "codemagic".
+  #   4. Crear el grupo de testers internos en TestFlight (reemplaza
+  #      "SportMaps Internos" en beta_groups).
+  # Mientras tanto, sin `triggering`, este workflow NO se dispara solo —
+  # solo corre si alguien lo arranca a mano en el dashboard, así que no
+  # falla builds en cadena por variables que todavía no existen.
+  # ──────────────────────────────────────────────────────────────────────
+  ios-testflight:
+    name: iOS — build firmado + TestFlight (NO listo — ver comentario)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: codemagic
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: co.sportmaps.app
+      vars:
+        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+        XCODE_SCHEME: "App"
+        APP_STORE_APPLE_ID: 0 # TODO: reemplazar con el Apple ID numérico real de App Store Connect
+      xcode: 26.4.1
+      cocoapods: default
+    scripts:
+      - name: Instalar dependencias del frontend
+        script: |
+          cd frontend
+          npm ci
+      - name: Build web (Vite → build/)
+        script: |
+          cd frontend
+          npm run build
+      - name: Agregar plataforma iOS + sync
+        script: |
+          cd frontend
+          test -d ios || npx cap add ios
+          npx cap sync ios
+      - name: CocoaPods
+        script: |
+          cd frontend/ios/App
+          pod install
+      - name: Firma automática con los certificados de la integración
+        script: |
+          cd frontend
+          xcode-project use-profiles
+      - name: Incrementar el número de build al siguiente de App Store Connect
+        script: |
+          cd frontend/ios/App
+          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-app-store-build-number "$APP_STORE_APPLE_ID")
+          agvtool new-version -all $(($LATEST_BUILD_NUMBER + 1))
+      - name: Compilar .ipa firmado
+        script: |
+          cd frontend/ios/App
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - frontend/ios/App/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        beta_groups:
+          - SportMaps Internos # TODO: crear este grupo en App Store Connect antes del primer run

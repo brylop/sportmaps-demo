@@ -46,7 +46,7 @@ export default function AuthLayout() {
         <div className="flex-1 flex flex-col w-full max-w-full overflow-x-hidden">
 
           {/* ── Header ─────────────────────────────────────────────────── */}
-          <header className="h-14 sm:h-16 flex items-center border-b px-3 sm:px-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 justify-between sticky top-0 z-50">
+          <header className="min-h-14 sm:min-h-16 flex items-center border-b px-3 sm:px-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 justify-between sticky top-0 z-50 sticky-safe">
 
             {/* Left: hamburger + school branding */}
             <div className="flex items-center gap-2 sm:gap-4 min-w-0">
@@ -112,8 +112,8 @@ export default function AuthLayout() {
           </header>
 
           {/* ── Main content ───────────────────────────────────────────── */}
-          {/* pb-24 en mobile para evitar que el contenido quede detrás de la barra inferior del navegador */}
-          <main className="flex-1 p-3 sm:p-4 lg:p-6 overflow-auto pb-20 sm:pb-6 w-full max-w-full">
+          {/* Reserva el alto del bottom nav (h-16) + el home indicator de iOS — antes era un pb-20 fijo que en iPhone se quedaba 18px corto */}
+          <main className="flex-1 p-3 sm:p-4 lg:p-6 overflow-auto pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-6 w-full max-w-full">
             <div className="w-full max-w-full overflow-x-hidden">
               {/* Aviso de fin del periodo de prueba (contador → bloqueo).
                   Va aquí, en el layout, y no página por página: así ninguna

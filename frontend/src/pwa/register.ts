@@ -8,6 +8,11 @@ export async function registerSW() {
   // trabaja. El SW solo aporta valor en producción.
   if (import.meta.env.DEV) return;
 
+  // Dentro del APK/IPA no aporta (no hay red offline que cachear ni una URL
+  // pública que actualizar) y arrastra la misma lógica de recarga por
+  // controllerchange que en la PWA no tiene sentido dentro de un WebView nativo.
+  if ((window as any).Capacitor?.isNativePlatform?.()) return;
+
   try {
     const reg = await navigator.serviceWorker.register('/sw.js', {
       scope: '/',
