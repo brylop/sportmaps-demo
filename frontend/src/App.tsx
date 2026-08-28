@@ -259,7 +259,7 @@ const EnvironmentBanner = () => {
   const bgColor = colors[env] || 'bg-slate-700';
 
   return (
-    <div className={`${bgColor} text-white text-center text-[10px] py-1 font-bold uppercase tracking-widest sticky top-0 z-[9999] shadow-md border-b border-white/10`}>
+    <div className={`${bgColor} text-white text-center text-[10px] py-1 font-bold uppercase tracking-widest sticky top-0 z-[9999] shadow-md border-b border-white/10 sticky-safe`}>
       Ambiente de {env === 'demo' ? 'Demostración' : env}
     </div>
   );

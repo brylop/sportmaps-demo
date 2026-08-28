@@ -8,7 +8,9 @@ export default {
   theme: {
     container: {
       center: true,
-      padding: "2rem",
+      // Escalar de 2rem daba 32px de gutter en móvil (296px útiles de 360) — el
+      // mismo gutter que a los 1400px del breakpoint 2xl.
+      padding: { DEFAULT: "1rem", sm: "1.5rem", lg: "2rem" },
       screens: {
         "2xl": "1400px",
       },
