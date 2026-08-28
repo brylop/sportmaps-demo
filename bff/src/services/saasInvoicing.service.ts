@@ -133,7 +133,6 @@ export async function sendSaasInvoice(invoiceId: string, reason: SaasInvoiceSend
     const planName = ACADEMY_PLAN_NAMES[invoice.plan_code] ?? invoice.plan_code;
     const amountStr = formatCop(invoice.amount_cents);
     const dueDateStr = new Date(invoice.due_date).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
-    const invoiceLink = `${(process.env.FRONTEND_URL || 'https://app.sportmaps.co').replace(/\/$/, '')}/facturacion/recibo/${invoice.id}`;
 
     const copy = REASON_COPY[reason];
 
@@ -162,7 +161,6 @@ export async function sendSaasInvoice(invoiceId: string, reason: SaasInvoiceSend
                     Envía el comprobante de pago por WhatsApp o correo para que confirmemos tu factura.
                 </p>
             `,
-            cta: { label: 'Ver factura y estado de pago', url: invoiceLink },
         });
 
         for (const admin of admins) {
@@ -204,7 +202,7 @@ export async function sendSaasInvoice(invoiceId: string, reason: SaasInvoiceSend
         phone: firstAdminWithPhone?.phone ?? null,
         message: `Hola ${schoolName}, les compartimos la factura SportMaps ${invoice.invoice_number} por ${amountStr} (vence ${dueDateStr}).\n\n`
             + `Cómo pagar:\n${formatAccountsForWhatsapp(accounts)}\n\n`
-            + `Envíanos el comprobante por acá para confirmar tu pago. Detalle: ${invoiceLink}`,
+            + `Envíanos el comprobante por acá para confirmar tu pago.`,
     };
 
     return { ok: true, pdfObjectPath, emailSent, pushSent, whatsapp };
