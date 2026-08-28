@@ -97,6 +97,7 @@ import schoolsRouter from './routes/schools.routes';
 import customDomainsRouter from './routes/custom-domains.routes';
 import devicesRouter from './routes/devices.routes';
 import pwaRouter from './routes/pwa.routes';
+import mobileRouter from './routes/mobile.routes';
 import internalNotificationsRouter from './routes/internal-notifications.routes';
 
 const app = express();
@@ -308,6 +309,9 @@ app.use('/api/v1/devices', generalLimiter, devicesRouter);
 // Manifest dinamico de la PWA. PUBLICO y sin auth: el navegador lo pide antes
 // de que exista sesion, y Vercel le reescribe /manifest.webmanifest hacia aca.
 app.use('/api/v1/pwa', pwaLimiter, pwaRouter);
+// Config de version minima que la app nativa chequea al arrancar. PUBLICO y
+// sin auth, mismo motivo que el manifest: se pide antes de que exista sesion.
+app.use('/api/v1/mobile', pwaLimiter, mobileRouter);
 // Endpoint INTERNO del despachador de notificaciones (lo llama pg_net desde la
 // DB). Sin JWT: se valida por header secreto (fail-closed). Sin generalLimiter:
 // el disparo es 1 por notificación y el claim es idempotente por lease.
