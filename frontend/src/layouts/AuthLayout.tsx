@@ -112,8 +112,8 @@ export default function AuthLayout() {
           </header>
 
           {/* ── Main content ───────────────────────────────────────────── */}
-          {/* pb-24 en mobile para evitar que el contenido quede detrás de la barra inferior del navegador */}
-          <main className="flex-1 p-3 sm:p-4 lg:p-6 overflow-auto pb-20 sm:pb-6 w-full max-w-full">
+          {/* Reserva el alto del bottom nav (h-16) + el home indicator de iOS — antes era un pb-20 fijo que en iPhone se quedaba 18px corto */}
+          <main className="flex-1 p-3 sm:p-4 lg:p-6 overflow-auto pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-6 w-full max-w-full">
             <div className="w-full max-w-full overflow-x-hidden">
               {/* Aviso de fin del periodo de prueba (contador → bloqueo).
                   Va aquí, en el layout, y no página por página: así ninguna

@@ -177,6 +177,8 @@
 
   body {
     @apply bg-background text-foreground font-poppins antialiased;
+    /* Evita el "rubber-band"/pull-to-refresh nativo del navegador arrastrando la página entera cuando un panel interno llega a su tope de scroll */
+    overscroll-behavior: contain;
   }
 
   /* Typography - Poppins */
