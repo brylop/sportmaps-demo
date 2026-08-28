@@ -12,6 +12,7 @@ import { runAthleteReportsCycle } from './athlete-reports.job';
 import { runHourBankAutoclose } from './hour-bank-autoclose.job';
 import { runSaasBillingCycle } from './saas-billing-cycle.job';
 import { runBridgeHeartbeatCheck } from './bridge-heartbeat-check.job';
+import { runAccountDeletionCycle } from './account-deletion.job';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -357,4 +358,23 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Chequeo de latido de bridges registrado (cada 5 min).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Borrado físico de cuentas (Ley 1581/2012 derecho de supresión + Apple
+    // Guideline 5.1.1(v) / Google Play). request_account_deletion() programa
+    // el borrado a 30 días; este job ejecuta lo que quedó pendiente:
+    // anonimiza `profiles` y banea el login (nunca auth.admin.deleteUser —
+    // cascadearía sobre tablas de la escuela que dependen del profile_id).
+    // Kill-switch: DISABLE_ACCOUNT_DELETION_CRON=true.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('30 6 * * *', async () => {
+        if (process.env.DISABLE_ACCOUNT_DELETION_CRON === 'true') return;
+        try {
+            await runAccountDeletionCycle();
+        } catch (err: any) {
+            console.error('[CRON] Error en borrado físico de cuentas:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Borrado físico de cuentas registrado para las 06:30 COT.');
 }
