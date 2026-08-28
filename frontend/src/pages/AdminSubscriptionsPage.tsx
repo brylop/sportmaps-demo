@@ -123,7 +123,9 @@ export default function AdminSubscriptionsPage() {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
   const [customPriceDraft, setCustomPriceDraft] = useState('');
   const [billingCycleDraft, setBillingCycleDraft] = useState<'monthly' | 'annual'>('monthly');
+  const [periodStartDraft, setPeriodStartDraft] = useState('');
   const [savingCustomPrice, setSavingCustomPrice] = useState(false);
+  const [currentPeriod, setCurrentPeriod] = useState<{ start: string; end: string } | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 300);
@@ -165,7 +167,7 @@ export default function AdminSubscriptionsPage() {
     setLoadingSaas(true);
     const [{ data: sub }, { data: invoices }] = await Promise.all([
       supabase.from('school_subscriptions' as any)
-        .select('saas_billing_enabled, custom_price_cents, billing_cycle')
+        .select('saas_billing_enabled, custom_price_cents, billing_cycle, current_period_start, current_period_end')
         .eq('school_id', schoolId).maybeSingle(),
       supabase.from('school_subscription_invoices' as any).select('*').eq('school_id', schoolId).order('period_start', { ascending: false }),
     ]);
@@ -177,6 +179,10 @@ export default function AdminSubscriptionsPage() {
     setBillingCycle(cycle);
     setCustomPriceDraft(cents != null ? String(Math.round(cents / 100)) : '');
     setBillingCycleDraft(cycle);
+    setPeriodStartDraft('');
+    const periodStart = (sub as any)?.current_period_start ?? null;
+    const periodEnd = (sub as any)?.current_period_end ?? null;
+    setCurrentPeriod(periodStart && periodEnd ? { start: periodStart, end: periodEnd } : null);
     setLoadingSaas(false);
   }
 
@@ -193,6 +199,7 @@ export default function AdminSubscriptionsPage() {
       p_school_id: selected.id,
       p_custom_price_cents: pesos === null ? null : Math.round(pesos * 100),
       p_billing_cycle: billingCycleDraft,
+      p_period_start: periodStartDraft || null,
     });
     setSavingCustomPrice(false);
     if (error) {
@@ -759,6 +766,13 @@ export default function AdminSubscriptionsPage() {
                     que se genere (botón "Activar/reenviar facturación") sale con este monto, no con el de catálogo.
                   </p>
 
+                  {currentPeriod && (
+                    <p className="text-xs text-muted-foreground">
+                      Período vigente: <b>{new Date(currentPeriod.start).toLocaleDateString('es-CO')}</b> —{' '}
+                      <b>{new Date(currentPeriod.end).toLocaleDateString('es-CO')}</b>
+                    </p>
+                  )}
+
                   <div className="flex flex-wrap items-end gap-2">
                     <div className="space-y-1">
                       <label className="text-xs text-muted-foreground">Valor (COP)</label>
@@ -781,6 +795,15 @@ export default function AdminSubscriptionsPage() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Reiniciar período desde</label>
+                      <Input
+                        type="date"
+                        value={periodStartDraft}
+                        onChange={(e) => setPeriodStartDraft(e.target.value)}
+                        className="w-[150px]"
+                      />
+                    </div>
                     <Button size="sm" disabled={savingCustomPrice} onClick={saveCustomPrice}>
                       {savingCustomPrice ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
                     </Button>
@@ -793,6 +816,12 @@ export default function AdminSubscriptionsPage() {
                       </Button>
                     )}
                   </div>
+
+                  <p className="text-[11px] text-muted-foreground">
+                    "Reiniciar período desde" es opcional — solo úsalo si el período vigente quedó desfasado
+                    (ej. arrastrado de un ciclo mensual viejo) y el trato nuevo arranca en otro mes. El fin de
+                    período se calcula solo (+1 mes o +1 año según el ciclo elegido arriba).
+                  </p>
 
                   <p className="text-[11px] text-muted-foreground">
                     Anual queda fuera del ciclo automático de renovación (por diseño — hoy solo <code>monthly</code>{' '}
