@@ -22,6 +22,20 @@ Que hace:
   equipo directamente.
 - Lleva un registro local (bridge_state.json) de que fue lo ultimo
   enviado, para no duplicar eventos.
+- APERTURA MANUAL (agregado 2026-08-27, mismo patron que
+  scripts/gymrm-door-bridge/): como estos lectores no hablan ADMS nunca,
+  un click de "abrir puerta" en el dashboard tampoco les llegaria nunca por
+  ese canal -- se quedaria 'pending' hasta expirar. Este script ahora
+  tambien sondea el endpoint dedicado /bridge/door-commands (el mismo que
+  usa GYM RM, ya generico por school_id, sin cambios de backend) y ejecuta
+  el desbloqueo fisico via el comando de bajo nivel CMD_UNLOCK con el valor
+  en decimas de segundo directo -- NO conn.unlock(), que trunca a entero
+  antes de multiplicar por 10 y nunca manda menos de 1 segundo sostenido
+  (ver PULSE_DECISECONDS abajo). En GYM RM eso causaba que el torniquete se
+  re-armara varias veces por click; ACA TODAVIA NO SE PROBO EN CAMPO -- el
+  valor de partida es una copia conservadora del de GYM RM, hay que
+  calibrarlo con el torniquete real (ver README.md, seccion "Calibrar el
+  pulso de apertura").
 
 Requisitos (instalar una sola vez):
     pip install -r requirements.txt
@@ -39,10 +53,12 @@ Uso en produccion:
 import json
 import os
 import time
+import traceback
 from datetime import datetime
+from struct import pack
 
 import requests
-from zk import ZK
+from zk import ZK, const
 
 # ------------------------------------------------------------------
 # CONFIGURACION - ajusta aqui si algo cambia
@@ -67,6 +83,24 @@ DEVICES = [
 
 POLL_INTERVAL_SECONDS = 5
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bridge_state.json")
+
+# ------------------------------------------------------------------
+# Apertura manual -- mismo endpoint /bridge/door-commands que GYM RM
+# ------------------------------------------------------------------
+
+SCHOOL_ID = "57ba9352-2c11-4b5b-aa5b-e5ec6f526cbe"  # Dreamers Gymnastics
+
+# Misma API key de servicio que scripts/gymrm-door-bridge (BRIDGE_API_KEY es
+# una sola variable global en Render, no por escuela). Configurar en esta PC
+# con el mismo valor que ya esta seteado en Render para sportmaps-bff-dev.
+BRIDGE_API_KEY = os.environ.get("SPORTMAPS_BRIDGE_API_KEY", "CAMBIAR_ESTA_LLAVE")
+
+# Decimas de segundo para el pulso de CMD_UNLOCK. Arranca igual que GYM RM
+# (0.2s) como punto de partida conservador -- SIN VALIDAR TODAVIA en el
+# torniquete real de Dreamers. Puede que se necesite otro valor: calibrar
+# con este mismo mecanismo (ver README, "Calibrar el pulso de apertura").
+DOOR_PULSE_DECISECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_PULSE_DECISECONDS", "2"))
+DEVICE_BY_SERIAL = {d["serial_number"]: d for d in DEVICES}
 
 # ------------------------------------------------------------------
 # Estado local (para no reenviar los mismos eventos)
@@ -121,6 +155,104 @@ def send_heartbeat(serial_number):
         print(f"[{serial_number}] heartbeat -> {resp.status_code}")
     except requests.RequestException as e:
         print(f"[{serial_number}] ERROR en heartbeat: {e}")
+
+
+# ------------------------------------------------------------------
+# Apertura manual -- mismo endpoint dedicado que scripts/gymrm-door-bridge
+# ------------------------------------------------------------------
+
+def fetch_pending_door_commands():
+    """
+    Devuelve los comandos open_door pendientes de Dreamers, o None si el
+    endpoint no responde (error de red / API key mal puesta) para que el
+    caller distinga "nada que hacer" de "no pude preguntar".
+    """
+    url = f"{BACKEND_BASE_URL}/bridge/door-commands"
+    headers = {"X-Bridge-Api-Key": BRIDGE_API_KEY}
+    params = {"school_id": SCHOOL_ID}
+    try:
+        resp = requests.get(url, headers=headers, params=params, timeout=10)
+    except requests.RequestException as e:
+        print(f"ERROR de red consultando comandos de apertura: {e}")
+        return None
+
+    if resp.status_code == 401 or resp.status_code == 403:
+        print(f"ERROR: autenticacion rechazada ({resp.status_code}). Revisa que "
+              f"SPORTMAPS_BRIDGE_API_KEY coincida con lo configurado en Render.")
+        return None
+    if resp.status_code != 200:
+        print(f"ERROR: respuesta inesperada de door-commands ({resp.status_code}): {resp.text[:200]}")
+        return None
+
+    try:
+        return resp.json().get("commands", [])
+    except ValueError:
+        print(f"ERROR: respuesta de door-commands no es JSON valido: {resp.text[:200]}")
+        return None
+
+
+def ack_door_command(command_id, success, error_message=None):
+    url = f"{BACKEND_BASE_URL}/bridge/door-commands/{command_id}/ack"
+    headers = {"X-Bridge-Api-Key": BRIDGE_API_KEY}
+    payload = {"success": success}
+    if error_message:
+        payload["error_message"] = error_message[:500]
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=10)
+        if resp.status_code != 200:
+            print(f"ADVERTENCIA: ack de comando {command_id} respondio {resp.status_code}: {resp.text[:200]}")
+    except requests.RequestException as e:
+        print(f"ERROR de red confirmando comando {command_id}: {e}")
+
+
+def open_door_physically(device):
+    """
+    Conecta por SDK directo y dispara el pulso de desbloqueo por
+    CMD_UNLOCK de bajo nivel (NO conn.unlock(), ver docstring del modulo).
+    Lanza excepcion si algo falla -- el caller decide como manejarlo.
+    """
+    zk = ZK(device["ip"], port=device["port"], timeout=10)
+    conn = None
+    try:
+        conn = zk.connect()
+        command_string = pack("I", DOOR_PULSE_DECISECONDS)
+        resp = conn._ZK__send_command(const.CMD_UNLOCK, command_string)
+        if not resp.get('status'):
+            raise Exception(f"CMD_UNLOCK rechazado por el dispositivo: {resp}")
+        print(f"[{device['name']}] Puerta abierta fisicamente (pulso de {DOOR_PULSE_DECISECONDS/10}s).")
+    finally:
+        if conn:
+            try:
+                conn.disconnect()
+            except Exception:
+                pass
+
+
+def process_door_commands():
+    commands = fetch_pending_door_commands()
+    if not commands:
+        return
+
+    print(f"{len(commands)} comando(s) de apertura pendiente(s).")
+    for cmd in commands:
+        cmd_id = cmd.get("id")
+        serial = cmd.get("device_serial")
+        device = DEVICE_BY_SERIAL.get(serial)
+
+        if not device:
+            print(f"ERROR: comando {cmd_id} referencia serial desconocido '{serial}'.")
+            ack_door_command(cmd_id, success=False, error_message=f"Serial no reconocido: {serial}")
+            continue
+
+        print(f"Procesando comando {cmd_id} -> {device['name']} ({serial})")
+        try:
+            open_door_physically(device)
+            ack_door_command(cmd_id, success=True)
+        except Exception as e:
+            error_msg = f"{type(e).__name__}: {e}"
+            print(f"ERROR abriendo puerta fisicamente para comando {cmd_id}: {error_msg}")
+            print(traceback.format_exc())
+            ack_door_command(cmd_id, success=False, error_message=error_msg)
 
 
 # ------------------------------------------------------------------
@@ -213,14 +345,21 @@ def poll_device(device, state):
 def main():
     print("=== Puente ZKTeco -> SportMaps (Dreamers Gymnastics) ===")
     print(f"Backend: {BACKEND_BASE_URL}")
+    print(f"School ID: {SCHOOL_ID}")
     print(f"Intervalo de sondeo: {POLL_INTERVAL_SECONDS}s")
     print("Presiona Ctrl+C para detener.\n")
+
+    if BRIDGE_API_KEY == "CAMBIAR_ESTA_LLAVE":
+        print("ADVERTENCIA CRITICA: SPORTMAPS_BRIDGE_API_KEY no esta configurada. "
+              "La asistencia va a seguir funcionando, pero la apertura manual "
+              "va a fallar con 401. Ver README.md.")
 
     state = load_state()
 
     while True:
         for device in DEVICES:
             poll_device(device, state)
+        process_door_commands()
         print(f"--- Ciclo completo, esperando {POLL_INTERVAL_SECONDS}s ---\n")
         time.sleep(POLL_INTERVAL_SECONDS)
 

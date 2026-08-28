@@ -32,6 +32,12 @@ Corre en una PC de la red local de Dreamers. Cada 5 segundos:
    HTTPS — el backend los procesa igual que si vinieran del equipo directo.
 4. Manda un heartbeat (`GET /iclock/getrequest`) para que `last_seen_at`
    se actualice en el panel de Access Control.
+5. **Apertura manual (2026-08-27):** sondea `GET /bridge/door-commands` (el
+   mismo endpoint dedicado que usa `scripts/gymrm-door-bridge/`, ya
+   genérico por escuela) y ejecuta cualquier `open_door` pendiente por SDK
+   local — sin esto, el botón de abrir puerta del dashboard nunca le
+   llegaría a estos lectores (no hablan ADMS, así que tampoco podrían
+   recibir el comando por ese canal aunque funcionara).
 
 Estado local en `bridge_state.json` (se crea solo) — evita reenviar
 eventos ya mandados. **No borrar ese archivo** salvo que quieras que
@@ -39,17 +45,46 @@ vuelva a mandar todo el historial del equipo.
 
 ## Instalación (una sola vez, en la PC de Dreamers)
 
-1. Instalar Python 3 (python.org) si no está.
+1. Instalar Python 3 (python.org) si no está — **"Install for all users"**,
+   no "solo para mí" (la tarea programada corre como `SYSTEM`, que no ve
+   el PATH de un usuario individual — mismo gotcha que ya salió con GYM RM).
 2. Copiar toda esta carpeta a la PC del club (ej. `C:\SportMaps\dreamers-bridge`).
 3. Abrir PowerShell **como Administrador** en esa carpeta:
    ```powershell
    pip install -r requirements.txt
+   [Environment]::SetEnvironmentVariable("SPORTMAPS_BRIDGE_API_KEY", "LA_MISMA_LLAVE_QUE_GYM_RM", "Machine")
    .\install_scheduled_task.ps1
    ```
+   La API key **es la misma** que ya está configurada en Render
+   (`BRIDGE_API_KEY` es una sola variable global, no por escuela) — no hay
+   que pedir ni generar una nueva, solo copiarla acá.
 4. Listo. La tarea `SportMaps-DreamersBridge` queda:
    - Arrancando sola cuando prende la PC (no depende de ninguna sesión de usuario).
    - Reiniciándose sola si el proceso se cae (hasta 999 veces, cada 1 minuto).
    - **Ya no hace falta correr ningún `.bat` a mano.**
+
+## ⚠️ Antes de usar la apertura manual: calibrar el pulso
+
+A diferencia de la asistencia (que ya funciona probada), **la apertura
+manual todavía no se probó en el torniquete real de Dreamers.** El valor
+de partida (`DOOR_PULSE_DECISECONDS = 2`, 0.2s) es el que funcionó en
+GYM RM — pero es un modelo de torniquete distinto, no asumir que sirve
+igual acá.
+
+Con la tarea programada **detenida** (`Stop-ScheduledTask -TaskName
+"SportMaps-DreamersBridge"`, para no competir por la conexión al lector):
+
+```powershell
+cd C:\SportMaps\dreamers-bridge
+py test_pulse.py 192.168.1.203 2   # lector entrada
+py test_pulse.py 192.168.1.202 2   # lector salida
+```
+
+Probá de menor a mayor (2, 3, 5, 7 décimas...) hasta encontrar el mínimo
+que abre y deja pasar **una sola vez**, sin que el torniquete se re-arme.
+Si el valor que sirve no es 2, actualizá `DOOR_PULSE_DECISECONDS` en
+`dreamers_bridge.py` (o seteá `SPORTMAPS_BRIDGE_PULSE_DECISECONDS` como
+variable de entorno, sin tocar el archivo) y reiniciá la tarea.
 
 ## Verificar que está funcionando
 
@@ -76,8 +111,12 @@ Unregister-ScheduledTask -TaskName "SportMaps-DreamersBridge" -Confirm:$false
 
 ## Pendiente / mejora futura
 
-No hay todavía una alerta automática si Dreamers deja de reportar (hoy
-solo se nota si alguien mira el panel). El dato ya existe
-(`turnstile_devices.last_seen_at`) — falta un chequeo periódico (cron o
-job del BFF) que avise si pasa de un umbral sin actualizarse. No
-implementado en esta iteración.
+- ✅ **La alerta si Dreamers deja de reportar ya existe — no hacía falta
+  construir nada.** `alert_offline_access_devices()` (pg_cron cada 5 min,
+  vive solo en la base, sin migración) revisa `turnstile_devices.last_seen_at`
+  de todas las escuelas y avisa al owner si pasan 15+ minutos sin
+  actualizarse. Para Dreamers eso es exactamente "la PC del bridge se
+  apagó" (es la única vía que toca ese campo, vía `send_heartbeat()`).
+  Confirmado 2026-08-27 al portar el heartbeat de GYM RM — ver
+  `scripts/gymrm-door-bridge/VALIDACION-2026-08-25.md`.
+- La apertura manual está sin calibrar en campo — ver sección de arriba.

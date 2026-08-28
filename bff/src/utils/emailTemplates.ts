@@ -342,6 +342,53 @@ export const BrandedEmailTemplates = {
             }),
         };
     },
+
+    /**
+     * Confirmación de clase de prueba agendada por el owner/admin desde el
+     * módulo de instalaciones (ver docs/specs/clases-de-prueba-agenda-owner.md).
+     * Va al prospecto, no a un usuario con cuenta — sin CTA de login.
+     */
+    trialClassConfirmation: async (params: {
+        prospectName: string;
+        childName?: string | null; // presente = prospectName es el acudiente, no el atleta
+        dateLabel: string;
+        timeLabel: string;
+        facilityName: string;
+        coachName: string;
+        priceLabel: string | null; // null = sin costo, no se muestra la fila
+        schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+        const priceRow = params.priceLabel
+            ? `<p style="margin: 4px 0;"><strong>Costo:</strong> ${escapeHtml(params.priceLabel)}</p>`
+            : '';
+        const intro = params.childName
+            ? `Confirmamos la clase de prueba de <strong>${escapeHtml(params.childName)}</strong> en <strong>${branding.schoolName}</strong>:`
+            : `Confirmamos tu clase de prueba en <strong>${branding.schoolName}</strong>:`;
+
+        return {
+            subject: `Confirmación de tu clase de prueba — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: '¡Clase de prueba confirmada!',
+                greeting: `Hola ${escapeHtml(params.prospectName)},`,
+                bodyHtml: `
+                    <p>${intro}</p>
+                    <table cellpadding="0" cellspacing="0" border="0" width="100%"
+                           style="background-color: #f3f4f6; border-radius: 8px; margin: 16px 0;">
+                        <tr><td style="padding: 16px;">
+                            <p style="margin: 4px 0;"><strong>Fecha:</strong> ${escapeHtml(params.dateLabel)}</p>
+                            <p style="margin: 4px 0;"><strong>Hora:</strong> ${escapeHtml(params.timeLabel)}</p>
+                            <p style="margin: 4px 0;"><strong>Lugar:</strong> ${escapeHtml(params.facilityName)}</p>
+                            <p style="margin: 4px 0;"><strong>Entrenador:</strong> ${escapeHtml(params.coachName)}</p>
+                            ${priceRow}
+                        </td></tr>
+                    </table>
+                `,
+                closingHtml: '¡Te esperamos!',
+            }),
+        };
+    },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
