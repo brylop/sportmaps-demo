@@ -39,6 +39,7 @@ import { PaymentOriginBadge } from '@/components/payment/PaymentOriginBadge';
 import { FailedAttemptChip } from '@/components/payment/FailedAttemptChip';
 import { isGatewayPayment } from '@/lib/paymentOrigin';
 import { PaymentAccountsEditor } from '@/components/payment/PaymentAccountsEditor';
+import { MonthCloseTab } from '@/components/finances/MonthCloseTab';
 import {
   resolvePaymentAccounts,
   serializePaymentAccounts,
@@ -392,7 +393,7 @@ export default function PaymentsAutomationPage() {
   // acá a abrir el mes — sin esto, quien llega desde ese link caía siempre en
   // "Cobros" y el botón de abrir mes, que vive en "Config", quedaba invisible.
   const [searchParams, setSearchParams] = useSearchParams();
-  const PAYMENTS_TABS = ['recurrent', 'teams', 'glosas', 'conciliacion', 'history', 'config'] as const;
+  const PAYMENTS_TABS = ['recurrent', 'teams', 'glosas', 'conciliacion', 'history', 'cierre', 'config'] as const;
   const tabParam = searchParams.get('tab');
   const activeTab = (PAYMENTS_TABS as readonly string[]).includes(tabParam || '') ? tabParam! : 'recurrent';
   // Se incrementa al conectar/quitar una pasarela: remonta SportMaps Pay para
@@ -1364,6 +1365,7 @@ export default function PaymentsAutomationPage() {
             <TabsTrigger value="glosas" className="text-xs sm:text-sm">Glosas</TabsTrigger>
             <TabsTrigger value="conciliacion" className="text-xs sm:text-sm">Conciliación</TabsTrigger>
             <TabsTrigger value="history" className="text-xs sm:text-sm">Historial</TabsTrigger>
+            <TabsTrigger value="cierre" className="text-xs sm:text-sm">Cierre</TabsTrigger>
             <TabsTrigger value="config" className="text-xs sm:text-sm">Config</TabsTrigger>
           </TabsList>
         </div>
@@ -2139,6 +2141,11 @@ export default function PaymentsAutomationPage() {
               </TableRefreshBar>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ── Tab: Cierre de Mes (F1) ──────────────────────────────────── */}
+        <TabsContent value="cierre">
+          <MonthCloseTab schoolId={schoolId} activeBranchId={activeBranchId} />
         </TabsContent>
 
         {/* ── Tab: Configuración (sin cambios de lógica, solo responsive) ── */}

@@ -864,6 +864,17 @@ export default function SchoolStudentsManagementPage() {
     return params.toString();
   };
 
+  // Estado de Cuenta: misma identidad desarmada que el resto de las RPCs de
+  // pagos (child_id / user_id / unregistered_athlete_id).
+  const buildAccountStatementParams = (student: any) => {
+    const athleteType = getAthleteType(student);
+    const params = new URLSearchParams();
+    if (athleteType === 'child') params.set('child_id', student.id);
+    else if (athleteType === 'adult') params.set('user_id', student.user_id || student.id);
+    else params.set('unregistered_athlete_id', student.id);
+    return params.toString();
+  };
+
   const enhancedStudents = useMemo(() => students.map(student => {
     const emergencyContact = student.emergency_contact || '';
     const hasEmergencyContactParts = emergencyContact.includes(' - ');
@@ -1059,6 +1070,9 @@ export default function SchoolStudentsManagementPage() {
         {/* PATCH: label y params según tipo de atleta */}
         <DropdownMenuItem onClick={() => navigate(`/invitations?${buildInviteParams(student)}`)}>
           {getAthleteType(student) === 'unregistered' ? 'Invitar Atleta' : 'Invitar Acudiente'}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate(`/estado-cuenta?${buildAccountStatementParams(student)}`)}>
+          Ver estado de cuenta
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

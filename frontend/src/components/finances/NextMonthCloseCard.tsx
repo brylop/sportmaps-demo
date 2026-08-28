@@ -59,7 +59,8 @@ export function NextMonthCloseCard({ schoolId, activeBranchId }: NextMonthCloseC
           </div>
           <Button asChild variant="outline">
             {/* ?tab=config: sin esto caía en el tab "Cobros" por defecto y el
-                botón de abrir el mes (en "Config") quedaba invisible. */}
+                botón de abrir el mes (en "Config") quedaba invisible. El
+                cierre de mes (F1) vive en su propio tab "Cierre", no acá. */}
             <Link to="/payments-automation?tab=config">
               Abrir el mes en Gestión de Pagos
             </Link>
