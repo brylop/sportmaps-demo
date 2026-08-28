@@ -1,0 +1,177 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useToast } from '@/hooks/use-toast';
+import { bffClient } from '@/lib/api/bffClient';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export type TrialClassStatus = 'agendada' | 'realizada' | 'no_show' | 'cancelada' | 'convertida';
+
+export interface TrialClassBooking {
+  id: string;
+  school_id: string;
+  facility_id: string;
+  coach_id: string;
+  attendance_session_id: string | null;
+  enrollment_id: string | null;
+  unregistered_athlete_id: string | null;
+  prospect_name: string;
+  prospect_email: string;
+  prospect_whatsapp: string;
+  is_minor: boolean;
+  child_name: string | null;
+  scheduled_date: string;      // 'yyyy-MM-dd'
+  start_time: string;          // 'HH:mm:ss'
+  end_time: string;
+  price_charged: number;
+  status: TrialClassStatus;
+  cancel_reason: string | null;
+  confirmation_email_sent_at: string | null;
+  whatsapp_message: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TrialClassSettings {
+  school_id?: string;
+  enabled: boolean;
+  price: number;
+  requires_approval: boolean;
+}
+
+export interface JointSlot {
+  slot_date: string;
+  slot_start_time: string;
+  slot_end_time: string;
+  facility_availability_id: string;
+  coach_availability_id: string;
+}
+
+export interface CreateTrialBookingPayload {
+  facility_availability_id: string;
+  coach_availability_id: string;
+  scheduled_date: string;
+  start_time: string;
+  end_time: string;
+  prospect_name: string;
+  prospect_email: string;
+  prospect_whatsapp: string;
+  is_minor?: boolean;
+  child_name?: string;
+}
+
+export interface CreateTrialBookingResponse {
+  id: string;
+  whatsapp_message: string;
+  whatsapp_link: string;
+  email_sent: boolean;
+}
+
+// ─── Hook ─────────────────────────────────────────────────────────────────────
+
+export function useTrialClasses(filters?: { status?: TrialClassStatus; from?: string; to?: string }) {
+  const { schoolId } = useSchoolContext();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const LIST_KEY = ['trial-class-bookings', schoolId, filters];
+  const SETTINGS_KEY = ['trial-class-settings', schoolId];
+
+  const { data: bookings = [], isLoading, isFetching, refetch } = useQuery<TrialClassBooking[]>({
+    queryKey: LIST_KEY,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters?.status) params.set('status', filters.status);
+      if (filters?.from) params.set('from', filters.from);
+      if (filters?.to) params.set('to', filters.to);
+      const qs = params.toString();
+      return bffClient.get<TrialClassBooking[]>(`/api/v1/trial-classes${qs ? `?${qs}` : ''}`);
+    },
+    enabled: !!schoolId,
+  });
+
+  const { data: settings } = useQuery<TrialClassSettings>({
+    queryKey: SETTINGS_KEY,
+    queryFn: () => bffClient.get<TrialClassSettings>('/api/v1/trial-classes/settings'),
+    enabled: !!schoolId,
+  });
+
+  const { mutateAsync: saveSettings, isPending: isSavingSettings } = useMutation({
+    mutationFn: (payload: TrialClassSettings) => bffClient.put('/api/v1/trial-classes/settings', payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: SETTINGS_KEY });
+      toast({ title: '✅ Configuración guardada' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Error al guardar', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const getJointSlots = async (facilityId: string, coachId: string, from: string, to: string): Promise<JointSlot[]> => {
+    const params = new URLSearchParams({ facilityId, coachId, from, to });
+    return bffClient.get<JointSlot[]>(`/api/v1/trial-classes/slots?${params.toString()}`);
+  };
+
+  const { mutateAsync: createBooking, isPending: isCreating } = useMutation({
+    mutationFn: (payload: CreateTrialBookingPayload) =>
+      bffClient.post<CreateTrialBookingResponse>('/api/v1/trial-classes', payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['trial-class-bookings', schoolId] });
+      toast({ title: '✅ Clase de prueba agendada' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'No se pudo agendar', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const { mutateAsync: updateStatus, isPending: isUpdatingStatus } = useMutation({
+    mutationFn: ({ id, status, cancel_reason }: { id: string; status: TrialClassStatus; cancel_reason?: string }) =>
+      bffClient.patch(`/api/v1/trial-classes/${id}/status`, { status, cancel_reason }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['trial-class-bookings', schoolId] });
+      toast({ title: '✅ Estado actualizado' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'No se pudo actualizar', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const { mutateAsync: resendConfirmation, isPending: isResending } = useMutation({
+    mutationFn: (id: string) => bffClient.post(`/api/v1/trial-classes/${id}/resend-confirmation`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['trial-class-bookings', schoolId] });
+      toast({ title: '✅ Correo reenviado' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'No se pudo reenviar', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const stats = {
+    total: bookings.length,
+    agendada: bookings.filter((b) => b.status === 'agendada').length,
+    realizada: bookings.filter((b) => b.status === 'realizada').length,
+    no_show: bookings.filter((b) => b.status === 'no_show').length,
+    cancelada: bookings.filter((b) => b.status === 'cancelada').length,
+    convertida: bookings.filter((b) => b.status === 'convertida').length,
+  };
+
+  return {
+    bookings,
+    isLoading,
+    isFetching,
+    refetch,
+    stats,
+    settings,
+    saveSettings,
+    isSavingSettings,
+    getJointSlots,
+    createBooking,
+    isCreating,
+    updateStatus,
+    isUpdatingStatus,
+    resendConfirmation,
+    isResending,
+  };
+}

@@ -230,3 +230,49 @@ credenciales de Supabase/Render:**
 No se tocó `access-api.ts` ni `AccessControlPage.tsx` — no hacía falta
 (el productor `manual-open` ya estaba bien) y esos archivos tienen trabajo
 sin commitear de otra sesión (tarjeta de "Aforo") que se evitó pisar.
+
+## Ajustes posteriores, en producción (2026-08-26/27)
+
+Una vez el bridge quedó corriendo en campo, salieron tres cosas más:
+
+**Ajuste del pulso.** El acceso normal y el software oficial de ZKTeco
+abrían el torniquete limpio; nuestro bridge no. Causa: `zk.ZK.unlock(time)`
+hace `pack("I", int(time)*10)` — trunca `time` a entero **antes** de
+multiplicar por 10, así que nunca manda menos de 1 segundo sostenido, y a
+1s+ el torniquete de GYM RM (brazo giratorio sin bloqueo mecánico de "una
+vuelta y se traba") se re-arma varias veces por ventana. Se probó `0`
+completo (ningún efecto físico — confirma que `0` no es un pulso, es
+"nada") y valores intermedios en décimas de segundo llamando al
+`CMD_UNLOCK` de más bajo nivel directo (`conn._ZK__send_command`, saltando
+el truncado de `unlock()`) con [`test_pulse.py`](./test_pulse.py). **0.2s
+(2 décimas) confirmado limpio en los dos lectores**, primero con el script
+suelto y después por el flujo real del dashboard. Quedó como
+`PULSE_DECISECONDS` en `door_bridge.py`, desacoplado del campo "Tiempo de
+apertura" del dashboard (que sigue existiendo y sigue controlando
+`Door1Drivertime` por ADMS para el acceso normal — ese sí funciona bien a
+1-2s, es un mecanismo distinto).
+
+**Heartbeat: `bridge_heartbeats` sí hacía falta para GYM RM, no para
+Dreamers.** Se agregó una tabla nueva + cron en el BFF para avisar si el
+bridge deja de sondear `/bridge/door-commands`. Al ir a portarlo a
+Dreamers se encontró que ya existe `alert_offline_access_devices()`
+(pg_cron cada 5 min, sin migración) cubriendo exactamente eso — para
+Dreamers alcanza porque la única vía que toca `turnstile_devices.last_seen_at`
+es el propio `send_heartbeat()` de su bridge. Para GYM RM ese mecanismo
+existente no servía porque el lector habla ADMS directo y sigue marcando
+`last_seen_at` fresco aunque la PC del bridge esté apagada — de ahí la
+señal aparte. Ver `INF-12` en el roadmap para el detalle completo.
+
+**Bug de plata encontrado en el camino: inscripciones que se cancelan
+solas pese a que la persona sigue pagando.** Al investigar por qué varios
+atletas de GYM RM salían `no_enrollment` en los eventos de acceso, se
+encontró una condición de carrera entre dos funciones de la base (ninguna
+en migraciones): `fn_expire_overdue_enrollments()` (cron diario, cancela
+lo vencido) le gana la carrera a `fn_extend_enrollment_on_payment_paid()`
+(trigger del 17-jul, extiende `expires_at` al pagar, pero solo si la
+inscripción sigue `active`) cuando el pago del mes se aprueba después de
+que el cron ya canceló. 15 atletas afectados, reactivados a mano, trigger
+corregido para que también reactive inscripciones `cancelled`. Ver
+**`DIN-20`** en el roadmap — no es un problema de este bridge ni de
+GYM RM en particular, pero se detectó por acá. Dreamers no lo tiene
+(usa banco de horas, no `expires_at`).

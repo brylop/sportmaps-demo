@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 436,
+  "count": 442,
   "head": "20260827231724",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
@@ -437,6 +437,12 @@
     {"v":"20260827174032","file":"20260827174032_hour_bank_rpc_auth_y_autocierre_fix.sql","sha256":"4e7720139596a3e728c6c98dbcb7d1cbba8a9abd947f142a7e379180c515c9a5","added":"2026-08-27","by":"brylop"},
     {"v":"20260827174556","file":"20260827174556_reserve_hour_bank_usa_bloque_del_plan.sql","sha256":"041677f8d9f47a4854997e13644284fae9aead2c50e69a4fa0189727e222cdb5","added":"2026-08-27","by":"brylop"},
     {"v":"20260827175215","file":"20260827175215_fee_is_manual_becas_cuota_exenta.sql","sha256":"d807cad05b9f7ec48b5a1538c8f49f796605d3ebc349f300a4adf16d3bde3993","added":"2026-08-27","by":"brylop"},
+    {"v":"20260827184021","file":"20260827184021_clases_de_prueba_agenda.sql","sha256":"1f3014ebdf68048e917c099820467512345b3fb189544edbbbbb2b4e0c93bac3","added":"2026-08-27","by":"judegor99"},
+    {"v":"20260827190429","file":"20260827190429_clases_de_prueba_revoke_anon.sql","sha256":"b6409e5a6760dd3ee360ad08e14364f9584c1108e6ed4358b91f9dfddfce493e","added":"2026-08-28","by":"judegor99"},
+    {"v":"20260827191307","file":"20260827191307_clases_de_prueba_fix_bff_auth.sql","sha256":"9c0d1c65ec219a7bd0e76341acb671fb4535436ab91f898c37643168bbcbdf57","added":"2026-08-28","by":"judegor99"},
+    {"v":"20260827194111","file":"20260827194111_clases_de_prueba_menor_de_edad.sql","sha256":"673163ff38f364d06f34f723adbf760430a4bb22891b75c89275c35d47f5838e","added":"2026-08-28","by":"judegor99"},
+    {"v":"20260827195933","file":"20260827195933_fix_extend_enrollment_reactivar_canceladas.sql","sha256":"8625aaf0a036b2e675d39c084bfd0bf8fb98688190323acfa109f3d57dc7bc7c","added":"2026-08-28","by":"judegor99"},
+    {"v":"20260827214123","file":"20260827214123_dreamers_bridge_local_flag.sql","sha256":"4dc0b051773829afd5f25299819e2570e5bcdebb109379b001fb18df8c6463f9","added":"2026-08-28","by":"judegor99"},
     {"v":"20260827221640","file":"20260827221640_monthly_closes_table.sql","sha256":"704740a56b6ca3a75dd5f003780a6d986cd0c8b66b5d1e2c3d539d0161e706cb","added":"2026-08-28","by":"brylop"},
     {"v":"20260827221826","file":"20260827221826_cierre_de_mes_rpcs.sql","sha256":"fca068f9830398d44383d655100e827b920789b2a3f4c3d903916c19d7f948d8","added":"2026-08-28","by":"brylop"},
     {"v":"20260827231724","file":"20260827231724_athlete_account_statement_rpc.sql","sha256":"1b1352da68ad27b583a78c8219fc7ad07be204bd6440e3a9ce24b62be13f7e4c","added":"2026-08-28","by":"brylop"}

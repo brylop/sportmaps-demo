@@ -229,3 +229,14 @@ export async function createTacticalPreset(payload: {
 export async function deleteTacticalPreset(id: string): Promise<void> {
   await bffClient.delete(`/api/v1/school/football/tactical-presets/${id}`);
 }
+
+/** El PUT ya existía en el BFF desde que se creó el CRUD de presets -- nunca
+ *  se había llamado desde el frontend, así que "editar" una plantilla
+ *  cargada en realidad siempre creaba una nueva (POST) en vez de guardar los
+ *  cambios sobre la misma. */
+export async function updateTacticalPreset(
+  id: string,
+  payload: { name?: string; situation?: TacticalSituation; slots?: TacticalPresetSlot[]; arrows?: TacticalArrow[] },
+): Promise<TacticalPreset> {
+  return bffClient.put<TacticalPreset>(`/api/v1/school/football/tactical-presets/${id}`, payload);
+}
