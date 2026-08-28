@@ -46,7 +46,7 @@ export default function AuthLayout() {
         <div className="flex-1 flex flex-col w-full max-w-full overflow-x-hidden">
 
           {/* ── Header ─────────────────────────────────────────────────── */}
-          <header className="h-14 sm:h-16 flex items-center border-b px-3 sm:px-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 justify-between sticky top-0 z-50">
+          <header className="min-h-14 sm:min-h-16 flex items-center border-b px-3 sm:px-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 justify-between sticky top-0 z-50 sticky-safe">
 
             {/* Left: hamburger + school branding */}
             <div className="flex items-center gap-2 sm:gap-4 min-w-0">

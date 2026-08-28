@@ -346,7 +346,7 @@ export default function CheckoutPage() {
   return (
     <div className="min-h-screen bg-muted/30">
       {/* Header */}
-      <div className="bg-background border-b sticky top-0 z-10">
+      <div className="bg-background border-b sticky top-0 z-10 sticky-safe">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>

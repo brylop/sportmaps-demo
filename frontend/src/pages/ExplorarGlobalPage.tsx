@@ -545,7 +545,7 @@ export default function ExplorarGlobalPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted/20">
       {/* ── Back nav ─────────────────────────────────────────────────────────── */}
-      <div className="bg-background/80 backdrop-blur-md border-b sticky top-0 z-40">
+      <div className="bg-background/80 backdrop-blur-md border-b sticky top-0 z-40 sticky-safe">
         <div className="container mx-auto px-4 py-3 max-w-7xl">
           <Link
             to={backTo}

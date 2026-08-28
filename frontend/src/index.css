@@ -227,6 +227,17 @@
     padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
   }
 
+  /*
+   * Cabecera `sticky top-0` que es la primera cosa pegada al borde físico de
+   * arriba (no una segunda barra apilada debajo de otra, ni una sticky
+   * anidada dentro de un contenedor con scroll propio — esas NO llevan esta
+   * clase, o el notch se compensa dos veces). Aditiva, no `max()`: el alto
+   * visual de la cabecera debe CRECER con el inset, no recortarse.
+   */
+  .sticky-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
   .text-gradient-brand {
     background: linear-gradient(135deg, hsl(119 60% 32%), hsl(35 97% 55%));
     -webkit-background-clip: text;

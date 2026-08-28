@@ -31,7 +31,9 @@ const DrawerContent = React.forwardRef<
     <DrawerPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-[10px] border bg-background",
+        // mb empuja todo el drawer lejos del home indicator — el mismo problema
+        // que el side="bottom" de Sheet, mismo fix (no crecer el p-4 del footer).
+        "fixed inset-x-0 bottom-0 z-50 mt-24 mb-[env(safe-area-inset-bottom)] flex h-auto flex-col rounded-t-[10px] border bg-background",
         className,
       )}
       {...props}
