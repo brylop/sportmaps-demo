@@ -13,6 +13,37 @@ const TENANT_NAME_KEY = 'sm_pwa_tenant_name';
 const TENANT_DATA_KEY = 'sm_pwa_tenant_data';
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 
+export const LIVE_TENANT_EVENT = 'sm:pwa-live-tenant-changed';
+
+/**
+ * Escuela de la sesion autenticada ACTUAL, resuelta por usePwaTenantSync con
+ * el contexto real (schoolId + entitlements ya verificados por el servidor).
+ *
+ * Existe porque InstallBanner vive arriba del auth boundary (se monta junto a
+ * App, antes de AuthLayout) y por eso no puede leer useSchoolContext ni
+ * useEntitlements. Sin este puente, dependia de resolveTenantSlug(), que es
+ * deliberadamente conservador (piensa en visitantes anonimos: no confia en
+ * localStorage salvo que la app YA corra instalada) y por eso el banner de
+ * instalacion mostraba el icono generico de SportMaps en cualquier login
+ * normal — el titulo salia bien (via document.title, sin ese gate) pero el
+ * icono no, y quien instalaba en ese momento se quedaba con el icono
+ * generico fijo hasta desinstalar y reinstalar.
+ */
+let liveTenant: { slug: string; name: string } | null = null;
+
+export function setLiveTenant(tenant: { slug: string; name: string } | null): void {
+    liveTenant = tenant;
+    try {
+        window.dispatchEvent(new CustomEvent(LIVE_TENANT_EVENT));
+    } catch {
+        // DOM no disponible (SSR/tests).
+    }
+}
+
+export function getLiveTenant(): { slug: string; name: string } | null {
+    return liveTenant;
+}
+
 /** Marca cacheada de la escuela, para pintar sin esperar al servidor. */
 export interface TenantCache {
     id?: string;
@@ -199,6 +230,7 @@ export function clearPwaTenant(): void {
     } catch {
         // no-op
     }
+    setLiveTenant(null);
     resetIosMetaTags();
 }
 

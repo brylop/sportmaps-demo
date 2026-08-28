@@ -16,6 +16,9 @@ interface AgingReport {
   items: Array<{
     athlete: string;
     tipo: 'menor' | 'adulto' | 'no_registrado';
+    child_id: string | null;
+    adult_id: string | null;
+    unregistered_athlete_id: string | null;
     branch_id: string | null;
     cuotas_debidas: number;
     periodo_mas_antiguo: string;
@@ -39,6 +42,20 @@ interface PaymentAgingCardProps {
   activeBranchId: string | null | undefined;
   /** Para que el badge de conteo del tab, en el shell, no dependa de una segunda query. */
   onCount?: (n: number) => void;
+  /**
+   * F1 Cierre de Mes: acota la lista a quien debe ESE período específico
+   * (`periodos_debidos` lo incluye), en vez de toda la cartera viva. No es un
+   * snapshot congelado — sigue siendo la misma consulta en vivo, solo
+   * filtrada en cliente. Opcional: sin esto, comportamiento intacto.
+   */
+  periodFilter?: { year: number; month: number };
+  /** F1 Cierre de Mes: drill-down por atleta al hacer clic en una fila. */
+  onAthleteClick?: (athlete: {
+    child_id: string | null;
+    adult_id: string | null;
+    unregistered_athlete_id: string | null;
+    name: string;
+  }) => void;
 }
 
 /**
@@ -46,7 +63,7 @@ interface PaymentAgingCardProps {
  * no client-side sobre `payments`: ese fetch tiene FETCH_CAP y a los 2-3 meses
  * empezaría a perder atletas en el conteo de antigüedad.
  */
-export function PaymentAgingCard({ schoolId, activeBranchId, onCount }: PaymentAgingCardProps) {
+export function PaymentAgingCard({ schoolId, activeBranchId, onCount, periodFilter, onAthleteClick }: PaymentAgingCardProps) {
   const {
     data: agingReport,
     isLoading: agingLoading,
@@ -69,7 +86,12 @@ export function PaymentAgingCard({ schoolId, activeBranchId, onCount }: PaymentA
 
   useEffect(() => { onCount?.(agingReport?.count ?? 0); }, [agingReport?.count, onCount]);
 
-  const agingItems = agingReport?.items ?? [];
+  // F1 Cierre de Mes: filtro opcional al período del cierre seleccionado —
+  // sigue siendo la cartera EN VIVO (§0.2 del plan), solo acotada en cliente.
+  const periodLabel = periodFilter ? `${String(periodFilter.month).padStart(2, '0')}/${periodFilter.year}` : null;
+  const agingItems = (agingReport?.items ?? []).filter(
+    (i) => !periodLabel || i.periodos_debidos.includes(periodLabel),
+  );
   const [agingBucket, setAgingBucket] = useState<string | null>(null);
   const [agingPage, setAgingPage] = useState(1);
   useEffect(() => { setAgingPage(1); }, [agingBucket, schoolId, activeBranchId]);
@@ -169,7 +191,22 @@ export function PaymentAgingCard({ schoolId, activeBranchId, onCount }: PaymentA
           )}
           {pagedAging.map((item, idx) => (
             <TableRow key={`${item.athlete}-${idx}`}>
-              <TableCell className="font-medium">{item.athlete}</TableCell>
+              <TableCell className="font-medium">
+                {onAthleteClick ? (
+                  <button
+                    type="button"
+                    className="underline decoration-dotted underline-offset-2 hover:text-primary text-left"
+                    onClick={() => onAthleteClick({
+                      child_id: item.child_id,
+                      adult_id: item.adult_id,
+                      unregistered_athlete_id: item.unregistered_athlete_id,
+                      name: item.athlete,
+                    })}
+                  >
+                    {item.athlete}
+                  </button>
+                ) : item.athlete}
+              </TableCell>
               <TableCell className="capitalize">{item.tipo.replace('_', ' ')}</TableCell>
               {/* No solo el conteo: qué meses EXACTAMENTE — "2 meses" sin
                   decir cuáles era la queja de que este reporte no era claro. */}
