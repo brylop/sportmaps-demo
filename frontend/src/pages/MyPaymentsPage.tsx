@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -621,6 +622,31 @@ export default function MyPaymentsPage() {
           Nuevo Pago
         </Button>
       </div>
+
+      {/* Estado de Cuenta por hijo — misma pantalla que usa la escuela
+          (get_athlete_account_statement), acotada a lo suyo por el gate de la
+          RPC (children.parent_id = auth.uid()). El atleta adulto (rol
+          `athlete`) ve el suyo con user_id = su propio id. */}
+      {(enrollments.some(e => e.child_id) || profile?.role === 'athlete') && (
+        <div className="flex flex-wrap gap-2">
+          {[...new Map(enrollments.filter(e => e.child_id).map(e => [e.child_id, e])).values()].map((e) => (
+            <Button key={e.child_id} asChild variant="outline" size="sm">
+              <Link to={`/estado-cuenta?child_id=${e.child_id}`}>
+                <FileText className="h-3.5 w-3.5 mr-2" />
+                Estado de cuenta — {e.children?.full_name || 'mi hijo/a'}
+              </Link>
+            </Button>
+          ))}
+          {profile?.role === 'athlete' && user?.id && (
+            <Button asChild variant="outline" size="sm">
+              <Link to={`/estado-cuenta?user_id=${user.id}`}>
+                <FileText className="h-3.5 w-3.5 mr-2" />
+                Mi estado de cuenta
+              </Link>
+            </Button>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Card className="hover:shadow-md transition-shadow">

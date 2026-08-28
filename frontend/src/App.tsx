@@ -93,6 +93,7 @@ const ChildReportDetailPage = lazy(() => import("./pages/ChildReportDetailPage")
 const AcademicProgressPage = lazy(() => import("./pages/AcademicProgressPage"));
 const AttendancePage = lazy(() => import("./pages/AttendancePage"));
 const MyPaymentsPage = lazy(() => import("./pages/MyPaymentsPage"));
+const AccountStatementPage = lazy(() => import("./pages/AccountStatementPage"));
 
 // ─── Coach pages (lazy) ───────────────────────────────────────────────────────
 const CoachAttendancePage = lazy(() => import("./pages/CoachAttendancePage"));
@@ -445,6 +446,14 @@ const App = () => (
                       <Route path="my-payments" element={
                         <ProtectedRoute allowedRoles={['parent', 'athlete']}>
                           <MyPaymentsPage />
+                        </ProtectedRoute>
+                      } />
+                      {/* Estado de Cuenta: misma RPC/pantalla para admin (viendo
+                          cualquier atleta) y para el padre/adulto (viendo el
+                          suyo propio) — el gate lo resuelve la RPC, no la ruta. */}
+                      <Route path="estado-cuenta" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'parent', 'athlete']}>
+                          <AccountStatementPage />
                         </ProtectedRoute>
                       } />
                       <Route path="mi-tienda" element={

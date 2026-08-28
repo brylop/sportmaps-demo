@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getDisplayMode, getPwaTenantName, getPwaTenantSlug, isIos } from './tenant'
+import { getDisplayMode, getLiveTenant, getPwaTenantName, getPwaTenantSlug, isIos, LIVE_TENANT_EVENT } from './tenant'
 
 const IOS_DISMISS_KEY = 'sm_ios_install_dismissed'
 
@@ -13,11 +13,23 @@ export function InstallBanner() {
   // absolutamente nada y no habia forma de saber que la app era instalable.
   const [mostrarIos, setMostrarIos] = useState(false)
 
+  // Escuela ya verificada de la sesion autenticada (usePwaTenantSync, corre
+  // dentro del auth boundary). Se prefiere sobre resolveTenantSlug(), que es
+  // el fallback conservador para visitantes anonimos (?t=, subdominio, o app
+  // ya instalada) y por eso no se entera de un login normal a la app.
+  const [liveTenant, setLiveTenantState] = useState(() => getLiveTenant())
+
+  useEffect(() => {
+    const onLiveTenant = () => setLiveTenantState(getLiveTenant())
+    window.addEventListener(LIVE_TENANT_EVENT, onLiveTenant)
+    return () => window.removeEventListener(LIVE_TENANT_EVENT, onLiveTenant)
+  }, [])
+
   // Marca con la que se va a instalar. Es la MISMA que resolvio el script inline
   // del index.html para el manifest, asi que lo que anuncia el banner coincide
   // con el icono que va a quedar en la pantalla de inicio.
-  const slug = getPwaTenantSlug()
-  const nombreEscuela = getPwaTenantName()
+  const slug = liveTenant?.slug ?? getPwaTenantSlug()
+  const nombreEscuela = liveTenant?.name ?? getPwaTenantName()
   const nombre = nombreEscuela || 'SportMaps'
   const icono = slug ? `/app-icon.png?s=${encodeURIComponent(slug)}` : '/icons/icon-72.png'
 
