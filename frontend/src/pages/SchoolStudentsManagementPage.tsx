@@ -39,6 +39,7 @@ import { StudentTypeSelector } from '@/components/students/StudentTypeSelector';
 import { CreateChildModal } from '@/components/students/CreateChildModal';
 import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
 import { useSchoolContext, createStudentWithPendingPayment } from '@/hooks/useSchoolContext';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { studentsAPI, StudentViewRow } from '@/lib/api/students';
 import { daysDiffFromToday } from '@/lib/dateUtils';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
@@ -184,9 +185,18 @@ export default function SchoolStudentsManagementPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  const { coachCanCreateAthletes } = useEntitlements();
+
   // Alta de deportistas: SOLO admin/owner. El coach de escuela es solo lectura
-  // (ve/gestiona los atletas de sus equipos, pero no los da de alta).
+  // (ve/gestiona los atletas de sus equipos, pero no los da de alta) — esto NO
+  // cambia: sigue gateando CSV, inactivar/reactivar (el RPC exige
+  // is_school_admin sin importar el flag) y carga de documentos.
   const canManageStudents = profile?.role !== 'coach';
+
+  // Excepción activada por la escuela (school_settings.coach_can_create_athletes
+  // — caso Carmel Club): SOLO alta 1x1 y edición de perfil. Nunca CSV ni
+  // inactivar/reactivar — el BFF tampoco los habilita bajo este flag.
+  const canCreateOrEditStudents = canManageStudents || coachCanCreateAthletes;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showTypeSelector, setShowTypeSelector] = useState(false);
@@ -1057,7 +1067,7 @@ export default function SchoolStudentsManagementPage() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => setViewingStudent(student)}>Ver Perfil</DropdownMenuItem>
-        {canManageStudents && (
+        {canCreateOrEditStudents && (
           <DropdownMenuItem onClick={() => handleEditStudent(student)}>Editar</DropdownMenuItem>
         )}
         {/* Inactivar cancela el plan y anula la cartera pendiente: es acción de
@@ -1090,22 +1100,27 @@ export default function SchoolStudentsManagementPage() {
             {filteredStudents.length !== tabStudents.length && ` de ${tabStudents.length}`} en <strong>{schoolName}</strong>
           </p>
         </div>
-        {canManageStudents && (
+        {(canManageStudents || canCreateOrEditStudents) && (
           <div className="flex gap-2 flex-wrap">
             <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
               <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">Actualizar</span>
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)}>
-              <FileUp className="mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">Importar CSV</span>
-              <span className="sm:hidden">CSV</span>
-            </Button>
-            <Button size="sm" onClick={handleCreateStudent}>
-              <UserPlus className="w-4 h-4 mr-2" />
-              <span className="hidden sm:inline">Agregar Atleta</span>
-              <span className="sm:hidden">Agregar</span>
-            </Button>
+            {/* CSV es carga masiva: nunca se habilita para coach, ni con el flag. */}
+            {canManageStudents && (
+              <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)}>
+                <FileUp className="mr-2 h-4 w-4" />
+                <span className="hidden sm:inline">Importar CSV</span>
+                <span className="sm:hidden">CSV</span>
+              </Button>
+            )}
+            {canCreateOrEditStudents && (
+              <Button size="sm" onClick={handleCreateStudent}>
+                <UserPlus className="w-4 h-4 mr-2" />
+                <span className="hidden sm:inline">Agregar Atleta</span>
+                <span className="sm:hidden">Agregar</span>
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -1220,8 +1235,10 @@ export default function SchoolStudentsManagementPage() {
                 title="No hay atletas"
                 description={canManageStudents
                   ? "Agrega atletas manualmente o importa desde un archivo CSV"
+                  : canCreateOrEditStudents
+                  ? "Agrega atletas manualmente a tus equipos."
                   : "Aún no hay atletas en tus equipos. El alta la realiza la escuela."}
-                {...(canManageStudents ? { actionLabel: "+ Agregar Atleta", onAction: handleCreateStudent } : {})}
+                {...(canCreateOrEditStudents ? { actionLabel: "+ Agregar Atleta", onAction: handleCreateStudent } : {})}
               />
             </div>
           ) : (
@@ -1328,7 +1345,7 @@ export default function SchoolStudentsManagementPage() {
                         <TableCell>
                           <div className="flex gap-1">
                             <Button variant="ghost" size="sm" onClick={() => setViewingStudent(student)}>Ver</Button>
-                            {canManageStudents && (
+                            {canCreateOrEditStudents && (
                               <Button variant="ghost" size="sm" onClick={() => handleEditStudent(student)}><Edit className="h-4 w-4 text-primary" /></Button>
                             )}
                             {canManageStudents && (
@@ -2053,7 +2070,7 @@ export default function SchoolStudentsManagementPage() {
                   <Button variant="outline" onClick={() => setViewingStudent(null)}>
                     Cerrar
                   </Button>
-                  {canManageStudents && (
+                  {canCreateOrEditStudents && (
                     <Button onClick={() => {
                       const stored = s;
                       setViewingStudent(null);

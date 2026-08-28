@@ -617,16 +617,18 @@ router.get('/', requireAuth, requireRole('owner', 'admin', 'super_admin', 'schoo
 // ── PUT /api/v1/students/:id ──────────────────────────────────────────────────
 // Actualiza perfil base + enrollment de un atleta.
 // Usa service role → ownership check OBLIGATORIO antes de cualquier write.
-// ⚠️ El entrenador NO va en esta lista. Este endpoint escribe la cuota de la
-// inscripción (`monthly_fee`), el correo y el teléfono del acudiente, y la
-// identidad del atleta (nombre, documento, fecha de nacimiento). Cambiar cuánto
-// paga una familia o a dónde le llegan las notificaciones no es una atribución
-// deportiva. Antes aceptaba 'coach' — incoherente con POST /students/bulk, que
-// nunca lo aceptó. El coach queda en solo lectura sobre atletas.
+// Este endpoint escribe la cuota de la inscripción (`monthly_fee`), el correo y
+// el teléfono del acudiente, y la identidad del atleta (nombre, documento,
+// fecha de nacimiento). Cambiar cuánto paga una familia o a dónde le llegan las
+// notificaciones no es una atribución deportiva — por eso 'coach' quedó fuera
+// de esta lista en su momento, incoherente con POST /students/bulk (que nunca
+// lo aceptó). Vuelve a entrar SOLO si la escuela activó
+// school_settings.coach_can_create_athletes (mig 20260828174117, Carmel Club);
+// el guard real está más abajo, después de leer settings, no en esta lista.
 router.put(
   '/:id',
   requireAuth,
-  requireRole('owner', 'admin', 'school_admin', 'staff'),
+  requireRole('owner', 'admin', 'school_admin', 'staff', 'coach'),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       // req.params.id llega tipado como string | string[] (Express 5): se
@@ -640,6 +642,21 @@ router.put(
 
       if (!id || !athlete_type || !schoolId) {
         return res.status(400).json({ error: 'Faltan parámetros requeridos.' });
+      }
+
+      // Sin fila de settings se aplica el default de la columna (false): un
+      // coach solo pasa si la escuela lo activó explícitamente.
+      if (req.role === 'coach') {
+        const { data: settings } = await supabase
+          .from('school_settings')
+          .select('coach_can_create_athletes')
+          .eq('school_id', schoolId)
+          .maybeSingle();
+        if (!settings?.coach_can_create_athletes) {
+          return res.status(403).json({
+            error: 'Esta escuela no permite que un entrenador edite atletas. Pídelo a la escuela.',
+          });
+        }
       }
 
       // ── PASO 1: Verificar ownership según tipo ────────────────────────────
@@ -1185,6 +1202,19 @@ router.put(
         }
       }
 
+      // Auditoría — misma razón que en students-create-one.route.ts: reabre un
+      // permiso que el resto de las escuelas tiene cerrado, así que queda rastro.
+      if (req.role === 'coach') {
+        const { error: auditErr } = await supabase.from('audit_logs').insert({
+          school_id:  schoolId,
+          profile_id: req.user?.id || null,
+          table_name: athlete_type === 'child' ? 'children' : athlete_type === 'adult' ? 'profiles' : 'unregistered_athletes',
+          record_id:  id,
+          action:     'COACH_EDIT_ATHLETE',
+          new_data:   { profile, enrollment },
+        });
+        if (auditErr) req.log?.error({ err: auditErr }, 'Error registrando auditoría de edición por coach');
+      }
 
       return res.json({ success: true, warnings });
 
