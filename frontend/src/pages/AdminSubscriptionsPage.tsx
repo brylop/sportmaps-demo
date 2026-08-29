@@ -60,6 +60,15 @@ const PLANS = [
   { code: 'enterprise',  label: 'Custom' },
 ];
 
+type BillingCycle = 'monthly' | 'quarterly' | 'semiannual' | 'annual';
+
+const BILLING_CYCLE_LABELS: Record<BillingCycle, string> = {
+  monthly: 'Mensual',
+  quarterly: 'Trimestral (3 meses)',
+  semiannual: 'Semestral (6 meses)',
+  annual: 'Anual',
+};
+
 interface SchoolRow { id: string; name: string; city: string | null; }
 
 interface SaasInvoiceRow {
@@ -120,9 +129,9 @@ export default function AdminSubscriptionsPage() {
   const [loadingSaas, setLoadingSaas] = useState(false);
   const [sendingInvoiceId, setSendingInvoiceId] = useState<string | null>(null);
   const [customPriceCents, setCustomPriceCents] = useState<number | null>(null);
-  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
+  const [billingCycle, setBillingCycle] = useState<BillingCycle>('monthly');
   const [customPriceDraft, setCustomPriceDraft] = useState('');
-  const [billingCycleDraft, setBillingCycleDraft] = useState<'monthly' | 'annual'>('monthly');
+  const [billingCycleDraft, setBillingCycleDraft] = useState<BillingCycle>('monthly');
   const [periodStartDraft, setPeriodStartDraft] = useState('');
   const [savingCustomPrice, setSavingCustomPrice] = useState(false);
   const [currentPeriod, setCurrentPeriod] = useState<{ start: string; end: string } | null>(null);
@@ -174,7 +183,7 @@ export default function AdminSubscriptionsPage() {
     setSaasBillingEnabled((sub as any)?.saas_billing_enabled ?? false);
     setSaasInvoices((invoices as any) || []);
     const cents = (sub as any)?.custom_price_cents ?? null;
-    const cycle = ((sub as any)?.billing_cycle as 'monthly' | 'annual') ?? 'monthly';
+    const cycle = ((sub as any)?.billing_cycle as BillingCycle) ?? 'monthly';
     setCustomPriceCents(cents);
     setBillingCycle(cycle);
     setCustomPriceDraft(cents != null ? String(Math.round(cents / 100)) : '');
@@ -755,7 +764,7 @@ export default function AdminSubscriptionsPage() {
                     <p className="text-sm font-semibold">Precio negociado</p>
                     {customPriceCents != null && (
                       <Badge variant="outline" className="border-emerald-500 text-emerald-600">
-                        {formatCopCents(customPriceCents)} · {billingCycle === 'annual' ? 'anual' : 'mensual'}
+                        {formatCopCents(customPriceCents)} · {BILLING_CYCLE_LABELS[billingCycle].toLowerCase()}
                       </Badge>
                     )}
                   </div>
@@ -787,11 +796,12 @@ export default function AdminSubscriptionsPage() {
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs text-muted-foreground">Ciclo</label>
-                      <Select value={billingCycleDraft} onValueChange={(v) => setBillingCycleDraft(v as 'monthly' | 'annual')}>
-                        <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
+                      <Select value={billingCycleDraft} onValueChange={(v) => setBillingCycleDraft(v as BillingCycle)}>
+                        <SelectTrigger className="w-[190px]"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="monthly">Mensual</SelectItem>
-                          <SelectItem value="annual">Anual</SelectItem>
+                          {(Object.keys(BILLING_CYCLE_LABELS) as BillingCycle[]).map((c) => (
+                            <SelectItem key={c} value={c}>{BILLING_CYCLE_LABELS[c]}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -820,12 +830,13 @@ export default function AdminSubscriptionsPage() {
                   <p className="text-[11px] text-muted-foreground">
                     "Reiniciar período desde" es opcional — solo úsalo si el período vigente quedó desfasado
                     (ej. arrastrado de un ciclo mensual viejo) y el trato nuevo arranca en otro mes. El fin de
-                    período se calcula solo (+1 mes o +1 año según el ciclo elegido arriba).
+                    período se calcula solo según el ciclo elegido arriba (+1, +3, +6 meses o +1 año).
                   </p>
 
                   <p className="text-[11px] text-muted-foreground">
-                    Anual queda fuera del ciclo automático de renovación (por diseño — hoy solo <code>monthly</code>{' '}
-                    se auto-renueva); la factura anual se genera y reenvía a mano desde este panel.
+                    Trimestral, semestral y anual quedan fuera del ciclo automático de renovación (por diseño —
+                    hoy solo <code>monthly</code> se auto-renueva); esas facturas se generan y reenvían a mano
+                    desde este panel cuando corresponda.
                   </p>
                 </div>
 

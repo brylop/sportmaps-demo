@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 447,
-  "head": "20260828224354",
+  "count": 454,
+  "head": "20260829123314",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -450,6 +450,13 @@
     {"v":"20260828174117","file":"20260828174117_coach_can_create_athletes.sql","sha256":"841d77e0e03bf3efbdd74d79bee7bc7842ca36c230a7462d08d733b8dfd125db","added":"2026-08-28","by":"brylop"},
     {"v":"20260828174447","file":"20260828174447_admin_set_custom_price_service_role_guard.sql","sha256":"199fbdecc0639c6ca2db05110c2e2b647bfc595898de3e96bfcfc1b60d60f84b","added":"2026-08-28","by":"brylop"},
     {"v":"20260828224353","file":"20260828224353_endurecer_grants_anon_metricas.sql","sha256":"0f5bb477ef0aefe8f9601606584ebb1d61ad3a8c9daa01baef3a14ce4ac9c690","added":"2026-08-28","by":"judegor99"},
-    {"v":"20260828224354","file":"20260828224354_admin_set_custom_price_period_start.sql","sha256":"7cc446546ebdcfc4d7781f1aa6871993f178381ceaf87414b522c0258063094a","added":"2026-08-28","by":"brylop"}
+    {"v":"20260828224354","file":"20260828224354_admin_set_custom_price_period_start.sql","sha256":"7cc446546ebdcfc4d7781f1aa6871993f178381ceaf87414b522c0258063094a","added":"2026-08-28","by":"brylop"},
+    {"v":"20260828230512","file":"20260828230512_renombrar_sesiones_entrenamiento_futbol.sql","sha256":"f4134862fab2fca6966c0bd2defcd4f69c4820534d905f070d9a20388e9b27d8","added":"2026-08-28","by":"judegor99"},
+    {"v":"20260828230513","file":"20260828230513_clases_de_prueba_categorias.sql","sha256":"d6963f8718196597942edc8ebe255cbf84ba2a91cc138b63fd23db66eea4d60b","added":"2026-08-29","by":"judegor99"},
+    {"v":"20260828230514","file":"20260828230514_public_booking_email_en_vez_de_telefono.sql","sha256":"743cc6ee93afd1860eca1b0b6456b5134c5fbd7f072059f1d384d46048df98c4","added":"2026-08-29","by":"judegor99"},
+    {"v":"20260828230515","file":"20260828230515_public_booking_confirmar_atomico_y_grants.sql","sha256":"6309c905d176668064f91506a649f3c59d5a3d41bc60516910942e96ac0fea81","added":"2026-08-29","by":"judegor99"},
+    {"v":"20260828232516","file":"20260828232516_session_booking_reschedule_y_notificaciones.sql","sha256":"40bf27123ab422311cf36a44fa625546703f6a43cf81e0f0acfd18abf1d7149e","added":"2026-08-29","by":"judegor99"},
+    {"v":"20260829010122","file":"20260829010122_revocar_execute_funciones_enrollments_expuestas_anon.sql","sha256":"0929d2738e44e8b37895cbe158ebb3c8891af45a0953d219c9bef84661bc420d","added":"2026-08-29","by":"judegor99"},
+    {"v":"20260829123314","file":"20260829123314_school_subscriptions_billing_cycle_options.sql","sha256":"6e27aed4fe388e022af826691dd9e99ed807c2c03bdbaa953bae8ac22a701ae1","added":"2026-08-29","by":"brylop"}
   ]
 }

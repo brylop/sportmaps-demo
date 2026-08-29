@@ -48,15 +48,95 @@ function isAdminRole(role: string): boolean {
     return ['owner', 'admin', 'super_admin', 'school', 'school_admin'].includes(role);
 }
 
+/**
+ * Notifica al prospecto por correo (automático) y arma el mensaje de
+ * WhatsApp (envío manual por el owner, mismo patrón que la confirmación de
+ * creación) cuando una clase ya agendada se cancela o se reprograma. Se
+ * llama DESPUÉS de que la RPC correspondiente ya aplicó el cambio, así que
+ * la fila de trial_class_bookings refleja el estado/horario nuevo.
+ */
+async function notifyBookingChange(
+    req: Request,
+    bookingId: string,
+    schoolId: string,
+    kind: 'cancelled' | 'rescheduled',
+    opts: { cancelReason?: string; whatsappMessage?: string } = {},
+): Promise<{ email_sent: boolean; whatsapp_message: string; whatsapp_link: string }> {
+    const { data: booking } = await supabase
+        .from('trial_class_bookings')
+        .select('prospect_name, prospect_email, prospect_whatsapp, scheduled_date, start_time, facility_id, coach_id, is_minor, child_name')
+        .eq('id', bookingId)
+        .eq('school_id', schoolId)
+        .single();
+
+    if (!booking) {
+        return { email_sent: false, whatsapp_message: '', whatsapp_link: '' };
+    }
+
+    const dateLabel = new Date(`${booking.scheduled_date}T00:00:00`).toLocaleDateString('es-CO', {
+        day: '2-digit', month: 'long', year: 'numeric',
+    });
+    const timeLabel = booking.start_time?.slice(0, 5) ?? '';
+    const childLine = booking.is_minor ? ` de ${booking.child_name}` : '';
+
+    let whatsappMessage = opts.whatsappMessage ?? '';
+    let emailSent = false;
+
+    try {
+        if (kind === 'cancelled') {
+            if (!whatsappMessage) {
+                const reasonLine = opts.cancelReason ? ` Motivo: ${opts.cancelReason}.` : '';
+                whatsappMessage = `Hola ${booking.prospect_name}, te confirmamos que tu clase de prueba${childLine} del ${dateLabel} a las ${timeLabel} fue cancelada.${reasonLine} Si quieres reagendar, contáctanos cuando quieras.`;
+            }
+            const { subject, html } = await BrandedEmailTemplates.trialClassCancellation({
+                prospectName: booking.prospect_name,
+                childName: booking.is_minor ? booking.child_name : null,
+                dateLabel,
+                timeLabel,
+                cancelReason: opts.cancelReason ?? null,
+                schoolId,
+            });
+            const sendResult = await emailClient.send({ to: booking.prospect_email, subject, html });
+            emailSent = !!sendResult.success;
+        } else {
+            const [{ data: facility }, { data: coach }] = await Promise.all([
+                supabase.from('facilities').select('name').eq('id', booking.facility_id).single(),
+                supabase.from('school_staff').select('full_name').eq('id', booking.coach_id).single(),
+            ]);
+            const { subject, html } = await BrandedEmailTemplates.trialClassRescheduled({
+                prospectName: booking.prospect_name,
+                childName: booking.is_minor ? booking.child_name : null,
+                dateLabel,
+                timeLabel,
+                facilityName: facility?.name ?? '',
+                coachName: coach?.full_name ?? '',
+                schoolId,
+            });
+            const sendResult = await emailClient.send({ to: booking.prospect_email, subject, html });
+            emailSent = !!sendResult.success;
+        }
+    } catch (err) {
+        // El cambio (cancelación/reprogramación) ya quedó aplicado en la RPC —
+        // un fallo de correo no debe tumbar la respuesta.
+        req.log?.error({ err, bookingId, kind }, 'trial-classes: fallo enviando notificación de cambio');
+    }
+
+    return {
+        email_sent: emailSent,
+        whatsapp_message: whatsappMessage,
+        whatsapp_link: prospectWhatsappLink(booking.prospect_whatsapp, whatsappMessage),
+    };
+}
+
 // ── Schemas Zod ───────────────────────────────────────────────────────────────
 
 const SaveSettingsSchema = z.object({
     enabled:            z.boolean(),
-    price:              z.number().min(0, 'El precio no puede ser negativo'),
     requires_approval:  z.boolean().optional().default(false),
 });
 
 const CreateBookingSchema = z.object({
+    category_id:               z.string().uuid('category_id inválido'),
     facility_availability_id: z.string().uuid('facility_availability_id inválido'),
     coach_availability_id:    z.string().uuid('coach_availability_id inválido'),
     scheduled_date:            z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida (YYYY-MM-DD)'),
@@ -77,6 +157,21 @@ const UpdateStatusSchema = z.object({
     cancel_reason: z.string().optional(),
 });
 
+const RescheduleSchema = z.object({
+    facility_availability_id: z.string().uuid('facility_availability_id inválido'),
+    coach_availability_id:    z.string().uuid('coach_availability_id inválido'),
+    scheduled_date:            z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida (YYYY-MM-DD)'),
+    start_time:                z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/, 'Hora inválida (HH:MM)'),
+    end_time:                  z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/, 'Hora inválida (HH:MM)'),
+});
+
+const CategoryUpsertSchema = z.object({
+    name:        z.string().min(2, 'Nombre requerido'),
+    description: z.string().optional(),
+    price:       z.number().min(0, 'El precio no puede ser negativo'),
+    is_active:   z.boolean().optional().default(true),
+});
+
 // ── Configuración ─────────────────────────────────────────────────────────────
 
 // GET /api/v1/trial-classes/settings
@@ -85,14 +180,14 @@ router.get('/settings', requireAuth, requireOwnerOrAdmin, async (req: Request, r
         const { schoolId } = req;
         const { data, error } = await supabase
             .from('school_trial_class_settings')
-            .select('school_id, enabled, price, requires_approval')
+            .select('school_id, enabled, requires_approval')
             .eq('school_id', schoolId)
             .maybeSingle();
 
         if (error) throw error;
 
         // Sin fila todavía (lazy init pasa recién en el primer booking) → defaults.
-        res.json(data ?? { school_id: schoolId, enabled: true, price: 0, requires_approval: false });
+        res.json(data ?? { school_id: schoolId, enabled: true, requires_approval: false });
     } catch (err: any) {
         req.log?.error({ err }, 'trial-classes settings unhandled error');
         res.status(500).json({ error: 'Error interno del servidor.' });
@@ -111,7 +206,6 @@ router.put('/settings', requireAuth, requireOwnerOrAdmin, async (req: Request, r
         const { error } = await supabase.rpc('trial_class_save_settings', {
             p_school_id: schoolId,
             p_enabled: parsed.data.enabled,
-            p_price: parsed.data.price,
             p_requires_approval: parsed.data.requires_approval,
         });
 
@@ -119,6 +213,109 @@ router.put('/settings', requireAuth, requireOwnerOrAdmin, async (req: Request, r
         res.json({ success: true });
     } catch (err: any) {
         req.log?.error({ err }, 'trial-classes save-settings unhandled error');
+        res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+});
+
+// ── Categorías (nombre + descripción + precio propio) ────────────────────────
+
+// GET /api/v1/trial-classes/categories?activeOnly=true
+router.get('/categories', requireAuth, requireOwnerOrAdmin, async (req: Request, res: Response) => {
+    try {
+        const { schoolId } = req;
+        const { activeOnly } = req.query as Record<string, string | undefined>;
+
+        let query = supabase
+            .from('trial_class_categories')
+            .select('id, name, description, price, is_active')
+            .eq('school_id', schoolId)
+            .order('name', { ascending: true });
+
+        if (activeOnly === 'true') query = query.eq('is_active', true);
+
+        const { data, error } = await query;
+        if (error) throw error;
+        res.json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'trial-classes categories list unhandled error');
+        res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+});
+
+// POST /api/v1/trial-classes/categories
+router.post('/categories', requireAuth, requireOwnerOrAdmin, async (req: Request, res: Response) => {
+    try {
+        const { schoolId } = req;
+        const parsed = CategoryUpsertSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+        }
+        const c = parsed.data;
+
+        const { data, error } = await supabase.rpc('trial_class_category_upsert', {
+            p_school_id: schoolId,
+            p_name: c.name,
+            p_price: c.price,
+            p_description: c.description ?? null,
+            p_is_active: c.is_active,
+        });
+
+        if (error) return res.status(409).json({ error: error.message });
+        res.status(201).json({ id: data });
+    } catch (err: any) {
+        req.log?.error({ err }, 'trial-classes categories create unhandled error');
+        res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+});
+
+// PUT /api/v1/trial-classes/categories/:id
+router.put('/categories/:id', requireAuth, requireOwnerOrAdmin, async (req: Request, res: Response) => {
+    try {
+        const { schoolId } = req;
+        const { id } = req.params;
+        const parsed = CategoryUpsertSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+        }
+        const c = parsed.data;
+
+        const { data, error } = await supabase.rpc('trial_class_category_upsert', {
+            p_school_id: schoolId,
+            p_id: id,
+            p_name: c.name,
+            p_price: c.price,
+            p_description: c.description ?? null,
+            p_is_active: c.is_active,
+        });
+
+        if (error) return res.status(409).json({ error: error.message });
+        res.json({ id: data });
+    } catch (err: any) {
+        req.log?.error({ err }, 'trial-classes categories update unhandled error');
+        res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+});
+
+// PATCH /api/v1/trial-classes/categories/:id/active
+router.patch('/categories/:id/active', requireAuth, requireOwnerOrAdmin, async (req: Request, res: Response) => {
+    try {
+        const { schoolId } = req;
+        const { id } = req.params;
+        const { is_active } = req.body as { is_active?: boolean };
+        if (typeof is_active !== 'boolean') {
+            return res.status(400).json({ error: 'is_active es requerido y debe ser booleano.' });
+        }
+
+        const { error } = await supabase.rpc('trial_class_category_set_active', {
+            p_school_id: schoolId,
+            p_id: id,
+            p_is_active: is_active,
+        });
+
+        if (error) return res.status(409).json({ error: error.message });
+        res.json({ success: true });
+    } catch (err: any) {
+        req.log?.error({ err }, 'trial-classes categories set-active unhandled error');
         res.status(500).json({ error: 'Error interno del servidor.' });
     }
 });
@@ -198,6 +395,7 @@ router.post('/', requireAuth, requireOwnerOrAdmin, async (req: Request, res: Res
 
         const { data: rpcData, error: rpcError } = await supabase.rpc('trial_class_create_booking', {
             p_school_id: schoolId,
+            p_category_id: b.category_id,
             p_facility_availability_id: b.facility_availability_id,
             p_coach_availability_id: b.coach_availability_id,
             p_scheduled_date: b.scheduled_date,
@@ -321,9 +519,50 @@ router.patch('/:id/status', requireAuth, async (req: Request, res: Response) => 
         });
 
         if (error) return res.status(409).json({ error: error.message });
+
+        // La cancelación es la única transición que se notifica al prospecto
+        // (realizada/no_show/convertida son internas, no le cambian nada a él).
+        if (status === 'cancelada') {
+            const notice = await notifyBookingChange(req, id as string, schoolId, 'cancelled', { cancelReason: cancel_reason });
+            return res.json({ success: true, ...notice });
+        }
+
         res.json({ success: true });
     } catch (err: any) {
         req.log?.error({ err }, 'trial-classes update-status unhandled error');
+        res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+});
+
+// PATCH /api/v1/trial-classes/:id/reschedule — cambia fecha/hora (misma cancha
+// y mismo entrenador; cambiarlos es "otra clase", no "editarla"). Solo admin.
+router.patch('/:id/reschedule', requireAuth, requireOwnerOrAdmin, async (req: Request, res: Response) => {
+    try {
+        const { schoolId } = req;
+        const { id } = req.params;
+        const parsed = RescheduleSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+        }
+        const r = parsed.data;
+
+        const { data: rpcData, error: rpcError } = await supabase.rpc('trial_class_reschedule_booking', {
+            p_id: id,
+            p_school_id: schoolId,
+            p_facility_availability_id: r.facility_availability_id,
+            p_coach_availability_id: r.coach_availability_id,
+            p_new_date: r.scheduled_date,
+            p_new_start_time: r.start_time,
+            p_new_end_time: r.end_time,
+        });
+
+        if (rpcError) return res.status(409).json({ error: rpcError.message });
+
+        const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+        const notice = await notifyBookingChange(req, id as string, schoolId, 'rescheduled', { whatsappMessage: row?.whatsapp_message });
+        res.json({ success: true, ...notice });
+    } catch (err: any) {
+        req.log?.error({ err }, 'trial-classes reschedule unhandled error');
         res.status(500).json({ error: 'Error interno del servidor.' });
     }
 });
