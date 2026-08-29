@@ -8,8 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { Plus, Calendar, Target, ClipboardList, Trash2, Activity, Users, Loader2, TrendingUp, Trophy } from 'lucide-react';
-import { TrainingPlanFormDialog } from '@/components/coach/TrainingPlanFormDialog';
+import { Plus, Calendar, Target, ClipboardList, Trash2, Activity, Users, Loader2, TrendingUp, Trophy, Star } from 'lucide-react';
+import { SessionFormDialog } from '@/components/coach/SessionFormDialog';
 import { TeamPerformanceEntryModal } from '@/components/school/TeamPerformanceEntryModal';
 import { FootballDashboardModal } from '@/components/school/FootballDashboardModal';
 import { PerformanceEntryModal } from '@/components/school/PerformanceEntryModal';
@@ -43,6 +43,7 @@ export default function TrainingPlansPage() {
   const [individualStudent, setIndividualStudent] = useState<any>(null);
   const [evolutionStudent, setEvolutionStudent] = useState<any>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [editingSession, setEditingSession] = useState<any>(null);
 
   // Fetch teams
   const { data: teams } = useQuery({
@@ -126,26 +127,26 @@ export default function TrainingPlansPage() {
     enabled: !!activeId && !!schoolId,
   });
 
-  // Fetch training plans (only for teams)
-  const { data: plans, isLoading } = useQuery({
-    queryKey: ['training-plans', selectedTeamId],
+  // Fetch training sessions (only for teams)
+  const { data: sessions, isLoading } = useQuery({
+    queryKey: ['training-sessions', selectedTeamId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('training_plans')
+        .from('training_sessions')
         .select('*')
         .eq('team_id', selectedTeamId)
-        .order('plan_date', { ascending: false });
+        .order('session_date', { ascending: false });
       if (error) throw error;
       return data;
     },
     enabled: filterType === 'teams' && !!selectedTeamId,
   });
 
-  // Create plan mutation
+  // Create session mutation
   const createMutation = useMutation({
     mutationFn: async (input: any) => {
       const { data, error } = await supabase
-        .from('training_plans')
+        .from('training_sessions')
         .insert({ ...input, school_id: schoolId })
         .select()
         .single();
@@ -153,26 +154,48 @@ export default function TrainingPlansPage() {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['training-plans', selectedTeamId] });
-      toast({ title: '✅ Plan creado', description: 'El plan de entrenamiento se ha guardado' });
+      queryClient.invalidateQueries({ queryKey: ['training-sessions', selectedTeamId] });
+      toast({ title: '✅ Sesión creada', description: 'La sesión de entrenamiento se ha guardado' });
     },
     onError: (error: any) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     },
   });
 
-  // Delete plan mutation
+  // Update session mutation
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, ...input }: any) => {
+      const { data, error } = await supabase
+        .from('training_sessions')
+        .update(input)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['training-sessions', selectedTeamId] });
+      toast({ title: '✅ Sesión actualizada', description: 'La sesión de entrenamiento se ha actualizado' });
+      setEditingSession(null);
+    },
+    onError: (error: any) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  // Delete session mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase
-        .from('training_plans')
+        .from('training_sessions')
         .delete()
         .eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['training-plans', selectedTeamId] });
-      toast({ title: 'Plan eliminado' });
+      queryClient.invalidateQueries({ queryKey: ['training-sessions', selectedTeamId] });
+      toast({ title: 'Sesión eliminada' });
       setDeleteId(null);
     },
   });
@@ -180,6 +203,9 @@ export default function TrainingPlansPage() {
   const selectedName = filterType === 'teams'
     ? (teams?.find((t: any) => t.id === selectedTeamId)?.name || 'Equipo')
     : (offeringPlans?.find((p: any) => p.id === selectedPlanId)?.name || 'Plan');
+
+  const selectedTeam = teams?.find((t: any) => t.id === selectedTeamId);
+  const isFootballTeam = selectedTeam?.sport?.toLowerCase() === 'futbol' || selectedTeam?.sport?.toLowerCase() === 'fútbol';
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -191,9 +217,9 @@ export default function TrainingPlansPage() {
           </p>
         </div>
         {filterType === 'teams' && selectedTeamId && (
-          <Button className="gap-2" onClick={() => setDialogOpen(true)}>
+          <Button className="gap-2" onClick={() => { setEditingSession(null); setDialogOpen(true); }}>
             <Plus className="w-4 h-4" />
-            Crear Plan
+            Crear Sesión
           </Button>
         )}
       </div>
@@ -254,23 +280,25 @@ export default function TrainingPlansPage() {
             </CardContent>
           </Card>
 
-          {/* Listado de Planes de Entrenamiento */}
+          {/* Listado de Sesiones de Entrenamiento */}
           {filterType === 'teams' && selectedTeamId && (
             <div className="space-y-4">
-              {isLoading && <LoadingSpinner text="Cargando planes..." />}
+              {isLoading && <LoadingSpinner text="Cargando sesiones..." />}
 
-              {plans && plans.length > 0 && plans.map((plan) => {
-                const drills = Array.isArray(plan.drills) ? plan.drills : [];
+              {sessions && sessions.length > 0 && sessions.map((session: any) => {
+                const drills = Array.isArray(session.drills) ? session.drills : [];
+                const blocks = Array.isArray(session.session_blocks) ? session.session_blocks : [];
+                const evaluation = session.evaluation || null;
 
                 return (
-                  <Card key={plan.id} className="hover:shadow-lg transition-shadow">
+                  <Card key={session.id} className="hover:shadow-lg transition-shadow">
                     <CardHeader>
                       <div className="flex items-start justify-between">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
                             <Calendar className="w-5 h-5 text-primary" />
                             <CardTitle className="text-lg">
-                              {new Date(plan.plan_date).toLocaleDateString('es-CO', {
+                              {new Date(session.session_date).toLocaleDateString('es-CO', {
                                 weekday: 'long',
                                 day: 'numeric',
                                 month: 'long',
@@ -280,15 +308,15 @@ export default function TrainingPlansPage() {
                           </div>
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Target className="w-4 h-4" />
-                            <span>{plan.objectives}</span>
+                            <span>{session.objectives}</span>
                           </div>
                         </div>
                         <div className="flex gap-2">
-                          <Button variant="outline" size="sm" onClick={() => setDialogOpen(true)}>Editar</Button>
-                          <Button 
-                            variant="ghost" 
+                          <Button variant="outline" size="sm" onClick={() => { setEditingSession(session); setDialogOpen(true); }}>Editar</Button>
+                          <Button
+                            variant="ghost"
                             size="sm"
-                            onClick={() => setDeleteId(plan.id)}
+                            onClick={() => setDeleteId(session.id)}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
@@ -296,10 +324,47 @@ export default function TrainingPlansPage() {
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      {plan.warmup && (
+                      {session.game_principles && (
+                        <div>
+                          <Badge variant="secondary" className="mb-2">Principios de Juego</Badge>
+                          <p className="text-sm text-muted-foreground">{session.game_principles}</p>
+                        </div>
+                      )}
+
+                      {session.warmup && (
                         <div>
                           <Badge variant="secondary" className="mb-2">Calentamiento</Badge>
-                          <p className="text-sm text-muted-foreground">{plan.warmup}</p>
+                          <p className="text-sm text-muted-foreground">{session.warmup}</p>
+                        </div>
+                      )}
+
+                      {blocks.length > 0 && (
+                        <div>
+                          <h4 className="font-semibold mb-3 flex items-center gap-2">
+                            <ClipboardList className="w-4 h-4" />
+                            Bloques de la Sesión
+                          </h4>
+                          <div className="space-y-3">
+                            {blocks.map((block: any, index: number) => (
+                              <div key={index} className="p-3 rounded-lg border bg-muted/50 dark:bg-muted/30 space-y-1">
+                                <div className="flex items-start justify-between">
+                                  <p className="font-medium">{block.name}</p>
+                                  {block.minutes && (
+                                    <Badge variant="outline">{block.minutes} min</Badge>
+                                  )}
+                                </div>
+                                {block.activity && (
+                                  <p className="text-sm text-muted-foreground">{block.activity}</p>
+                                )}
+                                {block.objective && (
+                                  <p className="text-sm text-muted-foreground">Objetivo: {block.objective}</p>
+                                )}
+                                {block.description && (
+                                  <p className="text-sm text-muted-foreground italic">{block.description}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
 
@@ -311,7 +376,7 @@ export default function TrainingPlansPage() {
                           </h4>
                           <div className="space-y-3">
                             {drills.map((drill: any, index: number) => (
-                              <div key={index} className="p-3 rounded-lg border bg-accent/50">
+                              <div key={index} className="p-3 rounded-lg border bg-muted/50 dark:bg-muted/30">
                                 <div className="flex items-start justify-between">
                                   <div>
                                     <p className="font-medium">{drill.name}</p>
@@ -331,17 +396,71 @@ export default function TrainingPlansPage() {
                         </div>
                       )}
 
-                      {plan.materials && (
+                      {session.materials && (
                         <div>
                           <h4 className="font-semibold mb-2">Materiales</h4>
-                          <p className="text-sm text-muted-foreground">{plan.materials}</p>
+                          <p className="text-sm text-muted-foreground">{session.materials}</p>
                         </div>
                       )}
 
-                      {plan.notes && (
+                      {session.notes && (
                         <div className="pt-3 border-t">
                           <h4 className="font-semibold mb-2">Notas</h4>
-                          <p className="text-sm text-muted-foreground italic">{plan.notes}</p>
+                          <p className="text-sm text-muted-foreground italic">{session.notes}</p>
+                        </div>
+                      )}
+
+                      {evaluation && (
+                        <div className="rounded-lg border bg-muted/30 dark:bg-muted/10 p-3 space-y-2.5">
+                          <h4 className="font-semibold flex items-center gap-2">
+                            <Star className="w-4 h-4" />
+                            Evaluación de la Sesión
+                          </h4>
+
+                          <div className="flex flex-wrap items-center gap-3">
+                            {evaluation.objectives_met && (
+                              <Badge
+                                variant="outline"
+                                className={
+                                  evaluation.objectives_met === 'si'
+                                    ? 'text-green-600 dark:text-green-400 bg-green-500/10 border-green-500/25'
+                                    : evaluation.objectives_met === 'parcial'
+                                    ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/25'
+                                    : 'text-red-600 dark:text-red-400 bg-red-500/10 border-red-500/25'
+                                }
+                              >
+                                Objetivos: {evaluation.objectives_met === 'si' ? 'Cumplidos' : evaluation.objectives_met === 'parcial' ? 'Parcial' : 'No cumplidos'}
+                              </Badge>
+                            )}
+
+                            {evaluation.team_rating && (
+                              <div className="flex items-center gap-1">
+                                {[1, 2, 3, 4, 5].map((n) => (
+                                  <Star
+                                    key={n}
+                                    className={`h-4 w-4 ${
+                                      evaluation.team_rating >= n
+                                        ? 'fill-amber-500 text-amber-500 dark:fill-amber-400 dark:text-amber-400'
+                                        : 'text-muted-foreground/30'
+                                    }`}
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {evaluation.highlights && (
+                            <p className="text-sm text-muted-foreground">
+                              <span className="font-medium text-foreground">Destacado: </span>
+                              {evaluation.highlights}
+                            </p>
+                          )}
+                          {evaluation.improvements && (
+                            <p className="text-sm text-muted-foreground">
+                              <span className="font-medium text-foreground">A mejorar: </span>
+                              {evaluation.improvements}
+                            </p>
+                          )}
                         </div>
                       )}
                     </CardContent>
@@ -349,17 +468,17 @@ export default function TrainingPlansPage() {
                 );
               })}
 
-              {plans && plans.length === 0 && !isLoading && (
+              {sessions && sessions.length === 0 && !isLoading && (
                 <Card>
                   <CardContent className="pt-6 text-center">
                     <ClipboardList className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                    <h3 className="text-lg font-semibold mb-2">No hay planes aún</h3>
+                    <h3 className="text-lg font-semibold mb-2">No hay sesiones aún</h3>
                     <p className="text-muted-foreground mb-4">
-                      Crea tu primer plan de entrenamiento
+                      Crea tu primera sesión de entrenamiento
                     </p>
-                    <Button className="gap-2" onClick={() => setDialogOpen(true)}>
+                    <Button className="gap-2" onClick={() => { setEditingSession(null); setDialogOpen(true); }}>
                       <Plus className="w-4 h-4" />
-                      Crear Primer Plan
+                      Crear Primera Sesión
                     </Button>
                   </CardContent>
                 </Card>
@@ -373,10 +492,10 @@ export default function TrainingPlansPage() {
             <Card className="border-border/40 bg-background/50 backdrop-blur-sm shadow-sm">
               <CardContent className="pt-6 text-center">
                 <ClipboardList className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-40" />
-                <h3 className="text-lg font-semibold mb-2">Planes de Entrenamiento</h3>
+                <h3 className="text-lg font-semibold mb-2">Sesiones de Entrenamiento</h3>
                 <p className="text-muted-foreground text-sm max-w-md mx-auto">
-                  Los planes de entrenamiento y sesiones se organizan por Equipos. 
-                  Para planificar, selecciona la pestaña de <strong>Equipos</strong>. 
+                  Las sesiones de entrenamiento se organizan por Equipos.
+                  Para planificar, selecciona la pestaña de <strong>Equipos</strong>.
                   Usa el panel de la derecha para evaluar el rendimiento de los deportistas de este Plan.
                 </p>
               </CardContent>
@@ -434,9 +553,7 @@ export default function TrainingPlansPage() {
                     Evaluar Lote
                   </Button>
                   {(() => {
-                    const selectedTeam = teams?.find((t: any) => t.id === selectedTeamId);
-                    const isFootball = selectedTeam?.sport?.toLowerCase() === 'futbol' || selectedTeam?.sport?.toLowerCase() === 'fútbol';
-                    return filterType === 'teams' && isFootball && (
+                    return filterType === 'teams' && isFootballTeam && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -506,12 +623,21 @@ export default function TrainingPlansPage() {
       </div>
 
       {filterType === 'teams' && selectedTeamId && (
-        <TrainingPlanFormDialog
+        <SessionFormDialog
           open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          onSubmit={createMutation.mutate}
+          onOpenChange={(open) => {
+            setDialogOpen(open);
+            if (!open) setEditingSession(null);
+          }}
+          onSubmit={(data) =>
+            editingSession
+              ? updateMutation.mutate({ id: editingSession.id, ...data })
+              : createMutation.mutate(data)
+          }
           teamId={selectedTeamId}
-          isLoading={createMutation.isPending}
+          isFootball={isFootballTeam}
+          session={editingSession}
+          isLoading={createMutation.isPending || updateMutation.isPending}
         />
       )}
 
@@ -560,7 +686,7 @@ export default function TrainingPlansPage() {
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>¿Eliminar plan?</AlertDialogTitle>
+            <AlertDialogTitle>¿Eliminar sesión?</AlertDialogTitle>
             <AlertDialogDescription>
               Esta acción no se puede deshacer.
             </AlertDialogDescription>

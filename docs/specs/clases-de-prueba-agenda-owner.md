@@ -1,6 +1,6 @@
 # Spec — Agenda de Clases de Prueba (Owner)
 
-**Producto:** SportMaps · **Versión:** v1.0
+**Producto:** SportMaps · **Versión:** v1.1 (ver §15 — ampliación de categorías)
 **Fecha:** Agosto 2026
 **Estado:** decisiones de producto **resueltas** (§11) · pendiente de aprobación de plan antes de escribir migraciones (Fase 1).
 
@@ -183,6 +183,8 @@ Hola {prospect_name}, confirmamos tu clase de prueba en {school_name} el {fecha}
 
 Cobro/pago integrado (payments) para la clase de prueba · conversión automática a enrollment de pago · WhatsApp vía Cloud API · recordatorios automáticos (día antes) · clases de prueba grupales (siempre 1:1 en v1) · vista de calendario tipo grid (se entrega como lista/agenda, igual que el resto de `SchoolFacilitiesPage`) · que el coach agende sus propias pruebas (solo lectura en v1) · `booking_holds` (no aplica: flujo interno del owner, no público concurrente — el `FOR UPDATE` en la RPC basta).
 
+**Limitación conocida — un solo `attendance_session` por bloque ancho de `facility_availability`/día:** hay un índice único `idx_attendance_sessions_unique_facility_slot` sobre `(facility_availability_id, session_date)` (preexistente, sin migración propia en el historial — detectado como drift al construir la Fase 1) que hace que **solo pueda existir una sesión agendada por cada bloque de disponibilidad de cancha, ese día, sin importar el coach**. Si dos entrenadores comparten un mismo bloque ancho (ej. cancha disponible 11:00–13:00 para ambos), el primero que agenda una clase de prueba en ese bloque se queda con **todo el bloque** ese día — el segundo coach no puede agendar aunque su sub-horario elegido no se solape en reloj. `trial_class_create_booking`/`trial_class_get_joint_slots` lo reflejan como error de negocio ("Este horario ya no está disponible" / slot ausente de la lista), no como fallo. **Fuera de alcance resolverlo en v1**: requeriría partir `facility_availability` en sub-bloques reservables independientes por coach, que es un cambio de modelo, no un fix de esta feature.
+
 ---
 
 ## 10. Validaciones y reglas
@@ -249,3 +251,52 @@ Migraciones nuevas e inmutables, `YYYYMMDDHHMMSS`, creadas con `npm run migratio
 - [ ] Entrega full-stack (DB + RLS + RPCs + BFF + Frontend + QA)
 - [ ] `npm run seguridad:invariantes` después de aplicar la migración de RLS
 - [ ] Cero acoplamiento con `school_courtesy_settings` / motor de facturación (`payments`, `invoices`)
+
+---
+
+## 15. Ampliación v1.1 — Categorías, reprogramación y notificaciones (2026-08-29)
+
+Pedido del owner tras el piloto interno: un solo precio por escuela no alcanza (quieren ofrecer,
+ej. "Clase individual" vs "Clase grupal de bienvenida" a precios distintos), y cancelar/reprogramar
+una clase ya agendada no avisaba a nadie. Migración: `20260828230513_clases_de_prueba_categorias.sql`.
+
+**Decisiones de producto (resueltas):**
+
+1. **El precio deja de vivir en `school_trial_class_settings`.** Nueva tabla
+   `trial_class_categories` (`school_id, name, description, price, is_active, offering_plan_id`)
+   — el owner crea tantas categorías como quiera, cada una con su propio precio y un
+   `offering_plan_id` lazy-init propio (mismo patrón $0/1-sesión de siempre, uno por categoría en
+   vez de uno por escuela). `school_trial_class_settings` se queda solo con `enabled` +
+   `requires_approval`.
+2. **La descripción es informativa, no funcional:** se muestra al owner en el modal de agendar
+   cuando elige la categoría (no dispara ninguna lógica de negocio).
+3. **Borrado lógico únicamente** (`is_active`, nunca `DELETE`) — una categoría con bookings
+   históricos no se puede borrar físico por el `ON DELETE RESTRICT` de
+   `trial_class_bookings.category_id`. Nombres únicos solo entre categorías **activas** de una
+   escuela (una desactivada no bloquea reusar su nombre).
+4. **Reprogramar = solo fecha/hora.** Cambiar cancha o entrenador es "otra clase", no una edición
+   — para eso se cancela y se agenda de nuevo. Nueva RPC `trial_class_reschedule_booking`, misma
+   validación de slot y advisory lock que `trial_class_create_booking`, solo si `status='agendada'`.
+5. **Cancelar y reprogramar ahora notifican** al prospecto: correo automático
+   (`BrandedEmailTemplates.trialClassCancellation` / `trialClassRescheduled`) + WhatsApp
+   pre-armado de envío manual, mismo patrón que la confirmación de creación desde
+   `d1dbbc87`. El mensaje se arma en el BFF (`notifyBookingChange()` en `trial-classes.ts`),
+   no se persiste en columna nueva.
+6. **RLS de `trial_class_categories`:** mismo patrón que sus hermanas — solo `SELECT` con
+   `is_school_admin(school_id)`, cero policies de escritura, las 3 RPCs de categoría
+   (`trial_class_category_upsert`, `trial_class_category_set_active`) restringidas **directo** a
+   `service_role` desde la propia migración (no en una migración de hardening aparte — la lección
+   de `20260827190429`/`20260827191307` fue escribirlo bien de una).
+7. **Decimales de precio:** el input de precio en el formulario de categoría lleva `step="0.01"`
+   (antes el modal de precio único no lo tenía) — la columna ya era `numeric(10,2)`, el problema
+   era solo de UI.
+8. **WhatsApp del prospecto precargado con `+57 `** en el modal de agendar (Colombia es el mercado
+   de todas las escuelas activas hoy; sigue siendo editable).
+
+**Migración de datos:** al momento de escribir esto había **1 sola fila** en
+`school_trial_class_settings` y **1 solo booking** en producción — se migró esa fila a una
+categoría "Clase de Prueba General" con el mismo precio y el mismo `offering_plan_id` ya
+lazy-creado, y el booking existente se re-ligó a ella. `category_id` es `NOT NULL` desde esta
+migración en adelante.
+
+**Fuera de alcance (igual que v1.0):** el resto de §9 sigue aplicando sin cambios.

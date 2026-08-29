@@ -33,12 +33,16 @@ export interface TrialClassBookingModalProps {
 
 const SLOTS_HORIZON_DAYS = 14;
 
+const DEFAULT_WHATSAPP_PREFIX = '+57 ';
+
 export function TrialClassBookingModal({ open, onOpenChange, facilities }: TrialClassBookingModalProps) {
-  const { getJointSlots, createBooking, isCreating } = useTrialClasses();
+  const { categories, getJointSlots, createBooking, isCreating } = useTrialClasses();
+  const activeCategories = useMemo(() => categories.filter((c) => c.is_active), [categories]);
   const { staff } = useSchoolStaff();
   const activeCoaches = useMemo(() => (staff ?? []).filter((s: any) => s.status === 'active'), [staff]);
 
   const [step, setStep] = useState<Step>('select');
+  const [categoryId, setCategoryId] = useState('');
   const [facilityId, setFacilityId] = useState('');
   const [coachId, setCoachId] = useState('');
   const [loadingSlots, setLoadingSlots] = useState(false);
@@ -49,13 +53,16 @@ export function TrialClassBookingModal({ open, onOpenChange, facilities }: Trial
   const [childName, setChildName] = useState('');
   const [prospectName, setProspectName] = useState('');
   const [prospectEmail, setProspectEmail] = useState('');
-  const [prospectWhatsapp, setProspectWhatsapp] = useState('');
+  const [prospectWhatsapp, setProspectWhatsapp] = useState(DEFAULT_WHATSAPP_PREFIX);
 
   const [result, setResult] = useState<CreateTrialBookingResponse | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const selectedCategory = activeCategories.find((c) => c.id === categoryId);
+
   const resetState = () => {
     setStep('select');
+    setCategoryId('');
     setFacilityId('');
     setCoachId('');
     setSlots([]);
@@ -64,7 +71,7 @@ export function TrialClassBookingModal({ open, onOpenChange, facilities }: Trial
     setChildName('');
     setProspectName('');
     setProspectEmail('');
-    setProspectWhatsapp('');
+    setProspectWhatsapp(DEFAULT_WHATSAPP_PREFIX);
     setResult(null);
     setCopied(false);
   };
@@ -74,7 +81,7 @@ export function TrialClassBookingModal({ open, onOpenChange, facilities }: Trial
   }, [open]);
 
   const handleFetchSlots = async () => {
-    if (!facilityId || !coachId) return;
+    if (!categoryId || !facilityId || !coachId) return;
     setLoadingSlots(true);
     try {
       const from = format(new Date(), 'yyyy-MM-dd');
@@ -100,7 +107,9 @@ export function TrialClassBookingModal({ open, onOpenChange, facilities }: Trial
     if (!selectedSlot || !prospectName || !prospectEmail || !prospectWhatsapp) return;
     if (isMinor === null) return;
     if (isMinor && !childName) return;
+    if (!categoryId) return;
     const res = await createBooking({
+      category_id: categoryId,
       facility_availability_id: selectedSlot.facility_availability_id,
       coach_availability_id: selectedSlot.coach_availability_id,
       scheduled_date: selectedSlot.slot_date,
@@ -142,6 +151,33 @@ export function TrialClassBookingModal({ open, onOpenChange, facilities }: Trial
         {step === 'select' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
             <div className="space-y-3">
+              <Label className="text-sm font-semibold tracking-tight">Categoría</Label>
+              <Select value={categoryId} onValueChange={setCategoryId}>
+                <SelectTrigger className="bg-muted/30 border-border/50 h-11">
+                  <SelectValue placeholder="Selecciona una categoría…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeCategories.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      <div className="flex flex-col">
+                        <span className="font-semibold">{c.name}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {c.price > 0 ? `$${c.price.toLocaleString('es-CO')} COP` : 'Sin costo'}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {activeCategories.length === 0 && (
+                <p className="text-xs text-muted-foreground">No hay categorías activas — créalas desde "Configurar".</p>
+              )}
+              {selectedCategory?.description && (
+                <p className="text-xs text-muted-foreground bg-muted/30 rounded-lg p-3">{selectedCategory.description}</p>
+              )}
+            </div>
+
+            <div className="space-y-3">
               <Label className="text-sm font-semibold tracking-tight">Instalación</Label>
               <Select value={facilityId} onValueChange={setFacilityId}>
                 <SelectTrigger className="bg-muted/30 border-border/50 h-11">
@@ -180,7 +216,7 @@ export function TrialClassBookingModal({ open, onOpenChange, facilities }: Trial
             <Button
               className="w-full h-11 text-base font-semibold"
               onClick={handleFetchSlots}
-              disabled={!facilityId || !coachId || loadingSlots}
+              disabled={!categoryId || !facilityId || !coachId || loadingSlots}
             >
               {loadingSlots ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : null}
               Ver horarios disponibles
@@ -247,6 +283,14 @@ export function TrialClassBookingModal({ open, onOpenChange, facilities }: Trial
           <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-300">
             <Card className="border-primary/20 bg-primary/5">
               <CardContent className="p-4 text-sm space-y-1.5">
+                {selectedCategory && (
+                  <p className="font-bold flex items-center gap-2 text-primary">
+                    {selectedCategory.name}
+                    <span className="text-xs font-semibold text-muted-foreground">
+                      {selectedCategory.price > 0 ? `$${selectedCategory.price.toLocaleString('es-CO')} COP` : 'Sin costo'}
+                    </span>
+                  </p>
+                )}
                 <p className="font-bold flex items-center gap-2"><Building2 className="h-3.5 w-3.5 text-primary" />{selectedFacility?.name}</p>
                 <p className="font-medium text-muted-foreground flex items-center gap-2"><UserCircle2 className="h-3.5 w-3.5 text-primary" />{selectedCoach?.full_name}</p>
                 <p className="font-medium text-muted-foreground flex items-center gap-2 capitalize">
