@@ -1,4 +1,5 @@
 import cron from 'node-cron';
+import * as Sentry from '@sentry/node';
 import { supabase } from '../config/supabase';
 import {
     createTransactionWithToken,
@@ -170,6 +171,7 @@ export function initMaintenanceJobs() {
 
             console.log('[CRON] Auto-cobro de suscripciones completado.');
         } catch (err: any) {
+            Sentry.captureException(err);
             console.error('[CRON] Error inesperado en auto-cobro:', err?.message || err);
         }
     }, { timezone: 'America/Bogota' });
@@ -188,6 +190,7 @@ export function initMaintenanceJobs() {
                 console.log(`[CRON] Reproceso webhooks: scanned=${r.scanned} processed=${r.processed} stillOrphan=${r.stillOrphan} failed=${r.failed} gaveUp=${r.gaveUp}`);
             }
         } catch (err: any) {
+            Sentry.captureException(err);
             console.error('[CRON] Error en reproceso de webhooks:', err?.message || err);
         }
     });
@@ -215,6 +218,7 @@ export function initMaintenanceJobs() {
             }
             console.log(`[CRON] Conciliacion: dupSplit=${r.duplicate_split ?? 0} dupMkt=${r.duplicate_marketplace ?? 0} rapid=${r.rapid_duplicate ?? 0} staleWebhook=${r.stale_orphan_webhook ?? 0}`);
         } catch (err: any) {
+            Sentry.captureException(err);
             console.error('[CRON] Error en conciliacion de pagos:', err?.message || err);
         }
     }, { timezone: 'America/Bogota' });
@@ -236,6 +240,7 @@ export function initMaintenanceJobs() {
                 console.log(`[CRON] Auto-facturación (escuela): scanned=${r.scanned} emitted=${r.emitted} skipped=${r.skipped} failed=${r.failed}`);
             }
         } catch (err: any) {
+            Sentry.captureException(err);
             console.error('[CRON] Error en auto-facturación (escuela):', err?.message || err);
         }
         try {
@@ -244,6 +249,7 @@ export function initMaintenanceJobs() {
                 console.log(`[CRON] Auto-facturación (marketplace): scanned=${rm.scanned} emitted=${rm.emitted} skipped=${rm.skipped} failed=${rm.failed}`);
             }
         } catch (err: any) {
+            Sentry.captureException(err);
             console.error('[CRON] Error en auto-facturación (marketplace):', err?.message || err);
         }
         try {
@@ -252,6 +258,7 @@ export function initMaintenanceJobs() {
                 console.log(`[CRON] Auto-facturación (tienda/orders): scanned=${ro.scanned} emitted=${ro.emitted} skipped=${ro.skipped} failed=${ro.failed}`);
             }
         } catch (err: any) {
+            Sentry.captureException(err);
             console.error('[CRON] Error en auto-facturación (tienda/orders):', err?.message || err);
         }
     });
@@ -268,6 +275,7 @@ export function initMaintenanceJobs() {
         try {
             await runGlosaNotifications();
         } catch (err: any) {
+            Sentry.captureException(err);
             console.error('[CRON] Error en notificaciones de glosa:', err?.message || err);
         }
     }, { timezone: 'America/Bogota' });
@@ -284,6 +292,7 @@ export function initMaintenanceJobs() {
         try {
             await runAthleteReportsCycle();
         } catch (err: any) {
+            Sentry.captureException(err);
             console.error('[CRON] Error en ciclo de informes:', err?.message || err);
         }
     }, { timezone: 'America/Bogota' });
@@ -300,6 +309,7 @@ export function initMaintenanceJobs() {
         try {
             await runNotificationDispatch();
         } catch (err: any) {
+            Sentry.captureException(err);
             console.error('[CRON] Error en despacho de notificaciones:', err?.message || err);
         }
     });
@@ -317,6 +327,7 @@ export function initMaintenanceJobs() {
         try {
             await runHourBankAutoclose();
         } catch (err: any) {
+            Sentry.captureException(err);
             console.error('[CRON] Error en auto-cierre de banco de horas:', err?.message || err);
         }
     });
@@ -336,6 +347,7 @@ export function initMaintenanceJobs() {
         try {
             await runSaasBillingCycle();
         } catch (err: any) {
+            Sentry.captureException(err);
             console.error('[CRON] Error en ciclo de facturación SaaS:', err?.message || err);
         }
     }, { timezone: 'America/Bogota' });
@@ -353,6 +365,7 @@ export function initMaintenanceJobs() {
         try {
             await runBridgeHeartbeatCheck();
         } catch (err: any) {
+            Sentry.captureException(err);
             console.error('[CRON] Error en chequeo de latido de bridges:', err?.message || err);
         }
     });
@@ -372,6 +385,7 @@ export function initMaintenanceJobs() {
         try {
             await runAccountDeletionCycle();
         } catch (err: any) {
+            Sentry.captureException(err);
             console.error('[CRON] Error en borrado físico de cuentas:', err?.message || err);
         }
     }, { timezone: 'America/Bogota' });
