@@ -6,7 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   Building2, MapPin, Trash2, Users, Calendar, Clock,
   CheckCircle2, XCircle, Eye, Pencil, Ban, MoreHorizontal, CalendarCheck, RefreshCw, Link2, Check,
-  GraduationCap, Settings, UserX, PartyPopper, Mail,
+  GraduationCap, Settings, UserX, PartyPopper, Mail, CalendarClock, MessageCircle, Copy,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -14,12 +14,14 @@ import { useSchoolFacilities } from '@/hooks/useSchoolData';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useFacilityReservations } from '@/hooks/useFacilityReservations';
 import type { FacilityReservation } from '@/hooks/useFacilityReservations';
-import { useTrialClasses, type TrialClassBooking, type TrialClassStatus } from '@/hooks/useTrialClasses';
+import { useTrialClasses, type TrialClassBooking, type TrialClassStatus, type BookingChangeNotice } from '@/hooks/useTrialClasses';
 import { FacilityFormDialog } from '@/components/school/FacilityFormDialog';
 import { OwnerReservationModal } from '@/components/school/OwnerReservationModal';
 import { FacilityAvailabilityModal } from '@/components/school/FacilityAvailabilityModal';
 import { TrialClassBookingModal } from '@/components/school/TrialClassBookingModal';
 import { TrialClassSettingsModal } from '@/components/school/TrialClassSettingsModal';
+import { TrialClassRescheduleModal } from '@/components/school/TrialClassRescheduleModal';
+import { CourtesyBookingRescheduleModal } from '@/components/school/CourtesyBookingRescheduleModal';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { StatFilterBar } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
@@ -98,7 +100,7 @@ function TrialStatusBadge({ status }: { status: TrialClassStatus }) {
 }
 
 function TrialClassRow({
-  booking, onMarkRealizada, onMarkNoShow, onMarkConvertida, onCancel, onResendEmail,
+  booking, onMarkRealizada, onMarkNoShow, onMarkConvertida, onCancel, onResendEmail, onReschedule,
 }: {
   booking: TrialClassBooking;
   onMarkRealizada: () => void;
@@ -106,6 +108,7 @@ function TrialClassRow({
   onMarkConvertida: () => void;
   onCancel: () => void;
   onResendEmail: () => void;
+  onReschedule: () => void;
 }) {
   return (
     <TableRow className="group hover:bg-muted/5 transition-colors">
@@ -141,6 +144,9 @@ function TrialClassRow({
                 </DropdownMenuItem>
                 <DropdownMenuItem className="py-2.5 font-bold cursor-pointer text-amber-600 focus:text-amber-700 focus:bg-amber-500/10" onClick={onMarkNoShow}>
                   <UserX className="h-4 w-4 mr-3" /> Marcar no-show
+                </DropdownMenuItem>
+                <DropdownMenuItem className="py-2.5 font-bold cursor-pointer" onClick={onReschedule}>
+                  <CalendarClock className="h-4 w-4 mr-3 text-primary" /> Reprogramar
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="my-1.5 opacity-40" />
                 <DropdownMenuItem className="py-2.5 font-bold cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-500/10" onClick={onCancel}>
@@ -293,6 +299,7 @@ export default function SchoolFacilitiesPage() {
     approveReservation,
     cancelReservation,
     getBookedSlots,
+    rescheduleReservation,
   } = useFacilityReservations();
 
   const {
@@ -304,6 +311,9 @@ export default function SchoolFacilitiesPage() {
     updateStatus: updateTrialStatus,
     resendConfirmation: resendTrialConfirmation,
   } = useTrialClasses();
+
+  const [reschedulingTrial, setReschedulingTrial] = useState<TrialClassBooking | null>(null);
+  const [trialNotice, setTrialNotice] = useState<BookingChangeNotice | null>(null);
 
   const facilities = supaFacilities ?? [];
 
@@ -323,6 +333,8 @@ export default function SchoolFacilitiesPage() {
   const [editingReservation, setEditingReservation] = useState<FacilityReservation | null>(null);
   const [viewingReservation, setViewingReservation] = useState<FacilityReservation | null>(null);
   const [deleteReservationId, setDeleteReservationId] = useState<string | null>(null);
+  const [reschedulingFacilityReservation, setReschedulingFacilityReservation] = useState<FacilityReservation | null>(null);
+  const [reschedulingCourtesyBooking, setReschedulingCourtesyBooking] = useState<FacilityReservation | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [availabilityFacility, setAvailabilityFacility] = useState<any | null>(null);
 
@@ -402,6 +414,18 @@ export default function SchoolFacilitiesPage() {
     setReservationModalOpen(true);
   };
 
+  // Reprogramar es una acción aparte de "Editar": para instalaciones (alquiler
+  // manual) reusa el mismo modal de fecha/hora pero pasa por el endpoint que
+  // avisa por correo; para clases de cortesía abre el picker de slots por
+  // cancha (reprogramar fecha/hora no existía para ellas).
+  const handleOpenReschedule = (r: FacilityReservation) => {
+    if (r.isSessionBooking) {
+      setReschedulingCourtesyBooking(r);
+    } else {
+      setReschedulingFacilityReservation(r);
+    }
+  };
+
   const handleReservationSubmit = async (
     payload: any
   ) => {
@@ -410,6 +434,18 @@ export default function SchoolFacilitiesPage() {
     } else {
       await createReservation(payload);
     }
+  };
+
+  const handleFacilityReservationRescheduleSubmit = async (payload: any) => {
+    if (!('id' in payload)) return;
+    await rescheduleReservation({
+      id: payload.id,
+      isSessionBooking: false,
+      reservation_date: payload.payload.reservation_date,
+      start_time: payload.payload.start_time,
+      end_time: payload.payload.end_time,
+    });
+    setReschedulingFacilityReservation(null);
   };
 
   if (facilitiesLoading) return <LoadingSpinner text="Cargando instalaciones..." />;
@@ -670,10 +706,19 @@ export default function SchoolFacilitiesPage() {
                                   <Eye className="h-4 w-4 mr-3 text-primary" /> Ver detalle
                                 </DropdownMenuItem>
 
-                                {/* Edit — only pending/confirmed */}
-                                {(res.status === 'pending' || res.status === 'confirmed') && (
+                                {/* Edit — solo alquiler manual, pending/confirmed. Para clases de
+                                    cortesía "Editar" no cambia nada de verdad (solo el estado se
+                                    persiste) — Reprogramar es la acción correcta para ellas. */}
+                                {!res.isSessionBooking && (res.status === 'pending' || res.status === 'confirmed') && (
                                   <DropdownMenuItem className="py-2.5 font-bold cursor-pointer" onClick={() => handleOpenEdit(res)}>
                                     <Pencil className="h-4 w-4 mr-3 text-primary" /> Editar
+                                  </DropdownMenuItem>
+                                )}
+
+                                {/* Reschedule — cambia fecha/hora y avisa por correo */}
+                                {(res.status === 'pending' || res.status === 'confirmed') && (
+                                  <DropdownMenuItem className="py-2.5 font-bold cursor-pointer" onClick={() => handleOpenReschedule(res)}>
+                                    <CalendarClock className="h-4 w-4 mr-3 text-primary" /> Reprogramar
                                   </DropdownMenuItem>
                                 )}
 
@@ -689,7 +734,7 @@ export default function SchoolFacilitiesPage() {
                                   </DropdownMenuItem>
                                 )}
 
-                                {/* Cancel */}
+                                {/* Cancel — avisa por correo */}
                                 {(res.status === 'pending' || res.status === 'confirmed') && (
                                   <DropdownMenuItem
                                     className="py-2.5 font-bold cursor-pointer text-amber-600 focus:text-amber-700 focus:bg-amber-500/10"
@@ -813,6 +858,7 @@ export default function SchoolFacilitiesPage() {
                           onMarkConvertida={() => updateTrialStatus({ id: b.id, status: 'convertida' })}
                           onCancel={() => setCancelingTrialId(b.id)}
                           onResendEmail={() => resendTrialConfirmation(b.id)}
+                          onReschedule={() => setReschedulingTrial(b)}
                         />
                       ))}
                     </TableBody>
@@ -846,6 +892,23 @@ export default function SchoolFacilitiesPage() {
         onSubmit={handleReservationSubmit}
         isLoading={isCreatingRes || isUpdating}
         getBookedSlots={stableGetBookedSlots}
+      />
+
+      {/* ── Reprogramar reserva de instalación (alquiler manual) — avisa por correo ── */}
+      <OwnerReservationModal
+        open={!!reschedulingFacilityReservation}
+        onOpenChange={(v) => { if (!v) setReschedulingFacilityReservation(null); }}
+        facilities={facilities}
+        editReservation={reschedulingFacilityReservation}
+        onSubmit={handleFacilityReservationRescheduleSubmit}
+        isLoading={isUpdating}
+        getBookedSlots={stableGetBookedSlots}
+      />
+
+      {/* ── Reprogramar clase de cortesía — avisa por correo ── */}
+      <CourtesyBookingRescheduleModal
+        reservation={reschedulingCourtesyBooking}
+        onClose={() => setReschedulingCourtesyBooking(null)}
       />
 
       {/* ── Facility form ── */}
@@ -924,14 +987,17 @@ export default function SchoolFacilitiesPage() {
           <AlertDialogHeader>
             <AlertDialogTitle className="text-xl font-black">¿Cancelar clase de prueba?</AlertDialogTitle>
             <AlertDialogDescription className="text-muted-foreground/80 font-medium">
-              El prospecto no recibirá un aviso automático de la cancelación — coordínalo por WhatsApp o correo si ya fue notificado.
+              Se le avisará al prospecto por correo automáticamente, y se armará un mensaje de WhatsApp para que lo envíes tú.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="pt-4">
             <AlertDialogCancel className="font-bold border-border/60">No, conservar</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => {
-                if (cancelingTrialId) updateTrialStatus({ id: cancelingTrialId, status: 'cancelada' });
+              onClick={async () => {
+                if (cancelingTrialId) {
+                  const notice = await updateTrialStatus({ id: cancelingTrialId, status: 'cancelada' });
+                  if (notice?.whatsapp_message) setTrialNotice(notice);
+                }
                 setCancelingTrialId(null);
               }}
               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-black shadow-lg shadow-destructive/20 active:scale-95 transition-all"
@@ -941,6 +1007,49 @@ export default function SchoolFacilitiesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Clase de prueba: reprogramar ── */}
+      <TrialClassRescheduleModal
+        booking={reschedulingTrial}
+        onClose={() => setReschedulingTrial(null)}
+        onRescheduled={setTrialNotice}
+      />
+
+      {/* ── Clase de prueba: aviso tras cancelar/reprogramar ── */}
+      <Dialog open={!!trialNotice} onOpenChange={(v) => { if (!v) setTrialNotice(null); }}>
+        <DialogContent className="sm:max-w-md bg-card text-card-foreground border-border/40 backdrop-blur-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold">
+              <Mail className="h-5 w-5 text-primary" />
+              {trialNotice?.email_sent ? 'Correo enviado' : 'No se pudo enviar el correo'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-muted/20 border border-border/40 rounded-lg p-4 text-sm italic text-muted-foreground">
+              "{trialNotice?.whatsapp_message}"
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1 h-11 font-medium border-border/50"
+                onClick={() => {
+                  if (trialNotice?.whatsapp_message) navigator.clipboard.writeText(trialNotice.whatsapp_message);
+                }}
+              >
+                <Copy className="h-4 w-4 mr-2" /> Copiar mensaje
+              </Button>
+              {trialNotice?.whatsapp_link && (
+                <Button
+                  className="flex-1 h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                  onClick={() => window.open(trialNotice.whatsapp_link, '_blank')}
+                >
+                  <MessageCircle className="h-4 w-4 mr-2" /> Abrir WhatsApp
+                </Button>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Facility availability modal ── */}
       {availabilityFacility && (

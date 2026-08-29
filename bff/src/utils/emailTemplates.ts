@@ -389,6 +389,172 @@ export const BrandedEmailTemplates = {
             }),
         };
     },
+
+    /** Cancelación de una clase de prueba ya agendada — ver trialClassConfirmation. */
+    trialClassCancellation: async (params: {
+        prospectName: string;
+        childName?: string | null;
+        dateLabel: string;
+        timeLabel: string;
+        cancelReason?: string | null;
+        schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+        const who = params.childName ? `la clase de prueba de <strong>${escapeHtml(params.childName)}</strong>` : 'tu clase de prueba';
+        const reasonRow = params.cancelReason
+            ? `<p style="margin: 8px 0 0;">Motivo: ${escapeHtml(params.cancelReason)}</p>`
+            : '';
+
+        return {
+            subject: `Tu clase de prueba fue cancelada — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: 'Clase de prueba cancelada',
+                greeting: `Hola ${escapeHtml(params.prospectName)},`,
+                bodyHtml: `
+                    <p>Te confirmamos que ${who} programada para el <strong>${escapeHtml(params.dateLabel)}</strong> a las <strong>${escapeHtml(params.timeLabel)}</strong> en <strong>${branding.schoolName}</strong> fue cancelada.${reasonRow}</p>
+                    <p>Si quieres reagendar, contáctanos cuando quieras.</p>
+                `,
+            }),
+        };
+    },
+
+    /** Reprogramación (cambio de fecha/hora) de una clase de prueba ya agendada. */
+    trialClassRescheduled: async (params: {
+        prospectName: string;
+        childName?: string | null;
+        dateLabel: string;
+        timeLabel: string;
+        facilityName: string;
+        coachName: string;
+        schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+        const who = params.childName ? `la clase de prueba de <strong>${escapeHtml(params.childName)}</strong>` : 'tu clase de prueba';
+
+        return {
+            subject: `Tu clase de prueba fue reprogramada — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: 'Clase de prueba reprogramada',
+                greeting: `Hola ${escapeHtml(params.prospectName)},`,
+                bodyHtml: `
+                    <p>Te confirmamos que ${who} en <strong>${branding.schoolName}</strong> fue reprogramada:</p>
+                    <table cellpadding="0" cellspacing="0" border="0" width="100%"
+                           style="background-color: #f3f4f6; border-radius: 8px; margin: 16px 0;">
+                        <tr><td style="padding: 16px;">
+                            <p style="margin: 4px 0;"><strong>Nueva fecha:</strong> ${escapeHtml(params.dateLabel)}</p>
+                            <p style="margin: 4px 0;"><strong>Nueva hora:</strong> ${escapeHtml(params.timeLabel)}</p>
+                            <p style="margin: 4px 0;"><strong>Lugar:</strong> ${escapeHtml(params.facilityName)}</p>
+                            <p style="margin: 4px 0;"><strong>Entrenador:</strong> ${escapeHtml(params.coachName)}</p>
+                        </td></tr>
+                    </table>
+                `,
+                closingHtml: '¡Te esperamos!',
+            }),
+        };
+    },
+
+    /**
+     * Cancelación de una reserva de instalación (alquiler del owner o clase
+     * de cortesía pública) — ver reservationRescheduled y useFacilityReservations.
+     */
+    reservationCancelled: async (params: {
+        recipientName: string;
+        facilityName: string;
+        dateLabel: string;
+        timeLabel: string;
+        cancelReason?: string | null;
+        schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+        const reasonRow = params.cancelReason
+            ? `<p style="margin: 8px 0 0;">Motivo: ${escapeHtml(params.cancelReason)}</p>`
+            : '';
+
+        return {
+            subject: `Tu reserva fue cancelada — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: 'Reserva cancelada',
+                greeting: `Hola ${escapeHtml(params.recipientName)},`,
+                bodyHtml: `
+                    <p>Te confirmamos que tu reserva en <strong>${escapeHtml(params.facilityName)}</strong> programada para el <strong>${escapeHtml(params.dateLabel)}</strong> a las <strong>${escapeHtml(params.timeLabel)}</strong> fue cancelada.${reasonRow}</p>
+                    <p>Si quieres reservar de nuevo, contáctanos cuando quieras.</p>
+                `,
+            }),
+        };
+    },
+
+    /** Reprogramación (cambio de fecha/hora) de una reserva de instalación. */
+    reservationRescheduled: async (params: {
+        recipientName: string;
+        facilityName: string;
+        dateLabel: string;
+        timeLabel: string;
+        schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+
+        return {
+            subject: `Tu reserva fue reprogramada — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: 'Reserva reprogramada',
+                greeting: `Hola ${escapeHtml(params.recipientName)},`,
+                bodyHtml: `
+                    <p>Te confirmamos que tu reserva en <strong>${branding.schoolName}</strong> fue reprogramada:</p>
+                    <table cellpadding="0" cellspacing="0" border="0" width="100%"
+                           style="background-color: #f3f4f6; border-radius: 8px; margin: 16px 0;">
+                        <tr><td style="padding: 16px;">
+                            <p style="margin: 4px 0;"><strong>Nueva fecha:</strong> ${escapeHtml(params.dateLabel)}</p>
+                            <p style="margin: 4px 0;"><strong>Nueva hora:</strong> ${escapeHtml(params.timeLabel)}</p>
+                            <p style="margin: 4px 0;"><strong>Lugar:</strong> ${escapeHtml(params.facilityName)}</p>
+                        </td></tr>
+                    </table>
+                `,
+                closingHtml: '¡Te esperamos!',
+            }),
+        };
+    },
+
+    /**
+     * Confirmación de reserva agendada desde el flujo público (/agendar/:slug,
+     * bff/src/routes/public-booking.routes.ts POST /confirm) — clase de
+     * cortesía o reserva de socio con plan activo. Va al prospecto tras
+     * verificar el código OTP; distinta de reservationCancelled/Rescheduled,
+     * que son para reservas ya agendadas.
+     */
+    publicBookingConfirmation: async (params: {
+        recipientName: string;
+        facilityName: string;
+        dateLabel: string;
+        timeLabel: string;
+        schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+
+        return {
+            subject: `Tu reserva en ${branding.schoolName.replace(/&amp;/g, '&')} está confirmada`,
+            html: buildBrandedEmail({
+                branding,
+                title: '¡Reserva confirmada!',
+                greeting: `Hola ${escapeHtml(params.recipientName)},`,
+                bodyHtml: `
+                    <p>Confirmamos tu reserva en <strong>${branding.schoolName}</strong>:</p>
+                    <table cellpadding="0" cellspacing="0" border="0" width="100%"
+                           style="background-color: #f3f4f6; border-radius: 8px; margin: 16px 0;">
+                        <tr><td style="padding: 16px;">
+                            <p style="margin: 4px 0;"><strong>Fecha:</strong> ${escapeHtml(params.dateLabel)}</p>
+                            <p style="margin: 4px 0;"><strong>Hora:</strong> ${escapeHtml(params.timeLabel)}</p>
+                            <p style="margin: 4px 0;"><strong>Lugar:</strong> ${escapeHtml(params.facilityName)}</p>
+                        </td></tr>
+                    </table>
+                `,
+                closingHtml: '¡Te esperamos!',
+            }),
+        };
+    },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

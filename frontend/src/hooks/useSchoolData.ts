@@ -347,22 +347,22 @@ export function useCoachData() {
     enabled: !!user?.id,
   });
 
-  // Fetch training plans for a specific team
+  // Fetch training sessions for a specific team
   const fetchTrainingPlans = async (teamId: string) => {
     const { data, error } = await supabase
-      .from('training_plans')
+      .from('training_sessions')
       .select('*')
       .eq('team_id', teamId)
-      .order('plan_date', { ascending: false });
+      .order('session_date', { ascending: false });
     if (error) throw error;
     return data;
   };
 
-  // Create training plan
+  // Create training session
   const createTrainingPlan = useMutation({
     mutationFn: async (input: {
       team_id: string;
-      plan_date: string;
+      session_date: string;
       objectives: string;
       warmup?: string;
       drills?: any[];
@@ -370,7 +370,7 @@ export function useCoachData() {
       notes?: string;
     }) => {
       const { data, error } = await supabase
-        .from('training_plans')
+        .from('training_sessions')
         .insert(input)
         .select()
         .single();
@@ -378,8 +378,8 @@ export function useCoachData() {
       return data;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['training-plans', variables.team_id] });
-      toast({ title: '✅ Plan creado', description: 'El plan de entrenamiento se ha guardado' });
+      queryClient.invalidateQueries({ queryKey: ['training-sessions', variables.team_id] });
+      toast({ title: '✅ Sesión creada', description: 'La sesión de entrenamiento se ha guardado' });
     },
     onError: (error: any) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });

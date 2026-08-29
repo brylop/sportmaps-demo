@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/use-toast';
 import {
   Building2, Calendar, Clock, Users, ArrowLeft, ArrowRight, Loader2,
-  Phone, Mail, User, CheckCircle2, AlertCircle, ShieldCheck, Sparkles,
+  Mail, User, CheckCircle2, AlertCircle, ShieldCheck, Sparkles,
 } from 'lucide-react';
 
 const BFF_URL = import.meta.env.VITE_BFF_URL ?? '';
@@ -39,10 +39,10 @@ interface Slot {
 }
 
 // 'welcome' es solo copy/bienvenida — NUNCA decide el escenario real.
-// El teléfono, verificado en el backend, sigue siendo la única fuente de verdad.
+// El correo, verificado en el backend, sigue siendo la única fuente de verdad.
 type Step =
-  | 'welcome' | 'facility' | 'slots' | 'phone'
-  | 'email_needed' | 'new_details' | 'code' | 'success' | 'pending' | 'already_registered';
+  | 'welcome' | 'facility' | 'slots' | 'email'
+  | 'new_details' | 'code' | 'success' | 'pending' | 'already_registered';
 
 async function api(path: string, opts: RequestInit = {}) {
   const res = await fetch(`${BFF_URL}/api/v1/public/booking${path}`, {
@@ -96,7 +96,6 @@ export default function PublicFacilityBookingPage() {
   // Solo bienvenida/copy — no se manda al backend, no decide nada por sí sola.
   const [returningHint, setReturningHint] = useState<'returning' | 'new' | null>(null);
 
-  const [phone, setPhone] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -114,6 +113,7 @@ export default function PublicFacilityBookingPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pendingApprovalMsg, setPendingApprovalMsg] = useState<string | null>(null);
+  const [confirmationEmailSent, setConfirmationEmailSent] = useState(false);
 
   // ── Cargar escuela ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -174,18 +174,18 @@ export default function PublicFacilityBookingPage() {
 
   const handlePickSlot = (s: Slot) => {
     setPendingSlot(s);
-    setStep('phone');
+    setStep('email');
   };
 
-  // ── Paso teléfono ─────────────────────────────────────────────────────────────
-  async function handleStartVerification(extra?: { full_name?: string; email?: string }) {
+  // ── Paso correo ───────────────────────────────────────────────────────────────
+  async function handleStartVerification(extra?: { full_name?: string }) {
     if (!schoolInfo) return;
     setBusy(true);
     setErrorMsg(null);
     try {
       const data = await api('/start-verification', {
         method: 'POST',
-        body: JSON.stringify({ school_id: schoolInfo.school.id, phone, ...(extra || {}) }),
+        body: JSON.stringify({ school_id: schoolInfo.school.id, email, ...(extra || {}) }),
       });
 
        if (data.scenario === 'already_registered') {
@@ -193,11 +193,7 @@ export default function PublicFacilityBookingPage() {
         setStep('already_registered');
         return;
       }
-      if (data.scenario === 'enrolled_needs_email') {
-        setStep('email_needed');
-        return;
-      }
-      if (data.scenario === 'new_needs_details') {
+      if (data.scenario === 'new_needs_name') {
         setStep('new_details');
         return;
       }
@@ -232,7 +228,7 @@ export default function PublicFacilityBookingPage() {
       toast({ title: '📩 Código enviado', description: `Revisa ${data.masked_email}` });
     } catch (err: any) {
       if (err.body?.reason === 'no_courtesy') {
-        setErrorMsg('No encontramos tu número en nuestros registros y esta escuela no tiene clases de cortesía activas en este momento.');
+        setErrorMsg('No encontramos tu correo en nuestros registros y esta escuela no tiene clases de cortesía activas en este momento.');
       } else {
         setErrorMsg(err.body?.error || 'No se pudo procesar tu solicitud.');
       }
@@ -241,16 +237,12 @@ export default function PublicFacilityBookingPage() {
     }
   }
 
-  async function handleSubmitEmailForEnrolled() {
-    await handleStartVerification({ email });
-  }
-
   async function handleSubmitNewDetails() {
-    if (!fullName.trim() || !email.trim()) {
-      setErrorMsg('Nombre y correo son requeridos.');
+    if (!fullName.trim()) {
+      setErrorMsg('El nombre es requerido.');
       return;
     }
-    await handleStartVerification({ full_name: fullName, email });
+    await handleStartVerification({ full_name: fullName });
   }
 
   // ── Paso código ───────────────────────────────────────────────────────────────
@@ -310,6 +302,7 @@ export default function PublicFacilityBookingPage() {
         setPendingApprovalMsg(data.message);
         setStep('pending');
       } else {
+        setConfirmationEmailSent(!!data.email_sent);
         setStep('success');
       }
     } catch (err: any) {
@@ -326,12 +319,10 @@ export default function PublicFacilityBookingPage() {
   const handleBackFromCode = () => {
     setCode('');
     setErrorMsg(null);
-    if (fullName && email) {
+    if (fullName) {
       setStep('new_details');
-    } else if (email) {
-      setStep('email_needed');
     } else {
-      setStep('phone');
+      setStep('email');
     }
   };
 
@@ -520,8 +511,8 @@ export default function PublicFacilityBookingPage() {
               </div>
             )}
 
-            {/* ── Paso: teléfono (ya con el horario elegido, copy según la bienvenida) ── */}
-            {step === 'phone' && (
+            {/* ── Paso: correo (ya con el horario elegido, copy según la bienvenida) ── */}
+            {step === 'email' && (
               <div className="space-y-5">
                 <button
                   onClick={() => { setStep('slots'); setPendingSlot(null); setErrorMsg(null); }}
@@ -539,28 +530,28 @@ export default function PublicFacilityBookingPage() {
                 )}
 
                 <div className="text-center">
-                  <Phone className="h-8 w-8 text-primary mx-auto mb-2" />
-                  <h2 className="font-bold text-lg">Ingresa tu celular</h2>
+                  <Mail className="h-8 w-8 text-primary mx-auto mb-2" />
+                  <h2 className="font-bold text-lg">Ingresa tu correo</h2>
                   <p className="text-xs text-muted-foreground mt-1">
                     {returningHint === 'new'
-                      ? 'Verifiquemos tu número — si es tu primera vez, puede que tengas una clase de cortesía 🎉'
+                      ? 'Verifiquemos tu correo — si es tu primera vez, puede que tengas una clase de cortesía 🎉'
                       : 'Así identificamos tu plan o inscripción con nosotros'}
                   </p>
                 </div>
                 <div className="space-y-2">
-                  <Label>Número de celular</Label>
+                  <Label>Correo electrónico</Label>
                   <Input
-                    type="tel"
-                    placeholder="300 123 4567"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    type="email"
+                    placeholder="tu@correo.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     className="h-12 text-center text-lg tracking-wide"
                   />
                 </div>
                 {errorMsg && <ErrorBanner message={errorMsg} />}
                 <Button
                   onClick={() => handleStartVerification()}
-                  disabled={busy || phone.replace(/\D/g, '').length < 7}
+                  disabled={busy || !email.includes('@')}
                   className="w-full h-12 gap-2"
                 >
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
@@ -569,38 +560,11 @@ export default function PublicFacilityBookingPage() {
               </div>
             )}
 
-            {/* ── Paso: email para inscrito sin cuenta (Escenario 2) ── */}
-            {step === 'email_needed' && (
-              <div className="space-y-5">
-                <button
-                  onClick={() => { setStep('phone'); setErrorMsg(null); }}
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mb-4"
-                >
-                  <ArrowLeft className="h-3.5 w-3.5" />
-                  <span>Volver</span>
-                </button>
-                <div className="text-center">
-                  <Mail className="h-8 w-8 text-primary mx-auto mb-2" />
-                  <h2 className="font-bold text-lg">¡Ya tienes una inscripción!</h2>
-                  <p className="text-xs text-muted-foreground mt-1">Necesitamos un correo para enviarte el código de verificación</p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Correo electrónico</Label>
-                  <Input type="email" placeholder="tu@correo.com" value={email} onChange={(e) => setEmail(e.target.value)} className="h-12" />
-                </div>
-                {errorMsg && <ErrorBanner message={errorMsg} />}
-                <Button onClick={handleSubmitEmailForEnrolled} disabled={busy || !email.includes('@')} className="w-full h-12 gap-2">
-                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                  Enviar código
-                </Button>
-              </div>
-            )}
-
             {/* ── Paso: datos de persona nueva (Escenario 1 — cortesía) ── */}
             {step === 'new_details' && (
               <div className="space-y-5">
                 <button
-                  onClick={() => { setStep('phone'); setErrorMsg(null); }}
+                  onClick={() => { setStep('email'); setErrorMsg(null); }}
                   className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mb-4"
                 >
                   <ArrowLeft className="h-3.5 w-3.5" />
@@ -609,26 +573,17 @@ export default function PublicFacilityBookingPage() {
                 <div className="text-center">
                   <Sparkles className="h-8 w-8 text-amber-500 mx-auto mb-2" />
                   <h2 className="font-bold text-lg">¡Tienes una clase de cortesía!</h2>
-                  <p className="text-xs text-muted-foreground mt-1">Cuéntanos quién eres para poder registrarte</p>
+                  <p className="text-xs text-muted-foreground mt-1">Cuéntanos tu nombre para poder registrarte</p>
                 </div>
-                <div className="space-y-3">
-                  <div className="space-y-2">
-                    <Label>Nombre completo</Label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input placeholder="Tu nombre" value={fullName} onChange={(e) => setFullName(e.target.value)} className="h-12 pl-10" />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Correo electrónico</Label>
-                    <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input type="email" placeholder="tu@correo.com" value={email} onChange={(e) => setEmail(e.target.value)} className="h-12 pl-10" />
-                    </div>
+                <div className="space-y-2">
+                  <Label>Nombre completo</Label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input placeholder="Tu nombre" value={fullName} onChange={(e) => setFullName(e.target.value)} className="h-12 pl-10" />
                   </div>
                 </div>
                 {errorMsg && <ErrorBanner message={errorMsg} />}
-                <Button onClick={handleSubmitNewDetails} disabled={busy} className="w-full h-12 gap-2">
+                <Button onClick={handleSubmitNewDetails} disabled={busy || !fullName.trim()} className="w-full h-12 gap-2">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                   Enviar código de verificación
                 </Button>
@@ -681,6 +636,10 @@ export default function PublicFacilityBookingPage() {
                       Reserva Confirmada
                     </Badge>
                     <h2 className="font-bold text-xl text-foreground">¡Te esperamos en la clase!</h2>
+                    <p className="text-xs text-muted-foreground mt-1.5 flex items-center justify-center gap-1.5">
+                      <Mail className="h-3.5 w-3.5" />
+                      {confirmationEmailSent ? 'Correo de confirmación enviado.' : 'No se pudo enviar el correo de confirmación.'}
+                    </p>
                   </div>
                 </div>
 
@@ -719,8 +678,7 @@ export default function PublicFacilityBookingPage() {
                       onClick={() => {
                         const targetEmail = email;
                         const targetName = fullName;
-                        const targetPhone = phone;
-                        window.location.href = `/register?email=${encodeURIComponent(targetEmail)}&phone=${encodeURIComponent(targetPhone)}&name=${encodeURIComponent(targetName)}&role=athlete`;
+                        window.location.href = `/register?email=${encodeURIComponent(targetEmail)}&name=${encodeURIComponent(targetName)}&role=athlete`;
                       }}
                       className="w-full h-11 text-xs gap-2 font-semibold shadow-sm"
                       variant="default"
@@ -769,8 +727,7 @@ export default function PublicFacilityBookingPage() {
                       onClick={() => {
                         const targetEmail = email;
                         const targetName = fullName;
-                        const targetPhone = phone;
-                        window.location.href = `/register?email=${encodeURIComponent(targetEmail)}&phone=${encodeURIComponent(targetPhone)}&name=${encodeURIComponent(targetName)}&role=athlete`;
+                        window.location.href = `/register?email=${encodeURIComponent(targetEmail)}&name=${encodeURIComponent(targetName)}&role=athlete`;
                       }}
                       className="w-full h-11 text-xs gap-2 font-semibold shadow-sm"
                       variant="default"
@@ -798,7 +755,7 @@ export default function PublicFacilityBookingPage() {
 
                 <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4 text-left space-y-3">
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Identificamos que tu número de celular está vinculado a la cuenta:
+                    Ese correo ya tiene una cuenta registrada:
                   </p>
                   <div className="p-3 bg-background rounded-xl border border-border font-mono text-xs font-bold text-foreground text-center shadow-xs">
                     {registeredEmail}
@@ -820,13 +777,13 @@ export default function PublicFacilityBookingPage() {
                   </Button>
                   <button
                     onClick={() => {
-                      setStep('phone');
+                      setStep('email');
                       setErrorMsg(null);
                     }}
                     className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mx-auto pt-1"
                   >
                     <ArrowLeft className="h-3.5 w-3.5" />
-                    <span>Usar otro número</span>
+                    <span>Usar otro correo</span>
                   </button>
                 </div>
               </div>

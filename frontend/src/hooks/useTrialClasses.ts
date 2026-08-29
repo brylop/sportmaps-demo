@@ -7,9 +7,25 @@ import { bffClient } from '@/lib/api/bffClient';
 
 export type TrialClassStatus = 'agendada' | 'realizada' | 'no_show' | 'cancelada' | 'convertida';
 
+export interface TrialClassCategory {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  is_active: boolean;
+}
+
+export interface TrialClassCategoryPayload {
+  name: string;
+  description?: string;
+  price: number;
+  is_active?: boolean;
+}
+
 export interface TrialClassBooking {
   id: string;
   school_id: string;
+  category_id: string;
   facility_id: string;
   coach_id: string;
   attendance_session_id: string | null;
@@ -36,7 +52,6 @@ export interface TrialClassBooking {
 export interface TrialClassSettings {
   school_id?: string;
   enabled: boolean;
-  price: number;
   requires_approval: boolean;
 }
 
@@ -49,6 +64,7 @@ export interface JointSlot {
 }
 
 export interface CreateTrialBookingPayload {
+  category_id: string;
   facility_availability_id: string;
   coach_availability_id: string;
   scheduled_date: string;
@@ -68,6 +84,23 @@ export interface CreateTrialBookingResponse {
   email_sent: boolean;
 }
 
+/** Devuelto al cancelar o reprogramar — mismo patrón de aviso que al crear. */
+export interface BookingChangeNotice {
+  success: boolean;
+  email_sent?: boolean;
+  whatsapp_message?: string;
+  whatsapp_link?: string;
+}
+
+export interface RescheduleTrialBookingPayload {
+  id: string;
+  facility_availability_id: string;
+  coach_availability_id: string;
+  scheduled_date: string;
+  start_time: string;
+  end_time: string;
+}
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useTrialClasses(filters?: { status?: TrialClassStatus; from?: string; to?: string }) {
@@ -77,6 +110,7 @@ export function useTrialClasses(filters?: { status?: TrialClassStatus; from?: st
 
   const LIST_KEY = ['trial-class-bookings', schoolId, filters];
   const SETTINGS_KEY = ['trial-class-settings', schoolId];
+  const CATEGORIES_KEY = ['trial-class-categories', schoolId];
 
   const { data: bookings = [], isLoading, isFetching, refetch } = useQuery<TrialClassBooking[]>({
     queryKey: LIST_KEY,
@@ -94,6 +128,12 @@ export function useTrialClasses(filters?: { status?: TrialClassStatus; from?: st
   const { data: settings } = useQuery<TrialClassSettings>({
     queryKey: SETTINGS_KEY,
     queryFn: () => bffClient.get<TrialClassSettings>('/api/v1/trial-classes/settings'),
+    enabled: !!schoolId,
+  });
+
+  const { data: categories = [], isLoading: isLoadingCategories } = useQuery<TrialClassCategory[]>({
+    queryKey: CATEGORIES_KEY,
+    queryFn: () => bffClient.get<TrialClassCategory[]>('/api/v1/trial-classes/categories'),
     enabled: !!schoolId,
   });
 
@@ -127,7 +167,7 @@ export function useTrialClasses(filters?: { status?: TrialClassStatus; from?: st
 
   const { mutateAsync: updateStatus, isPending: isUpdatingStatus } = useMutation({
     mutationFn: ({ id, status, cancel_reason }: { id: string; status: TrialClassStatus; cancel_reason?: string }) =>
-      bffClient.patch(`/api/v1/trial-classes/${id}/status`, { status, cancel_reason }),
+      bffClient.patch<BookingChangeNotice>(`/api/v1/trial-classes/${id}/status`, { status, cancel_reason }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['trial-class-bookings', schoolId] });
       toast({ title: '✅ Estado actualizado' });
@@ -145,6 +185,59 @@ export function useTrialClasses(filters?: { status?: TrialClassStatus; from?: st
     },
     onError: (error: any) => {
       toast({ title: 'No se pudo reenviar', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const { mutateAsync: rescheduleBooking, isPending: isRescheduling } = useMutation({
+    mutationFn: (payload: RescheduleTrialBookingPayload) =>
+      bffClient.patch<BookingChangeNotice>(`/api/v1/trial-classes/${payload.id}/reschedule`, {
+        facility_availability_id: payload.facility_availability_id,
+        coach_availability_id: payload.coach_availability_id,
+        scheduled_date: payload.scheduled_date,
+        start_time: payload.start_time,
+        end_time: payload.end_time,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['trial-class-bookings', schoolId] });
+      toast({ title: '✅ Clase reprogramada' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'No se pudo reprogramar', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const { mutateAsync: createCategory, isPending: isCreatingCategory } = useMutation({
+    mutationFn: (payload: TrialClassCategoryPayload) =>
+      bffClient.post<{ id: string }>('/api/v1/trial-classes/categories', payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: CATEGORIES_KEY });
+      toast({ title: '✅ Categoría creada' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'No se pudo crear la categoría', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const { mutateAsync: updateCategory, isPending: isUpdatingCategory } = useMutation({
+    mutationFn: ({ id, ...payload }: TrialClassCategoryPayload & { id: string }) =>
+      bffClient.put<{ id: string }>(`/api/v1/trial-classes/categories/${id}`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: CATEGORIES_KEY });
+      toast({ title: '✅ Categoría actualizada' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'No se pudo actualizar la categoría', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const { mutateAsync: setCategoryActive, isPending: isTogglingCategory } = useMutation({
+    mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) =>
+      bffClient.patch(`/api/v1/trial-classes/categories/${id}/active`, { is_active }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: CATEGORIES_KEY });
+    },
+    onError: (error: any) => {
+      toast({ title: 'No se pudo actualizar la categoría', description: error.message, variant: 'destructive' });
     },
   });
 
@@ -173,5 +266,15 @@ export function useTrialClasses(filters?: { status?: TrialClassStatus; from?: st
     isUpdatingStatus,
     resendConfirmation,
     isResending,
+    rescheduleBooking,
+    isRescheduling,
+    categories,
+    isLoadingCategories,
+    createCategory,
+    isCreatingCategory,
+    updateCategory,
+    isUpdatingCategory,
+    setCategoryActive,
+    isTogglingCategory,
   };
 }
