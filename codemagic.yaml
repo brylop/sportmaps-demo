@@ -21,7 +21,7 @@ workflows:
     instance_type: mac_mini_m2
     environment:
       vars:
-        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+        XCODE_WORKSPACE: "App.xcworkspace"
         XCODE_SCHEME: "App"
       xcode: 26.4.1 # requisito Apple vigente desde 2026-04-28 (docs/MOBILE_ROADMAP_EXECUTION.md) — no bajar de imagen
       cocoapods: default
@@ -86,7 +86,7 @@ workflows:
         distribution_type: app_store
         bundle_identifier: co.sportmaps.app
       vars:
-        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+        XCODE_WORKSPACE: "App.xcworkspace"
         XCODE_SCHEME: "App"
         APP_STORE_APPLE_ID: 0 # TODO: reemplazar con el Apple ID numérico real de App Store Connect
       xcode: 26.4.1
