@@ -102,6 +102,7 @@ VITE_WOMPI_PUBLIC_KEY=<wompi public key>
 SUPABASE_URL=https://luebjarufsiadojhvxgi.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<service role key>
 PORT=3002
+SENTRY_DSN=<dsn del proyecto Node en Sentry>
 ```
 
 ## Deploy
