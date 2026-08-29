@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
+import { bffClient } from '@/lib/api/bffClient';
 import { format } from 'date-fns';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -39,6 +40,28 @@ export interface CreateReservationPayload {
   price: number;
   notes?: string;
   status?: ResvStatus;
+}
+
+export interface ReservationChangeNotice {
+  success: boolean;
+  email_sent?: boolean;
+}
+
+export interface CourtesySlot {
+  facility_availability_id: string;
+  slot_date: string;
+  slot_start_time: string;
+  slot_end_time: string;
+  available_spots: number;
+}
+
+export interface RescheduleReservationPayload {
+  id: string;
+  isSessionBooking?: boolean;
+  reservation_date: string;
+  start_time: string;
+  end_time: string;
+  facility_availability_id?: string; // requerido cuando isSessionBooking
 }
 
 export interface UpdateReservationPayload {
@@ -281,9 +304,64 @@ export function useFacilityReservations() {
     });
   };
 
-  const cancelReservation = async (id: string) => {
+  // Cancelar pasa por el BFF (no Supabase directo) para poder mandar el
+  // correo de aviso del lado del servidor — ver reservations-admin.routes.ts.
+  const { mutateAsync: cancelReservationMutation, isPending: isCancelling } = useMutation({
+    mutationFn: ({ id, isSessionBooking, reason }: { id: string; isSessionBooking?: boolean; reason?: string }) => {
+      const path = isSessionBooking
+        ? `/api/v1/reservations-admin/courtesy/${id}/cancel`
+        : `/api/v1/reservations-admin/facility/${id}/cancel`;
+      return bffClient.patch<ReservationChangeNotice>(path, { reason });
+    },
+    onSuccess: (notice) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      toast({ title: notice.email_sent ? '✅ Reserva cancelada — correo enviado' : '✅ Reserva cancelada' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Error al cancelar', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const cancelReservation = async (id: string, reason?: string) => {
     const isSessionBooking = reservations.find(r => r.id === id)?.isSessionBooking;
-    await updateReservation({ id, payload: { status: 'cancelled' }, isSessionBooking });
+    return cancelReservationMutation({ id, isSessionBooking, reason });
+  };
+
+  // Reprogramar (cambio de fecha/hora) — igual que cancelar, pasa por el BFF
+  // para poder avisar por correo. Para clases de cortesía revalida cupo real
+  // vía session_booking_reschedule (RPC atómica); para alquiler manual el
+  // trigger de choque de horario ya protegía esto.
+  const { mutateAsync: rescheduleReservationMutation, isPending: isRescheduling } = useMutation({
+    mutationFn: (payload: RescheduleReservationPayload) => {
+      if (payload.isSessionBooking) {
+        if (!payload.facility_availability_id) throw new Error('facility_availability_id es requerido para reprogramar una clase de cortesía.');
+        return bffClient.patch<ReservationChangeNotice>(`/api/v1/reservations-admin/courtesy/${payload.id}/reschedule`, {
+          facility_availability_id: payload.facility_availability_id,
+          date: payload.reservation_date,
+          start_time: payload.start_time,
+          end_time: payload.end_time,
+        });
+      }
+      return bffClient.patch<ReservationChangeNotice>(`/api/v1/reservations-admin/facility/${payload.id}/reschedule`, {
+        reservation_date: payload.reservation_date,
+        start_time: payload.start_time,
+        end_time: payload.end_time,
+      });
+    },
+    onSuccess: (notice) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      toast({ title: notice.email_sent ? '✅ Reserva reprogramada — correo enviado' : '✅ Reserva reprogramada' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'No se pudo reprogramar', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  // Slots libres solo-por-cancha (sin coach) para reprogramar una clase de
+  // cortesía — GET /courtesy/slots del mismo router.
+  const getCourtesySlots = async (facilityId: string, from: string, to: string): Promise<CourtesySlot[]> => {
+    const params = new URLSearchParams({ facility_id: facilityId, from, to });
+    return bffClient.get<CourtesySlot[]>(`/api/v1/reservations-admin/courtesy/slots?${params.toString()}`);
   };
 
   const completeReservation = async (id: string) => {
@@ -291,26 +369,20 @@ export function useFacilityReservations() {
     await updateReservation({ id, payload: { status: 'completed' }, isSessionBooking });
   };
 
-  // ── DELETE (hard) — sólo aplica a registros propios o via admin ───────────
+  // ── DELETE (hard, vía BFF) ───────────────────────────────────────────────
+  // RLS bloquea el DELETE directo a propósito (session_bookings_delete_none
+  // en session_bookings; facility_reservations solo deja borrar al propio
+  // autor con status='pending') — escribir Supabase directo acá hacía que
+  // el DELETE afectara 0 filas en silencio y el toast dijera "eliminado"
+  // sin haber borrado nada. Solo el BFF (service_role, owner/admin) puede.
 
   const { mutateAsync: deleteReservation, isPending: isDeleting } = useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: (id: string) => {
       const isSessionBooking = reservations.find(r => r.id === id)?.isSessionBooking;
-      if (isSessionBooking) {
-        const { error } = await supabase
-          .from('session_bookings')
-          .delete()
-          .eq('id', id);
-        if (error) throw error;
-        return;
-      }
-
-      const { error } = await supabase
-        .from('facility_reservations')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
+      const path = isSessionBooking
+        ? `/api/v1/reservations-admin/courtesy/${id}`
+        : `/api/v1/reservations-admin/facility/${id}`;
+      return bffClient.delete<{ success: boolean }>(path);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
@@ -365,8 +437,12 @@ export function useFacilityReservations() {
     // helpers
     approveReservation,
     cancelReservation,
+    isCancelling,
     completeReservation,
     getBookedSlots,
+    rescheduleReservation: rescheduleReservationMutation,
+    isRescheduling,
+    getCourtesySlots,
   };
 }
 

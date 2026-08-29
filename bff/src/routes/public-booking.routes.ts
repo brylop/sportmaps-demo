@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
+import { BrandedEmailTemplates } from '../utils/emailTemplates';
 
 const router = Router();
 
@@ -14,8 +15,19 @@ const otpStartLimiter = rateLimit({
 });
 
 const OTP_TTL_MIN = 10;
-const MAX_OTP_PER_PHONE_WINDOW = 3;
-const OTP_PHONE_WINDOW_MIN = 10;
+const MAX_OTP_PER_EMAIL_WINDOW = 3;
+const OTP_EMAIL_WINDOW_MIN = 10;
+
+// PUBLIC_BOOKING_DEBUG_OTP=true devuelve el código en la respuesta (para no
+// tener que leer el correo en desarrollo local). ANTES esto se gateaba con
+// `NODE_ENV !== 'production'` — roto en este repo porque render.yaml
+// despliega sportmaps-bff-dev y sportmaps-bff-stg como servicios PÚBLICOS
+// con NODE_ENV=development/staging, y los tres ambientes (dev/stg/prod)
+// apuntan a LA MISMA Supabase — el bypass de OTP quedaba vivo contra datos
+// reales en dos de los tres BFFs. Este flag no se declara en render.yaml
+// para ningún servicio: por ausencia queda apagado en todo lo desplegado,
+// y solo se prende a mano en un .env local.
+const DEBUG_OTP_ENABLED = process.env.PUBLIC_BOOKING_DEBUG_OTP === 'true';
 
 function hashOtp(code: string): string {
   return crypto.createHash('sha256').update(code).digest('hex');
@@ -66,65 +78,49 @@ router.get('/schools/:slug', async (req: Request, res: Response) => {
   }
 });
 
-// ── POST /start-verification — resuelve teléfono y manda OTP ───────────────
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// ── POST /start-verification — resuelve correo y manda OTP ─────────────────
+// Se identifica por CORREO (no por teléfono): el usuario provee su propio
+// dato, así que confirmar "ya existe una cuenta con este correo" no revela
+// nada que no supiera de antemano — a diferencia de teléfono, que permitía
+// escribir un número ajeno y recibir de vuelta el correo de esa cuenta.
 router.post('/start-verification', otpStartLimiter, async (req: Request, res: Response) => {
   try {
-    const { school_id, phone, full_name, email } = req.body as {
-      school_id: string; phone: string; full_name?: string; email?: string;
+    const { school_id, email, full_name } = req.body as {
+      school_id: string; email: string; full_name?: string;
     };
-    if (!school_id || !phone) return res.status(400).json({ error: 'school_id y phone son requeridos.' });
+    if (!school_id || !email) return res.status(400).json({ error: 'school_id y email son requeridos.' });
 
-    const cleanPhone = phone.replace(/\D/g, '');
-    if (cleanPhone.length < 7) return res.status(400).json({ error: 'Teléfono inválido.' });
+    const cleanEmail = email.trim().toLowerCase();
+    if (!EMAIL_RE.test(cleanEmail)) return res.status(400).json({ error: 'Correo inválido.' });
 
-    // Anti-flood por teléfono específico (además del rate-limit por IP)
-    const windowStart = new Date(Date.now() - OTP_PHONE_WINDOW_MIN * 60_000).toISOString();
+    // Anti-flood por correo específico (además del rate-limit por IP)
+    const windowStart = new Date(Date.now() - OTP_EMAIL_WINDOW_MIN * 60_000).toISOString();
     const { count: recentCount } = await supabase
       .from('public_booking_verifications')
       .select('id', { count: 'exact', head: true })
       .eq('school_id', school_id)
-      .eq('phone', cleanPhone)
+      .eq('resolved_email', cleanEmail)
       .gte('created_at', windowStart);
 
-    if ((recentCount ?? 0) >= MAX_OTP_PER_PHONE_WINDOW) {
-      return res.status(429).json({ error: 'Demasiados códigos solicitados para este número. Espera unos minutos.' });
+    if ((recentCount ?? 0) >= MAX_OTP_PER_EMAIL_WINDOW) {
+      return res.status(429).json({ error: 'Demasiados códigos solicitados para este correo. Espera unos minutos.' });
     }
 
-    // ── Escenario 3: coincide con un profile (adulto o padre) ──────────────
+    // ── Escenario 3: ya tiene cuenta con este correo ────────────────────────
+    // Seguro de confirmar sin OTP: el usuario escribió su propio correo, no
+    // uno ajeno — no hay nada nuevo que se le esté revelando.
     const { data: profileMatch } = await supabase
       .from('profiles')
-      .select('id, email')
-      .eq('phone', cleanPhone)
+      .select('id')
+      .eq('email', cleanEmail)
       .maybeSingle();
 
-    // ── Escenario 3 (hijo): coincide con parent_phone de un child ──────────
-    let childMatch: { id: string; parent_id: string } | null = null;
-    let parentEmailForChild: string | null = null;
-    if (!profileMatch) {
-      const { data: child } = await supabase
-        .from('children')
-        .select('id, parent_id, parent_phone')
-        .eq('parent_phone', cleanPhone)
-        .maybeSingle();
-      if (child) {
-        childMatch = { id: child.id, parent_id: child.parent_id };
-        const { data: parentProfile } = await supabase
-          .from('profiles').select('email').eq('id', child.parent_id).maybeSingle();
-        parentEmailForChild = parentProfile?.email ?? null;
-      }
-    }
-
-    if (profileMatch || childMatch) {
-      const targetEmail = profileMatch?.email ?? parentEmailForChild;
-      if (!targetEmail) {
-        return res.status(422).json({
-          error: 'Encontramos tu cuenta pero no tiene un correo asociado. Contacta a la escuela.',
-        });
-      }
-
+    if (profileMatch) {
       return res.json({
         scenario: 'already_registered',
-        email: targetEmail,
+        email: cleanEmail,
         message: 'Ya tienes una cuenta registrada. Por seguridad, debes iniciar sesión con tu correo y contraseña.',
       });
     }
@@ -132,9 +128,9 @@ router.post('/start-verification', otpStartLimiter, async (req: Request, res: Re
     // ── Escenario 2: coincide con unregistered_athlete con enrollment activo ──
     const { data: unregMatch } = await supabase
       .from('unregistered_athletes')
-      .select('id, full_name, email')
+      .select('id, full_name')
       .eq('school_id', school_id)
-      .eq('phone', cleanPhone)
+      .eq('email', cleanEmail)
       .maybeSingle();
 
     if (unregMatch) {
@@ -147,32 +143,24 @@ router.post('/start-verification', otpStartLimiter, async (req: Request, res: Re
         .maybeSingle();
 
       if (enrollment) {
-        const targetEmail = unregMatch.email || email;
-        if (!targetEmail) {
-          return res.status(200).json({
-            scenario: 'enrolled_needs_email',
-            unregistered_id: unregMatch.id,
-            message: 'Encontramos tu inscripción. Necesitamos un correo para enviarte el código.',
-          });
-        }
-
         const code = generateCode();
         const { data: verif, error } = await supabase
           .from('public_booking_verifications')
           .insert({
-            school_id, phone: cleanPhone,
+            school_id,
             otp_hash: hashOtp(code),
-            resolved_email: targetEmail,
+            resolved_email: cleanEmail,
             resolved_kind: 'enrolled_unregistered',
             resolved_unregistered_id: unregMatch.id,
             resolved_enrollment_id: enrollment.id,
+            full_name: unregMatch.full_name,
             expires_at: new Date(Date.now() + OTP_TTL_MIN * 60_000).toISOString(),
           })
           .select('id').single();
         if (error) throw error;
 
         await emailClient.send({
-          to: targetEmail,
+          to: cleanEmail,
           subject: 'Tu código para agendar en SportMaps',
           html: `<p>Tu código de verificación es:</p><h2 style="letter-spacing:3px">${code}</h2><p>Vence en ${OTP_TTL_MIN} minutos.</p>`,
           text: `Tu código de verificación es ${code} (vence en ${OTP_TTL_MIN} min).`,
@@ -181,15 +169,15 @@ router.post('/start-verification', otpStartLimiter, async (req: Request, res: Re
         return res.json({
           verification_id: verif.id,
           scenario: 'enrolled_unregistered',
-          masked_email: maskEmail(targetEmail),
-          ...(process.env.NODE_ENV !== 'production' ? { debug_code: code } : {}),
+          masked_email: maskEmail(cleanEmail),
+          ...(DEBUG_OTP_ENABLED ? { debug_code: code } : {}),
         });
       }
     }
 
-    // ── Escenario 1: nuevo — requiere nombre + email explícitos ─────────────
-    if (!full_name || !email) {
-      return res.json({ scenario: 'new_needs_details' });
+    // ── Escenario 1: nuevo — requiere nombre explícito ──────────────────────
+    if (!full_name || !full_name.trim()) {
+      return res.json({ scenario: 'new_needs_name' });
     }
 
     const { data: courtesySettings } = await supabase
@@ -200,17 +188,17 @@ router.post('/start-verification', otpStartLimiter, async (req: Request, res: Re
 
     if (!courtesySettings?.enabled) {
       return res.status(422).json({
-        error: 'No encontramos tu número en nuestros registros y esta escuela no tiene clases de cortesía activas.',
+        error: 'No encontramos tu correo en nuestros registros y esta escuela no tiene clases de cortesía activas.',
         reason: 'no_courtesy',
       });
     }
 
-    // Anti-abuso: ¿este teléfono o algún unregistered_athlete con este email ya reclamó cortesía?
+    // Anti-abuso: ¿algún unregistered_athlete con este correo ya reclamó cortesía?
     const { data: priorClaim } = await supabase
       .from('unregistered_athletes')
       .select('id')
       .eq('school_id', school_id)
-      .or(`phone.eq.${cleanPhone},email.eq.${email}`)
+      .eq('email', cleanEmail)
       .maybeSingle();
 
     if (priorClaim) {
@@ -231,18 +219,18 @@ router.post('/start-verification', otpStartLimiter, async (req: Request, res: Re
     const { data: verif, error } = await supabase
       .from('public_booking_verifications')
       .insert({
-        school_id, phone: cleanPhone,
+        school_id,
         otp_hash: hashOtp(code),
-        resolved_email: email,
+        resolved_email: cleanEmail,
         resolved_kind: 'new',
-        full_name,
+        full_name: full_name.trim(),
         expires_at: new Date(Date.now() + OTP_TTL_MIN * 60_000).toISOString(),
       })
       .select('id').single();
     if (error) throw error;
 
     await emailClient.send({
-      to: email,
+      to: cleanEmail,
       subject: 'Tu código para agendar tu clase de cortesía',
       html: `<p>Tu código de verificación es:</p><h2 style="letter-spacing:3px">${code}</h2><p>Vence en ${OTP_TTL_MIN} minutos.</p>`,
       text: `Tu código de verificación es ${code} (vence en ${OTP_TTL_MIN} min).`,
@@ -251,8 +239,8 @@ router.post('/start-verification', otpStartLimiter, async (req: Request, res: Re
     return res.json({
       verification_id: verif.id,
       scenario: 'new',
-      masked_email: maskEmail(email),
-      ...(process.env.NODE_ENV !== 'production' ? { debug_code: code } : {}),
+      masked_email: maskEmail(cleanEmail),
+      ...(DEBUG_OTP_ENABLED ? { debug_code: code } : {}),
     });
   } catch (err: any) {
     req.log?.error({ err }, 'public-booking start-verification error');
@@ -463,7 +451,7 @@ router.post('/confirm', async (req: Request, res: Response) => {
 
     const { data: avail } = await supabase
       .from('facility_availability')
-      .select('facility_id, school_id, start_time, end_time, max_group_capacity, facility:facilities(min_booking_advance_hours)')
+      .select('facility_id, school_id, start_time, end_time, max_group_capacity, facility:facilities(name, min_booking_advance_hours)')
       .eq('id', facility_availability_id)
       .maybeSingle();
     if (!avail) return res.status(404).json({ error: 'Disponibilidad no encontrada.' });
@@ -539,7 +527,7 @@ router.post('/confirm', async (req: Request, res: Response) => {
 
       const { data: guest, error: guestErr } = await supabase
         .from('unregistered_athletes')
-        .insert({ school_id: verif.school_id, full_name: verif.full_name, phone: verif.phone, email: verif.resolved_email })
+        .insert({ school_id: verif.school_id, full_name: verif.full_name, email: verif.resolved_email })
         .select('id').single();
       if (guestErr) throw guestErr;
       unregisteredAthleteId = guest.id;
@@ -568,86 +556,67 @@ router.post('/confirm', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Escenario inválido para este endpoint.' });
     }
 
-    // ── Crear o reusar attendance_session, e insertar el booking ────────────
+    // ── Resolver/crear la sesión + chequear cupo + reservar + mover el
+    // crédito, todo atómico en una sola RPC (ver migración
+    // 20260828230515_public_booking_confirmar_atomico_y_grants.sql). Esta
+    // ruta es pública y sin sesión, la más expuesta a envíos concurrentes
+    // para el mismo bloque — por eso el advisory lock vive en la RPC, no acá.
     const start_time = avail.start_time.length === 5 ? `${avail.start_time}:00` : avail.start_time;
     const end_time = avail.end_time.length === 5 ? `${avail.end_time}:00` : avail.end_time;
 
-    const { data: existS } = await supabase
-      .from('attendance_sessions')
-      .select('id, max_capacity, current_bookings')
-      .eq('facility_availability_id', facility_availability_id)
-      .eq('session_date', date)
-      .maybeSingle();
-
-    let sessionId: string;
-    let maxCapacity: number;
-
-    if (existS) {
-      sessionId = existS.id;
-      maxCapacity = existS.max_capacity;
-    } else {
-      const { data: newS, error: newErr } = await supabase.from('attendance_sessions')
-        .insert({
-          school_id: verif.school_id,
-          facility_id: avail.facility_id,
-          facility_availability_id,
-          coach_id: null, offering_id: null,
-          session_date: date, start_time, end_time,
-          max_capacity: avail.max_group_capacity ?? 10,
-          current_bookings: 0, is_bookable: true, finalized: false,
-        }).select('id, max_capacity').single();
-
-      if (newErr) {
-        if (newErr.code === '23505') {
-          // Otro request ganó la carrera y ya la creó -- ahora es único, la recupero
-          const { data: retryS, error: retryErr } = await supabase
-            .from('attendance_sessions')
-            .select('id, max_capacity')
-            .eq('facility_availability_id', facility_availability_id)
-            .eq('session_date', date)
-            .single();
-          if (retryErr || !retryS) return res.status(500).json({ error: 'No se pudo resolver el bloque, intenta de nuevo.' });
-          sessionId = retryS.id;
-          maxCapacity = retryS.max_capacity;
-        } else {
-          throw newErr;
-        }
-      } else {
-        sessionId = newS.id;
-        maxCapacity = newS.max_capacity;
-      }
-    }
-
-    const { count: activeCount } = await supabase
-      .from('session_bookings')
-      .select('id', { count: 'exact', head: true })
-      .eq('session_id', sessionId)
-      .neq('status', 'cancelled');
-    if ((activeCount ?? 0) >= maxCapacity) {
-      return res.status(409).json({ error: 'Este horario ya alcanzó su cupo máximo.', reason: 'capacity_full' });
-    }
-
-    const { data: booking, error: bookErr } = await supabase.from('session_bookings').insert({
-      school_id: verif.school_id,
-      session_id: sessionId,
-      unregistered_athlete_id: unregisteredAthleteId,
-      is_secondary: false,
-      booking_type: 'reservation',
-      status: 'confirmed',
-    }).select().single();
-    if (bookErr) return res.status(409).json({ error: bookErr.message });
-
-    // Atómico: esta ruta es pública y sin sesión, así que es la más expuesta a
-    // dos envíos simultáneos con el mismo token.
-    await supabase.rpc('move_session_credit', {
-      p_enrollment_id: enrollmentId, p_delta: 1, p_is_secondary: false,
+    const { data: confirmData, error: confirmErr } = await supabase.rpc('public_booking_confirm_reservation', {
+      p_school_id: verif.school_id,
+      p_facility_id: avail.facility_id,
+      p_facility_availability_id: facility_availability_id,
+      p_date: date,
+      p_start_time: start_time,
+      p_end_time: end_time,
+      p_max_group_capacity: avail.max_group_capacity ?? null,
+      p_enrollment_id: enrollmentId,
+      p_unregistered_athlete_id: unregisteredAthleteId,
     });
+
+    if (confirmErr) {
+      if (confirmErr.message?.includes('CAPACITY_FULL')) {
+        return res.status(409).json({ error: 'Este horario ya alcanzó su cupo máximo.', reason: 'capacity_full' });
+      }
+      req.log?.error({ err: confirmErr }, 'public-booking confirm: fallo en la RPC atómica');
+      return res.status(409).json({ error: confirmErr.message });
+    }
+
+    const confirmed = Array.isArray(confirmData) ? confirmData[0] : confirmData;
 
     await supabase.from('public_booking_verifications')
       .update({ booking_token_used_at: new Date().toISOString() })
       .eq('id', verif.id);
 
-    return res.status(201).json({ success: true, booking, session_date: date, start_time });
+    // Correo de confirmación al prospecto — la reserva ya quedó creada, un
+    // fallo acá no debe tumbar la respuesta, solo se reporta sin confirmación.
+    let emailSent = false;
+    try {
+      const dateLabel = new Date(`${date}T00:00:00`).toLocaleDateString('es-CO', {
+        day: '2-digit', month: 'long', year: 'numeric',
+      });
+      const { subject, html } = await BrandedEmailTemplates.publicBookingConfirmation({
+        recipientName: verif.full_name || 'cliente',
+        facilityName: (avail as any).facility?.name ?? '',
+        dateLabel,
+        timeLabel: start_time.slice(0, 5),
+        schoolId: verif.school_id,
+      });
+      const sendResult = await emailClient.send({ to: verif.resolved_email, subject, html });
+      emailSent = !!sendResult.success;
+    } catch (emailErr) {
+      req.log?.error({ err: emailErr, bookingId: confirmed.booking_id }, 'public-booking confirm: fallo enviando correo de confirmación');
+    }
+
+    return res.status(201).json({
+      success: true,
+      booking: { id: confirmed.booking_id, session_id: confirmed.session_id },
+      session_date: date,
+      start_time,
+      email_sent: emailSent,
+    });
   } catch (err: any) {
     req.log?.error({ err }, 'public-booking confirm error');
     return res.status(500).json({ error: 'Error interno del servidor.' });
