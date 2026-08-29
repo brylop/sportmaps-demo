@@ -335,6 +335,13 @@ interface TeamSubscription {
   fee: number;
   /** De dónde salió la cuota, para poder explicar un $0 sin abrir la base. */
   fee_source: 'enrollment' | 'plan' | 'team' | 'none';
+  /**
+   * Precio del plan HOY, para detectar tarifa congelada (docs/plan-tarifa-congelada-c12.md,
+   * fase F1). Cuando `fee_source === 'enrollment'` y este valor difiere de `fee`, la
+   * inscripción quedó en el precio que tenía el plan al momento de inscribirse — el
+   * catálogo subió después y no le cascadeó. `null` si el plan no tiene precio propio.
+   */
+  plan_price_now: number | null;
   start_date: string;
   /** Cobro del mes en curso si existe. `null` = no se le generó nada. */
   charge: {
@@ -886,6 +893,7 @@ export default function PaymentsAutomationPage() {
           plan_name: e.plan?.name || null,
           fee,
           fee_source: source,
+          plan_price_now: Number(e.plan?.price) || null,
           start_date: e.start_date,
           charge: chargeFor(e),
           // La deuda vieja es del ATLETA, no de una inscripción suya. Si tiene
@@ -1242,6 +1250,15 @@ export default function PaymentsAutomationPage() {
     return 4;
   };
 
+  // C-12 F1 (docs/plan-tarifa-congelada-c12.md): cuántas inscripciones quedaron
+  // en el precio que el plan tenía al inscribirse, y el catálogo subió después
+  // sin que les cascadeara. Mismo alcance de sede que `subsFiltered`, pero sin
+  // el filtro de texto — es un conteo, no debe moverse al buscar.
+  const subsEnSede = teamSubscriptions
+    .filter(s => !activeBranchId || !s.branch_id || s.branch_id === activeBranchId);
+  const subsConPlanPropio = subsEnSede.filter(s => s.fee_source === 'enrollment' && s.plan_price_now != null);
+  const subsConTarifaCongelada = subsConPlanPropio.filter(s => s.plan_price_now !== s.fee);
+
   const subsFiltered = teamSubscriptions
     // Una inscripción sin sede no es "de otra sede": es una sin asignar. Misma
     // regla que la lista de cobros, o al filtrar por sede se caen 55 de Dynasty.
@@ -1589,6 +1606,12 @@ export default function PaymentsAutomationPage() {
                 <CardDescription>
                   Una fila por inscripción activa: cuánto se le cobra y cómo va su cobro de este mes.
                 </CardDescription>
+                {subsConTarifaCongelada.length > 0 && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    {subsConTarifaCongelada.length} de {subsConPlanPropio.length} inscripciones están en una tarifa
+                    anterior a la del plan — el precio se les copió al entrar y el plan subió después.
+                  </p>
+                )}
               </div>
               <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                 <Input
@@ -1737,9 +1760,17 @@ export default function PaymentsAutomationPage() {
                             <span className="font-bold">{formatCurrency(sub.fee)}</span>
                             {sub.fee === 0 ? (
                               <span className="block text-[10px] text-amber-600">sin cuota asignada</span>
-                            ) : sub.fee_source !== 'enrollment' && (
+                            ) : sub.fee_source !== 'enrollment' ? (
                               <span className="block text-[10px] text-muted-foreground">
                                 heredada {sub.fee_source === 'plan' ? 'del plan' : 'del equipo'}
+                              </span>
+                            ) : sub.plan_price_now != null && sub.plan_price_now !== sub.fee && (
+                              // Tarifa congelada (C-12 F1): el plan cambió de precio después de
+                              // que esta inscripción copió el suyo al entrar. No es un error —
+                              // puede ser una decisión legítima de la escuela— pero hoy era
+                              // información que nadie tenía.
+                              <span className="block text-[10px] text-amber-600">
+                                el plan hoy vale {formatCurrency(sub.plan_price_now)}
                               </span>
                             )}
                           </TableCell>
