@@ -1,0 +1,23 @@
+# Using Xcode gitignore template + CocoaPods, adaptado al patrón de android/.gitignore
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
+
+# CocoaPods — se instala en CI (Podfile.lock SÍ se versiona, fija las versiones)
+App/Pods/
+
+# Cordova plugins for Capacitor
+capacitor-cordova-ios-plugins/
+
+# Copied web assets (regenerado por `cap sync`, igual que en android/.gitignore)
+App/App/public
+
+# Generated Config files (regenerado por `cap sync`)
+App/App/capacitor.config.json
