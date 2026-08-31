@@ -67,10 +67,32 @@ router.get('/schools/:slug', async (req: Request, res: Response) => {
       .eq('school_id', school.id)
       .maybeSingle();
 
+    // Clases de prueba (trial_class_categories) — link nuevo y separado de
+    // instalaciones/cortesía (ver 20260829115629). Aditivo: no cambia nada
+    // de lo que ya devolvía este endpoint.
+    const { data: trialSettings } = await supabase
+      .from('school_trial_class_settings')
+      .select('enabled, self_service_enabled')
+      .eq('school_id', school.id)
+      .maybeSingle();
+
+    let trialCategories: any[] = [];
+    if (trialSettings?.enabled && trialSettings?.self_service_enabled) {
+      const { data: categories } = await supabase
+        .from('trial_class_categories')
+        .select('id, name, description, price, allow_repeat, repeat_price')
+        .eq('school_id', school.id)
+        .eq('is_active', true)
+        .order('name');
+      trialCategories = categories || [];
+    }
+
     return res.json({
       school: { id: school.id, name: school.name },
       facilities: facilities || [],
       courtesy_available: courtesy?.enabled ?? false,
+      trial_classes_available: trialCategories.length > 0,
+      trial_categories: trialCategories,
     });
   } catch (err: any) {
     req.log?.error({ err }, 'public-booking schools/:slug error');
@@ -619,6 +641,291 @@ router.post('/confirm', async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     req.log?.error({ err }, 'public-booking confirm error');
+    return res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// =============================================================================
+// Clases de prueba — link público NUEVO y separado de instalaciones/cortesía
+// (ver docs/specs/mis-inscripciones-agenda-clases-prueba.md, decisión
+// "un link distinto, pero con las mismas validaciones/verificación").
+// Reusa TAL CUAL: la tabla public_booking_verifications, el helper
+// resolveByToken, y el endpoint /verify-otp de arriba (es genérico — no le
+// importa PARA QUÉ se está verificando, solo valida el código). Lo único
+// nuevo es start-verification (gate distinto: categorías de prueba, no
+// cortesía) y confirm (llama trial_class_public_create, no
+// public_booking_confirm_reservation). Ninguna ruta existente se tocó.
+// =============================================================================
+
+// ── POST /trial-start-verification ──────────────────────────────────────────
+router.post('/trial-start-verification', otpStartLimiter, async (req: Request, res: Response) => {
+  try {
+    const { school_id, email, full_name } = req.body as {
+      school_id: string; email: string; full_name?: string;
+    };
+    if (!school_id || !email) return res.status(400).json({ error: 'school_id y email son requeridos.' });
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!EMAIL_RE.test(cleanEmail)) return res.status(400).json({ error: 'Correo inválido.' });
+
+    const windowStart = new Date(Date.now() - OTP_EMAIL_WINDOW_MIN * 60_000).toISOString();
+    const { count: recentCount } = await supabase
+      .from('public_booking_verifications')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', school_id)
+      .eq('resolved_email', cleanEmail)
+      .gte('created_at', windowStart);
+
+    if ((recentCount ?? 0) >= MAX_OTP_PER_EMAIL_WINDOW) {
+      return res.status(429).json({ error: 'Demasiados códigos solicitados para este correo. Espera unos minutos.' });
+    }
+
+    // Escenario 3: ya tiene cuenta — mismo criterio que /start-verification.
+    // El magic link de /verify-otp ya redirige a /enrollments, donde el
+    // self-service (con el chequeo has_active_plan) resuelve todo solo.
+    const { data: profileMatch } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('email', cleanEmail)
+      .maybeSingle();
+
+    if (profileMatch) {
+      return res.json({
+        scenario: 'already_registered',
+        email: cleanEmail,
+        message: 'Ya tienes una cuenta registrada. Por seguridad, debes iniciar sesión con tu correo y contraseña.',
+      });
+    }
+
+    // Escenario 2: coincide con unregistered_athlete con enrollment activo.
+    // A diferencia de cortesía, acá SÍ puede repetir — trial_class_public_create
+    // decide el precio (primera vez vs repetición) y si allow_repeat lo permite.
+    const { data: unregMatch } = await supabase
+      .from('unregistered_athletes')
+      .select('id, full_name')
+      .eq('school_id', school_id)
+      .eq('email', cleanEmail)
+      .maybeSingle();
+
+    if (unregMatch) {
+      const code = generateCode();
+      const { data: verif, error } = await supabase
+        .from('public_booking_verifications')
+        .insert({
+          school_id,
+          otp_hash: hashOtp(code),
+          resolved_email: cleanEmail,
+          resolved_kind: 'enrolled_unregistered',
+          resolved_unregistered_id: unregMatch.id,
+          full_name: unregMatch.full_name,
+          expires_at: new Date(Date.now() + OTP_TTL_MIN * 60_000).toISOString(),
+        })
+        .select('id').single();
+      if (error) throw error;
+
+      await emailClient.send({
+        to: cleanEmail,
+        subject: 'Tu código para agendar tu clase de prueba',
+        html: `<p>Tu código de verificación es:</p><h2 style="letter-spacing:3px">${code}</h2><p>Vence en ${OTP_TTL_MIN} minutos.</p>`,
+        text: `Tu código de verificación es ${code} (vence en ${OTP_TTL_MIN} min).`,
+      });
+
+      return res.json({
+        verification_id: verif.id,
+        scenario: 'enrolled_unregistered',
+        masked_email: maskEmail(cleanEmail),
+        ...(DEBUG_OTP_ENABLED ? { debug_code: code } : {}),
+      });
+    }
+
+    // Escenario 1: nuevo — requiere nombre explícito.
+    if (!full_name || !full_name.trim()) {
+      return res.json({ scenario: 'new_needs_name' });
+    }
+
+    // Gate: la escuela necesita self-service prendido Y al menos una
+    // categoría activa — no "cortesía habilitada" como en el otro flujo.
+    const { data: trialSettings } = await supabase
+      .from('school_trial_class_settings')
+      .select('enabled, self_service_enabled')
+      .eq('school_id', school_id)
+      .maybeSingle();
+
+    if (!trialSettings?.enabled || !trialSettings?.self_service_enabled) {
+      return res.status(422).json({
+        error: 'Esta escuela no tiene clases de prueba habilitadas por este link.',
+        reason: 'trial_not_available',
+      });
+    }
+    const { count: activeCategoryCount } = await supabase
+      .from('trial_class_categories')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', school_id)
+      .eq('is_active', true);
+    if (!activeCategoryCount) {
+      return res.status(422).json({ error: 'Esta escuela no tiene categorías de prueba activas.', reason: 'trial_not_available' });
+    }
+
+    const code = generateCode();
+    const { data: verif, error } = await supabase
+      .from('public_booking_verifications')
+      .insert({
+        school_id,
+        otp_hash: hashOtp(code),
+        resolved_email: cleanEmail,
+        resolved_kind: 'new',
+        full_name: full_name.trim(),
+        expires_at: new Date(Date.now() + OTP_TTL_MIN * 60_000).toISOString(),
+      })
+      .select('id').single();
+    if (error) throw error;
+
+    await emailClient.send({
+      to: cleanEmail,
+      subject: 'Tu código para agendar tu clase de prueba',
+      html: `<p>Tu código de verificación es:</p><h2 style="letter-spacing:3px">${code}</h2><p>Vence en ${OTP_TTL_MIN} minutos.</p>`,
+      text: `Tu código de verificación es ${code} (vence en ${OTP_TTL_MIN} min).`,
+    });
+
+    return res.json({
+      verification_id: verif.id,
+      scenario: 'new',
+      masked_email: maskEmail(cleanEmail),
+      ...(DEBUG_OTP_ENABLED ? { debug_code: code } : {}),
+    });
+  } catch (err: any) {
+    req.log?.error({ err }, 'public-booking trial-start-verification error');
+    return res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ── GET /trial-slots?token=&category_id=&from=&to= ─────────────────────────
+// Agregado: cruza TODAS las canchas con TODOS los entrenadores de la
+// escuela — el visitante nunca elige entrenador a mano (fricción y expone
+// identidad de staff sin necesidad, ver 20260829120423).
+router.get('/trial-slots', async (req: Request, res: Response) => {
+  try {
+    const { token, category_id, from, to } = req.query as Record<string, string | undefined>;
+    if (!token || !category_id || !from || !to) {
+      return res.status(400).json({ error: 'token, category_id, from y to son requeridos.' });
+    }
+
+    const resolved = await resolveByToken(token);
+    if ('error' in resolved) return res.status(resolved.status!).json({ error: resolved.error });
+
+    const { data, error } = await supabase.rpc('trial_class_public_get_slots', {
+      p_school_id: resolved.verif.school_id,
+      p_category_id: category_id,
+      p_from_date: from,
+      p_to_date: to,
+    });
+
+    if (error) return res.status(409).json({ error: error.message });
+    return res.json(data);
+  } catch (err: any) {
+    req.log?.error({ err }, 'public-booking trial-slots error');
+    return res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ── POST /trial-confirm ─────────────────────────────────────────────────────
+router.post('/trial-confirm', async (req: Request, res: Response) => {
+  try {
+    const {
+      token, category_id, facility_availability_id, coach_availability_id,
+      date, start_time, end_time, prospect_whatsapp, is_minor, child_name,
+    } = req.body as {
+      token: string; category_id: string; facility_availability_id: string; coach_availability_id: string;
+      date: string; start_time: string; end_time: string;
+      prospect_whatsapp?: string; is_minor?: boolean; child_name?: string;
+    };
+    if (!token || !category_id || !facility_availability_id || !coach_availability_id || !date || !start_time || !end_time) {
+      return res.status(400).json({ error: 'Faltan datos requeridos.' });
+    }
+
+    const resolved = await resolveByToken(token);
+    if ('error' in resolved) return res.status(resolved.status!).json({ error: resolved.error });
+    const { verif } = resolved;
+
+    if (verif.booking_token_used_at) {
+      return res.status(400).json({ error: 'Este token ya fue usado para agendar. Verifícate de nuevo.' });
+    }
+    if (verif.resolved_kind !== 'enrolled_unregistered' && verif.resolved_kind !== 'new') {
+      return res.status(400).json({ error: 'Escenario inválido para este endpoint.' });
+    }
+
+    let rpcParams: Record<string, any> = {
+      p_school_id: verif.school_id,
+      p_category_id: category_id,
+      p_facility_availability_id: facility_availability_id,
+      p_coach_availability_id: coach_availability_id,
+      p_scheduled_date: date,
+      p_start_time: start_time,
+      p_end_time: end_time,
+    };
+
+    if (verif.resolved_kind === 'enrolled_unregistered') {
+      rpcParams.p_unregistered_athlete_id = verif.resolved_unregistered_id;
+    } else {
+      if (!prospect_whatsapp) return res.status(400).json({ error: 'prospect_whatsapp es requerido.' });
+      if (is_minor && !child_name) return res.status(400).json({ error: 'child_name es requerido cuando is_minor es true.' });
+      rpcParams = {
+        ...rpcParams,
+        p_prospect_name: verif.full_name,
+        p_prospect_email: verif.resolved_email,
+        p_prospect_whatsapp: prospect_whatsapp,
+        p_is_minor: !!is_minor,
+        p_child_name: is_minor ? child_name : null,
+      };
+    }
+
+    const { data: rpcData, error: rpcError } = await supabase.rpc('trial_class_public_create', rpcParams);
+
+    if (rpcError) {
+      req.log?.error({ err: rpcError }, 'public-booking trial-confirm: fallo en la RPC');
+      return res.status(409).json({ error: rpcError.message });
+    }
+
+    const confirmed = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+
+    await supabase.from('public_booking_verifications')
+      .update({ booking_token_used_at: new Date().toISOString() })
+      .eq('id', verif.id);
+
+    let emailSent = false;
+    try {
+      const [{ data: facility }, { data: coach }, { data: category }] = await Promise.all([
+        supabase.from('facility_availability').select('facility_id, facilities(name)').eq('id', facility_availability_id).single(),
+        supabase.from('coach_availability').select('coach_id, school_staff(full_name)').eq('id', coach_availability_id).single(),
+        supabase.from('trial_class_categories').select('name').eq('id', category_id).single(),
+      ]);
+      const dateLabel = new Date(`${date}T00:00:00`).toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' });
+      const { subject, html } = await BrandedEmailTemplates.trialClassConfirmation({
+        prospectName: verif.full_name || 'cliente',
+        childName: is_minor ? (child_name ?? null) : null,
+        dateLabel,
+        timeLabel: start_time.slice(0, 5),
+        facilityName: (facility as any)?.facilities?.name ?? '',
+        coachName: (coach as any)?.school_staff?.full_name ?? '',
+        priceLabel: confirmed.price > 0 ? `$${confirmed.price}` : null,
+        schoolId: verif.school_id,
+      });
+      const sendResult = await emailClient.send({ to: verif.resolved_email, subject, html });
+      emailSent = !!sendResult.success;
+    } catch (emailErr) {
+      req.log?.error({ err: emailErr, bookingId: confirmed.booking_id }, 'public-booking trial-confirm: fallo enviando correo');
+    }
+
+    return res.status(201).json({
+      success: true,
+      booking_id: confirmed.booking_id,
+      price: confirmed.price,
+      is_first: confirmed.is_first,
+      payment_mode: confirmed.payment_mode,
+      email_sent: emailSent,
+    });
+  } catch (err: any) {
+    req.log?.error({ err }, 'public-booking trial-confirm error');
     return res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
