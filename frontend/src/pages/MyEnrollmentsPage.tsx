@@ -14,7 +14,7 @@ import {
   ChevronRight, CalendarCheck, Map as MapIcon,
   Building2, Star, Target,
   XCircle, CheckCircle2, ChevronLeft,
-  Sun, Sunset, Moon, AlertCircle,
+  Sun, Sunset, Moon, AlertCircle, Sparkles,
 } from 'lucide-react';
 import {
   format, parseISO, addDays, startOfDay,
@@ -49,6 +49,8 @@ import {
   useCancelPTSession,
   PTAvailabilitySlot,
 } from '@/hooks/useAthleteSessionBookings';
+import { useTrialClassesSelf } from '@/hooks/useTrialClassesSelf';
+import { TrialClassSelfModal } from '@/components/school/TrialClassSelfModal';
 import { HourBankBalanceCard } from '@/components/access/HourBankBalanceCard';
 
 // ─── Tipos de instalación ─────────────────────────────────────────────────────
@@ -178,12 +180,14 @@ export default function MyEnrollmentsPage() {
   const [selectedTeam, setSelectedTeam] = useState<any>(null);
   const [scheduleEnrollment, setScheduleEnrollment] = useState<any>(null);
   const [reservingFacility, setReservingFacility] = useState<Facility | null>(null);
+  const [showTrialModal, setShowTrialModal] = useState(false);
 
   const { data: myBookingsData, isLoading: myBookingsLoading } = useMyBookings(selectedChildId);
   const { data: mySecBookings, isLoading: mySecLoading } = useMySecondaryBookings(selectedChildId);
   const { data: facilitiesData, isLoading: facilitiesLoading } = useAthleteFacilities(selectedChildId);
   const { mutate: cancelBooking, isPending: isCanceling } = useCancelBooking(selectedChildId);
   const [cancelingBookingId, setCancelingBookingId] = useState<string | null>(null);
+  const { selfServiceAvailable } = useTrialClassesSelf();
 
   const athleteFacilities: Facility[] = facilitiesData?.facilities ?? [];
 
@@ -495,11 +499,37 @@ export default function MyEnrollmentsPage() {
                 )}
               </CardContent>
             </Card>
+
+            {selfServiceAvailable && (
+              <Card className="border-primary/30 bg-primary/5">
+                <CardContent className="p-5 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-primary" />
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-primary">Clase de Prueba</h4>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    ¿Querés probar otra disciplina, o agendarle una prueba a un hermano/a? Rápido, sin pasar por la escuela.
+                  </p>
+                  <Button size="sm" onClick={() => setShowTrialModal(true)} className="w-full h-9 font-bold">
+                    Agendar clase de prueba
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </div>
 
       {/* ── Modals ── */}
+      {showTrialModal && (
+        <TrialClassSelfModal
+          open={showTrialModal}
+          onOpenChange={setShowTrialModal}
+          facilities={athleteFacilities}
+          children={(children ?? []).map((c: any) => ({ id: c.id, full_name: c.full_name }))}
+          isParent={currentUserRole === 'parent'}
+        />
+      )}
       {selectedTeam && (
         <TeamDetailModal enrollment={selectedTeam} onClose={() => setSelectedTeam(null)} />
       )}

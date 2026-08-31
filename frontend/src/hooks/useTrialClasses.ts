@@ -13,6 +13,11 @@ export interface TrialClassCategory {
   description: string | null;
   price: number;
   is_active: boolean;
+  /** Self-service (Mis Inscripciones): ¿permite agendar otra prueba después
+   * de la primera, y a qué precio? Sin tope de veces — ver
+   * docs/specs/mis-inscripciones-agenda-clases-prueba.md §3/§7. */
+  allow_repeat: boolean;
+  repeat_price: number | null;
 }
 
 export interface TrialClassCategoryPayload {
@@ -241,6 +246,18 @@ export function useTrialClasses(filters?: { status?: TrialClassStatus; from?: st
     },
   });
 
+  const { mutateAsync: setCategoryRepeatPricing, isPending: isSavingRepeatPricing } = useMutation({
+    mutationFn: ({ id, allow_repeat, repeat_price }: { id: string; allow_repeat: boolean; repeat_price: number | null }) =>
+      bffClient.patch(`/api/v1/trial-classes/categories/${id}/repeat-pricing`, { allow_repeat, repeat_price }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: CATEGORIES_KEY });
+      toast({ title: '✅ Precio de repetición guardado' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'No se pudo guardar', description: error.message, variant: 'destructive' });
+    },
+  });
+
   const stats = {
     total: bookings.length,
     agendada: bookings.filter((b) => b.status === 'agendada').length,
@@ -276,5 +293,7 @@ export function useTrialClasses(filters?: { status?: TrialClassStatus; from?: st
     isUpdatingCategory,
     setCategoryActive,
     isTogglingCategory,
+    setCategoryRepeatPricing,
+    isSavingRepeatPricing,
   };
 }

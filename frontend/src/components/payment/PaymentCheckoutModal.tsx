@@ -415,7 +415,15 @@ export function PaymentCheckoutModal({
     }
   }, [open]);
 
-  const mpEnabled = !!import.meta.env.VITE_MP_PUBLIC_KEY_DEFAULT;
+  // 2026-08-31: MercadoPago oculto — VITE_MP_PUBLIC_KEY_DEFAULT resuelve a la
+  // cuenta comercial de ENV, que resultó ser la cuenta PERSONAL de MercadoPago
+  // de un padre real de la plataforma, no una cuenta de SportMaps ni de la
+  // escuela. El backend ya lo bloquea fail-closed (payment-provider.resolver.ts:
+  // resolveProvider/loadProviderConfig devuelven null para mercadopago+schoolId
+  // en 'aggregator'), esto además evita mostrar un botón que fallaría. Wompi no
+  // se toca: sus llaves de ENV sí son de la escuela real en 'aggregator'.
+  // Reactivar cuando haya una cuenta comercial real detrás de MP_ACCESS_TOKEN_DEFAULT.
+  const mpEnabled = false && !!import.meta.env.VITE_MP_PUBLIC_KEY_DEFAULT;
 
   const paymentMethods = [
     // ── Pago online Wompi (solo si la escuela lo tiene habilitado) ────────
