@@ -741,14 +741,16 @@ export default function AdminSubscriptionsPage() {
                             <Button size="sm" variant="ghost" onClick={() => viewSaasInvoicePdf(inv.id)} title="Ver PDF">
                               <FileText className="h-4 w-4" />
                             </Button>
-                            <Button
-                              size="sm" variant="ghost"
-                              disabled={sendingInvoiceId === inv.id}
-                              onClick={() => sendSaasInvoice(inv.id)}
-                              title="Enviar / reenviar por email y WhatsApp"
-                            >
-                              {sendingInvoiceId === inv.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                            </Button>
+                            {inv.status !== 'cancelled' && (
+                              <Button
+                                size="sm" variant="ghost"
+                                disabled={sendingInvoiceId === inv.id}
+                                onClick={() => sendSaasInvoice(inv.id)}
+                                title="Enviar / reenviar por email y WhatsApp"
+                              >
+                                {sendingInvoiceId === inv.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                              </Button>
+                            )}
                             {inv.status !== 'paid' && inv.status !== 'cancelled' && (
                               <Button
                                 size="sm" variant="ghost"
