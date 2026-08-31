@@ -133,6 +133,7 @@ export default function AdminSubscriptionsPage() {
   const [customPriceDraft, setCustomPriceDraft] = useState('');
   const [billingCycleDraft, setBillingCycleDraft] = useState<BillingCycle>('monthly');
   const [periodStartDraft, setPeriodStartDraft] = useState('');
+  const [billingEmailsDraft, setBillingEmailsDraft] = useState('');
   const [savingCustomPrice, setSavingCustomPrice] = useState(false);
   const [currentPeriod, setCurrentPeriod] = useState<{ start: string; end: string } | null>(null);
 
@@ -176,7 +177,7 @@ export default function AdminSubscriptionsPage() {
     setLoadingSaas(true);
     const [{ data: sub }, { data: invoices }] = await Promise.all([
       supabase.from('school_subscriptions' as any)
-        .select('saas_billing_enabled, custom_price_cents, billing_cycle, current_period_start, current_period_end')
+        .select('saas_billing_enabled, custom_price_cents, billing_cycle, current_period_start, current_period_end, billing_emails')
         .eq('school_id', schoolId).maybeSingle(),
       supabase.from('school_subscription_invoices' as any).select('*').eq('school_id', schoolId).order('period_start', { ascending: false }),
     ]);
@@ -189,6 +190,7 @@ export default function AdminSubscriptionsPage() {
     setCustomPriceDraft(cents != null ? String(Math.round(cents / 100)) : '');
     setBillingCycleDraft(cycle);
     setPeriodStartDraft('');
+    setBillingEmailsDraft((((sub as any)?.billing_emails as string[] | null) ?? []).join(', '));
     const periodStart = (sub as any)?.current_period_start ?? null;
     const periodEnd = (sub as any)?.current_period_end ?? null;
     setCurrentPeriod(periodStart && periodEnd ? { start: periodStart, end: periodEnd } : null);
@@ -203,12 +205,19 @@ export default function AdminSubscriptionsPage() {
       toast({ title: 'Valor inválido', description: 'Escribe un monto en pesos, sin puntos ni signos.', variant: 'destructive' });
       return;
     }
+    const billingEmails = billingEmailsDraft.split(/[,\n]/).map((e) => e.trim()).filter(Boolean);
+    const invalidEmail = billingEmails.find((e) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+    if (invalidEmail) {
+      toast({ title: 'Correo inválido', description: `"${invalidEmail}" no parece un correo válido.`, variant: 'destructive' });
+      return;
+    }
     setSavingCustomPrice(true);
     const { error } = await supabase.rpc('admin_set_school_custom_price' as any, {
       p_school_id: selected.id,
       p_custom_price_cents: pesos === null ? null : Math.round(pesos * 100),
       p_billing_cycle: billingCycleDraft,
       p_period_start: periodStartDraft || null,
+      p_billing_emails: billingEmails,
     });
     setSavingCustomPrice(false);
     if (error) {
@@ -814,6 +823,23 @@ export default function AdminSubscriptionsPage() {
                         className="w-[150px]"
                       />
                     </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Correos adicionales de facturación</label>
+                    <Input
+                      type="text"
+                      placeholder="contabilidad@escuela.com, alguien-mas@escuela.com"
+                      value={billingEmailsDraft}
+                      onChange={(e) => setBillingEmailsDraft(e.target.value)}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Se SUMAN a los admins de la escuela al enviar la factura (no los reemplazan). Separados por coma. Vacío = solo los admins, como hoy.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-end gap-2">
                     <Button size="sm" disabled={savingCustomPrice} onClick={saveCustomPrice}>
                       {savingCustomPrice ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
                     </Button>
