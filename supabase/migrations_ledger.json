@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 454,
-  "head": "20260829123314",
+  "count": 456,
+  "head": "20260831115511",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -457,6 +457,8 @@
     {"v":"20260828230515","file":"20260828230515_public_booking_confirmar_atomico_y_grants.sql","sha256":"6309c905d176668064f91506a649f3c59d5a3d41bc60516910942e96ac0fea81","added":"2026-08-29","by":"judegor99"},
     {"v":"20260828232516","file":"20260828232516_session_booking_reschedule_y_notificaciones.sql","sha256":"40bf27123ab422311cf36a44fa625546703f6a43cf81e0f0acfd18abf1d7149e","added":"2026-08-29","by":"judegor99"},
     {"v":"20260829010122","file":"20260829010122_revocar_execute_funciones_enrollments_expuestas_anon.sql","sha256":"0929d2738e44e8b37895cbe158ebb3c8891af45a0953d219c9bef84661bc420d","added":"2026-08-29","by":"judegor99"},
-    {"v":"20260829123314","file":"20260829123314_school_subscriptions_billing_cycle_options.sql","sha256":"6e27aed4fe388e022af826691dd9e99ed807c2c03bdbaa953bae8ac22a701ae1","added":"2026-08-29","by":"brylop"}
+    {"v":"20260829123314","file":"20260829123314_school_subscriptions_billing_cycle_options.sql","sha256":"6e27aed4fe388e022af826691dd9e99ed807c2c03bdbaa953bae8ac22a701ae1","added":"2026-08-29","by":"brylop"},
+    {"v":"20260831095348","file":"20260831095348_cerrar_brechas_seg22_seg1_seg2.sql","sha256":"eddc796a4257d0c86a2ce12a397b7f0aa61c470c053d5093c4fbb9aa43ab792e","added":"2026-08-31","by":"brylop"},
+    {"v":"20260831115511","file":"20260831115511_school_subscriptions_billing_emails.sql","sha256":"2842bb99e3e7a6e1858422ad99d4766b9e6b13795e2757be12795a464e1f5951","added":"2026-08-31","by":"brylop"}
   ]
 }
