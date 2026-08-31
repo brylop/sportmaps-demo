@@ -356,6 +356,24 @@ export async function resolveProvider(
     const marketplaceDefault = (process.env.MARKETPLACE_DEFAULT_PROVIDER ?? 'mercadopago') as PaymentProvider;
     const effective = preferredProvider ?? marketplaceDefault;
 
+    // 2026-08-31: MP_ACCESS_TOKEN_DEFAULT NO es una cuenta comercial de SportMaps
+    // ni de la escuela — es la cuenta personal de MercadoPago de un padre real de
+    // la plataforma (confirmado contra GET /users/me de MP). Una escuela en
+    // 'aggregator' (hoy: Dynasty) que cobrara por acá le mandaría la mensualidad
+    // de un alumno a esa cuenta personal — exactamente el riesgo de captador
+    // irregular que este archivo existe para evitar. WOMPI_* de ENV sigue siendo
+    // legítimo para 'aggregator' (son las llaves reales de esa escuela); MP no.
+    // Bloqueado fail-closed en vez de usar la credencial — no hay reemplazo
+    // todavía, así que MercadoPago queda sin fallback para escuelas hasta que
+    // haya una cuenta comercial real detrás.
+    if (effective === 'mercadopago' && schoolId) {
+        console.warn(
+            `[payment-provider.resolver] resolveProvider: school ${schoolId} en 'aggregator' pidiendo mercadopago → ` +
+            'BLOQUEADO (fail-closed). MP_ACCESS_TOKEN_DEFAULT es una cuenta personal, no de SportMaps ni de la escuela.',
+        );
+        return null;
+    }
+
     if (effective === 'mercadopago') {
         const accessToken = process.env.MP_ACCESS_TOKEN_DEFAULT;
         const publicKey = process.env.MP_PUBLIC_KEY_DEFAULT;
@@ -478,6 +496,23 @@ export async function loadProviderConfig(params: {
     // payment_mode, o SIN dueño identificable — este último caso es el legacy:
     // los cobros MP viejos viven en la cuenta de ENV y leer su estado necesita
     // ese token, así que acá el fallback es lo correcto y no un agujero.
+    //
+    // EXCEPCIÓN 2026-08-31: si SÍ hay un schoolId (una escuela real intentando
+    // cobrar, no una búsqueda legacy sin dueño), MercadoPago no cae a ENV.
+    // MP_ACCESS_TOKEN_DEFAULT es la cuenta personal de MercadoPago de un padre
+    // real de la plataforma (confirmado vía GET /users/me), no una cuenta
+    // comercial de SportMaps ni de la escuela — cobrar por acá le mandaría la
+    // plata de la mensualidad a esa cuenta personal. Wompi no tiene este
+    // problema (sus llaves de ENV sí son de la escuela real en 'aggregator') y
+    // sigue sin cambios.
+    if (provider === 'mercadopago' && schoolId) {
+        console.warn(
+            `[payment-provider.resolver] loadProviderConfig: school ${schoolId} pidiendo mercadopago sin credenciales propias → ` +
+            'BLOQUEADO (fail-closed), no cae a MP_ACCESS_TOKEN_DEFAULT (cuenta personal, no de SportMaps ni de la escuela).',
+        );
+        return null;
+    }
+
     if (provider === 'mercadopago') {
         const accessToken = process.env.MP_ACCESS_TOKEN_DEFAULT;
         const publicKey = process.env.MP_PUBLIC_KEY_DEFAULT;
