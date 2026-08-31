@@ -39,6 +39,15 @@ imponer, ni una migración que le mueva el precio a nadie.
 
 ### F1 — Visibilidad (sin migración, sin riesgo)
 
+> **Parcial, 2026-08-29:** el indicador por inscripción y el contador quedaron en
+> [PaymentsAutomationPage.tsx](../frontend/src/pages/PaymentsAutomationPage.tsx),
+> pestaña «Equipos y Planes» — sin migración ni endpoint nuevo, reusando
+> `e.plan?.price` que esa pantalla ya traía. **No cubre todavía** la ficha
+> individual del atleta ni ningún roster fuera de esa pestaña, ni el BFF (el plan
+> original pedía que la ficha/roster lo trajeran del backend, esto quedó resuelto
+> client-side). Pendiente correr el **gate F1** (el número de la UI vs `C-12a`
+> corrido sobre la misma escuela) antes de darlo por cerrado del todo.
+
 Que la escuela pueda **ver** que un atleta está en una tarifa distinta a la de su plan.
 
 - BFF: al devolver la ficha y el roster, acompañar la cuota vigente con el precio actual del plan

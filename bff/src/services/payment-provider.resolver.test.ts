@@ -151,6 +151,20 @@ describe('resolveProvider', () => {
         tablas.vendor_payment_providers = [];
         expect(await resolveProvider({ vendorId: VENDOR })).toBeNull();
     });
+
+    it("'aggregator' con mercadopago bloquea: MP_ACCESS_TOKEN_DEFAULT es una cuenta personal, no de SportMaps ni de la escuela", async () => {
+        tablas.schools = [{ id: ESCUELA, payment_mode: 'aggregator' }];
+        process.env.MP_ACCESS_TOKEN_DEFAULT = 'APP_USR-personal';
+        process.env.MP_PUBLIC_KEY_DEFAULT = 'APP_USR-personal-pub';
+        expect(await resolveProvider({ schoolId: ESCUELA, preferredProvider: 'mercadopago' })).toBeNull();
+    });
+
+    it("'aggregator' con wompi sigue funcionando tras el bloqueo de mercadopago", async () => {
+        tablas.schools = [{ id: ESCUELA, payment_mode: 'aggregator' }];
+        const r = await resolveProvider({ schoolId: ESCUELA, preferredProvider: 'wompi' });
+        expect(r?.source).toBe('env');
+        expect(r?.provider).toBe('wompi');
+    });
 });
 
 describe('loadProviderConfig — mismas reglas que resolveProvider', () => {
@@ -184,5 +198,12 @@ describe('loadProviderConfig — mismas reglas que resolveProvider', () => {
     it('SIN dueño identificable sí usa ENV: los cobros MP viejos viven en esa cuenta', async () => {
         const r = await loadProviderConfig({ provider: 'wompi' });
         expect(r?.source).toBe('env');
+    });
+
+    it("'aggregator' con mercadopago bloquea aunque SÍ haya schoolId (a diferencia del caso legacy sin dueño)", async () => {
+        tablas.schools = [{ id: ESCUELA, payment_mode: 'aggregator' }];
+        process.env.MP_ACCESS_TOKEN_DEFAULT = 'APP_USR-personal';
+        process.env.MP_PUBLIC_KEY_DEFAULT = 'APP_USR-personal-pub';
+        expect(await loadProviderConfig({ provider: 'mercadopago', schoolId: ESCUELA })).toBeNull();
     });
 });

@@ -45,11 +45,13 @@ escuela. Al mapear roles, **nunca degradar a `athlete`** por defecto.
 | Tabla | Qué es |
 |---|---|
 | `school_subscriptions` | Lo que la escuela le paga **a SportMaps** |
-| `subscription_plans` | El catálogo que la escuela le vende **a sus familias** |
+| `subscription_plans` | **Deprecada** para escuela→familias desde 2026-08 (commits `f300860a`, `c6a024c0`). Sigue viva solo para `vendor_profiles` (trainers/wellness/stores), vía la policy `sub_plans_owner` |
 
-Y `offering_plans` es la que el producto lee de verdad para las cuotas —
-escribir solo en `subscription_plans` hace que el plan no aparezca en ningún
-lado.
+`offering_plans` es la que el producto lee de verdad para las cuotas de
+escuela — escribir solo en `subscription_plans` hace que el plan no aparezca
+en ningún lado. `COMMENT ON TABLE` actualizado en la migración
+`20260829011715`, verificado en vivo el 2026-08-29 (comentario anterior
+estaba en `NULL`, no reflejaba la migración de mayo que se supone lo ponía).
 
 ### `apply_migration` (MCP) nunca usa el timestamp del archivo — siempre pone "ahora"
 
