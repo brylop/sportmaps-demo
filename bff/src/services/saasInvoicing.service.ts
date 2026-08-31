@@ -124,6 +124,10 @@ export async function sendSaasInvoice(invoiceId: string, reason: SaasInvoiceSend
         return { ok: false, pdfObjectPath: '', emailSent: false, pushSent: false, whatsapp: null, error: 'invoice_not_found' };
     }
 
+    if (invoice.status === 'cancelled') {
+        return { ok: false, pdfObjectPath: '', emailSent: false, pushSent: false, whatsapp: null, error: 'invoice_cancelled' };
+    }
+
     const { data: school } = await supabase
         .from('schools')
         .select('id, name')
