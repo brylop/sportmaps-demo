@@ -40,7 +40,10 @@ dist
 *-firebase-adminsdk-*.json
 **/.secrets/
 google-services.json
-GoogleService-Info.plist
+# GoogleService-Info.plist (iOS) se versiona en frontend/ios/App/App/ —
+# no es secreto real (Firebase: la seguridad depende de sus Security
+# Rules, no de ocultar este archivo), a diferencia de las líneas de
+# arriba (Admin SDK) que sí son credenciales de servidor.
 
 # Logs and debug files
 npm-debug.log*

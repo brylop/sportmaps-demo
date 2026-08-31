@@ -62,6 +62,16 @@ async function loadSchoolAdmins(schoolId: string) {
     return profiles || [];
 }
 
+/** Correos adicionales configurados en "Precio negociado" (school_subscriptions.billing_emails) — se SUMAN a los admins, no los reemplazan. */
+async function loadBillingEmails(schoolId: string): Promise<string[]> {
+    const { data } = await supabase
+        .from('school_subscriptions')
+        .select('billing_emails')
+        .eq('school_id', schoolId)
+        .maybeSingle();
+    return (data as any)?.billing_emails ?? [];
+}
+
 function formatCop(cents: number): string {
     return `$${Math.round(cents / 100).toLocaleString('es-CO')}`;
 }
@@ -114,6 +124,10 @@ export async function sendSaasInvoice(invoiceId: string, reason: SaasInvoiceSend
         return { ok: false, pdfObjectPath: '', emailSent: false, pushSent: false, whatsapp: null, error: 'invoice_not_found' };
     }
 
+    if (invoice.status === 'cancelled') {
+        return { ok: false, pdfObjectPath: '', emailSent: false, pushSent: false, whatsapp: null, error: 'invoice_cancelled' };
+    }
+
     const { data: school } = await supabase
         .from('schools')
         .select('id, name')
@@ -129,6 +143,9 @@ export async function sendSaasInvoice(invoiceId: string, reason: SaasInvoiceSend
     }
 
     const admins = await loadSchoolAdmins(invoice.school_id);
+    const billingEmails = await loadBillingEmails(invoice.school_id);
+    const adminEmails = new Set(admins.map((a: any) => a.email).filter(Boolean));
+    const extraEmails = billingEmails.filter((e) => !adminEmails.has(e));
     const accounts = await loadActivePaymentAccounts();
     const planName = ACADEMY_PLAN_NAMES[invoice.plan_code] ?? invoice.plan_code;
     const amountStr = formatCop(invoice.amount_cents);
@@ -138,7 +155,7 @@ export async function sendSaasInvoice(invoiceId: string, reason: SaasInvoiceSend
 
     // ── Email: branding SportMaps (schoolId null), no el de la escuela destinataria ──
     let emailSent = false;
-    if (admins.some((a: any) => a.email)) {
+    if (admins.some((a: any) => a.email) || extraEmails.length > 0) {
         const branding = await resolveSchoolBranding(null);
         const html = buildBrandedEmail({
             branding,
@@ -167,6 +184,14 @@ export async function sendSaasInvoice(invoiceId: string, reason: SaasInvoiceSend
             if (!admin.email) continue;
             const res = await emailClient.send({
                 to: admin.email,
+                subject: `${copy.title} — ${invoice.invoice_number} · ${amountStr}`,
+                html,
+            });
+            if (res.success) emailSent = true;
+        }
+        for (const extra of extraEmails) {
+            const res = await emailClient.send({
+                to: extra,
                 subject: `${copy.title} — ${invoice.invoice_number} · ${amountStr}`,
                 html,
             });

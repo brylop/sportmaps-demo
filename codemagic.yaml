@@ -6,14 +6,12 @@ workflows:
   # correr, mientras se espera la activación de la cuenta y se configura
   # la integración de App Store Connect.
   #
-  # ios/ TODAVÍA NO ESTÁ VERSIONADO (no se puede correr `cap add ios` en
-  # Windows) — este workflow lo genera desde cero en cada corrida con
-  # `npx cap add ios`. Una vez que este smoke build pase limpio, el paso
-  # que sigue (fuera de este archivo) es correr `cap add ios` UNA VEZ acá,
-  # bajar el artifact `frontend/ios/` y commitearlo al repo — igual que ya
-  # se hizo con `frontend/android/` — para poder editar Info.plist
-  # (usage strings), agregar GoogleService-Info.plist, etc. a mano en vez
-  # de perderlos en cada corrida.
+  # ios/ YA ESTÁ VERSIONADO (bootstrap hecho: `cap add ios` SÍ corre en
+  # Windows — es solo copiar archivos, lo que no corre ahí es compilar/pod
+  # install). Info.plist ya trae las usage strings y GoogleService-Info.plist
+  # real ya está commiteado. El `test -d ios ||` de abajo ahora resuelve a
+  # true y `cap add` se saltea solo; queda `cap sync` para traer los
+  # assets web nuevos en cada corrida.
   # ──────────────────────────────────────────────────────────────────────
   ios-simulator-smoke:
     name: iOS — smoke build para simulador (sin firma)
@@ -21,7 +19,7 @@ workflows:
     instance_type: mac_mini_m2
     environment:
       vars:
-        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+        XCODE_WORKSPACE: "App.xcworkspace"
         XCODE_SCHEME: "App"
       xcode: 26.4.1 # requisito Apple vigente desde 2026-04-28 (docs/MOBILE_ROADMAP_EXECUTION.md) — no bajar de imagen
       cocoapods: default
@@ -34,10 +32,10 @@ workflows:
         script: |
           cd frontend
           npm run build
-      - name: Agregar plataforma iOS (no versionada aún) + sync
+      - name: Sync iOS (plataforma ya versionada)
         script: |
           cd frontend
-          test -d ios || npx cap add ios
+          test -d ios || npx cap add ios --packagemanager CocoaPods
           npx cap sync ios
       - name: CocoaPods
         script: |
@@ -86,7 +84,7 @@ workflows:
         distribution_type: app_store
         bundle_identifier: co.sportmaps.app
       vars:
-        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+        XCODE_WORKSPACE: "App.xcworkspace"
         XCODE_SCHEME: "App"
         APP_STORE_APPLE_ID: 0 # TODO: reemplazar con el Apple ID numérico real de App Store Connect
       xcode: 26.4.1
@@ -100,10 +98,10 @@ workflows:
         script: |
           cd frontend
           npm run build
-      - name: Agregar plataforma iOS + sync
+      - name: Sync iOS (plataforma ya versionada)
         script: |
           cd frontend
-          test -d ios || npx cap add ios
+          test -d ios || npx cap add ios --packagemanager CocoaPods
           npx cap sync ios
       - name: CocoaPods
         script: |

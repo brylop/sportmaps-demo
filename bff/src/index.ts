@@ -1,3 +1,5 @@
+import './instrument';
+import * as Sentry from '@sentry/node';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -415,6 +417,10 @@ app.use('/api/v1/athletes', bulkUploadRouter);
 app.use((_req: Request, res: Response) => {
     res.status(404).json({ error: 'Endpoint no encontrado.' });
 });
+
+// Después de todas las rutas, antes de cualquier otro error handler — no-op
+// si SENTRY_DSN no está seteado (Sentry.init nunca corrió en instrument.ts).
+Sentry.setupExpressErrorHandler(app);
 
 // ── Error handler centralizado ────────────────────────────────────────────────
 // IMPORTANTE: debe tener 4 parámetros para que Express lo reconozca como error handler

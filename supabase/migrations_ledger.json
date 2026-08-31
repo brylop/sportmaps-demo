@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 463,
-  "head": "20260829121405",
+  "count": 467,
+  "head": "20260831133329",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -466,6 +466,10 @@
     {"v":"20260829115629","file":"20260829115629_trial_class_public_create_backend.sql","sha256":"2fcff71d58deedb21ed85a4cde3c6c4b3af75a191a40d581b0f4592f28bcc5e0","added":"2026-08-29","by":"judegor99"},
     {"v":"20260829120423","file":"20260829120423_trial_class_public_slots_agregados.sql","sha256":"8b6e571b4a09e3fecc30f040d6f5058b5ae741013aed08c63bd49510fa221527","added":"2026-08-29","by":"judegor99"},
     {"v":"20260829121154","file":"20260829121154_trial_class_endurecer_grants_anon_metricas.sql","sha256":"88c4a04e87df366955697d2abd4ea02e7d05dddece7532f08da70dace628acfd","added":"2026-08-29","by":"judegor99"},
-    {"v":"20260829121405","file":"20260829121405_trial_class_self_create_payment_period_conflict_fix2.sql","sha256":"e42f4d04e855283ef0db62661fd0eaeebb4ef5cc203762500fb948de25bc6224","added":"2026-08-29","by":"judegor99"}
+    {"v":"20260829121405","file":"20260829121405_trial_class_self_create_payment_period_conflict_fix2.sql","sha256":"e42f4d04e855283ef0db62661fd0eaeebb4ef5cc203762500fb948de25bc6224","added":"2026-08-29","by":"judegor99"},
+    {"v":"20260829123314","file":"20260829123314_school_subscriptions_billing_cycle_options.sql","sha256":"6e27aed4fe388e022af826691dd9e99ed807c2c03bdbaa953bae8ac22a701ae1","added":"2026-08-29","by":"brylop"},
+    {"v":"20260831095348","file":"20260831095348_cerrar_brechas_seg22_seg1_seg2.sql","sha256":"eddc796a4257d0c86a2ce12a397b7f0aa61c470c053d5093c4fbb9aa43ab792e","added":"2026-08-31","by":"brylop"},
+    {"v":"20260831115511","file":"20260831115511_school_subscriptions_billing_emails.sql","sha256":"057cdcbc216bb50502dd268375b7849642577900dee8e0d11702de27684f6f00","added":"2026-08-31","by":"brylop"},
+    {"v":"20260831133329","file":"20260831133329_fix_periodo_facturas_saas_negociado_mensual.sql","sha256":"07827955493e64aa495700d7ab23c51999151c5d12859fa58c8fe9f81eb61362","added":"2026-08-31","by":"brylop"}
   ]
 }
