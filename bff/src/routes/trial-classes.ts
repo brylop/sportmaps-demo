@@ -172,6 +172,14 @@ const CategoryUpsertSchema = z.object({
     is_active:   z.boolean().optional().default(true),
 });
 
+const RepeatPricingSchema = z.object({
+    allow_repeat: z.boolean(),
+    repeat_price: z.number().min(0, 'El precio no puede ser negativo').nullable().optional(),
+}).refine((d) => !d.allow_repeat || d.repeat_price != null, {
+    message: 'repeat_price es obligatorio cuando allow_repeat está activo',
+    path: ['repeat_price'],
+});
+
 // ── Configuración ─────────────────────────────────────────────────────────────
 
 // GET /api/v1/trial-classes/settings
@@ -227,7 +235,7 @@ router.get('/categories', requireAuth, requireOwnerOrAdmin, async (req: Request,
 
         let query = supabase
             .from('trial_class_categories')
-            .select('id, name, description, price, is_active')
+            .select('id, name, description, price, is_active, allow_repeat, repeat_price')
             .eq('school_id', schoolId)
             .order('name', { ascending: true });
 
@@ -316,6 +324,36 @@ router.patch('/categories/:id/active', requireAuth, requireOwnerOrAdmin, async (
         res.json({ success: true });
     } catch (err: any) {
         req.log?.error({ err }, 'trial-classes categories set-active unhandled error');
+        res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+});
+
+// PATCH /api/v1/trial-classes/categories/:id/repeat-pricing — ¿esta categoría
+// deja agendar una prueba después de la primera, y a qué precio? Sin tope de
+// veces (ver docs/specs/mis-inscripciones-agenda-clases-prueba.md §3/§7) —
+// solo lo usa el self-service desde Mis Inscripciones (trial_class_self_create),
+// el flujo del owner no tiene concepto de "repetir".
+router.patch('/categories/:id/repeat-pricing', requireAuth, requireOwnerOrAdmin, async (req: Request, res: Response) => {
+    try {
+        const { schoolId } = req;
+        const { id } = req.params;
+        const parsed = RepeatPricingSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+        }
+        const { allow_repeat, repeat_price } = parsed.data;
+
+        const { error } = await supabase.rpc('trial_class_category_set_repeat_pricing', {
+            p_school_id: schoolId,
+            p_id: id,
+            p_allow_repeat: allow_repeat,
+            p_repeat_price: repeat_price ?? null,
+        });
+
+        if (error) return res.status(409).json({ error: error.message });
+        res.json({ success: true });
+    } catch (err: any) {
+        req.log?.error({ err }, 'trial-classes categories repeat-pricing unhandled error');
         res.status(500).json({ error: 'Error interno del servidor.' });
     }
 });

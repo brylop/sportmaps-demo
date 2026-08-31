@@ -61,6 +61,7 @@ const RecepcionPage = lazy(() => import("./pages/recepcion/RecepcionPage"));
 const EventsMapPage = lazy(() => import("./pages/events/EventsMapPage"));
 const EventPublicPage = lazy(() => import("./pages/events/EventPublicPage"));
 const PublicFacilityBookingPage = lazy(() => import("./pages/booking/PublicFacilityBookingPage"));
+const PublicTrialClassBookingPage = lazy(() => import("./pages/booking/PublicTrialClassBookingPage"));
 const EventIndividualRegisterPage = lazy(() => import("./pages/events/EventIndividualRegisterPage"));
 const MyEventRegistrationsPage = lazy(() => import("./pages/events/MyEventRegistrationsPage"));
 
@@ -312,6 +313,7 @@ const App = () => (
                     <Route path="/join/:slug" element={<JoinSchoolPublicPage />} />
                     <Route path="/inscripcion/:slug" element={<SchoolLeadFormPage />} />
                     <Route path="/agendar/:slug" element={<PublicFacilityBookingPage />} />
+                    <Route path="/agendar-clase/:slug" element={<PublicTrialClassBookingPage />} />
                     <Route path="/terminos-y-condiciones" element={<TermsPage />} />
                     <Route path="/terms" element={<Navigate to="/terminos-y-condiciones" replace />} />
                     <Route path="/politica-de-privacidad" element={<PrivacyPage />} />

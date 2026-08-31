@@ -1,4 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useTrialClassSelfServiceSettings } from '@/hooks/useTrialClassesSelf';
+import { ShareTrialLinkDialog } from '@/components/school/ShareTrialLinkDialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,7 +25,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { EnrollPlanStudentModal } from '@/components/enrollment/EnrollPlanStudentModal';
 import { useSportsCatalog } from '@/hooks/useSportsCatalog';
 import { getSportVisual } from '@/lib/sportVisuals';
-import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus, Trash2, ArrowRight, Copy } from 'lucide-react';
+import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus, Trash2, ArrowRight, Copy, Share2 } from 'lucide-react';
 import { OfferingCoachesPanel } from './OfferingCoachesPanel';
 import { formatFriendlyDuration } from '@/lib/utils';
 
@@ -409,8 +412,22 @@ function SportSearchCombobox({
 
 export function OfferingsManagement() {
     const { toast } = useToast();
-    const { schoolId } = useSchoolContext();
+    const { schoolId, schoolName } = useSchoolContext();
     const queryClient = useQueryClient();
+    const { settings: ssSettings } = useTrialClassSelfServiceSettings();
+    const [schoolSlug, setSchoolSlug] = useState<string | null>(null);
+    const [shareOpen, setShareOpen] = useState(false);
+
+    useEffect(() => {
+        if (!schoolId) return;
+        (supabase.from('schools') as any)
+            .select('slug')
+            .eq('id', schoolId)
+            .maybeSingle()
+            .then(({ data }: any) => { if (data?.slug) setSchoolSlug(data.slug); });
+    }, [schoolId]);
+
+    const trialPublicUrl = schoolSlug ? `${window.location.origin}/agendar-clase/${schoolSlug}` : '';
     // Para sugerir categorías al crear un plan. `SportSearchCombobox` también lo
     // llama, pero es otro componente: su `allSports` no está en este alcance, y
     // dar por hecho que sí fue justo el error de acá abajo.
@@ -670,9 +687,22 @@ export function OfferingsManagement() {
                         {offerings.length > 0 ? `${offerings.length} plan${offerings.length !== 1 ? 'es' : ''} configurado${offerings.length !== 1 ? 's' : ''}` : 'Configura los planes para tus deportistas'}
                     </p>
                 </div>
-                <Button onClick={() => { resetOfferingForm(); setShowCreate(true); }} size="sm" className="gap-1.5 shadow-sm">
-                    <Plus className="h-4 w-4" /> Nuevo Plan
-                </Button>
+                <div className="flex items-center gap-2">
+                    {ssSettings?.self_service_enabled && (
+                        <Button
+                            onClick={() => setShareOpen(true)}
+                            disabled={!schoolSlug}
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5"
+                        >
+                            <Share2 className="h-4 w-4" /> Compartir link
+                        </Button>
+                    )}
+                    <Button onClick={() => { resetOfferingForm(); setShowCreate(true); }} size="sm" className="gap-1.5 shadow-sm">
+                        <Plus className="h-4 w-4" /> Nuevo Plan
+                    </Button>
+                </div>
             </div>
 
             {/* Empty state */}
@@ -1184,6 +1214,15 @@ export function OfferingsManagement() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            {trialPublicUrl && (
+                <ShareTrialLinkDialog
+                    open={shareOpen}
+                    onOpenChange={setShareOpen}
+                    publicUrl={trialPublicUrl}
+                    schoolName={schoolName}
+                />
+            )}
         </div>
     );
 }
