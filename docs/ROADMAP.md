@@ -1,11 +1,53 @@
 # SportMaps — Roadmap Maestro
 
-**Versión:** 2.14 · **Fecha:** 2026-08-31 · **Rama:** `develop`
+**Versión:** 2.15 · **Fecha:** 2026-08-31 · **Rama:** `develop`
 
 > **Este es el único roadmap.** Todo lo demás en `docs/` es *spec* (qué se construye y por qué),
 > *plan de fase* (cómo se migra), *doctrina de arquitectura* (cómo se hace) o *auditoría* (qué está
 > mal). Ninguno de esos documentos define prioridades: las define esta cola. Si un pendiente no
 > aparece aquí, no existe.
+
+**Cambios v2.14 → v2.15** (auditoría de UX/densidad en 4 roles — parent, athlete, school, coach —
+2026-08-31, pedida explícitamente como "reorganizar el diseño del front"; cruzada contra datos
+reales de Supabase, no solo lectura de código):
+- **`UX-4` gana el detalle que le faltaba.** La fila original decía "12 pantallas movidas a
+  pestañas" sin decir cuáles. Ahora hay una lista priorizada por **uso real**, no por tamaño de
+  archivo: `AccessControlPage.tsx` (14.162 filas en `access_events`) y
+  `AttendanceSupervisionPage.tsx` primero; `ParentCheckoutPage.tsx`/`OfferingsManagement.tsx`
+  último, porque necesitan un componente Stepper que no existe en el repo. Detalle completo en
+  [`specs/simplificacion-ux-dashboard-roles-2026-08-31.md`](specs/simplificacion-ux-dashboard-roles-2026-08-31.md).
+- **`UX-6` era solo del atleta; el mismo patrón aparece en escuela y coach — nuevo `UX-8`.**
+  `ResultsOverviewPage.tsx:47` es 100 % mock (`isDemoMode ? demoResults : []`, ni siquiera intenta
+  leer `match_results`), `ProgramsManagementPage.tsx` corre sobre `classes`/`class_enrollments`
+  con **0 filas en toda la plataforma** (modelo abandonado frente a `teams`, 136 filas reales) y
+  es el default #2 roto de Quick Actions de escuela, y `AnnouncementsPage.tsx` escribe a
+  `announcements` sin que nadie del lado padre la lea (0 filas). Roles fantasma confirmados:
+  `store_owner` (legacy, 1 usuario), `organizer` (`event_organizers` en 0,
+  `events.organizer_id` siempre NULL — torneos se unificó en `events` operado por escuelas) y una
+  colisión sin cerrar: `school_members.role='admin'` (5 usuarios reales) cae en el mismo `case`
+  que el admin de plataforma en `AppSidebar.tsx:60-111`.
+- **Nuevo `UX-7` — Dashboard → Acciones Rápidas por rol**, con propuesta concreta para escuela,
+  padre y atleta basada en volumen operativo real (312 pagos vencidos vs. 18 recordatorios
+  enviados, etc.). Coach queda pendiente de definir.
+- **`SEG-24` nuevo — sin fuga hoy, pero punto único de falla.** `/admin/analytics`
+  (`AdminAnalyticsPage.tsx`) permite `role='school'` sin `strictRoleCheck` (`App.tsx:930-974`) y
+  no filtra por `school_id` en el código — pero se verificó contra las policies RLS reales, no
+  solo el código: `payments`/`enrollments`/`profiles` están scopeadas por `staff_school_ids()`,
+  así que hoy no hay fuga cruzada entre escuelas. No está ni en el menú de escuela.
+- **Bug transversal nuevo, no venía de ningún barrido anterior:** `SHOW_EXPLORE` en
+  `feature-flags.ts` lee `import.meta.env.DEV` en vez de la `VITE_SHOW_EXPLORE` que su propio
+  comentario promete — el ítem "Explorar" no aparece en NINGÚN ambiente desplegado, solo en dev
+  local. Explica gran parte de la adopción-cero de Tienda del atleta, Objetivos y Citas de
+  Bienestar medida en este mismo barrido.
+- **Decisión del usuario sobre Mensajes (detalle en §5):** el plan de mayo
+  (`athlete-modules-remediation-plan.md`, F3.3) proponía construirlo entero —conversaciones,
+  triggers, realtime, ~6-8 semanas— porque Reservas lo necesitaría después. Confirmado
+  2026-08-31: Reservas **sí** tiene uso real en escuelas como Dreamers, así que Mensajes **no se
+  elimina** — pero tampoco se invierte en F1-F3 todavía. Queda solo en F0 (oculto), backlog sin
+  fecha.
+- **Orden de prioridad sin cambios**: el usuario confirmó seguir la cola existente (dinero →
+  seguridad → UX) en vez de adelantar el rediseño de roles por delante de los P0 abiertos.
+  `UX-7`/`UX-8` entran a la cola junto a `UX-6` (§4, #17.5).
 
 **Cambios v2.13 → v2.14** (aplicado el lote de `SEG-22`/`SEG-1`/`SEG-2`, 2026-08-31 — confirmado por
 el usuario tras la propuesta de v2.13): migración `20260831095348_cerrar_brechas_seg22_seg1_seg2`
@@ -688,6 +730,7 @@ Buena parte **ya está aplicada**: índice único parcial en `session_bookings`,
 | **SEG-23** | ✅ **CERRADO Y VERIFICADO el 2026-08-31** — no vino de ningún barrido, salió de preguntar "¿por qué le aparece MercadoPago a Dynasty?" y seguir el hilo hasta la cuenta real. **Hallazgo crítico:** `MP_ACCESS_TOKEN_DEFAULT` (la credencial de MercadoPago que usa `payment-provider.resolver.ts` para cualquier escuela en `payment_mode='aggregator'`) **es la cuenta personal de MercadoPago de un padre real de la plataforma** — confirmado contra `GET /users/me` de la API de MP (nombre, email, nickname reales) y cruzado contra `profiles` (`role='parent'`). Dynasty, la única escuela real en `aggregator`, mostraba "MercadoPago" como método de pago en `/my-payments` — si un padre completaba ese pago, la mensualidad de su hijo caía en la cuenta personal de un tercero ajeno a Dynasty y a SportMaps, no en ninguna de las dos. Es el mismo riesgo regulatorio (captador irregular SFC) que todo el proyecto de Connected Accounts existe para evitar, y el "hilo abierto" que la memoria del proyecto ya tenía sin responder desde el 30-jul ("¿de quién es la cuenta de `MP_ACCESS_TOKEN_DEFAULT`?"). **Verificado antes de tocar nada:** `SELECT` en `payments` confirma **cero transacciones reales** procesadas por esa vía — el riesgo era real y estaba armado, pero no se había disparado. **Fix en dos capas:** (1) `resolveProvider`/`loadProviderConfig` en `payment-provider.resolver.ts` bloquean fail-closed `mercadopago` cuando hay un `schoolId` real de por medio, sin tocar el fallback de Wompi a ENV (esas llaves sí son de Dynasty) — 3 tests nuevos fijan la regla (18/18 pasan); (2) el botón "MercadoPago" se ocultó en `PaymentCheckoutModal.tsx` y `ParentCheckoutPage.tsx` (comentado con el motivo, no borrado — son las dos únicas pantallas que leían `VITE_MP_PUBLIC_KEY_DEFAULT` sin ningún chequeo por escuela). | ✅ | — | `payment-provider.resolver.ts` |
 | SEG-11 | **Higiene del BFF.** Cuatro cosas de la misma pasada: **(a)** el error handler solo devuelve mensaje genérico si `NODE_ENV === 'production'`, y staging corre con `NODE_ENV=staging` → **devuelve `err.message` crudo al cliente**, y de paso el rate limit sube a 2000 por el mismo ternario; **(b)** `requireAuth` responde 403 con `detail: profile_id=<uuid> no encontrado en school_members…`, que filtra UUID interno y estructura de tablas (y `requireRole` devuelve `receivedRole`, útil para enumerar privilegios); **(c)** el auth se monta **por router, no globalmente**, así que la garantía «todas las rutas privadas» depende de no olvidarse — y ya hay olvidos (`SEG-9`); **(d)** `requireCsrfHeader` solo se aplica en 2 routers (`payment-tokens`, `recurring`); el resto de mutaciones no lo exige. | 🔵 | 3–4 d | barrido 2026-08-12 |
 | SEG-12 | **Observabilidad: no hay.** `pino-http` está bien configurado (serializers que no vuelcan bodies), pero **Sentry no está instalado** — no figura en el `package.json` de ninguno de los dos servicios ni hay `Sentry.init` en ningún lado; solo existe como tipo opcional en `vite-env.d.ts`. 🔴 **Y la política de privacidad lo declara como proveedor de datos ante el usuario** (`PrivacyPage.tsx:324`, y otra vez en la cláusula de transferencia internacional): eso es un problema de exactitud legal, no solo técnico — o se instala, o se saca del texto. Sin centralización no hay alertas ni detección de anomalías: los logs viven en Render con retención corta y `debug.log` en disco efímero. Hay 64 `console.log` fuera de pino. `security_audit_log` sí existe en la BD pero nadie la vigila. | 🔵 | 3 d | barrido 2026-08-12 |
+| SEG-24 | ⚠️ **`/admin/analytics` sin `strictRoleCheck`, punto único de falla — sin fuga hoy.** `AdminAnalyticsPage.tsx` es alcanzable con `role='school'` sin el guard que sí tienen `/admin/schools`/`/admin/subscriptions` (`App.tsx:930-974`), y no filtra `school_id` en ningún query — consulta directo `payments`, `enrollments`, `orders`, `wellness_appointments`, `profiles`, `schools`. Verificado contra las policies RLS reales, no solo el código: `payments`/`enrollments`/`profiles` están scopeadas por `staff_school_ids()`, así que hoy una escuela real no ve datos de otra. `schools` sí es de lectura pública total (`USING(true)`, intencional para el directorio de `/explorar`), así que el conteo de escuelas por ciudad que muestra el panel es genuinamente de toda la plataforma — visible para cualquier dueño de escuela que llegue a la URL (ni siquiera está en su menú). El riesgo no es la fuga de hoy: es que si alguna de las tres policies se afloja —como pasó con `is_platform_admin()` devolviendo NULL— esta pantalla se vuelve una fuga completa de ingresos y matrícula de todas las escuelas, sin ninguna defensa de código que lo pare. Fix trivial: `strictRoleCheck` + sacar `'school'` de `allowedRoles`. | 🔵 | 15 min | auditoría UX 2026-08-31 · memoria `project_dead_modules_roles_audit` |
 | SEG-13 | **Gestión de secretos y segundo factor.** Los secretos de pasarela por escuela **sí** están bien: AES-256-GCM en `payment_provider_secrets`, clave dedicada, descifrado solo en el BFF (`payment-crypto.ts`). Lo que falta es alrededor: no hay secrets manager (Doppler/AWS SM) ni rotación ni registro de cuándo se rotó — los secretos viven como env vars en Render y Vercel; **«scopes mínimos» no aplica porque no existen**: el BFF entero corre con `service_role`. Y **no hay MFA en ningún rol, ni siquiera `super_admin`** (lo único que hay es el componente `input-otp` de shadcn, sin usar) — lo cual pesa justo sobre `ADM-3`, que le da a una sola pantalla el control de las ~40 opciones de cualquier escuela. | 🔵 | 1 sem | barrido 2026-08-12 · `D1-pagos` (§5) |
 
 #### El barrido del 2026-08-12 — por qué cambia la prioridad del track
@@ -764,10 +807,12 @@ construir y que sirven a los siguientes clientes de este tipo. El resto sí es e
 |---|---|---|---|---|
 | UX-1 | **Primitivas de layout.** `<PageShell>` con 4 anchos (hoy hay 24 distintos porque el `<main>` no fija ninguno), `<PageHeader>` compacto (hoy 78 páginas con un bloque de ~110 px), 3 tamaños de modal en vez de 17, y una escala de espaciado de 4 pasos en vez de 7. **Barato y desbloquea todo lo que se construya después.** | 🔵 | 3–4 d | sesión 2026-08-01 |
 | UX-2 | **`DataTable` único.** Hoy hay 20 listados ad hoc. Incluye **F-01: un error de fetch se muestra como tabla vacía en silencio** (crítico, y toca dinero) y **F-02: la pantalla de pagos hace fetch-all sin límite**. `AdminActivityLogsPage` es la referencia buena (`usePagedRpc` + `Pager` + guard de stale). | 🔵 | 1 sem | memoria `project_frontend_tables_audit` |
-| UX-3 | **Menú lateral — capa barata.** Desduplicar iconos (`Users` marca 4 ítems distintos), renombrar los choques («Finanzas → Finanzas y Contabilidad → Finanzas», cuatro cosas llamadas «reporte»), aplicar el gating por plan a los ítems (hoy solo el grupo «Mi Tienda» mira `hasAddon`) y hacer que el acordeón funcione en modo icono. | 🔵 | 1–2 d | sesión 2026-08-01 |
-| UX-4 | **Menú lateral — reestructura.** De 36 destinos en 6 grupos a 24, con ningún grupo de más de 5 ítems y 12 pantallas movidas a pestañas dentro de la pantalla a la que pertenecen. Implica tocar páginas, no solo el config. | ⚪ | 1 sem | sesión 2026-08-01 |
+| UX-3 | **Menú lateral — capa barata.** Desduplicar iconos (`Users` marca 4 ítems distintos), renombrar los choques («Finanzas → Finanzas y Contabilidad → Finanzas», cuatro cosas llamadas «reporte»), aplicar el gating por plan a los ítems (hoy solo el grupo «Mi Tienda» mira `hasAddon`) y hacer que el acordeón funcione en modo icono. Suma un hallazgo del 2026-08-31: `SHOW_EXPLORE` en `feature-flags.ts` lee `import.meta.env.DEV` en vez de la `VITE_SHOW_EXPLORE` que su propio comentario promete — el ítem "Explorar" no aparece en NINGÚN ambiente desplegado, solo en dev local. | 🔵 | 1–2 d | sesión 2026-08-01 |
+| UX-4 | **Menú lateral — reestructura.** De 36 destinos en 6 grupos a 24, con ningún grupo de más de 5 ítems y 12 pantallas movidas a pestañas dentro de la pantalla a la que pertenecen. Implica tocar páginas, no solo el config. | ⚪ | 1 sem | sesión 2026-08-01 · [detalle priorizado por uso real](specs/simplificacion-ux-dashboard-roles-2026-08-31.md) |
 | UX-5 | **Master-detail en los listados.** Sustituir el modal de «ver registro» por un panel de detalle a la derecha en Atletas, Cobros y Comprobantes. Depende de UX-2. | ⚪ | 1 sem | sesión 2026-08-01 |
-| UX-6 | **Matar las features falsas del atleta.** Privacidad 100 % cosmética, `/messages` sin compose ni triggers y con «Contactar» de mentira, botón «Crear Evento» sin gateo en el calendario del atleta, `sports_interests` que nadie consume. ⚠️ El hallazgo de notificaciones cosméticas probablemente quedó resuelto al construir el módulo unificado — **verificar antes de trabajar.** | 🔵 | 1–2 d | [athlete remediation §F0](athlete-modules-remediation-plan.md) |
+| UX-6 | **Matar las features falsas del atleta.** Privacidad 100 % cosmética, `/messages` sin compose ni triggers y con «Contactar» de mentira, botón «Crear Evento» sin gateo en el calendario del atleta, `sports_interests` que nadie consume. ⚠️ El hallazgo de notificaciones cosméticas probablemente quedó resuelto al construir el módulo unificado — **verificar antes de trabajar.** ⚠️ **Decisión 2026-08-31 sobre `/messages`: no se elimina, tampoco se construye F1-F3 todavía — Reservas sí tiene uso real en escuelas como Dreamers (ver §5). Queda solo F0 (oculto), backlog sin fecha.** | 🔵 | 1–2 d | [athlete remediation §F0](athlete-modules-remediation-plan.md) |
+| UX-7 | **Dashboard → Acciones Rápidas por rol.** Escuela ya tiene el catálogo editable (`quickActionsCatalog.ts`) pero su default #2 ("Ver Equipos") apunta a `/programs-management`, la página muerta de `UX-8` — bug de un carácter, es la segunda acción que ve toda escuela nueva. Padre navega "Ver Equipos" a `/explorar?category=schools` (buscador de escuelas nuevas) en vez de a sus inscripciones. Propuesta completa de 5 acciones por rol, basada en volumen operativo real, en el spec. Coach sin auditar todavía. | 🔵 | 2–3 d | [spec](specs/simplificacion-ux-dashboard-roles-2026-08-31.md) |
+| UX-8 | **Matar módulos muertos confirmados (escuela/coach) + roles fantasma.** `ResultsOverviewPage.tsx:47` (`isDemoMode ? demoResults : []`, ni siquiera intenta leer `match_results`), `ProgramsManagementPage.tsx` (`classes`/`class_enrollments` en 0 filas, modelo abandonado frente a `teams`), `AnnouncementsPage.tsx` (0 filas en `announcements`, nadie del lado padre la lee). Roles: `store_owner` (legacy, 1 usuario, migrar a `external_vendor`), `organizer` (`event_organizers` en 0, `events.organizer_id` siempre NULL), colisión `school_members.role='admin'` viendo el menú de plataforma (`AppSidebar.tsx:60-111`, 5 usuarios reales). Eliminar requiere confirmación página por página — no eliminar por iniciativa propia (memoria `feedback_user_handles_deletions`). | 🔵 | 2–3 d | [spec](specs/simplificacion-ux-dashboard-roles-2026-08-31.md) · memoria `project_dead_modules_roles_audit` |
 
 ### MOV — Móvil, responsive y app nativa
 
@@ -1160,6 +1205,7 @@ del tiempo de lo de arriba.
 | 11.5 | **MOV-1 + MOV-2** | **Medio día y un día.** `MOV-1` son nueve arreglos de una línea que cierran 12 hallazgos, ninguno toca lógica: el rosa Material en el caret de todos los inputs, las bandas negras de edge-to-edge, el botón de cerrar de 16 px, los 18 px que el bottom nav tapa, el auto-zoom de iOS en cada textarea. `MOV-2` borra el código muerto y es **prerrequisito de `UX-1`** — no se diseñan primitivas de layout con un `App.css` fantasma que define modal, grid y tabla con `!important`. Es la relación impacto/esfuerzo más alta del roadmap después de `DIN-9`. |
 | 12 | **UX-1 + UX-3 + ERP-1 + MOV-3** | Barato, mecánico, sin tocar lógica, y todo lo que se construya después nace bien. Los cuatro son la misma pasada por la UI, y conviene que `MOV-3` (la utilidad de safe area + las 15 cabeceras) entre junto con `UX-1`: si `<PageShell>` y `<PageHeader>` nacen sin safe area, hay que rehacer las 78 páginas dos veces. ⚠️ `MOV-2` va **antes**. |
 | 12.5 | **MOV-7** | Un día, y es el arreglo que más se nota en la app que ya está en Play: hoy la tipografía **sale a Internet en cada arranque frío** y sin red no carga nunca, porque el `runtimeCaching` que la cachearía es config muerta. De paso mata las 3 familias fantasma que dejan el embudo de registro con Roboto en Android y San Francisco en iOS. |
+| 12.6 | **SEG-24** | Trivial (15 min), mismo tipo de arreglo mecánico que el resto de esta fila — agregar `strictRoleCheck` a una ruta que ni siquiera está en el menú de escuela. |
 | 13 | **CONC-1 + CONC-2** | La idempotencia general es la defensa más barata contra el doble cargo y **prerrequisito de `ERP-2`**; el barrido de `count(*)` sin lock busca el error clásico donde ya sabemos cómo se ve bien hecho. |
 | 14 | **UX-2** | F-01 (un error de fetch se ve como tabla vacía) toca pantallas de dinero. |
 | 15 | **MOD-15** | 4 horas. Sin el System User el bot de WhatsApp muere cada 2 h. |
@@ -1167,6 +1213,7 @@ del tiempo de lo de arriba.
 | ~~15.7~~ | ~~**MOD-25**~~ | ✅ **Entregado el 2026-08-25** — ver §1.4. `llms-faq.txt` publicado, 6 comparativas referenciadas, `robots.txt` con ~20 user-agents de IA. |
 | 16 | **INF-1 (por dominio)** | Versionar el dominio que bloquee la siguiente fase, no los 336 objetos de golpe. |
 | 17 | **UX-6** | Las features cosméticas son lo que hace que un padre vuelva al grupo de WhatsApp. Verificar primero qué quedó resuelto con el módulo de notificaciones. |
+| 17.5 | **UX-7 + UX-8** | Misma auditoría que `UX-6`, mismo criterio: son features/roles que no le llegan a nadie hoy. Antes de invertir en `UX-4` (mover 12 pantallas a pestañas) conviene sacar primero lo que ni siquiera debería quedarse. |
 | 18 | **ADM-1 + ADM-2** | El catálogo de flags y el doble store. `ADM-2` es prerrequisito de la consola: sin resolverlo, la consola hereda el mismo defecto de `SEG-7` — leer de un sitio y escribir en otro. |
 | 19 | **Responder D-T, D-MIG, D-PUC, D-CORTE** | Cuatro decisiones sin código de por medio que bloquean las 6–7 semanas de `ERP-2`. Se pueden contestar esta semana. |
 | 20 | **MOD-17** (filtro de piloto) | Es lo único de la lista que **le llega a una familia**. Mientras el cron recorra todas las escuelas, la salvaguarda es que nadie haya cargado métricas — y eso deja de ser cierto el día que una escuela real empieza a usar el módulo, sin aviso. El filtro por escuela es chico; lo que no se puede es dejarlo a la suerte de que no haya datos. |
@@ -1267,6 +1314,7 @@ esfuerzo real todavía no está acotado.
 |---|---|---|
 | ¿`DIN-1` y `DIN-2` en un plan consolidado? | **Consolidado.** Plan en [plan-f0-generacion-de-mes-y-cobros-duplicados.md](plan-f0-generacion-de-mes-y-cobros-duplicados.md) | 2026-08-01 |
 | **D-PD** — ¿partida doble? | **Libro mayor completo desde el inicio.** Se descartaron la opción sin asientos y la híbrida (§3.1) | 2026-08-01 |
+| ¿Qué hacer con Mensajes — matar o construir F1-F3 del plan de mayo? | **No se elimina, pero tampoco se construye todavía.** Reservas sí tiene uso real en escuelas como Dreamers y podría necesitarlo — queda solo en F0 (oculto), backlog sin fecha para F1-F3 | 2026-08-31 |
 
 ### Abiertas
 

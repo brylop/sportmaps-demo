@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 467,
-  "head": "20260831133329",
+  "count": 479,
+  "head": "20260902113317",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -470,6 +470,18 @@
     {"v":"20260829123314","file":"20260829123314_school_subscriptions_billing_cycle_options.sql","sha256":"6e27aed4fe388e022af826691dd9e99ed807c2c03bdbaa953bae8ac22a701ae1","added":"2026-08-29","by":"brylop"},
     {"v":"20260831095348","file":"20260831095348_cerrar_brechas_seg22_seg1_seg2.sql","sha256":"eddc796a4257d0c86a2ce12a397b7f0aa61c470c053d5093c4fbb9aa43ab792e","added":"2026-08-31","by":"brylop"},
     {"v":"20260831115511","file":"20260831115511_school_subscriptions_billing_emails.sql","sha256":"057cdcbc216bb50502dd268375b7849642577900dee8e0d11702de27684f6f00","added":"2026-08-31","by":"brylop"},
-    {"v":"20260831133329","file":"20260831133329_fix_periodo_facturas_saas_negociado_mensual.sql","sha256":"07827955493e64aa495700d7ab23c51999151c5d12859fa58c8fe9f81eb61362","added":"2026-08-31","by":"brylop"}
+    {"v":"20260831133329","file":"20260831133329_fix_periodo_facturas_saas_negociado_mensual.sql","sha256":"07827955493e64aa495700d7ab23c51999151c5d12859fa58c8fe9f81eb61362","added":"2026-08-31","by":"brylop"},
+    {"v":"20260831190312","file":"20260831190312_fix_teams_anon_public_select_hole.sql","sha256":"0fadd972e9a85bf448c166d300fb25a72ca3d0de6a8b3c0eb3e0fdb14cf19943","added":"2026-09-01","by":"brylop"},
+    {"v":"20260831191515","file":"20260831191515_coach_can_create_teams_carmel.sql","sha256":"e9411e5231fa2c51dcc0135df141c2ca9967670fcb8cd1f5310b480a915d9f83","added":"2026-09-01","by":"brylop"},
+    {"v":"20260901112643","file":"20260901112643_fix_school_athletes_security_invoker_regression.sql","sha256":"2231bf1bb543e6168cebfd4810497c5de8430df2095349f88eb88ead58ce605e","added":"2026-09-01","by":"brylop"},
+    {"v":"20260901114532","file":"20260901114532_torneos_internos_baseline_registro_pago.sql","sha256":"76adf3c9154fc09f9ca9ecd322e3a32f2b3fdbb73563c924815c2440ed1616b0","added":"2026-09-01","by":"brylop"},
+    {"v":"20260901114927","file":"20260901114927_fix_security_invoker_students_payments_pending_views.sql","sha256":"782e9f32823d1d0acc9a0c58e91cec1bfcd68bea0ec73ff02a5448a3674a78d2","added":"2026-09-01","by":"brylop"},
+    {"v":"20260901115207","file":"20260901115207_invariante_i6_vistas_definer_expuestas.sql","sha256":"d99e633f50d07ba8018691f4ba3138bb256e4ccd59d33033c29ae1fe1c84e353","added":"2026-09-01","by":"brylop"},
+    {"v":"20260902104747","file":"20260902104747_checkin_method_upsert_attendance_and_revoke_anon.sql","sha256":"7dda4b47efd856975d45cb0ca4e0bbd662f82bd83b84c1c05a8db00bcf3be70b","added":"2026-09-02","by":"brylop"},
+    {"v":"20260902104919","file":"20260902104919_drop_stale_upsert_attendance_record_overload.sql","sha256":"ad9a579d7d0e00d359e506ddfcd02ff7af0afd02c8ea08f669e0a4aa270dcc48","added":"2026-09-02","by":"brylop"},
+    {"v":"20260902110253","file":"20260902110253_coach_attendance_teams_only_setting.sql","sha256":"5c0b9fdefefef3c754342dd3924440d9cfab969d17414155d4af520e56d8351c","added":"2026-09-02","by":"brylop"},
+    {"v":"20260902112738","file":"20260902112738_absence_events_no_show_and_threshold.sql","sha256":"88e0d65b9e06cd531526b25988aab3d9b9705828ba44654c40ed5856dfec9ac0","added":"2026-09-02","by":"brylop"},
+    {"v":"20260902112920","file":"20260902112920_mark_session_absences_and_escalation.sql","sha256":"b8d8d102c2467209e37d10f636dfcededcc4142ae8de3e2ef2070bfbfbbe2c44","added":"2026-09-02","by":"brylop"},
+    {"v":"20260902113317","file":"20260902113317_athlete_id_cards_unregistered_support.sql","sha256":"27858c4834ef71ae5303813f757cac4ccc51653b5ecfc04358a14424c1de5643","added":"2026-09-02","by":"brylop"}
   ]
 }
