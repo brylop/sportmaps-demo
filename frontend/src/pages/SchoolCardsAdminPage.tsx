@@ -321,6 +321,7 @@ export default function SchoolCardsAdminPage() {
         p_school_id: schoolId,
         p_child_id: a.kind === 'child' ? a.athlete_id : null,
         p_profile_id: a.kind === 'profile' ? a.athlete_id : null,
+        p_unregistered_athlete_id: a.kind === 'unregistered' ? a.athlete_id : null,
         p_template_id: resolveTemplateId(),
         p_valid_until: validUntil,
         p_photo_url: null,
@@ -440,6 +441,7 @@ export default function SchoolCardsAdminPage() {
       p_school_id: schoolId,
       p_child_id:   issueTarget.kind === 'child'   ? issueTarget.athlete_id : null,
       p_profile_id: issueTarget.kind === 'profile' ? issueTarget.athlete_id : null,
+      p_unregistered_athlete_id: issueTarget.kind === 'unregistered' ? issueTarget.athlete_id : null,
       // Antes iba null fijo: la plantilla elegida en este mismo diálogo se
       // ignoraba y todos los carnets salían con la predeterminada.
       p_template_id: resolveTemplateId(),
