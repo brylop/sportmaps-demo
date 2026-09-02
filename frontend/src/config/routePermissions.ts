@@ -88,6 +88,7 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
 
     // ── Coach ──
     '/coach-attendance': { allowedRoles: ['coach'], requiredPermission: 'calendar:edit', description: 'Asistencias (coach)' },
+    '/coach-attendance/scan': { allowedRoles: ['coach'], requiredPermission: 'calendar:edit', description: 'Check-in por QR de carnet (coach)' },
     '/coach-plans': { allowedRoles: ['coach'], description: 'Planes del coach' },
     '/results': { allowedRoles: ['coach'], description: 'Resultados' },
     '/training-plans': { allowedRoles: ['coach', 'school', 'admin', 'school_admin', 'super_admin'], description: 'Métricas y rendimiento' },

@@ -100,6 +100,7 @@ const AccountStatementPage = lazy(() => import("./pages/AccountStatementPage"));
 
 // ─── Coach pages (lazy) ───────────────────────────────────────────────────────
 const CoachAttendancePage = lazy(() => import("./pages/CoachAttendancePage"));
+const CoachCheckInScanPage = lazy(() => import("./pages/CoachCheckInScanPage"));
 const CoachPlansPage = lazy(() => import("./pages/CoachPlansPage"));
 const ResultsPage = lazy(() => import("./pages/ResultsPage"));
 const TrainingPlansPage = lazy(() => import("./pages/TrainingPlansPage"));
@@ -505,6 +506,7 @@ const App = () => (
 
                       {/* Coach routes */}
                       <Route path="coach-attendance" element={<CoachAttendancePage />} />
+                      <Route path="coach-attendance/scan" element={<CoachCheckInScanPage />} />
                       <Route path="coach-plans" element={<CoachPlansPage />} />
                       <Route path="results" element={<ResultsPage />} />
                       <Route path="training-plans" element={
