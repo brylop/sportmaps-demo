@@ -24,6 +24,7 @@ import { InvitationBanner } from '@/components/dashboard/InvitationBanner';
 import { CoachProfileWizard } from '@/components/coach/CoachProfileWizard';
 import { SchoolOnboardingWizard } from '@/components/onboarding/SchoolOnboardingWizard';
 import { ActivateStoreCTA } from '@/components/vendor/ActivateStoreCTA';
+import { OpenTournamentsCard } from '@/components/dashboard/OpenTournamentsCard';
 import { supabase } from '@/integrations/supabase/client';
 import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 
@@ -524,6 +525,9 @@ export default function DashboardPage() {
 
       {/* CTA Activar Mi Tienda — visible solo para roles elegibles sin vendor_profile */}
       <ActivateStoreCTA />
+
+      {/* Torneos/ligas internas abiertas en mi escuela — solo padre/atleta */}
+      <OpenTournamentsCard />
 
       {/* Pending Enrollment Modal */}
       <PendingEnrollmentModal />

@@ -767,6 +767,7 @@ export default function ParentCheckoutPage() {
                       escuela. El backend ya lo bloquea fail-closed (payment-provider.resolver.ts),
                       esto además evita mostrar un botón que fallaría. Reactivar cuando haya una
                       cuenta comercial real detrás de MP_ACCESS_TOKEN_DEFAULT. */}
+                  {/* eslint-disable-next-line no-constant-binary-expression -- kill switch intencional (SEG-23), no un error */}
                   {false && canPayOnline && import.meta.env.VITE_MP_PUBLIC_KEY_DEFAULT && (
                     <div className={`flex flex-col space-y-3 p-4 border rounded-lg cursor-pointer mt-3 ${paymentFlow === 'mercadopago' ? 'border-primary bg-primary/5' : ''}`} onClick={() => setPaymentFlow('mercadopago')}>
                       <div className="flex items-center space-x-3">

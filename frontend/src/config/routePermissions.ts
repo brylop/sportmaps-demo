@@ -43,6 +43,7 @@ export const PUBLIC_ROUTES: Record<string, RoutePermission> = {
     '/unauthorized': { public: true, description: 'Página de acceso denegado' },
     '/events': { public: true, description: 'Mapa de eventos públicos' },
     '/event/:slug': { public: true, description: 'Página pública de evento' },
+    '/tournaments/:eventId/results': { public: true, description: 'Resultados públicos de torneo/liga interna' },
     '/polls/v/:pollId': { public: true, description: 'Encuesta pública' },
     // Marketplace público
     '/explorar': { public: true, description: 'Explorar global — servicios, eventos, escuelas, productos' },
@@ -79,6 +80,7 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     // ── Parent ──
     '/children': { allowedRoles: ['parent'], description: 'Mis hijos' },
     '/my-payments': { allowedRoles: ['parent', 'athlete'], description: 'Mis pagos' },
+    '/tournaments/:eventId/register': { allowedRoles: ['parent', 'athlete'], description: 'Inscripción y pago de torneo/liga interna' },
     '/children/:id/progress': { allowedRoles: ['parent'], description: 'Progreso del hijo' },
     '/children/:id/attendance': { allowedRoles: ['parent'], description: 'Asistencia del hijo' },
     '/academic-progress': { allowedRoles: ['parent'], description: 'Progreso deportivo' },

@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ArrowLeft, Trophy, Share2, Rocket, Link2, AlertCircle, Plus, Trash2, Save } from 'lucide-react';
+import { getIndividualRegistrations, assignTeams, IndividualRegistration } from '@/lib/api/tournaments';
 
 interface Category {
   division: string; level: string; category: string; rama: string;
@@ -66,9 +67,16 @@ export default function SchoolTournamentDetailPage() {
   const [savingInfo, setSavingInfo] = useState(false);
   const [savingCats, setSavingCats] = useState(false);
 
-  // inscritos
+  // inscritos (externo: delegaciones)
   const [dels, setDels] = useState<Delegation[]>([]);
   const [delsLoaded, setDelsLoaded] = useState(false);
+
+  // inscritos (interno: individuales + armado de equipos)
+  const [regs, setRegs] = useState<IndividualRegistration[]>([]);
+  const [regsLoaded, setRegsLoaded] = useState(false);
+  const [teamNameDraft, setTeamNameDraft] = useState<Record<string, string>>({});
+  const [selectedRegIds, setSelectedRegIds] = useState<Record<string, string[]>>({});
+  const [creatingTeam, setCreatingTeam] = useState<string | null>(null);
 
   // resultados (liga)
   const [resCatId, setResCatId] = useState<string>('');
@@ -119,6 +127,34 @@ export default function SchoolTournamentDetailPage() {
       toast({ title: 'Error', description: err?.message ?? 'No se pudieron cargar los inscritos.', variant: 'destructive' });
     }
   }, [id, toast]);
+
+  const loadIndividualRegistrations = useCallback(async () => {
+    try {
+      const r = await getIndividualRegistrations(String(id));
+      setRegs(r); setRegsLoaded(true);
+    } catch (err: any) {
+      toast({ title: 'Error', description: err?.message ?? 'No se pudieron cargar los inscritos.', variant: 'destructive' });
+    }
+  }, [id, toast]);
+
+  const createTeam = async (catId: string) => {
+    const teamName = (teamNameDraft[catId] ?? '').trim();
+    const ids = selectedRegIds[catId] ?? [];
+    if (!teamName) { toast({ title: 'Ponele nombre al equipo', variant: 'destructive' }); return; }
+    if (ids.length === 0) { toast({ title: 'Seleccioná al menos un inscrito', variant: 'destructive' }); return; }
+    setCreatingTeam(catId);
+    try {
+      const r = await assignTeams(String(id), catId, [{ team_name: teamName, registration_ids: ids }]);
+      toast({ title: 'Equipo armado', description: `${r.members_assigned} atleta(s) asignado(s).` });
+      setTeamNameDraft((p) => ({ ...p, [catId]: '' }));
+      setSelectedRegIds((p) => ({ ...p, [catId]: [] }));
+      await loadIndividualRegistrations();
+    } catch (e: any) {
+      toast({ title: 'No se pudo armar el equipo', description: e?.message, variant: 'destructive' });
+    } finally {
+      setCreatingTeam(null);
+    }
+  };
 
   const recordPayment = async (d: Delegation) => {
     const remaining = Math.max(Number(d.total_owed || 0) - Number(d.total_paid || 0), 0);
@@ -287,7 +323,10 @@ export default function SchoolTournamentDetailPage() {
       )}
 
       <Tabs defaultValue="info" onValueChange={(v) => {
-        if (v === 'inscritos' && !delsLoaded) void loadDelegations();
+        if (v === 'inscritos') {
+          if (isInternal && !regsLoaded) void loadIndividualRegistrations();
+          if (!isInternal && !delsLoaded) void loadDelegations();
+        }
         if (v === 'resultados') {
           const c = resCatId || savedCats[0]?.id || '';
           if (c) { setResCatId(c); void loadResults(c); }
@@ -296,7 +335,7 @@ export default function SchoolTournamentDetailPage() {
         <TabsList>
           <TabsTrigger value="info">Info</TabsTrigger>
           <TabsTrigger value="cats">Categorías y Precios</TabsTrigger>
-          <TabsTrigger value="inscritos" disabled={isInternal}>Inscritos</TabsTrigger>
+          <TabsTrigger value="inscritos">Inscritos</TabsTrigger>
           <TabsTrigger value="resultados">Resultados</TabsTrigger>
         </TabsList>
 
@@ -387,7 +426,82 @@ export default function SchoolTournamentDetailPage() {
         </TabsContent>
 
         {/* ─── INSCRITOS ─── */}
-        <TabsContent value="inscritos" className="mt-4">
+        <TabsContent value="inscritos" className="mt-4 space-y-4">
+          {isInternal ? (
+            !regsLoaded ? (
+              <Skeleton className="h-24 w-full" />
+            ) : savedCats.length === 0 ? (
+              <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">
+                Primero agrega categorías (pestaña Categorías y Precios).
+              </CardContent></Card>
+            ) : (
+              savedCats.map((cat: any) => {
+                const catRegs = regs.filter((r) => r.category_id === cat.id);
+                if (catRegs.length === 0) return null;
+                const unassigned = catRegs.filter((r) => !r.team_id);
+                const teams = new Map<string, IndividualRegistration[]>();
+                catRegs.filter((r) => r.team_id).forEach((r) => {
+                  const key = r.team?.team_name ?? r.team_id!;
+                  teams.set(key, [...(teams.get(key) ?? []), r]);
+                });
+                const sel = selectedRegIds[cat.id] ?? [];
+                return (
+                  <Card key={cat.id}>
+                    <CardHeader><CardTitle className="text-base">{cat.division} · {cat.category} ({cat.rama})</CardTitle></CardHeader>
+                    <CardContent className="space-y-3">
+                      {Array.from(teams.entries()).map(([teamName, members]) => (
+                        <div key={teamName} className="rounded-md border p-2">
+                          <p className="mb-1 text-sm font-medium">⚽ {teamName}</p>
+                          <div className="flex flex-wrap gap-1">
+                            {members.map((m) => (
+                              <Badge key={m.id} variant="secondary">
+                                {m.participant_name}
+                                {m.payment?.status !== 'paid' && <span className="ml-1 text-amber-600">·pend</span>}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+
+                      {unassigned.length > 0 && (
+                        <div className="space-y-2 rounded-md border border-dashed p-3">
+                          <p className="text-sm font-medium">Sin equipo ({unassigned.length})</p>
+                          <div className="space-y-1">
+                            {unassigned.map((r) => (
+                              <label key={r.id} className="flex items-center gap-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={sel.includes(r.id)}
+                                  onChange={(e) => setSelectedRegIds((p) => {
+                                    const cur = p[cat.id] ?? [];
+                                    return { ...p, [cat.id]: e.target.checked ? [...cur, r.id] : cur.filter((x) => x !== r.id) };
+                                  })}
+                                />
+                                <span>{r.participant_name}</span>
+                                <Badge variant="outline" className="text-[10px]">
+                                  {r.payment?.status === 'paid' ? 'Pagado' : 'Pendiente'}
+                                </Badge>
+                              </label>
+                            ))}
+                          </div>
+                          <div className="flex gap-2">
+                            <Input
+                              placeholder="Nombre del equipo"
+                              value={teamNameDraft[cat.id] ?? ''}
+                              onChange={(e) => setTeamNameDraft((p) => ({ ...p, [cat.id]: e.target.value }))}
+                            />
+                            <Button size="sm" disabled={creatingTeam === cat.id} onClick={() => createTeam(cat.id)}>
+                              {creatingTeam === cat.id ? 'Armando…' : 'Crear equipo'}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })
+            )
+          ) : (
           <Card>
             <CardHeader><CardTitle className="text-base">Delegaciones inscritas</CardTitle></CardHeader>
             <CardContent>
@@ -445,6 +559,7 @@ export default function SchoolTournamentDetailPage() {
               )}
             </CardContent>
           </Card>
+          )}
         </TabsContent>
 
         {/* ─── RESULTADOS (Liga) ─── */}

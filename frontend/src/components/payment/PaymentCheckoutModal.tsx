@@ -423,6 +423,7 @@ export function PaymentCheckoutModal({
   // en 'aggregator'), esto además evita mostrar un botón que fallaría. Wompi no
   // se toca: sus llaves de ENV sí son de la escuela real en 'aggregator'.
   // Reactivar cuando haya una cuenta comercial real detrás de MP_ACCESS_TOKEN_DEFAULT.
+  // eslint-disable-next-line no-constant-binary-expression -- kill switch intencional (SEG-23), no un error
   const mpEnabled = false && !!import.meta.env.VITE_MP_PUBLIC_KEY_DEFAULT;
 
   const paymentMethods = [

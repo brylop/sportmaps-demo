@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { todayInZone } from '../utils/businessDate';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { userClient } from '../utils/userClient';
 
 const router = Router();
 
@@ -476,15 +477,16 @@ router.post('/school-tournaments/:id/publish', requireAuth, requireRole('school'
         if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
         const { id } = req.params;
 
-        // Verificar propiedad
+        // Verificar propiedad + estado ANTERIOR (para no re-notificar si ya estaba activo)
         const { data: ev } = await supabase
             .from('events')
-            .select('id')
+            .select('id, status')
             .eq('id', id)
             .eq('school_id', schoolId)
             .eq('creator_role', 'school')
             .maybeSingle();
         if (!ev) return res.status(404).json({ error: 'Torneo no encontrado' });
+        const wasAlreadyActive = ev.status === 'active';
 
         const { data, error } = await supabase
             .from('events')
@@ -498,6 +500,16 @@ router.post('/school-tournaments/:id/publish', requireAuth, requireRole('school'
             req.log?.error({ err: error }, 'Error publicando torneo de escuela');
             return res.status(500).json({ error: 'Error al publicar el torneo' });
         }
+
+        if (!wasAlreadyActive && data.tournament_scope === 'internal') {
+            notifySchoolFamilies(schoolId, {
+                title: '🏆 Nuevo torneo/liga interna',
+                message: `Ya podés inscribirte a "${data.title}".`,
+                link: `/tournaments/${data.id}/register`,
+                data: { eventId: data.id },
+            }).catch((err) => req.log?.warn({ err }, 'Error notificando publicación de torneo'));
+        }
+
         return res.status(200).json(data);
     } catch (err: any) {
         req.log?.error({ err }, 'Error inesperado publicando torneo de escuela');
@@ -515,6 +527,54 @@ async function assertOwnedSchoolTournament(eventId: string, schoolId: string): P
         .eq('creator_role', 'school')
         .maybeSingle();
     return !!data;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notificaciones de torneo interno — reusa el Despachador Unificado ya
+// construido y validado (trigger → outbox → dispatcher): un INSERT en
+// `notifications` es todo lo que hace falta para que push + correo salgan
+// solos. Ver docs/specs/torneos-internos-inscripcion-pago-2026-09-01.md Fase 5.
+// ─────────────────────────────────────────────────────────────────────────────
+async function notifyProfiles(
+    profileIds: string[],
+    payload: { title: string; message: string; link: string; data?: Record<string, any> },
+): Promise<void> {
+    const uniqueIds = Array.from(new Set(profileIds.filter(Boolean)));
+    if (uniqueIds.length === 0) return;
+    const rows = uniqueIds.map((user_id) => ({
+        user_id,
+        title: payload.title,
+        message: payload.message,
+        type: 'info',
+        category: 'tournament',
+        link: payload.link,
+        data: payload.data ?? {},
+    }));
+    const { error } = await supabase.from('notifications').insert(rows);
+    if (error) console.error('[events.route] Error notificando torneo:', error.message);
+}
+
+// Todos los padres/atletas activos de la escuela (audiencia de "se publicó el torneo").
+async function notifySchoolFamilies(schoolId: string, payload: { title: string; message: string; link: string; data?: Record<string, any> }): Promise<void> {
+    const { data: members } = await supabase
+        .from('school_members')
+        .select('profile_id')
+        .eq('school_id', schoolId)
+        .in('role', ['parent', 'athlete'])
+        .eq('status', 'active');
+    await notifyProfiles((members || []).map((m: any) => m.profile_id), payload);
+}
+
+// Los acudientes/atletas detrás de un conjunto de event_team_members (equipo
+// asignado, resultado de partido) — resuelve profile_id directo o vía children.parent_id.
+async function notifyTeamMembers(teamIds: string[], payload: { title: string; message: string; link: string; data?: Record<string, any> }): Promise<void> {
+    if (teamIds.length === 0) return;
+    const { data: members } = await supabase
+        .from('event_team_members')
+        .select('profile_id, child_id, children:child_id(parent_id)')
+        .in('team_id', teamIds);
+    const ids = (members || []).map((m: any) => m.profile_id || m.children?.parent_id).filter(Boolean);
+    await notifyProfiles(ids, payload);
 }
 
 // PATCH /api/v1/events/school-tournaments/:id — editar campos básicos
@@ -818,6 +878,172 @@ router.patch('/school-tournaments/:id/delegations/:delId/payments/:payId', requi
         return res.status(200).json(data);
     } catch (err: any) {
         req.log?.error({ err }, 'Error inesperado verificando pago');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inscripción individual a torneos/ligas INTERNAS (padre/atleta) — Fase 2 de
+// docs/specs/torneos-internos-inscripcion-pago-2026-09-01.md. Estos 4 endpoints
+// son los únicos de este archivo que NO usan `req.schoolId` (la escuela sale
+// del torneo, no de quién llama) y usan `userClient(req)` porque las RPCs que
+// invocan autorizan con `auth.uid()`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /api/v1/events/school-tournaments/:id/for-participant — info + mi inscripción (padre/atleta)
+router.get('/school-tournaments/:id/for-participant', requireAuth, requireRole('parent', 'athlete'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const eventId = String(req.params.id);
+        const client = userClient(req);
+
+        const { data: ev, error: evErr } = await client
+            .from('events')
+            .select(`
+                id, title, sport, city, event_date, status, tournament_scope, registrations_open, school_id,
+                categories:event_categories_config(id, division, level, category, rama, age_min, age_max, active),
+                phases:event_price_phases(id, phase_name, valid_until, price_solo)
+            `)
+            .eq('id', eventId)
+            .eq('tournament_scope', 'internal')
+            .maybeSingle();
+        if (evErr) { req.log?.error({ err: evErr }, 'Error obteniendo torneo para participante'); return res.status(500).json({ error: 'Error al obtener el torneo' }); }
+        if (!ev) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const { data: myRegs } = await client
+            .from('event_registrations')
+            .select('id, category_id, child_id, participant_name, status, payment_id, payment:payment_id(status, amount, due_date)')
+            .eq('event_id', eventId)
+            .neq('status', 'cancelled');
+
+        return res.status(200).json({ ...ev, my_registrations: myRegs || [] });
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado obteniendo torneo para participante');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/my-open-tournaments — torneos/ligas internas ABIERTAS en las
+// escuelas donde el caller es padre/atleta activo (tarjeta del Dashboard).
+router.get('/my-open-tournaments', requireAuth, requireRole('parent', 'athlete'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const client = userClient(req);
+        const { data: memberships } = await client
+            .from('school_members')
+            .select('school_id')
+            .in('role', ['parent', 'athlete'])
+            .eq('status', 'active');
+        const schoolIds = Array.from(new Set((memberships || []).map((m: any) => m.school_id)));
+        if (schoolIds.length === 0) return res.status(200).json([]);
+
+        const { data, error } = await client
+            .from('events')
+            .select('id, title, sport, city, event_date, school:school_id(name)')
+            .in('school_id', schoolIds)
+            .eq('tournament_scope', 'internal')
+            .eq('status', 'active')
+            .eq('registrations_open', true)
+            .order('event_date', { ascending: true });
+        if (error) { req.log?.error({ err: error }, 'Error listando torneos abiertos'); return res.status(500).json({ error: 'Error al listar torneos' }); }
+        return res.status(200).json(data || []);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado listando torneos abiertos');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// POST /api/v1/events/school-tournaments/:id/register — inscribirse (padre por su hijo, o atleta por sí mismo)
+const RegisterInternalSchema = z.object({
+    category_id: z.string().uuid(),
+    child_id: z.string().uuid().optional().nullable(),
+});
+router.post('/school-tournaments/:id/register', requireAuth, requireRole('parent', 'athlete'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const eventId = String(req.params.id);
+        const parsed = RegisterInternalSchema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+
+        const client = userClient(req);
+        const { data: registrationId, error } = await client.rpc('register_for_internal_tournament', {
+            p_event_id: eventId,
+            p_category_id: parsed.data.category_id,
+            p_child_id: parsed.data.child_id ?? null,
+        });
+        if (error) {
+            req.log?.warn({ err: error }, 'register_for_internal_tournament rechazó la inscripción');
+            return res.status(400).json({ error: error.message });
+        }
+        return res.status(201).json({ registration_id: registrationId });
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado inscribiendo a torneo interno');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/school-tournaments/:id/individual-registrations — bandeja de la escuela (reemplaza "delegaciones" cuando isInternal)
+router.get('/school-tournaments/:id/individual-registrations', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const { data, error } = await supabase
+            .from('event_registrations')
+            .select(`
+                id, participant_name, participant_role, category_id, status, team_id, created_at,
+                payment:payment_id(id, status, amount, due_date),
+                team:team_id(id, team_name)
+            `)
+            .eq('event_id', eventId)
+            .neq('status', 'cancelled')
+            .order('created_at', { ascending: false });
+        if (error) { req.log?.error({ err: error }, 'Error listando inscripciones individuales'); return res.status(500).json({ error: 'Error al listar inscritos' }); }
+        return res.status(200).json(data || []);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado listando inscripciones individuales');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// POST /api/v1/events/school-tournaments/:id/categories/:catId/assign-teams — la escuela reparte inscritos en equipos
+const AssignTeamsSchema = z.object({
+    assignments: z.array(z.object({
+        team_name: z.string().min(1),
+        registration_ids: z.array(z.string().uuid()),
+    })),
+});
+router.post('/school-tournaments/:id/categories/:catId/assign-teams', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        const catId = String(req.params.catId);
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const parsed = AssignTeamsSchema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+
+        const client = userClient(req);
+        const { data, error } = await client.rpc('assign_registrants_to_teams', {
+            p_event_id: eventId,
+            p_category_id: catId,
+            p_assignments: parsed.data.assignments,
+        });
+        if (error) { req.log?.warn({ err: error }, 'assign_registrants_to_teams rechazó el armado'); return res.status(400).json({ error: error.message }); }
+
+        // Solo los recién asignados EN ESTA llamada (no todo el roster del
+        // equipo) — evita renotificar a quien ya estaba desde antes.
+        const notifyIds = Array.isArray(data?.notified_profile_ids) ? data.notified_profile_ids : [];
+        notifyProfiles(notifyIds, {
+            title: '⚽ Ya tenés equipo asignado',
+            message: 'La escuela ya armó los equipos de tu categoría — revisá tus partidos.',
+            link: `/tournaments/${eventId}/register`,
+            data: { eventId },
+        }).catch((err) => req.log?.warn({ err }, 'Error notificando armado de equipos'));
+
+        return res.status(200).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado armando equipos');
         return res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -1176,6 +1402,15 @@ router.patch('/school-tournaments/:id/matches/:matchId', requireAuth, requireRol
             }));
             if (rows.length > 0) await supabase.from('tournament_match_events').insert(rows);
         }
+
+        const resultTeamIds = [match.home_team_id, match.away_team_id].filter(Boolean) as string[];
+        notifyTeamMembers(resultTeamIds, {
+            title: '📣 Resultado del partido',
+            message: `${hs} - ${as} — ya podés verlo y compartirlo.`,
+            link: `/tournaments/${eventId}/results`,
+            data: { eventId, matchId },
+        }).catch((err) => req.log?.warn({ err }, 'Error notificando resultado de partido'));
+
         return res.status(200).json(data);
     } catch (err: any) {
         req.log?.error({ err }, 'Error inesperado guardando resultado');
@@ -1260,6 +1495,54 @@ router.get('/school-tournaments/:id/standings', requireAuth, requireRole('school
         return res.status(200).json({ standings, scorers });
     } catch (err: any) {
         req.log?.error({ err }, 'Error inesperado calculando tabla');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/school-tournaments/:id/public-results — SIN LOGIN, para compartir
+// por correo/WhatsApp (link abierto, mismo patrón que /event/:slug público).
+// Solo lectura de datos ya públicos por diseño (tabla de posiciones y goleadores);
+// no expone nada de pagos ni datos de contacto.
+router.get('/school-tournaments/:id/public-results', async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const eventId = String(req.params.id);
+        const catId = req.query.category_id ? String(req.query.category_id) : null;
+
+        const { data: ev } = await supabase
+            .from('events')
+            .select('id, title, sport, city, event_date, tournament_scope, school:school_id(name)')
+            .eq('id', eventId)
+            .maybeSingle();
+        if (!ev) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        let teamsQ = supabase.from('event_teams').select('id, team_name').eq('event_id', eventId).neq('status', 'rejected');
+        if (catId) teamsQ = teamsQ.eq('category_id', catId);
+        const { data: teams } = await teamsQ;
+        const table: Record<string, any> = {};
+        (teams || []).forEach((t) => { table[t.id] = { team_id: t.id, team_name: t.team_name, P: 0, W: 0, D: 0, L: 0, GF: 0, GA: 0, GD: 0, Pts: 0 }; });
+
+        let mQ = supabase.from('tournament_matches').select('home_team_id, away_team_id, home_score, away_score').eq('event_id', eventId).eq('status', 'played');
+        if (catId) mQ = mQ.eq('category_id', catId);
+        const { data: matches } = await mQ;
+        (matches || []).forEach((m) => {
+            const h = table[m.home_team_id!], a = table[m.away_team_id!];
+            if (!h || !a) return;
+            const hs = Number(m.home_score), as = Number(m.away_score);
+            h.P++; a.P++; h.GF += hs; h.GA += as; a.GF += as; a.GA += hs;
+            if (hs > as) { h.W++; a.L++; h.Pts += 3; }
+            else if (hs < as) { a.W++; h.L++; a.Pts += 3; }
+            else { h.D++; a.D++; h.Pts++; a.Pts++; }
+        });
+        const standings = Object.values(table).map((r: any) => ({ ...r, GD: r.GF - r.GA }))
+            .sort((a: any, b: any) => b.Pts - a.Pts || b.GD - a.GD || b.GF - a.GF);
+
+        return res.status(200).json({
+            title: ev.title, sport: ev.sport, city: ev.city, event_date: ev.event_date,
+            school_name: (ev as any).school?.name ?? null,
+            standings,
+        });
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado obteniendo resultados públicos');
         return res.status(500).json({ error: 'Error interno del servidor' });
     }
 });

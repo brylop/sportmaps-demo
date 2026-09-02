@@ -64,6 +64,8 @@ const PublicFacilityBookingPage = lazy(() => import("./pages/booking/PublicFacil
 const PublicTrialClassBookingPage = lazy(() => import("./pages/booking/PublicTrialClassBookingPage"));
 const EventIndividualRegisterPage = lazy(() => import("./pages/events/EventIndividualRegisterPage"));
 const MyEventRegistrationsPage = lazy(() => import("./pages/events/MyEventRegistrationsPage"));
+const TournamentRegisterPage = lazy(() => import("./pages/events/TournamentRegisterPage"));
+const TournamentResultsPage = lazy(() => import("./pages/events/TournamentResultsPage"));
 
 // ─── Polls (lazy) ────────────────────────────────────────────────────────────
 const PollsPage = lazy(() => import("./pages/polls/PollsPage"));
@@ -356,6 +358,7 @@ const App = () => (
                     <Route path="/event/:slug" element={<EventPublicPage />} />
                     <Route path="/event/:eventId/register" element={<EventIndividualRegisterPage />} />
                     <Route path="/my-event-registrations" element={<MyEventRegistrationsPage />} />
+                    <Route path="/tournaments/:eventId/results" element={<TournamentResultsPage />} />
                     <Route path="/s/:slug" element={<PublicSchoolPage />} />
                     <Route path="/polls/v/:pollId" element={<PublicPollPage />} />
 
@@ -448,6 +451,11 @@ const App = () => (
                       <Route path="my-payments" element={
                         <ProtectedRoute allowedRoles={['parent', 'athlete']}>
                           <MyPaymentsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="tournaments/:eventId/register" element={
+                        <ProtectedRoute allowedRoles={['parent', 'athlete']}>
+                          <TournamentRegisterPage />
                         </ProtectedRoute>
                       } />
                       {/* Estado de Cuenta: misma RPC/pantalla para admin (viendo
