@@ -95,6 +95,12 @@ const PAYMENT_STATE_LABELS: Record<PaymentState, string> = {
   other:   'Otros',
 };
 
+// Marca el descuento en `enrollments.fee_reason` (texto libre ya existente,
+// sin migración nueva) para poder mostrarlo como badge y reconocer si el
+// botón de la Fase 1 ya está aplicado sobre este atleta.
+const MILITARY_DISCOUNT_REASON = 'Descuento Fuerza Militar 10%';
+const MILITARY_DISCOUNT_RATE = 0.10;
+
 const PAYMENT_STATE_TONES: Record<PaymentState, StatFilterTone> = {
   paid:    'emerald',
   overdue: 'rose',
@@ -1276,7 +1282,14 @@ export default function SchoolStudentsManagementPage() {
                             🎓 Becado
                           </Badge>
                         ) : (
-                          <span className="text-xs font-semibold text-primary">{(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}</span>
+                          <>
+                            <span className="text-xs font-semibold text-primary">{(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}</span>
+                            {(student as any).fee_reason === MILITARY_DISCOUNT_REASON && (
+                              <Badge variant="outline" className="text-[10px] bg-slate-50 dark:bg-slate-950/20 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-500/40 py-0 h-5">
+                                🪖 -10%
+                              </Badge>
+                            )}
+                          </>
                         )}
                         {getPaymentBadge(student)}
                       </div>
@@ -1338,7 +1351,14 @@ export default function SchoolStudentsManagementPage() {
                               🎓 Becado
                             </Badge>
                           ) : (
-                            (student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'
+                            <div className="flex items-center gap-1">
+                              <span>{(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}</span>
+                              {(student as any).fee_reason === MILITARY_DISCOUNT_REASON && (
+                                <Badge variant="outline" className="text-[10px] bg-slate-50 dark:bg-slate-950/20 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-500/40 w-fit">
+                                  🪖 -10%
+                                </Badge>
+                              )}
+                            </div>
                           )}
                         </TableCell>
                         <TableCell>{getPaymentBadge(student)}</TableCell>
@@ -1669,6 +1689,70 @@ export default function SchoolStudentsManagementPage() {
                       {...form.register('plan_monthly_fee', { valueAsNumber: true })} />
                   </div>
                 </div>
+              </div>
+              <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+                <div className="text-sm">
+                  <p className="font-medium">🪖 Descuento Fuerza Militar (10%)</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Aplica el 10% sobre la mensualidad vigente del equipo o el plan seleccionado.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={form.watch('fee_reason') === MILITARY_DISCOUNT_REASON ? 'secondary' : 'outline'}
+                  disabled={editingIsInactive || !!form.watch('fee_is_manual')}
+                  onClick={() => {
+                    const active = form.getValues('fee_reason') === MILITARY_DISCOUNT_REASON;
+                    const planId = form.getValues('offering_plan_id');
+                    if (planId) {
+                      const p = offeringPlans.find(p => p.id === planId);
+                      const base = p?.price ?? 0;
+                      form.setValue('plan_monthly_fee' as any,
+                        active ? base : Math.round(base * (1 - MILITARY_DISCOUNT_RATE)));
+                    } else {
+                      const t = teams.find(t => t.id === form.getValues('team_id'));
+                      const base = t?.monthly_fee ?? 0;
+                      form.setValue('team_monthly_fee' as any,
+                        active ? base : Math.round(base * (1 - MILITARY_DISCOUNT_RATE)));
+                    }
+                    form.setValue('fee_reason' as any, active ? '' : MILITARY_DISCOUNT_REASON);
+                  }}
+                >
+                  {form.watch('fee_reason') === MILITARY_DISCOUNT_REASON ? 'Quitar descuento' : 'Aplicar 10%'}
+                </Button>
+              </div>
+              <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+                <div className="text-sm">
+                  <p className="font-medium">🪖 Descuento Fuerza Militar (10%)</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Aplica el 10% sobre la mensualidad vigente del equipo o el plan seleccionado.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={form.watch('fee_reason') === MILITARY_DISCOUNT_REASON ? 'secondary' : 'outline'}
+                  disabled={editingIsInactive || !!form.watch('fee_is_manual')}
+                  onClick={() => {
+                    const active = form.getValues('fee_reason') === MILITARY_DISCOUNT_REASON;
+                    const planId = form.getValues('offering_plan_id');
+                    if (planId) {
+                      const p = offeringPlans.find(p => p.id === planId);
+                      const base = p?.price ?? 0;
+                      form.setValue('plan_monthly_fee' as any,
+                        active ? base : Math.round(base * (1 - MILITARY_DISCOUNT_RATE)));
+                    } else {
+                      const t = teams.find(t => t.id === form.getValues('team_id'));
+                      const base = t?.monthly_fee ?? 0;
+                      form.setValue('team_monthly_fee' as any,
+                        active ? base : Math.round(base * (1 - MILITARY_DISCOUNT_RATE)));
+                    }
+                    form.setValue('fee_reason' as any, active ? '' : MILITARY_DISCOUNT_REASON);
+                  }}
+                >
+                  {form.watch('fee_reason') === MILITARY_DISCOUNT_REASON ? 'Quitar descuento' : 'Aplicar 10%'}
+                </Button>
               </div>
               <div className="space-y-2 rounded-md border p-3">
                 <div className="flex items-center gap-2">

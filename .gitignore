@@ -228,3 +228,4 @@ scripts/monster-volley-suba-import/_reporte_datos_faltantes.json
 # Excel original de la escuela con datos reales de menores (documento, RH,
 # EPS, direccion, contacto del acudiente). Nunca versionar.
 Datos Plataforma Sede Suba.xlsx
+.env*
