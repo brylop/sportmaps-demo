@@ -15,7 +15,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import {
   CheckCircle2, XCircle, Clock, AlertCircle, Users, Lock, Edit2,
   Flag, CalendarCheck, Search, UserX, CreditCard, AlertTriangle, ChevronRight, Trophy, Zap, Target, Star, Dumbbell, Layers,
-  Calendar as CalendarIcon, TrendingUp, Activity
+  Calendar as CalendarIcon, TrendingUp, Activity, ScanLine
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -886,9 +886,19 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
 
   return (
     <div className="space-y-6 pb-24 sm:pb-6 animate-in fade-in duration-500">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Asistencias</h1>
-        <p className="text-muted-foreground mt-1">Toma lista rápidamente</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Asistencias</h1>
+          <p className="text-muted-foreground mt-1">Toma lista rápidamente</p>
+        </div>
+        <Button
+          variant="outline"
+          className="gap-2 border-primary/30 text-primary hover:bg-primary/5"
+          onClick={() => navigate('/coach-attendance/scan')}
+        >
+          <ScanLine className="w-4 h-4" />
+          Escanear carnet
+        </Button>
       </div>
 
       {/* Sin ficha de staff no matchea ningún equipo y la lista queda vacía,

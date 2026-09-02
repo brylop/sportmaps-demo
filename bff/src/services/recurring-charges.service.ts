@@ -132,12 +132,32 @@ async function insertRecurringLedgerRow(args: {
 
     // ─── School mode ─────────────────────────────────────────────────
     if (sub.school_id) {
+        // Bloqueador B (docs/specs/vigencia-cobranza-y-sesiones-unificado.md
+        // §3.2): este INSERT crea la fila ya en 'paid' — sin offering_plan_id,
+        // trg_extend_enrollment_on_payment_paid nunca extiende expires_at.
+        // Solo aplica si cobró; un intento fallido no debería consultar nada.
+        let offeringPlanId: string | null = null;
+        if (status === 'paid') {
+            const athleteMatch = sub.child_id ? { child_id: sub.child_id } : { user_id: sub.user_id };
+            const { data: enr } = await supabase
+                .from('enrollments')
+                .select('offering_plan_id')
+                .eq('school_id', sub.school_id)
+                .eq('status', 'active')
+                .match(athleteMatch)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            offeringPlanId = (enr as any)?.offering_plan_id ?? null;
+        }
+
         const { data, error } = await supabase
             .from('payments')
             .insert({
                 school_id: sub.school_id,
                 parent_id: sub.user_id,
                 child_id: sub.child_id,
+                offering_plan_id: offeringPlanId,
                 concept: sub.concept,
                 amount: sub.amount,
                 amount_paid: status === 'paid' ? sub.amount : null,
