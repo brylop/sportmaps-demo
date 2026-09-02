@@ -331,6 +331,10 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
           user_id: userId,
           unregistered_athlete_id: unregisteredId,
           parent_id: selectedStudent.parent_id || null,
+          // Bloqueador B (docs/specs/vigencia-cobranza-y-sesiones-unificado.md
+          // §3.2): sin esto, trg_extend_enrollment_on_payment_paid nunca
+          // extiende expires_at para un pago registrado directo como 'paid'.
+          offering_plan_id: selectedStudent.offering_plan_id || null,
           amount: numericAmount,
           concept,
           status: 'paid',
