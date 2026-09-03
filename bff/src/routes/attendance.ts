@@ -648,6 +648,88 @@ export async function checkInPresenceFromEvent(params: {
   return { outcome: moved?.moved ? 'deducted' : 'no_credits', sessionId: finalSessionId };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Check-in por QR de carnet — Fase 4, docs/specs/asistencia-rapida-checkin.md
+// §3.2. Resuelve el atleta y su inscripción a partir del qr_token y delega en
+// checkInPresenceFromEvent — mismo resolver que el torniquete, no un tercer
+// camino de escritura.
+// ─────────────────────────────────────────────────────────────────────────────
+export type CardCheckInOutcome =
+  | CheckInOutcome
+  | 'card_not_found'
+  | 'card_revoked'
+  | 'card_expired'
+  | 'wrong_school'
+  | 'no_team';
+
+export async function checkInByCardToken(params: {
+  qrToken: string;
+  /** Escuela del staff que hace el escaneo — un carnet de OTRA escuela nunca
+   *  pasa, así el caller no tenga que acordarse de chequearlo. */
+  requestingSchoolId: string;
+}): Promise<{ outcome: CardCheckInOutcome; athleteName?: string; sessionId?: string }> {
+  const { qrToken, requestingSchoolId } = params;
+
+  const { data: card } = await supabase
+    .from('athlete_id_cards')
+    .select('school_id, status, valid_until, child_id, profile_id, unregistered_athlete_id')
+    .eq('qr_token', qrToken)
+    .maybeSingle();
+
+  if (!card) return { outcome: 'card_not_found' };
+  if ((card as any).status === 'revoked') return { outcome: 'card_revoked' };
+  if ((card as any).school_id !== requestingSchoolId) return { outcome: 'wrong_school' };
+
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+  if ((card as any).valid_until < today) return { outcome: 'card_expired' };
+
+  const athlete: AthleteRef = {
+    childId: (card as any).child_id,
+    userId: (card as any).profile_id,
+    unregisteredId: (card as any).unregistered_athlete_id,
+  };
+  const schoolId = (card as any).school_id as string;
+
+  // Nombre para mostrarle al coach en el resultado del escaneo.
+  let athleteName = 'Atleta';
+  if (athlete.childId) {
+    const { data } = await supabase.from('children').select('full_name').eq('id', athlete.childId).maybeSingle();
+    athleteName = (data as any)?.full_name ?? athleteName;
+  } else if (athlete.userId) {
+    const { data } = await supabase.from('profiles').select('full_name').eq('id', athlete.userId).maybeSingle();
+    athleteName = (data as any)?.full_name ?? athleteName;
+  } else if (athlete.unregisteredId) {
+    const { data } = await supabase.from('unregistered_athletes').select('full_name').eq('id', athlete.unregisteredId).maybeSingle();
+    athleteName = (data as any)?.full_name ?? athleteName;
+  }
+
+  // Inscripción activa CON equipo — sin esto no hay a qué sesión hacer check-in
+  // (mismo criterio "no adivinar" que el puente ZKTeco). Si hay más de una
+  // (multi-equipo), gana la más reciente — igual que el resto de heurísticas
+  // de esta misma tabla cuando el llamador no puede decir cuál es.
+  const { data: enrollments } = await supabase
+    .from('enrollments')
+    .select('id, team_id, created_at')
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+    .not('team_id', 'is', null)
+    .match(athleteFilter(athlete))
+    .order('created_at', { ascending: false });
+
+  const enrollmentId = (enrollments || [])[0]?.id as string | undefined;
+  if (!enrollmentId) return { outcome: 'no_team', athleteName };
+
+  const result = await checkInPresenceFromEvent({
+    schoolId,
+    athlete,
+    enrollmentId,
+    occurredAt: new Date().toISOString(),
+    checkInMethod: 'qr',
+  });
+
+  return { outcome: result.outcome, athleteName, sessionId: result.sessionId };
+}
+
 const MESES_ES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 /** "agosto 2026" — el concepto del cobro lo lee un papá, no un sistema. */
 function monthLabelEs(month: string): string {
@@ -657,6 +739,24 @@ function monthLabelEs(month: string): string {
 
 const MULTIPLE_SESSIONS_MSG =
   'Este equipo tiene varios bloques hoy. Elige el bloque específico antes de pasar lista.';
+
+// POST /checkin-by-card — escáner in-app del carnet (Fase 4). Body: { qrToken }.
+// Requiere sesión de staff — es justo lo que evita que compartir el link del
+// carnet alcance para marcar asistencia por su cuenta (docs/specs, §3.3).
+router.post('/checkin-by-card', requireAuth, requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { qrToken } = req.body as { qrToken?: string };
+      if (!qrToken) return res.status(400).json({ error: 'qrToken es requerido.' });
+      if (!req.schoolId) return res.status(400).json({ error: 'Falta la escuela activa (x-school-id).' });
+      const result = await checkInByCardToken({ qrToken, requestingSchoolId: req.schoolId });
+      return res.json(result);
+    } catch (err: any) {
+      req.log?.error({ err: err.message || err }, 'Error en check-in por QR de carnet');
+      return res.status(500).json({ error: 'Error interno marcando asistencia por QR.' });
+    }
+  }
+);
 
 router.get('/session/:teamId', requireAuth, requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {

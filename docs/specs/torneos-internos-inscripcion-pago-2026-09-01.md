@@ -49,8 +49,8 @@ Cómo se resuelve el hueco de "equipos" (hallazgo 1 de arriba) sin inventar un m
 
 ## Progreso
 
-- [ ] Fase 1 — DB
-- [ ] Fase 2 — BFF
-- [ ] Fase 3 — Frontend padre
-- [ ] Fase 4 — Frontend escuela
+- [x] Fase 1 — DB (aplicada y verificada en vivo 2026-09-02: RPCs, columnas, índice único, policy RLS y notifications.category confirmados en la base)
+- [x] Fase 2 — BFF (bff/src/routes/events.route.ts: for-participant, register, individual-registrations, assign-teams, public-results + 3 hooks de notificación; tsc limpio 2026-09-02)
+- [x] Fase 3 — Frontend padre (TournamentRegisterPage, TournamentResultsPage, OpenTournamentsCard en Dashboard; tsc limpio frontend+bff 2026-09-02 — falta probar en navegador, no hay dev server corrido)
+- [x] Fase 4 — Frontend escuela (tab "Inscritos" habilitado para interno con vista de inscripciones individuales + armado de equipos por categoría en `SchoolTournamentDetailPage.tsx`; tsc limpio 2026-09-02 — falta probar en navegador)
 - [ ] Fase 5 — Notificaciones + QA
