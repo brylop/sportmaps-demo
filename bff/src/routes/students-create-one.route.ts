@@ -383,6 +383,7 @@ async function chargeRegistrationFeeIfApplicable(params: {
     payment_type:            'one_time',
     period_year:             null,
     period_month:            null,
+    payment_category:        'inscripcion',
   });
 
   if (error) {

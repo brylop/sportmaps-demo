@@ -205,6 +205,14 @@ export function PaymentCheckoutModal({
     ? (conceptType.startsWith('inscripcion') ? 'Inscripción Anual' : customConcept || 'Pago / Abono')
     : (effectivePeriod ? `Mensualidad ${effectivePeriod.label}` : concept);
 
+  // Solo importa para las filas que este modal INSERTA (mode='create'): una fila
+  // en mode='update' ya nació categorizada donde se creó (open_month, etc.), no
+  // se retoca acá. Ver docs/specs/articulos-escolares-catalogo.md §7.
+  const paymentCategory: 'mensualidad' | 'inscripcion' | 'otro' =
+    conceptType === 'mensualidad' ? 'mensualidad'
+      : conceptType.startsWith('inscripcion') ? 'inscripcion'
+      : 'otro';
+
   const discountResult = paymentCreatedAt
     ? calcEarlyPaymentDiscount(finalAmount, {
       createdAt: paymentCreatedAt,
@@ -276,6 +284,7 @@ export function PaymentCheckoutModal({
           due_date: todayColombia(),
           period_year:  periodYear,
           period_month: periodMonth,
+          payment_category: paymentCategory,
         } as any).select('id').single();
         if (insertError) {
           // 23505 en uniq_payment_active_period_per_child: ya existe un cobro activo
@@ -524,6 +533,7 @@ export function PaymentCheckoutModal({
           period_year: periodYear,
           period_month: periodMonth,
           early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
+          payment_category: paymentCategory,
         } as any);
         if (insertError) throw insertError;
       }
@@ -685,7 +695,8 @@ export function PaymentCheckoutModal({
             period_month: periodMonth,
             early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
             ...receiptOcrFields,
-            reference: `TRF-${Date.now().toString(36).toUpperCase()}`
+            reference: `TRF-${Date.now().toString(36).toUpperCase()}`,
+            payment_category: paymentCategory,
           } as any).select('id').single();
           if (ins.error) throw ins.error;
           glosaPaymentId = ins.data?.id ?? null;
@@ -778,7 +789,8 @@ export function PaymentCheckoutModal({
           period_year: periodYear,
           period_month: periodMonth,
           early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
-        });
+          payment_category: paymentCategory,
+        } as any);
         error = insertError;
       }
       if (error) throw error;
