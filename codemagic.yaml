@@ -57,24 +57,21 @@ workflows:
       - /tmp/xcodebuild_logs/*.log
 
   # ──────────────────────────────────────────────────────────────────────
-  # ios-testflight — el workflow real de release. NO FUNCIONA TODAVÍA:
-  # requiere, en este orden:
-  #   1. Cuenta Apple Developer activa (comprada 2026-08-27, tipo Individual
-  #      — hasta 2 días hábiles de activación).
-  #   2. Registrar el App ID `co.sportmaps.app` en developer.apple.com y
-  #      crear el registro de la app en App Store Connect (da el
-  #      APP_STORE_APPLE_ID numérico que falta abajo).
-  #   3. Conectar la integración "App Store Connect" en Codemagic
-  #      (Team settings → Integrations) — reemplaza `auth: integration`
-  #      por el nombre real que le den ahí si no se llama "codemagic".
-  #   4. Crear el grupo de testers internos en TestFlight (reemplaza
-  #      "SportMaps Internos" en beta_groups).
-  # Mientras tanto, sin `triggering`, este workflow NO se dispara solo —
-  # solo corre si alguien lo arranca a mano en el dashboard, así que no
-  # falla builds en cadena por variables que todavía no existen.
+  # ios-testflight — el workflow real de release. Prerrequisitos YA
+  # cumplidos (2026-09-03): cuenta Apple Developer activa, App ID
+  # co.sportmaps.app registrado, app creada en App Store Connect
+  # (APP_STORE_APPLE_ID abajo), integración "codemagic" conectada en
+  # Codemagic (Team settings → Integrations) y grupo "SportMaps Internos"
+  # creado en TestFlight. El paso "Crear/descargar certificado y perfil de
+  # distribución" es necesario porque `xcode-project use-profiles` NO crea
+  # nada por sí solo — solo aplica perfiles que ya existen localmente;
+  # `app-store-connect fetch-signing-files --create` es el que los genera
+  # (o descarga si ya existen) vía la API antes de que Xcode los use.
+  # Sin `triggering`, este workflow NO se dispara solo — solo corre si
+  # alguien lo arranca a mano en el dashboard.
   # ──────────────────────────────────────────────────────────────────────
   ios-testflight:
-    name: iOS — build firmado + TestFlight (NO listo — ver comentario)
+    name: iOS — build firmado + TestFlight
     max_build_duration: 60
     instance_type: mac_mini_m2
     integrations:
@@ -107,6 +104,9 @@ workflows:
         script: |
           cd frontend/ios/App
           pod install
+      - name: Crear/descargar certificado y perfil de distribución (App Store Connect API)
+        script: |
+          app-store-connect fetch-signing-files "co.sportmaps.app" --type IOS_APP_STORE --create
       - name: Firma automática con los certificados de la integración
         script: |
           cd frontend
