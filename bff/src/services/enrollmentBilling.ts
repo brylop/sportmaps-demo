@@ -128,6 +128,11 @@ export async function createPendingPayment(opts: {
         // payment_type solo admite 'one_time' | 'subscription' (constraint
         // payments_payment_type_check). 'monthly' rompía el INSERT.
         payment_type: 'one_time',
+        // Todo caller de este helper (emitPlanCharge, POST /enrollments,
+        // students.ts al cambiar equipo/plan) arma un cobro de mensualidad —
+        // la inscripción/matrícula la cobra chargeRegistrationFeeIfApplicable
+        // aparte (students-create-one.route.ts), no este helper.
+        payment_category: 'mensualidad',
     };
     if (opts.teamId) row.team_id = opts.teamId;
     if (opts.planId) row.offering_plan_id = opts.planId;
