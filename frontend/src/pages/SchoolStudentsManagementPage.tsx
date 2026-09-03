@@ -36,6 +36,8 @@ import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { CSVImportModal } from '@/components/students/CSVImportModal';
 import { StudentTypeSelector } from '@/components/students/StudentTypeSelector';
+import { EpsCombobox } from '@/components/common/EpsCombobox';
+import { TSHIRT_SIZES, BLOOD_TYPES } from '@/lib/athlete-options';
 import { CreateChildModal } from '@/components/students/CreateChildModal';
 import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
 import { useSchoolContext, createStudentWithPendingPayment } from '@/hooks/useSchoolContext';
@@ -192,7 +194,7 @@ export default function SchoolStudentsManagementPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { coachCanCreateAthletes, coachHideFinancialInfo, coachCanEditCategories } = useEntitlements();
+  const { coachCanCreateAthletes, coachHideFinancialInfo, coachCanEditCategories, militaryDiscountEnabled } = useEntitlements();
 
   // Alta de deportistas: SOLO admin/owner. El coach de escuela es solo lectura
   // (ve/gestiona los atletas de sus equipos, pero no los da de alta) — esto NO
@@ -1515,15 +1517,40 @@ export default function SchoolStudentsManagementPage() {
                   <div className="grid gap-4 sm:grid-cols-3">
                     <div className="space-y-2">
                       <Label htmlFor="tshirt_size">Talla camiseta</Label>
-                      <Input id="tshirt_size" placeholder="XS, S, M, L..." {...form.register('tshirt_size')} />
+                      <Select
+                        value={form.watch('tshirt_size') || '__none__'}
+                        onValueChange={(val) => form.setValue('tshirt_size', val === '__none__' ? '' : val)}
+                      >
+                        <SelectTrigger id="tshirt_size"><SelectValue placeholder="Seleccionar" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Sin especificar</SelectItem>
+                          {TSHIRT_SIZES.map(o => (
+                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="blood_type">Tipo de sangre</Label>
-                      <Input id="blood_type" placeholder="O+, A-..." {...form.register('blood_type')} />
+                      <Select
+                        value={form.watch('blood_type') || '__none__'}
+                        onValueChange={(val) => form.setValue('blood_type', val === '__none__' ? '' : val)}
+                      >
+                        <SelectTrigger id="blood_type"><SelectValue placeholder="Seleccionar" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Sin especificar</SelectItem>
+                          {BLOOD_TYPES.map(o => (
+                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="eps_name">EPS</Label>
-                      <Input id="eps_name" placeholder="Sura, Sanitas..." {...form.register('eps_name')} />
+                      <EpsCombobox
+                        value={form.watch('eps_name')}
+                        onChange={(val) => form.setValue('eps_name', val)}
+                      />
                     </div>
                   </div>
                 </div>
@@ -1734,41 +1761,7 @@ export default function SchoolStudentsManagementPage() {
                 </div>
                 )}
               </div>
-              {!isCategoryOnlyCoach && (
-              <div className="flex items-center justify-between gap-3 rounded-md border p-3">
-                <div className="text-sm">
-                  <p className="font-medium">🪖 Descuento Fuerza Militar (10%)</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    Aplica el 10% sobre la mensualidad vigente del equipo o el plan seleccionado.
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={form.watch('fee_reason') === MILITARY_DISCOUNT_REASON ? 'secondary' : 'outline'}
-                  disabled={editingIsInactive || !!form.watch('fee_is_manual')}
-                  onClick={() => {
-                    const active = form.getValues('fee_reason') === MILITARY_DISCOUNT_REASON;
-                    const planId = form.getValues('offering_plan_id');
-                    if (planId) {
-                      const p = offeringPlans.find(p => p.id === planId);
-                      const base = p?.price ?? 0;
-                      form.setValue('plan_monthly_fee' as any,
-                        active ? base : Math.round(base * (1 - MILITARY_DISCOUNT_RATE)));
-                    } else {
-                      const t = teams.find(t => t.id === form.getValues('team_id'));
-                      const base = t?.monthly_fee ?? 0;
-                      form.setValue('team_monthly_fee' as any,
-                        active ? base : Math.round(base * (1 - MILITARY_DISCOUNT_RATE)));
-                    }
-                    form.setValue('fee_reason' as any, active ? '' : MILITARY_DISCOUNT_REASON);
-                  }}
-                >
-                  {form.watch('fee_reason') === MILITARY_DISCOUNT_REASON ? 'Quitar descuento' : 'Aplicar 10%'}
-                </Button>
-              </div>
-              )}
-              {!isCategoryOnlyCoach && (
+              {!isCategoryOnlyCoach && militaryDiscountEnabled && (
               <div className="flex items-center justify-between gap-3 rounded-md border p-3">
                 <div className="text-sm">
                   <p className="font-medium">🪖 Descuento Fuerza Militar (10%)</p>

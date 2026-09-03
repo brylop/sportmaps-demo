@@ -95,6 +95,13 @@ interface EntitlementsResponse {
      * gateado por `coach_can_create_athletes`. Default false.
      */
     coach_can_edit_categories?: boolean;
+    /**
+     * true → esta escuela ofrece el descuento "Fuerza Militar 10%" al editar
+     * un atleta (`school_settings.military_discount_enabled`, caso Besser).
+     * Default false: sin esto el descuento era global (bug, cualquier
+     * escuela lo veía y lo podía aplicar).
+     */
+    military_discount_enabled?: boolean;
 }
 
 // ============================================================
@@ -187,6 +194,10 @@ export interface Entitlements {
      *  atleta existente (`coach_can_edit_categories`, caso Besser). Default
      *  false: no cambia nada para el resto. */
     coachCanEditCategories: boolean;
+
+    /** Esta escuela ofrece el descuento "Fuerza Militar 10%" al editar un
+     *  atleta (`military_discount_enabled`, caso Besser). Default false. */
+    militaryDiscountEnabled: boolean;
 }
 
 export interface EntitlementsHelpers {
@@ -259,6 +270,7 @@ const EMPTY_ENTITLEMENTS: Entitlements = {
     parentEmailOptional: false,
     coachHideFinancialInfo: false,
     coachCanEditCategories: false,
+    militaryDiscountEnabled: false,
 };
 
 // ============================================================
@@ -373,6 +385,7 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
             parentEmailOptional: data.parent_email_optional === true,
             coachHideFinancialInfo: data.coach_hide_financial_info === true,
             coachCanEditCategories: data.coach_can_edit_categories === true,
+            militaryDiscountEnabled: data.military_discount_enabled === true,
         };
     }, [query.data]);
 

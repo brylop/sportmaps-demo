@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 498,
-  "head": "20260903151225",
+  "count": 499,
+  "head": "20260903170318",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -501,6 +501,7 @@
     {"v":"20260903134834","file":"20260903134834_parent_email_optional_carmel.sql","sha256":"5ca0890d8bab2d46856e6ef0bcd8a4d558da21d586927926c55c851e656a1fb1","added":"2026-09-03","by":"brylop"},
     {"v":"20260903144504","file":"20260903144504_coach_besser_financial_categoria.sql","sha256":"b4114921e4572ced054b2cc966ee404a824ee5feab0d193bcba2595853b76528","added":"2026-09-03","by":"brylop"},
     {"v":"20260903150628","file":"20260903150628_articulos_escolares_catalogo_f1.sql","sha256":"296884cbe0a0321085663df88d3fb56912ccaa531da0eaafc428e40bbfa50f47","added":"2026-09-03","by":"brylop"},
-    {"v":"20260903151225","file":"20260903151225_add_dorsal_atleta.sql","sha256":"e4c709c7ad36e47416783c3e427ca21a3cdec5c24684ccc1d8e5deb35c2c01dc","added":"2026-09-03","by":"brylop"}
+    {"v":"20260903151225","file":"20260903151225_add_dorsal_atleta.sql","sha256":"e4c709c7ad36e47416783c3e427ca21a3cdec5c24684ccc1d8e5deb35c2c01dc","added":"2026-09-03","by":"brylop"},
+    {"v":"20260903170318","file":"20260903170318_military_discount_besser_only.sql","sha256":"6a7fa8848f3ea130cfaf5f44759ec0f2d25be9ba61edc77e9ccf0c565e01c0dd","added":"2026-09-03","by":"brylop"}
   ]
 }
