@@ -272,6 +272,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
   const [uPhone, setUPhone]           = useState('+57');
   const [uDob, setUDob]               = useState('');
   const [uGender, setUGender]         = useState('');
+  const [uDorsal, setUDorsal]         = useState('');
   const [sendInviteEmail, setSendInviteEmail] = useState(true);
   const [sendInviteWhatsapp, setSendInviteWhatsapp] = useState(true);
 
@@ -376,7 +377,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
     setMonthlyFee('');
     setDiscountPct(0);
 
-    setUDocType('CC'); setUDocNumber(''); setUFullName(''); setUPhone('+57'); setUDob(''); setUGender('');
+    setUDocType('CC'); setUDocNumber(''); setUFullName(''); setUPhone('+57'); setUDob(''); setUGender(''); setUDorsal('');
     setSendInviteEmail(true); setSendInviteWhatsapp(true);
   };
 
@@ -469,6 +470,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
           start_date:       startDate,
           monthly_fee:      monthlyFee ? fee : null,
           discount_pct:     discountPct > 0 ? discountPct : undefined,
+          dorsal:           uDorsal.trim() || null,
         }, { 'x-school-id': schoolId });
 
         handlePostSuccess(result, uFullName.trim() || 'Atleta', uPhone);
@@ -485,6 +487,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
           phone:            uPhone.replace(/\D/g, '') || null,
           date_of_birth:    uDob || null,
           gender:           uGender || null,
+          dorsal:           uDorsal.trim() || null,
           branch_id:        (branchId && branchId !== 'none') ? branchId : null,
           team_id:          (teamId && teamId !== 'none') ? teamId : null,
           offering_plan_id: (selectedPlanId && selectedPlanId !== 'none') ? selectedPlanId : null,
@@ -649,6 +652,18 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
                     <SelectItem value="other">Otro</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Dorsal</Label>
+                <Input
+                  value={uDorsal}
+                  onChange={e => setUDorsal(e.target.value)}
+                  placeholder="Ej: 10"
+                  maxLength={10}
+                />
               </div>
             </div>
 

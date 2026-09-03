@@ -608,6 +608,7 @@ export async function createStudentWithPendingPayment(params: {
     monthlyFee?: number; // Optional now, will fetch if missing
     medicalInfo?: string;
     notes?: string;
+    dorsal?: string;
 }) {
     const { schoolId, teamId } = params;
     let { monthlyFee } = params;
@@ -637,6 +638,7 @@ export async function createStudentWithPendingPayment(params: {
             parent_email_temp: params.parentEmail || null,
             parent_phone_temp: params.parentPhone || null,
             medical_info: params.medicalInfo || null,
+            dorsal: params.dorsal || null,
             school_id: params.schoolId,
             branch_id: params.branchId || null,
             team_id: params.teamId || null,
