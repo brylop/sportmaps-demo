@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 491,
-  "head": "20260903103757",
+  "count": 493,
+  "head": "20260903131025",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -494,6 +494,8 @@
     {"v":"20260902180236","file":"20260902180236_backfill_expires_at_dynasty_casos_resueltos.sql","sha256":"0dc5c293d146e395efdde44988db8e951814a859b2bdbe6601edcdf75966fc66","added":"2026-09-02","by":"brylop"},
     {"v":"20260902181143","file":"20260902181143_backfill_expires_at_resto_ambiguos_mma_academia_demo.sql","sha256":"f87616f434a7388edf88b9cd0be71e5363c22251e7e35cc282750ccd9a9666ff","added":"2026-09-02","by":"brylop"},
     {"v":"20260902181550","file":"20260902181550_reactivar_cron_expire_overdue_enrollments.sql","sha256":"4dad75991fefb51b5aeeb3003109bcd77e5774bff29cc47d486617f68206815a","added":"2026-09-02","by":"brylop"},
-    {"v":"20260903103757","file":"20260903103757_torneos_internos_fix_choque_periodo_mensualidad.sql","sha256":"9f3d3a3d510f40bc340e881b49703fe3d4cbb746cdf545d6b58992fb02f03fce","added":"2026-09-03","by":"brylop"}
+    {"v":"20260903103757","file":"20260903103757_torneos_internos_fix_choque_periodo_mensualidad.sql","sha256":"9f3d3a3d510f40bc340e881b49703fe3d4cbb746cdf545d6b58992fb02f03fce","added":"2026-09-03","by":"brylop"},
+    {"v":"20260903130451","file":"20260903130451_torneos_externos_invitaciones.sql","sha256":"d08e4cd383a8da4585cf2862f171794bd744df102522c8ef24d81f70ab86e349","added":"2026-09-03","by":"brylop"},
+    {"v":"20260903131025","file":"20260903131025_torneos_externos_fix_reclamo_por_cualquier_miembro.sql","sha256":"28890aa1f50bc1c9b63fd6c42edf3bdda00f86c0be3ca8a19298c92cc019964b","added":"2026-09-03","by":"brylop"}
   ]
 }
