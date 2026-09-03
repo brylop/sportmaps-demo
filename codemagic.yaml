@@ -69,6 +69,13 @@ workflows:
   # (o descarga si ya existen) vía la API antes de que Xcode los use.
   # Sin `triggering`, este workflow NO se dispara solo — solo corre si
   # alguien lo arranca a mano en el dashboard.
+  #
+  # OJO: NO poner `environment.ios_signing` aquí. Ese bloque activa el
+  # preflight AUTOMÁTICO de Codemagic (corre ANTES que cualquier script,
+  # sin lista de pasos visible si falla) que solo BUSCA un perfil
+  # existente y no lo crea — chocaba con el script manual de abajo, que
+  # sí crea el perfil con `--create` pero nunca llegaba a ejecutarse. El
+  # control de firma es 100% manual vía los scripts de este workflow.
   # ──────────────────────────────────────────────────────────────────────
   ios-testflight:
     name: iOS — build firmado + TestFlight
@@ -77,13 +84,11 @@ workflows:
     integrations:
       app_store_connect: codemagic
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: co.sportmaps.app
       vars:
         XCODE_WORKSPACE: "App.xcworkspace"
         XCODE_SCHEME: "App"
         APP_STORE_APPLE_ID: 6808414228
+        BUNDLE_ID: co.sportmaps.app
       xcode: 26.4.1
       cocoapods: default
     scripts:
@@ -106,7 +111,7 @@ workflows:
           pod install
       - name: Crear/descargar certificado y perfil de distribución (App Store Connect API)
         script: |
-          app-store-connect fetch-signing-files "co.sportmaps.app" --type IOS_APP_STORE --create
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
       - name: Firma automática con los certificados de la integración
         script: |
           cd frontend
