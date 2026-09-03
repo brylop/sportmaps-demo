@@ -38,7 +38,8 @@ Reglas estrictas:
 - NUNCA inventes datos. Si preguntan por el estado de su cuenta/inscripción, usa get_my_state. Si preguntan por pagos, saldos o mensualidades, usa get_payment_status. Si preguntan cómo hacer algo en la plataforma, usa search_help_articles.
 - Tú SOLO consultas y explicas. No puedes ejecutar ninguna acción que modifique datos (reenviar enlaces, cambiar cobros, reinscribir). Si el usuario necesita una acción así, o si no puedes resolverlo, usa escalate_to_human.
 - Formatea montos en pesos colombianos (COP) y fechas en formato legible.
-- No repitas preguntas ya identificadas; el usuario ya está autenticado.`;
+- No repitas preguntas ya identificadas; el usuario ya está autenticado.
+- Si usas search_help_articles y encuentras un artículo relevante, menciona su link (el campo "href", como /ayuda/algo) tal cual en tu respuesta para que el usuario pueda entrar directo.`;
 
 const TOOLS: LlmTool[] = [
     {
@@ -175,8 +176,23 @@ export async function runSupportBotTurn(params: RunSupportBotTurnParams): Promis
         return;
     }
 
-    await postBotMessage(params.ticketId, final.text || fallbackText(call.name, toolResult));
+    const body = final.text || fallbackText(call.name, toolResult);
+    await postBotMessage(params.ticketId, appendHelpArticleLinks(call.name, toolResult, body));
     await setStatus(params.ticketId, 'bot_handled');
+}
+
+// El LLM redacta la respuesta libremente y no hay garantía de que copie el
+// link del artículo que encontró — mismo espíritu que "cero respuestas sin
+// tool exitosa": el link no se le pide de favor, se agrega determinísticamente
+// si `search_help_articles` encontró algo y el texto final todavía no lo trae.
+export function appendHelpArticleLinks(toolName: string, result: unknown, body: string): string {
+    if (toolName !== 'search_help_articles') return body;
+    const list = result as HelpSearchResult[];
+    if (!list.length) return body;
+    const missing = list.filter((r) => !body.includes(r.href));
+    if (!missing.length) return body;
+    const links = missing.map((r) => `📖 ${r.title}: ${r.href}`).join('\n');
+    return `${body}\n\n${links}`;
 }
 
 // ─── Interruptor global ─────────────────────────────────────────────────────
@@ -247,11 +263,12 @@ function extractPlainText(blocks: ContentBlock[]): string {
         .join(' ');
 }
 
-interface HelpSearchResult {
+export interface HelpSearchResult {
     slug: string;
     title: string;
     excerpt: string;
     snippet: string;
+    href: string;
 }
 
 /**
@@ -259,7 +276,7 @@ interface HelpSearchResult {
  * de ~2.300 líneas y no vale la pena la infraestructura. Pondera título 3x,
  * excerpt 2x, cuerpo 1x.
  */
-function searchHelpArticles(query: string, limit = 3): HelpSearchResult[] {
+export function searchHelpArticles(query: string, limit = 3): HelpSearchResult[] {
     const terms = query
         .toLowerCase()
         .normalize('NFD')
@@ -297,6 +314,7 @@ function searchHelpArticles(query: string, limit = 3): HelpSearchResult[] {
             title: article.title,
             excerpt: article.excerpt,
             snippet: body.slice(0, 400),
+            href: `/ayuda/${article.slug}`,
         }));
 }
 
@@ -304,7 +322,7 @@ function fallbackText(toolName: string, result: unknown): string {
     if (toolName === 'search_help_articles') {
         const list = result as HelpSearchResult[];
         if (!list.length) return 'No encontré un artículo de ayuda sobre eso. Voy a pasar tu caso con el equipo.';
-        return `Encontré esto que puede ayudarte:\n${list.map((r) => `• ${r.title}`).join('\n')}`;
+        return `Encontré esto que puede ayudarte:\n${list.map((r) => `📖 ${r.title}: ${r.href}`).join('\n')}`;
     }
     if (toolName === 'get_payment_status') {
         const list = Array.isArray(result) ? result : [];
