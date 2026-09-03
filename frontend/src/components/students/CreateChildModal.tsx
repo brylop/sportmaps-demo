@@ -266,6 +266,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
   const [dob, setDob]             = useState('');
   const [gender, setGender]       = useState('');
   const [grade, setGrade]         = useState('');
+  const [dorsal, setDorsal]       = useState('');
   const [medicalHasAllergies, setMedicalHasAllergies] = useState<'false' | 'true'>('false');
   const [medicalNotes, setMedicalNotes] = useState('');
 
@@ -352,7 +353,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
   // ── Reset ──────────────────────────────────────────────────────────────────
   const reset = () => {
     setDocType('TI'); setDocNumber(''); setFullName(''); setDob('');
-    setGender(''); setGrade('');
+    setGender(''); setGrade(''); setDorsal('');
     setMedicalHasAllergies('false'); setMedicalNotes('');
     setParentName(''); setParentEmail(''); setParentPhone('+57');
     setBranchId('none'); setTeamId('none');
@@ -473,6 +474,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
         date_of_birth: dob || null,
         gender:       gender || null,
         grade:        grade  || null,
+        dorsal:       dorsal.trim() || null,
         medical_info: medicalInfo,
         parent_name:  parentName.trim(),
         parent_email: parentEmail.trim() ? parentEmail.trim().toLowerCase() : null,
@@ -608,9 +610,15 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
               </div>
             </div>
 
-            <div>
-              <Label>Grado Escolar</Label>
-              <Input placeholder="Ej: 6A, 7B, Primaria" value={grade} onChange={e => setGrade(e.target.value)} />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Grado Escolar</Label>
+                <Input placeholder="Ej: 6A, 7B, Primaria" value={grade} onChange={e => setGrade(e.target.value)} />
+              </div>
+              <div>
+                <Label>Dorsal</Label>
+                <Input placeholder="Ej: 10" maxLength={10} value={dorsal} onChange={e => setDorsal(e.target.value)} />
+              </div>
             </div>
 
             <button type="button" onClick={() => setShowMedical(v => !v)} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
