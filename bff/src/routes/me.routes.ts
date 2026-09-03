@@ -78,6 +78,7 @@ router.get('/entitlements', requireAuth, async (req: Request, res: Response) => 
                 parent_email_optional: false,
                 coach_hide_financial_info: false,
                 coach_can_edit_categories: false,
+                military_discount_enabled: false,
             });
         }
 
