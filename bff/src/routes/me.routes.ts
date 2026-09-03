@@ -76,6 +76,8 @@ router.get('/entitlements', requireAuth, async (req: Request, res: Response) => 
                 has_invoicing:        false,
                 coach_can_create_athletes: false,
                 parent_email_optional: false,
+                coach_hide_financial_info: false,
+                coach_can_edit_categories: false,
             });
         }
 

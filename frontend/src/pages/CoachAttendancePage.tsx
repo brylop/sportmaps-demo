@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -175,7 +176,11 @@ function getPlanVisual(name: string = '') {
 }
 
 // ── PlanInfoCard ───────────────────────────────────────────────────────────────
-function PlanInfoCard({ plan }: { plan: PlanInfo }) {
+// hideFinancials: Besser (school_settings.coach_hide_financial_info) — el BFF
+// ya manda price/payment_status en null, pero sin este flag el badge de pago
+// cae a su default "Pendiente" cuando no hay dato, que es peor que no mostrar
+// nada: insinúa un estado de pago que nadie afirmó.
+function PlanInfoCard({ plan, hideFinancials = false }: { plan: PlanInfo; hideFinancials?: boolean }) {
   const payBadge = ({
     paid: { label: 'Al día', cls: 'bg-green-500/10 text-green-600 border-green-500/30' },
     pending: { label: 'Pendiente', cls: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/30' },
@@ -194,7 +199,7 @@ function PlanInfoCard({ plan }: { plan: PlanInfo }) {
         {/* Nombre de tarifa + precio */}
         <span className="flex items-center gap-1 font-medium text-muted-foreground">
           {plan.name}
-          {plan.price != null && (
+          {!hideFinancials && plan.price != null && (
             <span className="font-normal opacity-75">
               · {new Intl.NumberFormat('es-CO', {
                   style: 'currency', currency: plan.currency ?? 'COP',
@@ -241,15 +246,17 @@ function PlanInfoCard({ plan }: { plan: PlanInfo }) {
         )}
       </div>
 
-      <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border ${payBadge.cls}`}>
-        <CreditCard className="w-2.5 h-2.5" />
-        {payBadge.label}
-        {plan.payment_due_date && plan.payment_status !== 'paid' && (
-          <span className="opacity-75">
-            · {new Date(plan.payment_due_date + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
-          </span>
-        )}
-      </span>
+      {!hideFinancials && (
+        <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border ${payBadge.cls}`}>
+          <CreditCard className="w-2.5 h-2.5" />
+          {payBadge.label}
+          {plan.payment_due_date && plan.payment_status !== 'paid' && (
+            <span className="opacity-75">
+              · {new Date(plan.payment_due_date + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
+            </span>
+          )}
+        </span>
+      )}
     </div>
   );
 }
@@ -259,6 +266,11 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
   useActiveWorkPage();
   const { user, profile } = useAuth();
   const { schoolId } = useSchoolContext();
+  const { coachHideFinancialInfo } = useEntitlements();
+  // Besser: el coach no ve mensualidad ni estado de pago en ninguna pantalla.
+  // El BFF ya manda price/payment_status en null; esto además evita que el
+  // badge de pago caiga a su default "Pendiente" cuando no hay dato.
+  const hideFinancials = profile?.role === 'coach' && coachHideFinancialInfo;
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -1352,7 +1364,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
                                 </Badge>
                               )}
                             </div>
-                            {student.plan ? <PlanInfoCard plan={student.plan} /> : (
+                            {student.plan ? <PlanInfoCard plan={student.plan} hideFinancials={hideFinancials} /> : (
                               <p className="text-[11px] text-muted-foreground mt-1">No maneja plan de clases</p>
                             )}
                             {student.booking_today && (
@@ -1458,7 +1470,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
                     <Badge variant="outline" className="text-[10px] h-4 mt-0.5">Atleta</Badge>
                   </div>
                 </div>
-                {walkInAthlete.plan ? <PlanInfoCard plan={walkInAthlete.plan} /> : (
+                {walkInAthlete.plan ? <PlanInfoCard plan={walkInAthlete.plan} hideFinancials={hideFinancials} /> : (
                   <p className="text-xs text-muted-foreground bg-white/50 p-2 rounded border border-dashed text-center">Sin plan activo</p>
                 )}
               </div>
