@@ -76,6 +76,12 @@ interface EntitlementsResponse {
      * caso Carmel Club). Default false: no cambia nada para el resto.
      */
     coach_can_create_athletes?: boolean;
+    /**
+     * true → la escuela no exige el correo del acudiente al dar de alta un
+     * menor (excepción de política de datos, `school_settings.parent_email_optional`,
+     * caso Carmel Club). Default false: no cambia nada para el resto.
+     */
+    parent_email_optional?: boolean;
 }
 
 // ============================================================
@@ -154,6 +160,10 @@ export interface Entitlements {
     /** El coach de esta escuela puede dar de alta y editar atletas (excepción
      *  activada por la escuela, `coach_can_create_athletes`). Default false. */
     coachCanCreateAthletes: boolean;
+
+    /** Esta escuela no exige el correo del acudiente al dar de alta un menor
+     *  (`parent_email_optional`, caso Carmel Club). Default false. */
+    parentEmailOptional: boolean;
 }
 
 export interface EntitlementsHelpers {
@@ -223,6 +233,7 @@ const EMPTY_ENTITLEMENTS: Entitlements = {
     marcaPropia: false,
     appNativa: false,
     coachCanCreateAthletes: false,
+    parentEmailOptional: false,
 };
 
 // ============================================================
@@ -334,6 +345,7 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
             marcaPropia: (data.has_pwa_branding ?? false) === true,
             appNativa: data.has_whitelabel === true,
             coachCanCreateAthletes: data.coach_can_create_athletes === true,
+            parentEmailOptional: data.parent_email_optional === true,
         };
     }, [query.data]);
 
