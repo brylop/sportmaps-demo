@@ -6,11 +6,25 @@
 #   exit 0  → CANCELA el build
 #   exit 1  → deja pasar el build
 #
-# Dos filtros, en orden:
+# Tres filtros, en orden:
 #
 #   1. La rama. Solo las que tienen ambiente desplegado.
 #
-#   2. Lo que cambió. Antes no existía, y por eso un commit que solo tocaba `docs/`,
+#   2. Que sea LA rama de ESTE proyecto. Los 4 proyectos (sportmaps-dev/stg/prod/demo)
+#      comparten el mismo repo y este mismo vercel.json, así que sin este filtro un
+#      solo push a `develop` disparaba build en los 4 (3 de más). Detectado 2026-09-03:
+#      3 pushes en poco tiempo → ~30 despliegues en vez de ~9, cola de 8-10 min por
+#      proyecto para ver un cambio que debería tardar ~2 min. Se filtra por
+#      VERCEL_PROJECT_BRANCH, una env var que se configura DISTINTA en cada proyecto
+#      (Settings → Environment Variables, en Production+Preview+Development):
+#        sportmaps-dev   → develop
+#        sportmaps-stg   → staging
+#        sportmaps-prod  → main
+#        sportmaps-demo  → demo
+#      Sin la variable puesta (todavía no migrado) este filtro no hace nada —
+#      fail-open, para no romper despliegues mientras se configura.
+#
+#   3. Lo que cambió. Antes no existía, y por eso un commit que solo tocaba `docs/`,
 #      `supabase/`, `bff/` o `scripts/` gastaba un despliegue de los ~100 del día sin
 #      cambiar un byte de lo que Vercel sirve. El build es `cd frontend && npm run
 #      build`, así que lo único que puede alterar el resultado es `frontend/`, la
@@ -29,6 +43,11 @@ case "${VERCEL_GIT_COMMIT_REF:-}" in
     exit 0
     ;;
 esac
+
+if [ -n "${VERCEL_PROJECT_BRANCH:-}" ] && [ "${VERCEL_GIT_COMMIT_REF:-}" != "${VERCEL_PROJECT_BRANCH}" ]; then
+  echo "🚫 Esta rama (${VERCEL_GIT_COMMIT_REF:-desconocida}) no es la de este proyecto (${VERCEL_PROJECT_BRANCH}). Build cancelado."
+  exit 0
+fi
 
 # Rutas desde la raíz del repo (`:/…`), NO relativas al directorio actual: Vercel corre
 # esto dentro del Root Directory del proyecto, y con rutas relativas un cambio de esa
