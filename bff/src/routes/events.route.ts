@@ -694,6 +694,89 @@ router.put('/school-tournaments/:id/price-phases', requireAuth, requireRole('sch
     }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Invitaciones a torneos EXTERNOS — Fase 2 de
+// docs/specs/torneos-externos-registro-liviano-2026-09-03.md. Los 2 endpoints
+// de escritura (crear invitación, reclamarla) usan userClient(req) porque las
+// RPCs que invocan autorizan con auth.uid() (SECURITY DEFINER). El GET
+// público NO requiere sesión — lo consume la página de aterrizaje.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/v1/events/school-tournaments/:id/invitations — el host genera un link
+const CreateInvitationSchema = z.object({
+    email: z.string().email().optional().nullable(),
+    school_name: z.string().min(1).optional().nullable(),
+});
+router.post('/school-tournaments/:id/invitations', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const eventId = String(req.params.id);
+        const parsed = CreateInvitationSchema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+
+        const client = userClient(req);
+        const { data, error } = await client.rpc('create_tournament_invitation', {
+            p_event_id: eventId,
+            p_email: parsed.data.email ?? null,
+            p_school_name: parsed.data.school_name ?? null,
+        });
+        if (error) { req.log?.warn({ err: error }, 'create_tournament_invitation rechazó la creación'); return res.status(400).json({ error: error.message }); }
+        return res.status(201).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado creando invitación');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/school-tournaments/:id/invitations — el host ve el embudo de sus invitaciones
+router.get('/school-tournaments/:id/invitations', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const { data, error } = await supabase
+            .from('event_invitations')
+            .select('id, token, invited_email, invited_school_name, status, claimed_school_id, created_at, school:claimed_school_id(name)')
+            .eq('event_id', eventId)
+            .order('created_at', { ascending: false });
+        if (error) { req.log?.error({ err: error }, 'Error listando invitaciones'); return res.status(500).json({ error: 'Error al listar invitaciones' }); }
+        return res.status(200).json(data || []);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado listando invitaciones');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/invitations/:token — página pública de aterrizaje (SIN sesión)
+router.get('/invitations/:token', async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const token = String(req.params.token);
+        const { data, error } = await supabase.rpc('get_tournament_invitation_public', { p_token: token });
+        if (error) { req.log?.error({ err: error }, 'Error obteniendo invitación pública'); return res.status(500).json({ error: 'Error al obtener la invitación' }); }
+        if (!data?.found) return res.status(404).json({ error: 'Invitación no encontrada' });
+        return res.status(200).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado obteniendo invitación pública');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// POST /api/v1/events/invitations/:token/claim — quien la abre (ya logueado, con
+// escuela propia recién creada o preexistente) queda enganchado al torneo.
+router.post('/invitations/:token/claim', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const token = String(req.params.token);
+        const client = userClient(req);
+        const { data, error } = await client.rpc('claim_tournament_invitation', { p_token: token });
+        if (error) { req.log?.warn({ err: error }, 'claim_tournament_invitation rechazó el reclamo'); return res.status(400).json({ error: error.message }); }
+        return res.status(200).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado reclamando invitación');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
 // GET /api/v1/events/school-tournaments/:id/delegations — inscritos + estado de pago
 router.get('/school-tournaments/:id/delegations', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
     try {
