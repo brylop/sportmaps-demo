@@ -245,6 +245,25 @@ export function MonthCloseTab({ schoolId, activeBranchId }: { schoolId: string |
         </p>
       )}
 
+      {/* Acción de cierre — arriba de las listas largas (cartera puede tener
+          cientos de filas) para que el botón principal de la pestaña no
+          dependa de cuánto haya que scrollear. */}
+      <Card>
+        <CardContent className="flex flex-col sm:flex-row items-center justify-between gap-3 py-4">
+          <p className="text-sm text-muted-foreground">
+            Cerrar el mes NO bloquea pagos ni la generación del mes siguiente — es un registro. Los pendientes siguen vivos y se pueden cobrar después.
+          </p>
+          <div className="flex gap-2 shrink-0">
+            {status === 'cerrado' && (
+              <Button variant="outline" onClick={() => setReopenOpen(true)}>Reabrir</Button>
+            )}
+            <Button onClick={() => setConfirmOpen(true)}>
+              {status === 'cerrado' ? 'Volver a cerrar' : 'Cerrar mes'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Cartera pendiente vs al día — dos listas separadas, en vivo */}
       <Card>
         <CardHeader>
@@ -285,23 +304,6 @@ export function MonthCloseTab({ schoolId, activeBranchId }: { schoolId: string |
               ))}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
-
-      {/* Acción de cierre */}
-      <Card>
-        <CardContent className="flex flex-col sm:flex-row items-center justify-between gap-3 py-4">
-          <p className="text-sm text-muted-foreground">
-            Cerrar el mes NO bloquea pagos ni la generación del mes siguiente — es un registro. Los pendientes siguen vivos y se pueden cobrar después.
-          </p>
-          <div className="flex gap-2 shrink-0">
-            {status === 'cerrado' && (
-              <Button variant="outline" onClick={() => setReopenOpen(true)}>Reabrir</Button>
-            )}
-            <Button onClick={() => setConfirmOpen(true)}>
-              {status === 'cerrado' ? 'Volver a cerrar' : 'Cerrar mes'}
-            </Button>
-          </div>
         </CardContent>
       </Card>
 

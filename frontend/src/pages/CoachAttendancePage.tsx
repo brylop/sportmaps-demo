@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { todayColombia } from '@/lib/dateUtils';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -15,7 +15,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import {
   CheckCircle2, XCircle, Clock, AlertCircle, Users, Lock, Edit2,
   Flag, CalendarCheck, Search, UserX, CreditCard, AlertTriangle, ChevronRight, Trophy, Zap, Target, Star, Dumbbell, Layers,
-  Calendar as CalendarIcon, TrendingUp, Activity
+  Calendar as CalendarIcon, TrendingUp, Activity, ScanLine
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -280,6 +280,11 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
   const [walkInAthlete, setWalkInAthlete] = useState<RosterItem | null>(null);
   const [walkInProcessing, setWalkInProcessing] = useState(false);
 
+  // Fase 1 — auto-selección de sesión (docs/specs/asistencia-rapida-checkin.md
+  // §1.2). Solo informa al coach de qué se auto-eligió y por qué; no cambia
+  // ningún dato hasta que guarde.
+  const [autoSelectedLabel, setAutoSelectedLabel] = useState<string | null>(null);
+
   const isTeam     = selectedItem.startsWith('team:');
   const isOffering = selectedItem.startsWith('offering:');
   const isSession  = selectedItem.startsWith('session:');
@@ -336,6 +341,24 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
         .sort((a: any, b: any) => a.name.localeCompare(b.name));
     },
     enabled: !!schoolId && !!user?.id,
+  });
+
+  // ── 1b. Config por escuela: ¿oculta "Planes" y solo muestra "Equipos"? ───
+  // Escuela por escuela — algunas organizan la asistencia por PLAN, no por
+  // equipo (mig. 20260902110253). Default false: no cambia nada para nadie
+  // salvo la escuela que lo pidió (hoy, Dynasty).
+  const { data: teamsOnlyMode = false, isLoading: loadingTeamsOnlyMode } = useQuery<boolean>({
+    queryKey: ['coach-attendance-teams-only', schoolId],
+    queryFn: async () => {
+      if (!schoolId) return false;
+      const { data } = await supabase
+        .from('school_settings')
+        .select('coach_attendance_teams_only')
+        .eq('school_id', schoolId)
+        .maybeSingle();
+      return (data as any)?.coach_attendance_teams_only ?? false;
+    },
+    enabled: !!schoolId,
   });
 
   // ── 2. Planes / Offerings ───────────────────────────────────────────────
@@ -400,6 +423,57 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
   const ptSessions     = ptSchedule?.sessions ?? [];
   const ptAvailSlots   = ptSchedule?.availability_slots ?? [];
   const hasAvailability = ptSchedule?.has_availability ?? false;
+
+  // ── 3c. Auto-selección de sesión ────────────────────────────────────────
+  // docs/specs/asistencia-rapida-checkin.md §1.2. Se intenta UNA sola vez por
+  // carga de página (autoSelectAttemptedRef) — si el coach vuelve a "Volver a
+  // la selección", no lo re-secuestra al mismo lugar. Nunca autoselecciona en
+  // retroactivo: ahí la elección la hace el coach a propósito.
+  const autoSelectAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (autoSelectAttemptedRef.current) return;
+    if (selectedItem) { autoSelectAttemptedRef.current = true; return; }
+    if (fechaLista !== hoy) { autoSelectAttemptedRef.current = true; return; }
+    if (loadingTeams || loadingOfferings || loadingPlans || loadingPT || loadingTeamsOnlyMode) return;
+
+    autoSelectAttemptedRef.current = true;
+
+    // Señal 1a: una sola clase de plan programada hoy → directo al roster.
+    if (planSessions.length === 1) {
+      const ps = planSessions[0] as any;
+      setSelectedItem(`session:${ps.id}`);
+      setAutoSelectedLabel(`Detectamos tu clase de hoy: ${ps.name}`);
+      return;
+    }
+    // Señal 1b: sin clases de plan ni sesiones PT hoy, y un solo equipo asignado.
+    // `teamsOnlyMode` (setting por escuela, ver mig. 20260902110253): si la
+    // escuela oculta "Planes" para el coach, no hay ambigüedad que temer aunque
+    // offerings no esté vacío — para el resto se mantiene el chequeo original.
+    if (
+      planSessions.length === 0 && ptSessions.length === 0 && teams.length === 1
+      && (teamsOnlyMode || offerings.length === 0)
+    ) {
+      const t = teams[0] as any;
+      setSelectedItem(`team:${t.id}`);
+      setAutoSelectedLabel(`Detectamos tu equipo de hoy: ${t.name}`);
+      return;
+    }
+    // Señal 2 (caso Dynasty: varios equipos, nada programado) — sugerir el
+    // último equipo que este coach usó el mismo día de la semana.
+    if (planSessions.length === 0 && teams.length > 1) {
+      try {
+        const suggestedId = localStorage.getItem(`sm_last_team_weekday_${new Date().getDay()}`);
+        const match = suggestedId && teams.find((t: any) => t.id === suggestedId);
+        if (match) {
+          setSelectedItem(`team:${suggestedId}`);
+          setAutoSelectedLabel(`Sugerido: ${(match as any).name} — tu elección habitual este día`);
+        }
+      } catch {
+        // localStorage puede fallar en privado/incógnito: se degrada en silencio
+        // al comportamiento de siempre (el coach elige a mano).
+      }
+    }
+  }, [selectedItem, fechaLista, hoy, loadingTeams, loadingOfferings, loadingPlans, loadingPT, loadingTeamsOnlyMode, planSessions, ptSessions, teams, offerings, teamsOnlyMode]);
 
   // ── 4. Roster unificado (via BFF) ───────────────────────────────────────
   const {
@@ -471,7 +545,17 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
   });
 
   // Update effect replaces onSuccess (since tanstack v5 doesn't have it on useQuery)
+  //
+  // Asistencia por excepción (Fase 1.4, docs/specs/asistencia-rapida-checkin.md):
+  // si la sesión no tiene registros todavía, arranca con TODOS presentes — el
+  // coach solo destilda a los ausentes. presetAppliedKeyRef evita reaplicar el
+  // "todos presentes" si sessionData/rosterData se refrescan solos mientras el
+  // coach ya venía editando (ej. refetch por window focus): solo se aplica una
+  // vez por sesión+fecha. El guardado sigue siendo explícito (botón Guardar) —
+  // esto solo cambia estado local, no escribe nada en la base todavía.
+  const presetAppliedKeyRef = useRef<string | null>(null);
   useMemo(() => {
+    const presetKey = `${selectedItem}|${fechaLista}`;
     if (sessionData?.records?.length) {
       const preloaded: Record<string, AttendanceStatus> = {};
       sessionData.records.forEach((r: any) => {
@@ -479,8 +563,19 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
         if (id) preloaded[id] = r.status as AttendanceStatus;
       });
       setAttendanceState(preloaded);
+      presetAppliedKeyRef.current = presetKey;
+    } else if (
+      sessionData !== undefined
+      && sessionData.session?.finalized !== true
+      && (rosterData?.athletes?.length ?? 0) > 0
+      && presetAppliedKeyRef.current !== presetKey
+    ) {
+      const allPresent: Record<string, AttendanceStatus> = {};
+      (rosterData?.athletes ?? []).forEach((a) => { allPresent[a.id] = 'present'; });
+      setAttendanceState(allPresent);
+      presetAppliedKeyRef.current = presetKey;
     }
-  }, [sessionData]);
+  }, [sessionData, rosterData, selectedItem, fechaLista]);
 
   const session = sessionData?.session ?? null;
 
@@ -762,6 +857,17 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
   const handleItemChange = (val: string) => {
     setSelectedItem(val);
     setAttendanceState({});
+    setAutoSelectedLabel(null);
+    // Recuerda el equipo elegido por día de la semana — es la señal 2 de la
+    // auto-selección (§1.2) para escuelas sin sesión programada (caso Dynasty).
+    if (val.startsWith('team:')) {
+      try {
+        localStorage.setItem(`sm_last_team_weekday_${new Date().getDay()}`, val.split(':')[1]);
+      } catch {
+        // localStorage puede fallar en privado/incógnito; no bloquea nada, solo
+        // significa que la próxima vez no habrá sugerencia.
+      }
+    }
   };
 
   const markAllPresent = () => {
@@ -780,9 +886,19 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
 
   return (
     <div className="space-y-6 pb-24 sm:pb-6 animate-in fade-in duration-500">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Asistencias</h1>
-        <p className="text-muted-foreground mt-1">Toma lista rápidamente</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Asistencias</h1>
+          <p className="text-muted-foreground mt-1">Toma lista rápidamente</p>
+        </div>
+        <Button
+          variant="outline"
+          className="gap-2 border-primary/30 text-primary hover:bg-primary/5"
+          onClick={() => navigate('/coach-attendance/scan')}
+        >
+          <ScanLine className="w-4 h-4" />
+          Escanear carnet
+        </Button>
       </div>
 
       {/* Sin ficha de staff no matchea ningún equipo y la lista queda vacía,
@@ -842,8 +958,15 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
             </div>
           )}
 
-          {/* Planes */}
-          {offerings.length > 0 && (
+          {/* Planes — oculto SOLO para escuelas con teamsOnlyMode (mig.
+              20260902110253, hoy únicamente Dynasty). `offerings` trae TODO el
+              catálogo activo de la escuela sin filtrar por coach (a diferencia
+              de `teams`, que sí filtra por team_coaches/coach_id) — en una
+              escuela grande y multi-disciplina es ruido. Pero otras escuelas
+              organizan la asistencia por PLAN y no por equipo — para esas,
+              ocultarlo les rompería el flujo real, así que el default es
+              mostrarlo como siempre. */}
+          {!teamsOnlyMode && offerings.length > 0 && (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
                 <Layers className="w-5 h-5 text-muted-foreground" />
@@ -1070,9 +1193,26 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
           )}
         </div>
       ) : (
-        <Button variant="ghost" className="mb-4 gap-2" onClick={() => setSelectedItem('')}>
-          <ChevronRight className="w-4 h-4 rotate-180" /> Volver a la selección
-        </Button>
+        <>
+          <Button variant="ghost" className="mb-4 gap-2" onClick={() => { setSelectedItem(''); setAutoSelectedLabel(null); }}>
+            <ChevronRight className="w-4 h-4 rotate-180" /> Volver a la selección
+          </Button>
+          {autoSelectedLabel && (
+            <Alert className="mb-4 border-primary/30 bg-primary/5">
+              <Zap className="h-4 w-4 text-primary" />
+              <AlertDescription className="text-xs flex items-center justify-between gap-3 flex-wrap">
+                <span>{autoSelectedLabel}</span>
+                <button
+                  type="button"
+                  className="text-primary font-semibold underline underline-offset-2 shrink-0"
+                  onClick={() => { setSelectedItem(''); setAutoSelectedLabel(null); }}
+                >
+                  No es esta, cambiar
+                </button>
+              </AlertDescription>
+            </Alert>
+          )}
+        </>
       )}
 
       {selectedItem && (

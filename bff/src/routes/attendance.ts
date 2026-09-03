@@ -96,16 +96,16 @@ function resolverFechaDeTrabajo(pedida: string | undefined | null, rol: string):
   return { ok: true, date: pedida, esRetroactiva: true };
 }
 
-type AthleteRef = { childId?: string | null; userId?: string | null; unregisteredId?: string | null };
+export type AthleteRef = { childId?: string | null; userId?: string | null; unregisteredId?: string | null };
 
-type CreditEnrollment = {
+export type CreditEnrollment = {
   id: string; sessions_used: number; max_sessions: number | null;
   secondary_sessions_used: number; max_secondary_sessions: number | null;
   expires_at: string | null; plan_name: string | null;
 };
 
 /** Reserva del día que la asistencia puede consumir en vez de descontar otra clase. */
-type FreeBooking = {
+export type FreeBooking = {
   source: 'session_bookings' | 'facility_reservations';
   id: string;
   session_id: string | null;
@@ -113,7 +113,7 @@ type FreeBooking = {
   start_time: string | null;
 };
 
-type CreditOutcome =
+export type CreditOutcome =
   | 'deducted'            // se descontó una clase
   | 'covered_by_booking'  // ya tenía reserva ese día: no se descuenta
   | 'returned'            // corrección a ausente: crédito devuelto
@@ -125,13 +125,13 @@ type CreditOutcome =
 
 const PLAN_JOIN = 'offering_plans!enrollments_offering_plan_id_fkey(name, max_sessions, max_secondary_sessions)';
 
-function athleteFilter(a: AthleteRef): Record<string, string> {
+export function athleteFilter(a: AthleteRef): Record<string, string> {
   if (a.childId) return { child_id: a.childId };
   if (a.userId)  return { user_id: a.userId };
   return { unregistered_athlete_id: a.unregisteredId as string };
 }
 
-function athleteKey(a: AthleteRef): string | null {
+export function athleteKey(a: AthleteRef): string | null {
   return a.childId ?? a.userId ?? a.unregisteredId ?? null;
 }
 
@@ -203,7 +203,7 @@ function tieneSaldo(c: CreditEnrollment, isSecondary: boolean, today: string): b
  * sabe cuál le está mostrando al entrenador. Equipo y sesión ya lo hacen. Esta
  * función es el respaldo para los que todavía no.
  */
-async function findCreditEnrollment(
+export async function findCreditEnrollment(
   schoolId: string, athlete: AthleteRef, isSecondary = false, day?: string,
 ): Promise<CreditEnrollment | null> {
   const key = athleteKey(athlete);
@@ -239,7 +239,7 @@ async function findCreditEnrollment(
  * Filtra por `school_id` a propósito: el id viene del cliente y sin eso se
  * podría descontar de la inscripción de otra escuela.
  */
-async function loadCreditEnrollment(enrollmentId: string, schoolId: string): Promise<CreditEnrollment | null> {
+export async function loadCreditEnrollment(enrollmentId: string, schoolId: string): Promise<CreditEnrollment | null> {
   if (!enrollmentId || !schoolId) return null;
 
   const { data } = await supabase
@@ -270,9 +270,9 @@ async function loadCreditEnrollment(enrollmentId: string, schoolId: string): Pro
  * Nunca revienta la asistencia: si el aviso falla, la clase ya quedó registrada
  * y eso es lo que no se puede perder.
  */
-type HitoPlan = 'ultima' | 'excedida' | 'vencida';
+export type HitoPlan = 'ultima' | 'excedida' | 'vencida';
 
-async function avisarHitoDePlan(
+export async function avisarHitoDePlan(
   schoolId: string, athlete: AthleteRef, hito: HitoPlan,
   ctx: { fecha: string; plan?: string | null; tope?: number | null; usadas?: number | null },
 ): Promise<void> {
@@ -329,7 +329,7 @@ async function avisarHitoDePlan(
  * read-modify-write desde acá hacía que dos reservas simultáneas consumieran un
  * solo crédito (el RPC toma SELECT … FOR UPDATE sobre la inscripción).
  */
-async function moveCredit(enrollmentId: string, delta: 1 | -1, isSecondary: boolean): Promise<any> {
+export async function moveCredit(enrollmentId: string, delta: 1 | -1, isSecondary: boolean): Promise<any> {
   const { data, error } = await supabase.rpc('move_session_credit', {
     p_enrollment_id: enrollmentId,
     p_delta: delta,
@@ -345,7 +345,7 @@ async function moveCredit(enrollmentId: string, delta: 1 | -1, isSecondary: bool
  * Sin esto, reservar a las 6pm y ser marcado presente en la sesión de las 4pm
  * descontaba dos clases por un solo entrenamiento.
  */
-async function findFreeBookingOfDay(
+export async function findFreeBookingOfDay(
   schoolId: string, athlete: AthleteRef, day: string,
   isSecondary: boolean, preferSessionId?: string | null,
 ): Promise<FreeBooking | null> {
@@ -400,7 +400,7 @@ async function findFreeBookingOfDay(
  * candado; el riesgo es acotado porque el slot de instalación es exclusivo
  * (`facility_reservations_unique_active_slot`), o sea una reserva por bloque.
  */
-async function consumeBooking(booking: FreeBooking): Promise<void> {
+export async function consumeBooking(booking: FreeBooking): Promise<void> {
   if (booking.source !== 'session_bookings') return;
   await supabase.from('session_bookings')
     .update({ status: 'attended', updated_at: new Date().toISOString() })
@@ -508,7 +508,7 @@ type TeamSessionLookup =
   | { kind: 'one';  session: any }
   | { kind: 'many'; sessions: TeamSessionRow[] };
 
-async function findTeamSessionOfDay(
+export async function findTeamSessionOfDay(
   teamId: string,
   date: string,
   columns = 'id, finalized, start_time',
@@ -533,6 +533,203 @@ async function findTeamSessionOfDay(
   return { kind: 'many', sessions: rows as TeamSessionRow[] };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Check-in por evento (torniquete ZKTeco / QR de carnet) — Fase 2,
+// docs/specs/asistencia-rapida-checkin.md §2.2 y §5.
+//
+// Reusa EXACTAMENTE la misma lógica de crédito que POST /session (findCredit-
+// Enrollment/moveCredit/findFreeBookingOfDay/consumeBooking/avisarHitoDePlan)
+// en vez de un INSERT simplificado a attendance_records: un check-in que solo
+// marca presente sin descontar la clase del plan rompe el sistema de créditos
+// y nunca dispara el aviso de "última clase" (avisarHitoDePlan). Nunca marca
+// ausente ni toca sesiones ya finalizadas — eso lo sigue resolviendo el coach
+// a mano.
+//
+// Idempotencia (D3 del spec: "gana el primer scan"): si el atleta YA estaba
+// presente en esta sesión, el upsert solo actualiza check_in_method/timestamp
+// — no vuelve a descontar crédito ni a disparar avisos.
+// ─────────────────────────────────────────────────────────────────────────────
+export type CheckInOutcome =
+  | CreditOutcome
+  | 'no_team'           // el atleta no tiene equipo asociado, o hay varias sesiones hoy (ambiguo)
+  | 'session_closed'    // la sesión de hoy ya está finalizada; no se reabre desde acá
+  | 'already_present';  // ya había check-in hoy para esta sesión; no se cobra dos veces
+
+export async function checkInPresenceFromEvent(params: {
+  schoolId: string;
+  athlete: AthleteRef;
+  enrollmentId: string;
+  occurredAt: string; // ISO
+  checkInMethod: 'turnstile' | 'qr';
+}): Promise<{ outcome: CheckInOutcome; sessionId?: string }> {
+  const { schoolId, athlete, enrollmentId, occurredAt, checkInMethod } = params;
+  const athleteId = athleteKey(athlete);
+  if (!athleteId) return { outcome: 'no_team' };
+
+  const { data: enr } = await supabase
+    .from('enrollments')
+    .select('team_id')
+    .eq('id', enrollmentId)
+    .eq('school_id', schoolId)
+    .maybeSingle();
+  const teamId = (enr as any)?.team_id as string | undefined;
+  if (!teamId) return { outcome: 'no_team' }; // sin equipo, no hay a qué sesión hacer check-in
+
+  const today = new Date(occurredAt).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+
+  const lookup = await findTeamSessionOfDay(teamId, today);
+  if (lookup.kind === 'many') return { outcome: 'no_team' }; // ambiguo — no adivinar (§2.2)
+
+  let finalSessionId: string;
+  if (lookup.kind === 'one') {
+    if ((lookup as any).session.finalized) return { outcome: 'session_closed' };
+    finalSessionId = (lookup as any).session.id;
+  } else {
+    const { data: session, error } = await supabase.from('attendance_sessions')
+      .insert({ school_id: schoolId, team_id: teamId, session_date: today, created_by: null, coach_id: null })
+      .select('id').single();
+    if (error) throw error;
+    finalSessionId = session.id;
+  }
+
+  // ¿Ya estaba presente en ESTA sesión? Antes de escribir, para no cobrar
+  // crédito dos veces por dos escaneos del mismo entrenamiento (D3).
+  const { data: prev } = await supabase
+    .from('attendance_records')
+    .select('status')
+    .eq('session_id', finalSessionId)
+    .match(athleteFilter(athlete))
+    .maybeSingle();
+  const wasPresent = (prev as any)?.status === 'present';
+
+  const { error: upsertErr } = await supabase.rpc('upsert_attendance_record', {
+    p_school_id:       schoolId,
+    p_session_id:      finalSessionId,
+    p_attendance_date: today,
+    p_status:          'present',
+    p_team_id:         teamId,
+    p_marked_by:       null,
+    p_child_id:        athlete.childId ?? null,
+    p_user_id:         athlete.userId ?? null,
+    p_unregistered_id: athlete.unregisteredId ?? null,
+    p_check_in_method: checkInMethod,
+  });
+  if (upsertErr) throw upsertErr;
+
+  if (wasPresent) return { outcome: 'already_present', sessionId: finalSessionId };
+
+  // ── Crédito, igual que POST /session — nunca bloquea el check-in ya escrito ──
+  const credit = (await loadCreditEnrollment(enrollmentId, schoolId))
+    ?? (await findCreditEnrollment(schoolId, athlete, false, today));
+  if (!credit) return { outcome: 'no_plan', sessionId: finalSessionId };
+
+  const freeBooking = await findFreeBookingOfDay(schoolId, athlete, today, false, finalSessionId);
+  if (freeBooking) {
+    await consumeBooking(freeBooking);
+    return { outcome: 'covered_by_booking', sessionId: finalSessionId };
+  }
+
+  if (credit.expires_at && credit.expires_at < today) {
+    await avisarHitoDePlan(schoolId, athlete, 'vencida', { fecha: today, plan: credit.plan_name, tope: credit.max_sessions });
+    return { outcome: 'expired', sessionId: finalSessionId };
+  }
+
+  const usadas = credit.sessions_used;
+  const tope   = credit.max_sessions;
+  if (tope !== null && usadas >= tope) {
+    await avisarHitoDePlan(schoolId, athlete, 'excedida', { fecha: today, plan: credit.plan_name, tope, usadas });
+    return { outcome: 'no_credits', sessionId: finalSessionId };
+  }
+
+  const moved = await moveCredit(credit.id, 1, false);
+  if (moved?.moved && tope !== null && usadas + 1 >= tope) {
+    await avisarHitoDePlan(schoolId, athlete, 'ultima', { fecha: today, plan: credit.plan_name, tope, usadas: usadas + 1 });
+  }
+  return { outcome: moved?.moved ? 'deducted' : 'no_credits', sessionId: finalSessionId };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Check-in por QR de carnet — Fase 4, docs/specs/asistencia-rapida-checkin.md
+// §3.2. Resuelve el atleta y su inscripción a partir del qr_token y delega en
+// checkInPresenceFromEvent — mismo resolver que el torniquete, no un tercer
+// camino de escritura.
+// ─────────────────────────────────────────────────────────────────────────────
+export type CardCheckInOutcome =
+  | CheckInOutcome
+  | 'card_not_found'
+  | 'card_revoked'
+  | 'card_expired'
+  | 'wrong_school'
+  | 'no_team';
+
+export async function checkInByCardToken(params: {
+  qrToken: string;
+  /** Escuela del staff que hace el escaneo — un carnet de OTRA escuela nunca
+   *  pasa, así el caller no tenga que acordarse de chequearlo. */
+  requestingSchoolId: string;
+}): Promise<{ outcome: CardCheckInOutcome; athleteName?: string; sessionId?: string }> {
+  const { qrToken, requestingSchoolId } = params;
+
+  const { data: card } = await supabase
+    .from('athlete_id_cards')
+    .select('school_id, status, valid_until, child_id, profile_id, unregistered_athlete_id')
+    .eq('qr_token', qrToken)
+    .maybeSingle();
+
+  if (!card) return { outcome: 'card_not_found' };
+  if ((card as any).status === 'revoked') return { outcome: 'card_revoked' };
+  if ((card as any).school_id !== requestingSchoolId) return { outcome: 'wrong_school' };
+
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+  if ((card as any).valid_until < today) return { outcome: 'card_expired' };
+
+  const athlete: AthleteRef = {
+    childId: (card as any).child_id,
+    userId: (card as any).profile_id,
+    unregisteredId: (card as any).unregistered_athlete_id,
+  };
+  const schoolId = (card as any).school_id as string;
+
+  // Nombre para mostrarle al coach en el resultado del escaneo.
+  let athleteName = 'Atleta';
+  if (athlete.childId) {
+    const { data } = await supabase.from('children').select('full_name').eq('id', athlete.childId).maybeSingle();
+    athleteName = (data as any)?.full_name ?? athleteName;
+  } else if (athlete.userId) {
+    const { data } = await supabase.from('profiles').select('full_name').eq('id', athlete.userId).maybeSingle();
+    athleteName = (data as any)?.full_name ?? athleteName;
+  } else if (athlete.unregisteredId) {
+    const { data } = await supabase.from('unregistered_athletes').select('full_name').eq('id', athlete.unregisteredId).maybeSingle();
+    athleteName = (data as any)?.full_name ?? athleteName;
+  }
+
+  // Inscripción activa CON equipo — sin esto no hay a qué sesión hacer check-in
+  // (mismo criterio "no adivinar" que el puente ZKTeco). Si hay más de una
+  // (multi-equipo), gana la más reciente — igual que el resto de heurísticas
+  // de esta misma tabla cuando el llamador no puede decir cuál es.
+  const { data: enrollments } = await supabase
+    .from('enrollments')
+    .select('id, team_id, created_at')
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+    .not('team_id', 'is', null)
+    .match(athleteFilter(athlete))
+    .order('created_at', { ascending: false });
+
+  const enrollmentId = (enrollments || [])[0]?.id as string | undefined;
+  if (!enrollmentId) return { outcome: 'no_team', athleteName };
+
+  const result = await checkInPresenceFromEvent({
+    schoolId,
+    athlete,
+    enrollmentId,
+    occurredAt: new Date().toISOString(),
+    checkInMethod: 'qr',
+  });
+
+  return { outcome: result.outcome, athleteName, sessionId: result.sessionId };
+}
+
 const MESES_ES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 /** "agosto 2026" — el concepto del cobro lo lee un papá, no un sistema. */
 function monthLabelEs(month: string): string {
@@ -542,6 +739,24 @@ function monthLabelEs(month: string): string {
 
 const MULTIPLE_SESSIONS_MSG =
   'Este equipo tiene varios bloques hoy. Elige el bloque específico antes de pasar lista.';
+
+// POST /checkin-by-card — escáner in-app del carnet (Fase 4). Body: { qrToken }.
+// Requiere sesión de staff — es justo lo que evita que compartir el link del
+// carnet alcance para marcar asistencia por su cuenta (docs/specs, §3.3).
+router.post('/checkin-by-card', requireAuth, requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { qrToken } = req.body as { qrToken?: string };
+      if (!qrToken) return res.status(400).json({ error: 'qrToken es requerido.' });
+      if (!req.schoolId) return res.status(400).json({ error: 'Falta la escuela activa (x-school-id).' });
+      const result = await checkInByCardToken({ qrToken, requestingSchoolId: req.schoolId });
+      return res.json(result);
+    } catch (err: any) {
+      req.log?.error({ err: err.message || err }, 'Error en check-in por QR de carnet');
+      return res.status(500).json({ error: 'Error interno marcando asistencia por QR.' });
+    }
+  }
+);
 
 router.get('/session/:teamId', requireAuth, requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -1648,11 +1863,23 @@ router.patch('/session/:sessionId/finalize', requireAuth, requireRole('owner', '
         .eq('id', sessionId);
       if (updateErr) throw updateErr;
 
+      // Pieza D (docs/specs/asistencia-rapida-checkin.md §4.2): a quien tenía
+      // inscripción activa y quedó sin registro se lo marca ausente y se avisa.
+      // Nunca debe tumbar la finalización ya confirmada arriba.
+      let ausenciasMarcadas = 0;
+      try {
+        const { data: absResult } = await supabase.rpc('mark_session_absences', { p_session_id: sessionId });
+        ausenciasMarcadas = (absResult as any)?.marked ?? 0;
+      } catch (err) {
+        req.log?.error({ err }, 'mark_session_absences falló al finalizar (no bloquea)');
+      }
+
       return res.json({
         success: true, message: 'Sesión finalizada correctamente.',
         summary: {
           bookings_processed: bookingsPreview?.length ?? 0,
           details: (bookingsPreview || []).map((b: any) => ({ booking_id: b.id, booking_type: b.booking_type, is_secondary: b.is_secondary })),
+          ausencias_marcadas: ausenciasMarcadas,
         },
       });
     } catch (err: any) {

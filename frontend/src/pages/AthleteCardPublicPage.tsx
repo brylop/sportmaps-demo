@@ -1,10 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Loader2, Download, AlertCircle } from 'lucide-react';
+import { Loader2, Download, AlertCircle, CheckCircle2, AlertTriangle, XCircle, LogIn, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { AthleteIdCard, type CardData } from '@/components/cards/AthleteIdCard';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
+import { bffClient, BFFError } from '@/lib/api/bffClient';
+import { type CheckInResponse, resolveOutcomeInfo, MARKED_PRESENT } from '@/lib/attendanceCheckInOutcomes';
+
+// Fase 4 — panel de acciones para staff (docs/specs/asistencia-rapida-checkin.md
+// §3.2, decisión D2). Esta página es pública (cualquiera con el link ve el
+// carnet), pero si quien la abre YA tiene sesión de staff de la MISMA escuela
+// — típico: escaneó con la cámara normal del teléfono, no con el escáner
+// in-app — puede marcar asistencia sin salir de acá. Si no tiene sesión, se le
+// ofrece loguearse inline (D2: "sí, login inline" — costo de un botón, riesgo
+// cero porque la escritura se valida en el servidor pase lo que pase acá).
+const STAFF_ROLES = new Set(['owner', 'super_admin', 'admin', 'school_admin', 'coach']);
 
 export default function AthleteCardPublicPage() {
   const { qrToken } = useParams<{ qrToken: string }>();
@@ -13,6 +26,16 @@ export default function AthleteCardPublicPage() {
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const { toast } = useToast();
+  const { user, profile, loading: authLoading, signIn } = useAuth();
+
+  const [showStaffLogin, setShowStaffLogin] = useState(false);
+  const [staffEmail, setStaffEmail] = useState('');
+  const [staffPassword, setStaffPassword] = useState('');
+  const [signingIn, setSigningIn] = useState(false);
+  const [checkingIn, setCheckingIn] = useState(false);
+  const [checkInResult, setCheckInResult] = useState<{ athleteName: string; label: string; tone: 'ok' | 'warn' | 'err' } | null>(null);
+
+  const isStaffRole = !!profile && STAFF_ROLES.has(profile.role);
 
   useEffect(() => {
     if (!qrToken) return;
@@ -55,6 +78,39 @@ export default function AthleteCardPublicPage() {
       toast({ title: 'No se pudo descargar', description: e?.message || 'Error', variant: 'destructive' });
     } finally {
       setDownloading(false);
+    }
+  }
+
+  async function handleStaffSignIn(e: React.FormEvent) {
+    e.preventDefault();
+    setSigningIn(true);
+    try {
+      await signIn(staffEmail, staffPassword);
+      setStaffPassword('');
+    } catch {
+      // signIn ya muestra su propio toast de error
+    } finally {
+      setSigningIn(false);
+    }
+  }
+
+  async function handleMarkAttendance() {
+    if (!data?.qr_token || !data.school?.id) return;
+    setCheckingIn(true);
+    setCheckInResult(null);
+    try {
+      const result = await bffClient.post<CheckInResponse>(
+        '/api/v1/attendance/checkin-by-card',
+        { qrToken: data.qr_token },
+        { 'x-school-id': data.school.id },
+      );
+      const info = resolveOutcomeInfo(result.outcome);
+      setCheckInResult({ athleteName: result.athleteName || data.athlete?.full_name || 'Atleta', ...info });
+    } catch (err: any) {
+      const msg = err instanceof BFFError ? err.message : (err?.message || 'No se pudo marcar asistencia.');
+      toast({ title: 'Error', description: msg, variant: 'destructive' });
+    } finally {
+      setCheckingIn(false);
     }
   }
 
@@ -108,6 +164,75 @@ export default function AthleteCardPublicPage() {
         <div className="max-w-sm bg-red-50 border border-red-200 rounded-lg p-3 text-center text-sm text-red-700">
           <strong>Cuota vencida.</strong> Realiza tu próximo pago para mantener el carnet vigente.
         </div>
+      )}
+
+      {data.status === 'active' && !authLoading && (
+        isStaffRole ? (
+          <div className="w-full max-w-sm bg-white border rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              Panel de staff
+            </div>
+            <Button onClick={handleMarkAttendance} disabled={checkingIn} className="w-full gap-2">
+              {checkingIn ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              Marcar asistencia
+            </Button>
+            {checkInResult && (
+              <div
+                className={`rounded-lg border p-3 flex items-center gap-2 text-sm ${
+                  checkInResult.tone === 'ok'
+                    ? 'bg-green-50 border-green-200 text-green-700'
+                    : checkInResult.tone === 'warn'
+                    ? 'bg-yellow-50 border-yellow-200 text-yellow-700'
+                    : 'bg-red-50 border-red-200 text-red-700'
+                }`}
+              >
+                {checkInResult.tone === 'ok' ? <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  : checkInResult.tone === 'warn' ? <AlertTriangle className="h-4 w-4 shrink-0" />
+                  : <XCircle className="h-4 w-4 shrink-0" />}
+                <div>
+                  <p className="font-semibold">{checkInResult.athleteName}</p>
+                  <p className="text-xs opacity-90">{checkInResult.label}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : !user ? (
+          <div className="w-full max-w-sm">
+            {!showStaffLogin ? (
+              <button
+                type="button"
+                className="text-xs text-muted-foreground underline underline-offset-2 mx-auto block"
+                onClick={() => setShowStaffLogin(true)}
+              >
+                ¿Sos del staff de esta escuela? Iniciar sesión
+              </button>
+            ) : (
+              <form onSubmit={handleStaffSignIn} className="bg-white border rounded-xl p-4 space-y-2">
+                <p className="text-xs font-semibold text-gray-700 flex items-center gap-1.5 mb-1">
+                  <LogIn className="h-3.5 w-3.5" /> Iniciar sesión de staff
+                </p>
+                <Input
+                  type="email"
+                  placeholder="Correo"
+                  value={staffEmail}
+                  onChange={(e) => setStaffEmail(e.target.value)}
+                  required
+                />
+                <Input
+                  type="password"
+                  placeholder="Contraseña"
+                  value={staffPassword}
+                  onChange={(e) => setStaffPassword(e.target.value)}
+                  required
+                />
+                <Button type="submit" disabled={signingIn} className="w-full">
+                  {signingIn ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Ingresar'}
+                </Button>
+              </form>
+            )}
+          </div>
+        ) : null
       )}
     </div>
   );

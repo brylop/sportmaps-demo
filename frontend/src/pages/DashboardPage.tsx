@@ -16,7 +16,7 @@ import { useNotifications, useDashboardStats } from '@/hooks/useDashboardStats';
 import { useDashboardStatsReal } from '@/hooks/useDashboardStatsReal'; // Import the new hook
 import WelcomeSplash from '@/components/WelcomeSplash';
 import { UserRole, OnboardingStep } from '@/types/dashboard';
-import { Plus, MapPin, Zap } from 'lucide-react';
+import { Plus, MapPin, Zap, CalendarCheck, ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/utils';
 import { DashboardChecklist } from '@/components/dashboard/DashboardChecklist';
@@ -24,6 +24,7 @@ import { InvitationBanner } from '@/components/dashboard/InvitationBanner';
 import { CoachProfileWizard } from '@/components/coach/CoachProfileWizard';
 import { SchoolOnboardingWizard } from '@/components/onboarding/SchoolOnboardingWizard';
 import { ActivateStoreCTA } from '@/components/vendor/ActivateStoreCTA';
+import { OpenTournamentsCard } from '@/components/dashboard/OpenTournamentsCard';
 import { supabase } from '@/integrations/supabase/client';
 import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 
@@ -500,8 +501,33 @@ export default function DashboardPage() {
         userName={profile.full_name?.split(' ')[0]}
       />
 
+      {/* Tomar asistencia — acceso directo grande para el coach, arriba de todo.
+          Hoy "Marcar Asistencia" vivía como botón secundario chico adentro de
+          QuickActions, debajo de las stat cards: para verlo había que scrollear.
+          El pedido fue explícito — de primeras, grande, inmediato. */}
+      {profile.role === 'coach' && (
+        <button
+          type="button"
+          onClick={() => navigate('/coach-attendance')}
+          className="w-full text-left rounded-2xl bg-gradient-to-br from-primary to-primary-dark text-primary-foreground shadow-elevation hover:shadow-performance transition-all duration-300 hover:scale-[1.01] p-5 sm:p-6 flex items-center gap-4"
+        >
+          <div className="w-14 h-14 rounded-2xl bg-white/15 flex items-center justify-center shrink-0">
+            <CalendarCheck className="w-7 h-7" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-[0.2em] opacity-80 mb-0.5">Acceso rápido</p>
+            <h3 className="text-lg sm:text-xl font-black leading-tight">Tomar asistencia</h3>
+            <p className="text-sm opacity-85 mt-0.5">Pasa lista de tu equipo de hoy en segundos</p>
+          </div>
+          <ChevronRight className="w-6 h-6 opacity-70 shrink-0" />
+        </button>
+      )}
+
       {/* CTA Activar Mi Tienda — visible solo para roles elegibles sin vendor_profile */}
       <ActivateStoreCTA />
+
+      {/* Torneos/ligas internas abiertas en mi escuela — solo padre/atleta */}
+      <OpenTournamentsCard />
 
       {/* Pending Enrollment Modal */}
       <PendingEnrollmentModal />

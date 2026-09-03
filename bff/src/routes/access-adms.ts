@@ -3,6 +3,7 @@ import express from 'express';
 import { supabase } from '../config/supabase';
 import fs from 'fs';
 import path from 'path';
+import { checkInPresenceFromEvent } from './attendance';
 
 const router = Router();
 
@@ -743,6 +744,28 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
           );
         } catch (err) {
           console.error('[ADMS] banco de horas: error trackeando visita', err);
+        }
+      }
+
+      // Puente ZKTeco → asistencia (Fase 2, docs/specs/asistencia-rapida-checkin.md
+      // §2.2/§5): solo en la ENTRADA — es "llegó", no "se fue". Mismo criterio que
+      // el banco de horas arriba: no importa access_granted (payment_overdue/
+      // enrollment_expired igual quedan registrados — D4 del spec, la asistencia
+      // nunca bloquea). checkInPresenceFromEvent decide adentro si hay a qué
+      // sesión hacer check-in; si no puede, no marca nada. Nunca debe romper el
+      // ATTLOG en vivo.
+      if (eventRecord && validation.enrollmentId && eventDirection === 'entry') {
+        try {
+          const outcome = await checkInPresenceFromEvent({
+            schoolId,
+            athlete: { userId: validation.userId, unregisteredId: validation.unregisteredAthleteId },
+            enrollmentId: validation.enrollmentId,
+            occurredAt,
+            checkInMethod: 'turnstile',
+          });
+          logDevice('attendance_checkin', { outcome: outcome.outcome, sessionId: outcome.sessionId }, sn, schoolId);
+        } catch (err) {
+          console.error('[ADMS] asistencia: error en check-in por torniquete', err);
         }
       }
 

@@ -64,6 +64,8 @@ const PublicFacilityBookingPage = lazy(() => import("./pages/booking/PublicFacil
 const PublicTrialClassBookingPage = lazy(() => import("./pages/booking/PublicTrialClassBookingPage"));
 const EventIndividualRegisterPage = lazy(() => import("./pages/events/EventIndividualRegisterPage"));
 const MyEventRegistrationsPage = lazy(() => import("./pages/events/MyEventRegistrationsPage"));
+const TournamentRegisterPage = lazy(() => import("./pages/events/TournamentRegisterPage"));
+const TournamentResultsPage = lazy(() => import("./pages/events/TournamentResultsPage"));
 
 // ─── Polls (lazy) ────────────────────────────────────────────────────────────
 const PollsPage = lazy(() => import("./pages/polls/PollsPage"));
@@ -98,6 +100,7 @@ const AccountStatementPage = lazy(() => import("./pages/AccountStatementPage"));
 
 // ─── Coach pages (lazy) ───────────────────────────────────────────────────────
 const CoachAttendancePage = lazy(() => import("./pages/CoachAttendancePage"));
+const CoachCheckInScanPage = lazy(() => import("./pages/CoachCheckInScanPage"));
 const CoachPlansPage = lazy(() => import("./pages/CoachPlansPage"));
 const ResultsPage = lazy(() => import("./pages/ResultsPage"));
 const TrainingPlansPage = lazy(() => import("./pages/TrainingPlansPage"));
@@ -356,6 +359,7 @@ const App = () => (
                     <Route path="/event/:slug" element={<EventPublicPage />} />
                     <Route path="/event/:eventId/register" element={<EventIndividualRegisterPage />} />
                     <Route path="/my-event-registrations" element={<MyEventRegistrationsPage />} />
+                    <Route path="/tournaments/:eventId/results" element={<TournamentResultsPage />} />
                     <Route path="/s/:slug" element={<PublicSchoolPage />} />
                     <Route path="/polls/v/:pollId" element={<PublicPollPage />} />
 
@@ -450,6 +454,11 @@ const App = () => (
                           <MyPaymentsPage />
                         </ProtectedRoute>
                       } />
+                      <Route path="tournaments/:eventId/register" element={
+                        <ProtectedRoute allowedRoles={['parent', 'athlete']}>
+                          <TournamentRegisterPage />
+                        </ProtectedRoute>
+                      } />
                       {/* Estado de Cuenta: misma RPC/pantalla para admin (viendo
                           cualquier atleta) y para el padre/adulto (viendo el
                           suyo propio) — el gate lo resuelve la RPC, no la ruta. */}
@@ -497,6 +506,7 @@ const App = () => (
 
                       {/* Coach routes */}
                       <Route path="coach-attendance" element={<CoachAttendancePage />} />
+                      <Route path="coach-attendance/scan" element={<CoachCheckInScanPage />} />
                       <Route path="coach-plans" element={<CoachPlansPage />} />
                       <Route path="results" element={<ResultsPage />} />
                       <Route path="training-plans" element={
