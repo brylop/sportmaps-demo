@@ -223,11 +223,12 @@ export async function deliverPublishedReports(
             continue;
         }
 
-        // Enlace a la evolución del atleta, que es la pantalla que YA existe. La
-        // vista dedicada del informe es F4; mientras no exista, mandar a una ruta
-        // inventada sería mandar al vacío.
+        // F4 (vista dedicada) ya existe para menores —
+        // /children/:id/reports/:reportId (ChildReportDetailPage), con PDF al
+        // vuelo. Para atleta adulto (subject_type='profile') todavía no hay
+        // página propia, así que sigue cayendo a la evolución general.
         const link = informe.subject_type === 'child'
-            ? `${FRONTEND_URL}/children/${informe.subject_id}/progress`
+            ? `${FRONTEND_URL}/children/${informe.subject_id}/reports/${informe.id}`
             : `${FRONTEND_URL}/stats`;
 
         const { subject, html } = renderReportEmail(snapshot, link);
@@ -241,7 +242,7 @@ export async function deliverPublishedReports(
             title: subject,
             message: `Ya está disponible el informe de ${snapshot.period.label}.`,
             link: informe.subject_type === 'child'
-                ? `/children/${informe.subject_id}/progress`
+                ? `/children/${informe.subject_id}/reports/${informe.id}`
                 : '/stats',
         });
 

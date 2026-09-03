@@ -672,6 +672,24 @@ router.delete('/training/cancel-pt-session', async (req: Request, res: Response)
     if (!plan) return res.status(404).json({ error: 'Sesión no encontrada.' });
     if (plan.status === 'completed') return res.status(400).json({ error: 'No se puede cancelar una sesión completada.' });
 
+    // ✅ Validar dueño: el propio atleta, o el padre si es sesión de un hijo —
+    // sin esto, cualquier atleta/padre podía forzar a pending_review (o
+    // cancelar) la sesión PT de OTRO cliente con solo conocer su plan_id.
+    const isOwner = plan.client_type !== 'child' && plan.client_id === callerId;
+    let isParent = false;
+    if (!isOwner && plan.client_type === 'child') {
+      const { data: child } = await supabase
+        .from('children')
+        .select('id')
+        .eq('id', plan.client_id)
+        .eq('parent_id', callerId)
+        .maybeSingle();
+      isParent = !!child;
+    }
+    if (!isOwner && !isParent) {
+      return res.status(403).json({ error: 'Sin permisos sobre esta sesión.' });
+    }
+
     // ✅ Validar ventana de 4h (hora Colombia UTC-5)
     if (plan.session_date && plan.session_time) {
       const sessionCO  = new Date(`${plan.session_date}T${plan.session_time.substring(0, 8)}`);

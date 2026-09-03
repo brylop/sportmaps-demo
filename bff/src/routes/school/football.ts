@@ -662,7 +662,7 @@ function validatePresetSlots(slots: any[]): string[] {
 }
 
 const VALID_ARROW_COLORS = ['white', 'yellow', 'red', 'blue'] as const;
-const VALID_SHAPE_TYPES = ['arrow', 'curve', 'zone'] as const;
+const VALID_SHAPE_TYPES = ['arrow', 'curve', 'zone', 'cone', 'ball', 'goal', 'opponent', 'hurdle'] as const;
 
 /** Figuras del modo pizarra (P2d) -- coordenadas en el mismo espacio 0-100
  *  que slots/x/y, para que el frontend no tenga que manejar dos sistemas.

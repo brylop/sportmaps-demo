@@ -31,9 +31,10 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, X, Bookmark, Trash2, Eye, EyeOff, ChevronUp, ChevronDown, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus } from 'lucide-react';
+import { Loader2, X, Bookmark, Trash2, Eye, EyeOff, ChevronUp, ChevronDown, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useTeamPerformanceRoster } from '@/hooks/usePerformanceData';
+import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import {
   useFootballLineups,
   useFootballLineup,
@@ -138,6 +139,36 @@ function generateFormation442(): { x: number; y: number; label: string }[] {
 /** D6 de la spec: con muy pocos jugadores con partidos registrados, "sugerir"
  *  algo sería ruido estadístico, no una sugerencia real. */
 const MIN_SUGGEST_SAMPLE = 5;
+
+/** Empareja cada punto de `from` con el más cercano de `to`, sin repetir
+ *  ninguno de los dos lados -- una aproximación simple (no es el algoritmo
+ *  húngaro/óptimo) pero alcanza para "qué jugador va a qué posición de la
+ *  plantilla" sin pedirle al coach que lo arme a mano. Se usa tanto para
+ *  aplicar una plantilla sobre jugadores ya puestos como, en principio,
+ *  para cualquier otro emparejamiento por cercanía que haga falta. */
+function greedyNearestMatch<A extends { x: number; y: number }, B extends { x: number; y: number }>(
+  from: A[],
+  to: B[],
+): { from: A; to: B }[] {
+  const pairs: { fi: number; ti: number; dist: number }[] = [];
+  from.forEach((f, fi) => {
+    to.forEach((t, ti) => {
+      pairs.push({ fi, ti, dist: Math.hypot(f.x - t.x, f.y - t.y) });
+    });
+  });
+  pairs.sort((a, b) => a.dist - b.dist);
+
+  const usedFrom = new Set<number>();
+  const usedTo = new Set<number>();
+  const matches: { from: A; to: B }[] = [];
+  for (const p of pairs) {
+    if (usedFrom.has(p.fi) || usedTo.has(p.ti)) continue;
+    usedFrom.add(p.fi);
+    usedTo.add(p.ti);
+    matches.push({ from: from[p.fi], to: to[p.ti] });
+  }
+  return matches;
+}
 
 interface PlacedSlot {
   x: number;
@@ -257,6 +288,48 @@ const ARROW_COLOR_HEX: Record<TacticalArrowColor, string> = {
   blue: '#38bdf8',
 };
 
+/** cono/balón/valla/contrincante/implemento: objetos de UN punto (se
+ *  colocan con un toque, no arrastrando de un punto A a un punto B como
+ *  flecha/curva/zona). */
+const POINT_SHAPE_TYPES: TacticalShapeType[] = ['cone', 'ball', 'goal', 'opponent', 'hurdle'];
+const isPointShape = (t: TacticalShapeType | undefined) => !!t && POINT_SHAPE_TYPES.includes(t);
+
+const OBJECT_LABEL: Record<'cone' | 'ball' | 'goal' | 'opponent' | 'hurdle', string> = {
+  cone: 'Cono', ball: 'Balón', goal: 'Valla', opponent: 'Contrincante', hurdle: 'Vallita',
+};
+
+/** Ícono de cada objeto, dibujado a mano en vez de emoji para 'cone'/'hurdle'
+ *  (no hay un emoji de cono confiable multiplataforma) y 'opponent' (mismo
+ *  estilo de disco que PitchPin, en rojo, para que se lea como "del otro
+ *  equipo" de un vistazo). 'ball'/'goal' sí tienen emoji bien soportado. */
+function ObjectIcon({ type, x, y }: { type: TacticalShapeType; x: number; y: number }) {
+  switch (type) {
+    case 'cone':
+      return <polygon points={`${x},${y - 6} ${x - 5},${y + 6} ${x + 5},${y + 6}`} fill="#f97316" stroke="#7c2d12" strokeWidth={0.8} />;
+    case 'hurdle':
+      return (
+        <g stroke="#e2e8f0" strokeWidth={1.2}>
+          <line x1={x - 6} y1={y + 4} x2={x + 6} y2={y + 4} />
+          <line x1={x - 5} y1={y + 4} x2={x - 5} y2={y - 3} />
+          <line x1={x + 5} y1={y + 4} x2={x + 5} y2={y - 3} />
+        </g>
+      );
+    case 'opponent':
+      return (
+        <>
+          <circle cx={x} cy={y} r={7} fill="#dc2626" stroke="white" strokeWidth={1.5} />
+          <text x={x} y={y + 3} textAnchor="middle" fontSize={8} fontWeight={800} fill="white">R</text>
+        </>
+      );
+    case 'ball':
+      return <text x={x} y={y + 4} textAnchor="middle" fontSize={12}>⚽</text>;
+    case 'goal':
+      return <text x={x} y={y + 4} textAnchor="middle" fontSize={13}>🥅</text>;
+    default:
+      return null;
+  }
+}
+
 /** Punto en el mismo espacio 0-100 que x/y de jugadores y slots -- se
  *  convierte al viewBox real (300x340, igual que FootballPitchBackground)
  *  solo al dibujar, para no manejar dos sistemas de coordenadas. */
@@ -308,7 +381,10 @@ function ArrowLayer({
   const svgRef = useRef<SVGSVGElement>(null);
   const [preview, setPreview] = useState<{ start: ArrowPoint; current: ArrowPoint } | null>(null);
   const [measurePoints, setMeasurePoints] = useState<ArrowPoint[]>([]);
-  const draggingHandle = useRef<{ index: number; endpoint: 'start' | 'end' } | null>(null);
+  // `moved` distingue un tap real (borra un objeto de un punto) de un drag
+  // (lo reposiciona) -- se marca en handleHandlePointerMove, que el
+  // navegador solo dispara cuando el puntero de verdad se movió.
+  const draggingHandle = useRef<{ index: number; endpoint: 'start' | 'end'; moved: boolean } | null>(null);
   const draggingMeasurePoint = useRef<0 | 1 | null>(null);
 
   const toSvg = (p: ArrowPoint) => ({ x: p.x * 3, y: p.y * 3.4 });
@@ -326,6 +402,12 @@ function ArrowLayer({
     if (measureMode || !drawMode) return;
     const p = pctFromEvent(e);
     if (!p) return;
+    // Objetos de un punto (cono/balón/valla/contrincante/vallita) se colocan
+    // con un toque, no con un arrastre de A a B como flecha/curva/zona.
+    if (isPointShape(drawShapeType)) {
+      onCreateShape({ type: drawShapeType, x1: p.x, y1: p.y, x2: p.x, y2: p.y, color: drawColor });
+      return;
+    }
     e.currentTarget.setPointerCapture(e.pointerId);
     setPreview({ start: p, current: p });
   }
@@ -377,22 +459,38 @@ function ArrowLayer({
     draggingMeasurePoint.current = null;
   }
 
-  function handleHandlePointerDown(index: number, endpoint: 'start' | 'end', e: ReactPointerEvent<SVGCircleElement>) {
+  function handleHandlePointerDown(index: number, endpoint: 'start' | 'end', e: ReactPointerEvent<SVGCircleElement | SVGGElement>) {
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
-    draggingHandle.current = { index, endpoint };
+    draggingHandle.current = { index, endpoint, moved: false };
   }
 
-  function handleHandlePointerMove(e: ReactPointerEvent<SVGCircleElement>) {
+  function handleHandlePointerMove(e: ReactPointerEvent<SVGCircleElement | SVGGElement>) {
     const dh = draggingHandle.current;
     if (!dh) return;
     const p = pctFromEvent(e);
     if (!p) return;
+    dh.moved = true;
+    // Objeto de un punto: mover su único handle actualiza x1/y1 Y x2/y2
+    // juntos, para que se mantengan iguales (así el ícono se sigue
+    // dibujando en un solo punto, no como si fuera una línea).
+    if (isPointShape(shapes[dh.index]?.type)) {
+      onUpdateShape(dh.index, { x1: p.x, y1: p.y, x2: p.x, y2: p.y });
+      return;
+    }
     onUpdateShape(dh.index, dh.endpoint === 'start' ? { x1: p.x, y1: p.y } : { x2: p.x, y2: p.y });
   }
 
   function handleHandlePointerUp() {
     draggingHandle.current = null;
+  }
+
+  /** Solo para objetos de un punto: soltar sin haber movido = borrar (un
+   *  "tap" limpio); soltar habiendo arrastrado = solo reposicionar, no borra. */
+  function handleObjectPointerUp(index: number) {
+    const wasTap = draggingHandle.current !== null && !draggingHandle.current.moved;
+    draggingHandle.current = null;
+    if (wasTap) onDeleteShape(index);
   }
 
   // Ancho real = largo * proporción de la cancha (300/340) -- la cancha no
@@ -410,7 +508,7 @@ function ArrowLayer({
       ref={svgRef}
       viewBox="0 0 300 340"
       preserveAspectRatio="none"
-      className={`absolute inset-0 w-full h-full z-40 ${
+      className={`absolute inset-0 w-full h-full z-40 touch-none ${
         measureMode ? 'cursor-crosshair pointer-events-auto' : drawMode ? 'cursor-crosshair pointer-events-auto' : 'pointer-events-none'
       }`}
       onPointerDown={handleCanvasPointerDown}
@@ -433,6 +531,24 @@ function ArrowLayer({
         const p2 = toSvg({ x: s.x2, y: s.y2 });
         const color = ARROW_COLOR_HEX[s.color ?? 'white'];
         const type = s.type ?? 'arrow';
+
+        if (isPointShape(type)) {
+          // Objeto de un punto: el ícono ENTERO es el handle -- un solo
+          // toque para mover, tocar sin arrastrar para borrar (mismo umbral
+          // de distancia que ya usa handleCanvasPointerUp para no confundir
+          // un tap con un drag).
+          return (
+            <g
+              key={i}
+              className="pointer-events-auto cursor-grab touch-none"
+              onPointerDown={(e) => handleHandlePointerDown(i, 'start', e)}
+              onPointerMove={handleHandlePointerMove}
+              onPointerUp={() => handleObjectPointerUp(i)}
+            >
+              <ObjectIcon type={type} x={p1.x} y={p1.y} />
+            </g>
+          );
+        }
 
         return (
           <g key={i}>
@@ -468,13 +584,13 @@ function ArrowLayer({
             {/* Handles -- más chicos que antes (r=5), siguen siendo
                 interactivos siempre, muevan o no drawMode/measureMode. */}
             <circle cx={p1.x} cy={p1.y} r={3.2} fill="white" stroke={color} strokeWidth={1.5}
-              className="pointer-events-auto cursor-grab"
+              className="pointer-events-auto cursor-grab touch-none"
               onPointerDown={(e) => handleHandlePointerDown(i, 'start', e)}
               onPointerMove={handleHandlePointerMove}
               onPointerUp={handleHandlePointerUp}
             />
             <circle cx={p2.x} cy={p2.y} r={3.2} fill="white" stroke={color} strokeWidth={1.5}
-              className="pointer-events-auto cursor-grab"
+              className="pointer-events-auto cursor-grab touch-none"
               onPointerDown={(e) => handleHandlePointerDown(i, 'end', e)}
               onPointerMove={handleHandlePointerMove}
               onPointerUp={handleHandlePointerUp}
@@ -533,7 +649,7 @@ function ArrowLayer({
         return (
           <circle
             key={i} cx={svgP.x} cy={svgP.y} r={2.6} fill="#facc15" stroke="#78350f" strokeWidth={1}
-            className="pointer-events-auto cursor-grab"
+            className="pointer-events-auto cursor-grab touch-none"
             onPointerDown={(e) => handleMeasurePointerDown(i as 0 | 1, e)}
             onPointerMove={handleMeasurePointerMove}
             onPointerUp={handleMeasurePointerUp}
@@ -546,13 +662,18 @@ function ArrowLayer({
 
 /** Ficha de jugador en la cancha, estilo disco de videojuego (número de
  *  camiseta si existe, si no las iniciales) con etiqueta flotante debajo. */
-function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events }: {
+function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, animate }: {
   subject: RosterSubject;
   slot: PlacedSlot;
   onLabelChange: (label: string) => void;
   onRemove: () => void;
   onOpenCard: () => void;
   events?: { goals: number; assists: number };
+  /** true durante "Reproducir jugada" o al aplicar una plantilla sobre
+   *  jugadores ya puestos -- el cambio de left/top se anima en vez de
+   *  saltar de golpe. Fuera de esos momentos NO se anima (arrastrar se
+   *  sentiría con retraso si el transition estuviera siempre activo). */
+  animate?: boolean;
 }) {
   const key = subjectKey(subject.subject_type, subject.subject_id);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -560,7 +681,13 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events }
     data: { subject },
   });
   const [editing, setEditing] = useState(false);
+  // BenchDraggable y LineupModal ya mostraban la foto -- el pin en cancha
+  // era el único lugar que se quedaba en solo número/iniciales. `imgError`
+  // cubre el caso de una avatar_url rota (404, bucket privado, etc.): cae
+  // de vuelta al disco de siempre en vez de dejar un ícono roto.
+  const [imgError, setImgError] = useState(false);
   const displayNumber = slot.jersey_number !== '' ? String(slot.jersey_number) : null;
+  const hasPhoto = !!subject.avatar_url && !imgError;
 
   return (
     <div
@@ -570,6 +697,7 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events }
         left: `${slot.x}%`,
         top: `${slot.y}%`,
         transform: `translate(-50%, -50%) ${transform ? CSS.Translate.toString(transform) : ''}`,
+        transition: animate ? 'left 1.3s ease-in-out, top 1.3s ease-in-out' : undefined,
         zIndex: isDragging ? 30 : 10,
       }}
       className="flex flex-col items-center gap-1 touch-none"
@@ -593,12 +721,28 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events }
       >
         <div
           onClick={(e) => { e.stopPropagation(); onOpenCard(); }}
-          className={`relative h-11 w-11 rounded-full flex items-center justify-center font-black text-sm text-white cursor-pointer
-            bg-gradient-to-br from-emerald-400 via-emerald-500 to-emerald-700
+          className={`relative h-11 w-11 rounded-full overflow-hidden flex items-center justify-center font-black text-sm text-white cursor-pointer
+            ${hasPhoto ? 'bg-zinc-800' : 'bg-gradient-to-br from-emerald-400 via-emerald-500 to-emerald-700'}
             shadow-[0_3px_12px_rgba(0,0,0,0.55)] ring-2 transition-transform
             ${isDragging ? 'ring-white scale-110' : 'ring-white/80'}`}
         >
-          {displayNumber ?? initialsOf(subject.full_name)}
+          {hasPhoto ? (
+            <img
+              src={subject.avatar_url ?? undefined}
+              alt={subject.full_name}
+              className="absolute inset-0 h-full w-full object-cover"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            displayNumber ?? initialsOf(subject.full_name)
+          )}
+          {/* Con foto, el número pasa a insignia de esquina (estilo FC/PES)
+              en vez de superpuesto sobre la cara del jugador. */}
+          {hasPhoto && displayNumber && (
+            <span className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-zinc-950 ring-1 ring-white/70 text-[8px] font-black flex items-center justify-center">
+              {displayNumber}
+            </span>
+          )}
           {/* P2c: goles/asistencias de este partido, de un vistazo. */}
           {events && (events.goals > 0 || events.assists > 0) && (
             <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 flex gap-0.5 whitespace-nowrap">
@@ -689,6 +833,24 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   // Tarjeta de jugador (P1) -- se abre con la data que ya trae el roster
   // cargado (metrics + latest_values), sin pedir nada nuevo al BFF.
   const [cardSubject, setCardSubject] = useState<RosterSubject | null>(null);
+
+  // Animaciones de movimiento -- true solo mientras dura la transición CSS
+  // de PitchPin (1.3s), después vuelve a false para no dejar el transition
+  // activo durante un arrastre normal (se sentiría con retraso).
+  const [animatingMove, setAnimatingMove] = useState(false);
+  const ANIMATE_MS = 1300;
+  // Cubre TODA la secuencia de "Reproducir jugada" (ida + pausa + vuelta),
+  // no solo el tramo animado -- si solo gateara con animatingMove, el botón
+  // se re-habilitaría durante la pausa a mitad de la reproducción.
+  const [playingSequence, setPlayingSequence] = useState(false);
+  const PLAY_HOLD_MS = 900;
+
+  // Con el tablero abierto se pierde tiempo trabajando sin mover el mouse
+  // (mirando el campo, pensando la jugada) o el coach se va a otra pestaña un
+  // rato -- eso no debe contar como "inactividad" y cerrarle la sesión,
+  // borrando alineación/flechas sin guardar. Mismo mecanismo que ya usan
+  // CoachAttendancePage/RoutineFormModal para lo mismo.
+  useUnsavedChanges(`tactical-board-${sourceId}`, open);
 
   const subjects = roster?.subjects ?? [];
   const subjectByKey = useMemo(() => {
@@ -921,7 +1083,44 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   function handleLoadPreset(presetId: string) {
     const preset = presets?.find((p) => p.id === presetId);
     if (!preset) return;
-    setEmptySlots(preset.slots.map((s, i) => ({ id: `${preset.id}:${i}`, slot_label: s.slot_label, x: Number(s.x), y: Number(s.y) })));
+
+    const slots = preset.slots.map((s) => ({ slot_label: s.slot_label, x: Number(s.x), y: Number(s.y) }));
+    const placedEntries = Object.entries(placed).map(([key, slot]) => ({ key, x: slot.x, y: slot.y }));
+
+    if (placedEntries.length > 0 && slots.length > 0) {
+      // Con jugadores ya puestos, la plantilla los reubica animado hacia el
+      // slot más cercano en vez de solo dejar marcadores vacíos -- eso
+      // seguía pasando antes SIEMPRE (D8: el preset no sabe qué jugador va
+      // dónde), pero acá sí conviene mover a quien ya está, no solo sugerir
+      // dónde falta poner a alguien.
+      const matches = greedyNearestMatch(placedEntries, slots);
+      const matchedSlots = new Set(matches.map((m) => m.to));
+
+      setPlaced((prev) => {
+        const next = { ...prev };
+        for (const m of matches) {
+          const existing = next[m.from.key];
+          next[m.from.key] = {
+            x: m.to.x, y: m.to.y,
+            slot_label: m.to.slot_label,
+            labelIsCustom: false,
+            jersey_number: existing?.jersey_number ?? '',
+          };
+        }
+        return next;
+      });
+      setAnimatingMove(true);
+      setTimeout(() => setAnimatingMove(false), ANIMATE_MS);
+
+      setEmptySlots(
+        slots
+          .filter((s) => !matchedSlots.has(s))
+          .map((s, i) => ({ id: `${preset.id}:${i}`, slot_label: s.slot_label, x: s.x, y: s.y })),
+      );
+    } else {
+      setEmptySlots(slots.map((s, i) => ({ id: `${preset.id}:${i}`, slot_label: s.slot_label, x: s.x, y: s.y })));
+    }
+
     setArrows((preset.arrows ?? []).map((a) => ({ type: a.type, x1: Number(a.x1), y1: Number(a.y1), x2: Number(a.x2), y2: Number(a.y2), color: a.color })));
     setLoadedPresetId(preset.id);
   }
@@ -1006,6 +1205,82 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       title: 'XI sugerido por minutos jugados',
       description: 'Formación genérica (no conoce la posición real de cada jugador) -- reacomoda a mano lo que haga falta.',
     });
+  }
+
+  /** Distancia (en % de cancha) dentro de la cual una flecha "sale de" un
+   *  jugador -- si el inicio de la flecha no está cerca de nadie, no se
+   *  anima (es una flecha de zona/espacio, no de un jugador puntual). */
+  const PLAY_MATCH_DISTANCE = 6;
+
+  /** "Reproducir jugada": cada jugador puesto que tenga una flecha o curva
+   *  arrancando cerca de su posición se desliza animado hasta la punta de
+   *  esa flecha. Es una aproximación (línea recta con CSS, no sigue el
+   *  arco real de una curva) -- alcanza para "mostrar la jugada", no
+   *  pretende ser una animación exacta del trazo. */
+  /** Ida hasta la punta de la flecha, pausa breve mostrando la formación
+   *  final, y VUELTA al punto de partida -- así "Reproducir" es un ensayo
+   *  repetible (el coach lo aprieta las veces que quiera) y no algo que se
+   *  "gasta": si el jugador se quedara en la punta, la segunda reproducción
+   *  no tendría de dónde partir, porque el jugador ya no está donde arranca
+   *  la flecha. */
+  function handlePlayMovement() {
+    if (playingSequence) return;
+
+    const candidateArrows = arrows.filter((a) => (a.type ?? 'arrow') === 'arrow' || a.type === 'curve');
+
+    const placedEntries = Object.entries(placed);
+    const matches: { key: string; fromX: number; fromY: number; fromLabel: string; toX: number; toY: number }[] = [];
+    for (const [key, slot] of placedEntries) {
+      let closest: TacticalArrow | null = null;
+      let closestDist = PLAY_MATCH_DISTANCE;
+      for (const a of candidateArrows) {
+        const dist = Math.hypot(a.x1 - slot.x, a.y1 - slot.y);
+        if (dist < closestDist) { closest = a; closestDist = dist; }
+      }
+      if (closest) matches.push({ key, fromX: slot.x, fromY: slot.y, fromLabel: slot.slot_label, toX: closest.x2, toY: closest.y2 });
+    }
+
+    if (matches.length === 0) {
+      toast({
+        title: 'Nada que reproducir',
+        description: 'Dibuja una flecha o curva que salga de un jugador puesto en la cancha.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setPlayingSequence(true);
+
+    // 1) Ida.
+    setPlaced((prev) => {
+      const next = { ...prev };
+      for (const m of matches) {
+        next[m.key] = { ...next[m.key], x: m.toX, y: m.toY, slot_label: next[m.key]?.labelIsCustom ? next[m.key].slot_label : suggestLabel(m.toY) };
+      }
+      return next;
+    });
+    setAnimatingMove(true);
+
+    setTimeout(() => {
+      setAnimatingMove(false);
+
+      // 2) Pausa viendo la formación final, después 3) vuelta al origen.
+      setTimeout(() => {
+        setPlaced((prev) => {
+          const next = { ...prev };
+          for (const m of matches) {
+            next[m.key] = { ...next[m.key], x: m.fromX, y: m.fromY, slot_label: m.fromLabel };
+          }
+          return next;
+        });
+        setAnimatingMove(true);
+
+        setTimeout(() => {
+          setAnimatingMove(false);
+          setPlayingSequence(false);
+        }, ANIMATE_MS);
+      }, PLAY_HOLD_MS);
+    }, ANIMATE_MS);
   }
 
   // El manejo de puntero para dibujar/editar vive dentro de ArrowLayer (no
@@ -1271,6 +1546,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         onRemove={() => removeFromPitch(key)}
                         onOpenCard={() => setCardSubject(subject)}
                         events={eventSummaryByKey.get(key)}
+                        animate={animatingMove}
                       />
                     );
                   })}
@@ -1316,6 +1592,16 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Pizarra táctica</p>
                     <Button
                       size="sm"
+                      variant="outline"
+                      className="w-full h-8 gap-1.5 text-xs justify-start bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30 mb-1.5"
+                      disabled={playingSequence}
+                      onClick={handlePlayMovement}
+                      title="Anima a cada jugador hasta la punta de su flecha/curva y lo devuelve -- se puede repetir"
+                    >
+                      <Play className="h-3.5 w-3.5" /> {playingSequence ? 'Reproduciendo…' : 'Reproducir jugada'}
+                    </Button>
+                    <Button
+                      size="sm"
                       className={`w-full h-8 gap-1.5 text-xs justify-start ${drawMode ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-white/5 hover:bg-white/10 text-white border border-white/15'}`}
                       onClick={() => { setDrawMode((v) => !v); setMeasureMode(false); }}
                     >
@@ -1330,7 +1616,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   </div>
 
                   <div>
-                    <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Forma</p>
+                    <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Líneas</p>
                     <div className="flex gap-1.5">
                       {([
                         { type: 'arrow' as const, label: 'Flecha' },
@@ -1351,6 +1637,30 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         </button>
                       ))}
                     </div>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Objetos</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(Object.keys(OBJECT_LABEL) as (keyof typeof OBJECT_LABEL)[]).map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => setDrawShapeType(type)}
+                          title={OBJECT_LABEL[type]}
+                          className={`h-7 px-2 rounded text-[10px] font-semibold border ${
+                            drawShapeType === type
+                              ? 'bg-emerald-600 border-emerald-500 text-white'
+                              : 'bg-white/5 border-white/15 text-white/70 hover:bg-white/10'
+                          }`}
+                        >
+                          {OBJECT_LABEL[type]}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-white/40 mt-1 leading-snug">
+                      Un toque para colocarlo; tócalo de nuevo (sin arrastrar) para borrarlo.
+                    </p>
                   </div>
 
                   <div>

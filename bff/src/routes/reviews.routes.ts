@@ -359,6 +359,21 @@ authRouter.post('/reviews/:id/respond', async (req: Request, res: Response) => {
             return res.status(400).json({ ok: false, error: 'response es requerida.' });
         }
 
+        // El error de abajo ya decía "o no eres el vendor" pero nunca se
+        // verificaba — cualquier usuario autenticado podía responder como
+        // si fuera el vendor de CUALQUIER producto. Se verifica antes de
+        // mutar (mismo dueño que usa /vendor/inbox: products.vendor_id).
+        const { data: review } = await supabase
+            .from('product_reviews')
+            .select('id, product_id, products!inner(vendor_id)')
+            .eq('id', id)
+            .single();
+
+        const ownerVendorId = (review as any)?.products?.vendor_id;
+        if (!review || ownerVendorId !== req.user.id) {
+            return res.status(404).json({ ok: false, error: 'Review no encontrada o no eres el vendor.' });
+        }
+
         const { data, error } = await supabase
             .from('product_reviews')
             .update({
@@ -420,6 +435,18 @@ authRouter.post('/questions/:id/answer', async (req: Request, res: Response) => 
         const parsed = answerSchema.safeParse(req.body);
         if (!parsed.success) {
             return res.status(400).json({ ok: false, error: 'answer es requerida.' });
+        }
+
+        // Mismo fix que /reviews/:id/respond: verificar dueño antes de mutar.
+        const { data: question } = await supabase
+            .from('product_questions')
+            .select('id, product_id, products!inner(vendor_id)')
+            .eq('id', id)
+            .single();
+
+        const ownerVendorId = (question as any)?.products?.vendor_id;
+        if (!question || ownerVendorId !== req.user.id) {
+            return res.status(404).json({ ok: false, error: 'Pregunta no encontrada o no tienes permiso.' });
         }
 
         const { data, error } = await supabase

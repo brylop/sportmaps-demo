@@ -1,11 +1,209 @@
 # SportMaps — Roadmap Maestro
 
-**Versión:** 2.14 · **Fecha:** 2026-08-31 · **Rama:** `develop`
+**Versión:** 2.30 · **Fecha:** 2026-08-31 · **Rama:** `develop`
 
 > **Este es el único roadmap.** Todo lo demás en `docs/` es *spec* (qué se construye y por qué),
 > *plan de fase* (cómo se migra), *doctrina de arquitectura* (cómo se hace) o *auditoría* (qué está
 > mal). Ninguno de esos documentos define prioridades: las define esta cola. Si un pendiente no
 > aparece aquí, no existe.
+
+**Cambios v2.29 → v2.30** ("crea un evento desde el owner y que le salga al padre demo",
+2026-08-31): **gap de producto real, no de datos** — `calendar_events` es estrictamente personal
+(`user_id` único, sin campo de audiencia/destinatarios). La "vista de escuela" del owner/admin no es
+un calendario compartido: es la unión de los calendarios individuales de cada miembro, para
+supervisión. Un evento que crea el owner **nunca llega** al calendario de un padre — no hay ningún
+mecanismo de broadcast. De paso: `organizer/create-event` (la otra pantalla con "evento" en el
+nombre, la de torneos) está detrás de `<OrganizerGuard />` — el owner de una escuela no puede
+acceder, es exclusivo del rol `organizer`. Lo único que sí hace broadcast owner/coach → familias hoy
+es `announcements` (`audience: 'parents'|'players'|'both'`), pero es un aviso, no un evento con
+fecha en calendario. **Decisión del usuario:** por ahora, insertar el mismo evento dos veces (una fila
+por `user_id`, owner y padre) para que ambos lo vean — es un parche de datos para la demo, no arregla
+el gap. Insertadas 2 filas en `calendar_events` (`is_demo=true`), verificado visible por RLS para el
+padre. **Pendiente real, sin resolver:** `calendar_events` necesita un eje de audiencia
+(`visibility`/`team_id` como filtro real, o una tabla de invitados) para que un evento de escuela
+llegue de verdad a las familias — hoy ese track no tiene ID en el roadmap, vale abrir uno si se decide
+construirlo en serio.
+
+**Cambios v2.28 → v2.29** ("no le sale el pago al hijo de padre demo", 2026-08-31): causa — la
+inscripción de Samuel Ramírez (Padre Demo Fútbol) tenía `monthly_fee=null` (a diferencia de "Hijo
+pruebas", en `150000`), así que nunca se generó ningún cobro. Corregido: `monthly_fee=150000` en su
+inscripción + 2 filas de `payments` (agosto vencido, septiembre pendiente — mismo patrón que ya tenía
+el otro hijo). Verificado visible por RLS para ese padre. No se corrió `open_month`/
+`generate_monthly_charges` a propósito — son globales por escuela/base compartida y hubieran podido
+generar cobros para otras inscripciones reales fuera de este alcance.
+
+**Cambios v2.27 → v2.28** (usuario mandó captura del PDF: emoji rotos y ceros de fútbol que resultaron
+ser de OTRO informe — Samuel en banca, correcto; pidió mejor diseño de header/documento/footer con
+"Powered by SportMaps", 2026-08-31): **rediseño completo de `athlete-reports-pdf.ts`**, mismo estilo
+que `saasInvoicePdf.service.ts` (fondo blanco, línea de acento fina, cajas redondeadas, nada de banda
+sólida) — logo real de SportMaps (`fs.readFileSync` cacheado, mismo patrón) o logo propio de la
+escuela si tiene whitelabel (`fetch` con timeout 3s), fila de cajas de estadísticas en vez de texto
+plano, notas con barra de acento lateral, footer con `Cache-Control: no-store` (evita que el navegador
+sirva un PDF viejo tras regenerar el snapshot) y "Powered by SportMaps" — mismo criterio de
+`showWatermark` que ya rige correos/PWA. Se sacaron los emoji (⚽🅰🟨🟥): Helvetica de pdfkit no tiene
+esos glifos, salían como basura — mismo problema por el que `certificates.ts`/`saasInvoicePdf.service.ts`
+nunca los usan, y no lo noté hasta verlo en la captura real. **Bug encontrado en QA visual propia**
+(generando el PDF real a archivo con un script puntual, no solo mirando el código): el footer, escrito
+deliberadamente dentro del margen inferior, disparaba la paginación automática de pdfkit y dejaba una
+página 2 casi en blanco con el footer duplicado — corregido con el patrón estándar `bufferPages` +
+`switchToPage` + `margins.bottom = 0` al dibujar. Verificado visualmente (`Read` sobre el PDF generado)
+en los dos informes reales de septiembre — una sola página, sin superposiciones, sin página fantasma.
+
+**Cambios v2.26 → v2.27**: mismo tratamiento que Samuel para el otro hijo de prueba del equipo
+(`Hijo pruebas`, padre real de la sesión `brylop71@gmail.com`) — 5 métricas × 4 semanas (con
+`posicionamiento_tactico` deliberadamente en rojo, para que "en qué trabajar" tenga contenido, no
+solo destacados), asistencia, minutos reales + asistencia en el amistoso (a diferencia de Samuel, que
+quedó en banca), nota individual del coach. Informe de septiembre generado con `buildReportSnapshot()`
+real y publicado — verificado visible por RLS para ese padre.
+
+**Cambios v2.25 → v2.26** (usuario: "no hay reporte para el padre demo fútbol", 2026-08-31): causa
+real — `generate_report_drafts` solo crea borrador para atletas **con mediciones en el periodo**, y
+el hijo de "Padre Demo Fútbol" (Samuel Ramírez, banca en el amistoso, 0 minutos) no tenía ni una
+fila de `performance_entries` en septiembre. Se agregaron 6 mediciones + 6 registros de asistencia, y
+se generó el informe de verdad — no a mano: se corrió `buildReportSnapshot()` (el mismo servicio que
+usa el job diario, `bff/src/services/report-snapshot.service.ts`) vía un script `ts-node` puntual
+contra la base viva, y el resultado real se insertó en `athlete_reports` (`status='publicado'`,
+`recipient_id` = el padre). Verificado con `SET LOCAL role authenticated` + JWT simulado del padre:
+la fila **es visible por RLS**. El resumen de fútbol del snapshot da `matches_played: 0` — correcto,
+no es un bug: Samuel no sumó minutos en el amistoso, estuvo en la banca.
+
+**Cambios v2.24 → v2.25** (usuario probó la vista del padre con la escuela demo y mandó capturas,
+2026-08-31): **hallazgo grave en los datos sembrados en v2.23** — el partido de fútbol se cargó contra
+`competition_results`, pero el "Panorama de fútbol" del coach (`FootballDashboardModal.tsx` →
+`useTeamMatches`/`useCreateTeamMatch`) y el resumen de fútbol del propio snapshot del informe
+(`report-snapshot.service.ts` → `loadFootballSummary`) leen `match_results` — **una tabla distinta**,
+ya documentada como tal en el propio comentario de la migración de `CAR-8` pero que no se releyó al
+sembrar. Corregido: fila nueva en `match_results`, `match_lineups`/`football_match_events` reapuntados
+a su `id`, `competition_results` huérfana borrada. **Segundo pedido: mover "Progreso Deportivo" al
+centro de `/academic-progress`** — antes el card central era "Evolución de Habilidades" (tabla
+`academic_progress`, sin datos) y el real (`PerformanceEvolutionSection`, con los datos sembrados)
+quedaba relegado a la columna secundaria; se intercambiaron posiciones. **Tercero: dónde ver el
+informe** — resultó que ya existe un botón "Informes" en cada tarjeta de `MyChildrenPage.tsx`
+(`/children/:id/reports`), construido junto con el resto de F4 — no hizo falta agregar nada, solo
+señalarlo.
+
+**Cambios v2.23 → v2.24** (usuario pidió proceder con F4, 2026-08-31): **corrección sobre lo dicho en
+v2.23** — F4 (vista del padre) **no estaba sin construir**. Un grep con mal patrón (`athlete_reports`
+literal, que estas páginas no usan) hizo que se pasara por alto `ChildReportsPage.tsx` +
+`ChildReportDetailPage.tsx` + `useAthleteReports.ts`, ya completos: lista, detalle interactivo con
+todo el snapshot (fútbol, notas, asistencia, destacados, a-trabajar, métricas por categoría) y
+`mark_report_viewed` ya cableado. **Lo único que de verdad faltaba era el PDF.** Construido:
+`bff/src/routes/athlete-reports-pdf.ts` (`GET /api/v1/athlete-reports/:id/pdf`, pdfkit, mismo patrón
+que `certificates.ts`, streaming "al vuelo" sin Storage) + botón "Descargar PDF" en
+`ChildReportDetailPage.tsx`. De paso se encontró y corrigió un enlace obsoleto en dos lugares
+(`report-delivery.service.ts` y el trigger `adopt_reports_on_child_link`, migración
+`20260831172237`, aplicada y verificada): ambos mandaban a `/children/:id/progress` con un comentario
+que decía "F4 no existe todavía" — ya no es cierto, ahora enlazan a
+`/children/:id/reports/:reportId`. `tsc --noEmit` limpio en frontend y BFF; el endpoint nuevo
+responde `401` sin auth (confirma que carga y no truena). **Gap real, distinto, encontrado de paso:**
+F4 solo cubre `subject_type='child'` — no existe página equivalente para que un atleta adulto
+(`profile`) vea sus propios informes; sigue cayendo a `/stats`. Sin probar con un JWT real de padre
+(sin credenciales en esta sesión).
+
+**Cambios v2.22 → v2.23** (usuario pidió datos de prueba completos + estado real del Informe Mensual
+del Atleta, 2026-08-31): sembrados datos en `Academia Fútbol Demo` (escuela demo, no un cliente real)
+— 15 días de mesociclo, 8 sesiones con `session_blocks`/`game_principles`/`evaluation` completos,
+1 alineación de 15 jugadores + 4 eventos de partido (Tablero Táctico), 21 registros de evolución,
+18 filas de rúbrica del mesociclo. Verificado contra la base tras cada bloque, no solo al final — un
+primer intento de sembrar el partido falló en silencio (CTE encadenado sobre una fila que nunca se
+creó por un `recorded_by NOT NULL` no visto) y se detectó con un `count(*)` antes de seguir.
+
+**Informe Mensual del Atleta — estado real verificado, no de memoria:** `F1` (backend), `F2` (UI
+coach básica) y **`F5` (job diario) están construidos** — `F5` corrige una nota vieja de memoria que
+decía "sin implementar"; en realidad corre por `node-cron` desde `maintenance.job.ts`. `F0`
+(vocabulario del padre) parcial: las columnas `parent_label`/`parent_hint` existen, sin contenido.
+`F3` (tablero de cobertura del admin) no construido. **`F4` (vista del padre + PDF) es el único
+bloqueante real** — confirmado en el propio código: `report-delivery.service.ts` manda el enlace del
+correo a `/children/:id/progress` (una pantalla que ya existe) *a propósito*, con el comentario
+"mientras no exista [F4], mandar a una ruta inventada sería mandar al vacío" — no es un link roto, es
+un rodeo consciente. Uso real medido: **1 informe creado en toda la base, 0 publicados.**
+
+**Cambios v2.21 → v2.22** (usuario probó de verdad en el navegador — primera vez en toda esta serie —
+y reportó dos fallas reales, 2026-08-31): **(1)** el mesociclo recién creado no aparecía. Causa:
+`mesocycle-current` exigía que "hoy" cayera dentro de `starts_on`/`ends_on`; el mesociclo de prueba
+empezaba el 1-sep con el sistema en 31-ago, así que quedaba invisible aunque se había creado bien
+(confirmado en la base: la fila existía). Fix: se muestra el más reciente del equipo, sin exigir
+fecha vigente — y de paso se corrigió el `new Date().toISOString()` (anti-patrón ya auditado el
+2026-08-03, `dateUtils.ts`) que quedó en dos lugares nuevos. También se encontró que un mes de 30/31
+días generaba una 5ª semana suelta de 1-3 días — `buildWeeklyMicrocycles` ahora reparte el resto
+entre las 4 semanas fijas, como el Excel. **(2)** "Evaluar" (`PerformanceEntryModal`/
+`TeamPerformanceEntryModal`, código previo a esta sesión) decía "esta escuela no tiene deporte
+asignado" — **falso**, verificado en la base: `Academia Fútbol Demo` sí tiene `category_id` (Fútbol).
+Causa real: el BFF no estaba corriendo (`curl` a `:3000` daba conexión rechazada); los dos modales
+mostraban ese mensaje específico ante *cualquier* falla de la consulta, no solo la genuina ausencia
+de deporte — bug de UX real, ahora distinguen error de conexión del caso sin deporte.
+
+**Cambios v2.20 → v2.21** (usuario preguntó "¿registrar el mesociclo es lo mismo que en el Excel?" —
+la pregunta forzó la comparación campo a campo que no se había hecho): se encontró que `PER-1`
+(microciclo + días) nunca tuvo frontend — el `MesocycleSection.tsx` de v2.18 solo leía, nunca
+escribía, así que después de crear un mesociclo el acordeón de semanas quedaba vacío para siempre.
+Cerrado: `createMesocycle` genera las 4 semanas automáticamente, más alta de días y creación de
+sesión ligada por día. También quedó documentado que el modelo de día/índice MD **no viene del Excel
+de Carmel** (que no tiene columna de fecha ni rótulo de día) — es una fusión con el spec `PER`
+original (Canva de Santa Fe) hecha sin que el usuario la pidiera explícitamente para Carmel.
+
+**Cambios v2.19 → v2.20** (usuario autorizó explícitamente el fix de raíz de `SEG-23`, 2026-08-31):
+`ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES FROM anon`
+(migración `20260831163530`), verificado **empíricamente** con una tabla de prueba dentro de una
+transacción con `ROLLBACK` — nace sin `anon`, `authenticated`/`service_role` intactos. Confirmado que
+no es retroactivo: `schools` y `sport_metric_thresholds` (grants intencionales a `anon`) sin cambios.
+Queda abierta, a propósito y fuera de este alcance, la deuda puntual de `match_lineups`/
+`match_lineup_players`/`football_match_events` (`CAR-8`), que conservan el `GRANT` viejo — el fix de
+raíz no revierte lo ya otorgado antes de aplicarse.
+
+**Cambios v2.18 → v2.19** (usuario autorizó la Supabase MCP a mitad de sesión, 2026-08-31 — la misma
+sesión que en v2.18 había reportado no tener vía para aplicar): `PER-7`/`PER-8` **aplicados y
+verificados en `luebjarufsiadojhvxgi`**, migración `20260831160936`. **Hallazgo nuevo, no menor:**
+la migración quedó con `GRANT` a `anon` sin haberlo pedido — causa raíz en un `ALTER DEFAULT
+PRIVILEGES` del rol `postgres` que afecta a toda tabla nueva, y que ya había dejado el mismo drift,
+sin detectar hasta ahora, en `match_lineups`/`match_lineup_players`/`football_match_events` (`CAR-8`,
+12-ago) — dos migraciones que declaraban explícitamente "sin GRANT a anon" y ninguna lo logró. Se
+abre `SEG-23`: el radio de esta sesión se cerró (`20260831162124`), la causa raíz sigue abierta y sin
+decidir. RLS ya bloqueaba el acceso real en ambos casos — no hubo dato expuesto.
+
+**Cambios v2.17 → v2.18** (usuario autorizó explícitamente escribir y aplicar en base, 2026-08-31):
+código completo de `PER-7`/`PER-8` — migración `20260831160936_mesociclo_carmel.sql` (`migrations:new`,
+`migrations:sync`, `migrations:check` en verde, 468/468) y frontend (`MesocycleFormDialog.tsx`,
+`MesocycleRubricTable.tsx`, `MesocycleSection.tsx`, integrado en `TrainingPlansPage.tsx`). `tsc
+--noEmit` sin errores, dev server sirve sin errores de consola. **No se pudo aplicar la migración a
+la base viva**: Supabase MCP pide OAuth interactivo (no disponible, sesión no-interactiva), la CLI no
+tiene `SUPABASE_ACCESS_TOKEN`, y `bff/.env` solo trae la REST key de solo lectura, no una connection
+string de Postgres — ninguna vía deja rastro como exige `CLAUDE.md`, así que no se forzó por el SQL
+editor. Queda en manos del usuario: `npx supabase db push`, autorizar la MCP, o pasar credenciales.
+
+**Cambios v2.16 → v2.17** (`D2`/`D4`/`D9`-`D12` resueltos en conversación con el usuario, 2026-08-31
+— reusando lo verificado en v2.16 contra la base viva en vez de proponer tablas nuevas de más):
+[`plan-mesociclo-carmel-2026-08-31.md`](plan-mesociclo-carmel-2026-08-31.md) tiene el DDL/RLS/frontend
+concreto de `PER-1`/`PER-7`/`PER-8` — **plan, no migración todavía**, sigue pendiente de aprobación
+antes de correr `migrations:new`. Dos ajustes sobre lo propuesto en v2.16: la carga (`rpe`) no es
+columna nueva, entra como clave más en el `evaluation` jsonb que `CAR-8` ya creó; y `D12` no se
+resolvió a un solo modo — el coach elige `team` o `individual` por mesociclo
+(`training_mesocycles.evaluation_mode`), cada modo con su propio camino de datos.
+
+**Cambios v2.15 → v2.16** (segundo Excel real de Club Carmel, `MESOCICLO C.C.C..xlsx`, aportado por
+el usuario 2026-08-31 — sin escribir ninguna migración, según la convención *plan antes de código*):
+cruzado contra el spec `PER` (que ya estaba «para aprobación», sin tocar desde el 19-ago) y contra
+`CAR-8` (recién documentado en v2.15). Hallazgo principal: **casi toda la grilla semana-a-semana del
+Excel ya está cubierta** por lo que `CAR-8` construyó a nivel sesión más lo que `PER-1` ya tenía
+diseñado a nivel semana — lo único genuinamente nuevo es el **mesociclo** como contenedor del mes,
+que no existía en ningún lado. Se agregan `PER-7`/`PER-8` y las decisiones `D9`-`D12` (spec §2/§3.5);
+solo `D12` (rúbrica por equipo vs. por atleta) queda 🔴 sin default. Hipótesis registrada, no
+confirmada: la razón por la que `CAR-8` tiene **0 uso real** puede ser que el flujo real del cuerpo
+técnico empieza planeando el mes, no abriendo una sesión suelta — sin `training_mesocycles` no hay
+dónde dar ese primer paso.
+
+**Cambios v2.14 → v2.15** (se registra `CAR-8`, entregado el 2026-08-29 sin pasar por esta cola —
+sexto caso de «trabajo vivo que el tablero no refleja» después de `DIN-4`, Android, el ciclo diario
+de Informes, el tablero táctico de fútbol y `MOD-21`): la migración
+`20260828230512_renombrar_sesiones_entrenamiento_futbol.sql` y el commit `a550d40f` construyeron
+edición de sesión de entrenamiento con contenido de fútbol tomado del Excel real del club («Sesión
+Diaria Fútbol C.C.C», Club Carmel) — `session_blocks`/`game_principles`/`evaluation` en
+`training_sessions` + `SessionFormDialog.tsx`. **Verificado contra la base viva (`luebjarufsiadojhvxgi`)
+el 2026-08-31, read-only vía REST:** `training_sessions` tiene 3 filas, todas anteriores a la
+migración (2026-03-20 y 2026-04-11) y de dos escuelas que no son Carmel (`MMA BLAIR TEAM`,
+`ACADEMIA SUPERIOR BOGOTA`) — **ninguna tiene `session_blocks`, `game_principles` ni `evaluation`
+poblados.** El código está listo pero **ningún coach de Carmel lo usó todavía**: sigue sin haber
+carga real del Excel ni una sesión capturada con el formulario nuevo.
 
 **Cambios v2.13 → v2.14** (aplicado el lote de `SEG-22`/`SEG-1`/`SEG-2`, 2026-08-31 — confirmado por
 el usuario tras la propuesta de v2.13): migración `20260831095348_cerrar_brechas_seg22_seg1_seg2`
@@ -668,7 +866,22 @@ Buena parte **ya está aplicada**: índice único parcial en `session_bookings`,
 | SEG-1 | ⚠️ **Re-medido 2026-08-29: mismo hallazgo, blanco distinto.** `search_path` mutable ya no son las 8 funciones de agosto — son **7 funciones nuevas**, ninguna existía el 12-ago: `trg_offerings_resolve_school_category`, `trg_teams_resolve_school_category`, `fn_resolve_school_category`, `fn_check_facility_reservation_overlap`, `fn_pt_session_auto_complete`, `fn_pt_routine_reminder`, `fn_pt_routine_reminder_2h` (categorías deportivas y rutinas de personal trainer). ✅ **Las 7 funciones y 2 de las 3 extensiones se cerraron el 2026-08-31** (migración `20260831095348`, verificado en vivo: 0 funciones con `search_path` mutable de esa lista, `pg_trgm`/`unaccent` movidas a `extensions`). ⚠️ **`pg_net` NO se pudo mover — no es una decisión pendiente, es una limitación técnica:** `ALTER EXTENSION pg_net SET SCHEMA` falla con `0A000: extension "pg_net" does not support SET SCHEMA` (comprobado al intentar aplicarlo); moverla de verdad exige `DROP`+`CREATE`, lo que arrastra el estado interno de la cola async que hoy usan el outbox de notificaciones y el autopay — no vale el riesgo por un hallazgo de higiene. Sus funciones (`net.http_post`/`http_get`) ya viven en el schema `net`, no en `public`, así que el riesgo real de este hallazgo específico era bajo desde el principio. **Sigue pendiente, y no se puede cerrar por SQL:** la protección de contraseñas filtradas — es un toggle del dashboard de Supabase Auth (Authentication → Policies → Password Security), no hay tabla ni RPC que tocar. **Linter de Supabase — Fase −0.5 (drift bloqueante)** y luego Fase 1 (quick wins). ⚠️ **Re-medido contra la base el 2026-08-12: el alcance encogió.** `search_path` bajó de ~35 funciones a **8**; siguen 3 extensiones en `public` (eran 2). Suma un hallazgo nuevo que no estaba en el plan: **la protección de contraseñas filtradas está desactivada** (`auth_leaked_password_protection`) — es un toggle del dashboard de Auth, gratis, chequea contra HaveIBeenPwned al registrarse. | 🟢 | 1 d | [plan](analysis/SUPABASE_LINTER_REMEDIATION_PLAN.md) · barrido 2026-08-12 y 2026-08-29 |
 | SEG-2 | ⚠️ **Re-medido 2026-08-29: ya no es 1 ERROR del linter, son 3.** `school_athletes` (el original) más `v_school_staff_publico` y `v_school_settings_publico` — **estas dos son intencionales**: las creó la propia auditoría del 14-ago para resolver `school_settings`/`school_staff` filtrando a `anon` (RLS filtra filas, no columnas, así que la solución fue una vista con solo lo publicable). El linter no distingue «vista pública curada a propósito» de «bypass accidental de RLS» — antes de tocar nada, documentarlas con `COMMENT` explicando por qué se aceptan, **no revocarlas**: revocarlas rompe la web pública que depende de ellas a propósito. ✅ **Las dos ya quedaron documentadas con `COMMENT ON VIEW` el 2026-08-31** (migración `20260831095348`) — el linter las va a seguir marcando (no hay forma de que no lo haga sin dejar de ser `SECURITY DEFINER`), pero ahora cualquiera que las encuentre sabe que es a propósito. Lo único que sigue pendiente de resolver de verdad es `school_athletes`. | 🟢 | 4 h | [plan §Fase 2](analysis/SUPABASE_LINTER_REMEDIATION_PLAN.md) · barrido 2026-08-29 · migración `20260831095348` |
 | SEG-3 | **`SECURITY DEFINER` expuestas a `anon`.** Ejecutar por grupos: A (helpers/triggers → revoke total), E (internas → solo `service_role`), F (candidatas a `DROP` por falta de uso), luego C y D. Cuidado: **nunca revocar** `is_school_admin()` / `is_super_admin()` al rol que las invoca desde policies. ⚠️ **La premisa cambió con el barrido del 2026-08-12: esto es higiene, no riesgo.** Hoy son 195 funciones para `anon` y 307 para `authenticated`, pero se revisaron las de riesgo una por una y **las `admin_*` sí validan por dentro** (`is_super_admin`, `auth.uid`). El único caso sin ningún chequeo se extrajo a **`SEG-8`** y sube a P0; `get_school_payment_info` está sin chequeo **por diseño** (gateada por `public_profile_enabled`, la usa el checkout público — documentarla con `COMMENT`, no revocarla). Baja a P2: seguir haciéndolo, pero sabiendo que es defensa en profundidad. ⛔ **TRAMPA verificada el 2026-08-12: hay que revocar a los TRES — `PUBLIC`, `anon` y `authenticated`.** Postgres concede `EXECUTE` a `PUBLIC` por defecto en toda función nueva, **y además** Supabase concede `EXECUTE` a `anon` y `authenticated` **directamente**, por privilegios por defecto del esquema `public`. Son grants independientes: revocar uno deja vivos los otros. La prueba es `auto_approve_payment` — su migración **sí** hace `REVOKE ALL … FROM PUBLIC` y aun así `anon` la ejecuta (HTTP 200 con la anon key, comprobado en vivo). Y `find_athletes_by_document` tenía las dos cosas a la vez: `=X/postgres` (PUBLIC) **más** `anon=X` y `authenticated=X`. De **187 migraciones que crean funciones, solo 34 hacen `REVOKE … FROM PUBLIC`**, y ninguna revoca a `anon`. La forma correcta es `REVOKE ALL … FROM PUBLIC, anon, authenticated` y después re-declarar los grants que sí van; con cualquier revoke parcial, el ID se cierra sin haber cerrado nada. *(Corrige la nota anterior de este mismo día, que decía que bastaba con revocar `PUBLIC`.)* | 🟢 | 1 sem, N PRs | [auditoría ⚠️ de may-2026](analysis/SECURITY_DEFINER_AUDIT.md) · barrido 2026-08-12 |
-| SEG-4 | **Permisos de coach.** Dos planos que no coinciden (RLS aguanta / el BFF con service role es el único gate real) y dos matrices de permisos que son código muerto. | 🔵 | 3–4 d | memoria `project_coach_permissions_audit` |
+| SEG-4 | **Permisos de coach.** Dos planos que no coinciden (RLS aguanta / el BFF con service role es el único gate real) y dos matrices de permisos que son código muerto. ⚠️ **Verificado y parcialmente cerrado el 2026-09-02**, auditando el flujo de coach-por-plan (`OfferingCoachesPanel`/`offering_coaches`): `bff/src/routes/school-staff.ts` no tenía **ningún** `requireRole` — solo `requireAuth`, que exige ser miembro activo de la escuela pero no filtra por rol — y el BFF corre con `service_role` (bypasea RLS por completo), así que era la única barrera y no estaba. Cualquier padre, atleta, `wellness_professional` o `store_owner` de la escuela podía crear/editar/borrar staff y **crear o borrar la disponibilidad de cualquier coach** (`coach_availability`), incluido el CRUD completo de personal. Cerrado: `requireRole(owner/super_admin/admin/school_admin)` en el CRUD de staff, y en `/availability` un gate dueño-o-admin (permite al propio coach gestionar solo la suya, verificando `coach_auth_id`). De paso se cerró que `POST /athlete/book-session` (`session-bookings.ts`) creaba la `attendance_session` con el coach del slot **sin revalidar** `offering_coaches` — el filtro solo vivía en el GET que arma el calendario, no era autoritativo; ahora responde `403 coach_not_authorized` si el coach no está habilitado para el plan. ✅ Confirmado en el mismo barrido que `requirePermission` (la segunda matriz, `bff/src/middlewares/authMiddleware.ts:353`) sigue siendo código muerto: cero imports en `bff/src/routes/`. **Hallazgo colateral:** `offering_coaches` no tiene ningún `CREATE TABLE` en `supabase/migrations/` — vive en producción por fuera del ledger, es una instancia concreta (sin nombrar hasta ahora) del drift que mide `INF-1`. **Sigue abierto:** auditar el resto de rutas del BFF por el mismo patrón (`requireAuth` sin `requireRole`), decidir el destino de las dos matrices de permisos (integrar `requirePermission` o eliminarla), y versionar `offering_coaches` con una migración `CREATE TABLE IF NOT EXISTS` que documente su estado real (RLS no aplica por service role, pero sí conviene fijar el esquema). La memoria `project_coach_permissions_audit` referenciada abajo no existía en el store — se creó ese mismo día. ✅ **Auditoría completa del resto del BFF hecha y cerrada el 2026-09-02** (las 87 rutas, 4 agentes en paralelo por dominio): 14 hallazgos del mismo patrón en 8 archivos, los 2 más graves en producción **sin autenticación alguna**. Cerrados los 14:
+- 🔴 `mercadopago.ts` `/create` y `/save-card` — **sin ningún middleware de auth**, expuestos a internet: `/save-card` tomaba `userId` del body (cualquiera plantaba el método de pago default de OTRO usuario) y `/create` cobraba tarjetas usando el `access_token` real de MP de la escuela/vendor sin autenticar al caller (vector de carding). Fix: `requireAuth` + `req.user.id` en vez de body, más `requireCsrfHeader` a nivel de mount (igual que `payment-tokens`/`recurring`) — la UI de Brick que los consume (`PaymentProviderGate`/`MercadoPagoBrick`) no está enlazada a ninguna página real todavía, así que el riesgo vivía solo del lado del endpoint HTTP directo.
+- 🔴 `trainer/clients.ts` (`body-metrics` PUT/DELETE) y `trainer/routines.ts` (`session-plans/:id/progress`, `/feedback`) — cero scoping: cualquier trainer autenticado sobrescribía/borraba métricas corporales o secuestraba el plan de sesión de **cualquier cliente de cualquier escuela**. Fix: helper `assertClientInSchool()` (verifica enrollment activo en `req.schoolId`) y `.eq('school_id', req.schoolId)` en `body_metrics` (ya lo guardaba en la fila).
+- 🟠 Mismo patrón sin scoping en `trainer/clients.ts` (`stats`/`goals`/`training`, 9 rutas), `trainer/routines.ts` (`session-exercise-results`), `trainer/biomech.ts` (anotaciones y evidencia de skill) y `athlete/training.ts` (`DELETE /training/cancel-pt-session`, sin validar dueño del `planId` — un atleta podía forzar la sesión PT de otro cliente a `pending_review`). Todos cerrados con el mismo tipo de verificación de pertenencia antes de mutar.
+- 🟠 `facilities.ts` (`POST`/`DELETE .../availability`) — literalmente comentado en el código como "calcado de school-staff.ts :coachId/availability", con el mismo bug (sin `requireRole`). Cerrado igual que el original.
+- 🟠 `upgrade-requests.routes.ts` `GET /` — el comentario decía "por RLS: admin ve solo los suyos" pero la ruta usa `service_role` (bypasea RLS) y no tenía filtro ni `requireRole`: listaba las solicitudes de upgrade de **todas las escuelas** + email del admin solicitante. Cerrado con `requireRole` + scoping por `school_id` para `school_admin`.
+- 🟠 `reviews.routes.ts` (`/reviews/:id/respond`, `/questions/:id/answer`) — el mensaje de error ya decía "o no eres el vendor" pero nunca se verificaba: cualquier usuario autenticado respondía reseñas/preguntas como si fuera el vendor de cualquier producto. Cerrado verificando `products.vendor_id === req.user.id` antes de mutar (mismo dueño que ya usaba `/vendor/inbox`).
+- 🟡 `school/routines.ts` `DELETE /session-plans/:planId` — único endpoint del archivo sin `assertSchoolStaff()` explícito; delega en la RPC `fn_unassign_gym_session`, que **no tiene migración en el repo** (mismo drift de `INF-1`) y su chequeo interno de `p_caller_id` no se pudo verificar sin el MCP de Supabase autorizado. **Es el único de los 14 que queda sin cerrar** — no se tocó para no duplicar (o peor, contradecir) una validación que la RPC quizás ya hace bien.
+
+**SEG-4 CERRADO el 2026-09-02** (con el MCP de Supabase ya autorizado, se resolvieron los tres pendientes de la nota anterior en la misma sesión):
+- `fn_unassign_gym_session` — verificado el `prosrc` contra la base viva: el chequeo interno (`sm.role IN ('owner','admin','coach','staff')`) coincide exactamente con el comentario del código ("cualquier staff activo puede desasociar, no solo quien la asignó"). No era un bug, no se tocó.
+- `requirePermission` — confirmado código muerto sin ambigüedad (cero imports), **eliminado** de `authMiddleware.ts` junto con su matriz `rolePermissions` y el tipo `Permission` (~100 líneas). `frontend/src/lib/permissions.ts` se deja intacto — ese sí está en uso para gating de UI.
+- `offering_coaches` — migración `20260902190219` aplicada en vivo: documenta el esquema real (`CREATE TABLE IF NOT EXISTS`, no-op en prod), y **endurece la RLS**: la policy vigente (`school_members_manage_offering_coaches`) delegaba en `user_staff_school_ids()` — cualquier coach/staff podía asignarse a sí mismo a cualquier plan llamando Supabase directo con su propio JWT, sin pasar por el `requireRole` admin-only del BFF. Reemplazada por `offering_coaches_admin_manage` con `user_admin_school_ids()`, alineada con el BFF. También se revocó el `GRANT` residual a `anon` (predata `SEG-23`; RLS ya lo bloqueaba por falta de policy, pero el grant de tabla no debía existir).
+- **Hallazgo nuevo, cerrado en el mismo barrido:** al leer `trial_class_public_create()` para descartar la pregunta abierta sobre clases de prueba, resultó que **sí** hay conexión con `offering_coaches` — cada `trial_class_categories` crea su propia `offering` tipo `single_session` (auto-generada al primer booking) y la `attendance_session` de la clase de prueba sí lleva `offering_id`. La RPC elegía el coach directo de `coach_availability_id`, sin consultar `offering_coaches`. Verificado en vivo: 0 categorías tienen esa restricción configurada hoy, así que el fix (migración `20260902190708`, mismo criterio "solo bloquear si hay filas asignadas" que `session-bookings.ts`) no cambia comportamiento actual — cierra el hueco antes de que alguna escuela lo necesite.
+
+Las 87 rutas del BFF, la tabla que sostenía la restricción, la RPC de clases de prueba y las dos matrices de permisos quedaron verificadas contra la base viva — no queda ningún pendiente de este hallazgo. | ✅ | — | memoria [[project-coach-permissions-audit]] · [school-staff.ts](../bff/src/routes/school-staff.ts) · [session-bookings.ts](../bff/src/routes/session-bookings.ts) · [mercadopago.ts](../bff/src/routes/mercadopago.ts) · [trainer/clients.ts](../bff/src/routes/trainer/clients.ts) · [migración offering_coaches](../supabase/migrations/20260902190219_offering_coaches_documentar_y_endurecer_rls.sql) · [migración trial_class](../supabase/migrations/20260902190708_trial_class_public_create_respeta_offering_coaches.sql) |
 | SEG-5 | **Anti-spoofing / IDOR / rate limit.** No aceptar nunca `user_id`/`sender_id` desde el payload del cliente; helper `can_message(a,b)` con relaciones reales. **El rate limit se midió el 2026-08-12 y es más flojo de lo que sugiere el código:** existen tres capas (`generalLimiter` 200/15min, `paymentLimiter` 20/min, `cardAlterLimiter` 10/h) pero **solo `cardAlterLimiter` usa key por usuario** — las otras dos son IP-only, así que un atacante autenticado rotando IPs no toca techo y una escuela detrás de NAT comparte cuota. Y el store es **en memoria**: cada instancia de Render y cada redeploy resetea los contadores, así que sin Redis no hay límite global. Falta además WAF/edge — `vercel.json` solo tiene rewrites y el BFF en Render está expuesto directo. | 🔵 | 3–5 d | [athlete remediation §F1](athlete-modules-remediation-plan.md) · [strategic §10](sportmaps-strategic-roadmap.md) · barrido 2026-08-12 |
 | SEG-6 | **RLS column-level en `medical_info` y `phone`** (A8 del roadmap v1.3). | 🔵 | 1 d | [anexo B.8](archived/ROADMAP-v1.3-2026-05-12.md) |
 | **SEG-7** | 🔴 **`v_school_entitlements` devuelve una respuesta falsa, sin error.** Misma escuela, mismo instante: con `service_role` responde `enterprise / active / 10 módulos true`; sin privilegio responde `starter / free / active / todos false` — **HTTP 200 en ambos casos**. La vista es `security_invoker=true`; `schools` tiene `FOR SELECT USING (true)` así que la fila siempre vuelve, pero `school_subscriptions` y `school_addons` están gateadas a `is_school_admin() OR is_super_admin()`. Cuando el lector no pasa, el `LEFT JOIN` da NULL, los `COALESCE` **inventan** `starter/free/active` y cada `EXISTS` de addons da `false`. Es **fail-open en el status** (afirma `active` cuando no sabe) y fail-closed en los módulos. Hoy muerde poco porque el BFF usa service role y el único lector del browser es el panel admin, cuyos 3 perfiles pasan el guard — **pero el bloqueo de `DIN-4` F3 se apoya justo en ese status**: un lector degradado ve `active` y el bloqueo no se aplica nunca. | 🔵 | 2–3 d | `DIN-4` D12 · gate `G-NOLIE` |
@@ -682,6 +895,7 @@ Buena parte **ya está aplicada**: índice único parcial en `session_bookings`,
 | **SEG-17** | 🔴 **`TRUNCATE` en manos de cualquier usuario con sesión — y `TRUNCATE` NO pasa por RLS.** Encontrado el 2026-08-17 al verificar la migración de `memberships`: la migración concede `SELECT, INSERT, UPDATE, DELETE` y la base terminó además con **TRUNCATE**, TRIGGER y REFERENCES para `authenticated`. No los agrega la migración sino los **default privileges** del esquema, que dan ALL a `authenticated` en cada tabla nueva; el GRANT explícito es aditivo y no acota nada. RLS filtra SELECT/INSERT/UPDATE/DELETE pero **no TRUNCATE**, así que un padre o un atleta podía vaciar tablas completas de TODAS las escuelas sin que ninguna policy lo detuviera. Es la misma trampa que CLAUDE.md ya documenta para funciones (`EXECUTE` a `authenticated` por default privilege), pero en tablas — donde se venía confiando en que RLS tapaba todo. Migración: revoca los tres privilegios en todas las tablas de `public`, ajusta los default privileges para que no vuelva, y agrega **I5** a `invariantes_seguridad()` para que `npm run seguridad:invariantes` lo vigile. Nada de la app depende de esto: PostgREST no expone TRUNCATE y el BFF va con `service_role`. | 🟡 | ✅ aplicada 2026-08-17 | [migración](../supabase/migrations/20260817210308_truncate_no_pasa_por_rls.sql) |
 | **SEG-18** | 🟡 **60 policies `FOR ALL` sin `WITH CHECK`, en 56 tablas** (invariante I3, medido contra la base el 2026-08-17 con I1, I2 e I5 ya en cero). Sin `WITH CHECK`, PostgreSQL valida los INSERT con la expresión de `USING` — que se escribió pensando en «qué filas puedo VER», no en «qué filas puedo CREAR». Así es como una policy `USING (email = auth.email())` dejaba a cualquiera insertarse como staff de **cualquier** escuela. **60 no son 60 agujeros:** cuando el `USING` también restringe correctamente la escritura, el efecto es el mismo y solo falta ser explícito. Hay que leerlas una por una y separar las que de verdad permiten escribir fuera de alcance. Las que más concentran: `reservation_payments`, `event_delegation_payments`, `attendance_sessions` y `coach_profiles` (2 cada una); el resto son de a una. Empezar por las que tocan **dinero** (`reservation_payments`, `event_delegation_payments`, `payment_tokens`) y por `unregistered_athletes` y `enrollments`, que son las que crean identidad y cartera. ⚠️ **Re-medido el 2026-08-29 contra la base viva: bajó a 53** (0 CRÍTICAS, corrida real de `npm run seguridad:invariantes`) — parte se cerró de rebote al resolver `SEG-19`/`SEG-20`/`SEG-21`. Sigue siendo la misma tarea: leerlas una por una, sin decisión de producto de por medio. | 🔵 | auditoría mediana | `npm run seguridad:invariantes` (corrida 2026-08-29) |
 | ~~**SEG-22**~~ | ✅ **CERRADO Y APLICADO el 2026-08-31, verificado en vivo.** `bridge_heartbeats` (mig. `20260826220634`, 26-ago) había quedado sin `ENABLE ROW LEVEL SECURITY` — tabla pública, `anon`/`authenticated` con `SELECT/INSERT/UPDATE/DELETE` directos por privilegio de esquema. Alimenta la alerta de «bridge de control de acceso caído» de ZKTeco. Fix: `ENABLE ROW LEVEL SECURITY` sin policies (deny-all, mismo patrón que las otras tablas "RLS sin policy"). **Verificado con `set local role anon; select count(*) from bridge_heartbeats` → 0 filas.** Solo la escriben `bridge.routes.ts`/`bridge-heartbeat-check.job.ts` con `service_role`, que bypassa RLS — nada se rompió. | ✅ | aplicada | migración `20260831095348` |
+| **SEG-23** | ✅ **CERRADO DE RAÍZ Y VERIFICADO el 2026-08-31.** Causa raíz: un `ALTER DEFAULT PRIVILEGES` otorgado por el rol `postgres` daba `SELECT/INSERT/UPDATE/DELETE` a `anon` en TODA tabla nueva creada por ese rol en `public`, sin importar el `GRANT` explícito de la migración — ya había mordido dos migraciones que declaraban "sin GRANT a anon" (`20260812182000_futbol_metricas_alineacion.sql` y `20260831160936_mesociclo_carmel.sql`). Fix: `ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES FROM anon` (migración `20260831163530`). **No es retroactivo** — confirmado empíricamente creando una tabla de prueba dentro de una transacción con `ROLLBACK`: la tabla nueva nace con `authenticated`/`service_role` pero **cero privilegios para `anon`**; `schools` (grant intencional, directorio público) y `sport_metric_thresholds` (grant intencional, catálogo público) **no se tocaron** — sus `GRANT` explícitos siguen igual. Queda sin tocar el default de `supabase_admin` (otro rol, probable gestión de plataforma, fuera del camino real de las migraciones de este repo) y el default de `authenticated` (cambiarlo no aporta nada — todas las migraciones ya lo otorgan explícito). `match_lineups`/`match_lineup_players`/`football_match_events` (`CAR-8`) **siguen con el `GRANT` viejo a `anon`** — el fix de raíz no revierte lo ya otorgado, esa deuda puntual queda abierta si alguien la quiere cerrar | ✅ | aplicado | migraciones `20260831162124` + `20260831163530` |
 | ~~**SEG-19**~~ | ✅ **CERRADO Y VERIFICADO el 2026-08-18.** Fase B de SEG-15: los RPC `SECURITY DEFINER` saltan RLS y se llaman directo desde el frontend, así que ni las policies RESTRICTIVE de la Fase A ni el 402 del BFF los alcanzaban. Resueltos **envolviendo, no reescribiendo**: la original se renombra a `__interno` y un envoltorio con el mismo nombre y firma hace el guard y delega — el cuerpo de `submit_qr_signup` (~250 líneas de deduplicación de identidades) queda byte por byte igual. **Verificado contra la base:** las seis funciones existen, los tres `__interno` responden **401 a `anon`**, `create_invitation__interno` no es ejecutable por `authenticated`, y la sobrecarga de 8 argumentos delega al nombre **público** —o sea que también pasa por el guard—. Quedan **36 invitaciones pendientes de 2 escuelas bloqueadas**, emitidas antes del fix: el guard no las borra, hay que decidir aparte qué hacer con ellas. ⚠️ **Lección de método:** se dieron por no aplicadas porque un POST sin argumentos a `__interno` devolvía 404 — que es «firma no encontrada», no «no existe». Es la misma trampa de `SEG-16`. **Un 404 nunca prueba nada; el 401 sí.** | ✅ | — | [QR](../supabase/migrations/20260818071427_guard_de_prueba_en_rpcs_de_qr.sql) · [invitaciones](../supabase/migrations/20260818131456_guard_de_prueba_en_create_invitation.sql) |
 | **SEG-20** | ✅ **CERRADO Y VERIFICADO el 2026-08-29** — auditoría del flujo público `/agendar/:slug` (`bff/src/routes/public-booking.routes.ts`) pedida explícitamente, no la habría encontrado ni el linter ni `seguridad:invariantes` porque es lógica de aplicación con `service_role`, no RLS/policies. **Hallazgo crítico:** `POST /start-verification` identificaba por **teléfono** y buscaba ese teléfono contra `profiles.phone` **sin filtrar por escuela** — cualquiera, desde el link público de *cualquier* escuela, escribía un teléfono ajeno y recibía de vuelta el **correo completo** (sin enmascarar, sin OTP) de la cuenta dueña de ese teléfono en toda la plataforma. El segundo vector (`children.parent_phone`) ya estaba roto de por sí — esa columna no existe (es `parent_phone_temp`), el `SELECT` fallaba en silencio. **Fix estructural:** el paso de identificación pasa a pedir **correo** — el usuario da su propio dato, así que «ya existe una cuenta con este correo» deja de ser una fuga. ⚠️ **Segundo hallazgo, sin relación, encontrado al probar por qué no pedía el código:** el bypass de depuración (`debug_code` en la respuesta) se gateaba con `NODE_ENV !== 'production'`, y `render.yaml` despliega `sportmaps-bff-dev` y `sportmaps-bff-stg` como servicios **públicos** con `NODE_ENV=development/staging` — y los tres ambientes comparten la **misma** Supabase real. El bypass de OTP completo quedaba vivo contra datos reales en dos de los tres BFFs desplegados. Reemplazado por `PUBLIC_BOOKING_DEBUG_OTP`, que no se declara en `render.yaml` para ningún servicio — apagado por ausencia en todo lo desplegado. **Dos hallazgos menores, mismo barrido:** carrera de capacidad en `POST /confirm` (lectura-luego-escritura sin lock — resuelto con RPC atómica `public_booking_confirm_reservation`, advisory lock + upsert), y `GRANT` inerte de INSERT/SELECT/UPDATE/DELETE a `anon`/`authenticated` en `public_booking_verifications` (RLS con cero policies ya lo bloqueaba, verificado en vivo con `set local role anon`, pero se revocó explícito). Migraciones `20260828230514`/`20260828230515`. ⚠️ **El código está commiteado (`a550d40f`) pero el bypass de OTP sigue vivo en `sportmaps-bff-dev`/`stg` hasta el próximo deploy — esto no se cierra solo con el commit.** | ✅ código, ⚠️ deploy pendiente | — | [spec](specs/agenda-publica-reservas.md) |
 | **SEG-21** | ✅ **CERRADO Y VERIFICADO el 2026-08-29** — auditoría de Frente B (planes/tarifas que las escuelas cobran a sus atletas), no vino del linter ni de `seguridad:invariantes`. **Hallazgo crítico:** `move_session_credit(p_enrollment_id, p_delta, p_is_secondary)` es `SECURITY DEFINER`, no valida quién llama, y tenía `EXECUTE` para `anon` y `authenticated` por el default privilege del esquema (nunca tuvo `REVOKE` explícito, misma trampa que `SEG-3`). Mueve `sessions_used`/`secondary_sessions_used` de **cualquier** inscripción sin sesión: `p_delta:-1` le quema una sesión pagada a una familia, `p_delta:1` se auto-restaura sesiones gratis hasta el tope del plan — control directo sobre lo que una familia pagó. Mismo patrón, mismo barrido, en `fn_expire_overdue_enrollments`, `merge_split_enrollments` y `auto_close_stale_hour_bank_visits`. **Verificado antes de revocar:** todos los llamadores reales están en `bff/src/routes/attendance.ts` y `session-bookings.ts` (`service_role`) o en `pg_cron` (`expire-overdue-enrollments`, corre como owner) — nada en `frontend/src` los llama directo, solo aparecen en el `types.ts` generado. **Verificación post-fix con `has_function_privilege`:** las 4 dan `false` para `anon` y `authenticated`, `true` para `service_role` — nada se rompió. | ✅ | — | [migración](../supabase/migrations/20260829010122_revocar_execute_funciones_enrollments_expuestas_anon.sql) |
@@ -739,6 +953,7 @@ construir y que sirven a los siguientes clientes de este tipo. El resto sí es e
 | **CAR-5** | **Métricas de natación y golf.** El catálogo tiene 99 deportes y ambos están; `sport_metric_definitions` cubre solo 6 deportes (voleibol 51, fútbol 12, y cuatro con 4) — **natación y golf en 0**. La UI de captura ya existe: es trabajo de definición deportiva. Las validan los entrenadores. ⚠️ Los parciales de natación son series, no escalares: fuera del set inicial hasta verificar que `performance_entries` los aguanta. Ojo con `higher_is_better=false` (tiempo y hándicap). | 🔵 | pequeño + definición | [plan](plan-club-carmel-multideporte-2026-08-15.md) §4 |
 | **CAR-6** | **Carriles de piscina en reservas.** Hoy una piscina es *una* instalación con capacidad N; «carril 3 de 6» no se puede expresar. Camino barato para el trial: cada carril como `facility` propio (sin código, riesgo: no impide reservar la piscina completa y un carril a la vez). Camino correcto si duele: `facility_units` con «reservar el padre bloquea los hijos» — sirve también para canchas divisibles. | ⚪ | pequeño / mediano | [plan](plan-club-carmel-multideporte-2026-08-15.md) §5 |
 | **CAR-7** | **Video de partidos (Veo).** ⚠️ **Reescrito el 2026-08-19: el supuesto era falso por los dos lados.** Decía que el análisis «depende de qué exponga la API de Veo» y que no sabíamos si el club tiene plan con API. **(a) Veo Technologies no tiene API pública** — sus integraciones (SportsRecruits, Sportify, USA Lacrosse) son acuerdos comerciales de partner, y el *embed* del player sigue siendo un pedido abierto en su ideas board. **(b) Y no hace falta:** Veo Live acepta **destino RTMP personalizado**, así que la cámara emite directo a un ingest nuestro y el video entra a SportMaps sin negociar con nadie. Para el trial sigue en pie el **enlace manual** (`VID-1`, dos días, sin costo de infraestructura); el análisis por jugador es el track `VID` completo y **no cabe en un trial**. ⛔ Ojo: cualquier cosa que **almacene** video de los menores de Carmel pasa por `G-IMAGEN`. | 🔵 | pequeño (enlace) → track `VID` | investigación 2026-08-19 · track `VID` |
+| **CAR-8** | **Sesión de entrenamiento de fútbol, contenido tomado del Excel real del club** («Sesión Diaria Fútbol C.C.C»). Resolvió de paso la colisión de nombres que documentaba `PER-0`/`docs/specs/periodizacion-microciclos-y-carga.md` §1: existían `training_sessions` (cupos, vacía) y `training_plans` (contenido, 3 filas) sin conocerse entre sí. La de cupos pasó a `training_slots`; la de contenido tomó el nombre `training_sessions` (`plan_date` → `session_date`) y sumó, nullable y específico de fútbol: `session_blocks jsonb` (bloques editables por el coach: `{name, minutes, activity, objective, description, tactical_lineup_id}`, enganchado a una jugada del Tablero Táctico), `game_principles text` y `evaluation jsonb` (`{objectives_met, team_rating, highlights, improvements}`). Frontend: `SessionFormDialog.tsx` reemplazó a `TrainingPlanFormDialog.tsx`, con los tres campos cableados. Migración `20260828230512`, aplicada vía `apply_migration` y verificada post-aplicación. ⚠️ **Verificado contra la base viva el 2026-08-31: 0 uso real.** Las 3 filas que existen son de antes de la migración (marzo/abril-2026) y de otras dos escuelas (`MMA BLAIR TEAM`, `ACADEMIA SUPERIOR BOGOTA`), ninguna con `session_blocks`/`game_principles`/`evaluation` poblados — el Excel de Carmel todavía no se cargó ni se capturó ninguna sesión con el formulario nuevo. | 🟡 código/esquema, ⚠️ sin uso real | — | [migración](../supabase/migrations/20260828230512_renombrar_sesiones_entrenamiento_futbol.sql) · [spec §1](specs/periodizacion-microciclos-y-carga.md) |
 
 ### INF — Infraestructura y deuda de esquema
 
@@ -894,8 +1109,12 @@ aparezca Pixellot, Spiideo o una cámara propia.
 ### PER — Periodización: microciclos, rótulos de día y carga de entrenamiento
 
 Sale del análisis del tablero de planificación en Canva de **Independiente Santa Fe U20B** (105
-diapositivas, 2026-08-19). Spec:
-[`specs/periodizacion-microciclos-y-carga.md`](specs/periodizacion-microciclos-y-carga.md).
+diapositivas, 2026-08-19). **Segunda fuente, 2026-08-31:** `MESOCICLO C.C.C..xlsx`, la plantilla real
+de planificación mensual de **Club Carmel** — confirma el patrón desde un club distinto y agrega el
+nivel mensual (`PER-7`/`PER-8`) que este track no tenía. Cruza con `CAR-8` (ver track `CAR`): casi
+toda la grilla semana-a-semana del Excel de Carmel ya está cubierta por lo que `CAR-8` construyó a
+nivel sesión — lo único nuevo es el contenedor del mes. Spec:
+[`specs/periodizacion-microciclos-y-carga.md`](specs/periodizacion-microciclos-y-carga.md) §3.5.
 
 **Lo que SportMaps no sabe decir hoy.** Sabe **quién entrena** y **quién asistió**. No sabe **qué iba
 a ser la semana, cuánta carga cargó, ni si se ejecutó como estaba planeado.** `training_plans` es
@@ -913,13 +1132,30 @@ ordena el track, no el gusto por las features:
 
 | ID | Pendiente | Estado | Esfuerzo | Fuente |
 |---|---|---|---|---|
-| PER-0 | ⛔ **Sanear el eje de entrenamiento. Puerta dura — no se construye nada de `PER` encima.** Tres cosas que están mal y ninguna se había escrito acá: **(a)** `training_plans` (el contenido de la sesión) **no tiene `school_id`**, así que su RLS cuelga de un JOIN a `teams` —el patrón que encarece cada policy del eje—; **(b)** `training_plans` y `training_sessions` **no se conocen entre sí**: la primera es contenido por `(team_id, plan_date)`, la segunda es cupo y reserva por `(team_id, session_date, session_time, max_capacity, current_bookings)`, y son dos nombres casi idénticos modelando cosas distintas; **(c)** el tablero táctico entregado hoy (§1.3) se cuelga de `training_sessions` —**la de cupos**— vía `source_type='training_session'`, no de la de contenido. **Es el mismo trabajo que `MOD-8` ya tenía marcado como «saneamiento del eje plan↔equipo↔sesiones»: se hace una vez y habilita las dos cosas.** Empieza por medición, no por DDL: cuántas filas de `training_plans` hay por escuela y si alguien las usa | 🔵⛔ | 3–4 d | [spec §1](specs/periodizacion-microciclos-y-carga.md) · [plan créditos](plan-asistencia-y-creditos-de-sesion.md) · [saneamiento](plan-saneamiento-sesiones-plan-equipo.md) |
+| PER-0 | ⛔ **Sanear el eje de entrenamiento. Puerta dura — no se construye nada de `PER` encima.** Tres cosas estaban mal: **(a)** el contenido de la sesión **no tiene `school_id`**, su RLS cuelga de un JOIN a `teams`; **(b)** ✅ **resuelta de rebote por `CAR-8` (2026-08-29)** — `training_plans`/`training_sessions` ya no colisionan de nombre: la de cupos es `training_slots`, la de contenido tomó el nombre `training_sessions`; **(c)** el tablero táctico (§1.3) sigue colgado de `training_slots` —**la de cupos**— vía `source_type='training_session'`, no de la de contenido. Sigue siendo el mismo trabajo que `MOD-8` marcó como «saneamiento del eje plan↔equipo↔sesiones», ahora un tercio hecho. Empieza por medición, no por DDL: cuántas filas de `training_sessions` hay por escuela y si alguien las usa (spoiler, verificado 2026-08-31: **3 filas en toda la base**, ninguna de Carmel — ver `CAR-8`) | 🔵⛔ | 2–3 d | [spec §1](specs/periodizacion-microciclos-y-carga.md) · [plan créditos](plan-asistencia-y-creditos-de-sesion.md) · [saneamiento](plan-saneamiento-sesiones-plan-equipo.md) |
 | PER-1 | **Microciclo: entidad, rótulos de día e índice MD calculado.** `training_microcycles` (**con `school_id` explícito**, a diferencia de `training_plans`) + `training_microcycle_days` con `day_type` en `text` + `CHECK` —`descanso`/`entrenamiento`/`partido`/`regenerativo`/`activacion`—, y la vista semanal: el equivalente del tablero de Canva con los índices bien. La sesión **no** es tabla nueva: se extiende `training_plans` con `microcycle_day_id`. ⚠️ **Bloqueada por `D-MD`** (§5): `competition_results` registra el partido **después de jugado**, no hay calendario hacia adelante, y eso define el DDL | 🔵 | 1 sem | [spec §3.1, §3.4](specs/periodizacion-microciclos-y-carga.md) |
 | PER-2 | **Carga: sRPE, UA, monotonía, strain y ACWR.** RPE de sesión 0–10 × minutos = unidades arbitrarias, y de ahí los cuatro indicadores derivados. **Todo calculado en la base** (vista/RPC `v_microcycle_load`), nunca en el navegador — el censo de cálculos monetarios ya dejó las 11 divergencias que salen de hacerlo al revés. Modo **audit**: se muestra, no bloquea. ⚠️ **Bloqueada por `D-CARGA`** (§5). El riesgo real no es técnico: es que nadie registre el RPE — `performance_entries` tiene **486 filas en toda la base**, así que la vista de `PER-1` tiene que ser útil **con cero RPE** y la adherencia se mide y se muestra | 🔵 | 1 sem | [spec §3.3](specs/periodizacion-microciclos-y-carga.md) |
 | PER-3 | **Alertas y validación del rótulo.** Aviso cuando el contenido contradice el rótulo del día (el «regenerativo» con RSA), cuando hay dos partidos en menos de 72 h, cuando los días sin descanso se acumulan, y cuando el ACWR se sale de rango. Aditivo: RPE del atleta, que es el uso canónico del método. **Con 28 días de historia mínimos para el ACWR** — antes de eso el estado es «faltan N días», no un número engañoso | 🔵 | 4 d | [spec §4 F3, R2](specs/periodizacion-microciclos-y-carga.md) |
 | PER-4 | **Plantillas de microciclo.** Duplicar la semana anterior como punto de partida editable. Mismo patrón que el tablero táctico duplicando slots: **copiar filas, no catálogo cerrado** | 🔵 | 2 d | [spec §4 F4](specs/periodizacion-microciclos-y-carga.md) |
 | PER-5 | **Exportable: la vista semanal a PDF o imagen.** Es el **gancho comercial** del track, no un adorno: hoy el cuerpo técnico mantiene 105 diapositivas a mano en una herramienta de diseño que además paga aparte. Es lo primero que un coach ve y lo único que puede mandar al grupo de WhatsApp | 🔵 | 3 d | [spec §4 F5](specs/periodizacion-microciclos-y-carga.md) |
 | PER-6 | **Vínculos: tablero táctico + Informe Mensual.** Es la `P3` del spec de fútbol («extensión a entrenamientos») ahora que el contexto `training` ya existe en `match_lineups`, más la carga del mes junto a las métricas en el Informe. **Se hace después de `PER-0`**, o se cablea otra vez contra la tabla de cupos | 🔵 | 1 sem | [spec fútbol §4 P3](specs/football-tactical-experience.md) · [spec §4 F6](specs/periodizacion-microciclos-y-carga.md) |
+| PER-7 | **Mesociclo (mes): entidad + cierre semanal.** `training_mesocycles` (objetivo general, modelo/principios de juego, cierre `strengths`/`areas_to_improve`/`next_cycle_notes`) + `mesocycle_id` opcional en `training_microcycles` + tres campos de cierre semanal (`objective_compliance`, `collective_performance`, `improvement_notes`) en el microciclo — la semana **es** el microciclo, no se crea tabla de revisión aparte. La grilla sesión-por-sesión del Excel de Carmel no necesita tabla nueva: ya resuelve con `training_sessions` (`CAR-8`) + `training_microcycle_days` (`PER-1`) + un tag `component` (técnico/táctico/físico/mixto) nuevo dentro de cada bloque de `session_blocks`. **✅ Aplicado y verificado el 2026-08-31**, con la Supabase MCP autorizada por el usuario a mitad de
+sesión: migración `20260831160936_mesociclo_carmel.sql` (DDL+RLS+grants+vista `v_session_load`) +
+frontend (`MesocycleFormDialog.tsx`, `MesocycleSection.tsx`, agrupa `TrainingPlansPage.tsx` por
+semana) — `tsc --noEmit` limpio, dev server sin errores de consola. Verificación post-aplicación
+contra la base viva: las 4 tablas existen, 4 policies cada una, `get_advisors(security)` sin
+hallazgos nuevos sobre ellas. ⚠️ **Encontrado y cerrado en la misma pasada:** la migración quedó con
+`GRANT` a `anon` que nadie pidió (`SEG-23`, causa raíz: default privilege del rol `postgres`) —
+revocado en `20260831162124`, verificado `anon` → 0 privilegios. ⚠️ **Segundo hallazgo, encontrado al
+comparar contra el Excel:** el primer entregable tenía el contenedor del mesociclo (`PER-7`) y la
+rúbrica (`PER-8`) pero **`PER-1` (microciclo + días) nunca tuvo formulario** — la tabla existía en la
+base, el accordion la leía, pero nada la escribía; el mesociclo quedaba con las 4 semanas vacías para
+siempre. Cerrado en la misma sesión: `createMesocycle` ahora genera las 4 semanas automáticamente
+(divide el rango en bloques de 7 días), más un formulario inline "Agregar día" por semana
+(fecha/tipo/intensidad/duración) y un botón "Crear sesión" por día que abre `SessionFormDialog`
+(sin modificarlo) y liga el `session_id` de vuelta al día. `tsc --noEmit` limpio otra vez. **Sigue sin
+probarse el flujo end-to-end con un coach real** (sin credenciales de login en esta sesión) | ✅ aplicado | 4–5 d | [spec §3.5, §4 F1b](specs/periodizacion-microciclos-y-carga.md) · [plan](plan-mesociclo-carmel-2026-08-31.md) |
+| PER-8 | **Rúbrica de mesociclo (6 indicadores × 5 cortes, 1–10).** `training_mesocycle_evaluations` en formato largo para modo `team`; modo `individual` reusa `performance_entries` (`context_type='evaluation'`, sin usar hasta ahora) + 6 `sport_metric_definitions` nuevas prefijadas `mesociclo_` (evita repetir la colisión de `duelos_ganados`), categorías ajustadas al `CHECK` real (`physical\|technical\|tactical\|attendance`) y verificadas post-aplicación. **`D12` resuelta: el coach elige el modo por mesociclo** (`evaluation_mode`, toggle en `MesocycleFormDialog`) — `MesocycleRubricTable.tsx` construido para ambos modos. Mismo estado que `PER-7`: ✅ aplicado, mismo hallazgo de `anon` cerrado en la misma migración | ✅ aplicado | 2 d | [spec §3.5, §4 F7](specs/periodizacion-microciclos-y-carga.md) · [plan](plan-mesociclo-carmel-2026-08-31.md) |
 
 > **Dos cosas que este track NO hace, y conviene que queden escritas.** **(1)** No mide con GPS ni
 > wearables: `D-CARGA` elige sRPE justamente porque no necesita hardware ni presupuesto, y funciona

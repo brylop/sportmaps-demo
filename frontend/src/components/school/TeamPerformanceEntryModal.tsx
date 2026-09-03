@@ -81,7 +81,7 @@ export function TeamPerformanceEntryModal({
   teamImageUrl,
 }: TeamPerformanceEntryModalProps) {
   const { toast } = useToast();
-  const { data, isLoading } = useTeamPerformanceRoster({ team_id: teamId, offering_plan_id: offeringPlanId });
+  const { data, isLoading, isError: rosterError } = useTeamPerformanceRoster({ team_id: teamId, offering_plan_id: offeringPlanId });
   const createEntries = useCreatePerformanceEntries();
 
   const [values, setValues] = useState<GridValues>({});
@@ -182,6 +182,13 @@ export function TeamPerformanceEntryModal({
           <div className="flex items-center justify-center py-16">
             <Loader2 className="h-5 w-5 animate-spin text-primary mr-2" />
             <span className="text-sm text-muted-foreground">Cargando roster y métricas...</span>
+          </div>
+        ) : rosterError ? (
+          <div className="flex flex-col items-center gap-3 py-16 text-center">
+            <AlertCircle className="h-8 w-8 text-destructive" />
+            <p className="text-sm text-muted-foreground max-w-xs">
+              No se pudo cargar el roster ni las métricas. Verifica tu conexión e intenta de nuevo.
+            </p>
           </div>
         ) : !data?.sport_category_id ? (
           <div className="flex flex-col items-center gap-3 py-16 text-center">

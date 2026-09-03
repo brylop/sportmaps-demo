@@ -602,8 +602,17 @@ export default function AcademicProgressPage() {
             <TabsContent value="school">
               <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
 
-                {/* Col 1: Lista de evaluaciones (60%) */}
+                {/* Col 1: Progreso Deportivo — es el dato real y poblado, va central (D-2026-08-31: antes acá vivía "Evolución de Habilidades", que depende de una tabla aparte que nadie carga) */}
                 <div className="lg:col-span-3 space-y-4">
+                  <PerformanceEvolutionSection
+                    childId={selectedChildId}
+                    title="Progreso Deportivo"
+                    description="Métricas de tu deporte"
+                  />
+                </div>
+
+                {/* Col 2: Evaluaciones de habilidad + feedback (secundario) */}
+                <div className="lg:col-span-2 space-y-4">
                   <Card className="border-border/40 rounded-2xl overflow-hidden">
                     <CardHeader className="bg-muted/30 border-b border-border/40">
                       <div className="flex items-center gap-2">
@@ -651,10 +660,7 @@ export default function AcademicProgressPage() {
                         ))}
                     </CardContent>
                   </Card>
-                </div>
 
-                {/* Col 2: Estadísticas escuela (40%) */}
-                <div className="lg:col-span-2 space-y-4">
                   <Card className="border-border/40 rounded-2xl overflow-hidden">
                     <CardHeader className="bg-muted/30 border-b border-border/40 pb-3">
                       <CardTitle className="text-sm font-bold flex items-center gap-2">
@@ -711,11 +717,6 @@ export default function AcademicProgressPage() {
                       </CardContent>
                     </Card>
                   )}
-                  <PerformanceEvolutionSection
-                    childId={selectedChildId}
-                    title="Rendimiento Deportivo"
-                    description="Métricas de tu deporte"
-                  />
                 </div>
               </div>
             </TabsContent>

@@ -962,6 +962,26 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
           ? (eData.offering_plans as any).offering_id
           : null;
 
+        // Revalidar en servidor la restricción de coaches del plan — el GET
+        // /athlete/available ya filtra la lista que ve el cliente, pero eso
+        // no es autoritativo: sin este chequeo, cualquiera podía llamar este
+        // endpoint directo con el avail_ de un coach NO autorizado para el
+        // plan y la sesión se creaba igual con ese coach.
+        if (offering_id) {
+          const { data: allowedCoaches } = await supabase
+            .from('offering_coaches')
+            .select('coach_id')
+            .eq('offering_id', offering_id);
+
+          if (allowedCoaches && allowedCoaches.length > 0 &&
+              !allowedCoaches.some(ac => ac.coach_id === coach_id)) {
+            return res.status(403).json({
+              error: 'Este entrenador no está autorizado para dictar este plan.',
+              reason: 'coach_not_authorized',
+            });
+          }
+        }
+
         const { data: newS, error: newErr } = await supabase.from('attendance_sessions')
           .insert({
             school_id: enrollmentSchoolId,

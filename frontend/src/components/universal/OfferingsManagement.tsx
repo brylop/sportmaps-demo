@@ -98,10 +98,10 @@ const hideSpinnersCSS = `
 // ═══════════════════════════════════════════════════════════════════
 
 function NumberStepper({
-    id, value, onChange, placeholder, min = 0, step = 1, prefix, label, isCurrency = false, disabled = false,
+    id, value, onChange, placeholder, min = 0, step = 1, prefix, unit, label, isCurrency = false, disabled = false,
 }: {
     id: string; value: string; onChange: (v: string) => void;
-    placeholder?: string; min?: number; step?: number; prefix?: string; label?: string;
+    placeholder?: string; min?: number; step?: number; prefix?: string; unit?: string; label?: string;
     isCurrency?: boolean; disabled?: boolean;
 }) {
     const rawVal = isCurrency ? parseCurrency(value) : value;
@@ -127,12 +127,15 @@ function NumberStepper({
                     {prefix && (
                         <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-medium">{prefix}</span>
                     )}
+                    {unit && (
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-medium pointer-events-none">{unit}</span>
+                    )}
                     <Input
                         id={id}
                         placeholder={placeholder}
                         type={isCurrency ? "text" : "number"}
                         disabled={disabled}
-                        className={`rounded-none border-x-0 h-9 text-center ${prefix ? 'pl-6' : ''}`}
+                        className={`rounded-none border-x-0 h-9 text-center ${prefix ? 'pl-6' : ''} ${unit ? 'pr-10' : ''}`}
                         value={isCurrency ? formatCurrency(value) : value}
                         onChange={(e) => {
                             const val = e.target.value;
@@ -1008,6 +1011,18 @@ export function OfferingsManagement() {
                                     onChange={(v) => setNewPlan((prev) => ({ ...prev, included_minutes_per_period: v }))}
                                     placeholder="480"
                                     step={30}
+                                    // "unit" es un <span> decorativo dentro del input (no se
+                                    // mezcla con el parser de digitos de handleChange), a
+                                    // diferencia de formatValue que SI reescribe el texto
+                                    // editable -- por eso este es el prop correcto para mostrar
+                                    // las horas al lado sin romper la edicion en minutos. Sin
+                                    // parentesis: el badge es mayuscula compacta (ver "kg"/"min"
+                                    // en otros usos de NumberStepper), "(16h)" quedaba largo.
+                                    unit={
+                                        newPlan.included_minutes_per_period !== ''
+                                            ? `${(parseInt(newPlan.included_minutes_per_period) / 60).toFixed(parseInt(newPlan.included_minutes_per_period) % 60 === 0 ? 0 : 1)}h`
+                                            : undefined
+                                    }
                                 />
                                 <p className="text-[10px] text-muted-foreground">
                                     Ej: 480 min = 8 horas al mes. El período lo define el ciclo de facturación de la escuela.
@@ -1028,6 +1043,11 @@ export function OfferingsManagement() {
                                         onChange={(v) => setNewPlan((prev) => ({ ...prev, session_block_minutes: v }))}
                                         placeholder="Hereda de la escuela"
                                         step={15}
+                                        unit={
+                                            newPlan.session_block_minutes !== ''
+                                                ? `${(parseInt(newPlan.session_block_minutes) / 60).toFixed(parseInt(newPlan.session_block_minutes) % 60 === 0 ? 0 : 1)}h`
+                                                : undefined
+                                        }
                                     />
                                     <p className="text-[10px] text-muted-foreground">
                                         Vacío = usa el bloque general de la escuela. Para tener 2h/3h/4h a la vez, cada nivel necesita su propio valor.

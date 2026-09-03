@@ -68,6 +68,7 @@ import vendorServicesRouter from './routes/vendor-services.routes';
 import marketplaceOrdersRouter from './routes/marketplace-orders.routes';
 import ogPreviewRouter from './routes/og-preview.routes';
 import certificatesRouter from './routes/certificates';
+import athleteReportsPdfRouter from './routes/athlete-reports-pdf';
 import equipmentActaRouter from './routes/equipment.route';
 import joinQrRouter from './routes/join-qr';
 import { assertMpEnvCoherente } from './services/mercadopago.service';
@@ -294,7 +295,10 @@ const publicBookingLimiter = rateLimit({
 app.use('/api/v1/public/booking', publicBookingLimiter, publicBookingRouter);
 
 app.use('/api/v1/webhooks/mercadopago', mpWebhookRouter);
-app.use('/api/v1/payments/mp', paymentLimiter, mpPaymentsRouter);
+// /create y /save-card mutan tarjeta/cobro → requireAuth (dentro del router) +
+// CSRF header, mismo patrón que payment-tokens/recurring. /providers es GET
+// público (gate del frontend) y no lo toca requireAuth por diseño.
+app.use('/api/v1/payments/mp', paymentLimiter, requireCsrfHeader, mpPaymentsRouter);
 app.use('/api/v1/payment-providers', generalLimiter, paymentProvidersRouter);
 app.use('/api/v1/invoicing', generalLimiter, invoicingRouter);
 app.use('/api/v1/attendance', generalLimiter, attendanceRouter);
@@ -374,6 +378,7 @@ app.use('/api/v1/vendor/products', generalLimiter, vendorProductsRouter);
 app.use('/api/v1/vendor/services', generalLimiter, vendorServicesRouter);
 app.use('/api/v1/marketplace/orders', paymentLimiter, marketplaceOrdersRouter);
 app.use('/api/v1/certificates', generalLimiter, certificatesRouter);
+app.use('/api/v1/athlete-reports', generalLimiter, athleteReportsPdfRouter);
 app.use('/api/v1/join-qr', generalLimiter, joinQrRouter);
 app.use('/api/v1/access', generalLimiter, accessApiRouter);
 // Canal para scripts locales (SDK pyzk, ej. scripts/gymrm-door-bridge/) que

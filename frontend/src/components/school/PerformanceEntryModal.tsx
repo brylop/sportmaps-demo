@@ -86,7 +86,7 @@ export function PerformanceEntryModal({
   onSuccess,
 }: PerformanceEntryModalProps) {
   const { toast } = useToast();
-  const { data: metricsData, isLoading: loadingMetrics } = useSchoolPerformanceMetrics();
+  const { data: metricsData, isLoading: loadingMetrics, isError: metricsError } = useSchoolPerformanceMetrics();
   const createEntries = useCreatePerformanceEntries();
 
   const [values, setValues] = useState<Record<string, number | ''>>({});
@@ -158,6 +158,13 @@ export function PerformanceEntryModal({
           <div className="flex items-center justify-center py-10">
             <Loader2 className="h-5 w-5 animate-spin text-primary mr-2" />
             <span className="text-sm text-muted-foreground">Cargando métricas...</span>
+          </div>
+        ) : metricsError ? (
+          <div className="flex flex-col items-center gap-3 py-10 text-center">
+            <AlertCircle className="h-8 w-8 text-destructive" />
+            <p className="text-sm text-muted-foreground max-w-xs">
+              No se pudo cargar el catálogo de métricas. Verifica tu conexión e intenta de nuevo.
+            </p>
           </div>
         ) : !metricsData?.sport_category_id ? (
           <div className="flex flex-col items-center gap-3 py-10 text-center">

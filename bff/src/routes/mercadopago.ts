@@ -22,6 +22,7 @@
 
 import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
+import { requireAuth, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { todayInZone } from '../utils/businessDate';
 import {
     validateMpWebhookSignature,
@@ -766,7 +767,9 @@ async function maybeCaptureMpCard(
 
 // ─── POST /api/v1/payments/mp/create — desde Brick onSubmit ────────────────
 
-paymentsRouter.post('/create', async (req: Request, res: Response) => {
+// requireAuth: sin esto, cualquiera en internet podía cobrar tarjetas
+// arbitrarias contra el access_token real de una escuela/vendor (carding).
+paymentsRouter.post('/create', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
         const {
             token,
@@ -855,11 +858,14 @@ paymentsRouter.post('/create', async (req: Request, res: Response) => {
 
 // ─── POST /api/v1/payments/mp/save-card — autopay setup ───────────────────
 
-paymentsRouter.post('/save-card', async (req: Request, res: Response) => {
+// requireAuth + req.user.id: sin esto, cualquiera podía plantar/sobrescribir
+// el método de pago por defecto de OTRO usuario mandando su userId en el body.
+paymentsRouter.post('/save-card', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
-        const { cardToken, payerEmail, userId, schoolId, vendorId, setDefault } = req.body ?? {};
+        const { cardToken, payerEmail, schoolId, vendorId, setDefault } = req.body ?? {};
+        const userId = req.user.id;
 
-        if (!cardToken || !payerEmail || !userId) {
+        if (!cardToken || !payerEmail) {
             return res.status(400).json({ error: 'missing_fields' });
         }
 

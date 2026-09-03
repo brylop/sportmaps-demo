@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useActiveWorkPage } from '@/hooks/useActiveWorkPage';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { Plus, Calendar, Target, ClipboardList, Trash2, Activity, Users, Loader2, TrendingUp, Trophy, Star } from 'lucide-react';
 import { SessionFormDialog } from '@/components/coach/SessionFormDialog';
+import { MesocycleSection } from '@/components/coach/MesocycleSection';
 import { TeamPerformanceEntryModal } from '@/components/school/TeamPerformanceEntryModal';
 import { FootballDashboardModal } from '@/components/school/FootballDashboardModal';
 import { PerformanceEntryModal } from '@/components/school/PerformanceEntryModal';
@@ -32,6 +34,7 @@ export default function TrainingPlansPage() {
   const { schoolId, activeBranchId, currentUserRole } = useSchoolContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  useActiveWorkPage();
 
   const [filterType, setFilterType] = useState<'teams' | 'plans'>('teams');
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
@@ -125,6 +128,29 @@ export default function TrainingPlansPage() {
       return (data || []).sort((a: any, b: any) => a.full_name.localeCompare(b.full_name));
     },
     enabled: !!activeId && !!schoolId,
+  });
+
+  // ¿El equipo tiene un mesociclo? Mismo queryKey y misma lógica que usa
+  // MesocycleSection internamente — React Query comparte el fetch, no lo
+  // duplica, así que las dos consultas tienen que ser idénticas o una
+  // sobrescribe el cache de la otra según cuál monte primero. Sirve para no
+  // mostrar la lista plana de sesiones dos veces (una agrupada por semana,
+  // otra suelta) cuando sí hay mesociclo. No filtra por fecha — el más
+  // reciente del equipo, igual que MesocycleSection.
+  const { data: currentMesocycle } = useQuery({
+    queryKey: ['mesocycle-current', selectedTeamId],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('training_mesocycles')
+        .select('*')
+        .eq('team_id', selectedTeamId)
+        .order('starts_on', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: filterType === 'teams' && !!selectedTeamId,
   });
 
   // Fetch training sessions (only for teams)
@@ -280,8 +306,21 @@ export default function TrainingPlansPage() {
             </CardContent>
           </Card>
 
-          {/* Listado de Sesiones de Entrenamiento */}
-          {filterType === 'teams' && selectedTeamId && (
+          {/* Mesociclo — planificación mensual, agrupa la lista de sesiones por semana */}
+          {filterType === 'teams' && selectedTeamId && schoolId && (
+            <MesocycleSection
+              teamId={selectedTeamId}
+              schoolId={schoolId}
+              roster={roster}
+              sessions={sessions || []}
+              isFootball={isFootballTeam}
+              onEditSession={(session) => { setEditingSession(session); setDialogOpen(true); }}
+            />
+          )}
+
+          {/* Listado de Sesiones de Entrenamiento — solo suelto cuando NO hay
+              mesociclo activo; si lo hay, MesocycleSection ya las agrupa por semana */}
+          {filterType === 'teams' && selectedTeamId && !currentMesocycle && (
             <div className="space-y-4">
               {isLoading && <LoadingSpinner text="Cargando sesiones..." />}
 

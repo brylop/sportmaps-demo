@@ -186,7 +186,10 @@ export interface TacticalPresetSlot {
  *  "type" es opcional y por defecto 'arrow' -- así las flechas guardadas
  *  ANTES de agregar curva/zona se siguen leyendo sin romper. */
 export type TacticalArrowColor = 'white' | 'yellow' | 'red' | 'blue';
-export type TacticalShapeType = 'arrow' | 'curve' | 'zone';
+/** arrow/curve/zone: figuras de 2 puntos. Del cono en adelante: objetos de
+ *  UN punto (x1/y1) -- x2/y2 se guardan igual a x1/y1 por simplicidad de
+ *  esquema (la misma columna jsonb sirve para los dos casos). */
+export type TacticalShapeType = 'arrow' | 'curve' | 'zone' | 'cone' | 'ball' | 'goal' | 'opponent' | 'hurdle';
 
 export interface TacticalArrow {
   type?: TacticalShapeType;

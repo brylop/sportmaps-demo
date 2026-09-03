@@ -1,15 +1,18 @@
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
 import {
   ArrowLeft, School, Users, MessageSquare, CalendarCheck,
-  TrendingUp, AlertTriangle, Trophy,
+  TrendingUp, AlertTriangle, Trophy, Download, Loader2,
 } from 'lucide-react';
 import { useAthleteReportDetail } from '@/hooks/useAthleteReports';
 import { CATEGORY_STYLE, CATEGORY_ORDER, BAND_STYLE, fmtWithUnit } from '@/lib/school/performanceDisplay';
-import type { SnapshotMetric } from '@/lib/school/reportsQueries';
+import { downloadAthleteReportPdf, type SnapshotMetric } from '@/lib/school/reportsQueries';
+import { useToast } from '@/hooks/use-toast';
 
 function MetricRow({ metric }: { metric: SnapshotMetric }) {
   const band = metric.band ? BAND_STYLE[metric.band] : null;
@@ -36,6 +39,20 @@ function MetricRow({ metric }: { metric: SnapshotMetric }) {
 export default function ChildReportDetailPage() {
   const { id, reportId } = useParams<{ id: string; reportId: string }>();
   const { data: report, isLoading, error, refetch } = useAthleteReportDetail(reportId);
+  const { toast } = useToast();
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+
+  const handleDownloadPdf = async () => {
+    if (!reportId) return;
+    setDownloadingPdf(true);
+    try {
+      await downloadAthleteReportPdf(reportId);
+    } catch (e: any) {
+      toast({ title: 'No se pudo descargar el PDF', description: e?.message, variant: 'destructive' });
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
 
   if (isLoading) {
     return <LoadingSpinner fullScreen text="Cargando informe..." />;
@@ -61,20 +78,26 @@ export default function ChildReportDetailPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-10">
-      <div>
-        <Link to={`/children/${id}/reports`} className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mb-2 w-fit">
-          <ArrowLeft className="h-3 w-3" /> Volver a informes
-        </Link>
-        <h1 className="text-3xl font-bold tracking-tight capitalize">{s.period.label}</h1>
-        <p className="text-muted-foreground mt-1 flex items-center gap-1.5">
-          <School className="h-3.5 w-3.5" /> {s.school.name}
-          {s.governing_team && (
-            <>
-              <span>·</span>
-              <Users className="h-3.5 w-3.5" /> {s.governing_team.name}
-            </>
-          )}
-        </p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <Link to={`/children/${id}/reports`} className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mb-2 w-fit">
+            <ArrowLeft className="h-3 w-3" /> Volver a informes
+          </Link>
+          <h1 className="text-3xl font-bold tracking-tight capitalize">{s.period.label}</h1>
+          <p className="text-muted-foreground mt-1 flex items-center gap-1.5">
+            <School className="h-3.5 w-3.5" /> {s.school.name}
+            {s.governing_team && (
+              <>
+                <span>·</span>
+                <Users className="h-3.5 w-3.5" /> {s.governing_team.name}
+              </>
+            )}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" className="gap-1.5 shrink-0" onClick={handleDownloadPdf} disabled={downloadingPdf}>
+          {downloadingPdf ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+          Descargar PDF
+        </Button>
       </div>
 
       {/* ── Fútbol (si aplica) ─────────────────────────────────────────── */}

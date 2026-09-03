@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 467,
-  "head": "20260831133329",
+  "count": 473,
+  "head": "20260902190708",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -470,6 +470,12 @@
     {"v":"20260829123314","file":"20260829123314_school_subscriptions_billing_cycle_options.sql","sha256":"6e27aed4fe388e022af826691dd9e99ed807c2c03bdbaa953bae8ac22a701ae1","added":"2026-08-29","by":"brylop"},
     {"v":"20260831095348","file":"20260831095348_cerrar_brechas_seg22_seg1_seg2.sql","sha256":"eddc796a4257d0c86a2ce12a397b7f0aa61c470c053d5093c4fbb9aa43ab792e","added":"2026-08-31","by":"brylop"},
     {"v":"20260831115511","file":"20260831115511_school_subscriptions_billing_emails.sql","sha256":"057cdcbc216bb50502dd268375b7849642577900dee8e0d11702de27684f6f00","added":"2026-08-31","by":"brylop"},
-    {"v":"20260831133329","file":"20260831133329_fix_periodo_facturas_saas_negociado_mensual.sql","sha256":"07827955493e64aa495700d7ab23c51999151c5d12859fa58c8fe9f81eb61362","added":"2026-08-31","by":"brylop"}
+    {"v":"20260831133329","file":"20260831133329_fix_periodo_facturas_saas_negociado_mensual.sql","sha256":"07827955493e64aa495700d7ab23c51999151c5d12859fa58c8fe9f81eb61362","added":"2026-08-31","by":"brylop"},
+    {"v":"20260831160936","file":"20260831160936_mesociclo_carmel.sql","sha256":"6e966915a282e72c5368fbbe335abd2ea1db817f5e06cbeada0f1d2fbbbabbc0","added":"2026-08-31","by":"judegor99"},
+    {"v":"20260831162124","file":"20260831162124_mesociclo_carmel_revocar_anon.sql","sha256":"b88dbe3806d705996c9a792a4dbfcbc51c37e26cc700b8a2bb969546611b9275","added":"2026-08-31","by":"judegor99"},
+    {"v":"20260831163530","file":"20260831163530_seg23_revocar_default_privilege_anon.sql","sha256":"cf8396a9a69ce3347c5a4931dccdbc795a281d1e961a248c286791bb7a7d5583","added":"2026-08-31","by":"judegor99"},
+    {"v":"20260831172237","file":"20260831172237_f4_corregir_enlace_informe_adopcion.sql","sha256":"fb724c5ccf3216aeb9a87f40a841ecfed4cf7105686ab7db91d89bbae18752c0","added":"2026-08-31","by":"judegor99"},
+    {"v":"20260902190219","file":"20260902190219_offering_coaches_documentar_y_endurecer_rls.sql","sha256":"2484642f9ed46d0201c0a4c6086cd2f69f0a1bf22dc4a22789f9f630ac233a4e","added":"2026-09-03","by":"judegor99"},
+    {"v":"20260902190708","file":"20260902190708_trial_class_public_create_respeta_offering_coaches.sql","sha256":"6c45140a5438ebeddb805088969f078080b631ee54fc9812c0cd277b54b14095","added":"2026-09-03","by":"judegor99"}
   ]
 }

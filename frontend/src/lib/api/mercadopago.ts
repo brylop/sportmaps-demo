@@ -74,6 +74,10 @@ export interface ProvidersResponse {
 
 const BFF_URL = import.meta.env.VITE_BFF_URL ?? '';
 
+// /create y /save-card mutan tarjeta/cobro → el BFF exige requireAuth + este
+// header anti-CSRF (mismo patrón que payment-tokens/recurring).
+const CSRF_HEADERS = { 'X-Requested-With': 'SportMaps' };
+
 /**
  * Lista los providers disponibles para una escuela / vendor / marketplace.
  * Usado por el PaymentProviderGate para decidir si mostrar selector o ir directo.
@@ -107,7 +111,7 @@ export async function createMpPayment(
     authToken?: string,
 ): Promise<MpCreatePaymentResult> {
     const url = `${BFF_URL}/api/v1/payments/mp/create`;
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...CSRF_HEADERS };
     if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
     const res = await fetch(url, {
@@ -138,7 +142,7 @@ export async function saveMpCard(
     authToken?: string,
 ): Promise<{ ok: boolean; tokenId?: string; lastFour?: string; brand?: string }> {
     const url = `${BFF_URL}/api/v1/payments/mp/save-card`;
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...CSRF_HEADERS };
     if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
     const res = await fetch(url, {

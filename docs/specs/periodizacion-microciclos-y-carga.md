@@ -10,6 +10,12 @@
 > una herramienta de diseño. Este spec describe qué tendría que hacer SportMaps
 > para reemplazarlo — y, sobre todo, para **corregir los errores que ese formato
 > no puede detectar**.
+>
+> **Segunda fuente, 2026-08-31:** `MESOCICLO C.C.C..xlsx`, la plantilla real de
+> planificación mensual de **Club Carmel** (fútbol). Confirma el patrón desde un
+> club distinto — no es una idea de Santa Fe sola — y agrega un nivel que este
+> spec no tenía: el **mesociclo** (mes, ~4 semanas), contenedor de microciclos.
+> Ver §3.5.
 
 ---
 
@@ -94,6 +100,10 @@ marcadas 🔴 **bloquean** el plan de su fase y necesitan respuesta explícita.
 | **D6** | ¿El rótulo del día se valida contra su contenido? | Por defecto (sin objeción): **sí, con aviso — nunca bloqueo.** Modo audit antes de enforce (regla 5 del §0 del roadmap). | Corrige **H2**. Un bloqueo acá sería el producto discutiéndole la metodología al cuerpo técnico. |
 | **D7** | ¿Visible al padre o al atleta? | Por defecto (sin objeción): **no en v1** — coach y admin de escuela. | Igual que D3 del spec táctico. Abrirlo al atleta es aditivo y no bloquea nada. |
 | **D8** | ¿Solo fútbol o multideporte? | Por defecto (sin objeción): **modelo agnóstico desde el día uno** (día, rótulo, carga, UA). El **vocabulario MD** y la cancha son de fútbol y quedan detrás de un flag por deporte. | El spec táctico se declaró fútbol-only a propósito; este no puede: la carga se mide igual en patinaje y en crossfit, y el catálogo de deportes ya arrastra el hueco de gimnasio/CrossFit (`MOD-16`). |
+| **D9** | ¿El mesociclo (mes) es una entidad, o alcanza con leer varios microciclos por rango de fechas? | Por defecto (sin objeción): **entidad**, `training_mesocycles`, igual razón que D1. El Excel de Carmel le pone objetivo general y modelo/principios de juego **propios del mes**, que no son la suma de los objetivos semanales — necesitan un lugar donde vivir. | §3.5 |
+| **D10** | ¿Cómo se liga el microciclo al mesociclo? | Por defecto (sin objeción): FK **opcional** (`training_microcycles.mesocycle_id`, nullable). Un equipo puede seguir usando microciclos sueltos sin planear a nivel mensual — no se fuerza el escalón de arriba para usar el de abajo. | §3.5 |
+| **D11** | Las filas «Cumplimiento objetivos» / «Rendimiento colectivo» / «Aspectos a mejorar» del control semanal del Excel — ¿derivadas o texto libre del coach? | Por defecto (sin objeción): **texto libre**, no hay forma de derivar un juicio del coach. «Asistencia» y «Carga/intensidad», que sí son las mismas dos filas, se leen de `v_microcycle_load` (§3.3) — no se duplican en una tabla nueva. | §3.5 |
+| **D12** | 🔴 La rúbrica de la hoja `EVALUACIÓN` (6 indicadores × 5 cortes, 1–10) — ¿es **por equipo** (como está en el Excel) o **por atleta**? | Sin default: son dos modelos de datos distintos y el spec ya advierte en §1 que `performance_entries` mide al atleta, no a la semana — mezclar los dos ejes sin decidirlo es el mismo error que `payments.status` (`CLAUDE.md`). Propuesta razonada: **por equipo en v1** (coincide con el Excel, con lo que ya existe — `publish_team_reports_system` de `MOD-20` — y no exige que el coach repita la rúbrica por cada uno de ~20 jugadores). Lo «por atleta» queda pendiente de decisión, cruza con el Informe Mensual. | §3.5 |
 
 ---
 
@@ -140,6 +150,91 @@ Función de lectura que, dado un microciclo, devuelve por día su distancia en d
 al partido anterior y al siguiente. Nunca persiste. Un día entre dos partidos
 devuelve las dos etiquetas (`MD+1` y `MD-1`) y la UI muestra ambas.
 
+### 3.5 Mesociclo (nivel mensual) — de `MESOCICLO C.C.C..xlsx`, Club Carmel
+
+El Excel tiene dos hojas. La primera (`MESOCICLO`) planea el mes: encabezado
+(equipo, entrenador, período, nº de sesiones, duración), objetivo general +
+modelo/principios de juego del mes, una grilla de 4 semanas × 2 sesiones con
+contenido por sesión, una tabla de control semanal, y un cierre (fortalezas /
+por mejorar / notas para el próximo mesociclo). La segunda (`EVALUACIÓN`) es una
+rúbrica de 6 indicadores puntuados 1–10 en 5 cortes (inicial, semana 2, 3, 4,
+final) más conclusiones.
+
+**Lo que la grilla de sesión-por-sesión pide, ya existe — no es una tabla
+nueva:**
+
+| Columna del Excel | Dónde ya vive |
+|---|---|
+| Objetivo de la sesión | `training_sessions.objectives` |
+| Principio de juego | `training_sessions.game_principles` (`CAR-8`) |
+| Observaciones | `training_sessions.notes` |
+| Intensidad (planeada) | `training_microcycle_days.planned_rpe` (F1, §3.1) |
+| Duración (planeada) | `training_microcycle_days.planned_minutes` (F1, §3.1) |
+| Contenido técnico / táctico / físico | Nuevo: `component` en cada bloque de `session_blocks` (`CAR-8`) — `tecnico`\|`tactico`\|`fisico`\|`mixto`. No es columna nueva, es un campo más en el jsonb que `CAR-8` ya definió. |
+
+Es la confirmación cruzada de que `CAR-8` (nivel sesión) y el F1 pendiente de
+este spec (nivel semana) ya cubren todo el contenido operativo del Excel. Lo
+único que falta es el **contenedor del mes** y su cierre — eso sí es modelo
+nuevo:
+
+```
+training_mesocycles        (school_id, team_id, starts_on, ends_on,
+                             n_sessions_planned, session_duration_minutes,
+                             general_objective, game_model,
+                             closing_review jsonb, created_by)
+  └── training_microcycles.mesocycle_id   (FK opcional — D10)
+        └── training_microcycles.objective_compliance      (texto, D11)
+        └── training_microcycles.collective_performance    (texto, D11)
+        └── training_microcycles.improvement_notes         (texto, D11)
+
+training_mesocycle_evaluations   (mesocycle_id, indicator text+CHECK,
+                                   checkpoint text+CHECK, score smallint
+                                   CHECK 1-10, observations)
+```
+
+- `closing_review jsonb` = `{strengths, areas_to_improve, next_cycle_notes}` —
+  mismo patrón que `evaluation` de `CAR-8` en `training_sessions`, no una tabla
+  aparte para tres campos de texto.
+- Los tres campos de cierre semanal viven en `training_microcycles` (que ya
+  existe desde F1), no en una tabla nueva de "revisión semanal": la semana **es**
+  el microciclo.
+- `training_mesocycle_evaluations` en formato largo (una fila por indicador ×
+  corte) en vez de 30 columnas: los 6 indicadores (`tecnica_individual`,
+  `toma_decisiones`, `principios_juego`, `condicion_fisica`,
+  `comportamiento_colectivo`, `rendimiento_competitivo`) y los 5 cortes
+  (`inicial`, `semana_2`, `semana_3`, `semana_4`, `final`) son ambos `text +
+  CHECK`, convención del repo.
+
+**Por qué esto importa más allá de Carmel:** `CAR-8` está construido y
+aplicado, pero **verificado el 2026-08-31 sin una sola fila real usándolo**
+(ver `docs/ROADMAP.md`). El Excel del mesociclo sugiere una explicación: el
+flujo real del cuerpo técnico no empieza en una sesión suelta, empieza
+planeando el mes. Sin `training_mesocycles`, un coach de Carmel no tiene dónde
+volcar ese primer paso — y sin ese primer paso, puede que nunca llegue a abrir
+`SessionFormDialog`.
+
+### 3.6 Verificación contra la base viva (2026-08-31) — antes de reusar, no solo antes de construir
+
+La ruta de reuso de §3.5 (D2, D4, D12-individual) se verificó por REST contra
+`luebjarufsiadojhvxgi`, no solo contra el `.sql`. Confirma que las piezas
+existen y también expone que **casi nada del módulo de fútbol tiene uso real
+todavía**:
+
+| Pieza | Filas reales | Nota |
+|---|---|---|
+| `sport_metric_definitions` (fútbol, 6 esperadas) | 6/6 existen | ⚠️ **`duelos_ganados` no es lo que la migración del 12-ago quiso sembrar** — pero **no se corrige**, se descarta la premisa. `created_at` 2026-07-15, `data_type='count'`, sin `min_value`/`max_value`. El `ON CONFLICT DO NOTHING` chocó contra esa fila vieja y no la reemplazó. **Verificado 2026-08-31: tiene 43 filas reales en `performance_entries`, con valores de 1 a 8** — un 1-8 conteo real, no una escala 1-5. Forzarla a `rating` 1-5 (lo que el 12-ago intentó) habría sido el bug, no el fix: rompía un `CHECK` contra datos vivos y falseaba 43 mediciones reales a una escala que no les corresponde. **Se deja intacta.** Si `D12`-individual todavía quiere un 6º indicador técnico 1-5 (el que el 12-ago no pudo sembrar por la colisión de nombre), va con un `metric_key` **distinto** — nunca reusar `duelos_ganados` |
+| `performance_entries` | 498 filas | `context_type`: **100 % `manual`**, 0 con `evaluation` — confirma que el hueco que propone D12-individual está libre, no que ya funciona con datos reales |
+| `tournament_matches` | **0 filas** | La mitad de D2 que reusa `scheduled_at` no tiene ni un caso real que la ejercite hoy |
+| `competition_results` | 2 filas | |
+| `match_lineups` / `football_match_events` / `match_lineup_players` | 1 / 5 / 14 | Todo del **mismo equipo**, `Sub-12 Fútbol A` de **Academia Fútbol Demo** — una escuela demo, no un cliente real, y no es Carmel |
+| `team_members.position_code` | **0 de 33** | El catálogo de posiciones (`arquero`/`defensa`/`medio`/`delantero`) no se usó ni una vez desde que se agregó el 12-ago |
+
+**Conclusión honesta:** el diseño de reuso es correcto — las piezas existen con
+las columnas que se asumieron — pero **nada de esto está probado con uso real
+de un cliente**, y mucho menos de Carmel específicamente. "Está cubierto" es
+cierto a nivel de esquema, no a nivel de evidencia de que el flujo funciona en
+la práctica.
+
 ---
 
 ## 4. Fases de entrega
@@ -150,9 +245,11 @@ devuelve las dos etiquetas (`MD+1` y `MD-1`) y la UI muestra ambas.
 | **F1 — Microciclo** | Entidad + días + rótulos + **índice MD calculado** + vista semanal (el equivalente del tablero de Canva, con los índices bien). CRUD de coach. | D1, D2, F0 |
 | **F2 — Carga** | sRPE del coach, UA, monotonía, strain, ACWR, semáforos. **Modo audit**: se muestra, no bloquea nada. | D4, D5, F1 |
 | **F3 — Alertas y validación de rótulo** | Aviso cuando el contenido contradice el rótulo (**H2**), cuando hay dos partidos en <72 h (**H3**), cuando el ACWR se sale de rango. RPE del atleta. | D6, F2 |
+| **F1b — Mesociclo** | `training_mesocycles` + `component` en `session_blocks` + cierre semanal en `training_microcycles` (§3.5). CRUD de coach: crear el mes, encadenar sus microciclos, cerrar con fortalezas/por mejorar. | D9, D10, D11, F1 |
 | **F4 — Plantillas de microciclo** | Duplicar la semana anterior como punto de partida editable. Mismo patrón que el tablero táctico duplicando slots: copiar filas, no catálogo cerrado. | F1 |
-| **F5 — Exportable** | La vista semanal a PDF/imagen. **Es el gancho comercial real**: hoy el cuerpo técnico mantiene 105 diapositivas a mano en Canva. | F1 |
+| **F5 — Exportable** | La vista semanal a PDF/imagen. **Es el gancho comercial real**: hoy el cuerpo técnico mantiene 105 diapositivas a mano en Canva (y el mesociclo, a mano en Excel). | F1 |
 | **F6 — Vínculos** | Tablero táctico (es la `P3` del spec de fútbol: mismo tablero con contexto `training`) e Informe Mensual del Atleta (la carga del mes junto a las métricas). | F1, tablero P0 (ya en `develop`) |
+| **F7 — Rúbrica de mesociclo** | `training_mesocycle_evaluations` + hoja `EVALUACIÓN` del Excel. Depende de **D12** — si termina siendo por atleta en vez de por equipo, este DDL cambia entero. | D12, F1b |
 
 Cada fase es rama aparte con revisión, como Informes y como el tablero táctico.
 
@@ -182,13 +279,21 @@ Cada fase es rama aparte con revisión, como Informes y como el tablero táctico
 
 ## 7. Estado
 
-Siguiente paso: resolver **D2** y **D4** (las dos que bloquean), y con eso
-escribir el plan de **F0** — que es medición y saneamiento, no feature: cuántas
-filas de `training_plans` hay por escuela, si alguien las usa, y cómo se vincula
-con `training_sessions` sin romper la asistencia. Como se hizo con la F1 de
-Informes: regularizar primero, RLS línea por línea, y recién después construir.
+**2026-08-31 — F0 quedó parcialmente resuelto de rebote.** `CAR-8` (fuera de
+este spec, ver `docs/ROADMAP.md`) ya sacó a `training_sessions` del choque de
+nombres con `training_plans` — la mitad de F0 que hacía falta antes de escribir
+cualquier DDL de este spec. Sigue pendiente la mitad de F0 que **no** tocó:
+vincular `training_sessions` (contenido) con la reserva/cupo real y el tablero
+táctico sigue colgado de la tabla vieja de cupos (ver nota en §1, fila
+«Tablero táctico»).
 
-**Insumo pendiente del usuario:** las diapositivas 2–4 del deck (microciclos de
-septiembre) para poder hacer el cruce de los 4 fines de semana — si el patrón
-«fuerza el sábado post-partido» se repite, deja de ser un caso y pasa a ser la
-regla que F3 tiene que avisar.
+Siguiente paso: resolver **D2** y **D4** (bloquean F1/F2) y **D12** (bloquea
+F7). D9–D11 tienen default y no necesitan respuesta para empezar el plan de F1
+si D2/D4 ya están contestadas. Con eso, escribir el plan de **F0** restante —
+que es medición y saneamiento, no feature — y **F1b** puede ir en la misma
+revisión que F1, ya que ambos dependen de las mismas dos decisiones.
+
+**Insumo pendiente del usuario:** las diapositivas 2–4 del deck de Santa Fe
+(microciclos de septiembre) para poder hacer el cruce de los 4 fines de semana
+— si el patrón «fuerza el sábado post-partido» se repite, deja de ser un caso y
+pasa a ser la regla que F3 tiene que avisar.
