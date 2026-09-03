@@ -499,7 +499,7 @@
     {"v":"20260903130555","file":"20260903130555_auditoria_inscripciones_activas_sin_vigencia.sql","sha256":"6bea3f5f2774bbc8435fa2cf4d09c31f4ebd4d88914385d599f591b93dbe1fb4","added":"2026-09-03","by":"brylop"},
     {"v":"20260903131025","file":"20260903131025_torneos_externos_fix_reclamo_por_cualquier_miembro.sql","sha256":"28890aa1f50bc1c9b63fd6c42edf3bdda00f86c0be3ca8a19298c92cc019964b","added":"2026-09-03","by":"brylop"},
     {"v":"20260903134834","file":"20260903134834_parent_email_optional_carmel.sql","sha256":"5ca0890d8bab2d46856e6ef0bcd8a4d558da21d586927926c55c851e656a1fb1","added":"2026-09-03","by":"brylop"},
-    {"v":"20260903144504","file":"20260903144504_coach_besser_financial_categoria.sql","sha256":"6cf818270bc30425933ad5d0f7d798139b3f9f699f0c4eabe91becca1d95dde2","added":"2026-09-03","by":"brylop"},
+    {"v":"20260903144504","file":"20260903144504_coach_besser_financial_categoria.sql","sha256":"b4114921e4572ced054b2cc966ee404a824ee5feab0d193bcba2595853b76528","added":"2026-09-03","by":"brylop"},
     {"v":"20260903150628","file":"20260903150628_articulos_escolares_catalogo_f1.sql","sha256":"296884cbe0a0321085663df88d3fb56912ccaa531da0eaafc428e40bbfa50f47","added":"2026-09-03","by":"brylop"},
     {"v":"20260903151225","file":"20260903151225_add_dorsal_atleta.sql","sha256":"e4c709c7ad36e47416783c3e427ca21a3cdec5c24684ccc1d8e5deb35c2c01dc","added":"2026-09-03","by":"brylop"}
   ]

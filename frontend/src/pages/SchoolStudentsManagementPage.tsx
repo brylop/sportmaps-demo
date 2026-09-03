@@ -192,7 +192,7 @@ export default function SchoolStudentsManagementPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { coachCanCreateAthletes } = useEntitlements();
+  const { coachCanCreateAthletes, coachHideFinancialInfo, coachCanEditCategories } = useEntitlements();
 
   // Alta de deportistas: SOLO admin/owner. El coach de escuela es solo lectura
   // (ve/gestiona los atletas de sus equipos, pero no los da de alta) — esto NO
@@ -203,7 +203,21 @@ export default function SchoolStudentsManagementPage() {
   // Excepción activada por la escuela (school_settings.coach_can_create_athletes
   // — caso Carmel Club): SOLO alta 1x1 y edición de perfil. Nunca CSV ni
   // inactivar/reactivar — el BFF tampoco los habilita bajo este flag.
-  const canCreateOrEditStudents = canManageStudents || coachCanCreateAthletes;
+  const canCreateOrEditStudents = canManageStudents || coachCanCreateAthletes || coachCanEditCategories;
+
+  // Dar de ALTA (nunca solo-categoría): coach_can_edit_categories NO habilita
+  // crear atletas nuevos, solo reasignar la categoría de uno que ya existe.
+  const canCreateStudents = canManageStudents || coachCanCreateAthletes;
+
+  // Excepción de alcance MÁS ACOTADO (school_settings.coach_can_edit_categories
+  // — caso Besser): el coach solo puede reasignar la categoría (equipo) del
+  // atleta, nunca su perfil ni dinero. Si la escuela además activó
+  // coach_can_create_athletes, esa excepción más amplia manda y el formulario
+  // se muestra completo, igual que hoy para Carmel.
+  const isCategoryOnlyCoach = profile?.role === 'coach' && !coachCanCreateAthletes && coachCanEditCategories;
+
+  // Besser: el coach no ve mensualidad ni estado de pago en ninguna pantalla.
+  const hideFinancials = profile?.role === 'coach' && coachHideFinancialInfo;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showTypeSelector, setShowTypeSelector] = useState(false);
@@ -1123,7 +1137,7 @@ export default function SchoolStudentsManagementPage() {
                 <span className="sm:hidden">CSV</span>
               </Button>
             )}
-            {canCreateOrEditStudents && (
+            {canCreateStudents && (
               <Button size="sm" onClick={handleCreateStudent}>
                 <UserPlus className="w-4 h-4 mr-2" />
                 <span className="hidden sm:inline">Agregar Atleta</span>
@@ -1193,22 +1207,25 @@ export default function SchoolStudentsManagementPage() {
           </div>
 
           {/* Estado de pago en tarjetas: es el filtro que más se usa acá y en
-              un selector quedaba escondido detrás de equipo y plan. */}
-          <StatFilterBar
-            className="mt-4"
-            columns={5}
-            value={paymentFilter === 'all' ? null : paymentFilter}
-            onChange={(v) => setPaymentFilter(v ?? 'all')}
-            items={[
-              { key: null, label: 'Todos', value: tabStudents.length, tone: 'neutral' },
-              ...filterOptions.payments.map(p => ({
-                key: p.id,
-                label: PAYMENT_STATE_LABELS[p.id],
-                value: p.count,
-                tone: PAYMENT_STATE_TONES[p.id],
-              })),
-            ]}
-          />
+              un selector quedaba escondido detrás de equipo y plan. Oculto
+              para el coach cuando la escuela no quiere que vea dinero. */}
+          {!hideFinancials && (
+            <StatFilterBar
+              className="mt-4"
+              columns={5}
+              value={paymentFilter === 'all' ? null : paymentFilter}
+              onChange={(v) => setPaymentFilter(v ?? 'all')}
+              items={[
+                { key: null, label: 'Todos', value: tabStudents.length, tone: 'neutral' },
+                ...filterOptions.payments.map(p => ({
+                  key: p.id,
+                  label: PAYMENT_STATE_LABELS[p.id],
+                  value: p.count,
+                  tone: PAYMENT_STATE_TONES[p.id],
+                })),
+              ]}
+            />
+          )}
 
           {selectedStudentIds.length > 0 && (
             <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-primary/5 border border-primary/20 rounded-lg animate-in fade-in slide-in-from-top-1">
@@ -1244,10 +1261,10 @@ export default function SchoolStudentsManagementPage() {
                 title="No hay atletas"
                 description={canManageStudents
                   ? "Agrega atletas manualmente o importa desde un archivo CSV"
-                  : canCreateOrEditStudents
+                  : canCreateStudents
                   ? "Agrega atletas manualmente a tus equipos."
                   : "Aún no hay atletas en tus equipos. El alta la realiza la escuela."}
-                {...(canCreateOrEditStudents ? { actionLabel: "+ Agregar Atleta", onAction: handleCreateStudent } : {})}
+                {...(canCreateStudents ? { actionLabel: "+ Agregar Atleta", onAction: handleCreateStudent } : {})}
               />
             </div>
           ) : (
@@ -1279,23 +1296,25 @@ export default function SchoolStudentsManagementPage() {
                         {!student.team_name && !(student as any).plan_name && <span className="text-xs text-muted-foreground">Sin asignar</span>}
                         <span className="text-muted-foreground text-xs ml-1">· {student.branch_name || "Sin sede"}</span>
                       </div>
-                      <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        {(student as any).fee_is_manual ? (
-                          <Badge variant="outline" className="text-[10px] bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/40 py-0 h-5">
-                            🎓 Becado
-                          </Badge>
-                        ) : (
-                          <>
-                            <span className="text-xs font-semibold text-primary">{(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}</span>
-                            {(student as any).fee_reason === MILITARY_DISCOUNT_REASON && (
-                              <Badge variant="outline" className="text-[10px] bg-slate-50 dark:bg-slate-950/20 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-500/40 py-0 h-5">
-                                🪖 -10%
-                              </Badge>
-                            )}
-                          </>
-                        )}
-                        {getPaymentBadge(student)}
-                      </div>
+                      {!hideFinancials && (
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          {(student as any).fee_is_manual ? (
+                            <Badge variant="outline" className="text-[10px] bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/40 py-0 h-5">
+                              🎓 Becado
+                            </Badge>
+                          ) : (
+                            <>
+                              <span className="text-xs font-semibold text-primary">{(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}</span>
+                              {(student as any).fee_reason === MILITARY_DISCOUNT_REASON && (
+                                <Badge variant="outline" className="text-[10px] bg-slate-50 dark:bg-slate-950/20 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-500/40 py-0 h-5">
+                                  🪖 -10%
+                                </Badge>
+                              )}
+                            </>
+                          )}
+                          {getPaymentBadge(student)}
+                        </div>
+                      )}
                     </div>
                     <StudentActions student={student} />
                   </div>
@@ -1315,8 +1334,12 @@ export default function SchoolStudentsManagementPage() {
                       <TableHead>Equipo / Plan</TableHead>
                       <TableHead>Sede</TableHead>
                       <TableHead>Acudiente</TableHead>
-                      <TableHead>Mensualidad</TableHead>
-                      <TableHead>Estado Pago</TableHead>
+                      {!hideFinancials && (
+                        <>
+                          <TableHead>Mensualidad</TableHead>
+                          <TableHead>Estado Pago</TableHead>
+                        </>
+                      )}
                       <TableHead>Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1348,23 +1371,27 @@ export default function SchoolStudentsManagementPage() {
                         </TableCell>
                         <TableCell><span className="text-xs text-muted-foreground">{student.branch_name || <span className="text-muted-foreground text-xs">Sin sede</span>}</span></TableCell>
                         <TableCell>{(student as any).athlete_type === 'adult' || isAdultByBirthdate((student as any).date_of_birth) ? '—' : (student.display_parent_name || student.parent_name || '-')}</TableCell>
-                        <TableCell className="font-semibold text-primary">
-                          {(student as any).fee_is_manual ? (
-                            <Badge variant="outline" className="text-xs bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/40 w-fit">
-                              🎓 Becado
-                            </Badge>
-                          ) : (
-                            <div className="flex items-center gap-1">
-                              <span>{(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}</span>
-                              {(student as any).fee_reason === MILITARY_DISCOUNT_REASON && (
-                                <Badge variant="outline" className="text-[10px] bg-slate-50 dark:bg-slate-950/20 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-500/40 w-fit">
-                                  🪖 -10%
+                        {!hideFinancials && (
+                          <>
+                            <TableCell className="font-semibold text-primary">
+                              {(student as any).fee_is_manual ? (
+                                <Badge variant="outline" className="text-xs bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/40 w-fit">
+                                  🎓 Becado
                                 </Badge>
+                              ) : (
+                                <div className="flex items-center gap-1">
+                                  <span>{(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}</span>
+                                  {(student as any).fee_reason === MILITARY_DISCOUNT_REASON && (
+                                    <Badge variant="outline" className="text-[10px] bg-slate-50 dark:bg-slate-950/20 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-500/40 w-fit">
+                                      🪖 -10%
+                                    </Badge>
+                                  )}
+                                </div>
                               )}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell>{getPaymentBadge(student)}</TableCell>
+                            </TableCell>
+                            <TableCell>{getPaymentBadge(student)}</TableCell>
+                          </>
+                        )}
                         <TableCell>
                           <div className="flex gap-1">
                             <Button variant="ghost" size="sm" onClick={() => setViewingStudent(student)}>Ver</Button>
@@ -1425,6 +1452,9 @@ export default function SchoolStudentsManagementPage() {
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit as any)} className="space-y-6">
             {/* ── Datos del atleta ── */}
+            {/* Coach con permiso acotado (solo categoría, Besser): nunca edita
+                perfil, solo la sección de Inscripción más abajo. */}
+            {!isCategoryOnlyCoach && (
             <div className="space-y-4">
               <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Datos del atleta</h3>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -1499,9 +1529,10 @@ export default function SchoolStudentsManagementPage() {
                 </div>
               )}
             </div>
+            )}
 
             {/* ── Contacto (acudiente o deportista) ── */}
-            {(() => {
+            {!isCategoryOnlyCoach && (() => {
               const isChildMode = !editingStudent || editingAthleteType === 'child';
               const isAdultMode = editingAthleteType === 'adult';
 
@@ -1609,6 +1640,8 @@ export default function SchoolStudentsManagementPage() {
                       </PopoverContent>
                     </Popover>
                   </div>
+                  {/* Besser (coach solo-categoría): nunca ve ni edita la cuota. */}
+                  {!isCategoryOnlyCoach && (
                   <div className="space-y-1">
                     <Label htmlFor="team_monthly_fee" className="text-xs text-muted-foreground">Mensualidad equipo (COP)</Label>
                     <Input id="team_monthly_fee" type="number" step={1000}
@@ -1618,8 +1651,11 @@ export default function SchoolStudentsManagementPage() {
                       <p className="text-[11px] text-muted-foreground">El plan define el cobro; el equipo no cobra (queda en 0).</p>
                     ) : null}
                   </div>
+                  )}
                 </div>
-                {/* Columna Plan */}
+                {/* Columna Plan — nunca para el coach solo-categoría: asignar
+                    plan es dinero, no categoría. */}
+                {!isCategoryOnlyCoach && (
                 <div className="space-y-3">
                   <div className="space-y-2">
                     <Label>Plan</Label>
@@ -1696,7 +1732,9 @@ export default function SchoolStudentsManagementPage() {
                       {...form.register('plan_monthly_fee', { valueAsNumber: true })} />
                   </div>
                 </div>
+                )}
               </div>
+              {!isCategoryOnlyCoach && (
               <div className="flex items-center justify-between gap-3 rounded-md border p-3">
                 <div className="text-sm">
                   <p className="font-medium">🪖 Descuento Fuerza Militar (10%)</p>
@@ -1729,6 +1767,8 @@ export default function SchoolStudentsManagementPage() {
                   {form.watch('fee_reason') === MILITARY_DISCOUNT_REASON ? 'Quitar descuento' : 'Aplicar 10%'}
                 </Button>
               </div>
+              )}
+              {!isCategoryOnlyCoach && (
               <div className="flex items-center justify-between gap-3 rounded-md border p-3">
                 <div className="text-sm">
                   <p className="font-medium">🪖 Descuento Fuerza Militar (10%)</p>
@@ -1761,6 +1801,8 @@ export default function SchoolStudentsManagementPage() {
                   {form.watch('fee_reason') === MILITARY_DISCOUNT_REASON ? 'Quitar descuento' : 'Aplicar 10%'}
                 </Button>
               </div>
+              )}
+              {!isCategoryOnlyCoach && (
               <div className="space-y-2 rounded-md border p-3">
                 <div className="flex items-center gap-2">
                   <Checkbox
@@ -1801,6 +1843,7 @@ export default function SchoolStudentsManagementPage() {
                   </div>
                 )}
               </div>
+              )}
             </div>
 
             <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
@@ -1969,7 +2012,9 @@ export default function SchoolStudentsManagementPage() {
                       <InfoRow label="Equipo" value={s.team_name} />
                       <InfoRow label="Deporte" value={s.team_sport || s.sport} />
                       <InfoRow label="Sede" value={s.branch_name} icon={<MapPin className="w-3 h-3" />} />
-                      <InfoRow label="Mensualidad" value={monthlyFee > 0 ? formatCurrency(monthlyFee) : null} />
+                      {!hideFinancials && (
+                        <InfoRow label="Mensualidad" value={monthlyFee > 0 ? formatCurrency(monthlyFee) : null} />
+                      )}
                     </div>
 
                     {/* Plan activo */}

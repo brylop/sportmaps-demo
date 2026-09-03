@@ -16,7 +16,8 @@ export type ContentBlock =
   | { type: "quote"; content: string; author?: string }
   | { type: "callout"; variant: "info" | "tip" | "warning"; content: string }
   | { type: "table"; headers: string[]; rows: string[][] }
-  | { type: "cta"; title: string; description: string; href: string; label: string };
+  | { type: "cta"; title: string; description: string; href: string; label: string }
+  | { type: "img"; src: string; alt: string; caption?: string };
 
 export type HelpRole = "school" | "parent" | "coach" | "athlete" | "all";
 
@@ -2272,6 +2273,157 @@ export const helpArticles: HelpArticle[] = [
       },
     ],
     related: ["organizer-crear-evento", "configurar-sedes-equipos"],
+  },
+  {
+    slug: "registrar-nuevo-atleta",
+    categoryId: "gestion-alumnos",
+    title: "Registrar un nuevo atleta manualmente",
+    excerpt:
+      "Paso a paso para dar de alta un deportista desde el panel de escuela: datos del menor, acudiente, sede/equipo y su primer cobro.",
+    readTime: "4 min",
+    targetRole: ["school"],
+    body: [
+      {
+        type: "p",
+        content:
+          "Cuando un deportista se inscribe en persona (no por QR ni auto-registro), lo das de alta tú mismo desde Deportistas. El sistema crea la inscripción, calcula el primer cobro y envía la invitación al acudiente automáticamente.",
+      },
+      {
+        type: "callout",
+        variant: "info",
+        content: "Menú lateral → Deportistas → botón verde \"Agregar Atleta\"",
+      },
+      {
+        type: "img",
+        src: "https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/school-assets/help-articles/registrar-nuevo-atleta/01-lista.png",
+        alt: "Lista de deportistas con el botón Agregar Atleta",
+        caption: "La lista de Deportistas, con el botón \"Agregar Atleta\" arriba a la derecha.",
+      },
+      { type: "h2", content: "1. Elige el tipo de atleta" },
+      {
+        type: "p",
+        content:
+          "\"Menor de Edad\" pide datos de un acudiente que autoriza y paga; \"Atleta Adulto\" crea una cuenta que el propio deportista maneja. La mayoría de las escuelas usa \"Menor de Edad\".",
+      },
+      {
+        type: "img",
+        src: "https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/school-assets/help-articles/registrar-nuevo-atleta/02-tipo.png",
+        alt: "Modal para elegir entre Menor de Edad y Atleta Adulto",
+      },
+      { type: "h2", content: "2. Datos del menor y del acudiente" },
+      {
+        type: "ul",
+        items: [
+          "Del menor: tipo de documento, nombre completo (obligatorio), fecha de nacimiento, género y grado escolar",
+          "Del acudiente: nombre, correo y teléfono — quien va a pagar y autorizar",
+        ],
+      },
+      {
+        type: "img",
+        src: "https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/school-assets/help-articles/registrar-nuevo-atleta/03-acudiente.png",
+        alt: "Formulario con los datos del acudiente y los canales de invitación",
+        caption: "Si el correo del acudiente no existe todavía en SportMaps, se le envía una invitación automática (y puedes generar un link de WhatsApp).",
+      },
+      { type: "h2", content: "3. Inscripción: sede, equipo y primer cobro" },
+      {
+        type: "p",
+        content:
+          "La sede es obligatoria. Si además eliges un equipo con mensualidad configurada, el campo \"Mensualidad\" se completa solo — se puede editar a mano para casos especiales (una beca, una tarifa individual). Antes de guardar, ves el primer cobro que se va a generar: monto y fecha de vencimiento.",
+      },
+      {
+        type: "img",
+        src: "https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/school-assets/help-articles/registrar-nuevo-atleta/04-inscripcion.png",
+        alt: "Sección de inscripción con sede, equipo, mensualidad y el primer cobro calculado",
+      },
+      {
+        type: "callout",
+        variant: "tip",
+        content: "Al guardar: el atleta queda activo, se crea el primer cobro pendiente, se invita al acudiente por correo y queda un acceso directo para reenviar la invitación por WhatsApp.",
+      },
+      {
+        type: "img",
+        src: "https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/school-assets/help-articles/registrar-nuevo-atleta/05-en-lista.png",
+        alt: "El nuevo atleta ya aparece en la lista de Deportistas",
+        caption: "El atleta queda visible de inmediato en la lista, con su mensualidad y estado de pago \"Pendiente\".",
+      },
+      {
+        type: "cta",
+        title: "¿Vas a inscribir a varios de una campaña o flyer?",
+        description: "Usa un QR de inscripción para que los acudientes se registren solos y paguen la matrícula en el momento.",
+        href: "/ayuda/qr-inscripcion-con-pago",
+        label: "Ver guía de QR de inscripción",
+      },
+    ],
+    related: ["qr-inscripcion-con-pago", "invitar-padres-vinculacion", "configurar-sedes-equipos"],
+  },
+  {
+    slug: "qr-inscripcion-con-pago",
+    categoryId: "gestion-alumnos",
+    title: "Crear un QR de inscripción que cobra la matrícula",
+    excerpt:
+      "Genera un código QR para flyers o carteleras: el acudiente se registra solo y paga la inscripción en el momento, sin que tú captures nada a mano.",
+    readTime: "4 min",
+    targetRole: ["school"],
+    body: [
+      {
+        type: "p",
+        content:
+          "A diferencia del registro manual, el QR de inscripción deja que el propio acudiente complete el registro desde su celular — ideal para jornadas de inscripción, flyers o campañas en redes. Quien escanea queda como acudiente y el menor que inscribe queda a su cargo.",
+      },
+      {
+        type: "callout",
+        variant: "info",
+        content: "Menú lateral → Documentos e Identidad → QR de Inscripción → \"+ Nuevo QR\"",
+      },
+      {
+        type: "img",
+        src: "https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/school-assets/help-articles/qr-inscripcion-con-pago/01-nuevo-qr.png",
+        alt: "Formulario para crear un nuevo código QR de inscripción",
+      },
+      { type: "h2", content: "Elige a qué aplica el QR" },
+      {
+        type: "ul",
+        items: [
+          "Abierto (equipos y planes): el acudiente elige equipo y plan al inscribirse",
+          "Equipo específico, Plan específico o Sede específica: útil para una campaña de un solo deporte o sede",
+        ],
+      },
+      { type: "h2", content: "Lo que activa el cobro de inscripción" },
+      {
+        type: "p",
+        content:
+          "Deja \"Monto fijo / promo\" vacío para cobrar el precio normal del equipo o plan elegido — solo úsalo para una promoción puntual. La parte clave: los interruptores \"Exigir primer pago al inscribirse\" y \"Aceptar pagos online\" vienen activados por defecto. Con ambos en verde, el acudiente paga la inscripción ahí mismo, antes de terminar el registro.",
+      },
+      {
+        type: "img",
+        src: "https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/school-assets/help-articles/qr-inscripcion-con-pago/02-form-lleno.png",
+        alt: "Formulario de QR con los interruptores de pago activados en verde",
+      },
+      {
+        type: "callout",
+        variant: "warning",
+        content: "Si necesitas que el QR NO cobre nada al inscribirse (por ejemplo, una clase de prueba gratuita), apaga \"Exigir primer pago al inscribirse\" antes de crear el código.",
+      },
+      { type: "h2", content: "Descarga y comparte" },
+      {
+        type: "p",
+        content:
+          "El código queda activo de inmediato, con su propio enlace y un tablero de scans, inscritos y pagos. Desde \"Ver QR\" descargas la imagen en PNG (WhatsApp/redes), SVG (impresión grande) o como póster listo para imprimir.",
+      },
+      {
+        type: "img",
+        src: "https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/school-assets/help-articles/qr-inscripcion-con-pago/03-ver-qr.png",
+        alt: "Código QR generado con opciones de descarga en PNG, SVG y póster",
+      },
+      {
+        type: "cta",
+        title: "¿Vas a inscribir uno solo, en persona?",
+        description: "Para un caso puntual (no una campaña), regístralo directamente tú desde Deportistas.",
+        href: "/ayuda/registrar-nuevo-atleta",
+        label: "Ver guía de registro manual",
+      },
+    ],
+    related: ["registrar-nuevo-atleta", "invitar-padres-vinculacion"],
   },
 
 ];

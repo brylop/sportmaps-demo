@@ -26,6 +26,7 @@ import { PhoneInput } from '@/components/ui/phone-input';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { dbErrorMessage } from '@/lib/errors/dbErrorMessage';
 import { invitationEmailPayload } from '@/lib/email/invitationEmail';
+import { useEntitlements } from '@/hooks/useEntitlements';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,9 @@ export default function InvitationsManagementPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const { schoolId, schoolName, teams, defaultMonthlyFee, currentUserRole, activeBranchId } = useSchoolContext();
+  const { coachHideFinancialInfo } = useEntitlements();
+  // Besser: el coach no ve mensualidad ni precio de plan en ninguna pantalla.
+  const hideFinancials = currentUserRole === 'coach' && coachHideFinancialInfo;
 
   // ── Form state ──────────────────────────────────────────────────────────────
   const [formData, setFormData] = useState({
@@ -955,7 +959,7 @@ export default function InvitationsManagementPage() {
                 <TableHead>Email / Rol</TableHead>
                 <TableHead>Sede</TableHead>
                 <TableHead>Atleta / Equipo / Plan</TableHead>
-                <TableHead>Mensualidad</TableHead>
+                {!hideFinancials && <TableHead>Mensualidad</TableHead>}
                 <TableHead>Estado</TableHead>
                 <TableHead>Fecha</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
@@ -1011,11 +1015,13 @@ export default function InvitationsManagementPage() {
                       </div>
                     </TableCell>
 
-                    <TableCell className="font-semibold text-primary">
-                      {['parent', 'athlete'].includes(inv.role_to_assign || '')
-                        ? (inv.monthly_fee != null ? formatCurrency(Number(inv.monthly_fee)) : '—')
-                        : '—'}
-                    </TableCell>
+                    {!hideFinancials && (
+                      <TableCell className="font-semibold text-primary">
+                        {['parent', 'athlete'].includes(inv.role_to_assign || '')
+                          ? (inv.monthly_fee != null ? formatCurrency(Number(inv.monthly_fee)) : '—')
+                          : '—'}
+                      </TableCell>
+                    )}
 
                     <TableCell>{getStatusBadge(inv.status)}</TableCell>
 
@@ -1025,7 +1031,7 @@ export default function InvitationsManagementPage() {
 
                     <TableCell className="text-right">
                       <div className="flex gap-1 justify-end">
-                        {['parent', 'athlete'].includes(inv.role_to_assign || '') && (
+                        {!hideFinancials && ['parent', 'athlete'].includes(inv.role_to_assign || '') && (
                           <Button
                             variant="ghost" size="sm"
                             className={inv.monthly_fee == null ? 'text-orange-600 hover:text-orange-700 hover:bg-orange-50' : ''}
@@ -1346,7 +1352,10 @@ export default function InvitationsManagementPage() {
                   </div>
                 )}
 
-                {['parent', 'athlete'].includes(formData.role) && (
+                {/* Besser (coach sin ver dinero): ni el precio del plan ni la
+                    mensualidad se muestran — solo puede dejar la invitación
+                    sin plan/mensualidad asignada y la escuela la completa. */}
+                {!hideFinancials && ['parent', 'athlete'].includes(formData.role) && (
                   <div className="space-y-1.5">
                     <Label className="text-sm font-medium">
                       Plan de sesiones
@@ -1366,7 +1375,7 @@ export default function InvitationsManagementPage() {
                   </div>
                 )}
 
-                {['parent', 'athlete'].includes(formData.role) && (
+                {!hideFinancials && ['parent', 'athlete'].includes(formData.role) && (
                   <div className="space-y-1.5 p-3 rounded-lg bg-primary/5 border border-primary/10 transition-all">
                     <Label className="text-sm font-semibold flex items-center justify-between">
                       Mensualidad / Cobro inicial *
