@@ -290,7 +290,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
   // `hasBilling` y no el tipo de escuela: la pregunta es si esta escuela
   // factura por SportMaps, no si ademas alquila espacios. Falla ABIERTO
   // (true mientras carga), asi que el caso normal no cambia.
-  const { hasBilling } = useEntitlements();
+  const { hasBilling, parentEmailOptional } = useEntitlements();
 
   const [monthlyFee, setMonthlyFee] = useState('');
   const [discountPct, setDiscountPct] = useState(0);
@@ -409,7 +409,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
     if (!dob)              return 'La fecha de nacimiento es obligatoria.';
     if (!parentName.trim() || parentName.trim().length < 2)
       return 'El nombre del acudiente es obligatorio (mín. 2 caracteres).';
-    if (!parentEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parentEmail))
+    if (!parentEmailOptional && (!parentEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parentEmail)))
       return 'El email del acudiente no es válido.';
     if (!/^\d{10,}$/.test(parentPhone.replace(/\D/g, '')))
       return 'El teléfono del acudiente debe tener mínimo 10 dígitos.';
@@ -475,7 +475,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
         grade:        grade  || null,
         medical_info: medicalInfo,
         parent_name:  parentName.trim(),
-        parent_email: parentEmail.trim().toLowerCase(),
+        parent_email: parentEmail.trim() ? parentEmail.trim().toLowerCase() : null,
         parent_phone: parentPhone.replace(/\D/g, ''),
         send_invite:  sendInviteEmail,
       }, { 'x-school-id': schoolId }) as any;
@@ -647,43 +647,52 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
                 <Label>Nombre del Acudiente *</Label>
                 <Input placeholder="María López" value={parentName} onChange={e => setParentName(e.target.value)} />
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <Label>Correo Electrónico *</Label>
-                  <div className="relative">
-                    <Input
-                      type="email"
-                      placeholder="madre@email.com"
-                      value={parentEmail}
-                      onChange={e => handleParentEmailChange(e.target.value)}
-                      onBlur={handleParentEmailBlur}
-                      className="pr-10"
-                    />
-                    {checkingParentEmail && (
-                      <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+              <div className={cn('grid grid-cols-1 gap-3', !parentEmailOptional && 'md:grid-cols-2')}>
+                {!parentEmailOptional && (
+                  <div>
+                    <Label>Correo Electrónico *</Label>
+                    <div className="relative">
+                      <Input
+                        type="email"
+                        placeholder="madre@email.com"
+                        value={parentEmail}
+                        onChange={e => handleParentEmailChange(e.target.value)}
+                        onBlur={handleParentEmailBlur}
+                        className="pr-10"
+                      />
+                      {checkingParentEmail && (
+                        <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
+                    </div>
+                    {parentEmailExists === true && (
+                      <p className="text-xs text-green-600 dark:text-green-400 mt-1 flex items-center gap-1 font-medium">
+                        <CheckCircle2 className="h-3.5 w-3.5 inline shrink-0" />
+                        Acudiente ya registrado. Se vinculará el menor a su cuenta existente.
+                      </p>
+                    )}
+                    {parentEmailExists === false && parentEmail.trim() && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1 font-medium">
+                        <Info className="h-3.5 w-3.5 inline shrink-0" />
+                        El acudiente no está registrado. Se le enviará invitación.
+                      </p>
                     )}
                   </div>
-                  {parentEmailExists === true && (
-                    <p className="text-xs text-green-600 dark:text-green-400 mt-1 flex items-center gap-1 font-medium">
-                      <CheckCircle2 className="h-3.5 w-3.5 inline shrink-0" />
-                      Acudiente ya registrado. Se vinculará el menor a su cuenta existente.
-                    </p>
-                  )}
-                  {parentEmailExists === false && parentEmail.trim() && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1 font-medium">
-                      <Info className="h-3.5 w-3.5 inline shrink-0" />
-                      El acudiente no está registrado. Se le enviará invitación.
-                    </p>
-                  )}
-                </div>
+                )}
                 <div>
                   <Label>Teléfono *</Label>
                   <PhoneInput value={parentPhone} onChange={setParentPhone} />
                 </div>
               </div>
 
+              {parentEmailOptional && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Info className="h-3.5 w-3.5 inline shrink-0" />
+                  Esta escuela no requiere el correo del acudiente. Sin ese dato, el acudiente no recibirá invitación para crear su cuenta.
+                </p>
+              )}
+
               {/* Canales de Invitación */}
-              {parentEmailExists === false && parentEmail.trim() && (
+              {!parentEmailOptional && parentEmailExists === false && parentEmail.trim() && (
                 <div className="space-y-2 rounded-lg border border-amber-100 bg-amber-50/50 p-3 mt-4">
                   <p className="text-xs font-semibold text-amber-900 dark:text-amber-100 mb-1">
                     Canales de Invitación:
