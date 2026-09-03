@@ -740,6 +740,7 @@ router.put(
             tshirt_size:       profile.tshirt_size       ?? undefined,
             blood_type:        profile.blood_type         ?? undefined,
             eps_name:          profile.eps_name           ?? undefined,
+            dorsal:            profile.dorsal             ?? undefined,
             parent_email_temp: profile.parent_email       ?? undefined,
             parent_phone_temp: profile.parent_phone       ?? undefined,
           };
@@ -767,9 +768,21 @@ router.put(
             .eq('id', id);
           if (error) throw new Error(`Error actualizando profile: ${error.message}`);
 
+          // dorsal es por membresía a la escuela (school_members), no del profile global.
+          if (profile.dorsal !== undefined) {
+            const { error: dorsalErr } = await supabase
+              .from('school_members')
+              .update({ dorsal: profile.dorsal ?? null })
+              .eq('profile_id', id)
+              .eq('school_id', schoolId)
+              .eq('role', 'athlete');
+            if (dorsalErr) throw new Error(`Error actualizando dorsal: ${dorsalErr.message}`);
+          }
+
         } else if (athlete_type === 'unregistered') {
           const unregUpdate: any = {
             ...profileUpdate,
+            dorsal: profile.dorsal ?? undefined,
             email: profile.parent_email ?? undefined,
             phone: profile.parent_phone ?? undefined,
           };

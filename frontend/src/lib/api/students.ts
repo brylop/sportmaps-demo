@@ -73,6 +73,7 @@ export interface StudentUpdate {
   tshirt_size?: string | null;
   blood_type?: string | null;
   eps_name?: string | null;
+  dorsal?: string | null;
 }
 
 // ── Tipos de respuesta del BFF ────────────────────────────────────────────────
@@ -141,6 +142,7 @@ export interface StudentViewRow {
   tshirt_size?: string | null;
   blood_type?: string | null;
   eps_name?: string | null;
+  dorsal?: string | null;
 }
 
 export interface StudentStats {

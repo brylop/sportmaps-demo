@@ -70,6 +70,7 @@ const studentSchema = z.object({
   tshirt_size:      z.string().optional(),
   blood_type:       z.string().optional(),
   eps_name:         z.string().optional(),
+  dorsal:           z.string().max(10).optional(),
 });
 
 type StudentFormData = z.infer<typeof studentSchema>;
@@ -643,6 +644,7 @@ export default function SchoolStudentsManagementPage() {
           tshirt_size:   data.tshirt_size        || null,
           blood_type:    data.blood_type         || null,
           eps_name:      data.eps_name           || null,
+          dorsal:        data.dorsal             || null,
           parent_email:  data.parent_email       || null,
           parent_phone:  data.parent_phone       || null,
         },
@@ -734,6 +736,7 @@ export default function SchoolStudentsManagementPage() {
       tshirt_size:      extraFields.tshirt_size,
       blood_type:       extraFields.blood_type,
       eps_name:         extraFields.eps_name,
+      dorsal:           (student as any).dorsal || '',
     });
     setDialogOpen(true);
   };
@@ -1472,6 +1475,10 @@ export default function SchoolStudentsManagementPage() {
                 <Label htmlFor="medical_info">Información médica</Label>
                 <Textarea id="medical_info" {...form.register('medical_info')} rows={2} />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="dorsal">Dorsal</Label>
+                <Input id="dorsal" placeholder="Ej: 10" maxLength={10} {...form.register('dorsal')} />
+              </div>
               {(!editingStudent || editingAthleteType === 'child') && (
                 <div className="space-y-2">
                   <p className="text-xs text-muted-foreground">Campos opcionales</p>
@@ -1884,6 +1891,7 @@ export default function SchoolStudentsManagementPage() {
                           ? `${studentDocInfo.doc_type.toUpperCase()} ${studentDocInfo.doc_number}`
                           : null
                       } />
+                      <InfoRow label="Dorsal" value={s.dorsal} />
                       <InfoRow label="Talla camiseta" value={studentDocInfo.tshirt_size} />
                       <InfoRow label="Tipo de sangre" value={studentDocInfo.blood_type} />
                       <InfoRow label="EPS" value={studentDocInfo.eps_name} />

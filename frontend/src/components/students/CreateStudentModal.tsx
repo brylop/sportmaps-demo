@@ -36,6 +36,7 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
         parentPhone: '',
         teamId: '',
         monthlyFee: defaultMonthlyFee,
+        dorsal: '',
     });
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -65,6 +66,7 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
                 teamId: formData.teamId || undefined,
                 teamName: selectedProgram?.name || 'Programa General',
                 monthlyFee: formData.monthlyFee,
+                dorsal: formData.dorsal || undefined,
             });
 
             toast({
@@ -94,6 +96,7 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
             parentPhone: '',
             teamId: '',
             monthlyFee: defaultMonthlyFee,
+            dorsal: '',
         });
         onClose();
     };
@@ -143,18 +146,29 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="progId">Programa / Clase</Label>
-                            <Select value={formData.teamId} onValueChange={handleProgramChange}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Seleccionar" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {teams.map(p => (
-                                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <Label htmlFor="stdDorsal">Dorsal</Label>
+                            <Input
+                                id="stdDorsal"
+                                placeholder="Ej: 10"
+                                maxLength={10}
+                                value={formData.dorsal}
+                                onChange={(e) => setFormData(p => ({ ...p, dorsal: e.target.value }))}
+                            />
                         </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label htmlFor="progId">Programa / Clase</Label>
+                        <Select value={formData.teamId} onValueChange={handleProgramChange}>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Seleccionar" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {teams.map(p => (
+                                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                     </div>
 
                     <div className="space-y-2">
