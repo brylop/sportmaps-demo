@@ -165,6 +165,7 @@ const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
 const AdminSupportInboxPage = lazy(() => import("./pages/AdminSupportInboxPage"));
 const AdminClubsPage = lazy(() => import("./pages/AdminClubsPage"));
 const AdminSchoolsGlobalPage = lazy(() => import("./pages/AdminSchoolsGlobalPage"));
+const AdminEnrollmentIntegrityPage = lazy(() => import("./pages/AdminEnrollmentIntegrityPage"));
 const AdminSubscriptionsPage = lazy(() => import("./pages/AdminSubscriptionsPage"));
 const SaasInvoiceReceiptPage = lazy(() => import("./pages/SaasInvoiceReceiptPage"));
 const AdminActivityLogsPage = lazy(() => import("./pages/AdminActivityLogsPage"));
@@ -955,6 +956,11 @@ const App = () => (
                       <Route path="admin/schools" element={
                         <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
                           <AdminSchoolsGlobalPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/enrollment-integrity" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminEnrollmentIntegrityPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/upgrade-requests" element={

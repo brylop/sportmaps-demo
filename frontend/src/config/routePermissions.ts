@@ -175,6 +175,7 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     '/admin/users': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:users', description: 'Gestión de usuarios' },
     '/admin/clubs': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:all', description: 'Gestión de clubes' },
     '/admin/schools': { allowedRoles: ['admin', 'super_admin'], requiredPermission: 'admin:all', description: 'Vista global de escuelas' },
+    '/admin/enrollment-integrity': { allowedRoles: ['admin', 'super_admin'], requiredPermission: 'admin:all', description: 'Atletas activos sin inscripción vigente (cross-escuela)' },
     '/admin/reports': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:all', description: 'Reportes admin' },
     '/admin/analytics': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:all', description: 'Analytics admin' },
     '/admin/config': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:system', description: 'Configuración admin' },
