@@ -84,6 +84,7 @@ const ChildSchema = EnrollmentBase.extend({
   date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   gender:        z.string().nullable().optional(),
   grade:         z.string().max(20).nullable().optional(),
+  dorsal:        z.string().trim().max(10).nullable().optional(),
   medical_info:  z.string().optional(),   // JSON con has_allergies
   parent_name:   z.string().min(2),
   // Obligatorio salvo que la escuela active school_settings.parent_email_optional
@@ -103,6 +104,7 @@ const ChildSchema = EnrollmentBase.extend({
 const AdultExistingSchema = EnrollmentBase.extend({
   type:    z.literal('adult_existing'),
   user_id: z.string().uuid(),   // profiles.id
+  dorsal:  z.string().trim().max(10).nullable().optional(),
 });
 
 const ChildExistingSchema = EnrollmentBase.extend({
@@ -124,6 +126,7 @@ const UnregisteredAdultSchema = EnrollmentBase.extend({
   phone:         z.string().nullable().optional(),
   date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   gender:        z.string().nullable().optional(),
+  dorsal:        z.string().trim().max(10).nullable().optional(),
   send_invite:   z.boolean().default(false),
   /** Ver ChildSchema.allow_duplicate. */
   allow_duplicate: z.boolean().default(false),
@@ -500,6 +503,7 @@ router.post(
             date_of_birth:     data.date_of_birth     || null,
             gender:            data.gender             || null,
             grade:             data.grade              || null,
+            dorsal:            data.dorsal             || null,
             medical_info:      data.medical_info       || JSON.stringify({ has_allergies: false }),
             school_id:         schoolId,
             branch_id:         data.branch_id          || null,
@@ -710,11 +714,20 @@ router.post(
             role:       'athlete',
             status:     'active',
             branch_id:  data.branch_id || null,
+            dorsal:     data.dorsal || null,
             joined_at:  new Date().toISOString(),
           });
           if (memberErr) {
             req.log?.error({ err: memberErr }, 'Error creando school_member');
             // No bloqueamos — igual creamos el enrollment
+          }
+        } else if (data.dorsal) {
+          const { error: dorsalErr } = await supabase
+            .from('school_members')
+            .update({ dorsal: data.dorsal })
+            .eq('id', existingMember.id);
+          if (dorsalErr) {
+            req.log?.error({ err: dorsalErr }, 'Error actualizando dorsal de school_member');
           }
         }
 
@@ -976,6 +989,7 @@ router.post(
             phone:         data.phone         || null,
             date_of_birth: data.date_of_birth || null,
             gender:        data.gender        || null,
+            dorsal:        data.dorsal        || null,
             branch_id:     data.branch_id     || null,
             is_active:     true,
           })
