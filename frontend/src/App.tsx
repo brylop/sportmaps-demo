@@ -51,6 +51,8 @@ const PaymentResultPage = lazy(() => import("./pages/PaymentResultPage"));
 const PaymentConfirmationPage = lazy(() => import("./pages/PaymentConfirmationPage"));
 const PublicSchoolPage = lazy(() => import("./pages/PublicSchoolPage"));
 const SchoolProfilePage = lazy(() => import("./pages/SchoolProfilePage"));
+const HelpCenterPage = lazy(() => import("./pages/HelpCenterPage"));
+const HelpArticlePage = lazy(() => import("./pages/HelpArticlePage"));
 const SchoolPublicProfilePage = lazy(() => import("./pages/school/SchoolPublicProfilePage"));
 const VendorPublicProfilePage = lazy(() => import("./pages/vendor/VendorPublicProfilePage"));
 const MyAppointmentsPage = lazy(() => import("./pages/wellness/MyAppointmentsPage"));
@@ -304,6 +306,8 @@ const App = () => (
                     <Route path="/explore" element={<Navigate to="/explorar?category=schools" replace />} />
                     <Route path="/schools/:id" element={<SchoolDetailPage />} />
                     <Route path="/escuela/:id" element={<SchoolProfilePage />} />
+                    <Route path="/ayuda" element={<HelpCenterPage />} />
+                    <Route path="/ayuda/:slug" element={<HelpArticlePage />} />
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/reset-password" element={<ResetPasswordPage />} />
                     <Route path="/register" element={<RegisterPage />} />

@@ -9,6 +9,7 @@
  * el bot es una optimización encima, nunca un bloqueante).
  */
 import { useState, useRef, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,38 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Bot, Send, User, Loader2, Headset } from "lucide-react";
 import { bffClient } from "@/lib/api/bffClient";
+
+// El bot no manda markdown, pero SI puede citar un link de un artículo de
+// ayuda (/ayuda/slug) dentro del texto — sin esto quedaría como texto plano
+// sin poder tocarlo. Partimos el body en pedazos y solo el pedazo /ayuda/...
+// se vuelve un <Link> de router (navegación SPA, no recarga completa).
+const HELP_LINK_RE = /(\/ayuda\/[a-z0-9-]+)/g;
+
+function MessageBody({ body }: { body: string }) {
+    // split() con grupo de captura intercala texto plano y coincidencias en
+    // orden — los índices impares son SIEMPRE lo que matcheó el grupo, sin
+    // volver a testear el regex (evita el gotcha de estado de un regex /g).
+    const parts = body.split(HELP_LINK_RE);
+    return (
+        <>
+            {parts.map((part, i) =>
+                i % 2 === 1 ? (
+                    <Link
+                        key={i}
+                        to={part}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline font-medium text-primary hover:opacity-80"
+                    >
+                        Ver el paso a paso completo →
+                    </Link>
+                ) : (
+                    <span key={i}>{part}</span>
+                )
+            )}
+        </>
+    );
+}
 
 interface SupportMessage {
     id: string;
@@ -179,7 +212,7 @@ export function SupportChatModal({ isOpen, onClose }: SupportChatModalProps) {
                                             : "bg-muted rounded-bl-md"
                                     }`}
                                 >
-                                    {m.body}
+                                    <MessageBody body={m.body} />
                                 </div>
                                 {m.author_type === "user" && (
                                     <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
