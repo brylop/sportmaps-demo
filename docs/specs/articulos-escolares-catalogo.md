@@ -162,6 +162,30 @@ donde se agrega plata, porque ninguno agrupa por concepto — solo filtran por `
 
 Precedente ya documentado del mismo problema: [[project_math_audit_census]] (C-02, dashboard vs Gestión de Pagos ya divergen hoy sin artículos de por medio) y [[project_payment_type_not_reliable]] (hoy la única forma de separar conceptos es parsear texto — `payment_category` la reemplaza).
 
+### 7.1 Censo completo de caminos que crean `payments` (2026-09-03)
+
+Al verificar Fase 1 en vivo apareció un pago real sin categoría que no venía de ninguno de los 3 caminos estampados — investigarlo llevó a un censo completo de TODO lugar del código que hace `INSERT INTO payments`. Detalle completo en [[project_payment_creation_paths_census]]. Resumen:
+
+**Estampados en Fase 1 (4):** `open_month()` → mensualidad · `chargeRegistrationFeeIfApplicable()` (students-create-one.route.ts) → inscripcion · `createPendingPayment()` (enrollmentBilling.ts) → mensualidad · `PaymentCheckoutModal.tsx` (4 inserts) → según conceptType.
+
+**Sin estampar, pendientes para Fase 4 (9):**
+
+| # | Camino | Categoría sugerida |
+|---|---|---|
+| 5 | `generate_qr_monthly_charge()` RPC — auto-cobro QR | mensualidad |
+| 6 | `submit_qr_signup()` RPC — primer cobro al inscribirse por QR | mensualidad |
+| 7 | `RegisterCashPaymentModal.tsx` — admin registra efectivo/transferencia a mano | mensualidad/otro (según `isMonthlyConcept(concept)`, ya existe en el archivo) |
+| 8 | `recurring-charges.service.ts` (BFF) — autopay MercadoPago | mensualidad |
+| 9 | `attendance.ts POST /facturar-fuera-de-plan` — clases excedentes/vencidas fuera de plan | otro |
+| 10 | `ParentCheckoutPage.tsx` — checkout standalone, gemelo de PaymentCheckoutModal | mensualidad/otro (mismo criterio que PaymentCheckoutModal) |
+| 11 | `register_for_internal_tournament()` RPC — inscripción a torneo interno | otro (o categoría `torneo` propia a futuro) |
+| 12 | `trial_class_self_create()` RPC — clase de prueba self-service | otro |
+| 13 | `trial_class_public_create()` RPC — clase de prueba, prospecto público | otro |
+
+**Descartado:** `accept_invitation()` — insertaba pagos en versiones viejas (`20260225000039`), la versión vigente (`20260730231131`) ya no lo hace, delega la facturación a otro camino.
+
+3 de los 9 (torneo, ambas trial class) no encajan bien en el `CHECK` actual de `payment_category` (mensualidad/inscripcion/articulos/otro) — quedan como `otro` por ahora; expandir el enum es una decisión de producto aparte, no bloquea Fase 4.
+
 ---
 
 ## 8. Fases de entrega

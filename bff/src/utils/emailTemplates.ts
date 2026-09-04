@@ -128,6 +128,84 @@ export const BrandedEmailTemplates = {
         };
     },
 
+    /**
+     * Aviso de cobro recién generado (apertura del mes — open_month). Distinto
+     * de paymentReminder: este es informativo ("ya está disponible"), no un
+     * reclamo por atraso.
+     */
+    chargeCreated: async (params: {
+        parentName: string;
+        amount: string;
+        childName: string;
+        concept: string;
+        dueDate: string;
+        paymentLink: string;
+        schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+
+        return {
+            subject: `Nuevo cobro disponible — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: 'Nuevo Cobro Disponible',
+                greeting: `Hola ${escapeHtml(params.parentName)},`,
+                bodyHtml: `
+                    <p>Ya está disponible la mensualidad de <strong>${escapeHtml(params.childName)}</strong>
+                    en <strong>${branding.schoolName}</strong>.</p>
+                    <table cellpadding="0" cellspacing="0" border="0" width="100%"
+                           style="background-color: #f3f4f6; border-radius: 8px; margin: 16px 0;">
+                        <tr><td style="padding: 16px;">
+                            <p style="margin: 4px 0;"><strong>Concepto:</strong> ${escapeHtml(params.concept)}</p>
+                            <p style="margin: 4px 0;"><strong>Monto:</strong> ${escapeHtml(params.amount)}</p>
+                            <p style="margin: 4px 0;"><strong>Vence:</strong> ${escapeHtml(params.dueDate)}</p>
+                        </td></tr>
+                    </table>
+                `,
+                cta: { label: 'Pagar Ahora', url: params.paymentLink },
+                closingHtml: 'Gracias por estar al día.',
+            }),
+        };
+    },
+
+    /**
+     * Recordatorio de pago VENCIDO — se envía una vez pasan los días de gracia
+     * (apply_late_fees ya marcó el pago 'overdue'). Distinto de paymentReminder,
+     * que es el recordatorio in-app previo al vencimiento.
+     */
+    paymentOverdue: async (params: {
+        parentName: string;
+        amount: string;
+        childName: string;
+        dueDate: string;
+        paymentLink: string;
+        schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+
+        return {
+            subject: `Pago vencido — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: 'Pago Vencido',
+                greeting: `Hola ${escapeHtml(params.parentName)},`,
+                bodyHtml: `
+                    <p>El pago de la mensualidad de <strong>${escapeHtml(params.childName)}</strong>
+                    en <strong>${branding.schoolName}</strong> ya pasó su fecha límite y sigue pendiente.</p>
+                    <table cellpadding="0" cellspacing="0" border="0" width="100%"
+                           style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; margin: 16px 0;">
+                        <tr><td style="padding: 16px;">
+                            <p style="margin: 4px 0;"><strong>Monto a pagar:</strong> ${escapeHtml(params.amount)}</p>
+                            <p style="margin: 4px 0;"><strong>Venció el:</strong> ${escapeHtml(params.dueDate)}</p>
+                        </td></tr>
+                    </table>
+                `,
+                cta: { label: 'Pagar Ahora', url: params.paymentLink },
+                closingHtml: 'Si ya realizaste el pago, podés omitir este mensaje.',
+            }),
+        };
+    },
+
     // ── Glosas (aclaraciones de comprobante) ─────────────────────────────────
     /** Glosa creada → acudiente: necesita aclarar su comprobante. */
     glosaCreada: async (params: {
