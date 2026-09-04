@@ -57,36 +57,47 @@ workflows:
       - /tmp/xcodebuild_logs/*.log
 
   # ──────────────────────────────────────────────────────────────────────
-  # ios-testflight — el workflow real de release. NO FUNCIONA TODAVÍA:
-  # requiere, en este orden:
-  #   1. Cuenta Apple Developer activa (comprada 2026-08-27, tipo Individual
-  #      — hasta 2 días hábiles de activación).
-  #   2. Registrar el App ID `co.sportmaps.app` en developer.apple.com y
-  #      crear el registro de la app en App Store Connect (da el
-  #      APP_STORE_APPLE_ID numérico que falta abajo).
-  #   3. Conectar la integración "App Store Connect" en Codemagic
-  #      (Team settings → Integrations) — reemplaza `auth: integration`
-  #      por el nombre real que le den ahí si no se llama "codemagic".
-  #   4. Crear el grupo de testers internos en TestFlight (reemplaza
-  #      "SportMaps Internos" en beta_groups).
-  # Mientras tanto, sin `triggering`, este workflow NO se dispara solo —
-  # solo corre si alguien lo arranca a mano en el dashboard, así que no
-  # falla builds en cadena por variables que todavía no existen.
+  # ios-testflight — el workflow real de release. Prerrequisitos YA
+  # cumplidos (2026-09-03): cuenta Apple Developer activa, App ID
+  # co.sportmaps.app registrado, app creada en App Store Connect
+  # (APP_STORE_APPLE_ID abajo) y grupo "SportMaps Internos" creado en
+  # TestFlight.
+  #
+  # OJO — dos intentos anteriores fallaron y quedan documentados para no
+  # repetirlos:
+  #   1. `environment.ios_signing` dispara el preflight AUTOMÁTICO de
+  #      Codemagic (corre ANTES de cualquier script, sin lista de pasos
+  #      si falla) que solo BUSCA un perfil existente y no lo crea.
+  #   2. `integrations: app_store_connect: <nombre>` referencia la
+  #      integración de equipo/cuenta conectada en la UI (Team/Personal
+  #      settings → Integrations → Developer Portal) — según la doc
+  #      oficial de Codemagic (docs.codemagic.io/yaml-code-signing/
+  #      alternative-code-signing-methods), esa integración de UI es
+  #      SOLO para builds configurados 100% desde la UI. Los builds
+  #      manejados por codemagic.yaml (nuestro caso) fallan con
+  #      `App Store Connect integration "<nombre>" does not exist` sin
+  #      importar cómo se llame la key ahí — no aplica a este repo.
+  # La forma correcta para codemagic.yaml es pasar las credenciales como
+  # variables de entorno (grupo `appstore_ios`, creado en Codemagic ->
+  # sportmaps-demo -> Settings -> Environment variables) que las
+  # herramientas CLI `app-store-connect` y `keychain` leen solas:
+  #   APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_KEY_IDENTIFIER,
+  #   APP_STORE_CONNECT_PRIVATE_KEY (contenido completo del .p8, marcado
+  #   Secure). Sin `triggering`, este workflow NO se dispara solo — solo
+  #   corre si alguien lo arranca a mano en el dashboard.
   # ──────────────────────────────────────────────────────────────────────
   ios-testflight:
-    name: iOS — build firmado + TestFlight (NO listo — ver comentario)
+    name: iOS — build firmado + TestFlight
     max_build_duration: 60
     instance_type: mac_mini_m2
-    integrations:
-      app_store_connect: codemagic
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: co.sportmaps.app
+      groups:
+        - appstore_ios # variables: APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_PRIVATE_KEY
       vars:
         XCODE_WORKSPACE: "App.xcworkspace"
         XCODE_SCHEME: "App"
-        APP_STORE_APPLE_ID: 0 # TODO: reemplazar con el Apple ID numérico real de App Store Connect
+        APP_STORE_APPLE_ID: 6808414228
+        BUNDLE_ID: co.sportmaps.app
       xcode: 26.4.1
       cocoapods: default
     scripts:
@@ -107,7 +118,14 @@ workflows:
         script: |
           cd frontend/ios/App
           pod install
-      - name: Firma automática con los certificados de la integración
+      - name: Preparar keychain para firma
+        script: keychain initialize
+      - name: Crear/descargar certificado y perfil de distribución (App Store Connect API)
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+      - name: Agregar certificado al keychain
+        script: keychain add-certificates
+      - name: Firma automática con los certificados
         script: |
           cd frontend
           xcode-project use-profiles
@@ -127,7 +145,9 @@ workflows:
       - /tmp/xcodebuild_logs/*.log
     publishing:
       app_store_connect:
-        auth: integration
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
         submit_to_testflight: true
         beta_groups:
-          - SportMaps Internos # TODO: crear este grupo en App Store Connect antes del primer run
+          - SportMaps Internos
