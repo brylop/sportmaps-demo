@@ -42,7 +42,11 @@ export interface LlmResult {
     provider: LlmProvider;
 }
 
-const GEMINI_MODEL = process.env.WHATSAPP_GEMINI_MODEL || 'gemini-2.5-flash';
+// 2026-09-04: gemini-2.5-flash quedó 404 ("no longer available to new users")
+// — Google retira versiones puntuales de Flash cada pocos meses. Se usa el
+// alias `gemini-flash-latest` (Google lo mantiene apuntando al Flash vigente)
+// en vez de fijar una versión, para no repetir este apagón.
+const GEMINI_MODEL = process.env.WHATSAPP_GEMINI_MODEL || 'gemini-flash-latest';
 
 // Proveedores OpenAI-compatibles (mismo shape de request/response).
 const OPENAI_COMPAT: Record<string, { baseUrl: string; model: string; keyEnv: string }> = {
