@@ -1,12 +1,18 @@
 import { useState, useEffect } from 'react'
 import { getDisplayMode, getLiveTenant, getPwaTenantName, getPwaTenantSlug, isIos, LIVE_TENANT_EVENT } from './tenant'
 
-const IOS_DISMISS_KEY = 'sm_ios_install_dismissed'
+// Una sola llave para Android/escritorio e iOS: al cerrar con la X no debe
+// volver a aparecer en ninguna pestaña ni al recargar, hasta que se instale.
+const INSTALL_DISMISS_KEY = 'sm_install_dismissed'
+
+function yaFueCerrado() {
+  try { return localStorage.getItem(INSTALL_DISMISS_KEY) === '1' } catch { return false }
+}
 
 export function InstallBanner() {
   // Estado inicial = evento capturado por el script inline del index.html
   // (Chrome Android puede dispararlo antes de que monte este componente).
-  const [prompt, setPrompt] = useState<any>(() => (window as any).__installPrompt ?? null)
+  const [prompt, setPrompt] = useState<any>(() => (yaFueCerrado() ? null : ((window as any).__installPrompt ?? null)))
 
   // iOS NUNCA dispara `beforeinstallprompt`: Safari no ofrece instalar, hay que
   // pasar por Compartir → Añadir a inicio. Sin esta rama, en iPhone no aparecia
@@ -36,39 +42,47 @@ export function InstallBanner() {
   useEffect(() => {
     // Reconciliar por si el evento llegó entre el render inicial y este efecto.
     const stashed = (window as any).__installPrompt
-    if (stashed) setPrompt(stashed)
+    if (stashed && !yaFueCerrado()) setPrompt(stashed)
 
-    const onCanInstall = () => setPrompt((window as any).__installPrompt ?? null)
-    const onBeforePrompt = (e: any) => { e.preventDefault(); setPrompt(e) }
+    const onCanInstall = () => { if (!yaFueCerrado()) setPrompt((window as any).__installPrompt ?? null) }
+    const onBeforePrompt = (e: any) => { e.preventDefault(); if (!yaFueCerrado()) setPrompt(e) }
     const onInstalled = () => setPrompt(null)
+    // Otra pestaña cerró el banner: se sincroniza sin esperar a recargar.
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === INSTALL_DISMISS_KEY && e.newValue === '1') {
+        setPrompt(null)
+        setMostrarIos(false)
+      }
+    }
 
     window.addEventListener('pwa:can-install', onCanInstall)
     window.addEventListener('beforeinstallprompt', onBeforePrompt)
     window.addEventListener('appinstalled', onInstalled)
+    window.addEventListener('storage', onStorage)
 
     // iOS: se muestra solo si hay ESCUELA, esta en Safari (no ya instalada) y no
     // lo cerraron. El gate por escuela es deliberado: en iOS no existe boton de
     // instalar, asi que este banner es contenido nuevo, y aparecerle de golpe a
     // todos los usuarios de SportMaps seria un cambio de producto que nadie
     // pidio. Se limita a quien viene de la app de su escuela.
-    try {
-      const yaCerrado = localStorage.getItem(IOS_DISMISS_KEY) === '1'
-      if (slug && isIos() && getDisplayMode() === 'browser' && !yaCerrado) {
-        setMostrarIos(true)
-      }
-    } catch { /* modo privado: no se muestra, no se rompe */ }
+    if (slug && isIos() && getDisplayMode() === 'browser' && !yaFueCerrado()) {
+      setMostrarIos(true)
+    }
 
     return () => {
       window.removeEventListener('pwa:can-install', onCanInstall)
       window.removeEventListener('beforeinstallprompt', onBeforePrompt)
       window.removeEventListener('appinstalled', onInstalled)
+      window.removeEventListener('storage', onStorage)
     }
   }, [slug])
 
-  const cerrarIos = () => {
+  // Cerrar con la X vale para Android/escritorio e iOS por igual: no debe
+  // reaparecer en ninguna pestaña ni al recargar, hasta que se instale.
+  const cerrarDefinitivo = () => {
+    setPrompt(null)
     setMostrarIos(false)
-    // Se recuerda para no insistir en cada apertura.
-    try { localStorage.setItem(IOS_DISMISS_KEY, '1') } catch { /* no-op */ }
+    try { localStorage.setItem(INSTALL_DISMISS_KEY, '1') } catch { /* modo privado: no persiste, pero cierra igual */ }
   }
 
   const Icono = () => (
@@ -104,7 +118,7 @@ export function InstallBanner() {
           >
             Instalar
           </button>
-          <Cerrar onClick={() => setPrompt(null)} />
+          <Cerrar onClick={cerrarDefinitivo} />
         </div>
       </div>
     )
@@ -125,7 +139,7 @@ export function InstallBanner() {
             {' '}Compartir y después <strong className="text-foreground">Añadir a inicio</strong>.
           </p>
         </div>
-        <Cerrar onClick={cerrarIos} />
+        <Cerrar onClick={cerrarDefinitivo} />
       </div>
     )
   }
