@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { Search, Loader2, Building2, Check, ShieldOff, CalendarClock, DollarSign, Receipt, Send, FileText, LayoutGrid } from 'lucide-react';
+import { Search, Loader2, Building2, Check, ShieldOff, CalendarClock, DollarSign, Receipt, Send, FileText, LayoutGrid, ShoppingBag, Plus, Pencil, X } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { bffClient } from '@/lib/api/bffClient';
 import { toWaPhone } from '@/lib/api/payment-reminders';
@@ -71,6 +71,15 @@ const BILLING_CYCLE_LABELS: Record<BillingCycle, string> = {
 
 interface SchoolRow { id: string; name: string; city: string | null; }
 
+interface MerchItem {
+  id: string;
+  name: string;
+  price: number;
+  size_options: string | null;
+  image_url: string | null;
+  active: boolean;
+}
+
 interface SaasInvoiceRow {
   id: string;
   invoice_number: string;
@@ -124,6 +133,18 @@ export default function AdminSubscriptionsPage() {
   const [ent, setEnt] = useState<Record<string, any> | null>(null);
   const [loadingEnt, setLoadingEnt] = useState(false);
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  // ── Catálogo de artículos escolares — panel interno, NUNCA la escuela
+  // (docs/specs/articulos-escolares-catalogo.md §9.5). Estado propio, no
+  // reusa `ent`/`v_school_entitlements`: es una tabla nueva y aparte.
+  const [merchEnabled, setMerchEnabled] = useState(false);
+  const [merchItems, setMerchItems] = useState<MerchItem[]>([]);
+  const [loadingMerch, setLoadingMerch] = useState(false);
+  const [savingMerch, setSavingMerch] = useState(false);
+  const [merchEditingId, setMerchEditingId] = useState<string | null>(null);
+  const [merchName, setMerchName] = useState('');
+  const [merchPrice, setMerchPrice] = useState('');
+  const [merchSizes, setMerchSizes] = useState('');
+  const [merchImageUrl, setMerchImageUrl] = useState('');
   const [saasBillingEnabled, setSaasBillingEnabled] = useState<boolean | null>(null);
   const [saasInvoices, setSaasInvoices] = useState<SaasInvoiceRow[]>([]);
   const [loadingSaas, setLoadingSaas] = useState(false);
@@ -171,6 +192,88 @@ export default function AdminSubscriptionsPage() {
     if (error) toast({ title: 'Error', description: error.message, variant: 'destructive' });
     else setEnt(data as any);
     setLoadingEnt(false);
+  }
+
+  function resetMerchForm() {
+    setMerchEditingId(null);
+    setMerchName('');
+    setMerchPrice('');
+    setMerchSizes('');
+    setMerchImageUrl('');
+  }
+
+  async function loadMerch(schoolId: string) {
+    setLoadingMerch(true);
+    const [{ data: settings }, { data: items, error }] = await Promise.all([
+      supabase.from('school_settings' as any).select('merchandise_enabled').eq('school_id', schoolId).maybeSingle(),
+      supabase.from('school_merchandise_items' as any)
+        .select('id, name, price, size_options, image_url, active')
+        .eq('school_id', schoolId)
+        .order('sort_order', { ascending: true }),
+    ]);
+    if (error) toast({ title: 'Error cargando el catálogo', description: error.message, variant: 'destructive' });
+    setMerchEnabled(!!(settings as any)?.merchandise_enabled);
+    setMerchItems((items as any) || []);
+    resetMerchForm();
+    setLoadingMerch(false);
+  }
+
+  async function toggleMerchEnabled() {
+    if (!selected) return;
+    const next = !merchEnabled;
+    setSavingMerch(true);
+    const { error } = await supabase.rpc('admin_set_school_merchandise_enabled' as any, {
+      p_school_id: selected.id, p_enabled: next,
+    });
+    setSavingMerch(false);
+    if (error) { toast({ title: 'No se pudo aplicar', description: error.message, variant: 'destructive' }); return; }
+    setMerchEnabled(next);
+    toast({ title: next ? 'Catálogo activado' : 'Catálogo desactivado', description: selected.name });
+  }
+
+  function startEditMerchItem(item: MerchItem) {
+    setMerchEditingId(item.id);
+    setMerchName(item.name);
+    setMerchPrice(String(item.price));
+    setMerchSizes(item.size_options || '');
+    setMerchImageUrl(item.image_url || '');
+  }
+
+  async function saveMerchItem() {
+    if (!selected) return;
+    const name = merchName.trim();
+    const price = Number(merchPrice.replace(/\./g, '').replace(/,/g, ''));
+    if (!name) { toast({ title: 'Falta el nombre', variant: 'destructive' }); return; }
+    if (!Number.isFinite(price) || price < 0) { toast({ title: 'Precio inválido', variant: 'destructive' }); return; }
+    if (merchImageUrl.trim() && !/^https:\/\//.test(merchImageUrl.trim())) {
+      toast({ title: 'La imagen debe ser una URL https://', variant: 'destructive' });
+      return;
+    }
+    setSavingMerch(true);
+    const row = {
+      school_id: selected.id,
+      name,
+      price,
+      size_options: merchSizes.trim() || null,
+      image_url: merchImageUrl.trim() || null,
+    };
+    const { error } = merchEditingId
+      ? await supabase.from('school_merchandise_items' as any).update(row).eq('id', merchEditingId)
+      : await supabase.from('school_merchandise_items' as any).insert(row);
+    setSavingMerch(false);
+    if (error) { toast({ title: 'No se pudo guardar', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: merchEditingId ? 'Artículo actualizado' : 'Artículo agregado', description: name });
+    await loadMerch(selected.id);
+  }
+
+  async function toggleMerchItemActive(item: MerchItem) {
+    if (!selected) return;
+    setSavingMerch(true);
+    const { error } = await supabase.from('school_merchandise_items' as any)
+      .update({ active: !item.active }).eq('id', item.id);
+    setSavingMerch(false);
+    if (error) { toast({ title: 'No se pudo aplicar', description: error.message, variant: 'destructive' }); return; }
+    await loadMerch(selected.id);
   }
 
   async function loadSaasInvoicing(schoolId: string) {
@@ -235,6 +338,7 @@ export default function AdminSubscriptionsPage() {
     setSelected(s);
     void loadEnt(s.id);
     void loadSaasInvoicing(s.id);
+    void loadMerch(s.id);
   }
 
   /** Manda (o reenvía) email + push de una factura, y deja lista la ventana de WhatsApp. */
@@ -1017,6 +1121,93 @@ export default function AdminSubscriptionsPage() {
                       })}
                     </div>
                   </div>
+                </div>
+
+                {/* Catálogo de artículos escolares — panel interno SOLO, nunca la
+                    escuela (spec articulos-escolares-catalogo.md §9.5). No es un
+                    addon comercial: no aparece en school_addons ni en /mi-plan. */}
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <ShoppingBag className="h-4 w-4 text-primary" />
+                    <p className="text-sm font-semibold">Catálogo de artículos escolares</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Guayos, uniformes, accesorios — se ofrecen al padre en el mismo pago de
+                    inscripción/mensualidad, como cobro aparte. Control exclusivo de este panel,
+                    no un addon que la escuela pueda prender sola.
+                  </p>
+
+                  {loadingMerch ? (
+                    <div className="py-4 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+                  ) : (
+                    <div className="space-y-3">
+                      <button
+                        onClick={toggleMerchEnabled}
+                        disabled={savingMerch}
+                        className={`w-full flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${merchEnabled ? 'border-primary bg-primary/5' : 'hover:border-muted-foreground/30'}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-sm">Vender artículos a los padres</div>
+                          <div className="text-[11px] text-muted-foreground">Si está apagado, no ven la sección al pagar.</div>
+                        </div>
+                        <span className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${merchEnabled ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
+                          {savingMerch ? (
+                            <Loader2 className="h-3 w-3 animate-spin text-white mx-auto" />
+                          ) : (
+                            <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${merchEnabled ? 'translate-x-5' : 'translate-x-0.5'}`}>
+                              {merchEnabled && <Check className="h-3 w-3 text-primary mx-auto mt-1" />}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+
+                      {merchItems.length > 0 && (
+                        <div className="space-y-1.5">
+                          {merchItems.map((item) => (
+                            <div key={item.id} className={`flex items-center gap-2 rounded-lg border p-2 ${!item.active ? 'opacity-50 bg-muted/30' : ''}`}>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-sm font-medium truncate">{item.name}</span>
+                                  {item.size_options && <span className="text-[11px] text-muted-foreground">{item.size_options}</span>}
+                                </div>
+                                <div className="text-xs text-primary font-semibold">${item.price.toLocaleString('es-CO')}</div>
+                              </div>
+                              <Badge variant={item.active ? 'secondary' : 'outline'} className="text-[10px] shrink-0">
+                                {item.active ? 'Activo' : 'Inactivo'}
+                              </Badge>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" disabled={savingMerch} onClick={() => startEditMerchItem(item)}>
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" disabled={savingMerch} onClick={() => toggleMerchItemActive(item)}>
+                                <ShieldOff className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="rounded-xl border border-dashed p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-semibold">{merchEditingId ? 'Editar artículo' : '+ Agregar artículo'}</p>
+                          {merchEditingId && (
+                            <Button size="sm" variant="ghost" className="h-6 px-2" onClick={resetMerchForm}>
+                              <X className="h-3 w-3 mr-1" /> Cancelar
+                            </Button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <Input placeholder="Nombre (ej. Guayos)" value={merchName} onChange={(e) => setMerchName(e.target.value)} className="h-8 text-sm" />
+                          <Input placeholder="Precio (COP)" inputMode="numeric" value={merchPrice} onChange={(e) => setMerchPrice(e.target.value)} className="h-8 text-sm" />
+                          <Input placeholder="Tallas, ej. S, M, L (opcional)" value={merchSizes} onChange={(e) => setMerchSizes(e.target.value)} className="h-8 text-sm" />
+                          <Input placeholder="Imagen https:// (opcional)" value={merchImageUrl} onChange={(e) => setMerchImageUrl(e.target.value)} className="h-8 text-sm" />
+                        </div>
+                        <Button size="sm" disabled={savingMerch} onClick={saveMerchItem}>
+                          {savingMerch ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
+                          {merchEditingId ? 'Guardar cambios' : 'Agregar'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

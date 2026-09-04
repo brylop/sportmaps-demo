@@ -8,6 +8,7 @@ import {
 import { reprocessOrphanWebhooks } from '../services/webhook-reprocess.service';
 import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders } from '../services/invoicing.service';
 import { runGlosaNotifications } from './glosa-notifications.job';
+import { sendChargeCreatedEmails, sendOverdueNoticeEmails } from './payment-lifecycle-emails.job';
 import { runNotificationDispatch } from './notifications-dispatch.job';
 import { runAthleteReportsCycle } from './athlete-reports.job';
 import { runHourBankAutoclose } from './hour-bank-autoclose.job';
@@ -281,6 +282,43 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Notificaciones de glosa registradas para las 08:05 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Correo "cobro generado" (apertura del mes). Por polling, no desde
+    // open_month() en sí — cubre tanto el botón manual como el cron
+    // auto_generate_payments (30 6 * * *) sin acoplarse a ninguno. Gateado por
+    // school_settings.charge_notifications_enabled (apagado por defecto).
+    // Cada 15 min, mismo ritmo que los otros jobs reactivos de este archivo.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/15 * * * *', async () => {
+        try {
+            await sendChargeCreatedEmails();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en correo de cobro generado:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Correo de cobro generado registrado (cada 15 min).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Correo "pago vencido": corre después de apply_late_fees() (pg_cron,
+    // 07:00 UTC/02:00 COT), que es quien marca status='overdue' al pasar los
+    // días de gracia. Este job solo agrega el correo. Mismo gate que arriba.
+    // ────────────────────────────────────────────────────────────────────────
+    // Sin opción `timezone`: igual que el resto de jobs anclados a un cron de
+    // Postgres (pg_cron corre siempre en UTC), así 07:15 cae 15 min después
+    // de 'apply-late-fees-daily' (0 7 * * * = 07:00 UTC) sin desfase de zona.
+    cron.schedule('15 7 * * *', async () => {
+        try {
+            await sendOverdueNoticeEmails();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en correo de pago vencido:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Correo de pago vencido registrado para las 07:15 UTC (tras apply_late_fees).');
 
     // ────────────────────────────────────────────────────────────────────────
     // Ciclo diario del Informe Mensual (F5): genera borradores, publica lo que
