@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 501,
-  "head": "20260903195632",
+  "count": 502,
+  "head": "20260904131122",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -504,6 +504,7 @@
     {"v":"20260903151225","file":"20260903151225_add_dorsal_atleta.sql","sha256":"e4c709c7ad36e47416783c3e427ca21a3cdec5c24684ccc1d8e5deb35c2c01dc","added":"2026-09-03","by":"brylop"},
     {"v":"20260903170318","file":"20260903170318_military_discount_besser_only.sql","sha256":"6a7fa8848f3ea130cfaf5f44759ec0f2d25be9ba61edc77e9ccf0c565e01c0dd","added":"2026-09-03","by":"brylop"},
     {"v":"20260903171854","file":"20260903171854_articulos_escolares_solo_super_admin.sql","sha256":"6aa146b2ee340bda07af064d52340b3b12d2c7a11590e7454838b469c79589e2","added":"2026-09-03","by":"brylop"},
-    {"v":"20260903195632","file":"20260903195632_correo_apertura_mes_vencido.sql","sha256":"b30365063685f3d56a432f4965c9027f253d4bb9698d70258dbc5c72e599a347","added":"2026-09-04","by":"brylop"}
+    {"v":"20260903195632","file":"20260903195632_correo_apertura_mes_vencido.sql","sha256":"b30365063685f3d56a432f4965c9027f253d4bb9698d70258dbc5c72e599a347","added":"2026-09-04","by":"brylop"},
+    {"v":"20260904131122","file":"20260904131122_articulos_escolares_admin_read_rpc.sql","sha256":"b731852e2753b20bbe033cacfaa38bf4786b8e40cd6b21bbbb8d2dce01d41e0d","added":"2026-09-04","by":"brylop"}
   ]
 }
