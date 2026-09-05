@@ -121,6 +121,7 @@ const AttendanceHistoryPage = lazy(() => import("./pages/AttendanceHistoryPage")
 const ResultsOverviewPage = lazy(() => import("./pages/ResultsOverviewPage"));
 const FinancesPage = lazy(() => import("./pages/FinancesPage"));
 const AccountingPage = lazy(() => import("./pages/AccountingPage"));
+const InvoicingStandalonePage = lazy(() => import("./pages/InvoicingStandalonePage"));
 const AccountingSuppliersPage = lazy(() => import("./pages/AccountingSuppliersPage"));
 const PayrollPage = lazy(() => import("./pages/PayrollPage"));
 const AccountingReportsPage = lazy(() => import("./pages/AccountingReportsPage"));
@@ -673,6 +674,13 @@ const App = () => (
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <ModuleGate moduleKey="finanzas_contabilidad">
                             <AccountingBudgetPage />
+                          </ModuleGate>
+                        </ProtectedRoute>
+                      } />
+                      <Route path="facturacion-electronica" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <ModuleGate moduleKey="finanzas_facturacion_electronica">
+                            <InvoicingStandalonePage />
                           </ModuleGate>
                         </ProtectedRoute>
                       } />

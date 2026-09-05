@@ -83,8 +83,24 @@ workflows:
   # herramientas CLI `app-store-connect` y `keychain` leen solas:
   #   APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_KEY_IDENTIFIER,
   #   APP_STORE_CONNECT_PRIVATE_KEY (contenido completo del .p8, marcado
-  #   Secure). Sin `triggering`, este workflow NO se dispara solo — solo
-  #   corre si alguien lo arranca a mano en el dashboard.
+  #   Secure), + CERTIFICATE_PRIVATE_KEY (llave RSA propia, generada con
+  #   `ssh-keygen -t rsa -b 2048 -m PEM`, que Codemagic usa para crear el
+  #   certificado de distribución — NO viene de Apple). Sin `triggering`,
+  #   este workflow NO se dispara solo — solo corre si alguien lo arranca
+  #   a mano en el dashboard.
+  #
+  # OJO 3: usar `get-latest-testflight-build-number`, NO
+  # `get-latest-app-store-build-number`, para el incremento de versión.
+  # Esta app solo se publica a TestFlight, nunca a App Store — la
+  # variante "app-store" siempre devuelve 0 (nunca hubo un release ahí),
+  # así que el build subía repetido como versión 1 y Apple lo rechazaba
+  # con "The bundle version must be higher than the previously uploaded
+  # version".
+  #
+  # OJO 4: "SportMaps Internos" es Internal Testing con distribución
+  # Automatic — no lleva `beta_groups` en publishing.app_store_connect,
+  # esos grupos reciben cada build solos; la API rechaza asignarlos a
+  # mano ("Cannot add internal group to a build").
   # ──────────────────────────────────────────────────────────────────────
   ios-testflight:
     name: iOS — build firmado + TestFlight
@@ -129,10 +145,10 @@ workflows:
         script: |
           cd frontend
           xcode-project use-profiles
-      - name: Incrementar el número de build al siguiente de App Store Connect
+      - name: Incrementar el número de build al siguiente de TestFlight
         script: |
           cd frontend/ios/App
-          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-app-store-build-number "$APP_STORE_APPLE_ID")
+          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID")
           agvtool new-version -all $(($LATEST_BUILD_NUMBER + 1))
       - name: Compilar .ipa firmado
         script: |
