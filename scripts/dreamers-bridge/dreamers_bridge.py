@@ -37,6 +37,23 @@ Que hace:
   calibrarlo con el torniquete real (ver README.md, seccion "Calibrar el
   pulso de apertura").
 
+- BLOQUEO POR MORA / GRUPO (agregado 2026-09-05, mismo hallazgo que la
+  apertura manual): `set_group` (banco de horas bloqueando por mora,
+  boton "Bloquear ahora" de Control de Acceso) tampoco le llega nunca a
+  estos lectores por ADMS -- se confirmo en vivo el 2026-09-05 que quedan
+  'pending' para siempre (nunca 'executed' ni 'failed'), y de paso que
+  `set_drive_time` tiene el mismo problema desde antes (8 comandos
+  'expired' del 29-ago). El endpoint /bridge/door-commands ahora acepta
+  `command_types=open_door,set_group` (antes solo devolvia open_door) --
+  este script pide ambos y ejecuta el cambio de grupo via pyzk
+  `set_user()` (DATA UPDATE USERINFO Grp=<N> en terminos ADMS). Requiere
+  que el PIN ya este enrolado localmente en CADA lector (entrada y salida
+  tienen su propia base de huellas) -- si no esta, el comando falla con un
+  mensaje claro en vez de fallar en silencio. TODAVIA NO SE PROBO EN CAMPO
+  si el Grupo 2 de estos equipos realmente bloquea el paso (ver README.md,
+  seccion "Probar el bloqueo por Grupo") -- eso es configuracion del propio
+  equipo, este script solo asegura que el cambio de grupo LLEGUE.
+
 Requisitos (instalar una sola vez):
     pip install -r requirements.txt
 
@@ -163,13 +180,13 @@ def send_heartbeat(serial_number):
 
 def fetch_pending_door_commands():
     """
-    Devuelve los comandos open_door pendientes de Dreamers, o None si el
-    endpoint no responde (error de red / API key mal puesta) para que el
-    caller distinga "nada que hacer" de "no pude preguntar".
+    Devuelve los comandos (open_door + set_group) pendientes de Dreamers, o
+    None si el endpoint no responde (error de red / API key mal puesta) para
+    que el caller distinga "nada que hacer" de "no pude preguntar".
     """
     url = f"{BACKEND_BASE_URL}/bridge/door-commands"
     headers = {"X-Bridge-Api-Key": BRIDGE_API_KEY}
-    params = {"school_id": SCHOOL_ID}
+    params = {"school_id": SCHOOL_ID, "command_types": "open_door,set_group"}
     try:
         resp = requests.get(url, headers=headers, params=params, timeout=10)
     except requests.RequestException as e:
@@ -228,15 +245,52 @@ def open_door_physically(device):
                 pass
 
 
+def set_group_physically(device, pin, group):
+    """
+    Conecta por SDK directo y mueve el PIN al grupo indicado (2 = bloqueado,
+    1 = normal), preservando el resto de los datos del usuario (nombre,
+    privilegio, clave, tarjeta) -- pyzk.set_user() reescribe el registro
+    completo, así que hay que leerlo primero con get_users() y solo cambiar
+    group_id, o se pierde el nombre/tarjeta del usuario en el lector.
+    Lanza excepcion si el PIN no esta enrolado localmente en este lector, o
+    si el dispositivo la rechaza -- el caller decide como manejarlo.
+    """
+    zk = ZK(device["ip"], port=device["port"], timeout=10)
+    conn = None
+    try:
+        conn = zk.connect()
+        existing = next((u for u in conn.get_users() if str(u.user_id) == str(pin)), None)
+        if existing is None:
+            raise Exception(f"PIN {pin} no esta enrolado localmente en este lector")
+
+        conn.set_user(
+            uid=existing.uid,
+            name=existing.name,
+            privilege=existing.privilege,
+            password=existing.password,
+            group_id=str(group),
+            user_id=existing.user_id,
+            card=existing.card,
+        )
+        print(f"[{device['name']}] PIN {pin} movido a grupo {group}.")
+    finally:
+        if conn:
+            try:
+                conn.disconnect()
+            except Exception:
+                pass
+
+
 def process_door_commands():
     commands = fetch_pending_door_commands()
     if not commands:
         return
 
-    print(f"{len(commands)} comando(s) de apertura pendiente(s).")
+    print(f"{len(commands)} comando(s) pendiente(s).")
     for cmd in commands:
         cmd_id = cmd.get("id")
         serial = cmd.get("device_serial")
+        command_type = cmd.get("command_type", "open_door")
         device = DEVICE_BY_SERIAL.get(serial)
 
         if not device:
@@ -244,13 +298,21 @@ def process_door_commands():
             ack_door_command(cmd_id, success=False, error_message=f"Serial no reconocido: {serial}")
             continue
 
-        print(f"Procesando comando {cmd_id} -> {device['name']} ({serial})")
+        print(f"Procesando comando {cmd_id} ({command_type}) -> {device['name']} ({serial})")
         try:
-            open_door_physically(device)
+            if command_type == "set_group":
+                metadata = cmd.get("metadata") or {}
+                pin = metadata.get("pin")
+                group = metadata.get("group")
+                if pin is None or group is None:
+                    raise Exception(f"metadata incompleta para set_group: {metadata}")
+                set_group_physically(device, pin, group)
+            else:
+                open_door_physically(device)
             ack_door_command(cmd_id, success=True)
         except Exception as e:
             error_msg = f"{type(e).__name__}: {e}"
-            print(f"ERROR abriendo puerta fisicamente para comando {cmd_id}: {error_msg}")
+            print(f"ERROR ejecutando comando {cmd_id} ({command_type}) fisicamente: {error_msg}")
             print(traceback.format_exc())
             ack_door_command(cmd_id, success=False, error_message=error_msg)
 
