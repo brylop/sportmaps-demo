@@ -149,5 +149,8 @@ workflows:
         key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID
         submit_to_testflight: true
-        beta_groups:
-          - SportMaps Internos
+        # "SportMaps Internos" es un grupo Internal Testing con distribución
+        # Automatic en TestFlight — esos grupos reciben cada build nuevo
+        # solos en cuanto Apple termina de procesarlo; la API rechaza
+        # asignar builds a mano ("Cannot add internal group to a build").
+        # NO agregar beta_groups aquí para grupos internos automáticos.
