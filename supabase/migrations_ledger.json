@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 496,
-  "head": "20260902190708",
+  "count": 497,
+  "head": "20260902194954",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -499,6 +499,7 @@
     {"v":"20260902181143","file":"20260902181143_backfill_expires_at_resto_ambiguos_mma_academia_demo.sql","sha256":"f87616f434a7388edf88b9cd0be71e5363c22251e7e35cc282750ccd9a9666ff","added":"2026-09-02","by":"brylop"},
     {"v":"20260902181550","file":"20260902181550_reactivar_cron_expire_overdue_enrollments.sql","sha256":"4dad75991fefb51b5aeeb3003109bcd77e5774bff29cc47d486617f68206815a","added":"2026-09-02","by":"brylop"},
     {"v":"20260902190219","file":"20260902190219_offering_coaches_documentar_y_endurecer_rls.sql","sha256":"2484642f9ed46d0201c0a4c6086cd2f69f0a1bf22dc4a22789f9f630ac233a4e","added":"2026-09-03","by":"judegor99"},
-    {"v":"20260902190708","file":"20260902190708_trial_class_public_create_respeta_offering_coaches.sql","sha256":"6c45140a5438ebeddb805088969f078080b631ee54fc9812c0cd277b54b14095","added":"2026-09-03","by":"judegor99"}
+    {"v":"20260902190708","file":"20260902190708_trial_class_public_create_respeta_offering_coaches.sql","sha256":"6c45140a5438ebeddb805088969f078080b631ee54fc9812c0cd277b54b14095","added":"2026-09-03","by":"judegor99"},
+    {"v":"20260902194954","file":"20260902194954_school_staff_sports_multi_y_niveles.sql","sha256":"e089a5dd9ff4244db9d0f199d49fb8cc5d42c8ef5011770e741e578277dc37b1","added":"2026-09-03","by":"judegor99"}
   ]
 }

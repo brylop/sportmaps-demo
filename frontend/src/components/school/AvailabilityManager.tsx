@@ -49,7 +49,20 @@ interface SlotGroup {
   hasPersonal:boolean;
 }
 
-/** Groups consecutive slots into ranges (end_time of one = start_time of next) */
+/** Duración del bloque en minutos, a partir de HH:MM(:SS) */
+function slotDurationMinutes(slot: ResourceAvailability): number {
+  const [sh, sm] = slot.start_time.substring(0, 5).split(':').map(Number);
+  const [eh, em] = slot.end_time.substring(0, 5).split(':').map(Number);
+  return (eh * 60 + em) - (sh * 60 + sm);
+}
+
+/**
+ * Groups consecutive slots into ranges (end_time of one = start_time of next)
+ * — pero SOLO si comparten la misma duración. Sin ese segundo chequeo, un
+ * bloque de 1h seguido de dos de 2h se fusionaban en un solo rango "8am—1pm"
+ * y la UI perdía por completo la distinción de duraciones (y el botón
+ * "eliminar rango" borraba los tres de un tirón).
+ */
 function groupConsecutiveSlots(slots: ResourceAvailability[]): SlotGroup[] {
   if (slots.length === 0) return [];
 
@@ -69,8 +82,9 @@ function groupConsecutiveSlots(slots: ResourceAvailability[]): SlotGroup[] {
     // Normalize to HH:MM for comparison
     const slotStart = slot.start_time.substring(0, 5);
     const curEnd    = current.end.substring(0, 5);
+    const sameDuration = slotDurationMinutes(slot) === slotDurationMinutes(current.slots[current.slots.length - 1]);
 
-    if (slotStart === curEnd) {
+    if (slotStart === curEnd && sameDuration) {
       current.end        = slot.end_time;
       current.slots.push(slot);
       current.hasGroup    = current.hasGroup    || (slot.available_for_group_classes ?? false) || !slot.coach_id;
@@ -592,9 +606,21 @@ export function AvailabilityManager({
                                 <p className="font-black text-sm">
                                   {formatTime(group.start)} — {formatTime(group.end)}
                                 </p>
-                                <p className="text-[10px] text-muted-foreground">
-                                  {group.slots.length} bloque{group.slots.length !== 1 ? 's' : ''}
-                                </p>
+                                {group.slots.length === 1 ? (
+                                  <p className="text-[10px] text-muted-foreground">1 bloque</p>
+                                ) : (
+                                  // Rango fusionado (mismo horario consecutivo, misma duración) —
+                                  // listar cada horario real en vez de solo "N bloques", para que
+                                  // se vea que son, por ej., 9–11 y 11–1, no un solo bloque largo.
+                                  <p className="text-[10px] text-muted-foreground flex flex-wrap gap-x-1.5">
+                                    {group.slots.map((s, i) => (
+                                      <span key={s.id}>
+                                        {formatTime(s.start_time)}–{formatTime(s.end_time)}
+                                        {i < group.slots.length - 1 ? ',' : ''}
+                                      </span>
+                                    ))}
+                                  </p>
+                                )}
                               </div>
                             </div>
 

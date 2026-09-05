@@ -9,11 +9,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { Plus, Calendar, Target, ClipboardList, Trash2, Activity, Users, Loader2, TrendingUp, Trophy, Star } from 'lucide-react';
+import { Plus, Calendar, Target, ClipboardList, Trash2, Activity, Users, Loader2, TrendingUp, Trophy, Star, Goal } from 'lucide-react';
 import { SessionFormDialog } from '@/components/coach/SessionFormDialog';
 import { MesocycleSection } from '@/components/coach/MesocycleSection';
 import { TeamPerformanceEntryModal } from '@/components/school/TeamPerformanceEntryModal';
 import { FootballDashboardModal } from '@/components/school/FootballDashboardModal';
+import { TacticalBoard } from '@/components/school/TacticalBoard';
 import { PerformanceEntryModal } from '@/components/school/PerformanceEntryModal';
 import { AthleteEvolutionModal } from '@/components/school/AthleteEvolutionModal';
 import { useToast } from '@/hooks/use-toast';
@@ -47,6 +48,16 @@ export default function TrainingPlansPage() {
   const [evolutionStudent, setEvolutionStudent] = useState<any>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editingSession, setEditingSession] = useState<any>(null);
+  // Tablero táctico por bloque de sesión -- ver openBlockTacticalBoard() más
+  // abajo. sourceId es el id PROPIO del bloque (no el de la sesión): los
+  // bloques hoy viven como objetos sin id dentro de session_blocks (jsonb),
+  // así que uno se genera y se persiste la primera vez que el coach abre el
+  // tablero de ESE bloque -- match_lineups.source_id es un uuid polimórfico
+  // sin FK real a ninguna tabla, así que un uuid propio del bloque (nunca
+  // usado en otro lado) sirve igual sin necesitar ninguna migración.
+  const [tacticalBlock, setTacticalBlock] = useState<{
+    sessionId: string; blockId: string; blockName: string; sessionLabel: string;
+  } | null>(null);
 
   // Fetch teams
   const { data: teams } = useQuery({
@@ -230,6 +241,37 @@ export default function TrainingPlansPage() {
     ? (teams?.find((t: any) => t.id === selectedTeamId)?.name || 'Equipo')
     : (offeringPlans?.find((p: any) => p.id === selectedPlanId)?.name || 'Plan');
 
+  /** Abre el tablero táctico para UN bloque de una sesión ya guardada. Si el
+   *  bloque todavía no tiene id propio (todos los creados antes de esta
+   *  función, y cualquiera armado sin pasar por acá), se le asigna uno y se
+   *  persiste ANTES de abrir el tablero -- sin eso, cada apertura generaría
+   *  un id distinto y el tablero nunca encontraría lo guardado la vez
+   *  anterior. Update silencioso (sin mutation/toast de "sesión
+   *  actualizada"): es un detalle interno, no una edición que el coach pidió. */
+  const openBlockTacticalBoard = async (session: any, block: any, index: number) => {
+    let blockId: string | undefined = block.id;
+    if (!blockId) {
+      blockId = crypto.randomUUID();
+      const nextBlocks = (Array.isArray(session.session_blocks) ? session.session_blocks : []).slice();
+      nextBlocks[index] = { ...nextBlocks[index], id: blockId };
+      const { error } = await supabase
+        .from('training_sessions')
+        .update({ session_blocks: nextBlocks })
+        .eq('id', session.id);
+      if (error) {
+        toast({ title: 'No se pudo abrir el tablero táctico', description: error.message, variant: 'destructive' });
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ['training-sessions', selectedTeamId] });
+    }
+    setTacticalBlock({
+      sessionId: session.id,
+      blockId,
+      blockName: block.name || 'Bloque',
+      sessionLabel: new Date(session.session_date + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'long' }),
+    });
+  };
+
   const selectedTeam = teams?.find((t: any) => t.id === selectedTeamId);
   const isFootballTeam = selectedTeam?.sport?.toLowerCase() === 'futbol' || selectedTeam?.sport?.toLowerCase() === 'fútbol';
 
@@ -385,12 +427,24 @@ export default function TrainingPlansPage() {
                           </h4>
                           <div className="space-y-3">
                             {blocks.map((block: any, index: number) => (
-                              <div key={index} className="p-3 rounded-lg border bg-muted/50 dark:bg-muted/30 space-y-1">
-                                <div className="flex items-start justify-between">
+                              <div key={block.id || index} className="p-3 rounded-lg border bg-muted/50 dark:bg-muted/30 space-y-1">
+                                <div className="flex items-start justify-between gap-2">
                                   <p className="font-medium">{block.name}</p>
-                                  {block.minutes && (
-                                    <Badge variant="outline">{block.minutes} min</Badge>
-                                  )}
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    {block.minutes && (
+                                      <Badge variant="outline">{block.minutes} min</Badge>
+                                    )}
+                                    {isFootballTeam && (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 gap-1 text-xs"
+                                        onClick={() => openBlockTacticalBoard(session, block, index)}
+                                      >
+                                        <Goal className="h-3.5 w-3.5" /> Tablero táctico
+                                      </Button>
+                                    )}
+                                  </div>
                                 </div>
                                 {block.activity && (
                                   <p className="text-sm text-muted-foreground">{block.activity}</p>
@@ -674,6 +728,7 @@ export default function TrainingPlansPage() {
               : createMutation.mutate(data)
           }
           teamId={selectedTeamId}
+          teamName={selectedName}
           isFootball={isFootballTeam}
           session={editingSession}
           isLoading={createMutation.isPending || updateMutation.isPending}
@@ -699,6 +754,18 @@ export default function TrainingPlansPage() {
           onClose={() => setFootballDialogOpen(false)}
           teamId={selectedTeamId}
           teamName={selectedName}
+        />
+      )}
+
+      {tacticalBlock && filterType === 'teams' && selectedTeamId && (
+        <TacticalBoard
+          open={!!tacticalBlock}
+          onClose={() => setTacticalBlock(null)}
+          teamId={selectedTeamId}
+          teamName={selectedName}
+          sourceType="training_session"
+          sourceId={tacticalBlock.blockId}
+          contextLabel={`Entrenamiento ${tacticalBlock.sessionLabel} — ${tacticalBlock.blockName}`}
         />
       )}
 

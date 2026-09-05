@@ -64,7 +64,6 @@ export default function StaffPage() {
       full_name: member.full_name,
       email: member.email,
       phone: member.phone,
-      specialty: member.specialty,
       status: member.status === 'active' ? 'inactive' : 'active'
     });
   };
@@ -193,7 +192,18 @@ export default function StaffPage() {
                     <TableCell>{member.phone || '-'}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-1">
-                        <Badge variant="secondary">{member.specialty || 'Sin asignar'}</Badge>
+                        {member.sports?.length ? (
+                          member.sports.map((sport: string) => (
+                            <Badge key={sport} variant="secondary">{sport}</Badge>
+                          ))
+                        ) : (
+                          <Badge variant="secondary">{member.specialty || 'Sin asignar'}</Badge>
+                        )}
+                        {member.taught_levels?.length > 0 && (
+                          <Badge variant="outline" className="font-normal">
+                            Nivel {member.taught_levels.slice().sort().join(', ')}
+                          </Badge>
+                        )}
                         {/* Las certificaciones se pueden capturar al contratar; sin esto
                             quedarían escritas y nunca visibles. */}
                         {member.certifications?.slice(0, 2).map((cert) => (

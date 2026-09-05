@@ -48,8 +48,8 @@ import {
 } from '@/hooks/useFootballData';
 import { FootballPitchBackground } from './FootballPitchBackground';
 import { PlayerCard } from './PlayerCard';
-import { POSITION_LABEL } from '@/lib/school/footballDisplay';
-import type { LineupSourceType, LineupPlayerInput, TacticalSituation, PositionCode, TacticalArrow, TacticalArrowColor, TacticalShapeType, EventSourceType } from '@/lib/school/footballQueries';
+import { POSITION_LABEL, suggestLabel, legacyFallbackPosition } from '@/lib/school/footballDisplay';
+import type { LineupSourceType, LineupPlayerInput, TacticalSituation, TacticalArrow, TacticalArrowColor, TacticalShapeType, EventSourceType } from '@/lib/school/footballQueries';
 import type { RosterSubject } from '@/lib/school/performanceQueries';
 
 const SITUATION_LABEL: Record<TacticalSituation, string> = {
@@ -82,38 +82,19 @@ const subjectKey = (t: string, id: string) => `${t}:${id}`;
 
 /** Sugerencia de etiqueta según la altura donde se soltó -- un default
  *  editable, no una regla de negocio (D1: formación libre, sin catálogo). */
-function suggestLabel(y: number): string {
-  if (y < 22) return 'Delantero';
-  if (y < 48) return 'Medio';
-  if (y < 78) return 'Defensa';
-  return 'Arquero';
-}
+// suggestLabel/LEGACY_BAND_Y/legacyFallbackPosition viven en footballDisplay.ts
+// -- compartidas con LineupModal.tsx, que ahora usa la misma cancha libre
+// (x/y) en vez de su viejo sistema de bandas con cupo por formación.
 
 /** Franjas de la cancha (mismos cortes que suggestLabel) para el overlay de
- *  zonas y para ubicar alineaciones viejas sin x/y (ver LEGACY_BAND_Y). */
+ *  zonas -- solo se usa acá (el overlay de zonas es exclusivo del tablero
+ *  táctico), por eso se queda local. */
 const ZONE_BANDS: { label: string; y0: number; y1: number }[] = [
   { label: 'Ataque', y0: 0, y1: 22 },
   { label: 'Medio', y0: 22, y1: 48 },
   { label: 'Defensa', y0: 48, y1: 78 },
   { label: 'Arquero', y0: 78, y1: 100 },
 ];
-
-/** Y por defecto de cada position_code clásico -- para ubicar en la cancha
- *  alineaciones creadas con el LineupModal viejo, que no guardaba x/y. */
-const LEGACY_BAND_Y: Record<PositionCode, number> = {
-  delantero: 12,
-  medio: 38,
-  defensa: 65,
-  arquero: 92,
-};
-
-/** Reparte N jugadores del mismo position_code en una fila horizontal, para
- *  que una alineación vieja (sin x/y) no aparezca toda apilada en el mismo punto. */
-function legacyFallbackPosition(positionCode: PositionCode | null | undefined, indexInBand: number, totalInBand: number) {
-  const y = positionCode ? LEGACY_BAND_Y[positionCode] : 50;
-  const x = totalInBand <= 1 ? 50 : 20 + indexInBand * (60 / (totalInBand - 1));
-  return { x, y };
-}
 
 /** P4 (sugerencia de XI): 11 posiciones de un 4-4-2 genérico, sin saber la
  *  posición real de cada jugador (las season-stats no la traen) -- es un
@@ -1342,9 +1323,25 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       {/* rounded-none Y sm:rounded-none a propósito: la base de DialogContent
           trae "sm:rounded-lg" -- sin el mismo prefijo, el merge de clases no
-          lo reconoce como el mismo "slot" y la base gana en desktop. */}
+          lo reconoce como el mismo "slot" y la base gana en desktop.
+
+          height/overflow van por `style`, no por className -- el propio
+          componente Dialog trae una clase global ".dialog-safe" (para el
+          safe-area de iOS) que fija overflow-y:auto y max-height:100dvh
+          como CSS plano; al no ser una utilidad de Tailwind, tailwind-merge
+          no la deduplica contra "overflow-hidden"/"h-[100dvh]", y en la
+          hoja de estilos compilada esa clase compartida termina ganando el
+          empate de especificidad (mismo bug que ya se encontró y corrigió
+          en LineupModal.tsx). Un estilo inline sí le gana a cualquier clase
+          sin tener que tocar ese componente compartido.
+
+          100vh, no 100dvh -- dvh se comportaba distinto entre la ventana
+          real de un navegador y la vista emulada donde se probaba, y es
+          justo el tipo de inconsistencia que puede leerse como "se ve
+          aprisionado" en un dispositivo real. vh es la unidad más probada. */}
       <DialogContent
-        className="w-screen h-[100dvh] max-w-none max-h-none rounded-none sm:rounded-none border-0 overflow-hidden flex flex-col p-0 bg-gradient-to-b from-zinc-950 via-zinc-900 to-zinc-950 text-white shadow-2xl"
+        className="w-screen max-w-none max-h-none rounded-none sm:rounded-none border-0 flex flex-col p-0 bg-gradient-to-b from-zinc-950 via-zinc-900 to-zinc-950 text-white shadow-2xl"
+        style={{ height: '100vh', maxHeight: '100vh', overflow: 'hidden' }}
       >
         {/* DialogTitle/Description quedan para accesibilidad (Radix los exige)
             pero visualmente ocultos -- el título completo y las instrucciones
@@ -1520,10 +1517,19 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     a ancho según la proporción de la cancha (300/340), topado
                     en 580px. El 100% final del min() ya cubre el caso de que
                     el panel de plantilla angoste el espacio disponible.
-                    Verificado en pantalla real en varios tamaños. */}
+
+                    100vh, no 100dvh -- el mismo cambio que en LineupModal.tsx:
+                    dvh se comportaba distinto entre la ventana real de un
+                    navegador y la vista emulada donde se probaba originalmente
+                    (el comentario viejo decía "verificado en pantalla real",
+                    pero esa verificación no cubría esta inconsistencia
+                    puntual). Con dvh mal resuelto, "(100dvh-90px)" podía dar
+                    un número mucho menor al real y el min() elegía ESE
+                    resultado achicado en vez de 580px -- exactamente el
+                    síntoma de "se ve aprisionado" en un dispositivo real. */}
                 <div
                   ref={pitchRef}
-                  className="relative w-[min(580px,calc((100dvh-90px)*300/340),100%)] aspect-[300/340] rounded-2xl overflow-hidden select-none shadow-[0_12px_40px_rgba(0,0,0,0.55)] ring-1 ring-white/10"
+                  className="relative w-[min(580px,calc((100vh-90px)*300/340),100%)] aspect-[300/340] rounded-2xl overflow-hidden select-none shadow-[0_12px_40px_rgba(0,0,0,0.55)] ring-1 ring-white/10"
                 >
                   <FootballPitchBackground />
                   {showZones && <ZoneOverlay />}

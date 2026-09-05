@@ -12,7 +12,11 @@ interface Staff {
   full_name: string;
   email: string;
   phone: string | null;
+  /** @deprecated usar `sports` — se mantiene sincronizado con sports[0] desde el BFF. */
   specialty: string | null;
+  sports: string[] | null;
+  /** 1=Principiante, 2=Intermedio, 3=Avanzado, 4=Elite/Alto rendimiento. */
+  taught_levels: number[] | null;
   branch_id: string | null;
   certifications: string[] | null;
   status: string;
@@ -38,7 +42,8 @@ interface StaffInput {
   full_name: string;
   email: string;
   phone?: string;
-  specialty?: string;
+  sports?: string[];
+  taught_levels?: number[];
   branch_id?: string | null;
   certifications?: string[];
   status?: string;

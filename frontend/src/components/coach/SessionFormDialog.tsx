@@ -11,9 +11,10 @@ import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import { z } from 'zod';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ClipboardList, Plus, Trash2, Star, Calendar } from 'lucide-react';
+import { ClipboardList, Plus, Trash2, Star, Calendar, Goal } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { TacticalBoard } from '@/components/school/TacticalBoard';
 
 const sessionSchema = z.object({
   session_date: z.string().min(1, 'Fecha es requerida'),
@@ -33,8 +34,18 @@ interface Drill {
 }
 
 /** Bloque de sesión de fútbol (Excel "Sesión Diaria", Club Carmel). Editable
- *  por el coach: no son partes fijas, solo se sugieren como punto de partida. */
+ *  por el coach: no son partes fijas, solo se sugieren como punto de partida.
+ *
+ *  `id`: identidad propia del bloque para poder engancharle un tablero
+ *  táctico (match_lineups.source_id, con sourceType='training_session').
+ *  Se genera en el momento en que el coach toca "Tablero táctico" por
+ *  primera vez en ESE bloque (ver ensureBlockId más abajo) -- nunca al
+ *  crear el bloque, porque la plantilla/el botón "Agregar Bloque" se
+ *  reusan para VARIAS sesiones distintas y un id fijo ahí colisionaría
+ *  entre sesiones. Opcional a propósito: bloques viejos guardados antes
+ *  de esto no tienen id hasta que se abre su tablero por primera vez. */
 interface SessionBlock {
+  id?: string;
   name: string;
   minutes: string;
   activity: string;
@@ -75,6 +86,9 @@ interface SessionFormDialogProps {
     evaluation?: Evaluation;
   }) => void;
   teamId: string;
+  /** Solo para el contexto del tablero táctico por bloque (título del modal
+   *  fullscreen) -- no se usa para nada más acá. */
+  teamName?: string;
   /** Solo fútbol ve bloques editables, principios de juego y evaluación
    *  post-sesión (Excel "Sesión Diaria Fútbol C.C.C", Club Carmel). */
   isFootball?: boolean;
@@ -87,6 +101,7 @@ export function SessionFormDialog({
   onOpenChange,
   onSubmit,
   teamId,
+  teamName,
   isFootball,
   isLoading,
   session = null
@@ -94,6 +109,9 @@ export function SessionFormDialog({
   const [drills, setDrills] = useState<Drill[]>([{ name: '', focus: '', duration: '' }]);
   const [blocks, setBlocks] = useState<SessionBlock[]>(FOOTBALL_BLOCK_TEMPLATE);
   const [evaluation, setEvaluation] = useState<Evaluation>({});
+  // Índice del bloque cuyo tablero táctico está abierto (no el id -- el id
+  // puede no existir todavía, ver ensureBlockId más abajo).
+  const [tacticalBlockIndex, setTacticalBlockIndex] = useState<number | null>(null);
 
   const form = useForm<SessionFormData>({
     resolver: zodResolver(sessionSchema),
@@ -153,6 +171,23 @@ export function SessionFormDialog({
     setBlocks(updated);
   };
 
+  /** Abre el tablero táctico de un bloque, generándole un id propio primero
+   *  si todavía no tiene uno (bloque recién creado, o uno viejo guardado
+   *  antes de que esto existiera). El id queda en el estado local del
+   *  formulario -- se persiste como parte del bloque al guardar la sesión
+   *  (handleSubmit ya manda session_blocks completo, id incluido). */
+  const openBlockTacticalBoard = (index: number) => {
+    setBlocks((prev) => (prev[index]?.id ? prev : prev.map((b, i) => (i === index ? { ...b, id: crypto.randomUUID() } : b))));
+    // setTimeout, no directo: TacticalBoard es OTRO <Dialog> de Radix, montado
+    // desde un botón que vive DENTRO del <Dialog> de esta sesión. Si se abre
+    // en el mismo tick del click, el detector de "click afuera" del diálogo
+    // nuevo llega a tiempo de ver ESE MISMO click como un click hacia afuera
+    // suyo -- se abre y se cierra solo en el mismo gesto ("abre y cierra
+    // automáticamente"). Diferido un tick, el tablero se monta después de que
+    // el click ya terminó de procesarse del todo.
+    setTimeout(() => setTacticalBlockIndex(index), 0);
+  };
+
   const resetLocalState = () => {
     setDrills([{ name: '', focus: '', duration: '' }]);
     setBlocks(FOOTBALL_BLOCK_TEMPLATE);
@@ -187,7 +222,15 @@ export function SessionFormDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open && tacticalBlockIndex === null} onOpenChange={onOpenChange}>
+      {/* Mientras el tablero táctico está abierto, este Dialog se oculta (open=false)
+       *  en vez de quedar montado y abierto AL MISMO TIEMPO que el Dialog del tablero.
+       *  Dos Dialogs de Radix abiertos a la vez compiten por el mismo FocusScope/
+       *  DismissableLayer -- eso era lo que hacía que el tablero se cerrara solo
+       *  segundos después de abrir, sin ningún click real de por medio. El estado del
+       *  formulario (blocks, etc.) vive en este componente, no en el Dialog, así que
+       *  ocultarlo no pierde nada: reaparece igual como estaba al cerrar el tablero. */}
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-3">
@@ -307,7 +350,7 @@ export function SessionFormDialog({
 
               <div className="space-y-3">
                 {blocks.map((block, index) => (
-                  <div key={index} className="p-3 border rounded-lg space-y-3 bg-muted/50 dark:bg-muted/30">
+                  <div key={block.id || index} className="p-3 border rounded-lg space-y-3 bg-muted/50 dark:bg-muted/30">
                     <div className="flex items-center justify-between gap-2">
                       <Input
                         placeholder="Nombre del bloque (ej: Calentamiento)"
@@ -321,6 +364,16 @@ export function SessionFormDialog({
                         onChange={(e) => updateBlock(index, 'minutes', e.target.value)}
                         className="w-20 shrink-0"
                       />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 gap-1"
+                        onClick={() => openBlockTacticalBoard(index)}
+                        title="Abrir tablero táctico para este bloque"
+                      >
+                        <Goal className="h-4 w-4" />
+                      </Button>
                       {blocks.length > 1 && (
                         <Button
                           type="button"
@@ -493,5 +546,21 @@ export function SessionFormDialog({
         </form>
       </DialogContent>
     </Dialog>
+
+    {/* Fullscreen sobre este mismo modal (Radix apila portales sin
+        problema) -- se cierra solo, el formulario de la sesión sigue
+        intacto debajo con lo que ya se había escrito. */}
+    {tacticalBlockIndex !== null && blocks[tacticalBlockIndex]?.id && (
+      <TacticalBoard
+        open
+        onClose={() => setTacticalBlockIndex(null)}
+        teamId={teamId}
+        teamName={teamName || 'Equipo'}
+        sourceType="training_session"
+        sourceId={blocks[tacticalBlockIndex]!.id!}
+        contextLabel={`Entrenamiento — ${blocks[tacticalBlockIndex]?.name || 'Bloque'}`}
+      />
+    )}
+    </>
   );
 }

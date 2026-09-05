@@ -9,7 +9,7 @@ import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { AlertCircle, Loader2, Pencil, UserPlus } from 'lucide-react';
 import { PhoneInput, LATAM_COUNTRIES } from '@/components/ui/phone-input';
-import { SportCombobox } from '@/components/common/SportCombobox';
+import { SportMultiCombobox } from '@/components/common/SportMultiCombobox';
 import { TagInput } from '@/components/common/TagInput';
 import {
   Dialog,
@@ -22,6 +22,14 @@ import {
 
 /** Centinela del Select: Radix no acepta value="" en un SelectItem. */
 const NO_BRANCH = '__none__';
+
+/** Niveles de atleta que un entrenador puede dictar (school_staff.taught_levels). */
+const TAUGHT_LEVELS = [
+  { value: 1, label: 'Nivel 1', hint: 'Principiante' },
+  { value: 2, label: 'Nivel 2', hint: 'Intermedio' },
+  { value: 3, label: 'Nivel 3', hint: 'Avanzado' },
+  { value: 4, label: 'Nivel 4', hint: 'Elite / Alto rendimiento' },
+] as const;
 
 /**
  * El PhoneInput siempre deja el indicativo puesto, así que un campo "vacío" llega
@@ -54,10 +62,12 @@ const staffSchema = z.object({
       const digits = nationalDigits(v);
       return digits.length === 0 || digits.length >= 7;
     }, 'Número incompleto'),
-  specialty: z.string().min(1, 'Especialidad es requerida'),
+  sports: z.array(z.string()).min(1, 'Selecciona al menos un deporte'),
+  // Sin .default([]) en ninguno de los dos arrays: con zodResolver los tipos
+  // de input/output divergen y el undefined ya se maneja al leer
+  // (field.value || []) y al enviar (?? []).
+  taught_levels: z.array(z.number()).optional(),
   branch_id: z.string().optional().nullable(),
-  // Sin .default([]): con zodResolver los tipos de input/output divergen y el
-  // undefined ya se maneja al leer (field.value || []) y al enviar (?? []).
   certifications: z.array(z.string()).optional(),
   send_invitation: z.boolean().optional(),
 });
@@ -68,7 +78,9 @@ export interface StaffFormValues {
   full_name: string;
   email: string;
   phone?: string;
-  specialty?: string;
+  sports?: string[];
+  /** 1=Principiante, 2=Intermedio, 3=Avanzado, 4=Elite/Alto rendimiento. */
+  taught_levels?: number[];
   branch_id?: string | null;
   certifications?: string[];
   /** Solo al contratar: dispara la invitación de acceso. */
@@ -104,7 +116,8 @@ export function StaffFormDialog({
       full_name: '',
       email: '',
       phone: '',
-      specialty: '',
+      sports: [],
+      taught_levels: [],
       branch_id: NO_BRANCH,
       certifications: [],
       send_invitation: true,
@@ -125,7 +138,8 @@ export function StaffFormDialog({
         full_name: initialData?.full_name || '',
         email: initialData?.email || '',
         phone: initialData?.phone || '',
-        specialty: initialData?.specialty || '',
+        sports: initialData?.sports || [],
+        taught_levels: initialData?.taught_levels || [],
         branch_id: initialData?.branch_id || NO_BRANCH,
         certifications: initialData?.certifications || [],
         // Al editar no aplica: la invitación se manda solo al contratar.
@@ -148,7 +162,8 @@ export function StaffFormDialog({
         full_name: data.full_name,
         email: data.email,
         phone: nationalDigits(data.phone) ? data.phone : undefined,
-        specialty: data.specialty || undefined,
+        sports: data.sports ?? [],
+        taught_levels: data.taught_levels ?? [],
         branch_id: data.branch_id && data.branch_id !== NO_BRANCH ? data.branch_id : null,
         certifications: data.certifications ?? [],
         ...(isEditing ? {} : { send_invitation: data.send_invitation ?? true }),
@@ -251,60 +266,95 @@ export function StaffFormDialog({
               Rol en la academia
             </h3>
 
-            <div className={hasBranches ? 'grid gap-4 sm:grid-cols-2' : 'space-y-4'}>
-              <div className="space-y-2">
-                <Label htmlFor="specialty">Especialidad *</Label>
-                <Controller
-                  name="specialty"
-                  control={form.control}
-                  render={({ field }) => (
-                    <SportCombobox
-                      id="specialty"
-                      value={field.value}
-                      onChange={field.onChange}
-                      disabled={busy}
-                      invalid={!!form.formState.errors.specialty}
-                      placeholder="Selecciona especialidad"
-                    />
-                  )}
-                />
-                {form.formState.errors.specialty && (
-                  <p className="text-sm text-destructive">{form.formState.errors.specialty.message}</p>
-                )}
-              </div>
-
-              {hasBranches && (
-                <div className="space-y-2">
-                  <Label htmlFor="branch_id">
-                    Sede <span className="font-normal text-muted-foreground">(opcional)</span>
-                  </Label>
-                  <Controller
-                    name="branch_id"
-                    control={form.control}
-                    render={({ field }) => (
-                      <Select
-                        value={field.value || NO_BRANCH}
-                        onValueChange={field.onChange}
-                        disabled={busy}
-                      >
-                        <SelectTrigger id="branch_id">
-                          <SelectValue placeholder="Sin sede asignada" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={NO_BRANCH}>Sin sede asignada</SelectItem>
-                          {branches.map((branch) => (
-                            <SelectItem key={branch.id} value={branch.id}>
-                              {branch.name}
-                              {branch.is_main ? ' · principal' : ''}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
+            <div className="space-y-2">
+              <Label htmlFor="sports">Deportes que dicta *</Label>
+              <Controller
+                name="sports"
+                control={form.control}
+                render={({ field }) => (
+                  <SportMultiCombobox
+                    id="sports"
+                    value={field.value}
+                    onChange={field.onChange}
+                    disabled={busy}
+                    invalid={!!form.formState.errors.sports}
+                    placeholder="Selecciona uno o más deportes"
                   />
-                </div>
+                )}
+              />
+              {form.formState.errors.sports && (
+                <p className="text-sm text-destructive">{form.formState.errors.sports.message}</p>
               )}
             </div>
+
+            <div className="space-y-2">
+              <Label>
+                Niveles que dicta <span className="font-normal text-muted-foreground">(opcional)</span>
+              </Label>
+              <Controller
+                name="taught_levels"
+                control={form.control}
+                render={({ field }) => {
+                  const selected = field.value ?? [];
+                  const toggle = (v: number) =>
+                    field.onChange(
+                      selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v],
+                    );
+                  return (
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      {TAUGHT_LEVELS.map((lvl) => (
+                        <button
+                          key={lvl.value}
+                          type="button"
+                          disabled={busy}
+                          onClick={() => toggle(lvl.value)}
+                          className={`rounded-md border px-2 py-2 text-center text-xs transition-colors ${
+                            selected.includes(lvl.value)
+                              ? 'border-primary bg-primary/10 text-primary font-semibold'
+                              : 'border-input bg-background hover:bg-muted/50'
+                          }`}
+                        >
+                          <div className="font-semibold">{lvl.label}</div>
+                          <div className="text-muted-foreground">({lvl.hint})</div>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                }}
+              />
+            </div>
+
+            {hasBranches && (
+              <div className="space-y-2">
+                <Label htmlFor="branch_id">
+                  Sede <span className="font-normal text-muted-foreground">(opcional)</span>
+                </Label>
+                <Controller
+                  name="branch_id"
+                  control={form.control}
+                  render={({ field }) => (
+                    <Select
+                      value={field.value || NO_BRANCH}
+                      onValueChange={field.onChange}
+                      disabled={busy}
+                    >
+                      <SelectTrigger id="branch_id">
+                        <SelectValue placeholder="Sin sede asignada" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_BRANCH}>Sin sede asignada</SelectItem>
+                        {branches.map((branch) => (
+                          <SelectItem key={branch.id} value={branch.id}>
+                            {branch.name}
+                            {branch.is_main ? ' · principal' : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="certifications">

@@ -38,13 +38,28 @@ const CreateStaffSchema = z.object({
   full_name:       z.string().min(2, 'Nombre requerido'),
   email:           z.string().email('Email inválido'),
   phone:           z.string().optional(),
+  // specialty queda deprecado (ver COMMENT en la migración) — se sigue
+  // aceptando por compatibilidad, pero sports es la fuente de verdad nueva.
   specialty:       z.string().optional(),
+  sports:          z.array(z.string()).optional().default([]),
+  // 1=Principiante, 2=Intermedio, 3=Avanzado, 4=Elite/Alto rendimiento.
+  taught_levels:   z.array(z.number().int().min(1).max(4)).optional().default([]),
   certifications:  z.array(z.string()).optional().default([]),
   branch_id:       z.string().uuid('branch_id inválido').optional().nullable(),
   status:          z.enum(['active', 'inactive']).optional().default('active'),
 });
 
 const UpdateStaffSchema = CreateStaffSchema.partial();
+
+/**
+ * sports es la fuente de verdad nueva; specialty se sincroniza con su primer
+ * elemento para no romper a los lectores viejos (StaffPage.tsx badge, etc.)
+ * mientras se migran. Si el caller no manda `sports`, no se toca specialty.
+ */
+function withSpecialtySync<T extends { sports?: string[] }>(data: T): T & { specialty?: string | null } {
+  if (data.sports === undefined) return data;
+  return { ...data, specialty: data.sports[0] ?? null };
+}
 
 // ── Rutas ─────────────────────────────────────────────────────────────────────
 
@@ -99,7 +114,7 @@ router.post('/', requireAuth, requireRole(...STAFF_ADMIN_ROLES), async (req: Req
     // El trigger trg_sync_coach_auth_id se encargará de buscar el auth_id
     const { data, error } = await supabase
       .from('school_staff')
-      .insert({ ...parsed.data, school_id: schoolId })
+      .insert({ ...withSpecialtySync(parsed.data), school_id: schoolId })
       .select()
       .single();
 
@@ -123,7 +138,7 @@ router.patch('/:id', requireAuth, requireRole(...STAFF_ADMIN_ROLES), async (req:
 
     const { data, error } = await supabase
       .from('school_staff')
-      .update(parsed.data)
+      .update(withSpecialtySync(parsed.data))
       .eq('id', id)
       .eq('school_id', schoolId)
       .select()
