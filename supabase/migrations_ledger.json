@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 514,
-  "head": "20260905124655",
+  "count": 515,
+  "head": "20260905135210",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -517,6 +517,7 @@
     {"v":"20260905111458","file":"20260905111458_access_auto_block_overdue.sql","sha256":"b82ab2efcd4ed0b89a4bbd88fb033046012281535d7ab3944190b6b4e4b4c2be","added":"2026-09-05","by":"judegor99"},
     {"v":"20260905112154","file":"20260905112154_school_settings_booking_mode_toggle_flag.sql","sha256":"7389b3be816c7a3a208af141e482b9b5d53f88e5b97bffbeadbdb4cb7e448187","added":"2026-09-05","by":"judegor99"},
     {"v":"20260905121531","file":"20260905121531_fix_migrate_unregistered_athlete_zk_mapping.sql","sha256":"4ad1baa505d1db867e2e7a7c39d447749e2e04ec8d083f3243fa83b904ecbfc1","added":"2026-09-05","by":"judegor99"},
-    {"v":"20260905124655","file":"20260905124655_hour_bank_close_after_exit_grace.sql","sha256":"6318b623c5532afc74396fc37456a2a6261f721a899d30796ffc33e5a8e6a788","added":"2026-09-05","by":"judegor99"}
+    {"v":"20260905124655","file":"20260905124655_hour_bank_close_after_exit_grace.sql","sha256":"6318b623c5532afc74396fc37456a2a6261f721a899d30796ffc33e5a8e6a788","added":"2026-09-05","by":"judegor99"},
+    {"v":"20260905135210","file":"20260905135210_access_block_mechanism_per_school.sql","sha256":"e2701ad95733768697ce17031a8d2933cef091a626f303f6f5bff1b660b326d3","added":"2026-09-05","by":"judegor99"}
   ]
 }

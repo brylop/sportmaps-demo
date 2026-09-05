@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { invalidateDeviceCache, invalidateMappingCache, getHourBankSettings } from './access-adms';
+import { getAccessBlockMechanism, buildBlockCommand, computeIsBlocked, BLOCK_COMMAND_TYPES } from '../utils/accessBlockMechanism';
 import fs from 'fs';
 import path from 'path';
 
@@ -662,6 +663,13 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
 });
 
 // ─── POST /api/v1/access/set-access-group ───────────────────────────────────
+// El nombre quedó del mecanismo original (Grupo 2) pero el contrato con el
+// frontend (pin + group 1|2) no cambia — group:2 = bloquear, group:1 =
+// restaurar. Lo que varía por escuela es el comando real que se encola
+// (buildBlockCommand, bff/src/utils/accessBlockMechanism.ts): 'group' mueve
+// el PIN de Grupo (torniquetes que sí soportan Zonas Horarias/Grupos, ej.
+// GYM RM), 'disable' apaga/prende el bit de Privilege (Dreamers — su MB360
+// no tiene Grupos, confirmado 2026-09-05).
 router.post('/set-access-group', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { schoolId } = req;
@@ -674,17 +682,25 @@ router.post('/set-access-group', requireAuth, requireRole('owner', 'admin', 'sch
       .eq('school_id', schoolId).eq('is_active', true);
     if (!devices?.length) return res.status(404).json({ error: 'Sin dispositivos activos' });
 
+    const mechanism = await getAccessBlockMechanism(schoolId);
+    const { command_type, metadata } = buildBlockCommand(mechanism, pin, group === 2 ? 'block' : 'unblock');
+
     const commands = devices.map((d: any) => ({
-      school_id: schoolId, device_id: d.id, command_type: 'set_group',
+      school_id: schoolId, device_id: d.id, command_type,
       direction: d.direction === 'both' ? 'entry' : d.direction,
       status: 'pending', issued_by: req.user.id,
       expires_at: new Date(Date.now() + 24*60*60*1000).toISOString(),
-      metadata: { pin, group },
+      metadata,
     }));
     await supabase.from('device_commands').insert(commands);
-    return res.json({ success: true, message: `PIN ${pin} movido a grupo ${group} en ${devices.length} dispositivo(s).` });
+    return res.json({
+      success: true,
+      message: group === 2
+        ? `PIN ${pin} bloqueado en ${devices.length} dispositivo(s).`
+        : `PIN ${pin} restaurado en ${devices.length} dispositivo(s).`,
+    });
   } catch (err: any) {
-    return res.status(500).json({ error: 'Error al cambiar de grupo de acceso' });
+    return res.status(500).json({ error: 'Error al cambiar el acceso' });
   }
 });
 
@@ -727,20 +743,30 @@ router.get('/overdue', requireAuth, requireRole('owner', 'admin', 'school_admin'
       (uas || []).forEach((u: any) => { uaMap[u.id] = u.full_name; });
     }
 
-    // Último comando set_group ejecutado por PIN → estado actual conocido (2 = bloqueado)
-    const { data: lastGroupCmds } = await supabase
-      .from('device_commands')
-      .select('metadata, executed_at')
+    // "Bloqueado" solo cuenta si TODOS los dispositivos activos de la escuela
+    // coinciden en el último comando ejecutado — no basta con que uno solo
+    // lo haya logrado (caso real: Edna, 2026-09-05, el lector de entrada
+    // nunca ejecutó el bloqueo y el badge decía que sí igual). El tipo de
+    // comando que cuenta depende del mecanismo de la escuela (Grupo vs
+    // deshabilitar — ver bff/src/utils/accessBlockMechanism.ts).
+    const mechanism = await getAccessBlockMechanism(schoolId);
+
+    const { data: activeDevices } = await supabase
+      .from('turnstile_devices')
+      .select('id')
       .eq('school_id', schoolId)
-      .eq('command_type', 'set_group')
+      .eq('is_active', true);
+    const activeDeviceIds = (activeDevices || []).map((d: any) => d.id as string);
+
+    const { data: lastCmds } = await supabase
+      .from('device_commands')
+      .select('device_id, command_type, metadata, executed_at')
+      .eq('school_id', schoolId)
+      .in('command_type', BLOCK_COMMAND_TYPES)
       .eq('status', 'executed')
       .order('executed_at', { ascending: false });
 
-    const pinBlocked: Record<number, boolean> = {};
-    (lastGroupCmds || []).forEach((c: any) => {
-      const pin = c.metadata?.pin;
-      if (pin !== undefined && !(pin in pinBlocked)) pinBlocked[pin] = c.metadata?.group === 2;
-    });
+    const isPinBlocked = computeIsBlocked(mechanism, lastCmds || [], activeDeviceIds);
 
     const overdue = overduePayments
       .map((p: any) => {
@@ -753,7 +779,7 @@ router.get('/overdue', requireAuth, requireRole('owner', 'admin', 'school_admin'
           due_date: p.due_date,
           amount: p.amount,
           zk_pin: pin,
-          blocked: !!pinBlocked[pin],
+          blocked: isPinBlocked(pin),
         };
       })
       .filter(Boolean);
