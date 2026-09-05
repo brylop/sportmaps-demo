@@ -356,13 +356,22 @@ export function initMaintenanceJobs() {
     console.log('[CRON] Despachador de notificaciones registrado (cada minuto).');
 
     // ────────────────────────────────────────────────────────────────────────
-    // Banco de horas por torniquete (F5) — auto-cierre de visitas 'open' que
-    // pasaron la hora de cierre de su día de inicio o el tope de seguridad.
-    // NO factura (eso es del owner al corregir). No-op mientras
-    // hours_plan_enabled siga en false en todas las escuelas.
-    // Ver docs/specs/dreamers-banco-de-horas-torniquete.md
+    // Banco de horas por torniquete (F5) — auto-cierre de visitas 'open'.
+    // Factura apenas se sepa la hora real de salida y pase la ventana de
+    // reentrada sin volver (fix 2026-09-05); para quien nunca marcó salida,
+    // sigue el cutoff largo (hora de cierre / tope de horas) + pending_review.
+    //
+    // Cada 1 minuto (bajado de 15, mismo día del fix): no se puede facturar
+    // exactamente en el instante de la salida sin romper D-6 (una reentrada
+    // corta — "voy al baño" — tiene que fusionarse en la misma visita, no
+    // verse como dos), así que el retraso real sigue siendo al menos la
+    // ventana de gracia de la escuela (15 min en Dreamers) — pero antes se le
+    // sumaban hasta 15 min más por esperar el tick del cron (caso real: Edna,
+    // 2026-09-05, tocó dispararlo a mano). A 1 min, el cron deja de ser la
+    // parte lenta. Costo despreciable: la query solo mira escuelas con
+    // hours_plan_enabled=true (2 hoy) y visitas 'open' (siempre pocas).
     // ────────────────────────────────────────────────────────────────────────
-    cron.schedule('*/15 * * * *', async () => {
+    cron.schedule('* * * * *', async () => {
         try {
             await runHourBankAutoclose();
         } catch (err: any) {
@@ -371,7 +380,7 @@ export function initMaintenanceJobs() {
         }
     });
 
-    console.log('[CRON] Auto-cierre de banco de horas registrado (cada 15 min).');
+    console.log('[CRON] Auto-cierre de banco de horas registrado (cada 1 min).');
 
     // ────────────────────────────────────────────────────────────────────────
     // Bloqueo automático por mora (school_settings.access_auto_block_overdue_enabled,
