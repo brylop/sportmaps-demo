@@ -90,6 +90,8 @@ interface BillingSettings {
   auto_approve_enabled: boolean;
   auto_approve_max_amount: number;
   auto_glosa_enabled: boolean;
+  /** Un solo toggle: correo al generarse el cobro del mes + correo al pasar los días de gracia sin pagar. */
+  charge_notifications_enabled: boolean;
 }
 
 
@@ -116,6 +118,7 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   auto_approve_enabled: false,
   auto_approve_max_amount: 0,
   auto_glosa_enabled: false,
+  charge_notifications_enabled: false,
   payment_accounts: [],
 };
 
@@ -565,6 +568,7 @@ export default function PaymentsAutomationPage() {
         auto_approve_enabled: billing.auto_approve_enabled,
         auto_approve_max_amount: billing.auto_approve_max_amount,
         auto_glosa_enabled: billing.auto_glosa_enabled,
+        charge_notifications_enabled: billing.charge_notifications_enabled,
       };
 
       const { error } = await supabase.from('school_settings').upsert(payload, { onConflict: 'school_id' });
@@ -2423,6 +2427,17 @@ export default function PaymentsAutomationPage() {
                       </div>
                     </div>
                   )}
+                  <Separator />
+                  <div className="flex items-center justify-between">
+                    <div className="pr-4">
+                      <Label className="font-medium">Avisar cobros nuevos y vencidos por correo</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Envía un correo cuando se genera la mensualidad de este mes, y otro si
+                        pasan los días de gracia sin pagar. Independiente del recordatorio in-app de arriba.
+                      </p>
+                    </div>
+                    <Switch checked={billing.charge_notifications_enabled} onCheckedChange={v => updateBilling('charge_notifications_enabled', v)} />
+                  </div>
                 </CardContent>
               </Card>
               <Card>

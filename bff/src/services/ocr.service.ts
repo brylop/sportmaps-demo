@@ -164,15 +164,19 @@ async function extractWithOpenAI(base64Image: string, mimeType: string): Promise
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GEMINI — Google Gemini 2.0 Flash (fallback 2)
+// GEMINI — Google Gemini Flash (fallback 2)
 // ─────────────────────────────────────────────────────────────────────────────
 async function extractWithGemini(base64Image: string, mimeType: string): Promise<OcrResult> {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('GEMINI_API_KEY no configurada');
 
-    // gemini-2.0-flash devolvía 404 con las keys nuevas de AI Studio; 2.5-flash
-    // es el estable vigente con visión. Configurable por env si cambia.
-    const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    // 2026-09-04: gemini-2.0-flash y luego gemini-2.5-flash fueron quedando 404
+    // ("no longer available to new users") cada pocos meses — Google retira
+    // versiones puntuales de Flash a un ritmo muy rápido. Se usa el alias
+    // `gemini-flash-latest` (Google lo mantiene apuntando al Flash vigente) en
+    // vez de fijar una versión, para no repetir este apagón. Configurable por
+    // env si hace falta pinnear una versión concreta.
+    const model = process.env.GEMINI_MODEL || 'gemini-flash-latest';
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
     const res = await fetch(url, {

@@ -117,7 +117,13 @@ export default function SchoolTournamentsPage() {
                   </div>
                   <div className="flex items-center gap-1"><Calendar className="h-3.5 w-3.5" /> {formatDate(t.event_date)}</div>
                   <div className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> {t.city}</div>
-                  <div className="flex items-center gap-1"><Users className="h-3.5 w-3.5" /> {delegCount} delegación(es)</div>
+                  {/* Interno no tiene "delegaciones" reales — event_delegations solo
+                      guarda ahí un ancla técnica para poder armar equipos (ver RPC
+                      assign_registrants_to_teams). Mostrar ese conteo confunde a la
+                      escuela ("¿qué delegación, si esto es solo mi escuela?"). */}
+                  {t.tournament_scope !== 'internal' && (
+                    <div className="flex items-center gap-1"><Users className="h-3.5 w-3.5" /> {delegCount} delegación(es)</div>
+                  )}
                 </CardContent>
               </Card>
             );

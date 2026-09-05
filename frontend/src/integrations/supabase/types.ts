@@ -1598,6 +1598,7 @@ export type Database = {
           school_id: string
           status: string
           template_id: string | null
+          unregistered_athlete_id: string | null
           updated_at: string
           valid_until: string
           version: number
@@ -1618,6 +1619,7 @@ export type Database = {
           school_id: string
           status?: string
           template_id?: string | null
+          unregistered_athlete_id?: string | null
           updated_at?: string
           valid_until: string
           version?: number
@@ -1638,6 +1640,7 @@ export type Database = {
           school_id?: string
           status?: string
           template_id?: string | null
+          unregistered_athlete_id?: string | null
           updated_at?: string
           valid_until?: string
           version?: number
@@ -1739,6 +1742,13 @@ export type Database = {
             columns: ["template_id"]
             isOneToOne: false
             referencedRelation: "athlete_id_card_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "athlete_id_cards_unregistered_athlete_id_fkey"
+            columns: ["unregistered_athlete_id"]
+            isOneToOne: false
+            referencedRelation: "unregistered_athletes"
             referencedColumns: ["id"]
           },
         ]
@@ -6515,6 +6525,117 @@ export type Database = {
           },
         ]
       }
+      enrollment_integrity_findings: {
+        Row: {
+          athlete_col: string
+          athlete_id: string
+          athlete_name: string
+          detected_at: string
+          id: string
+          last_enrollment_status: string | null
+          last_monthly_fee: number | null
+          last_plan_name: string | null
+          last_seen_at: string
+          last_team_name: string | null
+          resolution_note: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          school_id: string
+          status: string
+        }
+        Insert: {
+          athlete_col: string
+          athlete_id: string
+          athlete_name: string
+          detected_at?: string
+          id?: string
+          last_enrollment_status?: string | null
+          last_monthly_fee?: number | null
+          last_plan_name?: string | null
+          last_seen_at?: string
+          last_team_name?: string | null
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          school_id: string
+          status?: string
+        }
+        Update: {
+          athlete_col?: string
+          athlete_id?: string
+          athlete_name?: string
+          detected_at?: string
+          id?: string
+          last_enrollment_status?: string | null
+          last_monthly_fee?: number | null
+          last_plan_name?: string | null
+          last_seen_at?: string
+          last_team_name?: string | null
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          school_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "enrollment_integrity_findings_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "pending_athletes"
+            referencedColumns: ["profile_id"]
+          },
+          {
+            foreignKeyName: "enrollment_integrity_findings_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "enrollment_integrity_findings_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "mv_session_health"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "enrollment_integrity_findings_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_detail_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "enrollment_integrity_findings_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_price_range"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "enrollment_integrity_findings_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_public_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "enrollment_integrity_findings_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "enrollment_integrity_findings_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "v_school_entitlements"
+            referencedColumns: ["school_id"]
+          },
+        ]
+      }
       enrollments: {
         Row: {
           child_id: string | null
@@ -6529,6 +6650,9 @@ export type Database = {
           monthly_fee: number | null
           offering_id: string | null
           offering_plan_id: string | null
+          paused_at: string | null
+          paused_reason: string | null
+          paused_until: string | null
           school_id: string | null
           secondary_sessions_used: number
           sessions_used: number
@@ -6552,6 +6676,9 @@ export type Database = {
           monthly_fee?: number | null
           offering_id?: string | null
           offering_plan_id?: string | null
+          paused_at?: string | null
+          paused_reason?: string | null
+          paused_until?: string | null
           school_id?: string | null
           secondary_sessions_used?: number
           sessions_used?: number
@@ -6575,6 +6702,9 @@ export type Database = {
           monthly_fee?: number | null
           offering_id?: string | null
           offering_plan_id?: string | null
+          paused_at?: string | null
+          paused_reason?: string | null
+          paused_until?: string | null
           school_id?: string | null
           secondary_sessions_used?: number
           sessions_used?: number
@@ -7617,6 +7747,112 @@ export type Database = {
           },
         ]
       }
+      event_invitations: {
+        Row: {
+          claimed_school_id: string | null
+          created_at: string
+          created_by: string
+          event_id: string
+          expires_at: string | null
+          id: string
+          invited_email: string | null
+          invited_school_name: string | null
+          status: string
+          token: string
+          updated_at: string
+        }
+        Insert: {
+          claimed_school_id?: string | null
+          created_at?: string
+          created_by: string
+          event_id: string
+          expires_at?: string | null
+          id?: string
+          invited_email?: string | null
+          invited_school_name?: string | null
+          status?: string
+          token?: string
+          updated_at?: string
+        }
+        Update: {
+          claimed_school_id?: string | null
+          created_at?: string
+          created_by?: string
+          event_id?: string
+          expires_at?: string | null
+          id?: string
+          invited_email?: string | null
+          invited_school_name?: string | null
+          status?: string
+          token?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_invitations_claimed_school_id_fkey"
+            columns: ["claimed_school_id"]
+            isOneToOne: false
+            referencedRelation: "mv_session_health"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "event_invitations_claimed_school_id_fkey"
+            columns: ["claimed_school_id"]
+            isOneToOne: false
+            referencedRelation: "school_detail_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_invitations_claimed_school_id_fkey"
+            columns: ["claimed_school_id"]
+            isOneToOne: false
+            referencedRelation: "school_price_range"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_invitations_claimed_school_id_fkey"
+            columns: ["claimed_school_id"]
+            isOneToOne: false
+            referencedRelation: "school_public_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_invitations_claimed_school_id_fkey"
+            columns: ["claimed_school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_invitations_claimed_school_id_fkey"
+            columns: ["claimed_school_id"]
+            isOneToOne: false
+            referencedRelation: "v_school_entitlements"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "event_invitations_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "pending_athletes"
+            referencedColumns: ["profile_id"]
+          },
+          {
+            foreignKeyName: "event_invitations_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_invitations_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_organizers: {
         Row: {
           bank_data: Json | null
@@ -7772,6 +8008,7 @@ export type Database = {
           approved_at: string | null
           approved_by: string | null
           cash_session_id: string | null
+          category_id: string | null
           child_id: string | null
           created_at: string
           delegation_id: string | null
@@ -7784,6 +8021,7 @@ export type Database = {
           participant_name: string
           participant_phone: string
           participant_role: string | null
+          payment_id: string | null
           payment_method: string | null
           payment_proof_url: string | null
           payment_status: string | null
@@ -7800,6 +8038,7 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           cash_session_id?: string | null
+          category_id?: string | null
           child_id?: string | null
           created_at?: string
           delegation_id?: string | null
@@ -7812,6 +8051,7 @@ export type Database = {
           participant_name: string
           participant_phone: string
           participant_role?: string | null
+          payment_id?: string | null
           payment_method?: string | null
           payment_proof_url?: string | null
           payment_status?: string | null
@@ -7828,6 +8068,7 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           cash_session_id?: string | null
+          category_id?: string | null
           child_id?: string | null
           created_at?: string
           delegation_id?: string | null
@@ -7840,6 +8081,7 @@ export type Database = {
           participant_name?: string
           participant_phone?: string
           participant_role?: string | null
+          payment_id?: string | null
           payment_method?: string | null
           payment_proof_url?: string | null
           payment_status?: string | null
@@ -7864,6 +8106,13 @@ export type Database = {
             columns: ["approved_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_registrations_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "event_categories_config"
             referencedColumns: ["id"]
           },
           {
@@ -7900,6 +8149,48 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_registrations_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_registrations_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments_with_installments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_registrations_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "pending_payments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_registrations_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "v_document_compliance_report"
+            referencedColumns: ["active_payment_id"]
+          },
+          {
+            foreignKeyName: "event_registrations_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_abonos_summary"
+            referencedColumns: ["payment_id"]
+          },
+          {
+            foreignKeyName: "event_registrations_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_contacts"
+            referencedColumns: ["payment_id"]
           },
           {
             foreignKeyName: "event_registrations_school_id_fkey"
@@ -13611,6 +13902,7 @@ export type Database = {
           ocr_time: string | null
           offering_plan_id: string | null
           parent_id: string | null
+          payment_category: string | null
           payment_channel: string | null
           payment_date: string | null
           payment_method: string | null
@@ -13619,6 +13911,7 @@ export type Database = {
             | null
           payment_type: string | null
           period_month: number | null
+          period_uniqueness_exempt: boolean
           period_year: number | null
           provider_reference: string | null
           provider_transaction_id: string | null
@@ -13686,6 +13979,7 @@ export type Database = {
           ocr_time?: string | null
           offering_plan_id?: string | null
           parent_id?: string | null
+          payment_category?: string | null
           payment_channel?: string | null
           payment_date?: string | null
           payment_method?: string | null
@@ -13694,6 +13988,7 @@ export type Database = {
             | null
           payment_type?: string | null
           period_month?: number | null
+          period_uniqueness_exempt?: boolean
           period_year?: number | null
           provider_reference?: string | null
           provider_transaction_id?: string | null
@@ -13761,6 +14056,7 @@ export type Database = {
           ocr_time?: string | null
           offering_plan_id?: string | null
           parent_id?: string | null
+          payment_category?: string | null
           payment_channel?: string | null
           payment_date?: string | null
           payment_method?: string | null
@@ -13769,6 +14065,7 @@ export type Database = {
             | null
           payment_type?: string | null
           period_month?: number | null
+          period_uniqueness_exempt?: boolean
           period_year?: number | null
           provider_reference?: string | null
           provider_transaction_id?: string | null
@@ -15352,7 +15649,7 @@ export type Database = {
           full_name: string | null
           id: string
           otp_hash: string
-          phone: string
+          phone: string | null
           resolved_child_id: string | null
           resolved_email: string | null
           resolved_enrollment_id: string | null
@@ -15371,7 +15668,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           otp_hash: string
-          phone: string
+          phone?: string | null
           resolved_child_id?: string | null
           resolved_email?: string | null
           resolved_enrollment_id?: string | null
@@ -15390,7 +15687,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           otp_hash?: string
-          phone?: string
+          phone?: string | null
           resolved_child_id?: string | null
           resolved_email?: string | null
           resolved_enrollment_id?: string | null
@@ -16919,6 +17216,94 @@ export type Database = {
           },
         ]
       }
+      school_merchandise_items: {
+        Row: {
+          active: boolean
+          created_at: string
+          description: string | null
+          id: string
+          image_url: string | null
+          name: string
+          price: number
+          price_by_size: Json | null
+          school_id: string
+          size_options: string | null
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          name: string
+          price: number
+          price_by_size?: Json | null
+          school_id: string
+          size_options?: string | null
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          name?: string
+          price?: number
+          price_by_size?: Json | null
+          school_id?: string
+          size_options?: string | null
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "school_merchandise_items_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "mv_session_health"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "school_merchandise_items_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_detail_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "school_merchandise_items_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_price_range"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "school_merchandise_items_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_public_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "school_merchandise_items_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "school_merchandise_items_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "v_school_entitlements"
+            referencedColumns: ["school_id"]
+          },
+        ]
+      }
       school_module_overrides: {
         Row: {
           created_at: string
@@ -17288,6 +17673,7 @@ export type Database = {
       }
       school_settings: {
         Row: {
+          absence_alert_threshold: number
           active_modules: string[]
           allow_coach_messaging: boolean | null
           allow_installments: boolean
@@ -17306,7 +17692,9 @@ export type Database = {
           billing_enabled: boolean
           breb_key: string | null
           breb_number: string | null
+          coach_attendance_teams_only: boolean
           coach_can_create_athletes: boolean
+          coach_can_create_teams: boolean
           coach_can_enroll_paid_teams: boolean
           coach_can_request_reminders: boolean | null
           coach_can_send_reminders: boolean | null
@@ -17328,9 +17716,11 @@ export type Database = {
           late_fee_enabled: boolean | null
           late_fee_percentage: number | null
           max_installments_per_payment: number
+          merchandise_enabled: boolean
           min_installment_amount: number
           nequi_number: string | null
           online_fee_pct: number | null
+          parent_email_optional: boolean
           payment_accounts: Json
           payment_cutoff_day: number | null
           payment_grace_days: number | null
@@ -17360,6 +17750,7 @@ export type Database = {
           wompi_enabled: boolean | null
         }
         Insert: {
+          absence_alert_threshold?: number
           active_modules?: string[]
           allow_coach_messaging?: boolean | null
           allow_installments?: boolean
@@ -17378,7 +17769,9 @@ export type Database = {
           billing_enabled?: boolean
           breb_key?: string | null
           breb_number?: string | null
+          coach_attendance_teams_only?: boolean
           coach_can_create_athletes?: boolean
+          coach_can_create_teams?: boolean
           coach_can_enroll_paid_teams?: boolean
           coach_can_request_reminders?: boolean | null
           coach_can_send_reminders?: boolean | null
@@ -17400,9 +17793,11 @@ export type Database = {
           late_fee_enabled?: boolean | null
           late_fee_percentage?: number | null
           max_installments_per_payment?: number
+          merchandise_enabled?: boolean
           min_installment_amount?: number
           nequi_number?: string | null
           online_fee_pct?: number | null
+          parent_email_optional?: boolean
           payment_accounts?: Json
           payment_cutoff_day?: number | null
           payment_grace_days?: number | null
@@ -17432,6 +17827,7 @@ export type Database = {
           wompi_enabled?: boolean | null
         }
         Update: {
+          absence_alert_threshold?: number
           active_modules?: string[]
           allow_coach_messaging?: boolean | null
           allow_installments?: boolean
@@ -17450,7 +17846,9 @@ export type Database = {
           billing_enabled?: boolean
           breb_key?: string | null
           breb_number?: string | null
+          coach_attendance_teams_only?: boolean
           coach_can_create_athletes?: boolean
+          coach_can_create_teams?: boolean
           coach_can_enroll_paid_teams?: boolean
           coach_can_request_reminders?: boolean | null
           coach_can_send_reminders?: boolean | null
@@ -17472,9 +17870,11 @@ export type Database = {
           late_fee_enabled?: boolean | null
           late_fee_percentage?: number | null
           max_installments_per_payment?: number
+          merchandise_enabled?: boolean
           min_installment_amount?: number
           nequi_number?: string | null
           online_fee_pct?: number | null
+          parent_email_optional?: boolean
           payment_accounts?: Json
           payment_cutoff_day?: number | null
           payment_grace_days?: number | null
@@ -17687,7 +18087,9 @@ export type Database = {
           phone: string | null
           school_id: string | null
           specialty: string | null
+          sports: string[]
           status: string
+          taught_levels: number[]
           updated_at: string
         }
         Insert: {
@@ -17701,7 +18103,9 @@ export type Database = {
           phone?: string | null
           school_id?: string | null
           specialty?: string | null
+          sports?: string[]
           status?: string
+          taught_levels?: number[]
           updated_at?: string
         }
         Update: {
@@ -17715,7 +18119,9 @@ export type Database = {
           phone?: string | null
           school_id?: string | null
           specialty?: string | null
+          sports?: string[]
           status?: string
+          taught_levels?: number[]
           updated_at?: string
         }
         Relationships: [
@@ -17896,6 +18302,7 @@ export type Database = {
       school_subscriptions: {
         Row: {
           billing_cycle: string
+          billing_emails: string[] | null
           blocking_exempt: boolean
           blocking_exempt_reason: string | null
           cancellation_reason: string | null
@@ -17921,6 +18328,7 @@ export type Database = {
         }
         Insert: {
           billing_cycle?: string
+          billing_emails?: string[] | null
           blocking_exempt?: boolean
           blocking_exempt_reason?: string | null
           cancellation_reason?: string | null
@@ -17946,6 +18354,7 @@ export type Database = {
         }
         Update: {
           billing_cycle?: string
+          billing_emails?: string[] | null
           blocking_exempt?: boolean
           blocking_exempt_reason?: string | null
           cancellation_reason?: string | null
@@ -18018,28 +18427,31 @@ export type Database = {
         Row: {
           created_at: string
           enabled: boolean
-          price: number
+          payment_mode: string
           requires_approval: boolean
+          reschedule_cutoff_hours: number
           school_id: string
-          trial_offering_plan_id: string | null
+          self_service_enabled: boolean
           updated_at: string
         }
         Insert: {
           created_at?: string
           enabled?: boolean
-          price?: number
+          payment_mode?: string
           requires_approval?: boolean
+          reschedule_cutoff_hours?: number
           school_id: string
-          trial_offering_plan_id?: string | null
+          self_service_enabled?: boolean
           updated_at?: string
         }
         Update: {
           created_at?: string
           enabled?: boolean
-          price?: number
+          payment_mode?: string
           requires_approval?: boolean
+          reschedule_cutoff_hours?: number
           school_id?: string
-          trial_offering_plan_id?: string | null
+          self_service_enabled?: boolean
           updated_at?: string
         }
         Relationships: [
@@ -18084,13 +18496,6 @@ export type Database = {
             isOneToOne: true
             referencedRelation: "v_school_entitlements"
             referencedColumns: ["school_id"]
-          },
-          {
-            foreignKeyName: "school_trial_class_settings_trial_offering_plan_id_fkey"
-            columns: ["trial_offering_plan_id"]
-            isOneToOne: false
-            referencedRelation: "offering_plans"
-            referencedColumns: ["id"]
           },
         ]
       }
@@ -21475,6 +21880,508 @@ export type Database = {
           },
         ]
       }
+      training_mesocycle_evaluations: {
+        Row: {
+          checkpoint: string
+          created_at: string
+          created_by: string
+          id: string
+          indicator: string
+          mesocycle_id: string
+          observations: string | null
+          school_id: string
+          score: number
+          updated_at: string
+        }
+        Insert: {
+          checkpoint: string
+          created_at?: string
+          created_by: string
+          id?: string
+          indicator: string
+          mesocycle_id: string
+          observations?: string | null
+          school_id: string
+          score: number
+          updated_at?: string
+        }
+        Update: {
+          checkpoint?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          indicator?: string
+          mesocycle_id?: string
+          observations?: string | null
+          school_id?: string
+          score?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "training_mesocycle_evaluations_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "pending_athletes"
+            referencedColumns: ["profile_id"]
+          },
+          {
+            foreignKeyName: "training_mesocycle_evaluations_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_mesocycle_evaluations_mesocycle_id_fkey"
+            columns: ["mesocycle_id"]
+            isOneToOne: false
+            referencedRelation: "training_mesocycles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_mesocycle_evaluations_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "mv_session_health"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "training_mesocycle_evaluations_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_detail_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_mesocycle_evaluations_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_price_range"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_mesocycle_evaluations_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_public_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_mesocycle_evaluations_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_mesocycle_evaluations_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "v_school_entitlements"
+            referencedColumns: ["school_id"]
+          },
+        ]
+      }
+      training_mesocycles: {
+        Row: {
+          closing_review: Json | null
+          created_at: string
+          created_by: string
+          ends_on: string
+          evaluation_mode: string
+          game_model: string | null
+          general_objective: string | null
+          id: string
+          n_sessions_planned: number | null
+          school_id: string
+          session_duration_minutes: number | null
+          starts_on: string
+          team_id: string
+          updated_at: string
+        }
+        Insert: {
+          closing_review?: Json | null
+          created_at?: string
+          created_by: string
+          ends_on: string
+          evaluation_mode?: string
+          game_model?: string | null
+          general_objective?: string | null
+          id?: string
+          n_sessions_planned?: number | null
+          school_id: string
+          session_duration_minutes?: number | null
+          starts_on: string
+          team_id: string
+          updated_at?: string
+        }
+        Update: {
+          closing_review?: Json | null
+          created_at?: string
+          created_by?: string
+          ends_on?: string
+          evaluation_mode?: string
+          game_model?: string | null
+          general_objective?: string | null
+          id?: string
+          n_sessions_planned?: number | null
+          school_id?: string
+          session_duration_minutes?: number | null
+          starts_on?: string
+          team_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "training_mesocycles_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "pending_athletes"
+            referencedColumns: ["profile_id"]
+          },
+          {
+            foreignKeyName: "training_mesocycles_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_mesocycles_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "mv_session_health"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "training_mesocycles_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_detail_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_mesocycles_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_price_range"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_mesocycles_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_public_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_mesocycles_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_mesocycles_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "v_school_entitlements"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "training_mesocycles_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "team_capacity"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "training_mesocycles_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_mesocycles_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams_full_view"
+            referencedColumns: ["program_id"]
+          },
+          {
+            foreignKeyName: "training_mesocycles_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams_full_view"
+            referencedColumns: ["team_id"]
+          },
+        ]
+      }
+      training_microcycle_days: {
+        Row: {
+          created_at: string
+          day_date: string
+          day_type: string
+          focus: string | null
+          id: string
+          microcycle_id: string
+          planned_minutes: number | null
+          planned_rpe: number | null
+          school_id: string
+          session_id: string | null
+          tournament_match_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          day_date: string
+          day_type: string
+          focus?: string | null
+          id?: string
+          microcycle_id: string
+          planned_minutes?: number | null
+          planned_rpe?: number | null
+          school_id: string
+          session_id?: string | null
+          tournament_match_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          day_date?: string
+          day_type?: string
+          focus?: string | null
+          id?: string
+          microcycle_id?: string
+          planned_minutes?: number | null
+          planned_rpe?: number | null
+          school_id?: string
+          session_id?: string | null
+          tournament_match_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "training_microcycle_days_microcycle_id_fkey"
+            columns: ["microcycle_id"]
+            isOneToOne: false
+            referencedRelation: "training_microcycles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_microcycle_days_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "mv_session_health"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "training_microcycle_days_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_detail_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_microcycle_days_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_price_range"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_microcycle_days_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_public_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_microcycle_days_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_microcycle_days_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "v_school_entitlements"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "training_microcycle_days_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "training_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_microcycle_days_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_coach_team_plans"
+            referencedColumns: ["plan_id"]
+          },
+          {
+            foreignKeyName: "training_microcycle_days_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_session_load"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "training_microcycle_days_tournament_match_id_fkey"
+            columns: ["tournament_match_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      training_microcycles: {
+        Row: {
+          collective_performance: string | null
+          created_at: string
+          created_by: string
+          ends_on: string
+          id: string
+          improvement_notes: string | null
+          mesocycle_id: string | null
+          number: number | null
+          objective: string | null
+          objective_compliance: string | null
+          school_id: string
+          starts_on: string
+          team_id: string
+          updated_at: string
+        }
+        Insert: {
+          collective_performance?: string | null
+          created_at?: string
+          created_by: string
+          ends_on: string
+          id?: string
+          improvement_notes?: string | null
+          mesocycle_id?: string | null
+          number?: number | null
+          objective?: string | null
+          objective_compliance?: string | null
+          school_id: string
+          starts_on: string
+          team_id: string
+          updated_at?: string
+        }
+        Update: {
+          collective_performance?: string | null
+          created_at?: string
+          created_by?: string
+          ends_on?: string
+          id?: string
+          improvement_notes?: string | null
+          mesocycle_id?: string | null
+          number?: number | null
+          objective?: string | null
+          objective_compliance?: string | null
+          school_id?: string
+          starts_on?: string
+          team_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "training_microcycles_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "pending_athletes"
+            referencedColumns: ["profile_id"]
+          },
+          {
+            foreignKeyName: "training_microcycles_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_microcycles_mesocycle_id_fkey"
+            columns: ["mesocycle_id"]
+            isOneToOne: false
+            referencedRelation: "training_mesocycles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_microcycles_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "mv_session_health"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "training_microcycles_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_detail_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_microcycles_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_price_range"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_microcycles_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_public_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_microcycles_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_microcycles_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "v_school_entitlements"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "training_microcycles_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "team_capacity"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "training_microcycles_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_microcycles_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams_full_view"
+            referencedColumns: ["program_id"]
+          },
+          {
+            foreignKeyName: "training_microcycles_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams_full_view"
+            referencedColumns: ["team_id"]
+          },
+        ]
+      }
       training_sessions: {
         Row: {
           created_at: string
@@ -21615,11 +22522,13 @@ export type Database = {
         Row: {
           attendance_session_id: string | null
           cancel_reason: string | null
+          category_id: string
+          child_id: string | null
           child_name: string | null
           coach_id: string
           confirmation_email_sent_at: string | null
           created_at: string
-          created_by: string
+          created_by: string | null
           end_time: string
           enrollment_id: string | null
           facility_id: string
@@ -21635,16 +22544,19 @@ export type Database = {
           status: string
           unregistered_athlete_id: string | null
           updated_at: string
+          user_id: string | null
           whatsapp_message: string | null
         }
         Insert: {
           attendance_session_id?: string | null
           cancel_reason?: string | null
+          category_id: string
+          child_id?: string | null
           child_name?: string | null
           coach_id: string
           confirmation_email_sent_at?: string | null
           created_at?: string
-          created_by: string
+          created_by?: string | null
           end_time: string
           enrollment_id?: string | null
           facility_id: string
@@ -21660,16 +22572,19 @@ export type Database = {
           status?: string
           unregistered_athlete_id?: string | null
           updated_at?: string
+          user_id?: string | null
           whatsapp_message?: string | null
         }
         Update: {
           attendance_session_id?: string | null
           cancel_reason?: string | null
+          category_id?: string
+          child_id?: string | null
           child_name?: string | null
           coach_id?: string
           confirmation_email_sent_at?: string | null
           created_at?: string
-          created_by?: string
+          created_by?: string | null
           end_time?: string
           enrollment_id?: string | null
           facility_id?: string
@@ -21685,6 +22600,7 @@ export type Database = {
           status?: string
           unregistered_athlete_id?: string | null
           updated_at?: string
+          user_id?: string | null
           whatsapp_message?: string | null
         }
         Relationships: [
@@ -21708,6 +22624,34 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_bookable_sessions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_class_bookings_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "trial_class_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_class_bookings_child_id_fkey"
+            columns: ["child_id"]
+            isOneToOne: false
+            referencedRelation: "children"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_class_bookings_child_id_fkey"
+            columns: ["child_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_class_bookings_child_id_fkey"
+            columns: ["child_id"]
+            isOneToOne: false
+            referencedRelation: "v_document_compliance_report"
+            referencedColumns: ["child_id"]
           },
           {
             foreignKeyName: "trial_class_bookings_coach_id_fkey"
@@ -21820,6 +22764,112 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "unregistered_athletes"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_class_bookings_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "pending_athletes"
+            referencedColumns: ["profile_id"]
+          },
+          {
+            foreignKeyName: "trial_class_bookings_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trial_class_categories: {
+        Row: {
+          allow_repeat: boolean
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          offering_plan_id: string | null
+          price: number
+          repeat_price: number | null
+          school_id: string
+          updated_at: string
+        }
+        Insert: {
+          allow_repeat?: boolean
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          offering_plan_id?: string | null
+          price?: number
+          repeat_price?: number | null
+          school_id: string
+          updated_at?: string
+        }
+        Update: {
+          allow_repeat?: boolean
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          offering_plan_id?: string | null
+          price?: number
+          repeat_price?: number | null
+          school_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trial_class_categories_offering_plan_id_fkey"
+            columns: ["offering_plan_id"]
+            isOneToOne: false
+            referencedRelation: "offering_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_class_categories_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "mv_session_health"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "trial_class_categories_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_detail_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_class_categories_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_price_range"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_class_categories_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_public_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_class_categories_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_class_categories_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "v_school_entitlements"
+            referencedColumns: ["school_id"]
           },
         ]
       }
@@ -23524,6 +24574,7 @@ export type Database = {
           movement_date: string | null
           owner_id: string | null
           owner_type: string | null
+          payment_category: string | null
           school_id: string | null
           source: string | null
           status: string | null
@@ -25146,6 +26197,7 @@ export type Database = {
           blocking_exempt: boolean | null
           blocking_exempt_reason: string | null
           coach_can_create_athletes: boolean | null
+          coach_can_create_teams: boolean | null
           current_period_end: string | null
           current_period_start: string | null
           has_academy: boolean | null
@@ -25167,6 +26219,7 @@ export type Database = {
           has_wompi: boolean | null
           is_operational: boolean | null
           module_overrides: Json | null
+          parent_email_optional: boolean | null
           plan_code: string | null
           school_created_at: string | null
           school_id: string | null
@@ -25319,6 +26372,62 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_school_entitlements"
             referencedColumns: ["school_id"]
+          },
+        ]
+      }
+      v_session_load: {
+        Row: {
+          load_ua: number | null
+          rpe: number | null
+          session_date: string | null
+          session_id: string | null
+          team_id: string | null
+          total_minutes: number | null
+        }
+        Insert: {
+          load_ua?: never
+          rpe?: never
+          session_date?: string | null
+          session_id?: string | null
+          team_id?: string | null
+          total_minutes?: never
+        }
+        Update: {
+          load_ua?: never
+          rpe?: never
+          session_date?: string | null
+          session_id?: string | null
+          team_id?: string | null
+          total_minutes?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "training_plans_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "team_capacity"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "training_plans_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_plans_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams_full_view"
+            referencedColumns: ["program_id"]
+          },
+          {
+            foreignKeyName: "training_plans_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams_full_view"
+            referencedColumns: ["team_id"]
           },
         ]
       }
@@ -25511,6 +26620,10 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_list_enrollment_integrity_findings: {
+        Args: { p_limit?: number; p_offset?: number; p_status?: string }
+        Returns: Json
+      }
       admin_list_event_telemetry: {
         Args: {
           p_event_id?: string
@@ -25582,6 +26695,11 @@ export type Database = {
         Args: { p_plan_code?: string; p_school_id: string }
         Returns: Json
       }
+      admin_resolve_enrollment_integrity_finding: {
+        Args: { p_finding_id: string; p_note?: string; p_status: string }
+        Returns: Json
+      }
+      admin_run_enrollment_integrity_check: { Args: never; Returns: Json }
       admin_set_account_type: {
         Args: { p_account_type: string; p_school_id: string }
         Returns: Json
@@ -25610,6 +26728,7 @@ export type Database = {
       admin_set_school_custom_price: {
         Args: {
           p_billing_cycle?: string
+          p_billing_emails?: string[]
           p_custom_price_cents: number
           p_period_start?: string
           p_school_id: string
@@ -25635,6 +26754,10 @@ export type Database = {
       alert_offline_access_devices: { Args: never; Returns: Json }
       apply_late_fees: { Args: never; Returns: Json }
       approve_refund: { Args: { p_refund_id: string }; Returns: Json }
+      assign_registrants_to_teams: {
+        Args: { p_assignments: Json; p_category_id: string; p_event_id: string }
+        Returns: Json
+      }
       auto_approve_payment: { Args: { p_payment_id: string }; Returns: boolean }
       auto_close_stale_hour_bank_visits: { Args: never; Returns: Json }
       auto_finalize_stale_sessions: {
@@ -25761,6 +26884,7 @@ export type Database = {
         }[]
       }
       claim_orphan_children: { Args: { p_school_id?: string }; Returns: number }
+      claim_tournament_invitation: { Args: { p_token: string }; Returns: Json }
       cleanup_expired_card_save_intents: { Args: never; Returns: number }
       close_cash_session: {
         Args: { p_closing_cash: number; p_notes?: string; p_session_id: string }
@@ -25978,12 +27102,17 @@ export type Database = {
         }
         Returns: Json
       }
+      create_tournament_invitation: {
+        Args: { p_email?: string; p_event_id: string; p_school_name?: string }
+        Returns: Json
+      }
       current_staff_ids: { Args: never; Returns: string[] }
       current_staff_team_ids: { Args: never; Returns: string[] }
       decrement_session_bookings: {
         Args: { p_session_id: string }
         Returns: undefined
       }
+      detect_enrollment_integrity_issues: { Args: never; Returns: Json }
       detect_payment_anomalies: { Args: never; Returns: Json }
       disable_vendor_profile: { Args: never; Returns: boolean }
       enable_vendor_profile: {
@@ -26679,6 +27808,10 @@ export type Database = {
           team_name: string
         }[]
       }
+      get_tournament_invitation_public: {
+        Args: { p_token: string }
+        Returns: Json
+      }
       get_trainer_athlete_ids: {
         Args: { p_school_id: string }
         Returns: string[]
@@ -26757,6 +27890,7 @@ export type Database = {
         Returns: boolean
       }
       is_non_saas_entity: { Args: { p_school_id: string }; Returns: boolean }
+      is_own_team_coach: { Args: { p_team_coach_id: string }; Returns: boolean }
       is_parent_of: { Args: { p_child_id: string }; Returns: boolean }
       is_parent_of_child: { Args: { child_uuid: string }; Returns: boolean }
       is_personal_trainer: { Args: { p_user_id: string }; Returns: boolean }
@@ -26777,6 +27911,10 @@ export type Database = {
       }
       is_school_open_now: { Args: { p_school_id: string }; Returns: boolean }
       is_school_owner: { Args: { lookup_school_id: string }; Returns: boolean }
+      is_scoped_coach_school: {
+        Args: { p_school_id: string }
+        Returns: boolean
+      }
       is_store_vendor: {
         Args: { p_vendor_profile_id: string }
         Returns: boolean
@@ -26795,6 +27933,7 @@ export type Database = {
           p_profile_id?: string
           p_school_id: string
           p_template_id?: string
+          p_unregistered_athlete_id?: string
           p_valid_until?: string
         }
         Returns: Json
@@ -26862,6 +28001,7 @@ export type Database = {
       mark_custom_domain_verified: { Args: { p_id: string }; Returns: Json }
       mark_overdue_payments: { Args: { p_school_id: string }; Returns: number }
       mark_report_viewed: { Args: { p_report_id: string }; Returns: string }
+      mark_session_absences: { Args: { p_session_id: string }; Returns: Json }
       mask_person_name: { Args: { p_name: string }; Returns: string }
       merge_split_enrollments: {
         Args: { p_dry_run?: boolean; p_school_id?: string }
@@ -27022,6 +28162,23 @@ export type Database = {
         }
         Returns: Json
       }
+      public_booking_confirm_reservation: {
+        Args: {
+          p_date: string
+          p_end_time: string
+          p_enrollment_id: string
+          p_facility_availability_id: string
+          p_facility_id: string
+          p_max_group_capacity: number
+          p_school_id: string
+          p_start_time: string
+          p_unregistered_athlete_id: string
+        }
+        Returns: {
+          booking_id: string
+          session_id: string
+        }[]
+      }
       publish_athlete_report: {
         Args: {
           p_override_note?: boolean
@@ -27126,6 +28283,10 @@ export type Database = {
           p_user_id: string
         }
         Returns: Json
+      }
+      register_for_internal_tournament: {
+        Args: { p_category_id: string; p_child_id?: string; p_event_id: string }
+        Returns: string
       }
       register_qr_paid_conversion: {
         Args: { p_qr_id: string }
@@ -27502,6 +28663,19 @@ export type Database = {
       send_payment_reminders:
         | { Args: never; Returns: Json }
         | { Args: { p_school_id: string }; Returns: Json }
+      session_booking_reschedule: {
+        Args: {
+          p_facility_availability_id: string
+          p_id: string
+          p_new_date: string
+          p_new_end_time: string
+          p_new_start_time: string
+          p_school_id: string
+        }
+        Returns: {
+          facility_id: string
+        }[]
+      }
       set_athlete_report_note: {
         Args: { p_note: string; p_report_id: string }
         Returns: undefined
@@ -27529,8 +28703,6 @@ export type Database = {
         }
         Returns: Json
       }
-      show_limit: { Args: never; Returns: number }
-      show_trgm: { Args: { "": string }; Returns: string[] }
       split_order_payment: {
         Args: {
           p_order_id: string
@@ -27678,8 +28850,33 @@ export type Database = {
         Returns: string
       }
       toggle_favorite: { Args: { p_school_id: string }; Returns: Json }
+      trial_class_category_set_active: {
+        Args: { p_id: string; p_is_active: boolean; p_school_id: string }
+        Returns: undefined
+      }
+      trial_class_category_set_repeat_pricing: {
+        Args: {
+          p_allow_repeat: boolean
+          p_id: string
+          p_repeat_price?: number
+          p_school_id: string
+        }
+        Returns: undefined
+      }
+      trial_class_category_upsert: {
+        Args: {
+          p_description?: string
+          p_id?: string
+          p_is_active?: boolean
+          p_name: string
+          p_price: number
+          p_school_id: string
+        }
+        Returns: string
+      }
       trial_class_create_booking: {
         Args: {
+          p_category_id: string
           p_child_name?: string
           p_coach_availability_id: string
           p_created_by: string
@@ -27714,12 +28911,157 @@ export type Database = {
           slot_start_time: string
         }[]
       }
+      trial_class_public_create: {
+        Args: {
+          p_category_id: string
+          p_child_name?: string
+          p_coach_availability_id: string
+          p_end_time: string
+          p_facility_availability_id: string
+          p_is_minor?: boolean
+          p_prospect_dob?: string
+          p_prospect_email?: string
+          p_prospect_name?: string
+          p_prospect_whatsapp?: string
+          p_scheduled_date: string
+          p_school_id: string
+          p_start_time: string
+          p_unregistered_athlete_id?: string
+        }
+        Returns: {
+          booking_id: string
+          is_first: boolean
+          payment_mode: string
+          price: number
+        }[]
+      }
+      trial_class_public_get_slots: {
+        Args: {
+          p_category_id: string
+          p_from_date: string
+          p_school_id: string
+          p_to_date: string
+        }
+        Returns: {
+          coach_availability_id: string
+          facility_availability_id: string
+          facility_id: string
+          facility_name: string
+          slot_date: string
+          slot_end_time: string
+          slot_start_time: string
+        }[]
+      }
+      trial_class_reschedule_booking: {
+        Args: {
+          p_coach_availability_id: string
+          p_facility_availability_id: string
+          p_id: string
+          p_new_date: string
+          p_new_end_time: string
+          p_new_start_time: string
+          p_school_id: string
+        }
+        Returns: {
+          whatsapp_message: string
+        }[]
+      }
       trial_class_save_settings: {
         Args: {
           p_enabled: boolean
-          p_price: number
           p_requires_approval?: boolean
           p_school_id: string
+        }
+        Returns: undefined
+      }
+      trial_class_self_cancel: {
+        Args: {
+          p_created_by: string
+          p_id: string
+          p_reason?: string
+          p_school_id: string
+        }
+        Returns: undefined
+      }
+      trial_class_self_create: {
+        Args: {
+          p_category_id: string
+          p_child_id?: string
+          p_coach_availability_id: string
+          p_created_by: string
+          p_end_time: string
+          p_facility_availability_id: string
+          p_prospect_dob?: string
+          p_prospect_email?: string
+          p_prospect_name?: string
+          p_prospect_whatsapp?: string
+          p_scheduled_date: string
+          p_school_id: string
+          p_self?: boolean
+          p_start_time: string
+        }
+        Returns: {
+          booking_id: string
+          is_first: boolean
+          payment_mode: string
+          price: number
+        }[]
+      }
+      trial_class_self_get_joint_slots: {
+        Args: {
+          p_coach_id: string
+          p_facility_id: string
+          p_from_date: string
+          p_school_id: string
+          p_to_date: string
+        }
+        Returns: {
+          coach_availability_id: string
+          facility_availability_id: string
+          slot_date: string
+          slot_end_time: string
+          slot_start_time: string
+        }[]
+      }
+      trial_class_self_has_active_plan: {
+        Args: {
+          p_child_id?: string
+          p_school_id: string
+          p_unregistered_athlete_id?: string
+          p_user_id?: string
+        }
+        Returns: boolean
+      }
+      trial_class_self_is_first: {
+        Args: {
+          p_child_id?: string
+          p_school_id: string
+          p_unregistered_athlete_id?: string
+          p_user_id?: string
+        }
+        Returns: boolean
+      }
+      trial_class_self_reschedule: {
+        Args: {
+          p_coach_availability_id: string
+          p_created_by: string
+          p_facility_availability_id: string
+          p_id: string
+          p_new_date: string
+          p_new_end_time: string
+          p_new_start_time: string
+          p_school_id: string
+        }
+        Returns: {
+          facility_id: string
+        }[]
+      }
+      trial_class_self_service_save_settings: {
+        Args: {
+          p_payment_mode?: string
+          p_reschedule_cutoff_hours?: number
+          p_school_id: string
+          p_self_service_enabled: boolean
         }
         Returns: undefined
       }
@@ -27732,7 +29074,6 @@ export type Database = {
         }
         Returns: undefined
       }
-      unaccent: { Args: { "": string }; Returns: string }
       unblock_payment: { Args: { p_id: string; p_kind: string }; Returns: Json }
       update_school_branding: {
         Args: {
@@ -27769,6 +29110,7 @@ export type Database = {
       upsert_attendance_record: {
         Args: {
           p_attendance_date: string
+          p_check_in_method?: string
           p_child_id?: string
           p_marked_by?: string
           p_school_id: string
@@ -28006,12 +29348,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -28035,11 +29377,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -28060,11 +29402,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -28085,11 +29427,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -28102,11 +29444,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

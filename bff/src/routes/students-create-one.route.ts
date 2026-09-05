@@ -84,9 +84,13 @@ const ChildSchema = EnrollmentBase.extend({
   date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   gender:        z.string().nullable().optional(),
   grade:         z.string().max(20).nullable().optional(),
+  dorsal:        z.string().trim().max(10).nullable().optional(),
   medical_info:  z.string().optional(),   // JSON con has_allergies
   parent_name:   z.string().min(2),
-  parent_email:  z.string().email(),
+  // Obligatorio salvo que la escuela active school_settings.parent_email_optional
+  // (Carmel Club) — validado a mano después del parse, no acá, porque Zod no
+  // conoce settings de la escuela en este punto.
+  parent_email:  z.string().email().nullable().optional(),
   parent_phone:  z.string().regex(/^\d{10,}$/),
   send_invite:   z.boolean().default(true),
   /** Confirmación explícita del staff: "ya vi el duplicado, son personas distintas". */
@@ -100,6 +104,7 @@ const ChildSchema = EnrollmentBase.extend({
 const AdultExistingSchema = EnrollmentBase.extend({
   type:    z.literal('adult_existing'),
   user_id: z.string().uuid(),   // profiles.id
+  dorsal:  z.string().trim().max(10).nullable().optional(),
 });
 
 const ChildExistingSchema = EnrollmentBase.extend({
@@ -121,6 +126,7 @@ const UnregisteredAdultSchema = EnrollmentBase.extend({
   phone:         z.string().nullable().optional(),
   date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   gender:        z.string().nullable().optional(),
+  dorsal:        z.string().trim().max(10).nullable().optional(),
   send_invite:   z.boolean().default(false),
   /** Ver ChildSchema.allow_duplicate. */
   allow_duplicate: z.boolean().default(false),
@@ -380,6 +386,7 @@ async function chargeRegistrationFeeIfApplicable(params: {
     payment_type:            'one_time',
     period_year:             null,
     period_month:            null,
+    payment_category:        'inscripcion',
   });
 
   if (error) {
@@ -414,7 +421,7 @@ router.post(
       const [{ data: school }, { data: settings }] = await Promise.all([
         supabase.from('schools').select('name').eq('id', schoolId).single(),
         supabase.from('school_settings')
-          .select('billing_cycle_type, payment_cutoff_day, require_payment_proof, coach_can_create_athletes')
+          .select('billing_cycle_type, payment_cutoff_day, require_payment_proof, coach_can_create_athletes, parent_email_optional')
           .eq('school_id', schoolId)
           .maybeSingle(),
       ]);
@@ -429,6 +436,13 @@ router.post(
         return res.status(403).json({
           error: 'Esta escuela no permite que un entrenador dé de alta atletas. Pídelo a la escuela.',
         });
+      }
+
+      // parent_email es opcional en el schema (para que la escuela con el
+      // flag pueda omitirlo), pero para el resto sigue siendo obligatorio —
+      // se valida acá porque Zod no conoce settings de la escuela.
+      if (data.type === 'child' && !data.parent_email && !settings?.parent_email_optional) {
+        return res.status(400).json({ error: 'El email del acudiente es obligatorio.' });
       }
 
       // Fuente del link de invitacion, en orden de preferencia:
@@ -489,6 +503,7 @@ router.post(
             date_of_birth:     data.date_of_birth     || null,
             gender:            data.gender             || null,
             grade:             data.grade              || null,
+            dorsal:            data.dorsal             || null,
             medical_info:      data.medical_info       || JSON.stringify({ has_allergies: false }),
             school_id:         schoolId,
             branch_id:         data.branch_id          || null,
@@ -589,17 +604,21 @@ router.post(
 
 
         // 5. Invitación al acudiente
+        // Sin parent_email (escuela con parent_email_optional) no hay a quién
+        // invitar: el menor queda registrado sin acudiente con acceso a la cuenta.
         let invitationSent = false;
         let invite: any = null;
-        const { data: existingInvite } = await supabase
-          .from('invitations')
-          .select('id')
-          .eq('school_id', schoolId)
-          .eq('email', data.parent_email)
-          .in('status', ['pending', 'accepted'])
-          .maybeSingle();
+        const existingInvite = data.parent_email
+          ? (await supabase
+              .from('invitations')
+              .select('id')
+              .eq('school_id', schoolId)
+              .eq('email', data.parent_email)
+              .in('status', ['pending', 'accepted'])
+              .maybeSingle()).data
+          : null;
 
-        if (!existingInvite) {
+        if (data.parent_email && !existingInvite) {
           const { data: inviteData, error: invErr } = await supabase
             .from('invitations')
             .insert({
@@ -642,7 +661,7 @@ router.post(
           }
         }
 
-        const registrationLink = invitationSent
+        const registrationLink = invitationSent && data.parent_email
           ? `${origin}/register?email=${encodeURIComponent(data.parent_email)}&role=parent&invite=${invite?.id ?? ''}`
           : null;
 
@@ -695,11 +714,20 @@ router.post(
             role:       'athlete',
             status:     'active',
             branch_id:  data.branch_id || null,
+            dorsal:     data.dorsal || null,
             joined_at:  new Date().toISOString(),
           });
           if (memberErr) {
             req.log?.error({ err: memberErr }, 'Error creando school_member');
             // No bloqueamos — igual creamos el enrollment
+          }
+        } else if (data.dorsal) {
+          const { error: dorsalErr } = await supabase
+            .from('school_members')
+            .update({ dorsal: data.dorsal })
+            .eq('id', existingMember.id);
+          if (dorsalErr) {
+            req.log?.error({ err: dorsalErr }, 'Error actualizando dorsal de school_member');
           }
         }
 
@@ -961,6 +989,7 @@ router.post(
             phone:         data.phone         || null,
             date_of_birth: data.date_of_birth || null,
             gender:        data.gender        || null,
+            dorsal:        data.dorsal        || null,
             branch_id:     data.branch_id     || null,
             is_active:     true,
           })

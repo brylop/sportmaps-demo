@@ -3,7 +3,7 @@
     "apps": [],
     "details": [
       {
-        "appID": "TEAMID.co.sportmaps.app",
+        "appID": "MU6JW5QQNF.co.sportmaps.app",
         "paths": [
           "/login",
           "/register",
@@ -22,6 +22,6 @@
     ]
   },
   "webcredentials": {
-    "apps": ["TEAMID.co.sportmaps.app"]
+    "apps": ["MU6JW5QQNF.co.sportmaps.app"]
   }
 }

@@ -35,7 +35,8 @@ import {
   CreditCard,
   MonitorSpeaker,
   History,
-  TrendingUp
+  TrendingUp,
+  ShieldAlert
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 import { SHOW_EXPLORE } from '@/lib/feature-flags';
@@ -513,6 +514,7 @@ export function getNavigationByRole(
         title: 'Gestión Global',
         items: [
           { title: 'Escuelas',  href: '/admin/schools', icon: Building },
+          { title: 'Integridad de inscripciones', href: '/admin/enrollment-integrity', icon: ShieldAlert },
           { title: 'Suscripciones', href: '/admin/subscriptions', icon: DollarSign },
           { title: 'Usuarios',  href: '/admin/users',   icon: Users },
           { title: 'Reportes',  href: '/admin/reports', icon: FileText }
@@ -542,6 +544,7 @@ export function getNavigationByRole(
         title: 'Gestión Global',
         items: [
           { title: 'Escuelas', href: '/admin/schools', icon: Building },
+          { title: 'Integridad de inscripciones', href: '/admin/enrollment-integrity', icon: ShieldAlert },
           { title: 'Suscripciones', href: '/admin/subscriptions', icon: DollarSign },
           { title: 'Usuarios', href: '/admin/users', icon: Users },
           { title: 'Reportes', href: '/admin/reports', icon: FileText }

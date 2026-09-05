@@ -638,24 +638,41 @@ router.put(
       // string | string[] aguas abajo.
       const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id) as string;
       const { schoolId } = req;
-      const { athlete_type, profile, enrollment } = req.body;
+      const { athlete_type } = req.body;
+      let { profile, enrollment } = req.body;
 
       if (!id || !athlete_type || !schoolId) {
         return res.status(400).json({ error: 'Faltan parámetros requeridos.' });
       }
 
-      // Sin fila de settings se aplica el default de la columna (false): un
-      // coach solo pasa si la escuela lo activó explícitamente.
+      // Sin fila de settings se aplica el default de ambas columnas (false): un
+      // coach solo pasa si la escuela activó explícitamente alguna de las dos.
       if (req.role === 'coach') {
         const { data: settings } = await supabase
           .from('school_settings')
-          .select('coach_can_create_athletes')
+          .select('coach_can_create_athletes, coach_can_edit_categories')
           .eq('school_id', schoolId)
           .maybeSingle();
-        if (!settings?.coach_can_create_athletes) {
+
+        const canFullEdit = !!settings?.coach_can_create_athletes;
+        const canEditCategoryOnly = !!settings?.coach_can_edit_categories;
+
+        if (!canFullEdit && !canEditCategoryOnly) {
           return res.status(403).json({
             error: 'Esta escuela no permite que un entrenador edite atletas. Pídelo a la escuela.',
           });
+        }
+
+        // Permiso acotado (hoy: Besser). El coach solo puede reasignar la
+        // categoría (equipo) del atleta — nunca su perfil ni ningún campo de
+        // dinero. Se sanea ACÁ, antes de que el resto del handler procese
+        // nada, para que profile/offering_plan_id/monthly_fee/fee_is_manual/
+        // fee_reason no se cuelen por este camino aunque el request los mande.
+        if (!canFullEdit && canEditCategoryOnly) {
+          profile = undefined;
+          enrollment = enrollment && enrollment.team_id !== undefined
+            ? { team_id: enrollment.team_id, team_start_date: enrollment.team_start_date }
+            : undefined;
         }
       }
 
@@ -740,6 +757,7 @@ router.put(
             tshirt_size:       profile.tshirt_size       ?? undefined,
             blood_type:        profile.blood_type         ?? undefined,
             eps_name:          profile.eps_name           ?? undefined,
+            dorsal:            profile.dorsal             ?? undefined,
             parent_email_temp: profile.parent_email       ?? undefined,
             parent_phone_temp: profile.parent_phone       ?? undefined,
           };
@@ -767,9 +785,21 @@ router.put(
             .eq('id', id);
           if (error) throw new Error(`Error actualizando profile: ${error.message}`);
 
+          // dorsal es por membresía a la escuela (school_members), no del profile global.
+          if (profile.dorsal !== undefined) {
+            const { error: dorsalErr } = await supabase
+              .from('school_members')
+              .update({ dorsal: profile.dorsal ?? null })
+              .eq('profile_id', id)
+              .eq('school_id', schoolId)
+              .eq('role', 'athlete');
+            if (dorsalErr) throw new Error(`Error actualizando dorsal: ${dorsalErr.message}`);
+          }
+
         } else if (athlete_type === 'unregistered') {
           const unregUpdate: any = {
             ...profileUpdate,
+            dorsal: profile.dorsal ?? undefined,
             email: profile.parent_email ?? undefined,
             phone: profile.parent_phone ?? undefined,
           };

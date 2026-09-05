@@ -581,6 +581,28 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
             .eq('status', 'active');
 
         if (child_id && typeof child_id === 'string') {
+            // IDOR: este endpoint corre con service role (bypassa RLS), así que sin
+            // este chequeo cualquier autenticado podía pasar el child_id de OTRO y
+            // recibir su mensualidad/plan completos. Solo el padre del menor, o
+            // staff/admin de la MISMA escuela del menor, puede consultarlo.
+            const { data: child } = await supabase
+                .from('children')
+                .select('id, parent_id, school_id')
+                .eq('id', child_id)
+                .maybeSingle();
+
+            if (!child) {
+                return res.status(404).json({ error: 'Atleta no encontrado.' });
+            }
+
+            const isParent = child.parent_id === userId;
+            const staffRoles = ['owner', 'admin', 'super_admin', 'school_admin', 'coach', 'staff', 'school'];
+            const isStaffOfSchool = !!schoolId && schoolId === child.school_id && staffRoles.includes(req.role || '');
+
+            if (!isParent && !isStaffOfSchool) {
+                return res.status(403).json({ error: 'No autorizado para consultar el plan de este atleta.' });
+            }
+
             query = query.eq('child_id', child_id);
         } else {
             query = query.eq('user_id', userId);

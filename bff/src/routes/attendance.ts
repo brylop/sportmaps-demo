@@ -812,6 +812,20 @@ router.get(
         return res.status(400).json({ error: 'contextType debe ser "team", "offering" o "facility_session".' });
       }
 
+      // Besser (y cualquier otra escuela con el flag activo): el coach no ve
+      // dinero en ninguna pantalla. Se enmascara acá porque este endpoint
+      // corre con service role (bypassa RLS) — la vista `school_athletes` ya
+      // lo hace para su propio camino de lectura directa, esto cubre el BFF.
+      let hideMoney = false;
+      if (req.role === 'coach') {
+        const { data: settingsRow } = await supabase
+          .from('school_settings')
+          .select('coach_hide_financial_info')
+          .eq('school_id', schoolId)
+          .maybeSingle();
+        hideMoney = !!settingsRow?.coach_hide_financial_info;
+      }
+
       // ── Instalación: no hay "membresía" fija — el roster son las reservas ──
       // reales de ESE bloque puntual (contextId = attendance_sessions.id).
       // A diferencia de team/offering, cada persona puede venir de un plan distinto.
@@ -951,7 +965,8 @@ router.get(
               max_secondary_sessions: null,
               secondary_remaining: null,
               payment_status: null, payment_due_date: null,
-              price: plan.price, currency: plan.currency,
+              price: hideMoney ? null : plan.price,
+              currency: hideMoney ? null : plan.currency,
             } : null,
             payment: null,
           };
@@ -1133,13 +1148,14 @@ router.get(
             secondary_sessions_used: usedSecondary,
             max_secondary_sessions:  maxSecondary,
             secondary_remaining:     maxSecondary !== null ? Math.max(0, maxSecondary - usedSecondary) : null,
-            payment_status:          payment?.status   ?? null,
-            payment_due_date:        payment?.due_date ?? null,
-            price:                   plan.price,
-            currency:                plan.currency,
+            payment_status:          hideMoney ? null : (payment?.status   ?? null),
+            payment_due_date:        hideMoney ? null : (payment?.due_date ?? null),
+            price:                   hideMoney ? null : plan.price,
+            currency:                hideMoney ? null : plan.currency,
           } : null,
-          // Pago contextual siempre disponible (independiente del plan)
-          payment: payment ?? null,
+          // Pago contextual siempre disponible (independiente del plan) — salvo
+          // cuando la escuela oculta dinero al coach (ver hideMoney arriba).
+          payment: hideMoney ? null : (payment ?? null),
         };
       }).sort((a: any, b: any) => a.full_name.localeCompare(b.full_name));
 

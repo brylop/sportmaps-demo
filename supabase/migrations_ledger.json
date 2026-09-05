@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 497,
-  "head": "20260902194954",
+  "count": 509,
+  "head": "20260904131122",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -500,6 +500,18 @@
     {"v":"20260902181550","file":"20260902181550_reactivar_cron_expire_overdue_enrollments.sql","sha256":"4dad75991fefb51b5aeeb3003109bcd77e5774bff29cc47d486617f68206815a","added":"2026-09-02","by":"brylop"},
     {"v":"20260902190219","file":"20260902190219_offering_coaches_documentar_y_endurecer_rls.sql","sha256":"2484642f9ed46d0201c0a4c6086cd2f69f0a1bf22dc4a22789f9f630ac233a4e","added":"2026-09-03","by":"judegor99"},
     {"v":"20260902190708","file":"20260902190708_trial_class_public_create_respeta_offering_coaches.sql","sha256":"6c45140a5438ebeddb805088969f078080b631ee54fc9812c0cd277b54b14095","added":"2026-09-03","by":"judegor99"},
-    {"v":"20260902194954","file":"20260902194954_school_staff_sports_multi_y_niveles.sql","sha256":"e089a5dd9ff4244db9d0f199d49fb8cc5d42c8ef5011770e741e578277dc37b1","added":"2026-09-03","by":"judegor99"}
+    {"v":"20260902194954","file":"20260902194954_school_staff_sports_multi_y_niveles.sql","sha256":"e089a5dd9ff4244db9d0f199d49fb8cc5d42c8ef5011770e741e578277dc37b1","added":"2026-09-03","by":"judegor99"},
+    {"v":"20260903103757","file":"20260903103757_torneos_internos_fix_choque_periodo_mensualidad.sql","sha256":"9f3d3a3d510f40bc340e881b49703fe3d4cbb746cdf545d6b58992fb02f03fce","added":"2026-09-03","by":"brylop"},
+    {"v":"20260903130451","file":"20260903130451_torneos_externos_invitaciones.sql","sha256":"d08e4cd383a8da4585cf2862f171794bd744df102522c8ef24d81f70ab86e349","added":"2026-09-03","by":"brylop"},
+    {"v":"20260903130555","file":"20260903130555_auditoria_inscripciones_activas_sin_vigencia.sql","sha256":"6bea3f5f2774bbc8435fa2cf4d09c31f4ebd4d88914385d599f591b93dbe1fb4","added":"2026-09-03","by":"brylop"},
+    {"v":"20260903131025","file":"20260903131025_torneos_externos_fix_reclamo_por_cualquier_miembro.sql","sha256":"28890aa1f50bc1c9b63fd6c42edf3bdda00f86c0be3ca8a19298c92cc019964b","added":"2026-09-03","by":"brylop"},
+    {"v":"20260903134834","file":"20260903134834_parent_email_optional_carmel.sql","sha256":"5ca0890d8bab2d46856e6ef0bcd8a4d558da21d586927926c55c851e656a1fb1","added":"2026-09-03","by":"brylop"},
+    {"v":"20260903144504","file":"20260903144504_coach_besser_financial_categoria.sql","sha256":"b4114921e4572ced054b2cc966ee404a824ee5feab0d193bcba2595853b76528","added":"2026-09-03","by":"brylop"},
+    {"v":"20260903150628","file":"20260903150628_articulos_escolares_catalogo_f1.sql","sha256":"296884cbe0a0321085663df88d3fb56912ccaa531da0eaafc428e40bbfa50f47","added":"2026-09-03","by":"brylop"},
+    {"v":"20260903151225","file":"20260903151225_add_dorsal_atleta.sql","sha256":"e4c709c7ad36e47416783c3e427ca21a3cdec5c24684ccc1d8e5deb35c2c01dc","added":"2026-09-03","by":"brylop"},
+    {"v":"20260903170318","file":"20260903170318_military_discount_besser_only.sql","sha256":"6a7fa8848f3ea130cfaf5f44759ec0f2d25be9ba61edc77e9ccf0c565e01c0dd","added":"2026-09-03","by":"brylop"},
+    {"v":"20260903171854","file":"20260903171854_articulos_escolares_solo_super_admin.sql","sha256":"6aa146b2ee340bda07af064d52340b3b12d2c7a11590e7454838b469c79589e2","added":"2026-09-03","by":"brylop"},
+    {"v":"20260903195632","file":"20260903195632_correo_apertura_mes_vencido.sql","sha256":"b30365063685f3d56a432f4965c9027f253d4bb9698d70258dbc5c72e599a347","added":"2026-09-04","by":"brylop"},
+    {"v":"20260904131122","file":"20260904131122_articulos_escolares_admin_read_rpc.sql","sha256":"b731852e2753b20bbe033cacfaa38bf4786b8e40cd6b21bbbb8d2dce01d41e0d","added":"2026-09-04","by":"brylop"}
   ]
 }
