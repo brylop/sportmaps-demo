@@ -243,7 +243,7 @@ async function isStaff(schoolId: string, userId: string): Promise<boolean> {
   return value;
 }
 
-async function validateAccess(schoolId: string, zkPin: string): Promise<{
+async function validateAccess(schoolId: string, zkPin: string, direction: 'entry' | 'exit'): Promise<{
   granted: boolean;
   reason?: string;
   userId?: string;
@@ -286,6 +286,42 @@ async function validateAccess(schoolId: string, zkPin: string): Promise<{
     : enrollQuery.eq('unregistered_athlete_id', mapping.unregisteredAthleteId).maybeSingle()
   );
 
+  // 4. Obtener nombre del atleta para el log (se necesita también en la salida)
+  let userName = 'Usuario';
+
+  if (isRegistered) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', mapping.userId)
+      .maybeSingle();
+    userName = profile?.full_name ?? 'Usuario';
+  } else {
+    const { data: ua } = await supabase
+      .from('unregistered_athletes')
+      .select('full_name')
+      .eq('id', mapping.unregisteredAthleteId)
+      .maybeSingle();
+    userName = ua?.full_name ?? 'Atleta';
+  }
+
+  // La SALIDA nunca se deniega por inscripción/pago — el torniquete físico
+  // tampoco lo hace (F22 decide con su propia base local), y negarla acá solo
+  // esconde el evento real: quedaba guardada como "denegado, pago vencido" sin
+  // rastro de que la persona sí salió (caso real: Edna, 2026-09-05). Se sigue
+  // resolviendo enrollmentId/userName arriba para que el banco de horas y el
+  // reporte sepan quién fue — el estado de pago/inscripción sigue disponible
+  // aparte (school_athletes.payment_status), solo deja de pisar este evento.
+  if (direction === 'exit') {
+    return {
+      granted: true,
+      userId: mapping.userId ?? undefined,
+      unregisteredAthleteId: mapping.unregisteredAthleteId ?? undefined,
+      userName,
+      enrollmentId: enrollment?.id,
+    };
+  }
+
   if (!enrollment) {
     return {
       granted: false,
@@ -326,25 +362,6 @@ async function validateAccess(schoolId: string, zkPin: string): Promise<{
       unregisteredAthleteId: mapping.unregisteredAthleteId ?? undefined,
       enrollmentId: enrollment.id,
     };
-  }
-
-  // 4. Obtener nombre del atleta para el log
-  let userName = 'Usuario';
-
-  if (isRegistered) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('full_name')
-      .eq('id', mapping.userId)
-      .maybeSingle();
-    userName = profile?.full_name ?? 'Usuario';
-  } else {
-    const { data: ua } = await supabase
-      .from('unregistered_athletes')
-      .select('full_name')
-      .eq('id', mapping.unregisteredAthleteId)
-      .maybeSingle();
-    userName = ua?.full_name ?? 'Atleta';
   }
 
   return {
@@ -717,7 +734,7 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
         continue;
       }
 
-      const validation = await validateAccess(schoolId, zkPin);
+      const validation = await validateAccess(schoolId, zkPin, eventDirection);
 
       // Dedup: índice único (device_id, zk_user_id, occurred_at). Si el lector
       // reenvía el backlog, ON CONFLICT DO NOTHING evita inflar access_events.
