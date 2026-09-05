@@ -10,6 +10,11 @@ export interface Offering {
     description: string | null;
     offering_type: 'membership' | 'session_pack' | 'court_booking' | 'tournament' | 'single_session';
     sport: string | null;
+    // Modo de agendamiento: coach (default) = solo disponibilidad de entrenador;
+    // facility = solo disponibilidad de instalación (requiere facility_id);
+    // both = ofrece ambas superficies al atleta.
+    booking_mode: 'coach' | 'facility' | 'both';
+    facility_id: string | null;
     is_active: boolean;
     sort_order: number;
     metadata: Record<string, unknown>;

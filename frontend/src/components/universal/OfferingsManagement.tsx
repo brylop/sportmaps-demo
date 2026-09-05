@@ -19,6 +19,7 @@ import {
     AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useOfferings, Offering } from '@/hooks/useOfferings';
+import { useSchoolFacilities } from '@/hooks/useSchoolData';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useQueryClient } from '@tanstack/react-query';
@@ -38,6 +39,12 @@ const OFFERING_TYPE_LABELS: Record<string, string> = {
     tournament: 'Torneo',
     single_session: 'Clase Suelta',
 };
+
+const BOOKING_MODE_OPTIONS: { value: 'coach' | 'facility' | 'both'; label: string; description: string }[] = [
+    { value: 'coach', label: 'Por entrenador', description: 'Se agenda según la disponibilidad de los entrenadores del plan (o de todos si no hay ninguno asignado).' },
+    { value: 'facility', label: 'Por instalación', description: 'Se agenda según la disponibilidad de una instalación específica, sin entrenador fijo.' },
+    { value: 'both', label: 'Ambas', description: 'El atleta puede elegir entre un horario de entrenador o uno de instalación.' },
+];
 
 const PLAN_DURATION_OPTIONS = [
     { label: 'Semanal (7 días)', value: '7' },
@@ -415,7 +422,10 @@ function SportSearchCombobox({
 
 export function OfferingsManagement() {
     const { toast } = useToast();
-    const { schoolId, schoolName } = useSchoolContext();
+    const { schoolId, schoolName, schoolSettings } = useSchoolContext();
+    // Piloto: solo escuelas con el flag ven el selector de booking_mode
+    // (Dreamers + Academia Superior Bogotá, ver school_settings_booking_mode_toggle_flag).
+    const bookingModeToggleEnabled = !!schoolSettings?.booking_mode_toggle_enabled;
     const queryClient = useQueryClient();
     const { settings: ssSettings } = useTrialClassSelfServiceSettings();
     const [schoolSlug, setSchoolSlug] = useState<string | null>(null);
@@ -435,8 +445,9 @@ export function OfferingsManagement() {
     // llama, pero es otro componente: su `allSports` no está en este alcance, y
     // dar por hecho que sí fue justo el error de acá abajo.
     const { sports: catalogoDeportes } = useSportsCatalog();
-    
-    const { 
+    const { facilities } = useSchoolFacilities();
+
+    const {
         offerings, 
         isLoading,
         createOffering,
@@ -477,6 +488,8 @@ export function OfferingsManagement() {
 
     const [newOffering, setNewOffering] = useState({
         name: '', description: '', offering_type: 'membership' as string, sport: '' as string,
+        booking_mode: 'coach' as 'coach' | 'facility' | 'both',
+        facility_id: '' as string,
     });
 
     const [newPlan, setNewPlan] = useState({
@@ -501,7 +514,7 @@ export function OfferingsManagement() {
     const [customDays, setCustomDays] = useState('30');
 
     const resetOfferingForm = () => {
-        setNewOffering({ name: '', description: '', offering_type: 'membership', sport: '' });
+        setNewOffering({ name: '', description: '', offering_type: 'membership', sport: '', booking_mode: 'coach', facility_id: '' });
         setEditingOfferingId(null);
     };
 
@@ -519,6 +532,8 @@ export function OfferingsManagement() {
             offering_type: newOffering.offering_type as Offering['offering_type'],
             description: newOffering.description || undefined,
             sport: newOffering.sport || undefined,
+            booking_mode: newOffering.booking_mode,
+            facility_id: newOffering.booking_mode === 'coach' ? null : (newOffering.facility_id || null),
             metadata: {}, // Assuming metadata for multiple sports is no longer needed with single `sport` field
         };
 
@@ -584,6 +599,8 @@ export function OfferingsManagement() {
             description: offering.description || '',
             offering_type: offering.offering_type,
             sport: offering.sport || '',
+            booking_mode: offering.booking_mode || 'coach',
+            facility_id: offering.facility_id || '',
         });
         setEditingOfferingId(offering.id);
         setShowCreate(true);
@@ -815,6 +832,59 @@ export function OfferingsManagement() {
                             </div>
                         </div>
 
+                        {/* Modo de agendamiento — instalación / entrenador / ambas — piloto */}
+                        {bookingModeToggleEnabled && (
+                        <div className="space-y-2">
+                            <Label className="text-sm font-medium">¿Cómo se agenda este plan?</Label>
+                            <div className="flex gap-1 p-0.5 bg-muted/60 rounded-lg border border-border/30">
+                                {BOOKING_MODE_OPTIONS.map((opt) => (
+                                    <button
+                                        key={opt.value}
+                                        type="button"
+                                        onClick={() => setNewOffering((prev) => ({ ...prev, booking_mode: opt.value }))}
+                                        className={`flex-1 px-2 py-1.5 rounded-md text-[11px] font-bold transition-all ${
+                                            newOffering.booking_mode === opt.value
+                                                ? 'bg-background text-foreground shadow-sm border border-border/40'
+                                                : 'text-muted-foreground hover:text-foreground'
+                                        }`}
+                                    >
+                                        {opt.label}
+                                    </button>
+                                ))}
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                                {BOOKING_MODE_OPTIONS.find((o) => o.value === newOffering.booking_mode)?.description}
+                            </p>
+
+                            {newOffering.booking_mode !== 'coach' && (
+                                <div className="pt-1 animate-in fade-in slide-in-from-top-1 duration-200 space-y-1.5">
+                                    <Label className="text-sm font-medium">
+                                        Instalación <span className="text-destructive">*</span>
+                                    </Label>
+                                    <Select
+                                        value={newOffering.facility_id}
+                                        onValueChange={(v) => setNewOffering((prev) => ({ ...prev, facility_id: v }))}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Seleccionar instalación..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {facilities.length === 0 ? (
+                                                <div className="px-3 py-2 text-[11px] text-muted-foreground">
+                                                    No hay instalaciones registradas.
+                                                </div>
+                                            ) : (
+                                                facilities.map((f: any) => (
+                                                    <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                                                ))
+                                            )}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            )}
+                        </div>
+                        )}
+
                         <div className="space-y-2">
                             <Label className="text-sm font-medium flex items-center justify-between">
                                 Descripción (Opcional)
@@ -837,7 +907,12 @@ export function OfferingsManagement() {
 
                     <DialogFooter className="gap-2 sm:gap-0 pt-2">
                         <Button variant="outline" onClick={() => { setShowCreate(false); resetOfferingForm(); }} size="sm">Cancelar</Button>
-                        <Button onClick={handleSaveOffering} disabled={!newOffering.name || isSavingOffering} size="sm" className="gap-1.5">
+                        <Button
+                            onClick={handleSaveOffering}
+                            disabled={!newOffering.name || isSavingOffering || (newOffering.booking_mode !== 'coach' && !newOffering.facility_id)}
+                            size="sm"
+                            className="gap-1.5"
+                        >
                             {isSavingOffering
                                 ? (editingOfferingId ? 'Actualizando...' : 'Creando...')
                                 : (editingOfferingId ? '💾 Guardar Cambios' : '🚀 Crear Plan')

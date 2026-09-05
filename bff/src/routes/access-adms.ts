@@ -518,17 +518,48 @@ async function trackHourBankVisit(
     if (openVisit) {
       const { data: lastSeg } = await supabase
         .from('hour_bank_visit_segments')
-        .select('id, exited_at')
+        .select('id, entered_at, exited_at')
         .eq('visit_id', openVisit.id)
         .order('entered_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (lastSeg && !lastSeg.exited_at) {
-        return; // ya está adentro (entrada duplicada/glitch) — no crear nada
-      }
+        const gapMinutes = (new Date(occurredAt).getTime() - new Date(lastSeg.entered_at).getTime()) / 60000;
+        if (gapMinutes <= settings.reentryMergeMinutes) {
+          return; // ya está adentro (entrada duplicada/glitch de lector) — no crear nada
+        }
+        // La huella de salida nunca sonó y ya pasó la ventana de gracia — no
+        // sabemos la hora real de salida (pudo irse por otra puerta, el lector
+        // de salida pudo fallar). Antes de este fix, cualquier reentrada acá se
+        // ignoraba sin mirar el hueco, así que una ausencia real de horas
+        // quedaba fusionada en silencio y se facturaba completa al cerrar. Se
+        // manda a pending_review (mismo criterio que auto_close_stale_hour_bank_visits
+        // para "nunca marcó salida", migración 20260827174032) — sin facturar a
+        // ciegas — y esta entrada abre una visita nueva más abajo.
+        await supabase
+          .from('hour_bank_visits')
+          .update({
+            status: 'pending_review',
+            auto_closed: true,
+            ended_at: lastSeg.entered_at,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', openVisit.id);
 
-      if (lastSeg && lastSeg.exited_at) {
+        const { data: school } = await supabase.from('schools').select('owner_id').eq('id', schoolId).maybeSingle();
+        if (school?.owner_id) {
+          await supabase.from('notifications').insert({
+            user_id:  school.owner_id,
+            school_id: schoolId,
+            type:     'hour_bank_pending_review',
+            title:    '⏱️ Banco de horas — visita a revisar',
+            message:  `${athleteName} volvió a marcar entrada sin haber marcado salida la vez anterior. Revisa y ajusta la hora real de salida.`,
+            link:     '/school/access-control',
+          });
+        }
+        // No return: sigue abajo y abre una visita nueva con esta entrada.
+      } else if (lastSeg && lastSeg.exited_at) {
         const gapMinutes = (new Date(occurredAt).getTime() - new Date(lastSeg.exited_at).getTime()) / 60000;
         if (gapMinutes <= settings.reentryMergeMinutes) {
           // D-6: reentrada corta — nuevo segmento en la MISMA visita, no se cierra nada

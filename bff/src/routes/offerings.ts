@@ -8,15 +8,25 @@ const router = Router();
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 
+// Modo de agendamiento del plan (docs/specs — toggle instalación/entrenador/ambas):
+// coach = solo coach_availability (default, comportamiento histórico); facility = solo
+// facility_availability de facility_id; both = ofrece las dos superficies al atleta.
+const BookingModeSchema = z.enum(['coach', 'facility', 'both']);
+
 const CreateOfferingSchema = z.object({
     name: z.string().min(1).max(200),
     description: z.string().optional(),
     offering_type: z.enum(['membership', 'session_pack', 'court_booking', 'tournament', 'single_session']),
     sport: z.string().optional(),
     branch_id: z.string().uuid().optional(),
+    booking_mode: BookingModeSchema.optional().default('coach'),
+    facility_id: z.string().uuid().nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).optional().default({}),
     sort_order: z.number().int().min(0).optional().default(0),
-});
+}).refine(
+    (data) => data.booking_mode === 'coach' || !!data.facility_id,
+    { message: 'facility_id es requerido cuando booking_mode es "facility" o "both"', path: ['facility_id'] }
+);
 
 const UpdateOfferingSchema = z.object({
     name: z.string().min(1).max(200).optional(),
@@ -24,9 +34,17 @@ const UpdateOfferingSchema = z.object({
     sport: z.string().optional(),
     branch_id: z.string().uuid().nullable().optional(),
     is_active: z.boolean().optional(),
+    booking_mode: BookingModeSchema.optional(),
+    facility_id: z.string().uuid().nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
     sort_order: z.number().int().min(0).optional(),
-});
+}).refine(
+    (data) => data.booking_mode !== 'coach' || data.facility_id === undefined || data.facility_id === null,
+    { message: 'facility_id debe quedar vacío cuando booking_mode es "coach"', path: ['facility_id'] }
+).refine(
+    (data) => !(data.booking_mode && data.booking_mode !== 'coach') || data.facility_id !== null,
+    { message: 'facility_id es requerido cuando booking_mode es "facility" o "both"', path: ['facility_id'] }
+);
 
 const CreatePlanSchema = z.object({
     name: z.string().min(1).max(200),
@@ -70,6 +88,21 @@ const UpdatePlanSchema = z.object({
     included_sessions_per_week: z.number().int().positive().nullable().optional(),
     registration_fee: z.number().min(0).nullable().optional(),
 });
+
+// Piloto (docs — booking_mode toggle): antes de aceptar un booking_mode distinto
+// de 'coach', revalidar en servidor que la escuela tenga el flag habilitado.
+// El formulario ya oculta el selector si no lo tiene, pero eso no es autoritativo
+// — sin este chequeo, cualquiera podía llamar el endpoint directo y activar
+// facility/both en una escuela fuera del piloto.
+async function assertBookingModeEnabled(schoolId: string, bookingMode: string | undefined): Promise<boolean> {
+    if (!bookingMode || bookingMode === 'coach') return true;
+    const { data } = await supabase
+        .from('school_settings')
+        .select('booking_mode_toggle_enabled')
+        .eq('school_id', schoolId)
+        .maybeSingle();
+    return !!data?.booking_mode_toggle_enabled;
+}
 
 // ── GET /api/v1/offerings ────────────────────────────────────────────────────
 
@@ -217,6 +250,14 @@ router.post('/',
             }
 
             const { schoolId } = req;
+
+            if (!(await assertBookingModeEnabled(schoolId!, parsed.data.booking_mode))) {
+                return res.status(403).json({
+                    error: 'Esta escuela no tiene habilitado el agendamiento por instalación.',
+                    reason: 'booking_mode_not_enabled',
+                });
+            }
+
             const { data, error } = await supabase
                 .from('offerings')
                 .insert({ ...parsed.data, school_id: schoolId })
@@ -246,6 +287,13 @@ router.patch('/:id',
 
             const { schoolId } = req;
             const { id } = req.params;
+
+            if (!(await assertBookingModeEnabled(schoolId!, parsed.data.booking_mode))) {
+                return res.status(403).json({
+                    error: 'Esta escuela no tiene habilitado el agendamiento por instalación.',
+                    reason: 'booking_mode_not_enabled',
+                });
+            }
 
             const { data, error } = await supabase
                 .from('offerings')

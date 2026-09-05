@@ -12,6 +12,7 @@ import { sendChargeCreatedEmails, sendOverdueNoticeEmails } from './payment-life
 import { runNotificationDispatch } from './notifications-dispatch.job';
 import { runAthleteReportsCycle } from './athlete-reports.job';
 import { runHourBankAutoclose } from './hour-bank-autoclose.job';
+import { runAccessAutoBlockCycle } from './access-auto-block.job';
 import { runSaasBillingCycle } from './saas-billing-cycle.job';
 import { runBridgeHeartbeatCheck } from './bridge-heartbeat-check.job';
 import { runAccountDeletionCycle } from './account-deletion.job';
@@ -371,6 +372,25 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Auto-cierre de banco de horas registrado (cada 15 min).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Bloqueo automático por mora (school_settings.access_auto_block_overdue_enabled,
+    // migración 20260905111458). Reconcilia contra payments.status='overdue' —
+    // bloquea (Grp=2) a quien debe y no está bloqueado, desbloquea (Grp=1) a
+    // quien ya no debe. Deliberadamente NO usa enrollments.expires_at (hereda
+    // dos bugs conocidos de vigencia, ver el comentario del job). No-op para
+    // toda escuela con el flag en false (default). Piloto: Dreamers Gymnastics.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/15 * * * *', async () => {
+        try {
+            await runAccessAutoBlockCycle();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en bloqueo automático por mora:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Bloqueo automático por mora registrado (cada 15 min).');
 
     // ────────────────────────────────────────────────────────────────────────
     // Ciclo diario de facturación SaaS SportMaps → escuelas (Fase 1). Llama a

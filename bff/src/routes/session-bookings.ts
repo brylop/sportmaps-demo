@@ -334,6 +334,25 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
 
     const today = todayInBogota();
 
+    // ── Modo de agendamiento por offering (coach | facility | both) ──────────
+    // Toggle configurado por el owner/admin en el plan (offerings.booking_mode).
+    // Default 'coach' para offerings sin el campo aún migrado en el cliente.
+    const offeringModeMap: Record<string, { booking_mode: 'coach' | 'facility' | 'both'; facility_id: string | null }> = {};
+    if (oIds.length) {
+      const { data: offeringModes } = await supabase
+        .from('offerings')
+        .select('id, booking_mode, facility_id')
+        .in('id', oIds);
+
+      (offeringModes || []).forEach((o: any) => {
+        offeringModeMap[o.id] = { booking_mode: o.booking_mode ?? 'coach', facility_id: o.facility_id ?? null };
+      });
+    }
+    const modeAllowsCoach = (offeringId: string | null | undefined) =>
+      !offeringId || (offeringModeMap[offeringId]?.booking_mode ?? 'coach') !== 'facility';
+    const modeAllowsFacility = (offeringId: string | null | undefined) =>
+      !!offeringId && (offeringModeMap[offeringId]?.booking_mode === 'facility' || offeringModeMap[offeringId]?.booking_mode === 'both');
+
     // ── Coaches asignados por offering (si los hay) ──────────────────────────
     const offeringCoachMap: Record<string, string[]> = {};
     if (oIds.length) {
@@ -464,6 +483,10 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
           const matchingEnrollment = planEnrollments.find(e => e.school_id === (avail as any).school_id) || defaultPlanEnrollment;
           const offeringIdForSlot = getOfferingId(matchingEnrollment);
 
+          // El plan de este slot puede tener booking_mode='facility' (sin superficie
+          // de coach) — en ese caso este slot de coach_availability no le sirve.
+          if (!modeAllowsCoach(offeringIdForSlot)) continue;
+
           // Bloquear si el coach tiene una sesión manual (sin coach_availability_id) a esa hora
           const busyKey = `${avail.coach_id}_${dateStr}_${slotStart}`;
           if (busySet.has(busyKey)) continue;
@@ -527,13 +550,96 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
     }
   }
 
-    // Instalación (facility_availability) queda fuera de este listado a propósito:
-    // esta ruta es "agendar la clase de mi plan", que siempre va con un coach.
-    // Instalación es el camino de clases de prueba/cortesía, servido aparte por
-    // /api/v1/public/booking (PublicFacilityBookingPage.tsx) — ese flujo nunca
-    // llamó a este endpoint, así que sacarlo de acá no le afecta. Antes se
-    // mezclaban los dos en la misma lista y un plan con entrenador asignado
-    // podía "colarse" por instalación sin pasar por ningún coach.
+    // ── Generación de pseudo-sesiones de INSTALACIÓN, por offering ────────────
+    // A diferencia del intento anterior (revertido): esto SOLO corre para el
+    // offering específico cuyo booking_mode sea 'facility' o 'both', y SOLO
+    // contra la instalación que ese offering tiene configurada (facility_id).
+    // Nunca "cualquier instalación de la escuela para cualquier plan con
+    // crédito" — esa mezcla fue justo el bug que sacó clases de gimnasio del
+    // agendamiento de un plan con entrenador asignado. Clases de prueba/
+    // cortesía siguen siendo un camino aparte (public-booking.routes.ts).
+    const facilityOfferingIds = [...new Set(
+      oIds.filter(oid => modeAllowsFacility(oid))
+    )];
+
+    const facilityGeneratedSessions: any[] = [];
+
+    if (facilityOfferingIds.length) {
+      const facilityIds = [...new Set(
+        facilityOfferingIds.map(oid => offeringModeMap[oid]?.facility_id).filter(Boolean)
+      )] as string[];
+
+      const { data: facilityAvailData } = facilityIds.length
+        ? await supabase
+            .from('facility_availability')
+            .select('id, school_id, facility_id, day_of_week, start_time, end_time, max_group_capacity, facility:facilities(id, name, type)')
+            .in('facility_id', facilityIds)
+        : { data: [] as any[] };
+
+      const facilityCapacityMap: Record<string, { current: number; max: number | null }> = {};
+      (existingSessions || []).forEach((s: any) => {
+        if (!s.facility_availability_id) return;
+        const key = `${s.facility_availability_id}_${s.session_date}`;
+        facilityCapacityMap[key] = { current: s.current_bookings ?? 0, max: s.max_capacity };
+      });
+
+      const [year, month, day] = today.split('-').map(Number);
+      const DAYS_AHEAD = 14;
+
+      for (const offeringId of facilityOfferingIds) {
+        const facilityId = offeringModeMap[offeringId]?.facility_id;
+        if (!facilityId) continue; // el CHECK de la migración ya lo evita, pero por si acaso
+
+        const enrollmentForOffering = planEnrollments.find(e => getOfferingId(e) === offeringId);
+        if (!enrollmentForOffering) continue;
+
+        const slotsForFacility = (facilityAvailData || []).filter((a: any) => a.facility_id === facilityId);
+
+        for (let i = 0; i < DAYS_AHEAD; i++) {
+          const d = new Date(Date.UTC(year, month - 1, day + i));
+          const dateStr = d.toISOString().split('T')[0];
+          const dbDay = d.getUTCDay();
+          if (dateStr < today) continue;
+
+          const slotsForDay = slotsForFacility.filter((a: any) => a.day_of_week === dbDay);
+
+          for (const avail of slotsForDay) {
+            const facility = (avail as any).facility;
+            if (!facility) continue;
+
+            const slotStart = avail.start_time.substring(0, 5);
+            const capacityKey = `${avail.id}_${dateStr}`;
+            const existingCap = facilityCapacityMap[capacityKey];
+            const currentBookings = existingCap?.current ?? 0;
+            const maxCapacity = existingCap?.max ?? avail.max_group_capacity ?? 10;
+            const isFull = currentBookings >= maxCapacity;
+
+            facilityGeneratedSessions.push({
+              id: `favail_${avail.id}_${dateStr}`,
+              session_type: 'offering',
+              session_date: dateStr,
+              start_time: `${slotStart}:00`,
+              end_time: avail.end_time.length === 5 ? `${avail.end_time}:00` : avail.end_time,
+              max_capacity: maxCapacity,
+              current_bookings: currentBookings,
+              available_spots: Math.max(0, maxCapacity - currentBookings),
+              already_booked: false,
+              team: null,
+              team_id: null,
+              offering_id: offeringId,
+              coach: null,
+              facility_id: facilityId, // solo para el dedup de abajo; se descarta al mapear la respuesta
+              sessions_left: null,
+              enrollment_id: enrollmentForOffering.id,
+              booking_status: isFull ? 'full' : 'open',
+              is_pseudo: true,
+              available_for_personal_classes: false,
+              available_for_group_classes: true,
+            });
+          }
+        }
+      }
+    }
 
     const availMap = Object.fromEntries((availData || []).map(a => [a.id, a]));
 
@@ -550,25 +656,28 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
     const offeringSessions = (oRes.data || []).map((s: any) => enrichRealSession({ ...s, session_type: 'offering' as const }));
 
     // Deduplicar: las sesiones REALES tienen prioridad sobre las pseudo-sesiones.
-    // Si un coach ya aparece en teamSessions/offeringSessions a la misma hora+fecha,
-    // la pseudo-sesión de coach_availability se descarta.
+    // Si un coach (o una instalación) ya aparece en teamSessions/offeringSessions a
+    // la misma hora+fecha, la pseudo-sesión correspondiente se descarta.
+    const resourceKey = (s: any) => s.coach?.id ?? s.coach_id ?? (s.facility_id ? `f_${s.facility_id}` : '');
+
     const realSlotKeys = new Set<string>();
     [...teamSessions, ...offeringSessions].forEach((s: any) => {
-      const coachId = s.coach?.id ?? s.coach_id ?? '';
-      realSlotKeys.add(`${coachId}_${s.session_date}_${s.start_time.substring(0, 5)}`);
+      realSlotKeys.add(`${resourceKey(s)}_${s.session_date}_${s.start_time.substring(0, 5)}`);
     });
 
-    // También deduplicar entre pseudo-sesiones por coach+fecha+hora+tipo (quedar con la de mayor cupo para el mismo tipo)
+    // También deduplicar entre pseudo-sesiones por coach/instalación+fecha+hora+tipo
+    // (quedar con la de mayor cupo para el mismo tipo)
+    const allGeneratedSessions = [...generatedSessions, ...facilityGeneratedSessions];
     const dedupedGenerated: any[] = [];
     const seenPseudoKey = new Set<string>();
-    generatedSessions.sort((a, b) => (b.max_capacity ?? 0) - (a.max_capacity ?? 0));
-    for (const gs of generatedSessions) {
-      const coachId = gs.coach?.id ?? '';
+    allGeneratedSessions.sort((a, b) => (b.max_capacity ?? 0) - (a.max_capacity ?? 0));
+    for (const gs of allGeneratedSessions) {
+      const rKey = resourceKey(gs);
       const typeStr = gs.id.startsWith('avail_p_') ? 'p' : 'g';
-      const key = `${coachId}_${gs.session_date}_${gs.start_time.substring(0, 5)}_${typeStr}`;
-      
-      const generalSlotKey = `${coachId}_${gs.session_date}_${gs.start_time.substring(0, 5)}`;
-      
+      const key = `${rKey}_${gs.session_date}_${gs.start_time.substring(0, 5)}_${typeStr}`;
+
+      const generalSlotKey = `${rKey}_${gs.session_date}_${gs.start_time.substring(0, 5)}`;
+
       if (!realSlotKeys.has(generalSlotKey) && !seenPseudoKey.has(key)) {
         seenPseudoKey.add(key);
         dedupedGenerated.push(gs);
@@ -727,9 +836,6 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
     let actualSessionId = session_id;
     let s: any = null;
 
-    // favail_ (instalación) ya no existe como opción: GET /athlete/available
-    // dejó de generar esos pseudo-ids — instalación es del flujo de clases de
-    // prueba/cortesía (public-booking.routes.ts), no del agendamiento de plan.
     if (session_id.startsWith('avail_')) {
       // Formato: avail_p_{availId}_{YYYY-MM-DD} o avail_g_{availId}_{YYYY-MM-DD}
       const isPersonal = session_id.includes('_p_');
@@ -817,6 +923,98 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
             .from('attendance_sessions')
             .select('id, school_id, max_capacity, current_bookings')
             .eq('coach_availability_id', availId)
+            .eq('session_date', dateStr)
+            .single();
+          if (retryErr || !retryS) return res.status(500).json({ error: 'No se pudo resolver el bloque.' });
+          s = retryS;
+        } else if (newErr) {
+          return res.status(500).json({ error: 'failed_creating_session' });
+        } else {
+          s = newS;
+        }
+        actualSessionId = s.id;
+      }
+    } else if (session_id.startsWith('favail_')) {
+      // Formato: favail_{availId}_{YYYY-MM-DD} — booking_mode='facility'/'both' en el offering
+      const prefixLen = 'favail_'.length;
+      const dateStr = session_id.slice(-10);
+      const availId = session_id.slice(prefixLen, -11);
+
+      if (!availId || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr))
+        return res.status(400).json({ error: 'invalid_favail_format' });
+
+      const { data: avail } = await supabase
+        .from('facility_availability')
+        .select('facility_id, start_time, end_time, max_group_capacity')
+        .eq('id', availId)
+        .single();
+
+      if (!avail) return res.status(404).json({ error: 'favail_not_found' });
+
+      const { data: eData } = await supabase.from('enrollments')
+        .select('offering_plans(offering_id)')
+        .eq('id', enrollment_id)
+        .single();
+
+      const offering_id = eData?.offering_plans
+        ? (eData.offering_plans as any).offering_id
+        : null;
+
+      if (!offering_id) return res.status(400).json({ error: 'offering_required_for_facility_booking' });
+
+      // Revalidar en servidor — el GET /athlete/available ya filtra lo que ve el
+      // cliente, pero eso no es autoritativo: sin este chequeo, cualquiera podía
+      // llamar este endpoint directo con el favail_ de una instalación ajena al
+      // plan, o de un plan con booking_mode='coach' (sin superficie de instalación).
+      const { data: offering } = await supabase
+        .from('offerings')
+        .select('booking_mode, facility_id')
+        .eq('id', offering_id)
+        .single();
+
+      const modeAllowsFacilityForOffering = offering?.booking_mode === 'facility' || offering?.booking_mode === 'both';
+      if (!modeAllowsFacilityForOffering || offering?.facility_id !== avail.facility_id) {
+        return res.status(403).json({
+          error: 'Esta instalación no está habilitada para este plan.',
+          reason: 'facility_not_authorized',
+        });
+      }
+
+      const start_time = avail.start_time.length === 5 ? `${avail.start_time}:00` : avail.start_time;
+      const end_time = avail.end_time.length === 5 ? `${avail.end_time}:00` : avail.end_time;
+      const maxCap = avail.max_group_capacity ?? 10;
+
+      const { data: existS } = await supabase
+        .from('attendance_sessions')
+        .select('id, school_id, max_capacity, current_bookings')
+        .eq('facility_availability_id', availId)
+        .eq('session_date', dateStr)
+        .maybeSingle();
+
+      if (existS) {
+        s = existS;
+        actualSessionId = s.id;
+      } else {
+        const { data: newS, error: newErr } = await supabase.from('attendance_sessions')
+          .insert({
+            school_id: enrollmentSchoolId,
+            facility_id: avail.facility_id,
+            session_date: dateStr,
+            start_time,
+            end_time,
+            offering_id,
+            max_capacity: maxCap,
+            current_bookings: 0,
+            is_bookable: true,
+            finalized: false,
+            facility_availability_id: availId,   // ← vínculo clave para conteo por fecha
+          }).select('id, school_id, max_capacity, current_bookings').single();
+
+        if (newErr && newErr.code === '23505') {
+          const { data: retryS, error: retryErr } = await supabase
+            .from('attendance_sessions')
+            .select('id, school_id, max_capacity, current_bookings')
+            .eq('facility_availability_id', availId)
             .eq('session_date', dateStr)
             .single();
           if (retryErr || !retryS) return res.status(500).json({ error: 'No se pudo resolver el bloque.' });
