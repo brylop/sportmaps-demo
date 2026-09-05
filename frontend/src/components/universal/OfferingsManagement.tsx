@@ -19,6 +19,7 @@ import {
     AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useOfferings, Offering } from '@/hooks/useOfferings';
+import { useSchoolFacilities } from '@/hooks/useSchoolData';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useQueryClient } from '@tanstack/react-query';
@@ -38,6 +39,12 @@ const OFFERING_TYPE_LABELS: Record<string, string> = {
     tournament: 'Torneo',
     single_session: 'Clase Suelta',
 };
+
+const BOOKING_MODE_OPTIONS: { value: 'coach' | 'facility' | 'both'; label: string; description: string }[] = [
+    { value: 'coach', label: 'Por entrenador', description: 'Se agenda según la disponibilidad de los entrenadores del plan (o de todos si no hay ninguno asignado).' },
+    { value: 'facility', label: 'Por instalación', description: 'Se agenda según la disponibilidad de una instalación específica, sin entrenador fijo.' },
+    { value: 'both', label: 'Ambas', description: 'El atleta puede elegir entre un horario de entrenador o uno de instalación.' },
+];
 
 const PLAN_DURATION_OPTIONS = [
     { label: 'Semanal (7 días)', value: '7' },
@@ -98,10 +105,10 @@ const hideSpinnersCSS = `
 // ═══════════════════════════════════════════════════════════════════
 
 function NumberStepper({
-    id, value, onChange, placeholder, min = 0, step = 1, prefix, label, isCurrency = false, disabled = false,
+    id, value, onChange, placeholder, min = 0, step = 1, prefix, unit, label, isCurrency = false, disabled = false,
 }: {
     id: string; value: string; onChange: (v: string) => void;
-    placeholder?: string; min?: number; step?: number; prefix?: string; label?: string;
+    placeholder?: string; min?: number; step?: number; prefix?: string; unit?: string; label?: string;
     isCurrency?: boolean; disabled?: boolean;
 }) {
     const rawVal = isCurrency ? parseCurrency(value) : value;
@@ -127,12 +134,15 @@ function NumberStepper({
                     {prefix && (
                         <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-medium">{prefix}</span>
                     )}
+                    {unit && (
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-medium pointer-events-none">{unit}</span>
+                    )}
                     <Input
                         id={id}
                         placeholder={placeholder}
                         type={isCurrency ? "text" : "number"}
                         disabled={disabled}
-                        className={`rounded-none border-x-0 h-9 text-center ${prefix ? 'pl-6' : ''}`}
+                        className={`rounded-none border-x-0 h-9 text-center ${prefix ? 'pl-6' : ''} ${unit ? 'pr-10' : ''}`}
                         value={isCurrency ? formatCurrency(value) : value}
                         onChange={(e) => {
                             const val = e.target.value;
@@ -412,7 +422,10 @@ function SportSearchCombobox({
 
 export function OfferingsManagement() {
     const { toast } = useToast();
-    const { schoolId, schoolName } = useSchoolContext();
+    const { schoolId, schoolName, schoolSettings } = useSchoolContext();
+    // Piloto: solo escuelas con el flag ven el selector de booking_mode
+    // (Dreamers + Academia Superior Bogotá, ver school_settings_booking_mode_toggle_flag).
+    const bookingModeToggleEnabled = !!schoolSettings?.booking_mode_toggle_enabled;
     const queryClient = useQueryClient();
     const { settings: ssSettings } = useTrialClassSelfServiceSettings();
     const [schoolSlug, setSchoolSlug] = useState<string | null>(null);
@@ -432,8 +445,9 @@ export function OfferingsManagement() {
     // llama, pero es otro componente: su `allSports` no está en este alcance, y
     // dar por hecho que sí fue justo el error de acá abajo.
     const { sports: catalogoDeportes } = useSportsCatalog();
-    
-    const { 
+    const { facilities } = useSchoolFacilities();
+
+    const {
         offerings, 
         isLoading,
         createOffering,
@@ -474,6 +488,8 @@ export function OfferingsManagement() {
 
     const [newOffering, setNewOffering] = useState({
         name: '', description: '', offering_type: 'membership' as string, sport: '' as string,
+        booking_mode: 'coach' as 'coach' | 'facility' | 'both',
+        facility_id: '' as string,
     });
 
     const [newPlan, setNewPlan] = useState({
@@ -498,7 +514,7 @@ export function OfferingsManagement() {
     const [customDays, setCustomDays] = useState('30');
 
     const resetOfferingForm = () => {
-        setNewOffering({ name: '', description: '', offering_type: 'membership', sport: '' });
+        setNewOffering({ name: '', description: '', offering_type: 'membership', sport: '', booking_mode: 'coach', facility_id: '' });
         setEditingOfferingId(null);
     };
 
@@ -516,6 +532,8 @@ export function OfferingsManagement() {
             offering_type: newOffering.offering_type as Offering['offering_type'],
             description: newOffering.description || undefined,
             sport: newOffering.sport || undefined,
+            booking_mode: newOffering.booking_mode,
+            facility_id: newOffering.booking_mode === 'coach' ? null : (newOffering.facility_id || null),
             metadata: {}, // Assuming metadata for multiple sports is no longer needed with single `sport` field
         };
 
@@ -581,6 +599,8 @@ export function OfferingsManagement() {
             description: offering.description || '',
             offering_type: offering.offering_type,
             sport: offering.sport || '',
+            booking_mode: offering.booking_mode || 'coach',
+            facility_id: offering.facility_id || '',
         });
         setEditingOfferingId(offering.id);
         setShowCreate(true);
@@ -812,6 +832,59 @@ export function OfferingsManagement() {
                             </div>
                         </div>
 
+                        {/* Modo de agendamiento — instalación / entrenador / ambas — piloto */}
+                        {bookingModeToggleEnabled && (
+                        <div className="space-y-2">
+                            <Label className="text-sm font-medium">¿Cómo se agenda este plan?</Label>
+                            <div className="flex gap-1 p-0.5 bg-muted/60 rounded-lg border border-border/30">
+                                {BOOKING_MODE_OPTIONS.map((opt) => (
+                                    <button
+                                        key={opt.value}
+                                        type="button"
+                                        onClick={() => setNewOffering((prev) => ({ ...prev, booking_mode: opt.value }))}
+                                        className={`flex-1 px-2 py-1.5 rounded-md text-[11px] font-bold transition-all ${
+                                            newOffering.booking_mode === opt.value
+                                                ? 'bg-background text-foreground shadow-sm border border-border/40'
+                                                : 'text-muted-foreground hover:text-foreground'
+                                        }`}
+                                    >
+                                        {opt.label}
+                                    </button>
+                                ))}
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                                {BOOKING_MODE_OPTIONS.find((o) => o.value === newOffering.booking_mode)?.description}
+                            </p>
+
+                            {newOffering.booking_mode !== 'coach' && (
+                                <div className="pt-1 animate-in fade-in slide-in-from-top-1 duration-200 space-y-1.5">
+                                    <Label className="text-sm font-medium">
+                                        Instalación <span className="text-destructive">*</span>
+                                    </Label>
+                                    <Select
+                                        value={newOffering.facility_id}
+                                        onValueChange={(v) => setNewOffering((prev) => ({ ...prev, facility_id: v }))}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Seleccionar instalación..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {facilities.length === 0 ? (
+                                                <div className="px-3 py-2 text-[11px] text-muted-foreground">
+                                                    No hay instalaciones registradas.
+                                                </div>
+                                            ) : (
+                                                facilities.map((f: any) => (
+                                                    <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                                                ))
+                                            )}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            )}
+                        </div>
+                        )}
+
                         <div className="space-y-2">
                             <Label className="text-sm font-medium flex items-center justify-between">
                                 Descripción (Opcional)
@@ -834,7 +907,12 @@ export function OfferingsManagement() {
 
                     <DialogFooter className="gap-2 sm:gap-0 pt-2">
                         <Button variant="outline" onClick={() => { setShowCreate(false); resetOfferingForm(); }} size="sm">Cancelar</Button>
-                        <Button onClick={handleSaveOffering} disabled={!newOffering.name || isSavingOffering} size="sm" className="gap-1.5">
+                        <Button
+                            onClick={handleSaveOffering}
+                            disabled={!newOffering.name || isSavingOffering || (newOffering.booking_mode !== 'coach' && !newOffering.facility_id)}
+                            size="sm"
+                            className="gap-1.5"
+                        >
                             {isSavingOffering
                                 ? (editingOfferingId ? 'Actualizando...' : 'Creando...')
                                 : (editingOfferingId ? '💾 Guardar Cambios' : '🚀 Crear Plan')
@@ -1008,6 +1086,18 @@ export function OfferingsManagement() {
                                     onChange={(v) => setNewPlan((prev) => ({ ...prev, included_minutes_per_period: v }))}
                                     placeholder="480"
                                     step={30}
+                                    // "unit" es un <span> decorativo dentro del input (no se
+                                    // mezcla con el parser de digitos de handleChange), a
+                                    // diferencia de formatValue que SI reescribe el texto
+                                    // editable -- por eso este es el prop correcto para mostrar
+                                    // las horas al lado sin romper la edicion en minutos. Sin
+                                    // parentesis: el badge es mayuscula compacta (ver "kg"/"min"
+                                    // en otros usos de NumberStepper), "(16h)" quedaba largo.
+                                    unit={
+                                        newPlan.included_minutes_per_period !== ''
+                                            ? `${(parseInt(newPlan.included_minutes_per_period) / 60).toFixed(parseInt(newPlan.included_minutes_per_period) % 60 === 0 ? 0 : 1)}h`
+                                            : undefined
+                                    }
                                 />
                                 <p className="text-[10px] text-muted-foreground">
                                     Ej: 480 min = 8 horas al mes. El período lo define el ciclo de facturación de la escuela.
@@ -1028,6 +1118,11 @@ export function OfferingsManagement() {
                                         onChange={(v) => setNewPlan((prev) => ({ ...prev, session_block_minutes: v }))}
                                         placeholder="Hereda de la escuela"
                                         step={15}
+                                        unit={
+                                            newPlan.session_block_minutes !== ''
+                                                ? `${(parseInt(newPlan.session_block_minutes) / 60).toFixed(parseInt(newPlan.session_block_minutes) % 60 === 0 ? 0 : 1)}h`
+                                                : undefined
+                                        }
                                     />
                                     <p className="text-[10px] text-muted-foreground">
                                         Vacío = usa el bloque general de la escuela. Para tener 2h/3h/4h a la vez, cada nivel necesita su propio valor.

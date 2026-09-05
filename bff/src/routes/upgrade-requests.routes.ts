@@ -119,7 +119,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 //   ?limit=20
 // ============================================================
 
-router.get('/', requireAuth, async (req: Request, res: Response) => {
+router.get('/', requireAuth, requireRole('admin', 'super_admin', 'school_admin'), async (req: Request, res: Response) => {
     try {
         const status = req.query.status as string | undefined;
         const limit = Math.min(parseInt((req.query.limit as string) || '50', 10), 200);
@@ -133,6 +133,16 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
             `)
             .order('created_at', { ascending: false })
             .limit(limit);
+
+        // El comentario de arriba decía "por RLS" pero esta ruta usa
+        // service_role (bypasea RLS) y no tenía NINGÚN filtro — cualquier
+        // school_admin veía las solicitudes de upgrade de TODAS las
+        // escuelas. requireRole ya bloqueó a padres/atletas/coaches; acá
+        // se limita a school_admin a su propia escuela (admin/super_admin
+        // de plataforma sí ven todas, como decía la intención original).
+        if (req.role === 'school_admin') {
+            query = query.eq('school_id', req.schoolId);
+        }
 
         if (status) {
             query = query.eq('status', status);

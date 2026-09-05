@@ -158,13 +158,25 @@ router.post('/biomech/captures/:captureId/annotations', async (req: Request, res
     try {
         const { captureId } = req.params;
         const { id: coachId } = req.user;
+        const { schoolId } = req;
         const { timestamp_seconds, note, label, is_baseline_label } = req.body;
 
         if (!note) return res.status(400).json({ error: 'La nota es requerida.' });
 
         const { data: capture } = await supabase
-            .from('biomech_captures').select('id').eq('id', captureId).maybeSingle();
+            .from('biomech_captures').select('id, session_plan_id').eq('id', captureId).eq('school_id', schoolId).maybeSingle();
         if (!capture) return res.status(404).json({ error: 'Captura no encontrada.' });
+
+        // Misma verificación que el GET de detalle: la captura debe colgar de
+        // un plan de ESTE trainer — sin esto, cualquier trainer autenticado
+        // podía anotar la captura de otro trainer.
+        const { data: plan } = await supabase
+            .from('trainer_session_plans')
+            .select('id')
+            .eq('id', (capture as any).session_plan_id)
+            .eq('trainer_id', coachId)
+            .maybeSingle();
+        if (!plan) return res.status(403).json({ error: 'Sin acceso a esta captura.' });
 
         const { data, error } = await supabase
             .from('biomech_annotations')
@@ -255,9 +267,39 @@ router.post('/biomech/skills/:progressId/evidence', async (req: Request, res: Re
     try {
         const { progressId } = req.params;
         const { id: coachId } = req.user;
+        const { schoolId } = req;
         const { capture_id } = req.body;
 
         if (!capture_id) return res.status(400).json({ error: 'capture_id es requerido.' });
+
+        // progressId y capture_id vienen del cliente: verificar que ambos
+        // pertenezcan a ESTE trainer/escuela antes de vincularlos — sin esto,
+        // cualquier trainer podía adjuntar evidencia arbitraria a la
+        // evaluación de otro trainer, o vincular la captura de otro trainer.
+        const { data: progress } = await supabase
+            .from('academic_progress')
+            .select('id')
+            .eq('id', progressId)
+            .eq('coach_id', coachId)
+            .eq('school_id', schoolId)
+            .maybeSingle();
+        if (!progress) return res.status(403).json({ error: 'Evaluación no encontrada en tu academia.' });
+
+        const { data: capture } = await supabase
+            .from('biomech_captures')
+            .select('id, session_plan_id')
+            .eq('id', capture_id)
+            .eq('school_id', schoolId)
+            .maybeSingle();
+        if (!capture) return res.status(404).json({ error: 'Captura no encontrada.' });
+
+        const { data: plan } = await supabase
+            .from('trainer_session_plans')
+            .select('id')
+            .eq('id', (capture as any).session_plan_id)
+            .eq('trainer_id', coachId)
+            .maybeSingle();
+        if (!plan) return res.status(403).json({ error: 'Sin acceso a esta captura.' });
 
         const { data, error } = await supabase
             .from('skill_biomech_evidence')
