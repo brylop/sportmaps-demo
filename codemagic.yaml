@@ -164,7 +164,14 @@ workflows:
         api_key: $APP_STORE_CONNECT_PRIVATE_KEY
         key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID
-        submit_to_testflight: true
+        # submit_to_testflight en true dispara el envío a revisión de Apple
+        # para testers EXTERNOS, que exige "Test Information" completa
+        # (Feedback Email, First/Last Name, Phone, Email de revisión) en
+        # App Store Connect -> TestFlight -> Test Information. No aplica:
+        # solo tenemos el grupo interno "SportMaps Internos", que recibe
+        # acceso automático sin revisión en cuanto termina de procesar
+        # (ya confirmado: "App Store Connect finished processing build").
+        submit_to_testflight: false
         # "SportMaps Internos" es un grupo Internal Testing con distribución
         # Automatic en TestFlight — esos grupos reciben cada build nuevo
         # solos en cuanto Apple termina de procesarlo; la API rechaza
