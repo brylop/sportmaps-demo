@@ -108,8 +108,9 @@ workflows:
   # `import.meta.env.VITE_SUPABASE_URL` es undefined, el cliente de Supabase
   # falla al crearse y React nunca monta — de ahí el blanco sin error visible.
   # Fix: el paso "Configurar variables de entorno..." escribe ese archivo a
-  # mano ANTES de `npm run build`, usando el grupo `frontend_native_env`
-  # (NO son secretos: son las keys públicas que ya usan el BFF/frontend).
+  # mano ANTES de `npm run build`, usando las 4 VITE_* cargadas en el grupo
+  # `appstore_ios` (NO son secretos: son las keys públicas que ya usan el
+  # BFF/frontend; terminaron ahí por error de UI, no en un grupo aparte).
   # ──────────────────────────────────────────────────────────────────────
   ios-testflight:
     name: iOS — build firmado + TestFlight
@@ -117,8 +118,10 @@ workflows:
     instance_type: mac_mini_m2
     environment:
       groups:
-        - appstore_ios # variables: APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_PRIVATE_KEY
-        - frontend_native_env # variables: VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY, VITE_BFF_URL, VITE_API_URL
+        # OJO: las 4 VITE_* quedaron cargadas dentro de este mismo grupo
+        # (por error de UI, se pensaba crear "frontend_native_env" aparte)
+        # — funciona igual porque el grupo se importa completo.
+        - appstore_ios # variables: APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_PRIVATE_KEY, VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY, VITE_BFF_URL, VITE_API_URL
       vars:
         XCODE_WORKSPACE: "App.xcworkspace"
         XCODE_SCHEME: "App"
