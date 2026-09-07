@@ -51,6 +51,49 @@ export function OfferingCoachesPanel({ offeringId }: { offeringId: string }) {
         </div>
       </div>
 
+      {/* Agregar nuevo — arriba, antes de la lista de asignados */}
+      {available.length > 0 && (
+        <div className="p-3 rounded-2xl bg-secondary/30 border border-muted-foreground/5 space-y-3">
+          <div className="flex items-center gap-2">
+            <UserPlus className="w-3.5 h-3.5 text-primary/70" />
+            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Autorizar nuevo integrante</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <Select value={selectedCoach} onValueChange={setSelectedCoach}>
+                <SelectTrigger className="h-9 text-[11px] bg-background border-muted-foreground/10 focus:ring-primary/20 transition-all rounded-xl shadow-sm">
+                  <SelectValue placeholder="Seleccionar de la escuela..." />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-muted-foreground/10 shadow-2xl">
+                  {available.map((c: any) => (
+                    <SelectItem key={c.id} value={c.id} className="text-[11px] py-2 cursor-pointer focus:bg-primary/5">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-5 h-5 rounded-md bg-muted flex items-center justify-center text-[9px] font-bold">
+                          {c.full_name?.charAt(0).toUpperCase()}
+                        </div>
+                        {c.full_name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              size="sm"
+              className="h-9 px-5 gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/10 transition-all active:scale-95 disabled:opacity-50 font-bold rounded-xl shrink-0"
+              disabled={!selectedCoach || isAssigning}
+              onClick={() => {
+                assign(selectedCoach);
+                setSelectedCoach('');
+              }}
+            >
+              {isAssigning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
+              <span className="text-[10px] uppercase tracking-wide">Autorizar</span>
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Buscador (Solo si hay más de 4 coaches) */}
       {assigned.length > 4 && (
         <div className="relative group">
@@ -117,51 +160,6 @@ export function OfferingCoachesPanel({ offeringId }: { offeringId: string }) {
         {/* Sombra de scroll si hay muchos */}
         {assigned.length > 6 && <div className="absolute bottom-0 left-0 right-1 h-6 bg-gradient-to-t from-background to-transparent pointer-events-none rounded-b-xl" />}
       </div>
-
-      {/* Agregar nuevo — Footer Styling */}
-      {available.length > 0 && (
-        <div className="pt-2">
-          <div className="p-3 rounded-2xl bg-secondary/30 border border-muted-foreground/5 space-y-3">
-            <div className="flex items-center gap-2">
-              <UserPlus className="w-3.5 h-3.5 text-primary/70" />
-              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Autorizar nuevo integrante</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex-1 min-w-0">
-                <Select value={selectedCoach} onValueChange={setSelectedCoach}>
-                  <SelectTrigger className="h-9 text-[11px] bg-background border-muted-foreground/10 focus:ring-primary/20 transition-all rounded-xl shadow-sm">
-                    <SelectValue placeholder="Seleccionar de la escuela..." />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl border-muted-foreground/10 shadow-2xl">
-                    {available.map((c: any) => (
-                      <SelectItem key={c.id} value={c.id} className="text-[11px] py-2 cursor-pointer focus:bg-primary/5">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-5 h-5 rounded-md bg-muted flex items-center justify-center text-[9px] font-bold">
-                            {c.full_name?.charAt(0).toUpperCase()}
-                          </div>
-                          {c.full_name}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                size="sm"
-                className="h-9 px-5 gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/10 transition-all active:scale-95 disabled:opacity-50 font-bold rounded-xl shrink-0"
-                disabled={!selectedCoach || isAssigning}
-                onClick={() => {
-                  assign(selectedCoach);
-                  setSelectedCoach('');
-                }}
-              >
-                {isAssigning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
-                <span className="text-[10px] uppercase tracking-wide">Autorizar</span>
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

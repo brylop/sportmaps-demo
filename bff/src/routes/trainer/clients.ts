@@ -3,8 +3,33 @@ import { supabase } from '../../config/supabase';
 
 const router = Router();
 
-// NOTE: search-profile was moved to trainer/profile.ts 
+// NOTE: search-profile was moved to trainer/profile.ts
 // to be accessible by school admins without requireTrainerAuth.
+
+// Verifica que clientId tenga un enrollment activo en la escuela del trainer
+// (req.schoolId) antes de dejar mutar sus stats/goals/training/body-metrics.
+// Sin esto, cualquier trainer autenticado podía escribir sobre el registro de
+// CUALQUIER cliente de CUALQUIER escuela con solo conocer/adivinar su id —
+// mismo patrón que PUT /clients/:clientId ya validaba correctamente.
+async function assertClientInSchool(
+  schoolId: string,
+  clientIdParam: string | string[],
+  clientType: 'adult' | 'child' | 'unregistered' = 'adult',
+): Promise<boolean> {
+  const clientId = Array.isArray(clientIdParam) ? clientIdParam[0] : clientIdParam;
+  let q = supabase
+    .from('enrollments')
+    .select('id')
+    .eq('school_id', schoolId)
+    .eq('status', 'active');
+
+  if (clientType === 'child') q = q.eq('child_id', clientId);
+  else if (clientType === 'unregistered') q = q.eq('unregistered_athlete_id', clientId);
+  else q = q.eq('user_id', clientId).is('child_id', null);
+
+  const { data } = await q.maybeSingle();
+  return !!data;
+}
 
 // ==========================================
 //  GET /api/v1/trainer/clients
@@ -306,6 +331,10 @@ router.post('/clients/:clientId/stats', async (req: Request, res: Response) => {
     const { stat_type, value, unit, notes, stat_date } = req.body;
     const clientType = req.query.type as string; // 'adult' | 'child' | 'unregistered'
 
+    if (!(await assertClientInSchool(req.schoolId, clientId, clientType === 'child' ? 'child' : 'adult'))) {
+      return res.status(403).json({ error: 'Cliente no encontrado en tu academia.' });
+    }
+
     const table  = clientType === 'child' ? 'children_stats' : 'athlete_stats';
     const idCol  = clientType === 'child' ? 'child_id'       : 'athlete_id';
 
@@ -328,6 +357,11 @@ router.put('/clients/:clientId/stats/:statId', async (req: Request, res: Respons
     const { clientId, statId } = req.params;
     const { value, notes } = req.body;
     const clientType = req.query.type as string;
+
+    if (!(await assertClientInSchool(req.schoolId, clientId, clientType === 'child' ? 'child' : 'adult'))) {
+      return res.status(403).json({ error: 'Cliente no encontrado en tu academia.' });
+    }
+
     const table = clientType === 'child' ? 'children_stats' : 'athlete_stats';
     const idCol = clientType === 'child' ? 'child_id' : 'athlete_id';
 
@@ -348,6 +382,11 @@ router.delete('/clients/:clientId/stats/:statId', async (req: Request, res: Resp
   try {
     const { clientId, statId } = req.params;
     const clientType = req.query.type as string;
+
+    if (!(await assertClientInSchool(req.schoolId, clientId, clientType === 'child' ? 'child' : 'adult'))) {
+      return res.status(403).json({ error: 'Cliente no encontrado en tu academia.' });
+    }
+
     const table = clientType === 'child' ? 'children_stats' : 'athlete_stats';
     const idCol = clientType === 'child' ? 'child_id' : 'athlete_id';
 
@@ -369,7 +408,11 @@ router.post('/clients/:clientId/goals', async (req: Request, res: Response) => {
   try {
     const { clientId } = req.params;
     const { title, description, target_date, progress, status } = req.body;
-    
+
+    if (!(await assertClientInSchool(req.schoolId, clientId, 'adult'))) {
+      return res.status(403).json({ error: 'Cliente no encontrado en tu academia.' });
+    }
+
     const { data, error } = await supabase
       .from('athlete_goals')
       .insert({
@@ -388,9 +431,13 @@ router.put('/clients/:clientId/goals/:goalId', async (req: Request, res: Respons
   try {
     const { clientId, goalId } = req.params;
     const { title, description, target_date, progress, status } = req.body;
-    
+
+    if (!(await assertClientInSchool(req.schoolId, clientId, 'adult'))) {
+      return res.status(403).json({ error: 'Cliente no encontrado en tu academia.' });
+    }
+
     const updatePayload: any = { title, description, target_date, progress, status };
-    
+
     const { data, error } = await supabase
       .from('athlete_goals')
       .update(updatePayload)
@@ -407,6 +454,11 @@ router.put('/clients/:clientId/goals/:goalId', async (req: Request, res: Respons
 router.delete('/clients/:clientId/goals/:goalId', async (req: Request, res: Response) => {
   try {
     const { clientId, goalId } = req.params;
+
+    if (!(await assertClientInSchool(req.schoolId, clientId, 'adult'))) {
+      return res.status(403).json({ error: 'Cliente no encontrado en tu academia.' });
+    }
+
     const { error } = await supabase
       .from('athlete_goals')
       .delete()
@@ -425,7 +477,11 @@ router.post('/clients/:clientId/training', async (req: Request, res: Response) =
   try {
     const { clientId } = req.params;
     const { training_date, exercise_type, duration_minutes, intensity, calories_burned, notes } = req.body;
-    
+
+    if (!(await assertClientInSchool(req.schoolId, clientId, 'adult'))) {
+      return res.status(403).json({ error: 'Cliente no encontrado en tu academia.' });
+    }
+
     const { data, error } = await supabase
       .from('training_logs')
       .insert({
@@ -444,7 +500,11 @@ router.put('/clients/:clientId/training/:logId', async (req: Request, res: Respo
   try {
     const { clientId, logId } = req.params;
     const updates = req.body;
-    
+
+    if (!(await assertClientInSchool(req.schoolId, clientId, 'adult'))) {
+      return res.status(403).json({ error: 'Cliente no encontrado en tu academia.' });
+    }
+
     const { data, error } = await supabase
       .from('training_logs')
       .update(updates)
@@ -461,6 +521,11 @@ router.put('/clients/:clientId/training/:logId', async (req: Request, res: Respo
 router.delete('/clients/:clientId/training/:logId', async (req: Request, res: Response) => {
   try {
     const { clientId, logId } = req.params;
+
+    if (!(await assertClientInSchool(req.schoolId, clientId, 'adult'))) {
+      return res.status(403).json({ error: 'Cliente no encontrado en tu academia.' });
+    }
+
     const { error } = await supabase
       .from('training_logs')
       .delete()
@@ -530,6 +595,7 @@ router.get('/clients/:clientId/body-metrics', async (req: Request, res: Response
       .from('body_metrics')
       .select('*')
       .eq('client_id', clientId)
+      .eq('school_id', req.schoolId)
       .order('measured_at', { ascending: false });
 
     if (error) throw error;
@@ -573,11 +639,13 @@ router.put('/clients/:clientId/body-metrics/:metricId', async (req: Request, res
     delete updates.id;
     delete updates.client_id;
     delete updates.recorded_by;
+    delete updates.school_id;
 
     const { data, error } = await supabase
       .from('body_metrics')
       .update(updates)
       .eq('id', metricId)
+      .eq('school_id', req.schoolId)
       .select()
       .single();
 
@@ -592,7 +660,8 @@ router.delete('/clients/:clientId/body-metrics/:metricId', async (req: Request, 
     const { error } = await supabase
       .from('body_metrics')
       .delete()
-      .eq('id', metricId);
+      .eq('id', metricId)
+      .eq('school_id', req.schoolId);
 
     if (error) throw error;
     res.json({ success: true });

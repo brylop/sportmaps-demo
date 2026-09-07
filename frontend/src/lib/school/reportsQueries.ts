@@ -99,6 +99,31 @@ export async function getAthleteReportDetail(id: string): Promise<AthleteReportD
   return data as unknown as AthleteReportDetail;
 }
 
+/**
+ * Descarga el PDF "al vuelo" (spec §8.4/§15, F4). A diferencia del resto de
+ * este archivo, SÍ pasa por el BFF: pdfkit corre en Node, no en el navegador.
+ * Abre el PDF en una pestaña nueva — no lo persiste en Storage, se regenera
+ * cada vez desde el mismo `snapshot` congelado, así que nunca puede diferir
+ * de lo que la pantalla ya mostró.
+ */
+export async function downloadAthleteReportPdf(id: string): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('No hay sesión activa.');
+
+  const bffUrl = (import.meta as any).env?.VITE_BFF_URL
+    || (window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://sportmaps-bff.onrender.com');
+
+  const response = await fetch(`${bffUrl}/api/v1/athlete-reports/${id}/pdf`, {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  });
+  if (!response.ok) throw new Error('No se pudo generar el PDF del informe.');
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 export async function markReportViewed(id: string): Promise<void> {
   // 'as never': mark_report_viewed tampoco está en el types.ts generado
   // todavía (mismo escape hatch que useEquipment.ts ya usa para RPCs nuevas).

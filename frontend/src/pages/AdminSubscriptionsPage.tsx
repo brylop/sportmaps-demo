@@ -204,15 +204,18 @@ export default function AdminSubscriptionsPage() {
 
   async function loadMerch(schoolId: string) {
     setLoadingMerch(true);
-    const [{ data: settings }, { data: items, error }] = await Promise.all([
-      supabase.from('school_settings' as any).select('merchandise_enabled').eq('school_id', schoolId).maybeSingle(),
+    // school_settings no tiene policy de SELECT para is_super_admin() (solo
+    // is_school_admin()/owner) — un select directo siempre devolvía NULL acá.
+    // La RPC sortea eso sin tocar la RLS de una tabla compartida por medio repo.
+    const [{ data: enabled }, { data: items, error }] = await Promise.all([
+      supabase.rpc('admin_get_school_merchandise_enabled' as any, { p_school_id: schoolId }),
       supabase.from('school_merchandise_items' as any)
         .select('id, name, price, size_options, image_url, active')
         .eq('school_id', schoolId)
         .order('sort_order', { ascending: true }),
     ]);
     if (error) toast({ title: 'Error cargando el catálogo', description: error.message, variant: 'destructive' });
-    setMerchEnabled(!!(settings as any)?.merchandise_enabled);
+    setMerchEnabled(!!enabled);
     setMerchItems((items as any) || []);
     resetMerchForm();
     setLoadingMerch(false);

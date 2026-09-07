@@ -37,6 +37,23 @@ Que hace:
   calibrarlo con el torniquete real (ver README.md, seccion "Calibrar el
   pulso de apertura").
 
+- BLOQUEO POR MORA / GRUPO (agregado 2026-09-05, mismo hallazgo que la
+  apertura manual): `set_group` (banco de horas bloqueando por mora,
+  boton "Bloquear ahora" de Control de Acceso) tampoco le llega nunca a
+  estos lectores por ADMS -- se confirmo en vivo el 2026-09-05 que quedan
+  'pending' para siempre (nunca 'executed' ni 'failed'), y de paso que
+  `set_drive_time` tiene el mismo problema desde antes (8 comandos
+  'expired' del 29-ago). El endpoint /bridge/door-commands ahora acepta
+  `command_types=open_door,set_group` (antes solo devolvia open_door) --
+  este script pide ambos y ejecuta el cambio de grupo via pyzk
+  `set_user()` (DATA UPDATE USERINFO Grp=<N> en terminos ADMS). Requiere
+  que el PIN ya este enrolado localmente en CADA lector (entrada y salida
+  tienen su propia base de huellas) -- si no esta, el comando falla con un
+  mensaje claro en vez de fallar en silencio. TODAVIA NO SE PROBO EN CAMPO
+  si el Grupo 2 de estos equipos realmente bloquea el paso (ver README.md,
+  seccion "Probar el bloqueo por Grupo") -- eso es configuracion del propio
+  equipo, este script solo asegura que el cambio de grupo LLEGUE.
+
 Requisitos (instalar una sola vez):
     pip install -r requirements.txt
 
@@ -69,7 +86,9 @@ BACKEND_BASE_URL = "https://bffdev.sportmaps.co"
 DEVICES = [
     {
         "name": "LECTOR ENTRADA",
-        "ip": "192.168.1.203",
+        "ip": "192.168.1.201",  # corregido 2026-09-05 -- estaba .203, confirmado
+                                 # en el menu del equipo que la IP real es .201
+                                 # (coincide con turnstile_devices.ip_address).
         "port": 4370,
         "serial_number": "CEZU222860004",
     },
@@ -163,13 +182,21 @@ def send_heartbeat(serial_number):
 
 def fetch_pending_door_commands():
     """
-    Devuelve los comandos open_door pendientes de Dreamers, o None si el
-    endpoint no responde (error de red / API key mal puesta) para que el
-    caller distinga "nada que hacer" de "no pude preguntar".
+    Devuelve los comandos pendientes de Dreamers (open_door, disable_user/
+    enable_user para el bloqueo por mora, + set_group por si queda alguno
+    viejo sin procesar), o None si el endpoint no responde (error de red /
+    API key mal puesta) para que el caller distinga "nada que hacer" de "no
+    pude preguntar".
+
+    Dreamers pasó de set_group a disable_user/enable_user (2026-09-05,
+    school_settings.access_block_mechanism='disable') -- confirmado en campo
+    que este MB360/ID no tiene Zonas Horarias/Grupos ni en su menú local ni
+    de forma efectiva vía el bridge. set_group sigue en la lista solo por
+    compatibilidad con comandos viejos ya encolados antes del cambio.
     """
     url = f"{BACKEND_BASE_URL}/bridge/door-commands"
     headers = {"X-Bridge-Api-Key": BRIDGE_API_KEY}
-    params = {"school_id": SCHOOL_ID}
+    params = {"school_id": SCHOOL_ID, "command_types": "open_door,set_group,disable_user,enable_user"}
     try:
         resp = requests.get(url, headers=headers, params=params, timeout=10)
     except requests.RequestException as e:
@@ -228,15 +255,121 @@ def open_door_physically(device):
                 pass
 
 
+def set_group_physically(device, pin, group):
+    """
+    Conecta por SDK directo y mueve el PIN al grupo indicado (2 = bloqueado,
+    1 = normal), preservando el resto de los datos del usuario (nombre,
+    privilegio, clave, tarjeta) -- pyzk.set_user() reescribe el registro
+    completo, así que hay que leerlo primero con get_users() y solo cambiar
+    group_id, o se pierde el nombre/tarjeta del usuario en el lector.
+    Lanza excepcion si el PIN no esta enrolado localmente en este lector, o
+    si el dispositivo la rechaza -- el caller decide como manejarlo.
+
+    IMPORTANTE (2026-09-05, incidente en campo): a diferencia de
+    open_door_physically() (un solo comando de bajo nivel), esto hace una
+    lectura completa de usuarios (get_users()) + una escritura (set_user())
+    -- una operacion mas larga. La primera version de esta funcion no
+    llamaba disable_device()/enable_device() como sí hace poll_device() para
+    leer asistencia, y el lector de entrada de Dreamers dejo de responder
+    en la red (no solo el comando: last_seen_at tambien se congelo) despues
+    de una tanda de estos comandos. No hay certeza de que esto sea LA causa
+    (pudo coincidir con otra cosa), pero deshabilitar el equipo durante la
+    escritura es el mismo cuidado que ya se tiene para asistencia, asi que
+    se agrega acá tambien -- evita que el firmware tenga que atender una
+    huella en vivo a mitad de una escritura de usuario.
+    """
+    zk = ZK(device["ip"], port=device["port"], timeout=10)
+    conn = None
+    try:
+        conn = zk.connect()
+        conn.disable_device()
+
+        existing = next((u for u in conn.get_users() if str(u.user_id) == str(pin)), None)
+        if existing is None:
+            raise Exception(f"PIN {pin} no esta enrolado localmente en este lector")
+
+        conn.set_user(
+            uid=existing.uid,
+            name=existing.name,
+            privilege=existing.privilege,
+            password=existing.password,
+            group_id=str(group),
+            user_id=existing.user_id,
+            card=existing.card,
+        )
+        print(f"[{device['name']}] PIN {pin} movido a grupo {group}.")
+    finally:
+        if conn:
+            try:
+                conn.enable_device()
+            except Exception:
+                pass
+            try:
+                conn.disconnect()
+            except Exception:
+                pass
+
+
+def set_enabled_physically(device, pin, enabled):
+    """
+    Habilita/deshabilita el PIN por completo (bloqueo por mora en Dreamers,
+    2026-09-05 -- reemplaza a set_group_physically porque este MB360/ID no
+    tiene Zonas Horarias/Grupos). El campo "Enable" de ADMS (DATA UPDATE
+    USERINFO PIN=x Enable=0/1) no existe como parametro aparte en pyzk --
+    es el BIT 0 del campo `privilege` (confirmado en el codigo fuente de
+    pyzk: User.is_disabled() = bool(self.privilege & 1)). Se prende ese bit
+    para bloquear, se apaga para restaurar, preservando el resto del
+    privilegio (ej. un admin deshabilitado sigue siendo admin al reactivarlo).
+
+    Mismo cuidado que set_group_physically(): disable_device()/enable_device()
+    alrededor de la lectura+escritura, por el incidente de campo del
+    2026-09-05 con el lector de entrada.
+    """
+    zk = ZK(device["ip"], port=device["port"], timeout=10)
+    conn = None
+    try:
+        conn = zk.connect()
+        conn.disable_device()
+
+        existing = next((u for u in conn.get_users() if str(u.user_id) == str(pin)), None)
+        if existing is None:
+            raise Exception(f"PIN {pin} no esta enrolado localmente en este lector")
+
+        # Bit 0 de privilege: 1 = deshabilitado, 0 = habilitado.
+        new_privilege = (existing.privilege & 0xFE) if enabled else (existing.privilege | 1)
+
+        conn.set_user(
+            uid=existing.uid,
+            name=existing.name,
+            privilege=new_privilege,
+            password=existing.password,
+            group_id=existing.group_id,
+            user_id=existing.user_id,
+            card=existing.card,
+        )
+        print(f"[{device['name']}] PIN {pin} {'habilitado' if enabled else 'deshabilitado'}.")
+    finally:
+        if conn:
+            try:
+                conn.enable_device()
+            except Exception:
+                pass
+            try:
+                conn.disconnect()
+            except Exception:
+                pass
+
+
 def process_door_commands():
     commands = fetch_pending_door_commands()
     if not commands:
         return
 
-    print(f"{len(commands)} comando(s) de apertura pendiente(s).")
+    print(f"{len(commands)} comando(s) pendiente(s).")
     for cmd in commands:
         cmd_id = cmd.get("id")
         serial = cmd.get("device_serial")
+        command_type = cmd.get("command_type", "open_door")
         device = DEVICE_BY_SERIAL.get(serial)
 
         if not device:
@@ -244,13 +377,27 @@ def process_door_commands():
             ack_door_command(cmd_id, success=False, error_message=f"Serial no reconocido: {serial}")
             continue
 
-        print(f"Procesando comando {cmd_id} -> {device['name']} ({serial})")
+        print(f"Procesando comando {cmd_id} ({command_type}) -> {device['name']} ({serial})")
         try:
-            open_door_physically(device)
+            if command_type == "set_group":
+                metadata = cmd.get("metadata") or {}
+                pin = metadata.get("pin")
+                group = metadata.get("group")
+                if pin is None or group is None:
+                    raise Exception(f"metadata incompleta para set_group: {metadata}")
+                set_group_physically(device, pin, group)
+            elif command_type in ("disable_user", "enable_user"):
+                metadata = cmd.get("metadata") or {}
+                pin = metadata.get("pin")
+                if pin is None:
+                    raise Exception(f"metadata incompleta para {command_type}: {metadata}")
+                set_enabled_physically(device, pin, enabled=(command_type == "enable_user"))
+            else:
+                open_door_physically(device)
             ack_door_command(cmd_id, success=True)
         except Exception as e:
             error_msg = f"{type(e).__name__}: {e}"
-            print(f"ERROR abriendo puerta fisicamente para comando {cmd_id}: {error_msg}")
+            print(f"ERROR ejecutando comando {cmd_id} ({command_type}) fisicamente: {error_msg}")
             print(traceback.format_exc())
             ack_door_command(cmd_id, success=False, error_message=error_msg)
 

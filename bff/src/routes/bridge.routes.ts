@@ -30,19 +30,35 @@ function apiKeyOk(req: Request): boolean {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-// ─── GET /bridge/door-commands?school_id=<uuid> ──────────────────────────────
-// Reclama atómicamente los `open_door` pendientes y no expirados de la
-// escuela (UPDATE ... WHERE claimed_at IS NULL, en una sola sentencia — dos
-// llamadas concurrentes o un reintento de red no pueden reclamar la misma
-// fila dos veces). No se usa un valor 'claimed' de `status` porque no hay
-// certeza sobre un eventual CHECK constraint aplicado a mano en Supabase
-// (ver hallazgo 2 de la validación); `claimed_at` es una columna nueva y no
+// ─── GET /bridge/door-commands?school_id=<uuid>&command_types=open_door,set_group ─
+// Reclama atómicamente los comandos pendientes y no expirados de la escuela
+// (UPDATE ... WHERE claimed_at IS NULL, en una sola sentencia — dos llamadas
+// concurrentes o un reintento de red no pueden reclamar la misma fila dos
+// veces). No se usa un valor 'claimed' de `status` porque no hay certeza
+// sobre un eventual CHECK constraint aplicado a mano en Supabase (ver
+// hallazgo 2 de la validación); `claimed_at` es una columna nueva y no
 // cambia el significado de `status` para nadie más que lo lea.
+//
+// `command_types` (opcional, coma-separado) — default SOLO `open_door`, el
+// comportamiento de siempre para quien no lo manda (GYM RM: su F22ID sí
+// procesa `set_group` nativo por ADMS, agregar ese tipo acá lo dejaría en
+// carrera con el propio dispositivo reclamando el mismo comando). Dreamers
+// (MB360/ID, fix 2026-09-05) pasa `open_door,set_group`: sus lectores nunca
+// completan el push ADMS en absoluto (ver dreamers_bridge.py), así que
+// `set_group` (bloqueo por mora, banco de horas) tampoco les llegaba nunca
+// por ese canal — quedaban 'pending' para siempre, nunca 'executed' ni
+// 'failed'. Mismo mecanismo de reclamo, ejecución vía SDK local en vez de
+// ADMS.
 router.get('/door-commands', async (req: Request, res: Response) => {
   if (!apiKeyOk(req)) return res.status(401).json({ error: 'unauthorized' });
 
   const schoolId = req.query.school_id as string;
   if (!schoolId) return res.status(400).json({ error: 'school_id requerido' });
+
+  const commandTypes = String(req.query.command_types || 'open_door')
+    .split(',')
+    .map(t => t.trim())
+    .filter(Boolean);
 
   // Latido: cada sondeo exitoso del bridge (haya o no comandos) prueba que
   // sigue vivo y llegando al backend. alerted_at: null para que, si venia de
@@ -59,11 +75,11 @@ router.get('/door-commands', async (req: Request, res: Response) => {
       .from('device_commands')
       .update({ claimed_at: new Date().toISOString() })
       .eq('school_id', schoolId)
-      .eq('command_type', 'open_door')
+      .in('command_type', commandTypes)
       .eq('status', 'pending')
       .is('claimed_at', null)
       .gt('expires_at', new Date().toISOString())
-      .select('id, device_id, direction');
+      .select('id, device_id, direction, command_type, metadata');
 
     if (error) throw error;
     if (!claimed || claimed.length === 0) return res.json({ commands: [] });
@@ -83,6 +99,9 @@ router.get('/door-commands', async (req: Request, res: Response) => {
       id: c.id,
       device_serial: deviceById.get(c.device_id)?.serial_number ?? null,
       direction: c.direction,
+      command_type: c.command_type,
+      // Solo relevante para set_group (pin/group) — open_door no lo usa.
+      metadata: c.metadata ?? {},
       // NO se manda door_drive_time_seconds: el bridge dejo de usarlo (ver
       // scripts/gymrm-door-bridge/VALIDACION-2026-08-25.md, punto 6-bis del
       // 2026-08-26) -- ese campo trabaja en segundos enteros (CHECK 1-60) y

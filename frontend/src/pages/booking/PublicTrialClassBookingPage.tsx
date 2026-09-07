@@ -8,7 +8,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   Sparkles, ArrowRight, ArrowLeft, Loader2, Mail, User,
   CheckCircle2, AlertCircle, Baby, Building2, Calendar, Lock, Zap,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react';
+import { startOfMonth, endOfMonth, eachDayOfInterval, isBefore, isToday, startOfDay, format } from 'date-fns';
+import { es } from 'date-fns/locale';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
 import { useAvailableSessions, useBookSession, type BookableSession } from '@/hooks/useAthleteSessionBookings';
@@ -131,6 +134,10 @@ export default function PublicTrialClassBookingPage() {
   );
   const { mutateAsync: bookPlanSession, isPending: bookingPlan } = useBookSession(planChildId);
   const [bookedPlanSession, setBookedPlanSession] = useState<BookableSession | null>(null);
+  // Calendario tipo mes (mismo patrón que "Mis Inscripciones" / PT booking)
+  // para elegir día antes de ver los horarios de ese día.
+  const [planCalendarDate, setPlanCalendarDate] = useState(new Date());
+  const [selectedPlanDate, setSelectedPlanDate] = useState<string | null>(null);
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -168,6 +175,11 @@ export default function PublicTrialClassBookingPage() {
     }
     return groups;
   }, [planSessions]);
+
+  const availablePlanDates = useMemo(
+    () => new Set(Object.keys(planSessionsByDate)),
+    [planSessionsByDate],
+  );
 
   // ── Navegación: pila de pasos, para poder "Volver" en cualquier punto ───
   const goTo = (next: Step) => {
@@ -288,6 +300,8 @@ export default function PublicTrialClassBookingPage() {
       } else {
         setPlanIsAthleteSelf(true);
         setPlanChildId(undefined);
+        setSelectedPlanDate(null);
+        setPlanCalendarDate(new Date());
         goTo('plan_sessions');
       }
     } catch (err: any) {
@@ -300,6 +314,8 @@ export default function PublicTrialClassBookingPage() {
   const handlePickPlanChild = (c: ChildOption) => {
     setPlanChildId(c.id);
     setPlanIsAthleteSelf(false);
+    setSelectedPlanDate(null);
+    setPlanCalendarDate(new Date());
     goTo('plan_sessions');
   };
 
@@ -526,29 +542,104 @@ export default function PublicTrialClassBookingPage() {
               ) : Object.keys(planSessionsByDate).length === 0 ? (
                 <p className="text-xs text-center text-muted-foreground py-6">No hay clases disponibles para agendar en este momento.</p>
               ) : (
-                <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
-                  {Object.entries(planSessionsByDate).map(([date, daySessions]) => (
-                    <div key={date} className="space-y-1.5">
-                      <p className="text-[11px] font-bold uppercase text-primary capitalize">{fmtDate(date)}</p>
-                      <div className="space-y-1.5">
-                        {daySessions.map((s) => (
-                          <button
-                            key={s.id}
-                            disabled={s.already_booked || s.booking_status !== 'open' || bookingPlan}
-                            onClick={() => handleBookPlanSession(s)}
-                            className="w-full text-left text-xs rounded-lg border-2 border-border/50 p-3 flex items-center justify-between gap-2 disabled:opacity-50"
-                          >
-                            <span>
-                              <span className="font-bold">{fmtTime(s.start_time)}</span>
-                              <span className="text-muted-foreground ml-2">{s.team?.name}</span>
-                            </span>
-                            {s.already_booked ? <span className="text-muted-foreground">Ya agendada</span> : <ArrowRight className="h-3.5 w-3.5" />}
-                          </button>
-                        ))}
-                      </div>
+                <>
+                  {/* Calendario tipo mes: primero se elige el día, después se
+                      despliegan los horarios de ese día. */}
+                  <div className="rounded-xl border border-border/40 overflow-hidden bg-muted/10">
+                    <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/30">
+                      <button
+                        type="button"
+                        onClick={() => setPlanCalendarDate((d) => new Date(d.getFullYear(), d.getMonth() - 1))}
+                        className="p-1 rounded-md hover:bg-muted/60 transition-colors"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <p className="text-xs font-black uppercase tracking-wider capitalize">
+                        {format(planCalendarDate, 'MMMM yyyy', { locale: es })}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setPlanCalendarDate((d) => new Date(d.getFullYear(), d.getMonth() + 1))}
+                        className="p-1 rounded-md hover:bg-muted/60 transition-colors"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
                     </div>
-                  ))}
-                </div>
+
+                    <div className="grid grid-cols-7 text-center border-b border-border/20">
+                      {['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'].map((d) => (
+                        <div key={d} className="py-1.5 text-[9px] font-black text-muted-foreground uppercase">{d}</div>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-7 p-1">
+                      {(() => {
+                        const monthStart = startOfMonth(planCalendarDate);
+                        const monthEnd = endOfMonth(planCalendarDate);
+                        const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
+                        const startPad = (monthStart.getDay() + 6) % 7;
+                        const todayDate = startOfDay(new Date());
+
+                        return (
+                          <>
+                            {Array.from({ length: startPad }).map((_, i) => <div key={`p${i}`} />)}
+                            {days.map((day) => {
+                              const dateStr = format(day, 'yyyy-MM-dd');
+                              const isPast = isBefore(day, todayDate);
+                              const isToday_ = isToday(day);
+                              const isSelected = selectedPlanDate === dateStr;
+                              const isAvailable = availablePlanDates.has(dateStr);
+
+                              return (
+                                <button
+                                  key={dateStr}
+                                  type="button"
+                                  disabled={isPast || !isAvailable}
+                                  onClick={() => setSelectedPlanDate(isSelected ? null : dateStr)}
+                                  className={`relative flex flex-col items-center justify-center py-1.5 mx-0.5 my-0.5 text-[11px] font-semibold rounded-lg transition-all
+                                    ${isSelected ? 'bg-primary text-primary-foreground shadow-md'
+                                      : (isAvailable && !isPast) ? 'bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer'
+                                        : 'text-muted-foreground/30 cursor-default'}
+                                    ${isToday_ && !isSelected ? 'ring-1 ring-primary/50' : ''}`}
+                                >
+                                  {format(day, 'd')}
+                                  {isAvailable && !isPast && !isSelected && (
+                                    <span className="absolute bottom-0.5 w-1 h-1 rounded-full bg-primary/40" />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                  {!selectedPlanDate ? (
+                    <div className="py-6 text-center text-muted-foreground bg-muted/20 rounded-xl border border-dashed border-border/40">
+                      <Calendar className="h-6 w-6 mx-auto mb-2 opacity-20" />
+                      <p className="text-xs font-medium">Selecciona un día con horarios disponibles</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                      <p className="text-[11px] font-bold uppercase text-primary capitalize">{fmtDate(selectedPlanDate)}</p>
+                      {(planSessionsByDate[selectedPlanDate] ?? []).map((s) => (
+                        <button
+                          key={s.id}
+                          disabled={s.already_booked || s.booking_status !== 'open' || bookingPlan}
+                          onClick={() => handleBookPlanSession(s)}
+                          className="w-full text-left text-xs rounded-lg border-2 border-border/50 p-3 flex items-center justify-between gap-2 disabled:opacity-50"
+                        >
+                          <span>
+                            <span className="font-bold">{fmtTime(s.start_time)}</span>
+                            <span className="text-muted-foreground ml-2">{s.team?.name}</span>
+                          </span>
+                          {s.already_booked ? <span className="text-muted-foreground">Ya agendada</span> : <ArrowRight className="h-3.5 w-3.5" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}

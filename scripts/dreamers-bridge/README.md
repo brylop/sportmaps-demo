@@ -38,6 +38,12 @@ Corre en una PC de la red local de Dreamers. Cada 5 segundos:
    local — sin esto, el botón de abrir puerta del dashboard nunca le
    llegaría a estos lectores (no hablan ADMS, así que tampoco podrían
    recibir el comando por ese canal aunque funcionara).
+6. **Bloqueo por mora / Grupo (2026-09-05):** el mismo sondeo también pide
+   `set_group` (pasando `command_types=open_door,set_group` al endpoint) y
+   mueve el PIN al grupo indicado por `pyzk.set_user()` — mismo problema de
+   fondo que la apertura manual: "Bloquear ahora" y el bloqueo automático
+   por mora tampoco le llegaban nunca a estos lectores, quedaban `pending`
+   para siempre.
 
 Estado local en `bridge_state.json` (se crea solo) — evita reenviar
 eventos ya mandados. **No borrar ese archivo** salvo que quieras que
@@ -86,6 +92,27 @@ Si el valor que sirve no es 2, actualizá `DOOR_PULSE_DECISECONDS` en
 `dreamers_bridge.py` (o seteá `SPORTMAPS_BRIDGE_PULSE_DECISECONDS` como
 variable de entorno, sin tocar el archivo) y reiniciá la tarea.
 
+## ⚠️ Antes de confiar en el bloqueo por mora: probar el Grupo 2
+
+Que el comando **llegue** al equipo (esto ya lo resuelve el bridge) no es lo
+mismo que el equipo **niegue el paso** a quien está en Grupo 2 — eso depende
+de cómo esté configurado el Grupo 2 en el propio lector (su horario/franjas
+asociadas), algo que vive en el equipo, no en este script ni en la base.
+
+Con la tarea programada corriendo normal:
+1. Bloqueá un PIN real de prueba desde Control de Acceso ("Bloquear ahora").
+2. Confirmá en la base que el comando pasó a `executed` (antes del fix de
+   hoy se quedaba en `pending` para siempre):
+   ```sql
+   select status, executed_at, error_message from device_commands
+   where command_type = 'set_group' order by issued_at desc limit 5;
+   ```
+3. Intentá pasar con esa huella en el torniquete físico. Si te deja pasar
+   igual, el problema ya no es de conectividad (el comando sí llegó) sino
+   de configuración del Grupo 2 en el equipo — revisar en el menú local del
+   MB360 o consultar con el distribuidor (`tvc.mx` u otro soporte ZKTeco).
+4. Restaurá el PIN a Grupo 1 al terminar la prueba.
+
 ## Verificar que está funcionando
 
 - Revisar `bridge_supervisor.log` en esta carpeta (se va llenando con la
@@ -120,3 +147,7 @@ Unregister-ScheduledTask -TaskName "SportMaps-DreamersBridge" -Confirm:$false
   Confirmado 2026-08-27 al portar el heartbeat de GYM RM — ver
   `scripts/gymrm-door-bridge/VALIDACION-2026-08-25.md`.
 - La apertura manual está sin calibrar en campo — ver sección de arriba.
+- El bloqueo por mora (Grupo 2) está sin probar en campo si de verdad
+  bloquea el paso físico en el MB360 de Dreamers — ver sección "Probar el
+  bloqueo por Grupo" de arriba. El comando ya llega al equipo (fix
+  2026-09-05); lo que falta confirmar es la configuración del Grupo 2 en sí.

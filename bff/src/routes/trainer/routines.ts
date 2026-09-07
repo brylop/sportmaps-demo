@@ -533,6 +533,8 @@ router.delete('/session-plans/:planId', async (req: Request, res: Response) => {
 router.patch('/session-plans/:planId/progress', async (req: Request, res: Response) => {
     try {
         const { planId } = req.params;
+        const { id: trainerId } = req.user;
+        const { schoolId } = req;
         const { execution_progress } = req.body;
 
         const { data, error } = await supabase
@@ -543,6 +545,8 @@ router.patch('/session-plans/:planId/progress', async (req: Request, res: Respon
                 updated_at: new Date().toISOString(),
             })
             .eq('id', planId)
+            .eq('trainer_id', trainerId)
+            .eq('school_id', schoolId)
             .in('status', ['assigned', 'in_progress']) // no tocar completed/cancelled
             .select('id, status, execution_progress')
             .single();
@@ -562,6 +566,8 @@ router.patch('/session-plans/:planId/progress', async (req: Request, res: Respon
 router.patch('/session-plans/:planId/feedback', async (req: Request, res: Response) => {
     try {
         const { planId } = req.params;
+        const { id: trainerId } = req.user;
+        const { schoolId } = req;
         const { note, rating } = req.body;
 
         const trainer_feedback = {
@@ -575,6 +581,8 @@ router.patch('/session-plans/:planId/feedback', async (req: Request, res: Respon
             .from('trainer_session_plans')
             .update({ trainer_feedback, updated_at: new Date().toISOString() })
             .eq('id', planId)
+            .eq('trainer_id', trainerId)
+            .eq('school_id', schoolId)
             .select('id, trainer_feedback')
             .single();
 
@@ -602,6 +610,21 @@ router.post('/session-exercise-results', async (req: Request, res: Response) => 
 
         if (!plan_id || !athlete_id || !exercise_name || set_number === undefined) {
             return res.status(400).json({ error: 'Faltan campos requeridos (plan_id, athlete_id, exercise_name, set_number).' });
+        }
+
+        // plan_id/athlete_id vienen del cliente: verificar que el plan sea de
+        // ESTE trainer antes de aceptar el resultado — sin esto, cualquier
+        // trainer podía escribir resultados sobre el plan de otro.
+        const { data: plan } = await supabase
+            .from('trainer_session_plans')
+            .select('id')
+            .eq('id', plan_id)
+            .eq('trainer_id', trainerId)
+            .eq('school_id', req.schoolId)
+            .maybeSingle();
+
+        if (!plan) {
+            return res.status(403).json({ error: 'Plan no encontrado en tu academia.' });
         }
 
         const { data, error } = await supabase

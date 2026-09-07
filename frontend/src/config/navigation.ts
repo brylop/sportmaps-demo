@@ -53,6 +53,14 @@ export interface NavItem {
   /** Si la escuela no tiene este addon, el ítem (o el grupo entero, si queda vacío) se oculta. */
   addon?: AddonKey;
   /**
+   * Inverso de `addon`: el ítem se oculta si la escuela SÍ tiene este otro
+   * addon. Sirve para no duplicar en el menú una función que ya vive
+   * integrada dentro de un módulo más grande (ej. Facturación electrónica
+   * standalone se oculta cuando ya hay Contabilidad completa, porque ahí
+   * aparece como pestaña).
+   */
+  hideIfAddon?: AddonKey;
+  /**
    * Override UX-only del Super Admin (tabla `school_module_overrides`,
    * catálogo en `module-catalog.ts`). Independiente de `addon`: si el ítem
    * tiene los dos, la visibilidad efectiva es `hasAddon AND isModuleEnabled`.
@@ -156,6 +164,7 @@ const GESTION_DEPORTIVA_ESCUELA: NavItem[] = [
 function filterByAddon(items: NavItem[], hasAddon: (key: AddonKey) => boolean): NavItem[] {
   return items
     .filter(item => !item.addon || hasAddon(item.addon))
+    .filter(item => !item.hideIfAddon || !hasAddon(item.hideIfAddon))
     .map(item => item.submenu ? { ...item, submenu: filterByAddon(item.submenu, hasAddon) } : item)
     .filter(item => !item.submenu || item.submenu.length > 0);
 }
@@ -372,6 +381,19 @@ export function getNavigationByRole(
               { title: 'Estado de resultados', href: '/accounting/reports', icon: TrendingUp },
               { title: 'Presupuesto', href: '/accounting/budget', icon: PieChart },
             ],
+          },
+          {
+            // Standalone: factura mensualidades/inscripciones/torneos/tienda
+            // sin necesitar Contabilidad completa (el motor de emisión ya lee
+            // payments/marketplace_transactions/orders directo). Se oculta si
+            // la escuela YA tiene 'accounting' para no duplicar el acceso —
+            // ahí la misma función vive como pestaña dentro de Contabilidad.
+            title: 'Facturación electrónica',
+            href: '/facturacion-electronica',
+            icon: FileText,
+            addon: 'invoicing',
+            hideIfAddon: 'accounting',
+            moduleKey: 'finanzas_facturacion_electronica',
           },
         ]
       },
@@ -602,6 +624,19 @@ export function getNavigationByRole(
               { title: 'Estado de resultados', href: '/accounting/reports', icon: TrendingUp },
               { title: 'Presupuesto', href: '/accounting/budget', icon: PieChart },
             ],
+          },
+          {
+            // Standalone: factura mensualidades/inscripciones/torneos/tienda
+            // sin necesitar Contabilidad completa (el motor de emisión ya lee
+            // payments/marketplace_transactions/orders directo). Se oculta si
+            // la escuela YA tiene 'accounting' para no duplicar el acceso —
+            // ahí la misma función vive como pestaña dentro de Contabilidad.
+            title: 'Facturación electrónica',
+            href: '/facturacion-electronica',
+            icon: FileText,
+            addon: 'invoicing',
+            hideIfAddon: 'accounting',
+            moduleKey: 'finanzas_facturacion_electronica',
           },
         ]
       },

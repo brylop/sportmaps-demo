@@ -44,7 +44,7 @@ import { Calendar as CalendarIcon } from 'lucide-react';
 const editChildSchema = z.object({
     full_name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres').max(100),
     date_of_birth: z.string().min(1, 'La fecha de nacimiento es requerida'),
-    grade: z.string().min(1, 'El grado escolar es requerido'),
+    grade: z.string().optional(),
     doc_type: z.string().min(1, 'El tipo de documento es requerido'),
     doc_number: z.string().min(5, 'El número de documento debe tener al menos 5 caracteres'),
     emergency_contact_name: z.string().min(2, 'El nombre del contacto es requerido'),
@@ -348,7 +348,7 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
                                         name="grade"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>Grado / Nivel *</FormLabel>
+                                                <FormLabel>Grado / Nivel</FormLabel>
                                                 <FormControl>
                                                     <Input placeholder="Ej: 5° Primaria" {...field} />
                                                 </FormControl>
@@ -617,7 +617,7 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
                             </div>
                         </div>
 
-                        <div className="flex justify-between items-center pt-4 border-t border-muted">
+                        <div className="sticky bottom-0 bg-background flex justify-between items-center pt-4 border-t border-muted">
                             <Button
                                 type="button"
                                 variant="ghost"
