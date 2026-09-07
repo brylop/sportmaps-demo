@@ -47,7 +47,7 @@ const childSchema = z.object({
   // Step 1: Información Básica
   full_name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres').max(100),
   date_of_birth: z.string().min(1, 'La fecha de nacimiento es requerida'),
-  grade: z.string().min(1, 'El grado escolar es requerido'),
+  grade: z.string().optional(),
   doc_type: z.string().min(1, 'El tipo de documento es requerido'),
   doc_number: z.string().min(5, 'El número de documento debe tener al menos 5 caracteres'),
 
@@ -60,7 +60,7 @@ const childSchema = z.object({
   tshirt_size: z.string().optional(),
   blood_type: z.string().optional(),
   eps_name: z.string().optional(),
-  has_allergies: z.boolean().optional(),
+  has_allergies: z.boolean({ invalid_type_error: 'Selecciona una opción' }),
   allergy_type: z.string().optional(),
   allergy_severity: z.string().optional(),
   allergy_treatment: z.string().optional(),
@@ -87,7 +87,6 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
   const { user } = useAuth();
   const { uploadFile, uploading: isUploading } = useStorage();
   const [currentStep, setCurrentStep] = useState(1);
-  const [hasAllergies, setHasAllergies] = useState(false);
 
   const form = useForm<ChildFormValues>({
     resolver: zodResolver(childSchema),
@@ -115,6 +114,12 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
     },
   });
 
+  // Derivado del propio form en vez de un useState aparte: dos fuentes de
+  // verdad para lo mismo se desincronizaban (ej. al volver del paso 2 al 1
+  // y regresar, el radio visual quedaba desalineado del valor real y el
+  // bloque de campos de alergia no coincidía con la opción marcada).
+  const hasAllergies = form.watch('has_allergies');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -124,7 +129,7 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
 
   const nextStep = async () => {
     const fieldsToValidate = currentStep === 1
-      ? ['full_name', 'date_of_birth', 'grade', 'doc_type', 'doc_number', 'id_document_url']
+      ? ['full_name', 'date_of_birth', 'doc_type', 'doc_number', 'id_document_url']
       : ['emergency_contact_name', 'emergency_contact_phone', 'accept_general_data', 'accept_sensitive_data'];
 
     const isValid = await form.trigger(fieldsToValidate as any);
@@ -397,7 +402,7 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
                       name="grade"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Grado / Nivel *</FormLabel>
+                          <FormLabel>Grado / Nivel</FormLabel>
                           <FormControl>
                             <Input placeholder="Ej: 5° Primaria" {...field} />
                           </FormControl>
@@ -631,12 +636,8 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
                           <FormLabel>¿El menor tiene alguna alergia o condición médica? *</FormLabel>
                           <FormControl>
                             <RadioGroup
-                              onValueChange={(val) => {
-                                const boolVal = val === 'true';
-                                field.onChange(boolVal);
-                                setHasAllergies(boolVal);
-                              }}
-                              defaultValue={field.value ? 'true' : 'false'}
+                              onValueChange={(val) => field.onChange(val === 'true')}
+                              value={field.value ? 'true' : 'false'}
                               className="flex gap-4"
                             >
                               <div className="flex items-center space-x-2">
@@ -777,7 +778,7 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
               )}
             </div>
 
-            <div className="flex justify-between items-center pt-4 border-t border-muted">
+            <div className="sticky bottom-0 bg-background flex justify-between items-center pt-4 border-t border-muted">
               {currentStep === 1 ? (
                 <>
                   <Button

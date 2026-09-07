@@ -243,7 +243,7 @@ async function isStaff(schoolId: string, userId: string): Promise<boolean> {
   return value;
 }
 
-async function validateAccess(schoolId: string, zkPin: string): Promise<{
+async function validateAccess(schoolId: string, zkPin: string, direction: 'entry' | 'exit'): Promise<{
   granted: boolean;
   reason?: string;
   userId?: string;
@@ -286,6 +286,42 @@ async function validateAccess(schoolId: string, zkPin: string): Promise<{
     : enrollQuery.eq('unregistered_athlete_id', mapping.unregisteredAthleteId).maybeSingle()
   );
 
+  // 4. Obtener nombre del atleta para el log (se necesita también en la salida)
+  let userName = 'Usuario';
+
+  if (isRegistered) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', mapping.userId)
+      .maybeSingle();
+    userName = profile?.full_name ?? 'Usuario';
+  } else {
+    const { data: ua } = await supabase
+      .from('unregistered_athletes')
+      .select('full_name')
+      .eq('id', mapping.unregisteredAthleteId)
+      .maybeSingle();
+    userName = ua?.full_name ?? 'Atleta';
+  }
+
+  // La SALIDA nunca se deniega por inscripción/pago — el torniquete físico
+  // tampoco lo hace (F22 decide con su propia base local), y negarla acá solo
+  // esconde el evento real: quedaba guardada como "denegado, pago vencido" sin
+  // rastro de que la persona sí salió (caso real: Edna, 2026-09-05). Se sigue
+  // resolviendo enrollmentId/userName arriba para que el banco de horas y el
+  // reporte sepan quién fue — el estado de pago/inscripción sigue disponible
+  // aparte (school_athletes.payment_status), solo deja de pisar este evento.
+  if (direction === 'exit') {
+    return {
+      granted: true,
+      userId: mapping.userId ?? undefined,
+      unregisteredAthleteId: mapping.unregisteredAthleteId ?? undefined,
+      userName,
+      enrollmentId: enrollment?.id,
+    };
+  }
+
   if (!enrollment) {
     return {
       granted: false,
@@ -326,25 +362,6 @@ async function validateAccess(schoolId: string, zkPin: string): Promise<{
       unregisteredAthleteId: mapping.unregisteredAthleteId ?? undefined,
       enrollmentId: enrollment.id,
     };
-  }
-
-  // 4. Obtener nombre del atleta para el log
-  let userName = 'Usuario';
-
-  if (isRegistered) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('full_name')
-      .eq('id', mapping.userId)
-      .maybeSingle();
-    userName = profile?.full_name ?? 'Usuario';
-  } else {
-    const { data: ua } = await supabase
-      .from('unregistered_athletes')
-      .select('full_name')
-      .eq('id', mapping.unregisteredAthleteId)
-      .maybeSingle();
-    userName = ua?.full_name ?? 'Atleta';
   }
 
   return {
@@ -518,17 +535,48 @@ async function trackHourBankVisit(
     if (openVisit) {
       const { data: lastSeg } = await supabase
         .from('hour_bank_visit_segments')
-        .select('id, exited_at')
+        .select('id, entered_at, exited_at')
         .eq('visit_id', openVisit.id)
         .order('entered_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (lastSeg && !lastSeg.exited_at) {
-        return; // ya está adentro (entrada duplicada/glitch) — no crear nada
-      }
+        const gapMinutes = (new Date(occurredAt).getTime() - new Date(lastSeg.entered_at).getTime()) / 60000;
+        if (gapMinutes <= settings.reentryMergeMinutes) {
+          return; // ya está adentro (entrada duplicada/glitch de lector) — no crear nada
+        }
+        // La huella de salida nunca sonó y ya pasó la ventana de gracia — no
+        // sabemos la hora real de salida (pudo irse por otra puerta, el lector
+        // de salida pudo fallar). Antes de este fix, cualquier reentrada acá se
+        // ignoraba sin mirar el hueco, así que una ausencia real de horas
+        // quedaba fusionada en silencio y se facturaba completa al cerrar. Se
+        // manda a pending_review (mismo criterio que auto_close_stale_hour_bank_visits
+        // para "nunca marcó salida", migración 20260827174032) — sin facturar a
+        // ciegas — y esta entrada abre una visita nueva más abajo.
+        await supabase
+          .from('hour_bank_visits')
+          .update({
+            status: 'pending_review',
+            auto_closed: true,
+            ended_at: lastSeg.entered_at,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', openVisit.id);
 
-      if (lastSeg && lastSeg.exited_at) {
+        const { data: school } = await supabase.from('schools').select('owner_id').eq('id', schoolId).maybeSingle();
+        if (school?.owner_id) {
+          await supabase.from('notifications').insert({
+            user_id:  school.owner_id,
+            school_id: schoolId,
+            type:     'hour_bank_pending_review',
+            title:    '⏱️ Banco de horas — visita a revisar',
+            message:  `${athleteName} volvió a marcar entrada sin haber marcado salida la vez anterior. Revisa y ajusta la hora real de salida.`,
+            link:     '/school/access-control',
+          });
+        }
+        // No return: sigue abajo y abre una visita nueva con esta entrada.
+      } else if (lastSeg && lastSeg.exited_at) {
         const gapMinutes = (new Date(occurredAt).getTime() - new Date(lastSeg.exited_at).getTime()) / 60000;
         if (gapMinutes <= settings.reentryMergeMinutes) {
           // D-6: reentrada corta — nuevo segmento en la MISMA visita, no se cierra nada
@@ -686,7 +734,7 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
         continue;
       }
 
-      const validation = await validateAccess(schoolId, zkPin);
+      const validation = await validateAccess(schoolId, zkPin, eventDirection);
 
       // Dedup: índice único (device_id, zk_user_id, occurred_at). Si el lector
       // reenvía el backlog, ON CONFLICT DO NOTHING evita inflar access_events.

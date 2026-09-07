@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   Dialog,
   DialogContent,
@@ -40,13 +41,21 @@ interface Props {
 }
 
 export function UploadChildDocumentsDialog({ open, onOpenChange, child }: Props) {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState<DocType | null>(null);
 
   const bucket = 'identity-documents';
-  const folder = `children/${child.id}/docs`;
+  // La policy de INSERT en storage.objects exige que el segmento [2] de la
+  // ruta sea el auth.uid() del padre (ver migración 20260221000025) — subir
+  // a children/{child.id}/... en vez de children/{user.id}/... siempre
+  // rechazaba con "new row violates row-level security policy" sin importar
+  // quién fuera el padre real. El {child.id} va como sub-carpeta extra para
+  // poder listar los documentos de ESTE hijo puntual (un padre con varios
+  // hijos comparte la carpeta children/{user.id}/, ver AddChildDialog).
+  const folder = `children/${user?.id}/${child.id}/docs`;
 
   const classifyFile = (name: string): DocType | 'other' => {
     if (name.startsWith('identity-') || name.startsWith('id-')) return 'identity';

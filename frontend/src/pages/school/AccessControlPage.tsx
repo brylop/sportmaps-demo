@@ -193,10 +193,17 @@ function StatCategoryDetail({
                   {METHOD_ICON[e.check_in_method] ?? <User className="h-3.5 w-3.5" />}
                   {formatTime(e.occurred_at)}
                 </p>
-                {category === 'denied' && e.denial_reason && (
-                  <Badge variant="outline" className="mt-1 text-[9px] h-4 px-1 py-0 border-destructive/30 text-destructive">
-                    {DENIAL_LABEL[e.denial_reason] ?? e.denial_reason}
-                  </Badge>
+                {category === 'denied' && (
+                  <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                    <span className="text-[10px] text-muted-foreground">
+                      {e.direction === 'entry' ? 'Entrada' : 'Salida'}
+                    </span>
+                    {e.denial_reason && (
+                      <Badge variant="outline" className="text-[9px] h-4 px-1 py-0 border-destructive/30 text-destructive">
+                        {DENIAL_LABEL[e.denial_reason] ?? e.denial_reason}
+                      </Badge>
+                    )}
+                  </div>
                 )}
               </div>
             ))}
@@ -744,7 +751,10 @@ export default function AccessControlPage() {
                     !event.access_granted ? 'bg-destructive/5' : ''
                   }`}
                 >
-                  {/* Ícono dirección */}
+                  {/* Ícono dirección — siempre según direction, el tinte destructivo
+                      solo avisa que hubo un motivo de negocio en contra (vencido/sin
+                      inscripción), sin tapar si fue entrada o salida (ver caso Edna,
+                      2026-09-05: "pago vencido" no puede borrar que sí salió). */}
                   <div className={`shrink-0 rounded-full p-1.5 ${
                     !event.access_granted
                       ? 'bg-destructive/10 text-destructive'
@@ -752,27 +762,23 @@ export default function AccessControlPage() {
                         ? 'bg-green-500/10 text-green-600'
                         : 'bg-blue-500/10 text-blue-600'
                   }`}>
-                    {!event.access_granted
-                      ? <ShieldX className="h-3.5 w-3.5" />
-                      : event.direction === 'entry'
-                        ? <TrendingUp className="h-3.5 w-3.5" />
-                        : <TrendingDown className="h-3.5 w-3.5" />
+                    {event.direction === 'entry'
+                      ? <TrendingUp className="h-3.5 w-3.5" />
+                      : <TrendingDown className="h-3.5 w-3.5" />
                     }
                   </div>
 
                   {/* Nombre */}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{event.user_name}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      <span className="text-xs text-muted-foreground">
+                        {event.direction === 'entry' ? 'Entrada' : 'Salida'}
+                      </span>
                       {!event.access_granted && event.denial_reason && (
-                        <span className="text-xs text-destructive">
+                        <Badge variant="outline" className="text-[9px] h-4 px-1 py-0 border-destructive/30 text-destructive">
                           {DENIAL_LABEL[event.denial_reason] ?? event.denial_reason}
-                        </span>
-                      )}
-                      {event.access_granted && (
-                        <span className="text-xs text-muted-foreground">
-                          {event.direction === 'entry' ? 'Entrada' : 'Salida'}
-                        </span>
+                        </Badge>
                       )}
                     </div>
                   </div>

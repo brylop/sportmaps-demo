@@ -25,6 +25,14 @@ export function initSentry() {
         userInfo: false,
         httpBodies: [],
       },
+      // Ruido conocido de html5-qrcode (fallback web de @capacitor/barcode-scanner
+      // en /coach-attendance/scan): rechazos internos de la librería que no pasan
+      // por nuestro try/catch y no afectan al usuario — el botón de escanear
+      // vuelve a su estado normal en ambos casos.
+      ignoreErrors: [
+        'Permission dismissed',
+        'Cannot stop, scanner is not running or paused.',
+      ],
     },
     SentryReact.init,
   );

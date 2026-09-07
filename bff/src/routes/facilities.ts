@@ -1,8 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
-import { requireAuth } from '../middlewares/authMiddleware';
+import { requireAuth, requireRole } from '../middlewares/authMiddleware';
 
 const router = Router();
+
+const FACILITY_ADMIN_ROLES = ['owner', 'super_admin', 'admin', 'school_admin'] as const;
 
 // ── Disponibilidad de la instalación (calcado de school-staff.ts :coachId/availability) ──
 
@@ -28,7 +30,7 @@ router.get('/:facilityId/availability', requireAuth, async (req: Request, res: R
 });
 
 // POST /api/v1/facilities/:facilityId/availability
-router.post('/:facilityId/availability', requireAuth, async (req: Request, res: Response) => {
+router.post('/:facilityId/availability', requireAuth, requireRole(...FACILITY_ADMIN_ROLES), async (req: Request, res: Response) => {
   try {
     const { schoolId } = req;
     const { facilityId } = req.params;
@@ -54,15 +56,16 @@ router.post('/:facilityId/availability', requireAuth, async (req: Request, res: 
 });
 
 // DELETE /api/v1/facilities/:facilityId/availability/:availId
-router.delete('/:facilityId/availability/:availId', requireAuth, async (req: Request, res: Response) => {
+router.delete('/:facilityId/availability/:availId', requireAuth, requireRole(...FACILITY_ADMIN_ROLES), async (req: Request, res: Response) => {
   try {
     const { schoolId } = req;
-    const { availId } = req.params;
+    const { facilityId, availId } = req.params;
 
     const { error } = await supabase
       .from('facility_availability')
       .delete()
       .eq('id', availId)
+      .eq('facility_id', facilityId)
       .eq('school_id', schoolId);
 
     if (error) throw error;
