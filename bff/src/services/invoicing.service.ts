@@ -157,12 +157,17 @@ export async function emitInvoiceForPayment(paymentId: string): Promise<EmitResu
 
     const { data: payment } = await supabase
         .from('payments')
-        .select('id, amount, concept, school_id, parent_id')
+        .select('id, amount, concept, school_id, parent_id, user_id')
         .eq('id', paymentId)
         .maybeSingle();
     if (!payment) return { ok: false, error: 'payment_not_found' };
     if (!payment.school_id) return { ok: false, error: 'payment_without_school' };
-    if (!payment.parent_id) return { ok: false, error: 'payment_without_payer' };
+    // El comprador es parent_id (menor con acudiente) o, si no hay, user_id
+    // (atleta adulto que paga por sí mismo — school_athletes.parent_id sale
+    // NULL para athlete_type='adult'; antes esto dejaba sus pagos sin
+    // facturar en TODOS los canales, no solo efectivo).
+    const payerId = payment.parent_id || payment.user_id;
+    if (!payerId) return { ok: false, error: 'payment_without_payer' };
 
     const ownerType: OwnerType = 'school';
     const ownerId: string = payment.school_id;
@@ -170,7 +175,7 @@ export async function emitInvoiceForPayment(paymentId: string): Promise<EmitResu
     const cfg = await resolveInvoiceProvider(ownerType, ownerId);
     if (!cfg) return { ok: false, error: 'no_invoice_provider' };
 
-    const customer = await loadCustomer(payment.parent_id);
+    const customer = await loadCustomer(payerId);
     if (!customer) return { ok: false, error: 'customer_missing_fiscal_data' };
 
     const { isExcluded, taxRate } = taxDefaults(cfg);

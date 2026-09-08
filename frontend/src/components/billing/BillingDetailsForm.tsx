@@ -26,10 +26,22 @@ const billingSchema = z.object({
 
 type BillingFormValues = z.infer<typeof billingSchema>;
 
-export function BillingDetailsForm({ onComplete }: { onComplete: () => void }) {
+export function BillingDetailsForm({
+    onComplete,
+    userId,
+    schoolId,
+}: {
+    onComplete: () => void;
+    /** Perfil a actualizar. Por defecto el usuario logueado (caso del checkout del propio padre). Un admin registrando un pago manual pasa el id del pagador (padre o atleta adulto). */
+    userId?: string;
+    /** Requerido junto a `userId`: la policy UPDATE de profiles es self-only, así que este caso pasa por la RPC admin_set_payer_billing_details (verifica que el pagador pertenezca a esta escuela). */
+    schoolId?: string;
+}) {
     const { user } = useAuth();
     const { toast } = useToast();
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const targetUserId = userId || user?.id;
+    const isAdminOnBehalf = !!userId;
 
     const form = useForm<BillingFormValues>({
         resolver: zodResolver(billingSchema),
@@ -43,32 +55,49 @@ export function BillingDetailsForm({ onComplete }: { onComplete: () => void }) {
     });
 
     const onSubmit = async (data: BillingFormValues) => {
-        if (!user) return;
+        if (!targetUserId) return;
+        if (isAdminOnBehalf && !schoolId) return;
         setIsSubmitting(true);
         try {
-            const { error } = await supabase
-                .from('profiles')
-                .update({
-                    document_type: data.document_type,
-                    document_number: data.document_number,
-                    billing_address: data.billing_address,
-                    billing_state_dane: data.billing_state_dane,
-                    billing_city_dane: data.billing_city_dane,
-                })
-                .eq('id', user.id);
+            // Self (padre en su propio checkout): UPDATE directo, cubierto por la
+            // policy "auth.uid() = id". Admin llenando por otro (pago manual): esa
+            // policy no aplica (self-only), va por la RPC con su propio guard de
+            // alcance (el pagador debe ser padre/atleta adulto de esa escuela).
+            const { error } = isAdminOnBehalf
+                ? (await supabase.rpc('admin_set_payer_billing_details', {
+                    p_school_id: schoolId,
+                    p_user_id: targetUserId,
+                    p_document_type: data.document_type,
+                    p_document_number: data.document_number,
+                    p_billing_address: data.billing_address,
+                    p_billing_state_dane: data.billing_state_dane,
+                    p_billing_city_dane: data.billing_city_dane,
+                }))
+                : (await supabase
+                    .from('profiles')
+                    .update({
+                        document_type: data.document_type,
+                        document_number: data.document_number,
+                        billing_address: data.billing_address,
+                        billing_state_dane: data.billing_state_dane,
+                        billing_city_dane: data.billing_city_dane,
+                    })
+                    .eq('id', targetUserId));
 
             if (error) throw error;
 
             toast({
                 title: 'Datos guardados',
-                description: 'Tu información de facturación electrónica se actualizó exitosamente.',
+                description: isAdminOnBehalf
+                    ? 'Los datos de facturación del pagador quedaron guardados.'
+                    : 'Tu información de facturación electrónica se actualizó exitosamente.',
             });
             onComplete();
         } catch (error: unknown) {
             const err = error as { message?: string };
             toast({
                 title: 'Error al guardar',
-                description: err.message || 'No se pudieron guardar tus datos. Inténtalo de nuevo.',
+                description: err.message || 'No se pudieron guardar los datos. Inténtalo de nuevo.',
                 variant: 'destructive',
             });
         } finally {
@@ -81,8 +110,12 @@ export function BillingDetailsForm({ onComplete }: { onComplete: () => void }) {
             <Alert className="bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300">
                 <FileText className="h-4 w-4" />
                 <AlertDescription>
-                    Por regulaciones de la DIAN, necesitamos tus datos de facturación electrónica para procesar este pago.
-                    <br /><strong>Solo te pediremos esta información una vez.</strong>
+                    {isAdminOnBehalf ? (
+                        <>Por regulaciones de la DIAN, se necesitan los datos de facturación electrónica del pagador.</>
+                    ) : (
+                        <>Por regulaciones de la DIAN, necesitamos tus datos de facturación electrónica para procesar este pago.</>
+                    )}
+                    <br /><strong>Solo se pedirá esta información una vez — queda guardada para los próximos pagos, sin importar el medio.</strong>
                 </AlertDescription>
             </Alert>
 
