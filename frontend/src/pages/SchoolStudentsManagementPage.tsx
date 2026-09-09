@@ -20,7 +20,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { StatFilterBar, type StatFilterTone } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
-import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin, X, RefreshCw, Clock, Upload } from 'lucide-react';
+import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin, X, RefreshCw, Clock, Upload, AlertTriangle } from 'lucide-react';
 import { HourBankBalanceCard } from '@/components/access/HourBankBalanceCard';
 import { StudentReportPanel } from '@/components/access/StudentReportPanel';
 import { useToast } from '@/hooks/use-toast';
@@ -40,7 +40,13 @@ import { EpsCombobox } from '@/components/common/EpsCombobox';
 import { TSHIRT_SIZES, BLOOD_TYPES } from '@/lib/athlete-options';
 import { CreateChildModal } from '@/components/students/CreateChildModal';
 import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
-import { useSchoolContext, createStudentWithPendingPayment } from '@/hooks/useSchoolContext';
+import {
+  useSchoolContext,
+  createStudentWithPendingPayment,
+  describirAtletaDuplicado,
+  esAtletaDuplicado,
+  type AtletaDuplicado,
+} from '@/hooks/useSchoolContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { studentsAPI, StudentViewRow } from '@/lib/api/students';
 import { daysDiffFromToday } from '@/lib/dateUtils';
@@ -221,6 +227,9 @@ export default function SchoolStudentsManagementPage() {
   // Besser: el coach no ve mensualidad ni estado de pago en ninguna pantalla.
   const hideFinancials = profile?.role === 'coach' && coachHideFinancialInfo;
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Atleta que ya existe en la escuela y coincide con el que se está creando.
+  // Mientras esté acá, el alta NO se hizo.
+  const [dupAviso, setDupAviso] = useState<AtletaDuplicado | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [showCreateChildModal, setShowCreateChildModal] = useState(false);
@@ -596,12 +605,13 @@ export default function SchoolStudentsManagementPage() {
   });
 
   const createStudentMutation = useMutation({
-    mutationFn: async (data: StudentFormData) => {
+    mutationFn: async (data: StudentFormData & { allowDuplicate?: boolean }) => {
       const selectedTeam = teams.find(p => p.id === data.team_id);
       if (schoolId) {
         const result = await createStudentWithPendingPayment({
           fullName: data.full_name,
           dateOfBirth: data.date_of_birth,
+          allowDuplicate: data.allowDuplicate,
           parentEmail: data.parent_email,
           parentPhone: data.parent_phone,
           parentName: data.parent_email.split('@')[0],
@@ -641,8 +651,23 @@ export default function SchoolStudentsManagementPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['school-students'] });
+      setDupAviso(null);
       setDialogOpen(false);
       form.reset();
+    },
+    // Sin onError el alta fallaba en silencio: el diálogo quedaba abierto y el
+    // staff volvía a darle "Agregar Atleta". Un duplicado se muestra en el
+    // formulario (con quién coincide) en vez de crear la segunda identidad.
+    onError: (error: any) => {
+      if (esAtletaDuplicado(error)) {
+        setDupAviso(error.duplicado);
+        return;
+      }
+      toast({
+        title: '❌ Error al registrar',
+        description: error?.message || 'Ocurrió un error inesperado',
+        variant: 'destructive',
+      });
     },
   });
 
@@ -705,7 +730,17 @@ export default function SchoolStudentsManagementPage() {
   const onSubmit = (input: z.input<typeof studentSchema>) => {
     const data = studentSchema.parse(input);
     if (editingStudent) updateStudentMutation.mutate(data);
-    else createStudentMutation.mutate(data);
+    else {
+      setDupAviso(null);
+      createStudentMutation.mutate(data);
+    }
+  };
+
+  /** El staff confirmó que el homónimo es otra persona: se crea con la misma
+   *  data del formulario, ahora con la excepción explícita. */
+  const crearIgualPeseAlDuplicado = () => {
+    const data = studentSchema.parse(form.getValues());
+    createStudentMutation.mutate({ ...data, allowDuplicate: true });
   };
 
   const handleCreateStudent = () => setShowTypeSelector(true);
@@ -1444,7 +1479,7 @@ export default function SchoolStudentsManagementPage() {
       </Card>
 
       {/* Dialogs — sin cambios respecto al original */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={(o) => { if (!o) setDupAviso(null); setDialogOpen(o); }}>
         <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingStudent ? `Editar ${editingAthleteType === 'child' ? 'Menor' : 'Atleta'} — ${editingStudent.full_name}` : 'Agregar Nuevo Atleta'}</DialogTitle>
@@ -1839,9 +1874,42 @@ export default function SchoolStudentsManagementPage() {
               )}
             </div>
 
+            {!editingStudent && dupAviso && (
+              <div className="rounded-md border border-amber-400 bg-amber-50 p-3 space-y-2 dark:bg-amber-950/30">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-600 shrink-0" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                      Este atleta ya podría existir
+                    </p>
+                    <p className="text-xs text-amber-900/90 dark:text-amber-200/90">
+                      {describirAtletaDuplicado(dupAviso)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 pl-6">
+                  <Button type="button" size="sm" variant="outline" onClick={() => setDupAviso(null)}>
+                    Corregir los datos
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    disabled={createStudentMutation.isPending}
+                    onClick={crearIgualPeseAlDuplicado}
+                  >
+                    Es otra persona — crear igual
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
-              <Button type="submit" disabled={createStudentMutation.isPending || updateStudentMutation.isPending}>
+              <Button
+                type="submit"
+                disabled={createStudentMutation.isPending || updateStudentMutation.isPending || (!editingStudent && !!dupAviso)}
+              >
                 {createStudentMutation.isPending || updateStudentMutation.isPending ? 'Guardando...' : (editingStudent ? 'Guardar Cambios' : 'Agregar Atleta')}
               </Button>
             </DialogFooter>
