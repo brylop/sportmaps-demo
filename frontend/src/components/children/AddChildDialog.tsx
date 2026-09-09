@@ -42,6 +42,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { Calendar as CalendarIcon } from 'lucide-react';
+import { normalizeText } from '@/lib/normalizeText';
 
 const childSchema = z.object({
   // Step 1: Información Básica
@@ -81,9 +82,18 @@ interface AddChildDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
+  /** Hijos que ya tiene el acudiente + los que vienen en invitaciones sin aceptar. */
+  nombresTomados?: string[];
 }
 
-export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialogProps) {
+// Mismo criterio que normalize_athlete_name() en la base: sin tildes, en
+// minúsculas y con los espacios internos colapsados. Si el frontend normaliza
+// distinto que la base, el aviso y el bloqueo real dejan de coincidir.
+function normalizarNombre(valor: string): string {
+  return normalizeText(valor).replace(/\s+/g, ' ');
+}
+
+export function AddChildDialog({ open, onOpenChange, onSuccess, nombresTomados = [] }: AddChildDialogProps) {
   const { user } = useAuth();
   const { uploadFile, uploading: isUploading } = useStorage();
   const [currentStep, setCurrentStep] = useState(1);
@@ -127,12 +137,31 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
+  // Devuelve true y marca el campo si ese atleta ya existe en la cuenta o ya
+  // viene en una invitación sin aceptar. Crearlo de nuevo produce dos personas
+  // facturables para el mismo atleta.
+  const nombreYaTomado = (): boolean => {
+    const candidato = normalizarNombre(form.getValues('full_name') || '');
+    if (!candidato) return false;
+    if (!nombresTomados.some(n => normalizarNombre(n) === candidato)) return false;
+
+    form.setError('full_name', {
+      type: 'manual',
+      message: 'Ese atleta ya está en tu cuenta o ya viene en una invitación sin aceptar. Acepta la invitación en vez de crearlo de nuevo; si es otro hijo, escribe su nombre completo.',
+    });
+    return true;
+  };
+
   const nextStep = async () => {
     const fieldsToValidate = currentStep === 1
       ? ['full_name', 'date_of_birth', 'doc_type', 'doc_number', 'id_document_url']
       : ['emergency_contact_name', 'emergency_contact_phone', 'accept_general_data', 'accept_sensitive_data'];
 
     const isValid = await form.trigger(fieldsToValidate as any);
+    if (currentStep === 1 && nombreYaTomado()) {
+      toast.error('Ese atleta ya existe en tu cuenta');
+      return;
+    }
     if (isValid) {
       setCurrentStep(prev => prev + 1);
     } else {
@@ -171,6 +200,12 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
   const onSubmit = async (values: ChildFormValues) => {
     if (!user?.id) {
       toast.error('Debes iniciar sesión para añadir un hijo');
+      return;
+    }
+
+    if (nombreYaTomado()) {
+      setCurrentStep(1);
+      toast.error('Ese atleta ya existe en tu cuenta');
       return;
     }
 
