@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 521,
-  "head": "20260909080429",
+  "count": 522,
+  "head": "20260909083144",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -524,6 +524,7 @@
     {"v":"20260908152538","file":"20260908152538_catalogo_torneos_y_articulos_self_service.sql","sha256":"0de3e7b54d3c978c469500d23648dad4e270058f44df1f53ed0b29f86dfe377f","added":"2026-09-08","by":"brylop"},
     {"v":"20260909071118","file":"20260909071118_accept_invitation_pro_migrar_ficha_antes_de_inscribir.sql","sha256":"3beabf8a40f09d58492344fd73a57a23bb1fa3d89e231c7558e76b0eb395cada","added":"2026-09-09","by":"brylop"},
     {"v":"20260909072259","file":"20260909072259_fix_linked_profile_id_en_migracion_de_ficha_a_hijo.sql","sha256":"6586cd3c489df9d81441dddc1f232e191b9ec44c6bb6e52601df8957a350fa34","added":"2026-09-09","by":"brylop"},
-    {"v":"20260909080429","file":"20260909080429_guard_alta_manual_de_hijo_duplicado.sql","sha256":"bc500efcf85cf83fdc6b4db6cf2d79bc284ed46efea5f2ab065976b8946b3f9a","added":"2026-09-09","by":"brylop"}
+    {"v":"20260909080429","file":"20260909080429_guard_alta_manual_de_hijo_duplicado.sql","sha256":"bc500efcf85cf83fdc6b4db6cf2d79bc284ed46efea5f2ab065976b8946b3f9a","added":"2026-09-09","by":"brylop"},
+    {"v":"20260909083144","file":"20260909083144_guard_alta_hijo_duplicado_con_school_id.sql","sha256":"1777ff237d9058f74426e64144f4154c9b220ff2ebba16de03771a18bc92c324","added":"2026-09-09","by":"brylop"}
   ]
 }
