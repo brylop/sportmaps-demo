@@ -1,9 +1,11 @@
 // frontend/src/hooks/usePdfBranding.ts
 //
 // Hook que prepara el branding listo para inyectar en recibos PDF, carnets,
-// reportes. Aplica el mismo feature gate que el resto del white-label:
-//   - tier free  -> SportMaps default (verde/naranja, sin logo escuela)
-//   - tier pro+  -> branding propio de la escuela
+// reportes. El gate es "¿la escuela tiene ALGÚN addon de marca propia?":
+// pwa_branding (se le muestra su marca) O whitelabel (además app nativa) —
+// cualquiera de los dos habilita el logo/colores propios en el PDF, igual
+// que ya pasa en el resto de la app (ver [[project_marca_pwa_vs_app_nativa]]).
+// Sin ninguno de los dos -> SportMaps default (verde/naranja, sin logo escuela).
 //
 // Se usa desde callsites de downloadReceipt() y otras generaciones PDF.
 // Single source of truth para "qué branding inyectar en un PDF" — evita
@@ -27,7 +29,7 @@ export interface PdfBranding {
     };
     /** Nombre de escuela para usar en el PDF (sanitizado por el consumer si va a HTML). */
     schoolName: string | null;
-    /** true si el tier incluye whitelabel — utiles para UI condicional. */
+    /** true si algún addon de marca propia (pwa_branding o whitelabel) está activo. */
     hasWhitelabel: boolean;
 }
 
@@ -37,9 +39,9 @@ export function usePdfBranding(): PdfBranding {
     const { schoolBranding, schoolName } = useSchoolContext();
     const entitlements = useEntitlements();
 
-    const useWhitelabel = entitlements.addons.whitelabel;
+    const hasOwnBranding = entitlements.addons.pwa_branding || entitlements.addons.whitelabel;
 
-    if (!useWhitelabel) {
+    if (!hasOwnBranding) {
         return {
             logoUrl: null,
             brandingSettings: DEFAULT_BRANDING,

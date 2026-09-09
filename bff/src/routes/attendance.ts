@@ -10,6 +10,46 @@ function todayString(): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Hallazgo de seguridad 2026-09-08: estas rutas validaban rol + escuela activa,
+// pero NUNCA cruzaban que el coach que llama esté en `team_coaches` (o sea el
+// `coach_id` legacy) del `teamId` recibido. La UI nunca ofrece un equipo ajeno,
+// pero el BFF corre con service role (bypassa RLS) — sin este chequeo, un coach
+// que arme la URL/payload a mano podía leer o escribir asistencia de un equipo
+// de otro coach dentro de su misma escuela. owner/super_admin/admin/school_admin
+// siguen viendo todos los equipos, igual que ya hace el frontend con `isAdmin`.
+// ─────────────────────────────────────────────────────────────────────────────
+async function assertCoachHasTeamAccess(req: AuthenticatedRequest, teamId: string): Promise<boolean> {
+  if (req.role !== 'coach') return true;
+  const { schoolId } = req;
+
+  const { data: staffData } = await supabase
+    .from('school_staff')
+    .select('id')
+    .eq('coach_auth_id', req.user?.id)
+    .eq('school_id', schoolId)
+    .maybeSingle();
+  if (!staffData?.id) return false;
+
+  const { data: team } = await supabase
+    .from('teams')
+    .select('coach_id')
+    .eq('id', teamId)
+    .eq('school_id', schoolId)
+    .maybeSingle();
+  if (team?.coach_id === staffData.id) return true;
+
+  const { data: tc } = await supabase
+    .from('team_coaches')
+    .select('id')
+    .eq('team_id', teamId)
+    .eq('coach_id', staffData.id)
+    .maybeSingle();
+  return !!tc;
+}
+
+const TEAM_ACCESS_DENIED = { error: 'No tienes ese equipo asignado.', reason: 'not_your_team' };
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Créditos de sesión — docs/plan-asistencia-y-creditos-de-sesion.md
 //
 // Regla de fondo: los créditos viven SIEMPRE en la inscripción que tiene
@@ -762,6 +802,9 @@ router.get('/session/:teamId', requireAuth, requireRole('owner', 'super_admin', 
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const teamId = req.params.teamId as string;
+      if (!(await assertCoachHasTeamAccess(req, teamId))) {
+        return res.status(403).json(TEAM_ACCESS_DENIED);
+      }
       // `?date=` para poder abrir un día pasado. Leer no tiene ventana: ver lo
       // que pasó es distinto de reescribirlo, y el histórico ya es visible en
       // Supervisión. El permiso se aplica al guardar.
@@ -810,6 +853,10 @@ router.get(
 
       if (!['team', 'offering', 'facility_session'].includes(contextType)) {
         return res.status(400).json({ error: 'contextType debe ser "team", "offering" o "facility_session".' });
+      }
+
+      if (contextType === 'team' && !(await assertCoachHasTeamAccess(req, contextId))) {
+        return res.status(403).json(TEAM_ACCESS_DENIED);
       }
 
       // Besser (y cualquier otra escuela con el flag activo): el coach no ve
@@ -1214,6 +1261,9 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
         return res.status(400).json({ error: 'teamId (o sessionId) y records son requeridos.' });
       if (records.find(r => !r.childId && !r.userId && !r.unregisteredAthleteId))
         return res.status(400).json({ error: 'Cada record debe tener childId, userId o unregisteredAthleteId.' });
+      if (teamId && !(await assertCoachHasTeamAccess(req, teamId))) {
+        return res.status(403).json(TEAM_ACCESS_DENIED);
+      }
 
       const fecha = resolverFechaDeTrabajo(date, req.role);
       if (!fecha.ok) return res.status(fecha.status).json(fecha.body);
@@ -1223,9 +1273,15 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
       let existingSessionId = sessionId;
 
       if (existingSessionId) {
-        const { data: existing, error } = await supabase.from('attendance_sessions').select('id, finalized').eq('id', existingSessionId).maybeSingle();
+        const { data: existing, error } = await supabase.from('attendance_sessions').select('id, finalized, team_id').eq('id', existingSessionId).maybeSingle();
         if (error) throw error;
         if (existing?.finalized) return res.status(409).json({ error: 'La sesión ya fue finalizada y no puede modificarse.', finalized: true });
+        // Si el sessionId llegó solo (sin teamId en el body), igual hay que
+        // validar contra el team_id real de la sesión — si no, el chequeo de
+        // arriba (que solo mira `teamId` del body) queda de adorno.
+        if (existing?.team_id && !(await assertCoachHasTeamAccess(req, existing.team_id))) {
+          return res.status(403).json(TEAM_ACCESS_DENIED);
+        }
       } else if (teamId) {
         const lookup = await findTeamSessionOfDay(teamId, today);
         if (lookup.kind === 'many') {
@@ -1419,6 +1475,9 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
       if (!teamId && !sessionId && !offeringId && !facilityAvailabilityId) {
         return res.status(400).json({ error: 'teamId, sessionId, offeringId o facilityAvailabilityId son requeridos.' });
       }
+      if (teamId && !(await assertCoachHasTeamAccess(req, teamId))) {
+        return res.status(403).json(TEAM_ACCESS_DENIED);
+      }
 
       const fecha = resolverFechaDeTrabajo(date, req.role);
       if (!fecha.ok) return res.status(fecha.status).json(fecha.body);
@@ -1537,8 +1596,11 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
           finalSessionId = newSession.id;
         }
       } else if (finalSessionId) {
-        const { data: sess } = await supabase.from('attendance_sessions').select('finalized').eq('id', finalSessionId).single();
+        const { data: sess } = await supabase.from('attendance_sessions').select('finalized, team_id').eq('id', finalSessionId).single();
         if (sess?.finalized) return res.status(409).json({ error: 'La sesión ya fue finalizada.' });
+        if (sess?.team_id && !(await assertCoachHasTeamAccess(req, sess.team_id))) {
+          return res.status(403).json(TEAM_ACCESS_DENIED);
+        }
       }
 
       // ── Estado del plan y reserva del día, con finalSessionId ya resuelto ──
@@ -1829,6 +1891,9 @@ router.patch('/session/:sessionId/reopen', requireAuth, requireRole('owner', 'su
       if (fetchErr || !session) return res.status(404).json({ error: 'Sesión no encontrada.' });
       if (session.school_id !== req.schoolId)
         return res.status(404).json({ error: 'Sesión no encontrada.' });
+      if (session.team_id && !(await assertCoachHasTeamAccess(req, session.team_id))) {
+        return res.status(403).json(TEAM_ACCESS_DENIED);
+      }
       if (!session.finalized)
         return res.status(409).json({ error: 'Esa sesión ya está abierta.', reason: 'not_finalized' });
 
@@ -1868,6 +1933,9 @@ router.patch('/session/:sessionId/finalize', requireAuth, requireRole('owner', '
       const { sessionId } = req.params;
       const { data: session, error: fetchErr } = await supabase.from('attendance_sessions').select('id, finalized, team_id').eq('id', sessionId).single();
       if (fetchErr || !session) return res.status(404).json({ error: 'Sesión no encontrada.' });
+      if (session.team_id && !(await assertCoachHasTeamAccess(req, session.team_id))) {
+        return res.status(403).json(TEAM_ACCESS_DENIED);
+      }
       if (session.finalized) return res.status(409).json({ error: 'La sesión ya estaba finalizada.' });
 
       const { data: bookingsPreview } = await supabase.from('session_bookings')
@@ -1909,7 +1977,10 @@ router.patch('/session/:sessionId/finalize', requireAuth, requireRole('owner', '
 router.get('/rate/:teamId', requireAuth, requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { teamId } = req.params;
+      const teamId = req.params.teamId as string;
+      if (!(await assertCoachHasTeamAccess(req, teamId))) {
+        return res.status(403).json(TEAM_ACCESS_DENIED);
+      }
       const { data, error } = await supabase.from('attendance_records').select('status').eq('team_id', teamId);
       if (error) throw error;
       const total = data?.length || 0;
