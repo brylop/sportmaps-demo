@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -270,6 +270,35 @@ export default function RegisterPage() {
     fetchRoles();
   }, []);
 
+  const handleAcceptLoggedIn = useCallback(async () => {
+    if (!inviteId) return;
+    setIsLoading(true);
+    try {
+      const { error } = await (supabase.rpc as any)('accept_invitation_pro', { p_invite_id: inviteId });
+      if (error) throw error;
+      toast({ title: "¡Configuración lista!", description: "Se ha vinculado tu perfil. Redirigiendo..." });
+      localStorage.removeItem('pending_invite_id');
+      window.location.href = '/dashboard';
+    } catch (err: any) {
+      toast({ title: "Error al aceptar", description: getUserFriendlyError(err), variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [inviteId, toast]);
+
+  // El registro deja sesión activa al instante (el correo se autoconfirma en
+  // este ambiente: email_confirmed_at queda a milisegundos de created_at). Con
+  // la aceptación colgada de un clic, el acudiente se quedaba mirando «revisa
+  // tu correo» —una pantalla sin ninguna acción real pendiente— y se iba sin
+  // vincularse nunca: 17 cuentas confirmadas y 0 en school_members.
+  // Se dispara sola, una vez, en cuanto hay sesión e invitación.
+  const autoAcceptedRef = useRef(false);
+  useEffect(() => {
+    if (!user || !inviteId || autoAcceptedRef.current) return;
+    autoAcceptedRef.current = true;
+    handleAcceptLoggedIn();
+  }, [user, inviteId, handleAcceptLoggedIn]);
+
   useEffect(() => {
     if (user && inviteEmail && user.email !== inviteEmail && !isSubmitted) {
       supabase.auth.signOut().then(() => { window.location.reload(); });
@@ -332,22 +361,6 @@ export default function RegisterPage() {
         title: "Error de registro",
         description: getUserFriendlyError(error),
       });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleAcceptLoggedIn = async () => {
-    if (!inviteId) return;
-    setIsLoading(true);
-    try {
-      const { data, error } = await (supabase.rpc as any)('accept_invitation_pro', { p_invite_id: inviteId });
-      if (error) throw error;
-      toast({ title: "¡Configuración lista!", description: "Se ha vinculado tu perfil. Redirigiendo..." });
-      localStorage.removeItem('pending_invite_id');
-      window.location.href = '/dashboard';
-    } catch (err: any) {
-      toast({ title: "Error al aceptar", description: getUserFriendlyError(err), variant: "destructive" });
     } finally {
       setIsLoading(false);
     }

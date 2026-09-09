@@ -3,7 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useVendorProfile } from '@/hooks/useVendorProfile';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Store, Sparkles, ArrowRight } from 'lucide-react';
+import { Store, Sparkles, ArrowRight, X } from 'lucide-react';
 
 // Roles a los que se les ofrece activar Mi Tienda explicitamente.
 // (external_vendor / wellness_professional / personal_trainer reciben
@@ -34,7 +34,7 @@ interface Props {
 }
 
 export function ActivateStoreCTA({ compact = false, label = 'Activar Mi Tienda' }: Props) {
-    const { profile } = useAuth();
+    const { profile, updateProfile } = useAuth();
     const { hasVendorProfile, isInactive, isLoading } = useVendorProfile();
     const navigate = useNavigate();
 
@@ -42,11 +42,21 @@ export function ActivateStoreCTA({ compact = false, label = 'Activar Mi Tienda' 
     if (!profile) return null;
     if (!ELIGIBLE_ROLES.has(profile.role as string)) return null;
     if (hasVendorProfile) return null; // ya activa, no mostrar CTA
+    if (profile.preferences?.store_cta_dismissed) return null; // el usuario ya la cerró
 
     const isPaidStore = PAID_STORE_ROLES.has(profile.role as string);
     const ctaLabel = isInactive
         ? 'Reactivar Mi Tienda'
         : (isPaidStore ? 'Activar tienda escolar' : label);
+
+    // Merge sobre `preferences` completo (mismo jsonb de dashboard_quick_actions
+    // y dashboard_welcome_seen) — nunca reemplazarlo entero.
+    const dismiss = () => {
+        updateProfile(
+            { preferences: { ...profile.preferences, store_cta_dismissed: true } },
+            { silent: true }
+        ).catch(() => {});
+    };
 
     if (compact) {
         return (
@@ -73,18 +83,32 @@ export function ActivateStoreCTA({ compact = false, label = 'Activar Mi Tienda' 
                     {ctaLabel}
                     <ArrowRight className="ml-1.5 h-4 w-4" />
                 </Button>
+                <button
+                    onClick={dismiss}
+                    className="shrink-0 text-purple-700/60 hover:text-purple-900 dark:text-purple-400/60 dark:hover:text-purple-200 transition-colors"
+                    aria-label="Cerrar"
+                >
+                    <X className="h-4 w-4" />
+                </button>
             </div>
         );
     }
 
     return (
-        <Card className="border-purple-200 dark:border-purple-900/30 bg-gradient-to-br from-purple-50 via-white to-purple-50/40 dark:from-purple-950/30 dark:via-card dark:to-purple-950/15">
+        <Card className="relative border-purple-200 dark:border-purple-900/30 bg-gradient-to-br from-purple-50 via-white to-purple-50/40 dark:from-purple-950/30 dark:via-card dark:to-purple-950/15">
+            <button
+                onClick={dismiss}
+                className="absolute right-3 top-3 text-purple-700/60 hover:text-purple-900 dark:text-purple-400/60 dark:hover:text-purple-200 transition-colors"
+                aria-label="Cerrar"
+            >
+                <X className="h-4 w-4" />
+            </button>
             <CardContent className="p-5">
                 <div className="flex items-start gap-4">
                     <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400">
                         <Store className="h-6 w-6" />
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 pr-6">
                         <div className="flex items-center gap-2 mb-1">
                             <h3 className="font-semibold text-foreground">Mi Tienda</h3>
                             <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 dark:bg-purple-900/30 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-purple-700 dark:text-purple-300">

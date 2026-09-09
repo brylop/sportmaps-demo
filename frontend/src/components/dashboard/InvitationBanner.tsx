@@ -2,6 +2,7 @@ import React from 'react';
 import { Mail, Check, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { dbErrorMessage } from '@/lib/errors/dbErrorMessage';
 
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -43,7 +44,7 @@ export const InvitationBanner: React.FC<InvitationBannerProps> = ({ invitation, 
         } catch (error: any) {
             toast({
                 title: "Error",
-                description: error.message || "No se pudo rechazar la invitación.",
+                description: dbErrorMessage(error, "No se pudo rechazar la invitación."),
                 variant: "destructive"
             });
         } finally {
@@ -83,7 +84,7 @@ export const InvitationBanner: React.FC<InvitationBannerProps> = ({ invitation, 
         } catch (error: any) {
             toast({
                 title: "Error",
-                description: error.message || "No se pudo aceptar la invitación.",
+                description: dbErrorMessage(error, "No se pudo aceptar la invitación."),
                 variant: "destructive"
             });
         } finally {

@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 518,
-  "head": "20260908152538",
+  "count": 520,
+  "head": "20260909072259",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -521,6 +521,8 @@
     {"v":"20260905124655","file":"20260905124655_hour_bank_close_after_exit_grace.sql","sha256":"6318b623c5532afc74396fc37456a2a6261f721a899d30796ffc33e5a8e6a788","added":"2026-09-05","by":"judegor99"},
     {"v":"20260905135210","file":"20260905135210_access_block_mechanism_per_school.sql","sha256":"e2701ad95733768697ce17031a8d2933cef091a626f303f6f5bff1b660b326d3","added":"2026-09-05","by":"judegor99"},
     {"v":"20260908102447","file":"20260908102447_admin_set_payer_billing_details.sql","sha256":"7ebe92f605db02f61ec23101b46de0c118bc9f05796e29f8bb164ccf2cee6a1a","added":"2026-09-08","by":"brylop"},
-    {"v":"20260908152538","file":"20260908152538_catalogo_torneos_y_articulos_self_service.sql","sha256":"0de3e7b54d3c978c469500d23648dad4e270058f44df1f53ed0b29f86dfe377f","added":"2026-09-08","by":"brylop"}
+    {"v":"20260908152538","file":"20260908152538_catalogo_torneos_y_articulos_self_service.sql","sha256":"0de3e7b54d3c978c469500d23648dad4e270058f44df1f53ed0b29f86dfe377f","added":"2026-09-08","by":"brylop"},
+    {"v":"20260909071118","file":"20260909071118_accept_invitation_pro_migrar_ficha_antes_de_inscribir.sql","sha256":"3beabf8a40f09d58492344fd73a57a23bb1fa3d89e231c7558e76b0eb395cada","added":"2026-09-09","by":"brylop"},
+    {"v":"20260909072259","file":"20260909072259_fix_linked_profile_id_en_migracion_de_ficha_a_hijo.sql","sha256":"6586cd3c489df9d81441dddc1f232e191b9ec44c6bb6e52601df8957a350fa34","added":"2026-09-09","by":"brylop"}
   ]
 }

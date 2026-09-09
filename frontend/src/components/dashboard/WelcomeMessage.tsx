@@ -1,8 +1,10 @@
+import { useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { UserRole } from '@/types/dashboard';
-import { 
-  Trophy, Users, GraduationCap, HeartPulse, 
-  ShoppingBag, Shield, Dumbbell 
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  Trophy, Users, GraduationCap, HeartPulse,
+  ShoppingBag, Shield, Dumbbell
 } from 'lucide-react';
 
 interface WelcomeMessageProps {
@@ -94,8 +96,28 @@ const welcomeConfig: Record<UserRole, {
 };
 
 export function WelcomeMessage({ role, userName }: WelcomeMessageProps) {
+  const { profile, updateProfile } = useAuth();
   const config = welcomeConfig[role] || welcomeConfig.athlete;
   const Icon = config.icon;
+
+  // Se ve una sola vez: al montarse (ya visible) queda marcada en
+  // profiles.preferences para que no vuelva a aparecer en próximas visitas.
+  // Merge sobre `preferences` completo — es el mismo jsonb que usa
+  // dashboard_quick_actions, sobrescribirlo entero lo borraría.
+  const alreadySeen = !!profile?.preferences?.dashboard_welcome_seen;
+
+  useEffect(() => {
+    if (alreadySeen || !profile) return;
+    updateProfile(
+      { preferences: { ...profile.preferences, dashboard_welcome_seen: true } },
+      { silent: true }
+    ).catch(() => {
+      // No bloquea el render: si falla, el peor caso es que se vuelva a ver.
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alreadySeen, profile?.id]);
+
+  if (alreadySeen) return null;
 
   return (
     <Card className={`bg-gradient-to-br ${config.gradient} border-primary/20 mb-6`}>
