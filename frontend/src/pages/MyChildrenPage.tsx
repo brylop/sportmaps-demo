@@ -68,6 +68,22 @@ export default function MyChildrenPage() {
     enabled: !!user?.id,
   });
 
+  // Con una invitación pendiente el hijo YA viene cargado por la academia, con
+  // su plan y su equipo. Si el acudiente lo crea a mano se termina con dos
+  // personas facturables para el mismo atleta: la ficha de la escuela y la
+  // suya. El alta manual queda cerrada hasta que acepte.
+  const { data: pendingInvitations } = useQuery({
+    queryKey: ['my-invitations', user?.id],
+    queryFn: async () => {
+      const { data, error } = await (supabase.rpc as any)('get_my_invitations');
+      if (error) throw error;
+      return ((data as any[]) || []).filter(i => i?.status === 'pending');
+    },
+    enabled: !!user?.id,
+  });
+
+  const invitacionPendiente = (pendingInvitations || [])[0];
+
   // Demo data only for demo users
   const displayChildren = children || [];
 
@@ -94,11 +110,37 @@ export default function MyChildrenPage() {
             Gestión centralizada de tus hijos y su desarrollo deportivo
           </p>
         </div>
-        <Button onClick={() => setShowAddDialog(true)} className="rounded-xl shadow-lg hover:shadow-primary/20 transition-all">
+        <Button
+          onClick={() => setShowAddDialog(true)}
+          disabled={!!invitacionPendiente}
+          className="rounded-xl shadow-lg hover:shadow-primary/20 transition-all"
+        >
           <Plus className="w-4 h-4 mr-2" />
           Registrar Hijo
         </Button>
       </div>
+
+      {invitacionPendiente && (
+        <Card className="border-primary/30 bg-primary/5 rounded-2xl">
+          <CardContent className="flex items-start gap-3 pt-6">
+            <School className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-semibold">
+                {invitacionPendiente.school_name || 'Tu academia'} ya cargó a tu hijo
+              </p>
+              <p className="text-muted-foreground mt-1">
+                Acepta la invitación pendiente desde tu inicio y aparecerá aquí con su plan y
+                su equipo. No lo registres a mano: quedaría duplicado.
+              </p>
+              <Link to="/dashboard">
+                <Button variant="outline" size="sm" className="mt-3 rounded-xl">
+                  Ir a aceptar la invitación
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {displayChildren?.map((child: any) => (
