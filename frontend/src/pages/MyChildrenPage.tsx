@@ -69,20 +69,31 @@ export default function MyChildrenPage() {
   });
 
   // Con una invitación pendiente el hijo YA viene cargado por la academia, con
-  // su plan y su equipo. Si el acudiente lo crea a mano se termina con dos
-  // personas facturables para el mismo atleta: la ficha de la escuela y la
-  // suya. El alta manual queda cerrada hasta que acepte.
+  // su plan y su equipo. Se puede agregar OTRO hijo distinto, pero no volver a
+  // crear al que ya viene en la invitación: eso deja dos personas facturables
+  // para el mismo atleta (la ficha de la escuela y la del acudiente).
   const { data: pendingInvitations } = useQuery({
     queryKey: ['my-invitations', user?.id],
     queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)('get_my_invitations');
+      const { data, error } = await supabase
+        .from('invitations')
+        .select('id, child_name, role_to_assign, schools(name)')
+        .eq('email', user?.email ?? '')
+        .eq('status', 'pending');
       if (error) throw error;
-      return ((data as any[]) || []).filter(i => i?.status === 'pending');
+      return data || [];
     },
-    enabled: !!user?.id,
+    enabled: !!user?.email,
   });
 
-  const invitacionPendiente = (pendingInvitations || [])[0];
+  const invitacionPendiente = (pendingInvitations || [])[0] as any;
+
+  // Nombres que el acudiente NO puede volver a crear: los hijos que ya tiene y
+  // los que vienen en invitaciones sin aceptar.
+  const nombresTomados = [
+    ...(children || []).map((c: any) => c.full_name),
+    ...(pendingInvitations || []).map((i: any) => i.child_name),
+  ].filter(Boolean) as string[];
 
   // Demo data only for demo users
   const displayChildren = children || [];
@@ -110,11 +121,7 @@ export default function MyChildrenPage() {
             Gestión centralizada de tus hijos y su desarrollo deportivo
           </p>
         </div>
-        <Button
-          onClick={() => setShowAddDialog(true)}
-          disabled={!!invitacionPendiente}
-          className="rounded-xl shadow-lg hover:shadow-primary/20 transition-all"
-        >
+        <Button onClick={() => setShowAddDialog(true)} className="rounded-xl shadow-lg hover:shadow-primary/20 transition-all">
           <Plus className="w-4 h-4 mr-2" />
           Registrar Hijo
         </Button>
@@ -126,11 +133,13 @@ export default function MyChildrenPage() {
             <School className="h-5 w-5 text-primary shrink-0 mt-0.5" />
             <div className="text-sm">
               <p className="font-semibold">
-                {invitacionPendiente.school_name || 'Tu academia'} ya cargó a tu hijo
+                {invitacionPendiente.schools?.name || 'Tu academia'} ya cargó a
+                {invitacionPendiente.child_name ? ` ${invitacionPendiente.child_name}` : ' tu hijo'}
               </p>
               <p className="text-muted-foreground mt-1">
-                Acepta la invitación pendiente desde tu inicio y aparecerá aquí con su plan y
-                su equipo. No lo registres a mano: quedaría duplicado.
+                Acepta la invitación desde tu inicio y aparecerá aquí con su plan y su equipo.
+                No lo registres a mano: quedaría duplicado. Si tienes <strong>otro</strong> hijo
+                que la academia no cargó, ese sí puedes agregarlo.
               </p>
               <Link to="/dashboard">
                 <Button variant="outline" size="sm" className="mt-3 rounded-xl">
@@ -289,6 +298,7 @@ export default function MyChildrenPage() {
         open={showAddDialog}
         onOpenChange={setShowAddDialog}
         onSuccess={refetch}
+        nombresTomados={nombresTomados}
       />
 
       {editingChild && (
