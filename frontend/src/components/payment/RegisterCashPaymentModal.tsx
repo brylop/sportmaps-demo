@@ -6,8 +6,11 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Banknote, Building2, Wallet, Landmark, Calendar as CalendarIcon, User, FileText, CheckCircle2, Paperclip, AlertTriangle } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Loader2, Banknote, Building2, Wallet, Landmark, Calendar as CalendarIcon, User, FileText, CheckCircle2, Paperclip, AlertTriangle, Receipt } from 'lucide-react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useEntitlements } from '@/hooks/useEntitlements';
+import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { NumberStepper } from '@/components/ui/number-stepper';
 import { useToast } from '@/hooks/use-toast';
 import { emailClient } from '@/lib/email-client';
@@ -40,6 +43,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
   const { user } = useAuth();
   const { schoolId, schoolName } = useSchoolContext();
   const { toast } = useToast();
+  const { hasAddon } = useEntitlements();
   
   const [loading, setLoading] = useState(false);
   const [athletes, setAthletes] = useState<any[]>([]);
@@ -87,12 +91,49 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
   const [athletePopoverOpen, setAthletePopoverOpen] = useState(false);
   const [athleteSearchQuery, setAthleteSearchQuery] = useState('');
 
+  // Facturación electrónica del pagador (opcional, solo si el addon está
+  // activo): el registro manual no pasa por el checkout del padre, así que
+  // ese formulario nunca se le muestra — sin esto, el pago quedaba `paid`
+  // pero la factura se saltaba en silencio (customer_missing_fiscal_data).
+  const [wantsEInvoice, setWantsEInvoice] = useState(false);
+  const [payerHasDianData, setPayerHasDianData] = useState<boolean | null>(null); // null = aún sin consultar
+  const [checkingDian, setCheckingDian] = useState(false);
+
   const filteredAthletes = athletes.filter(ath => {
     const term = athleteSearchQuery.toLowerCase();
     const fullName = (ath.full_name || '').toLowerCase();
     const parentName = (ath.parent_name || '').toLowerCase();
     return fullName.includes(term) || parentName.includes(term);
   });
+
+  // Quién factura: el padre (menor) o el atleta mismo (adulto paga por sí
+  // solo). 'unregistered' no tiene perfil → null, no aplica facturación.
+  const selectedAthleteForPayer = athletes.find(a => a.id === selectedAthleteId);
+  const payerProfileId = selectedAthleteForPayer
+    ? (selectedAthleteForPayer.athlete_type === 'adult'
+        ? selectedAthleteForPayer.id
+        : selectedAthleteForPayer.parent_id || null)
+    : null;
+
+  useEffect(() => {
+    if (!payerProfileId || !hasAddon('invoicing')) {
+      setPayerHasDianData(null);
+      setWantsEInvoice(false);
+      return;
+    }
+    let cancelled = false;
+    setCheckingDian(true);
+    (async () => {
+      const { data } = await supabase.from('profiles')
+        .select('document_type, document_number, billing_address, billing_city_dane')
+        .eq('id', payerProfileId).single();
+      if (cancelled) return;
+      setPayerHasDianData(!!(data?.document_type && data?.document_number && data?.billing_address && data?.billing_city_dane));
+      setCheckingDian(false);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payerProfileId]);
 
   useEffect(() => {
     if (open && schoolId) {
@@ -470,6 +511,8 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
     setAthletePopoverOpen(false);
     setPeriod(null);
     setPeriodSuggested(null);
+    setWantsEInvoice(false);
+    setPayerHasDianData(null);
     clearReceipt();
   };
 
@@ -724,6 +767,28 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
                     <p>{reviewNotice}</p>
                   </div>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Facturación electrónica del pagador — opcional. Solo aparece si la
+              escuela tiene el addon activo y al pagador le faltan datos DIAN;
+              si ya los tiene (de un pago anterior, online o manual), no se
+              vuelve a pedir. */}
+          {payerProfileId && hasAddon('invoicing') && !checkingDian && payerHasDianData === false && (
+            <div className="rounded-2xl border border-border/40 bg-muted/10 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="wants-einvoice" className="text-sm font-bold flex items-center gap-2 cursor-pointer">
+                  <Receipt className="h-4 w-4 text-primary" /> ¿Desea factura electrónica?
+                </Label>
+                <Switch id="wants-einvoice" checked={wantsEInvoice} onCheckedChange={setWantsEInvoice} />
+              </div>
+              {wantsEInvoice && (
+                <BillingDetailsForm
+                  userId={payerProfileId}
+                  schoolId={schoolId || undefined}
+                  onComplete={() => setPayerHasDianData(true)}
+                />
               )}
             </div>
           )}
