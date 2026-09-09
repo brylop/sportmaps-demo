@@ -104,7 +104,6 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
     const [avatarFile, setAvatarFile] = useState<File | null>(null);
-    const [hasAllergies, setHasAllergies] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const medicalInfo = parseMedicalInfo(child.medical_info);
@@ -132,12 +131,15 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
         },
     });
 
+    // Derivado del propio form en vez de un useState aparte: dos fuentes de
+    // verdad para lo mismo se desincronizaban (mismo bug que en AddChildDialog).
+    const hasAllergies = form.watch('has_allergies');
+
     // Reset form when child changes or dialog opens
     useEffect(() => {
         if (open) {
             const medInfo = parseMedicalInfo(child.medical_info);
             const emContact = parseEmergencyContact(child.emergency_contact);
-            setHasAllergies(medInfo.has_allergies || false);
             setAvatarPreview(null);
             setAvatarFile(null);
             form.reset({
@@ -519,11 +521,7 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
                                             <FormLabel>¿El menor tiene alguna alergia o condición médica?</FormLabel>
                                             <FormControl>
                                                 <RadioGroup
-                                                    onValueChange={(val) => {
-                                                        const boolVal = val === 'true';
-                                                        field.onChange(boolVal);
-                                                        setHasAllergies(boolVal);
-                                                    }}
+                                                    onValueChange={(val) => field.onChange(val === 'true')}
                                                     value={field.value ? 'true' : 'false'}
                                                     className="flex gap-4"
                                                 >
