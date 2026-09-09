@@ -245,3 +245,63 @@ envío masivo en el BFF.
   no pushear por commit.
 - Todo empieza en `develop`. La promoción a `staging` y `main` la pide el
   usuario; **nunca** mergear a `main` por iniciativa propia.
+
+### `sportmaps-dev`, `sportmaps-stg` y `sportmaps-prod` comparten UN repo y UN `vercel.json`
+
+Los 3 proyectos de Vercel apuntan al mismo GitHub repo. Sin filtro, un solo
+push a `develop` dispara build en los 3 (2 de más). El filtro vive en
+`vercel-ignore-build.sh` (invocado desde `ignoreCommand` en el `vercel.json`
+raíz, **no** desde el dashboard) y aplica dos reglas, en orden:
+
+1. **Rama** — solo `main|staging|production|develop` construyen algo.
+2. **La rama de ESE proyecto** — compara `VERCEL_GIT_COMMIT_REF` contra la env
+   var `VERCEL_PROJECT_BRANCH` (Settings → Environment Variables, valor
+   distinto por proyecto: `develop`/`staging`/`main`). **Fail-open** si la env
+   var no está puesta — si alguien agrega un proyecto nuevo y se olvida de
+   configurarla, este filtro no hace nada y ese proyecto vuelve a construir en
+   cada push de cualquier rama.
+3. **Qué cambió** — si el commit no toca `frontend/`, `vercel.json` ni el
+   script mismo, se cancela. Comparado contra `HEAD^`, así que un commit que
+   solo toca `bff/`, `supabase/`, `docs/` o `scripts/` no gasta un build.
+
+Verificado en vivo 2026-09-06: de 7 commits seguidos que solo tocaban
+`bff/`/migraciones, los 7 quedaron `CANCELED`. El filtro funciona — el
+consumo de builds no viene de ahí.
+
+### La cuota que se agota no es "por builds de más" — es Deployment Storage por deployment retenido
+
+Cada proyecto retiene N deployments (`Settings → Git → Deployment Retention`,
+`deploymentsToKeep` / `expirationDays` por API). Cada deployment retenido pesa
+lo que pese el build completo del SPA (~200-300 MB con 78 páginas, PWA,
+imágenes), **sin importar si ese build era necesario o no**. Bajar la
+frecuencia de builds innecesarios ayuda a **Build Time** (cuota separada,
+horas de build/mes), no a Function/Deployment Storage — para eso lo que
+importa es **cuántos deployments se retienen**, no cuántos se disparan.
+
+Confirmado en vivo 2026-09-06 vía dashboard (Team → Usage, la API de
+desglose por proyecto es **solo Pro/Enterprise** — en Hobby no hay forma de
+verlo por CLI, solo por dashboard):
+
+| Proyecto | Deployment Storage |
+|---|---|
+| `sportmaps-dev` / `-stg` / `-prod` | ~2.1-2.2 GB cada uno (retención en 10) |
+| `sportmaps-landing-page` | 150 MB |
+| `qualitytechsolutions` (personal, mismo team) | 46 MB |
+
+### NUNCA correr `vercel deploy` o `vercel link` manual desde una laptop
+
+Los despliegues reales pasan **solo** por el push a Git (`git.deploymentEnabled`
+en `vercel.json` raíz). Si alguien corre `vercel deploy`/`vercel --prod` a
+mano desde una carpeta cuyo `.vercel/project.json` local quedó apuntando a un
+proyecto que ya no existe (se borró, se renombró), la CLI en modo interactivo
+puede ofrecer "crear un proyecto nuevo" — y si se acepta sin fijarse, Vercel
+crea uno con nombre autogenerado (`<carpeta>-<timestamp>-<random>`) que nadie
+va a recordar borrar. Así apareció y se quedó pesando 2.87 GB un proyecto
+fantasma detectado el 2026-09-06 (ya no existe, pero tardó en liberar la
+cuota).
+
+Antes de correr cualquier `vercel <comando>` a mano: `vercel whoami` y
+confirmar que el proyecto vinculado (`.vercel/project.json`, que **no** se
+commitea) es el que se espera. Si la CLI dice "Project was either deleted,
+transferred..." o pregunta si crear uno nuevo, **parar y avisar**, no aceptar
+por default.

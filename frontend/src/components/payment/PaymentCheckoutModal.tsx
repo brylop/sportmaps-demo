@@ -58,6 +58,12 @@ interface MerchItemOption {
   size_options: string | null;
 }
 
+interface TournItemOption {
+  id: string;
+  name: string;
+  price: number;
+}
+
 interface PaymentCheckoutModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -72,7 +78,7 @@ interface PaymentCheckoutModalProps {
   concept: string;
   mode?: 'create' | 'update';
   /** Abre el modal directo en el conceptType 'articulos' (botón "Agregar artículos"). */
-  initialConceptType?: 'mensualidad' | 'inscripcion_fija' | 'inscripcion_variable' | 'otro' | 'articulos';
+  initialConceptType?: 'mensualidad' | 'inscripcion_fija' | 'inscripcion_variable' | 'otro' | 'articulos' | 'torneo';
   onSuccess?: () => void;
 }
 
@@ -95,7 +101,7 @@ export function PaymentCheckoutModal({
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'processing' | 'success' | 'error' | 'awaiting_approval'>('idle');
 
   // Custom Payment Fields
-  const [conceptType, setConceptType] = useState<'mensualidad' | 'inscripcion_fija' | 'inscripcion_variable' | 'otro' | 'articulos'>(initialConceptType || 'mensualidad');
+  const [conceptType, setConceptType] = useState<'mensualidad' | 'inscripcion_fija' | 'inscripcion_variable' | 'otro' | 'articulos' | 'torneo'>(initialConceptType || 'mensualidad');
   const [customAmount, setCustomAmount] = useState((amount || 0).toString());
   const [customConcept, setCustomConcept] = useState('');
 
@@ -147,6 +153,54 @@ export function PaymentCheckoutModal({
       const sel = merchSelected[it.id];
       const talla = sel?.size ? ` talla ${sel.size}` : '';
       return `${it.name}${talla} x${sel?.qty}`;
+    })
+    .join(', ');
+
+  // ── Cobros de torneo (20260908152538) — mismo patrón que artículos, sin
+  // tallas: genera su propia fila de pago (payment_category='torneo').
+  const [tournEnabled, setTournEnabled] = useState(false);
+  const [tournCatalog, setTournCatalog] = useState<TournItemOption[]>([]);
+  const [tournSelected, setTournSelected] = useState<Record<string, { qty: number }>>({});
+
+  useEffect(() => {
+    if (!open || !schoolId || mode !== 'create') return;
+    (async () => {
+      const { data: settings } = await supabase.from('school_settings')
+        .select('tournament_charges_enabled').eq('school_id', schoolId).maybeSingle();
+      const enabled = !!(settings as any)?.tournament_charges_enabled;
+      setTournEnabled(enabled);
+      if (!enabled) { setTournCatalog([]); return; }
+      const { data: items } = await supabase.from('school_tournament_items' as any)
+        .select('id, name, price')
+        .eq('school_id', schoolId).eq('active', true)
+        .order('sort_order', { ascending: true });
+      setTournCatalog((items as any) || []);
+    })();
+  }, [open, schoolId, mode]);
+
+  function toggleTournItem(item: TournItemOption) {
+    setTournSelected((prev) => {
+      const next = { ...prev };
+      if (next[item.id]) delete next[item.id];
+      else next[item.id] = { qty: 1 };
+      return next;
+    });
+  }
+
+  function setTournQty(itemId: string, qty: number) {
+    setTournSelected((prev) => prev[itemId] ? { ...prev, [itemId]: { qty: Math.max(1, qty) } } : prev);
+  }
+
+  const tournTotal = tournCatalog.reduce((sum, it) => {
+    const sel = tournSelected[it.id];
+    return sel ? sum + it.price * sel.qty : sum;
+  }, 0);
+
+  const tournConceptText = tournCatalog
+    .filter((it) => tournSelected[it.id])
+    .map((it) => {
+      const sel = tournSelected[it.id];
+      return `${it.name} x${sel?.qty}`;
     })
     .join(', ');
 
@@ -262,9 +316,13 @@ export function PaymentCheckoutModal({
   // ── Wompi checkout hook ──────────────────────────────────────────────────
   const finalAmount = conceptType === 'articulos'
     ? merchTotal
+    : conceptType === 'torneo'
+    ? tournTotal
     : mode === 'create' && !['mensualidad', 'inscripcion_fija'].includes(conceptType) ? (parseFloat(customAmount) || 0) : amount;
   const finalConcept = conceptType === 'articulos'
-    ? `Artículos escolares: ${merchConceptText || 'sin seleccionar'}`
+    ? `Artículos Deportivos: ${merchConceptText || 'sin seleccionar'}`
+    : conceptType === 'torneo'
+    ? `Torneos: ${tournConceptText || 'sin seleccionar'}`
     : mode === 'create' && conceptType !== 'mensualidad'
     ? (conceptType.startsWith('inscripcion') ? 'Inscripción Anual' : customConcept || 'Pago / Abono')
     : (effectivePeriod ? `Mensualidad ${effectivePeriod.label}` : concept);
@@ -272,15 +330,26 @@ export function PaymentCheckoutModal({
   // Solo importa para las filas que este modal INSERTA (mode='create'): una fila
   // en mode='update' ya nació categorizada donde se creó (open_month, etc.), no
   // se retoca acá. Ver docs/specs/articulos-escolares-catalogo.md §7.
-  const paymentCategory: 'mensualidad' | 'inscripcion' | 'otro' | 'articulos' =
+  const paymentCategory: 'mensualidad' | 'inscripcion' | 'otro' | 'articulos' | 'torneo' =
     conceptType === 'articulos' ? 'articulos'
+      : conceptType === 'torneo' ? 'torneo'
       : conceptType === 'mensualidad' ? 'mensualidad'
       : conceptType.startsWith('inscripcion') ? 'inscripcion'
       : 'otro';
 
+  // Bug real encontrado en prueba E2E (2026-09-08): artículos/torneo generan
+  // su propia fila con el period_year/period_month del mes en curso, y
+  // uniq_payment_active_period_per_child es UNA fila activa por (child_id,
+  // period) sin distinguir categoría — choca con la mensualidad del mismo
+  // mes, que es el caso normal de cualquier familia al día, no un edge case.
+  // Mismo fix que 20260903103757 (register_for_internal_tournament): marcar
+  // el cobro como exento de esa unicidad porque es un adicional de una sola
+  // vez, no una mensualidad.
+  const periodUniquenessExempt = conceptType === 'articulos' || conceptType === 'torneo';
+
   // Descuento por pronto pago es exclusivo de mensualidad (spec §0) — nunca
-  // artículos.
-  const discountResult = paymentCreatedAt && conceptType !== 'articulos'
+  // artículos ni torneos.
+  const discountResult = paymentCreatedAt && conceptType !== 'articulos' && conceptType !== 'torneo'
     ? calcEarlyPaymentDiscount(finalAmount, {
       createdAt: paymentCreatedAt,
       config: discountConfig,
@@ -352,6 +421,7 @@ export function PaymentCheckoutModal({
           period_year:  periodYear,
           period_month: periodMonth,
           payment_category: paymentCategory,
+          period_uniqueness_exempt: periodUniquenessExempt,
         } as any).select('id').single();
         if (insertError) {
           // 23505 en uniq_payment_active_period_per_child: ya existe un cobro activo
@@ -438,9 +508,16 @@ export function PaymentCheckoutModal({
   // Asi el padre puede pagar Junio aunque Mayo este pendiente de validacion.
   // Para inscripcion / abono / otros conceptos, mantenemos el bloqueo total
   // porque no hay periodo y no podemos distinguir duplicados.
+  //
+  // Artículos/torneo quedan FUERA de este bloqueo (2026-09-08): son compras de
+  // catálogo independientes entre sí — un comprobante de un uniforme en espera
+  // de validación no puede impedir comprarle a la familia una segunda prenda
+  // o inscribirla a un torneo. No compiten por "un solo cupo" como sí lo hacen
+  // inscripción/abono (que además ya tienen su propio candado sin periodo,
+  // ver `reuseId` más abajo). Bug real encontrado en prueba E2E.
   useEffect(() => {
     if (!open || !studentId) return;
-    if (conceptType === 'mensualidad') {
+    if (conceptType === 'mensualidad' || conceptType === 'articulos' || conceptType === 'torneo') {
       setPendingPaymentDate(null);
       setCheckingPending(false);
       return;
@@ -601,6 +678,7 @@ export function PaymentCheckoutModal({
           period_month: periodMonth,
           early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
           payment_category: paymentCategory,
+          period_uniqueness_exempt: periodUniquenessExempt,
         } as any);
         if (insertError) throw insertError;
       }
@@ -764,6 +842,7 @@ export function PaymentCheckoutModal({
             ...receiptOcrFields,
             reference: `TRF-${Date.now().toString(36).toUpperCase()}`,
             payment_category: paymentCategory,
+            period_uniqueness_exempt: periodUniquenessExempt,
           } as any).select('id').single();
           if (ins.error) throw ins.error;
           glosaPaymentId = ins.data?.id ?? null;
@@ -857,6 +936,7 @@ export function PaymentCheckoutModal({
           period_month: periodMonth,
           early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
           payment_category: paymentCategory,
+          period_uniqueness_exempt: periodUniquenessExempt,
         } as any);
         error = insertError;
       }
@@ -908,6 +988,7 @@ export function PaymentCheckoutModal({
     if (processing) return;
     if (!selectedMethod) return;
     if (conceptType === 'articulos' && Object.keys(merchSelected).length === 0) return;
+    if (conceptType === 'torneo' && Object.keys(tournSelected).length === 0) return;
 
     // No-mensualidad o sin info de periodo → flujo directo
     if (conceptType !== 'mensualidad' || !nextPeriod || !childId) {
@@ -1044,7 +1125,10 @@ export function PaymentCheckoutModal({
                           <SelectItem value="inscripcion_variable" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Inscripción Anual (Monto Variable)</SelectItem>
                           <SelectItem value="otro" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Otro Concepto / Abono libre</SelectItem>
                           {merchEnabled && merchCatalog.length > 0 && (
-                            <SelectItem value="articulos" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Artículos escolares</SelectItem>
+                            <SelectItem value="articulos" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Artículos Deportivos</SelectItem>
+                          )}
+                          {tournEnabled && tournCatalog.length > 0 && (
+                            <SelectItem value="torneo" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Torneos</SelectItem>
                           )}
                         </SelectContent>
                       </Select>
@@ -1099,12 +1183,47 @@ export function PaymentCheckoutModal({
                         </div>
                       </div>
                     )}
+                    {conceptType === 'torneo' && (
+                      <div className="space-y-2">
+                        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Elegí los cobros</Label>
+                        <div className="space-y-1.5">
+                          {tournCatalog.map((item) => {
+                            const sel = tournSelected[item.id];
+                            return (
+                              <div
+                                key={item.id}
+                                className={`rounded-lg border-2 p-2.5 transition-all ${sel ? 'border-primary bg-primary/5' : 'border-border'}`}
+                              >
+                                <button type="button" onClick={() => toggleTournItem(item)} className="w-full flex items-center gap-2.5 text-left">
+                                  <span className={`h-5 w-5 rounded-md border-2 flex items-center justify-center shrink-0 ${sel ? 'bg-primary border-primary' : 'border-gray-300'}`}>
+                                    {sel && <CheckCircle2 className="h-4 w-4 text-white" />}
+                                  </span>
+                                  <span className="flex-1 min-w-0">
+                                    <span className="block text-sm font-medium text-gray-900">{item.name}</span>
+                                    <span className="block text-xs text-muted-foreground">{formatCurrency(item.price)}</span>
+                                  </span>
+                                </button>
+                                {sel && (
+                                  <div className="mt-2 pl-7 flex items-center gap-2">
+                                    <button type="button" className="h-7 w-7 rounded border flex items-center justify-center text-sm" onClick={() => setTournQty(item.id, sel.qty - 1)}>−</button>
+                                    <span className="text-sm font-medium w-4 text-center">{sel.qty}</span>
+                                    <button type="button" className="h-7 w-7 rounded border flex items-center justify-center text-sm" onClick={() => setTournQty(item.id, sel.qty + 1)}>+</button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                     <div className="space-y-2">
                       <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        {conceptType === 'articulos' ? 'Subtotal artículos' : 'Monto ($ COP)'}
+                        {conceptType === 'articulos' ? 'Subtotal artículos' : conceptType === 'torneo' ? 'Subtotal torneos' : 'Monto ($ COP)'}
                       </Label>
                       {conceptType === 'articulos' ? (
                         <p className="text-2xl sm:text-3xl font-bold text-primary">{formatCurrency(merchTotal)}</p>
+                      ) : conceptType === 'torneo' ? (
+                        <p className="text-2xl sm:text-3xl font-bold text-primary">{formatCurrency(tournTotal)}</p>
                       ) : ['mensualidad', 'inscripcion_fija'].includes(conceptType) ? (
                         <div className="flex items-baseline gap-2">
                           {discountResult.eligible && discountResult.discountAmount > 0 ? (
@@ -1341,7 +1460,7 @@ export function PaymentCheckoutModal({
               {/* Botones acción para los demás métodos (no online ni MP) */}
               {hasCompleteDianData && selectedMethod !== 'online' && selectedMethod !== 'mercadopago' && (
                 <div className="space-y-2 pt-2">
-                  <Button className="w-full" size="lg" disabled={!selectedMethod || processing || (conceptType === 'articulos' && merchTotal === 0)} onClick={handlePayClick}>
+                  <Button className="w-full" size="lg" disabled={!selectedMethod || processing || (conceptType === 'articulos' && merchTotal === 0) || (conceptType === 'torneo' && tournTotal === 0)} onClick={handlePayClick}>
                     {processing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Procesando...</> : `Pagar ${formatCurrency(chargeAmount)}`}
                   </Button>
                   <Button variant="outline" className="w-full" onClick={handleClose} disabled={processing}>Cancelar</Button>

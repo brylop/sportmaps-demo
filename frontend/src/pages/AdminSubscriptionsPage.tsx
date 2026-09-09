@@ -80,6 +80,13 @@ interface MerchItem {
   active: boolean;
 }
 
+interface TournItem {
+  id: string;
+  name: string;
+  price: number;
+  active: boolean;
+}
+
 interface SaasInvoiceRow {
   id: string;
   invoice_number: string;
@@ -145,6 +152,18 @@ export default function AdminSubscriptionsPage() {
   const [merchPrice, setMerchPrice] = useState('');
   const [merchSizes, setMerchSizes] = useState('');
   const [merchImageUrl, setMerchImageUrl] = useState('');
+  // ── Catálogo de torneos — mismo patrón que artículos (20260908152538): el
+  // toggle de activación sigue siendo control exclusivo de este panel; el
+  // CONTENIDO del catálogo (estos ítems) ya lo administra también la propia
+  // escuela desde PaymentsAutomationPage. Este bloque queda como respaldo de
+  // soporte, no como único lugar de edición.
+  const [tournEnabled, setTournEnabled] = useState(false);
+  const [tournItems, setTournItems] = useState<TournItem[]>([]);
+  const [loadingTourn, setLoadingTourn] = useState(false);
+  const [savingTourn, setSavingTourn] = useState(false);
+  const [tournEditingId, setTournEditingId] = useState<string | null>(null);
+  const [tournName, setTournName] = useState('');
+  const [tournPrice, setTournPrice] = useState('');
   const [saasBillingEnabled, setSaasBillingEnabled] = useState<boolean | null>(null);
   const [saasInvoices, setSaasInvoices] = useState<SaasInvoiceRow[]>([]);
   const [loadingSaas, setLoadingSaas] = useState(false);
@@ -279,6 +298,74 @@ export default function AdminSubscriptionsPage() {
     await loadMerch(selected.id);
   }
 
+  function resetTournForm() {
+    setTournEditingId(null);
+    setTournName('');
+    setTournPrice('');
+  }
+
+  async function loadTourn(schoolId: string) {
+    setLoadingTourn(true);
+    const [{ data: enabled }, { data: items, error }] = await Promise.all([
+      supabase.rpc('admin_get_school_tournament_charges_enabled' as any, { p_school_id: schoolId }),
+      supabase.from('school_tournament_items' as any)
+        .select('id, name, price, active')
+        .eq('school_id', schoolId)
+        .order('sort_order', { ascending: true }),
+    ]);
+    if (error) toast({ title: 'Error cargando el catálogo', description: error.message, variant: 'destructive' });
+    setTournEnabled(!!enabled);
+    setTournItems((items as any) || []);
+    resetTournForm();
+    setLoadingTourn(false);
+  }
+
+  async function toggleTournEnabled() {
+    if (!selected) return;
+    const next = !tournEnabled;
+    setSavingTourn(true);
+    const { error } = await supabase.rpc('admin_set_school_tournament_charges_enabled' as any, {
+      p_school_id: selected.id, p_enabled: next,
+    });
+    setSavingTourn(false);
+    if (error) { toast({ title: 'No se pudo aplicar', description: error.message, variant: 'destructive' }); return; }
+    setTournEnabled(next);
+    toast({ title: next ? 'Catálogo activado' : 'Catálogo desactivado', description: selected.name });
+  }
+
+  function startEditTournItem(item: TournItem) {
+    setTournEditingId(item.id);
+    setTournName(item.name);
+    setTournPrice(String(item.price));
+  }
+
+  async function saveTournItem() {
+    if (!selected) return;
+    const name = tournName.trim();
+    const price = Number(tournPrice.replace(/\./g, '').replace(/,/g, ''));
+    if (!name) { toast({ title: 'Falta el nombre', variant: 'destructive' }); return; }
+    if (!Number.isFinite(price) || price < 0) { toast({ title: 'Precio inválido', variant: 'destructive' }); return; }
+    setSavingTourn(true);
+    const row = { school_id: selected.id, name, price };
+    const { error } = tournEditingId
+      ? await supabase.from('school_tournament_items' as any).update(row).eq('id', tournEditingId)
+      : await supabase.from('school_tournament_items' as any).insert(row);
+    setSavingTourn(false);
+    if (error) { toast({ title: 'No se pudo guardar', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: tournEditingId ? 'Cobro actualizado' : 'Cobro agregado', description: name });
+    await loadTourn(selected.id);
+  }
+
+  async function toggleTournItemActive(item: TournItem) {
+    if (!selected) return;
+    setSavingTourn(true);
+    const { error } = await supabase.from('school_tournament_items' as any)
+      .update({ active: !item.active }).eq('id', item.id);
+    setSavingTourn(false);
+    if (error) { toast({ title: 'No se pudo aplicar', description: error.message, variant: 'destructive' }); return; }
+    await loadTourn(selected.id);
+  }
+
   async function loadSaasInvoicing(schoolId: string) {
     setLoadingSaas(true);
     const [{ data: sub }, { data: invoices }] = await Promise.all([
@@ -342,6 +429,7 @@ export default function AdminSubscriptionsPage() {
     void loadEnt(s.id);
     void loadSaasInvoicing(s.id);
     void loadMerch(s.id);
+    void loadTourn(s.id);
   }
 
   /** Manda (o reenvía) email + push de una factura, y deja lista la ventana de WhatsApp. */
@@ -1126,18 +1214,22 @@ export default function AdminSubscriptionsPage() {
                   </div>
                 </div>
 
-                {/* Catálogo de artículos escolares — panel interno SOLO, nunca la
-                    escuela (spec articulos-escolares-catalogo.md §9.5). No es un
-                    addon comercial: no aparece en school_addons ni en /mi-plan. */}
+                {/* Catálogo de artículos deportivos — el TOGGLE de activación sigue
+                    siendo control exclusivo de este panel (nunca lo prende la
+                    escuela sola, spec articulos-escolares-catalogo.md §9.5), pero
+                    desde 20260908152538 el CONTENIDO del catálogo también lo edita
+                    la propia escuela desde Cobros → Configuración. Este bloque
+                    queda como respaldo de soporte, no como único lugar de edición.
+                    No es un addon comercial: no aparece en school_addons ni en /mi-plan. */}
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <ShoppingBag className="h-4 w-4 text-primary" />
-                    <p className="text-sm font-semibold">Catálogo de artículos escolares</p>
+                    <p className="text-sm font-semibold">Catálogo de artículos deportivos</p>
                   </div>
                   <p className="text-xs text-muted-foreground mb-3">
                     Guayos, uniformes, accesorios — se ofrecen al padre en el mismo pago de
-                    inscripción/mensualidad, como cobro aparte. Control exclusivo de este panel,
-                    no un addon que la escuela pueda prender sola.
+                    inscripción/mensualidad, como cobro aparte. El toggle solo lo prende este
+                    panel; una vez activo, la escuela también administra sus ítems.
                   </p>
 
                   {loadingMerch ? (
@@ -1207,6 +1299,89 @@ export default function AdminSubscriptionsPage() {
                         <Button size="sm" disabled={savingMerch} onClick={saveMerchItem}>
                           {savingMerch ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
                           {merchEditingId ? 'Guardar cambios' : 'Agregar'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Catálogo de cobros de torneo — mismo patrón que artículos
+                    (20260908152538): toggle exclusivo de este panel, contenido
+                    editable también por la escuela. NO es el módulo grande de
+                    Torneos por Escuela (delegaciones/brackets/resultados). */}
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <ShoppingBag className="h-4 w-4 text-primary" />
+                    <p className="text-sm font-semibold">Catálogo de cobros de torneo</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Ej. "Torneo Interclubes — $50.000" — un cobro simple más, separado de
+                    mensualidad/inscripción/artículos. El toggle solo lo prende este panel;
+                    una vez activo, la escuela también administra sus ítems.
+                  </p>
+
+                  {loadingTourn ? (
+                    <div className="py-4 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+                  ) : (
+                    <div className="space-y-3">
+                      <button
+                        onClick={toggleTournEnabled}
+                        disabled={savingTourn}
+                        className={`w-full flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${tournEnabled ? 'border-primary bg-primary/5' : 'hover:border-muted-foreground/30'}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-sm">Vender cobros de torneo a los padres</div>
+                          <div className="text-[11px] text-muted-foreground">Si está apagado, no ven la sección al pagar.</div>
+                        </div>
+                        <span className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${tournEnabled ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
+                          {savingTourn ? (
+                            <Loader2 className="h-3 w-3 animate-spin text-white mx-auto" />
+                          ) : (
+                            <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${tournEnabled ? 'translate-x-5' : 'translate-x-0.5'}`}>
+                              {tournEnabled && <Check className="h-3 w-3 text-primary mx-auto mt-1" />}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+
+                      {tournItems.length > 0 && (
+                        <div className="space-y-1.5">
+                          {tournItems.map((item) => (
+                            <div key={item.id} className={`flex items-center gap-2 rounded-lg border p-2 ${!item.active ? 'opacity-50 bg-muted/30' : ''}`}>
+                              <div className="flex-1 min-w-0">
+                                <span className="text-sm font-medium truncate">{item.name}</span>
+                                <div className="text-xs text-primary font-semibold">${item.price.toLocaleString('es-CO')}</div>
+                              </div>
+                              <Badge variant={item.active ? 'secondary' : 'outline'} className="text-[10px] shrink-0">
+                                {item.active ? 'Activo' : 'Inactivo'}
+                              </Badge>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" disabled={savingTourn} onClick={() => startEditTournItem(item)}>
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" disabled={savingTourn} onClick={() => toggleTournItemActive(item)}>
+                                <ShieldOff className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="rounded-xl border border-dashed p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-semibold">{tournEditingId ? 'Editar cobro' : '+ Agregar cobro'}</p>
+                          {tournEditingId && (
+                            <Button size="sm" variant="ghost" className="h-6 px-2" onClick={resetTournForm}>
+                              <X className="h-3 w-3 mr-1" /> Cancelar
+                            </Button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <Input placeholder="Nombre (ej. Torneo Interclubes)" value={tournName} onChange={(e) => setTournName(e.target.value)} className="h-8 text-sm" />
+                          <Input placeholder="Precio (COP)" inputMode="numeric" value={tournPrice} onChange={(e) => setTournPrice(e.target.value)} className="h-8 text-sm" />
+                        </div>
+                        <Button size="sm" disabled={savingTourn} onClick={saveTournItem}>
+                          {savingTourn ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
+                          {tournEditingId ? 'Guardar cambios' : 'Agregar'}
                         </Button>
                       </div>
                     </div>

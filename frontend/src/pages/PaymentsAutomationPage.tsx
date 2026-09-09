@@ -39,6 +39,7 @@ import { PaymentOriginBadge } from '@/components/payment/PaymentOriginBadge';
 import { FailedAttemptChip } from '@/components/payment/FailedAttemptChip';
 import { isGatewayPayment } from '@/lib/paymentOrigin';
 import { PaymentAccountsEditor } from '@/components/payment/PaymentAccountsEditor';
+import { SellableCatalogCard } from '@/components/settings/SellableCatalogCard';
 import { MonthCloseTab } from '@/components/finances/MonthCloseTab';
 import {
   resolvePaymentAccounts,
@@ -92,6 +93,11 @@ interface BillingSettings {
   auto_glosa_enabled: boolean;
   /** Un solo toggle: correo al generarse el cobro del mes + correo al pasar los días de gracia sin pagar. */
   charge_notifications_enabled: boolean;
+  // Catálogos vendibles (20260908152538). SOLO LECTURA acá: el toggle es
+  // control exclusivo del panel interno de SportMaps (AdminSubscriptionsPage),
+  // esta página nunca lo escribe — un trigger en DB lo revertiría igual.
+  merchandise_enabled: boolean;
+  tournament_charges_enabled: boolean;
 }
 
 
@@ -119,6 +125,8 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   auto_approve_max_amount: 0,
   auto_glosa_enabled: false,
   charge_notifications_enabled: false,
+  merchandise_enabled: false,
+  tournament_charges_enabled: false,
   payment_accounts: [],
 };
 
@@ -2312,6 +2320,32 @@ export default function PaymentsAutomationPage() {
 
                 </CardContent>
               </Card>
+
+              {/* Catálogos vendibles (20260908152538) — el toggle lo prende SOLO
+                  SportMaps (panel interno); si está activo, la escuela administra
+                  aquí el contenido (ítems/precios). */}
+              {schoolId && (
+                <SellableCatalogCard
+                  schoolId={schoolId}
+                  table="school_merchandise_items"
+                  enabled={billing.merchandise_enabled}
+                  title="Catálogo de artículos deportivos"
+                  description="Guayos, uniformes, accesorios — se cobran aparte de mensualidad/inscripción."
+                  itemLabel="artículo"
+                  withSizesAndImage
+                />
+              )}
+              {schoolId && (
+                <SellableCatalogCard
+                  schoolId={schoolId}
+                  table="school_tournament_items"
+                  enabled={billing.tournament_charges_enabled}
+                  title="Catálogo de cobros de torneo"
+                  description='Ej. "Torneo Interclubes — $50.000" — un cobro simple más, separado de mensualidad/inscripción/artículos.'
+                  itemLabel="cobro"
+                />
+              )}
+
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base"><Clock className="h-5 w-5 text-amber-500" />Mora y Penalización</CardTitle>
