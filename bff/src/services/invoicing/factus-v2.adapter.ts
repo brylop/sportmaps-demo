@@ -167,6 +167,20 @@ export const factusV2Adapter: InvoicingAdapter = {
         const token = await getToken(cfg);
         const isCompany = req.customer.documentType === 'NIT';
 
+        // `price` en V2 es el valor NETO por unidad, sin impuestos ("Precio por
+        // unidad del producto o servicio sin impuestos incluidos ni descuentos,
+        // valor neto" — doc oficial). NO es como V1, que recibía el precio con
+        // IVA incluido y lo desglosaba hacia atrás. Nuestro canónico
+        // (InvoiceLine.unitPrice) viene con IVA incluido, así que acá hay que
+        // sacarle el impuesto: para un excluido son iguales, pero el día que
+        // se facture algo gravado (artículos deportivos al 19%) mandar el total
+        // como si fuera base infla la factura un 19%.
+        const netUnit = (it: { unitPrice: number; taxRate: number; isExcluded?: boolean }) =>
+            it.isExcluded || !it.taxRate
+                ? Number(it.unitPrice)
+                : Number(it.unitPrice) / (1 + Number(it.taxRate) / 100);
+
+        // El pago es lo que el padre pagó de verdad: el total con impuesto.
         const total = req.items.reduce(
             (acc, it) => acc + Number(it.unitPrice) * Number(it.quantity ?? 1),
             0,
@@ -176,10 +190,15 @@ export const factusV2Adapter: InvoicingAdapter = {
             numbering_range_id: cfg.config.numbering_range_id,
             reference_code: req.referenceCode,
             observation: req.observation ?? '',
+            // Explícito y no por omisión: el default documentado es `true`, y no
+            // queremos que Factus le escriba al acudiente por su cuenta con una
+            // plantilla que no controlamos. Si algún día se quiere ese correo,
+            // es una decisión de producto, no un default heredado.
+            send_email: false,
             payment_details: [{
                 payment_form: '1',          // 1 = pago de contado
                 payment_method_code: '10',  // 10 = efectivo (genérico)
-                amount: total,
+                amount: total.toFixed(2),   // la doc declara string
             }],
             customer: {
                 identification: req.customer.identification,
@@ -203,19 +222,23 @@ export const factusV2Adapter: InvoicingAdapter = {
             items: req.items.map((it) => ({
                 code_reference: it.codeReference,
                 name: it.name,
-                quantity: it.quantity,
-                discount_rate: it.discountRate ?? 0,
-                price: it.unitPrice,                    // IVA incluido
+                quantity: Number(it.quantity ?? 1).toFixed(2),
+                discount_rate: Number(it.discountRate ?? 0).toFixed(2),
+                price: netUnit(it).toFixed(2),          // NETO, sin impuesto
                 unit_measure_code: '94',                // 94 = unidad
-                standard_code: '1',                     // 1 = UNSPSC (lo resuelve Factus)
-                is_excluded: it.isExcluded ? 1 : 0,
-                // V2 exige `taxes` con al menos un elemento: para excluido va
-                // el mismo tributo con tasa 0.00 (efecto fiscal = sin IVA).
-                taxes: [{
-                    code: '01',                         // 01 = IVA
-                    rate: (it.isExcluded ? 0 : it.taxRate).toFixed(2),
-                }],
-                withholding_taxes: [],
+                standard_code: '999',                   // el que usa el ejemplo oficial
+                // `is_excluded` va DENTRO de cada objeto de `taxes` y es
+                // BOOLEANO — no al nivel del ítem ni como 1/0. Mandarlo mal es
+                // el mismo fallo silencioso de municipality_id: V2 descarta la
+                // clave desconocida sin avisar, y el ítem sale GRAVADO AL 0%
+                // en vez de EXCLUIDO, que ante la DIAN no es lo mismo. La
+                // respuesta del sandbox ya lo delataba (devolvía
+                // is_excluded:false pese a que mandábamos 1).
+                // Para un excluido el ejemplo oficial manda SOLO la bandera,
+                // sin code ni rate.
+                taxes: it.isExcluded
+                    ? [{ is_excluded: true }]
+                    : [{ code: '01', rate: Number(it.taxRate).toFixed(2) }],
             })),
         };
 
