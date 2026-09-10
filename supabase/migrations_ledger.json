@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 524,
-  "head": "20260909215933",
+  "count": 531,
+  "head": "20260910114047",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -527,6 +527,13 @@
     {"v":"20260909080429","file":"20260909080429_guard_alta_manual_de_hijo_duplicado.sql","sha256":"bc500efcf85cf83fdc6b4db6cf2d79bc284ed46efea5f2ab065976b8946b3f9a","added":"2026-09-09","by":"brylop"},
     {"v":"20260909083144","file":"20260909083144_guard_alta_hijo_duplicado_con_school_id.sql","sha256":"1777ff237d9058f74426e64144f4154c9b220ff2ebba16de03771a18bc92c324","added":"2026-09-09","by":"brylop"},
     {"v":"20260909215903","file":"20260909215903_normalize_athlete_name_a_prueba_de_nfd.sql","sha256":"9e36562a213fe105f7c22c4b48c336f6bf6a3beafebc3e060513ff7a5dbd890b","added":"2026-09-10","by":"brylop"},
-    {"v":"20260909215933","file":"20260909215933_whatsapp_optin_y_rastreo_de_plantillas.sql","sha256":"2f3635d45d5570ffe4b54ae43f960e8f67dd49b98b2fbb8dbef35c768d526198","added":"2026-09-10","by":"brylop"}
+    {"v":"20260909215933","file":"20260909215933_whatsapp_optin_y_rastreo_de_plantillas.sql","sha256":"2f3635d45d5570ffe4b54ae43f960e8f67dd49b98b2fbb8dbef35c768d526198","added":"2026-09-10","by":"brylop"},
+    {"v":"20260909222343","file":"20260909222343_whatsapp_optin_baja_sin_consentimiento.sql","sha256":"b1932670cc17e7c57d63791941bfcaee51e1e9f0c41c72515f05b44abb70df01","added":"2026-09-10","by":"brylop"},
+    {"v":"20260910073724","file":"20260910073724_profiles_bloquear_autoasignacion_de_rol.sql","sha256":"5e8771c14993ba9c62e3f20da8395cd8607a755cf05654304ca44a570c86978c","added":"2026-09-10","by":"brylop"},
+    {"v":"20260910074449","file":"20260910074449_pausa_vacaciones_enrollments.sql","sha256":"06734836d53be60012f5b0aff9ded70fc59113b9fad7321ac9604779a26ae449","added":"2026-09-10","by":"brylop"},
+    {"v":"20260910082224","file":"20260910082224_pausa_cancelada_antes_del_mes_si_se_cobra.sql","sha256":"a8d42df3ef87842094c3068176f6b9293cb36484e084400428c7f64b15abfa8f","added":"2026-09-10","by":"brylop"},
+    {"v":"20260910082720","file":"20260910082720_limpiar_pausas_vencidas_en_cron_de_vencimiento.sql","sha256":"54505f3e4dc5ece832fd40b70f487214022028268fbea79eb9c13b74bb33c995","added":"2026-09-10","by":"brylop"},
+    {"v":"20260910092915","file":"20260910092915_notas_credito_anulacion_de_facturas.sql","sha256":"dac92fee1ccb972c860e8c64174b25ce1bc2f9aeecd2e04e3d94f8a8e3713cf2","added":"2026-09-10","by":"brylop"},
+    {"v":"20260910114047","file":"20260910114047_pause_config_para_el_acudiente.sql","sha256":"63626963e7faf17c375354b786b8c7d6eefc1027b8dab40d5ba8cdae9d81d472","added":"2026-09-10","by":"brylop"}
   ]
 }

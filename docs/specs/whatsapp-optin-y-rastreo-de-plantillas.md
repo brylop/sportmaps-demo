@@ -18,8 +18,8 @@ Estado del plan al escribir esto: fase 0 (token permanente de System User)
 **Entra:**
 
 1. Tabla `whatsapp_optins` — consentimiento **explícito**, por número y por integración.
-2. Pregunta de consentimiento en el bot: primer contacto sin opt-in → se pide, y solo
-   la confirmación lo estampa.
+2. Pregunta de consentimiento en el bot: pegada a la verificación por OTP, una sola vez,
+   y solo la confirmación la estampa. Par STOP / ACTIVAR. Ver §5.1.
 3. Baja por palabra clave (STOP) — requisito de Meta, no opcional.
 4. Función `wa_can_send_template()` — la pregunta que todo envío debe hacerse antes.
 5. Columnas `meta_*` en `payment_message_templates`.
@@ -110,7 +110,8 @@ CREATE TABLE IF NOT EXISTS public.whatsapp_optins (
     -- para siempre: el consentimiento vale igual, es del número.
     parent_id        uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
 
-    opted_in_at      timestamptz NOT NULL,
+    -- NULL = nunca consintió (pidió la baja sin haber dado opt-in nunca).
+    opted_in_at      timestamptz,
     opted_out_at     timestamptz,
 
     -- text + CHECK, no CREATE TYPE (convención del repo).
@@ -120,7 +121,8 @@ CREATE TABLE IF NOT EXISTS public.whatsapp_optins (
                          'form_inscripcion',  -- casilla explícita (fase 4)
                          'invitacion',
                          'import',            -- autorización previa de la escuela
-                         'admin_manual'
+                         'admin_manual',
+                         'baja_directa'       -- pidió la baja sin haber consentido nunca
                      )),
     -- Prueba del consentimiento: wa_message_id del SÍ, id de inscripción, lote…
     source_ref       text NOT NULL,
@@ -129,6 +131,10 @@ CREATE TABLE IF NOT EXISTS public.whatsapp_optins (
     updated_at       timestamptz NOT NULL DEFAULT now(),
 
     CONSTRAINT uq_wa_optin UNIQUE (integration_id, contact_wa_id),
+
+    -- Una fila tiene que afirmar algo: o consintió, o pidió la baja.
+    CONSTRAINT chk_wa_optin_dice_algo
+        CHECK (opted_in_at IS NOT NULL OR opted_out_at IS NOT NULL),
 
     -- Integridad del school_id desnormalizado, declarativa y sin trigger.
     CONSTRAINT fk_wa_optin_integration
@@ -139,11 +145,15 @@ CREATE TABLE IF NOT EXISTS public.whatsapp_optins (
 
 CREATE INDEX IF NOT EXISTS idx_wa_optin_school_activo
     ON public.whatsapp_optins(school_id)
-    WHERE opted_out_at IS NULL;
+    WHERE opted_in_at IS NOT NULL AND opted_out_at IS NULL;
 ```
 
-`opted_in_at` y `source_ref` son **NOT NULL**: una fila en esta tabla significa
-"alguien consintió, y aquí está la prueba". No hay filas a medias.
+`source_ref` es **NOT NULL**: no se puede registrar nada sin apuntar a la prueba.
+`opted_in_at` es nullable, pero el CHECK obliga a que la fila afirme algo — o
+consintió, o pidió la baja. **Una baja de alguien que nunca consintió deja
+`opted_in_at` en NULL y `source='baja_directa'`**: escribir ahí un consentimiento
+con el propio mensaje de STOP como prueba sería fabricar exactamente lo que este
+spec existe para impedir.
 
 La FK compuesta necesita que el destino sea único, así que la migración agrega antes:
 
@@ -239,9 +249,11 @@ Upsert por `(integration_id, contact_wa_id)`. Con `p_opt_out=false` estampa
 `opted_in_at = now()` y limpia `opted_out_at`. Con `p_opt_out=true` estampa
 `opted_out_at` sin tocar `opted_in_at` (queda el historial de que alguna vez lo dio).
 
-Un opt-out sobre un número que **nunca** dio opt-in inserta la fila igual, con
-`source='user_confirmed'`, `opted_in_at = now()` y `opted_out_at = now()`: registra que
-pidió no ser contactado, que es justo lo que hay que respetar.
+Un opt-out sobre un número que **nunca** dio opt-in inserta la fila igual, pero con
+`opted_in_at = NULL` y `source='baja_directa'` (ignorando `p_source`): registra que pidió
+no ser contactado, sin afirmar un consentimiento que no existió. En el `DO UPDATE` no se
+tocan `source` ni `source_ref`: si sí había consentimiento previo, su prueba original se
+conserva.
 
 ### 4.2 `wa_can_send_template` — la pregunta obligatoria antes de todo envío
 
@@ -260,6 +272,7 @@ AS $$
         SELECT 1 FROM public.whatsapp_optins o
          WHERE o.integration_id = p_integration_id
            AND o.contact_wa_id  = p_contact_wa_id
+           AND o.opted_in_at   IS NOT NULL   -- las filas 'baja_directa' no consintieron
            AND o.opted_out_at  IS NULL
     )
     AND NOT public.wa_is_blocked(p_integration_id, p_contact_wa_id);
@@ -267,8 +280,7 @@ $$;
 ```
 
 Junta consentimiento y kill-switch en una sola pregunta, para que ningún camino de
-envío consulte uno y olvide el otro. Ya no hace falta chequear `opted_in_at IS NOT NULL`:
-la columna es NOT NULL por diseño.
+envío consulte uno y olvide el otro.
 
 **Verificar el tipo de retorno real de `wa_is_blocked`** antes de escribirla (está en
 WA1; si no devuelve `boolean` limpio, se ajusta).
@@ -278,6 +290,10 @@ WA1; si no devuelve `boolean` limpio, se ajusta).
 Un solo agregado, dentro de la **misma transacción** que ya hace el upsert de la
 conversación y el insert del mensaje: **detección de baja**. Si el texto normalizado
 coincide con una palabra de baja, se registra el opt-out.
+
+El registro de la baja va **aislado en su propio bloque de excepción**: si fallara, no
+puede tumbar la transacción y hacer que se pierda el mensaje entrante. El mensaje ya
+está guardado; la baja es un efecto secundario y se degrada sola con un `WARNING`.
 
 **Lo que ya NO hace** (era el error de la v1): estampar opt-in por el hecho de recibir
 un mensaje. La ventana de 24h la sigue llevando `last_inbound_at`, como siempre.
@@ -345,8 +361,31 @@ Es un paso conversacional en `whatsapp-bot.service.ts`, no en la base.
 > identificación por OTP (`wa_start_identification` / `wa_verify_otp`). La pregunta de
 > consentimiento va **junto a ese flujo**, no como un segundo interrogatorio paralelo —
 > dos "responde SÍ" seguidos por motivos distintos es una experiencia mala y una fuente
-> de respuestas ambiguas ("sí" ¿a cuál de las dos?). El detalle de la redacción se
-> resuelve al implementar, con el texto a la vista.
+> de respuestas ambiguas ("sí" ¿a cuál de las dos?).
+
+### 5.1 Cómo quedó implementado (2026-09-09)
+
+En `bff/src/services/whatsapp-bot.service.ts`, como paso 2 del turno del bot, entre la
+identificación y los intents:
+
+- **La pregunta viaja pegada al mensaje de "identidad verificada"**, con
+  `step='ask_consent'` en el payload. No es un turno aparte.
+- Se pregunta **una sola vez por conversación**. El "ya se preguntó" se deriva de la
+  propia conversación: un saliente con `payload->>step='ask_consent'`, o —en modo
+  asistido, donde la pregunta espera aprobación— un borrador con
+  `tool_context->>step='ask_consent'`. Sin eso, cada mensaje del padre generaría un
+  borrador nuevo pidiendo lo mismo.
+- **Solo un afirmativo estampa el opt-in**, con `source='user_confirmed'` y
+  `source_ref` = `wa_message_id` de ESA confirmación.
+- **Un "no" no registra nada** y no se vuelve a insistir: no hay consentimiento que
+  guardar, y la pregunta ya quedó hecha.
+- Cualquier otra cosa (vino a preguntar por el entreno) **sigue su camino al LLM**. La
+  comparación es contra el mensaje completo normalizado, igual que el STOP: *"no quiero
+  perderme la clase"* no puede leerse como un "no".
+- **Par STOP / ACTIVAR.** El STOP lo registra la ingesta en la base; el bot lo confirma
+  y deja de preguntarle cosas. `ACTIVAR` es la única palabra que escucha de alguien ya
+  de baja, y revierte el opt-out. El mensaje de baja lo anuncia, así que tiene que
+  funcionar.
 
 ---
 
@@ -382,8 +421,9 @@ modelo justo antes de que entre tráfico real.
 2. **Ventana ≠ opt-in.** La tabla guarda solo consentimiento explícito; la ventana vive
    en `last_inbound_at` y no se duplica. §1.1.
 3. **El consentimiento es del número, no de la persona.** `parent_id` es opcional.
-4. **`opted_in_at` y `source_ref` son NOT NULL.** Una fila = un consentimiento probable.
-   Hace imposible por diseño fabricar opt-ins sin evidencia.
+4. **`source_ref` es NOT NULL y la baja sin consentimiento previo NO estampa
+   `opted_in_at`.** Hace imposible por diseño fabricar un opt-in sin evidencia — ni
+   siquiera por el camino del STOP.
 5. **La baja nunca borra la fila.** Estampa `opted_out_at`.
 6. **Palabras de baja por coincidencia exacta.** §4.3.
 7. **Consentimiento y kill-switch se preguntan juntos** (`wa_can_send_template`).
@@ -417,6 +457,7 @@ modelo justo antes de que entre tráfico real.
 - [ ] Prueba viva: `STOP` → `opted_out_at` estampado y `wa_can_send_template()` en `false`
 - [ ] Prueba de falso positivo: *"quiero cancelar la clase del sábado"* → **sigue** con opt-in
 - [ ] Prueba de la FK compuesta: insertar un opt-in con `school_id` de otra escuela → debe fallar
+- [ ] Prueba de baja sin opt-in previo: `STOP` desde un número desconocido → fila con `opted_in_at IS NULL` y `source='baja_directa'`, y `wa_can_send_template()` en `false`
 
 ## 10. Fuentes
 

@@ -10,12 +10,18 @@
  *         · si no                    → pide el email registrado
  *     - Sin identificar, el bot NO consulta datos sensibles.
  *
- *  2. INTENTS (con Gemini + tool-calling), solo si está identificada:
+ *  2. CONSENTIMIENTO (opt-in explícito, una sola vez, tras identificarse):
+ *     - Escribir NO es consentir: abrir la ventana de 24h y aceptar plantillas
+ *       son permisos distintos (política de Meta). Solo un sí afirmativo estampa
+ *       el opt-in, con el wa_message_id de ESA confirmación como prueba.
+ *     - STOP lo registra la ingesta; ACTIVAR lo revierte.
+ *
+ *  3. INTENTS (con Gemini + tool-calling), solo si está identificada:
  *     - get_payment_status → wa_get_payment_status (pagos de ESTA escuela)
  *     - escalate_to_human  → marca la conversación para atención humana
  *     - El LLM decide la tool; el BFF la ejecuta; el LLM redacta con el resultado.
  *
- *  3. ENTREGA según modo (whatsapp_settings.mode):
+ *  4. ENTREGA según modo (whatsapp_settings.mode):
  *     - assisted → crea draft (NO envía; el admin aprueba)
  *     - auto     → envía por Graph API + registra outbound
  *
@@ -38,8 +44,20 @@ export async function runBotTurn(
     conversationId: string,
     contactWaId: string,
     inboundText: string | null,
+    waMessageId: string,
+    optedOut = false,
 ): Promise<void> {
     const text = (inboundText || '').trim();
+
+    // 0. Pidió la baja (la ingesta ya la registró) → confirmar y parar.
+    //    A quien pide que no le escriban no se le sigue preguntando nada.
+    if (optedOut) {
+        await deliver(integration, conversationId, contactWaId,
+            'Listo, no volverás a recibir mensajes automáticos de la escuela por este medio. ' +
+            'Si cambias de opinión, escríbeme *ACTIVAR* y los reactivo. 👋',
+            { step: 'opt_out_confirmado' });
+        return;
+    }
 
     // Cargar estado de la conversación.
     const { data: conv } = await supabase
@@ -56,7 +74,13 @@ export async function runBotTurn(
         return;
     }
 
-    // 2. Identificado → intents con LLM.
+    // 2. Consentimiento: se pide UNA vez, después de identificarse.
+    //    Si este turno lo resolvió (preguntó, o registró el sí/no), termina acá.
+    if (await handleConsent(integration, conversationId, contactWaId, conv.parent_id, text, waMessageId)) {
+        return;
+    }
+
+    // 3. Identificado → intents con LLM.
     await handleIntent(integration, conversationId, contactWaId, conv.parent_id, text);
 }
 
@@ -84,9 +108,17 @@ async function handleIdentification(
         });
         const r = res as any;
         if (r?.ok) {
+            // La pregunta de consentimiento va PEGADA a la verificación, no en un
+            // turno aparte: dos "responde SÍ" seguidos por motivos distintos es
+            // una experiencia mala y una fuente de respuestas ambiguas (§5 del
+            // spec). El step 'ask_consent' es lo que hace que handleConsent sepa
+            // que ya se preguntó y se limite a leer la respuesta.
+            const escuela = await nombreDeEscuela(integration.school_id);
             await deliver(integration, conversationId, contactWaId,
-                '✅ ¡Listo! Tu identidad quedó verificada. ¿En qué te ayudo? Puedo contarte el estado de tus pagos.',
-                { step: 'otp_verified' });
+                '✅ ¡Listo! Tu identidad quedó verificada.\n\n' +
+                `¿Quieres que *${escuela}* te envíe por aquí los recordatorios de pago y los avisos de tu atleta? ` +
+                'Responde *SÍ* para activarlos — puedes darte de baja cuando quieras escribiendo *STOP*.',
+                { step: 'ask_consent', otp_verified: true });
         } else {
             const reason = r?.reason;
             const msg = reason === 'expired'
@@ -142,7 +174,152 @@ async function handleIdentification(
         { step: 'ask_email' });
 }
 
-// ─── 2. Intents (LLM + tools) ──────────────────────────────────────────────────
+// ─── 2. Consentimiento explícito (opt-in) ─────────────────────────────────────
+//
+// Que el padre nos escriba abre la ventana de 24h; NO es consentimiento para
+// mandarle plantillas después (política de Meta, §1.1 del spec). El opt-in se
+// pide UNA vez, enganchado al final del flujo de identificación para no hacerle
+// dos interrogatorios seguidos, y solo una confirmación afirmativa lo estampa.
+//
+// Devuelve true si este turno quedó resuelto acá (no debe seguir al LLM).
+//
+// Spec: docs/specs/whatsapp-optin-y-rastreo-de-plantillas.md §5
+
+const AFIRMATIVAS = new Set([
+    'si', 'si acepto', 'acepto', 'si quiero', 'quiero', 'claro', 'claro que si',
+    'dale', 'ok', 'okey', 'de acuerdo', 'esta bien', 'listo', 'activar',
+]);
+const NEGATIVAS = new Set(['no', 'no gracias', 'no quiero', 'ahora no', 'prefiero que no']);
+const REACTIVAR = new Set(['activar', 'reactivar', 'si activar']);
+
+/**
+ * Misma normalización que la RPC wa_ingest_inbound_message usa para las palabras
+ * de baja: minúsculas, sin tildes, sin puntuación, y comparación contra el
+ * mensaje COMPLETO. Nunca por subcadena — "no quiero perderme la clase" no puede
+ * leerse como un "no".
+ */
+function normalizar(t: string): string {
+    return t
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '')   // quita las tildes que NFD dejo sueltas
+        .replace(/[^a-z0-9 ]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+async function handleConsent(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    parentId: string | null,
+    text: string,
+    waMessageId: string,
+): Promise<boolean> {
+    const norm = normalizar(text);
+
+    const { data: optin } = await supabase
+        .from('whatsapp_optins')
+        .select('opted_in_at, opted_out_at')
+        .eq('integration_id', integration.id)
+        .eq('contact_wa_id', contactWaId)
+        .maybeSingle();
+
+    const yaConsintio = !!(optin as any)?.opted_in_at && !(optin as any)?.opted_out_at;
+    const estaDeBaja = !!(optin as any)?.opted_out_at;
+
+    // Se dio de baja: NO se le vuelve a pedir. Solo escuchamos que la reactive.
+    if (estaDeBaja) {
+        if (REACTIVAR.has(norm)) {
+            await registrarOptIn(integration, contactWaId, parentId, waMessageId);
+            await deliver(integration, conversationId, contactWaId,
+                '✅ Listo, reactivé los recordatorios por WhatsApp. Puedes darte de baja cuando quieras con *STOP*.',
+                { step: 'opt_in_reactivado' });
+            return true;
+        }
+        return false;
+    }
+
+    if (yaConsintio) return false;
+
+    // La pregunta se hace una sola vez por conversación.
+    if (!(await yaSePreguntoConsentimiento(conversationId))) {
+        const escuela = await nombreDeEscuela(integration.school_id);
+        await deliver(integration, conversationId, contactWaId,
+            `Una cosa más: ¿quieres que *${escuela}* te envíe por aquí los recordatorios de pago ` +
+            `y los avisos de tu atleta?\n\n` +
+            `Responde *SÍ* para activarlos. Puedes darte de baja cuando quieras escribiendo *STOP*.`,
+            { step: 'ask_consent' });
+        return true;
+    }
+
+    if (AFIRMATIVAS.has(norm)) {
+        await registrarOptIn(integration, contactWaId, parentId, waMessageId);
+        await deliver(integration, conversationId, contactWaId,
+            '✅ Activado. Te avisaré por aquí de tus pagos y de tu atleta. Para darte de baja, escribe *STOP*.',
+            { step: 'opt_in_registrado' });
+        return true;
+    }
+
+    if (NEGATIVAS.has(norm)) {
+        // No se registra nada: no hay consentimiento que guardar. Y como la
+        // pregunta ya quedó hecha, no se vuelve a insistir.
+        await deliver(integration, conversationId, contactWaId,
+            'Sin problema, no te enviaré recordatorios automáticos. Igual puedes preguntarme lo que necesites por aquí. 🙌',
+            { step: 'consent_rechazado' });
+        return true;
+    }
+
+    // Ni sí ni no: el padre vino a otra cosa. No se insiste, sigue su camino.
+    return false;
+}
+
+async function registrarOptIn(
+    integration: WhatsAppIntegration,
+    contactWaId: string,
+    parentId: string | null,
+    waMessageId: string,
+): Promise<void> {
+    // source_ref = el mensaje de la CONFIRMACIÓN, no el primero que escribió.
+    // Es la prueba que se muestra si Meta audita el consentimiento.
+    const { error } = await supabase.rpc('wa_register_optin', {
+        p_integration_id: integration.id,
+        p_school_id: integration.school_id,
+        p_contact_wa_id: contactWaId,
+        p_source: 'user_confirmed',
+        p_source_ref: waMessageId,
+        p_parent_id: parentId,
+        p_opt_out: false,
+    });
+    if (error) console.error('[whatsapp-bot] wa_register_optin error:', error);
+}
+
+async function yaSePreguntoConsentimiento(conversationId: string): Promise<boolean> {
+    const { count: enviados } = await supabase
+        .from('whatsapp_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversationId)
+        .eq('direction', 'outbound')
+        .eq('payload->>step', 'ask_consent');
+    if ((enviados ?? 0) > 0) return true;
+
+    // En modo asistido la pregunta queda como borrador hasta que un admin la
+    // aprueba. Cuenta igual como preguntada: si no, cada mensaje del padre
+    // generaría un borrador nuevo pidiendo lo mismo.
+    const { count: borradores } = await supabase
+        .from('whatsapp_message_drafts')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversationId)
+        .eq('tool_context->>step', 'ask_consent');
+    return (borradores ?? 0) > 0;
+}
+
+async function nombreDeEscuela(schoolId: string): Promise<string> {
+    const { data } = await supabase.from('schools').select('name').eq('id', schoolId).maybeSingle();
+    return (data as any)?.name || 'la escuela';
+}
+
+// ─── 3. Intents (LLM + tools) ──────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `Eres el asistente de una escuela deportiva en WhatsApp, hablando con el padre/acudiente (ya verificado).
 Reglas estrictas:

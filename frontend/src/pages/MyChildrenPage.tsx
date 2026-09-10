@@ -15,12 +15,21 @@ import { UploadChildDocumentsDialog } from '@/components/children/UploadChildDoc
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Badge } from '@/components/ui/badge';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
+import RequestPauseDialog from '@/components/children/RequestPauseDialog';
+import { ChildPauseSection } from '@/components/children/ChildPauseSection';
+import { useParentPauseActions } from '@/hooks/usePauses';
 
 export default function MyChildrenPage() {
   const { user } = useAuth();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingChild, setEditingChild] = useState<any | null>(null);
   const [uploadingDocsFor, setUploadingDocsFor] = useState<any | null>(null);
+
+  // Pausa por vacaciones/lesión (spec §9.2). El gate por escuela lo resuelve
+  // cada tarjeta con `usePauseConfig`, porque un acudiente puede tener hijos en
+  // escuelas distintas y una puede tenerlo habilitado y la otra no.
+  const [pausingChild, setPausingChild] = useState<{ child: any; enrollmentId: string; maxMonths: number } | null>(null);
+  const { solicitar, retirar } = useParentPauseActions();
 
 
 
@@ -288,11 +297,34 @@ export default function MyChildrenPage() {
                     Subir documentos
                   </Button>
                 </div>
+                {/* Pausa por vacaciones/lesión. Se auto-oculta si la escuela no
+                    la habilitó o si no hay inscripción activa. */}
+                <ChildPauseSection
+                  child={child}
+                  enrollmentId={
+                    (child.enrollments || []).find((e: any) =>
+                      ['active', 'activo'].includes(e.status?.toLowerCase())
+                    )?.id ?? null
+                  }
+                  onSolicitar={setPausingChild}
+                  onRetirar={(requestId) => retirar.mutate(requestId)}
+                  isRetiring={retirar.isPending}
+                />
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
+
+      <RequestPauseDialog
+        open={!!pausingChild}
+        onOpenChange={(o) => { if (!o) setPausingChild(null); }}
+        athleteName={pausingChild?.child?.full_name ?? ''}
+        enrollmentId={pausingChild?.enrollmentId ?? null}
+        maxMonths={pausingChild?.maxMonths}
+        isSubmitting={solicitar.isPending}
+        onSubmit={(args) => solicitar.mutate(args, { onSuccess: () => setPausingChild(null) })}
+      />
 
       <AddChildDialog
         open={showAddDialog}

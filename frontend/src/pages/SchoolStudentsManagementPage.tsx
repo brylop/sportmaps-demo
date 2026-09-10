@@ -48,6 +48,14 @@ import {
   type AtletaDuplicado,
 } from '@/hooks/useSchoolContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
+import PauseAthleteDialog from '@/components/students/PauseAthleteDialog';
+import PauseRequestsInbox from '@/components/students/PauseRequestsInbox';
+import {
+  useActivePauses,
+  usePendingPauseRequests,
+  usePauseActions,
+  mesLegible,
+} from '@/hooks/usePauses';
 import { studentsAPI, StudentViewRow } from '@/lib/api/students';
 import { daysDiffFromToday } from '@/lib/dateUtils';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
@@ -272,7 +280,17 @@ export default function SchoolStudentsManagementPage() {
   } | null>(null);
   const [loadingPlanInfo, setLoadingPlanInfo] = useState(false);
 
-  const { schoolId, schoolName, teams, branches, activeBranchId, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
+  const { schoolId, schoolName, teams, branches, activeBranchId, defaultMonthlyFee, schoolSettings, loading: schoolLoading } = useSchoolContext();
+
+  // Pausa por vacaciones/lesión: opt-in por escuela (D7). Con el flag apagado
+  // no se muestra nada — es el mismo patrón que `militaryDiscountEnabled`.
+  const pauseEnabled = schoolSettings?.pause_enabled === true;
+  const { byEnrollment: pauseByEnrollment } = useActivePauses(pauseEnabled ? schoolId : null);
+  const { data: pauseRequests } = usePendingPauseRequests(
+    pauseEnabled && canManageStudents ? schoolId : null
+  );
+  const { preview: previewPause, pausar, reactivar, aprobar, rechazar } = usePauseActions(schoolId);
+  const [pausingStudent, setPausingStudent] = useState<any | null>(null);
 
   const { data: offeringPlans = [] } = useQuery({
     queryKey: ['offering-plans', schoolId],
@@ -1146,6 +1164,22 @@ export default function SchoolStudentsManagementPage() {
             {student.status === 'inactive' ? 'Reactivar' : 'Inactivar'}
           </DropdownMenuItem>
         )}
+        {/* Pausa por vacaciones/lesión. Mismo nivel de permiso que inactivar
+            (la RPC exige is_school_admin: aprobar una pausa exime de pagar) y
+            gateada por el opt-in de la escuela. */}
+        {pauseEnabled && canManageStudents && student.status !== 'inactive' && (
+          pauseByEnrollment.has(student.enrollment_id)
+            ? (
+              <DropdownMenuItem onClick={() => reactivar.mutate({ enrollmentId: student.enrollment_id })}>
+                Reactivar de la pausa
+              </DropdownMenuItem>
+            )
+            : (
+              <DropdownMenuItem onClick={() => setPausingStudent(student)}>
+                🏖️ Vacaciones / pausa
+              </DropdownMenuItem>
+            )
+        )}
         {/* PATCH: label y params según tipo de atleta */}
         <DropdownMenuItem onClick={() => navigate(`/invitations?${buildInviteParams(student)}`)}>
           {getAthleteType(student) === 'unregistered' ? 'Invitar Atleta' : 'Invitar Acudiente'}
@@ -1193,6 +1227,24 @@ export default function SchoolStudentsManagementPage() {
           </div>
         )}
       </div>
+
+      {/* Bandeja de solicitudes de pausa. Se auto-oculta si no hay ninguna. */}
+      {pauseEnabled && canManageStudents && (
+        <PauseRequestsInbox
+          requests={pauseRequests ?? []}
+          // Contra la lista COMPLETA, no contra `tabStudents`: si no, una
+          // solicitud de alguien que no está en la pestaña abierta se
+          // mostraría como "Atleta" sin nombre.
+          nameByEnrollment={new Map(
+            enhancedStudents
+              .filter((st: any) => st.enrollment_id)
+              .map((st: any) => [st.enrollment_id, st.full_name])
+          )}
+          onApprove={(args) => aprobar.mutate(args)}
+          onReject={(args) => rechazar.mutate(args)}
+          isBusy={aprobar.isPending || rechazar.isPending}
+        />
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
@@ -1339,6 +1391,13 @@ export default function SchoolStudentsManagementPage() {
                             <Clock className="h-2.5 w-2.5 mr-1" /> {formatHourBankMinutes(hourBankByEnrollment.get(student.enrollment_id)!)}
                           </Badge>
                         )}
+                        {student.enrollment_id && pauseByEnrollment.has(student.enrollment_id) && (
+                          <Badge variant="outline" className="text-[10px] bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/40 py-0 h-5">
+                            🏖️ {pauseByEnrollment.get(student.enrollment_id)!.vigente
+                              ? `En pausa hasta ${mesLegible(pauseByEnrollment.get(student.enrollment_id)!.month_to)}`
+                              : `Pausa desde ${mesLegible(pauseByEnrollment.get(student.enrollment_id)!.month_from)}`}
+                          </Badge>
+                        )}
                         {!student.team_name && !(student as any).plan_name && <span className="text-xs text-muted-foreground">Sin asignar</span>}
                         <span className="text-muted-foreground text-xs ml-1">· {student.branch_name || "Sin sede"}</span>
                       </div>
@@ -1410,6 +1469,13 @@ export default function SchoolStudentsManagementPage() {
                             {student.enrollment_id && hourBankByEnrollment.has(student.enrollment_id) && (
                               <Badge variant="outline" className={`text-xs w-fit ${hourBankByEnrollment.get(student.enrollment_id)! < 0 ? 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/40' : 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/40'}`}>
                                 <Clock className="h-3 w-3 mr-1" /> {formatHourBankMinutes(hourBankByEnrollment.get(student.enrollment_id)!)}
+                              </Badge>
+                            )}
+                            {student.enrollment_id && pauseByEnrollment.has(student.enrollment_id) && (
+                              <Badge variant="outline" className="text-xs w-fit bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/40">
+                                🏖️ {pauseByEnrollment.get(student.enrollment_id)!.vigente
+                                  ? `En pausa hasta ${mesLegible(pauseByEnrollment.get(student.enrollment_id)!.month_to)}`
+                                  : `Pausa desde ${mesLegible(pauseByEnrollment.get(student.enrollment_id)!.month_from)}`}
                               </Badge>
                             )}
                             {!student.team_name && !(student as any).plan_name && <span className="text-xs text-muted-foreground">Sin asignar</span>}
@@ -2293,6 +2359,16 @@ export default function SchoolStudentsManagementPage() {
           })()}
         </DialogContent>
       </Dialog>
+
+      <PauseAthleteDialog
+        open={!!pausingStudent}
+        onOpenChange={(o) => { if (!o) setPausingStudent(null); }}
+        athleteName={pausingStudent?.full_name ?? ''}
+        enrollmentId={pausingStudent?.enrollment_id ?? null}
+        onPreview={previewPause}
+        isSubmitting={pausar.isPending}
+        onConfirm={(args) => pausar.mutate(args, { onSuccess: () => setPausingStudent(null) })}
+      />
 
       <CSVImportModal open={showImportModal} onClose={() => setShowImportModal(false)}
         onSuccess={() => { setShowImportModal(false); toast({ title: "Importación completada", description: "La lista de atletas se ha actualizado." }); queryClient.invalidateQueries({ queryKey: ['school-students'] }); }}
