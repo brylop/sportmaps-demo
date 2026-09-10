@@ -99,6 +99,67 @@ function toNum(v: unknown): number | null {
     return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Separa un RECHAZO de la DIAN de una simple notificación.
+ *
+ * Factus mete las dos cosas en el mismo campo `errors`, y hay que
+ * distinguirlas por el texto:
+ *   - "Regla: FAK08, Notificación: ..."  → aviso blando, el documento vale
+ *   - "Regla: 90, Rechazo: Documento procesado anteriormente" → RECHAZADO
+ * El formato también varía (objeto indexado por regla, o array de strings),
+ * así que se normaliza a lista de textos antes de mirar.
+ *
+ * Sin esto un documento rechazado por la DIAN se quedaba para siempre como
+ * "enviada, esperando validación" y nadie se enteraba: exactamente lo que
+ * pasó con DYTY1 el 2026-09-09 (rechazo por regla 90).
+ */
+function dianRejection(errors: unknown): string | null {
+    const textos: string[] = Array.isArray(errors)
+        ? errors.map((e) => String(e))
+        : errors && typeof errors === 'object'
+            ? Object.values(errors as Record<string, unknown>).map((e) => String(e))
+            : [];
+    const rechazos = textos.filter((t) => /rechazo/i.test(t));
+    return rechazos.length > 0 ? rechazos.join(' | ') : null;
+}
+
+/**
+ * Mapea un documento V2 (`data` de bills/validate síncrono, o de
+ * GET /v2/bills/{number}) al resultado canónico. El total llega como
+ * `totals.total` en el detalle y como `total` plano en el listado.
+ */
+function mapBill(d: any, raw: unknown): InvoiceResult {
+    const rechazo = dianRejection(d?.errors);
+    return {
+        // is_validated=false por sí solo NO es rechazo (puede estar en cola),
+        // pero un "Rechazo" en errors sí es terminal.
+        status: d?.is_validated ? 'accepted' : (rechazo ? 'rejected' : 'sent'),
+        // V2 no devuelve un id numérico del documento; el número es su
+        // identificador estable ante el PAC y la DIAN.
+        providerBillId: d?.number ?? null,
+        prefix: d?.numbering_range?.prefix ?? null,
+        number: d?.number ?? null,
+        dianCode: d?.document_type?.code ?? null,
+        cufe: d?.cufe ?? null,
+        qrUrl: d?.links?.qr ?? null,
+        qrImage: null,                       // V2 no manda el QR en base64
+        // Mientras la DIAN no valida, Factus devuelve la URL pública sin el
+        // hash del documento (".../documents/bills/"), que no sirve para nada:
+        // se descarta para no dejarle al pagador un botón que abre una ruta muerta.
+        publicUrl: /\/documents\/bills\/.+/.test(String(d?.links?.public_url ?? ''))
+            ? d.links.public_url
+            : null,
+        pdfUrl: null,                        // descarga aparte (no implementada)
+        xmlUrl: null,
+        taxableAmount: toNum(d?.totals?.taxable_amount),
+        taxAmount: toNum(d?.totals?.tax_amount),
+        total: toNum(d?.totals?.total ?? d?.total),
+        validatedAt: d?.validated_at ?? null,
+        errorMessage: rechazo,
+        raw,
+    };
+}
+
 export const factusV2Adapter: InvoicingAdapter = {
     provider: 'factus_v2',
 
@@ -177,28 +238,42 @@ export const factusV2Adapter: InvoicingAdapter = {
             };
         }
 
-        // V2 responde plano en `data` (no hay data.bill como en V1).
-        const d = json?.data ?? {};
-        return {
-            status: d.is_validated ? 'accepted' : 'sent',
-            // V2 no devuelve un id numérico del documento; el número es su
-            // identificador estable ante el PAC y la DIAN.
-            providerBillId: d.number ?? null,
-            prefix: d?.numbering_range?.prefix ?? null,
-            number: d.number ?? null,
-            dianCode: d?.document_type?.code ?? null,
-            cufe: d.cufe ?? null,
-            qrUrl: d?.links?.qr ?? null,
-            qrImage: null,                       // V2 no manda el QR en base64
-            publicUrl: d?.links?.public_url ?? null,
-            pdfUrl: null,                        // descarga aparte (no implementada)
-            xmlUrl: null,
-            taxableAmount: toNum(d?.totals?.taxable_amount),
-            taxAmount: toNum(d?.totals?.tax_amount),
-            total: toNum(d?.totals?.total),
-            validatedAt: d.validated_at ?? null,
-            errorMessage: null,
-            raw: json,
-        };
+        // V2 responde plano en `data` (no hay data.bill como en V1). En
+        // producción `data` viene VACÍO (solo el acuse), así que mapBill deja
+        // todo en null y el estado cae a 'sent' — lo completa fetchByReference.
+        return mapBill(json?.data ?? {}, json);
+    },
+
+    /**
+     * Busca el documento por el reference_code que generamos nosotros.
+     * Dos saltos, porque el listado NO trae cufe ni links:
+     *   1) GET /v2/bills?filter[reference_code]=<ref>  → número
+     *   2) GET /v2/bills/{número}                      → cufe, links, totals
+     * (verificado: el filtro descarta de verdad; una referencia inexistente
+     * devuelve total 0, no la lista completa).
+     */
+    async fetchByReference(referenceCode: string, cfg: ProviderConfig): Promise<InvoiceResult | null> {
+        const token = await getToken(cfg);
+        const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+
+        const listRes = await fetch(
+            `${baseUrl(cfg)}/v2/bills?filter%5Breference_code%5D=${encodeURIComponent(referenceCode)}`,
+            { headers },
+        );
+        if (!listRes.ok) return null;
+        const listJson = (await listRes.json()) as any;
+        const rows = listJson?.data?.data;
+        const number = Array.isArray(rows) && rows.length > 0 ? rows[0]?.number : null;
+        if (!number) return null;
+
+        const detRes = await fetch(
+            `${baseUrl(cfg)}/v2/bills/${encodeURIComponent(String(number))}`,
+            { headers },
+        );
+        // El detalle es el que trae cufe y links; si falla, al menos devolvemos
+        // lo del listado (número y total) en vez de perder el hallazgo.
+        if (!detRes.ok) return mapBill(rows[0], listJson);
+        const detJson = (await detRes.json()) as any;
+        return mapBill(detJson?.data ?? rows[0], detJson);
     },
 };
