@@ -1,4 +1,5 @@
 import jsPDF from 'jspdf';
+import { labelMetodoDePago } from '@/lib/paymentOrigin';
 
 interface ReceiptData {
   receiptNumber: string;
@@ -8,7 +9,9 @@ interface ReceiptData {
   concept: string;
   description?: string;
   amount: number;
-  paymentMethod: string;
+  /** Puede venir null: 3.626 cobros en la base no tienen metodo registrado.
+   *  labelMetodoDePago() lo resuelve como "No registrado". */
+  paymentMethod?: string | null;
   paymentType: 'one_time' | 'subscription' | 'monthly';
   schoolName?: string;
   teamName?: string;
@@ -41,6 +44,53 @@ function hexToRgb(hex: string): [number, number, number] {
     parseInt(clean.slice(2, 4), 16),
     parseInt(clean.slice(4, 6), 16),
   ];
+}
+
+type Rgb = [number, number, number];
+
+/**
+ * Luminancia relativa sRGB (0 = negro, 1 = blanco). Es la métrica que decide si
+ * un color de marca aguanta texto blanco encima.
+ */
+function luminancia([r, g, b]: Rgb): number {
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+
+/**
+ * Color de texto legible ENCIMA de un relleno de marca.
+ *
+ * Antes esto era `setTextColor(255,255,255)` fijo, y con un secundario claro el
+ * texto desaparecía: la banda "RECIBO DE PAGO" de Besser (amarillo #FFCC00,
+ * luminancia 0.79) quedaba prácticamente ilegible. Medido sobre las 30 escuelas
+ * con marca propia: 3 caían en ese caso, incluida la propia SportMaps con su
+ * naranja default #FB9F1E (0.66).
+ *
+ * El umbral 0.6 es empírico y conservador: por debajo, blanco; por encima, un
+ * gris muy oscuro (no negro puro, que sobre un color saturado vibra).
+ */
+function textoSobre(fondo: Rgb): Rgb {
+  return luminancia(fondo) > 0.6 ? [40, 40, 40] : [255, 255, 255];
+}
+
+/**
+ * El color de marca ajustado para usarse COMO TEXTO sobre fondo claro (blanco o
+ * el gris #f5f5f5 de la caja del total).
+ *
+ * Es el problema espejo del de arriba y pega en el dato más importante del
+ * recibo: con un primario claro, el TOTAL PAGADO salía casi invisible. Hay al
+ * menos una escuela con primario #65e70d (luminancia 0.74) en esa situación.
+ * Se oscurece multiplicando hasta caer bajo el umbral, conservando el tono.
+ */
+function textoDeMarca(color: Rgb): Rgb {
+  let [r, g, b] = color;
+  let intentos = 0;
+  while (luminancia([r, g, b]) > 0.55 && intentos < 12) {
+    r = Math.round(r * 0.82);
+    g = Math.round(g * 0.82);
+    b = Math.round(b * 0.82);
+    intentos++;
+  }
+  return [r, g, b];
 }
 
 /**
@@ -126,6 +176,13 @@ export async function generatePaymentReceipt(data: ReceiptData): Promise<jsPDF> 
     : BRAND_ORANGE;
   const showWatermark = data.brandingSettings?.show_sportmaps_watermark !== false;
 
+  // Colores de texto derivados del contraste, no fijos. Ver textoSobre() y
+  // textoDeMarca() arriba: con un secundario claro (el amarillo de Besser) el
+  // texto blanco desaparecia, y con un primario claro el TOTAL PAGADO tambien.
+  const textoEnHeader    = textoSobre(primaryColor);
+  const textoEnBanda     = textoSobre(secondaryColor);
+  const marcaComoTexto   = textoDeMarca(primaryColor);
+
   // ── Cargar logo (si lo hay y el tier lo permite — usePdfBranding lo gatea) ──
   const logoImage = await fetchLogoAsDataUrl(data.logoUrl);
 
@@ -133,7 +190,7 @@ export async function generatePaymentReceipt(data: ReceiptData): Promise<jsPDF> 
   doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
   doc.rect(0, 0, pageWidth, 45, 'F');
 
-  doc.setTextColor(255, 255, 255);
+  doc.setTextColor(textoEnHeader[0], textoEnHeader[1], textoEnHeader[2]);
 
   if (logoImage) {
     // Logo a la izquierda, max alto 28mm, ancho proporcional
@@ -170,7 +227,7 @@ export async function generatePaymentReceipt(data: ReceiptData): Promise<jsPDF> 
   doc.setFillColor(secondaryColor[0], secondaryColor[1], secondaryColor[2]);
   doc.rect(0, 45, pageWidth, 8, 'F');
 
-  doc.setTextColor(255, 255, 255);
+  doc.setTextColor(textoEnBanda[0], textoEnBanda[1], textoEnBanda[2]);
   doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
   centerText('RECIBO DE PAGO', 51);
@@ -192,7 +249,7 @@ export async function generatePaymentReceipt(data: ReceiptData): Promise<jsPDF> 
 
   y += 15;
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.setTextColor(marcaComoTexto[0], marcaComoTexto[1], marcaComoTexto[2]);
   doc.text('INFORMACIÓN DEL CLIENTE', 20, y);
 
   y += 10;
@@ -207,7 +264,7 @@ export async function generatePaymentReceipt(data: ReceiptData): Promise<jsPDF> 
 
   y += 15;
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.setTextColor(marcaComoTexto[0], marcaComoTexto[1], marcaComoTexto[2]);
   doc.text('DETALLE DEL PAGO', 20, y);
 
   y += 10;
@@ -249,12 +306,11 @@ export async function generatePaymentReceipt(data: ReceiptData): Promise<jsPDF> 
 
   y += 10;
   doc.text('Método de pago:', 20, y);
-  const methodLabels: Record<string, string> = {
-    card: 'Tarjeta de Crédito/Débito',
-    pse: 'PSE - Débito Bancario',
-    nequi: 'Nequi',
-  };
-  doc.text(methodLabels[data.paymentMethod] || data.paymentMethod, 70, y);
+  // Etiqueta desde el mapa canónico de paymentOrigin.ts. El mapa local que
+  // había acá solo cubría card/pse/nequi, así que imprimía el valor crudo en
+  // inglés para transfer/cash/other — que son la mayoría de los cobros con
+  // método registrado. En un recibo que ve el acudiente eso se nota.
+  doc.text(labelMetodoDePago(data.paymentMethod), 70, y);
 
   y += 7;
   doc.text('Tipo de pago:', 20, y);
@@ -275,7 +331,7 @@ export async function generatePaymentReceipt(data: ReceiptData): Promise<jsPDF> 
   doc.setTextColor(60, 60, 60);
   doc.text('TOTAL PAGADO:', 30, y + 8);
 
-  doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.setTextColor(marcaComoTexto[0], marcaComoTexto[1], marcaComoTexto[2]);
   doc.setFontSize(18);
   doc.text(formatCurrency(data.amount), pageWidth - 30, y + 10, { align: 'right' });
 
@@ -283,7 +339,7 @@ export async function generatePaymentReceipt(data: ReceiptData): Promise<jsPDF> 
   y += 35;
   doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
   doc.roundedRect(pageWidth / 2 - 25, y, 50, 12, 2, 2, 'F');
-  doc.setTextColor(255, 255, 255);
+  doc.setTextColor(textoEnHeader[0], textoEnHeader[1], textoEnHeader[2]);
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
   centerText('PAGADO', y + 8);
@@ -311,7 +367,7 @@ export async function generatePaymentReceipt(data: ReceiptData): Promise<jsPDF> 
     // Tier Pro+ con watermark off — sin mencion SportMaps en el cuerpo.
     centerText(`Este recibo es un comprobante válido emitido por ${data.schoolName || 'la academia'}.`, y);
     y += 5;
-    centerText('Por favor contactá a tu sede para dudas sobre este cobro.', y);
+    centerText('Por favor contacta a tu sede para dudas sobre este cobro.', y);
   }
 
   y += 10;
