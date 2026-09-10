@@ -771,23 +771,51 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
             </div>
           )}
 
-          {/* Facturación electrónica del pagador — opcional. Solo aparece si la
-              escuela tiene el addon activo y al pagador le faltan datos DIAN;
-              si ya los tiene (de un pago anterior, online o manual), no se
-              vuelve a pedir. */}
-          {payerProfileId && hasAddon('invoicing') && !checkingDian && payerHasDianData === false && (
+          {/* Facturación electrónica del pagador. Se muestra SIEMPRE que la
+              escuela tenga el addon, con los tres estados dichos en voz alta:
+              datos listos / faltan / no hay a quién cargarlos. Antes solo
+              aparecía cuando faltaban, y desde afuera no se distinguía "ya
+              está" de "no aplica" — ni había forma de corregir un dato malo. */}
+          {selectedAthleteId && hasAddon('invoicing') && (
             <div className="rounded-2xl border border-border/40 bg-muted/10 p-4 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <Label htmlFor="wants-einvoice" className="text-sm font-bold flex items-center gap-2 cursor-pointer">
-                  <Receipt className="h-4 w-4 text-primary" /> ¿Desea factura electrónica?
-                </Label>
-                <Switch id="wants-einvoice" checked={wantsEInvoice} onCheckedChange={setWantsEInvoice} />
-              </div>
-              {wantsEInvoice && (
+              {!payerProfileId ? (
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-relaxed">
+                    <span className="font-bold">Sin acudiente con cuenta.</span> No hay un perfil
+                    al cual cargarle los datos fiscales, así que este cobro no se puede facturar
+                    a nombre del pagador. Vincula un acudiente, o factúralo a nombre del propio
+                    deportista.
+                  </p>
+                </div>
+              ) : checkingDian ? (
+                <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Revisando datos de facturación…
+                </span>
+              ) : payerHasDianData ? (
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-2 text-xs font-bold text-emerald-600">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" /> Datos de facturación completos
+                  </span>
+                  <Button type="button" variant="ghost" size="sm" className="h-7 text-xs"
+                    onClick={() => setWantsEInvoice((v) => !v)}>
+                    {wantsEInvoice ? 'Cerrar' : 'Corregir'}
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-3">
+                  <Label htmlFor="wants-einvoice" className="text-sm font-bold flex items-center gap-2 cursor-pointer">
+                    <Receipt className="h-4 w-4 text-primary" /> ¿Desea factura electrónica?
+                  </Label>
+                  <Switch id="wants-einvoice" checked={wantsEInvoice} onCheckedChange={setWantsEInvoice} />
+                </div>
+              )}
+
+              {wantsEInvoice && payerProfileId && (
                 <BillingDetailsForm
                   userId={payerProfileId}
                   schoolId={schoolId || undefined}
-                  onComplete={() => setPayerHasDianData(true)}
+                  onComplete={() => { setPayerHasDianData(true); setWantsEInvoice(false); }}
                 />
               )}
             </div>
