@@ -115,6 +115,17 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
         : selectedAthleteForPayer.parent_id || null)
     : null;
 
+  // Nombre del DUEÑO del perfil que se va a tocar, no del deportista. El
+  // formulario fiscal tiene que decirlo: registrando pagos en fila, es lo
+  // unico que permite notar que la cedula se esta guardando en el perfil
+  // equivocado. Sale de la misma vista school_athletes (`full_name` para el
+  // adulto, `parent_name` para el acudiente), asi que no cuesta una consulta.
+  const payerName: string | null = selectedAthleteForPayer
+    ? (selectedAthleteForPayer.athlete_type === 'adult'
+        ? selectedAthleteForPayer.full_name || null
+        : selectedAthleteForPayer.parent_name || null)
+    : null;
+
   useEffect(() => {
     if (!payerProfileId || !hasAddon('invoicing')) {
       setPayerHasDianData(null);
@@ -815,6 +826,8 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
                 <BillingDetailsForm
                   userId={payerProfileId}
                   schoolId={schoolId || undefined}
+                  payerName={payerName || undefined}
+                  payerKind={selectedAthleteForPayer?.athlete_type === 'adult' ? 'adult_athlete' : 'guardian'}
                   onComplete={() => { setPayerHasDianData(true); setWantsEInvoice(false); }}
                 />
               )}

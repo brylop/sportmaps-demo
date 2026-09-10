@@ -203,7 +203,20 @@ export const factusV2Adapter: InvoicingAdapter = {
             customer: {
                 identification: req.customer.identification,
                 identification_document_code: DOC_TYPE_CODE[req.customer.documentType] ?? '13',
-                names: req.customer.name,
+                // La razón social y el nombre de una persona natural son DOS
+                // campos distintos, y cada uno es obligatorio SOLO en su caso:
+                // `company` cuando legal_organization_code es 1 (jurídica) y
+                // `names` cuando es 2 (natural) — descripción de campos oficial
+                // de V2 (developers.factus.com.co/facturas/descripcion-de-campos).
+                // Mandar siempre `names` metía la razón social en el campo de
+                // persona natural, que para una jurídica V2 reporta como null:
+                // la factura de una empresa salía sin nombre de adquiriente y
+                // nadie se enteraba, porque el campo que sobra no da error. El
+                // ejemplo oficial de persona jurídica manda `company` y NO manda
+                // `names`, así que acá se manda uno u otro, nunca los dos.
+                ...(isCompany
+                    ? { company: req.customer.name }
+                    : { names: req.customer.name }),
                 address: req.customer.address ?? '',
                 email: req.customer.email ?? '',
                 phone: req.customer.phone ?? '',
