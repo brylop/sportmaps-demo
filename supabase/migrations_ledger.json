@@ -527,6 +527,6 @@
     {"v":"20260909080429","file":"20260909080429_guard_alta_manual_de_hijo_duplicado.sql","sha256":"bc500efcf85cf83fdc6b4db6cf2d79bc284ed46efea5f2ab065976b8946b3f9a","added":"2026-09-09","by":"brylop"},
     {"v":"20260909083144","file":"20260909083144_guard_alta_hijo_duplicado_con_school_id.sql","sha256":"1777ff237d9058f74426e64144f4154c9b220ff2ebba16de03771a18bc92c324","added":"2026-09-09","by":"brylop"},
     {"v":"20260909215903","file":"20260909215903_normalize_athlete_name_a_prueba_de_nfd.sql","sha256":"9e36562a213fe105f7c22c4b48c336f6bf6a3beafebc3e060513ff7a5dbd890b","added":"2026-09-10","by":"brylop"},
-    {"v":"20260909215933","file":"20260909215933_whatsapp_optin_y_rastreo_de_plantillas.sql","sha256":"69d8ab78214c1394306590483fd8bb3aa8686ca9fd1a867f11b29f52516bae43","added":"2026-09-10","by":"brylop"}
+    {"v":"20260909215933","file":"20260909215933_whatsapp_optin_y_rastreo_de_plantillas.sql","sha256":"2f3635d45d5570ffe4b54ae43f960e8f67dd49b98b2fbb8dbef35c768d526198","added":"2026-09-10","by":"brylop"}
   ]
 }
