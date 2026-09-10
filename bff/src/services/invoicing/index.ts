@@ -7,9 +7,11 @@
 
 import { InvoicingAdapter } from './types';
 import { factusAdapter } from './factus.adapter';
+import { factusV2Adapter } from './factus-v2.adapter';
 
 const adapters: Record<string, InvoicingAdapter> = {
     [factusAdapter.provider]: factusAdapter,
+    [factusV2Adapter.provider]: factusV2Adapter,
     // siigo:  siigoAdapter,
     // alegra: alegraAdapter,
 };
