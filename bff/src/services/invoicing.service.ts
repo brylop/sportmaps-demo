@@ -31,6 +31,15 @@ async function loadCustomer(userId: string): Promise<InvoiceCustomer | null> {
         .eq('id', userId)
         .maybeSingle();
     if (!p?.document_number) return null;
+    // `billing_city_dane` guarda el CÓDIGO DANE del municipio desde que el
+    // formulario usa el selector del catálogo. Los perfiles viejos tienen
+    // texto libre ("Bogota", "medellin"), que no sirve como código: en ese
+    // caso se deja null y el adaptador cae al municipio configurado por la
+    // escuela. Sin esta distinción, el PAC recibía el municipio de la escuela
+    // para TODOS los clientes y a una familia de Medellín le salía la factura
+    // diciendo Bogotá.
+    const cityRaw = (p.billing_city_dane ?? '').trim();
+    const municipalityId = /^\d{4,5}$/.test(cityRaw) ? Number(cityRaw) : null;
     return {
         documentType: p.document_type || 'CC',
         identification: p.document_number,
@@ -39,7 +48,8 @@ async function loadCustomer(userId: string): Promise<InvoiceCustomer | null> {
         phone: p.phone,
         address: p.billing_address,
         department: p.billing_state_dane,
-        city: p.billing_city_dane,
+        city: cityRaw || null,
+        municipalityId,
     };
 }
 

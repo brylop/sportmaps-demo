@@ -11,6 +11,7 @@ import { FileText, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { MunicipalitySelect, type MunicipalityValue } from '@/components/billing/MunicipalitySelect';
 
 const billingSchema = z.object({
     // Zod 4 quito `required_error` en favor de `error`. Era el unico uso que
@@ -20,8 +21,11 @@ const billingSchema = z.object({
     }),
     document_number: z.string().min(5, 'Número de documento inválido').max(20),
     billing_address: z.string().min(5, 'Dirección inválida'),
-    billing_state_dane: z.string().min(1, 'Agrega el departamento'),
-    billing_city_dane: z.string().min(1, 'Agrega la ciudad/municipio'),
+    // `billing_city_dane` guarda el CÓDIGO DANE (5 dígitos), no el nombre: es
+    // lo que la factura electrónica manda como municipality_code. Antes acá
+    // entraba texto libre y el dato quedaba inservible para facturar.
+    billing_state_dane: z.string().min(1, 'Selecciona el municipio'),
+    billing_city_dane: z.string().regex(/^\d{4,5}$/, 'Selecciona el municipio de la lista'),
 });
 
 type BillingFormValues = z.infer<typeof billingSchema>;
@@ -40,6 +44,7 @@ export function BillingDetailsForm({
     const { user } = useAuth();
     const { toast } = useToast();
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [municipio, setMunicipio] = useState<MunicipalityValue | null>(null);
     const targetUserId = userId || user?.id;
     const isAdminOnBehalf = !!userId;
 
@@ -161,29 +166,26 @@ export function BillingDetailsForm({
                     {form.formState.errors.billing_address && <p className="text-xs text-red-500">{form.formState.errors.billing_address.message}</p>}
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                        <Label>Departamento</Label>
-                        <Input
-                            {...form.register('billing_state_dane')}
-                            placeholder="Ej: Bogotá D.C. / Antioquia"
-                        />
-                        {form.formState.errors.billing_state_dane && <p className="text-xs text-red-500">{form.formState.errors.billing_state_dane.message}</p>}
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label>Municipio / Ciudad</Label>
-                        <Input
-                            {...form.register('billing_city_dane')}
-                            placeholder="Ej: Bogotá / Medellín"
-                        />
-                        {form.formState.errors.billing_city_dane && <p className="text-xs text-red-500">{form.formState.errors.billing_city_dane.message}</p>}
-                    </div>
+                {/* Un solo selector en vez de dos campos de texto: el
+                    departamento se deduce del municipio elegido, y lo que se
+                    guarda es el código DANE que la factura necesita. */}
+                <div className="space-y-2">
+                    <Label>Municipio</Label>
+                    <MunicipalitySelect
+                        value={municipio}
+                        invalid={!!form.formState.errors.billing_city_dane}
+                        onChange={(m) => {
+                            setMunicipio(m);
+                            form.setValue('billing_city_dane', m.code, { shouldValidate: true });
+                            form.setValue('billing_state_dane', m.department, { shouldValidate: true });
+                        }}
+                    />
+                    {form.formState.errors.billing_city_dane && <p className="text-xs text-red-500">{form.formState.errors.billing_city_dane.message}</p>}
                 </div>
 
                 <Button type="submit" className="w-full" disabled={isSubmitting}>
                     {isSubmitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                    Guardar y Continuar al Pago
+                    {isAdminOnBehalf ? 'Guardar datos de facturación' : 'Guardar y Continuar al Pago'}
                 </Button>
             </form>
         </div>
