@@ -623,6 +623,13 @@ export default function SchoolStudentsManagementPage() {
           monthlyFee: (data.offering_plan_id && Number(data.plan_monthly_fee) > 0)
             ? Number(data.plan_monthly_fee)
             : (Number(data.team_monthly_fee) || Number(data.plan_monthly_fee) || 0),
+          // Con plan, el cobro lo emite POST /api/v1/enrollments (emitPlanCharge)
+          // acá abajo. Si además lo emitiera el alta, el atleta nacía con DOS
+          // cobros del mismo valor en meses distintos (el del alta con período del
+          // mes siguiente, el del plan con período del mes de entrada), y como
+          // caían en períodos distintos el índice único no los frenaba.
+          // Sin plan (solo equipo) no hay segunda emisión: sigue cobrando acá.
+          emitirCobro: !data.offering_plan_id,
           medicalInfo: data.medical_info,
           notes: data.notes,
         });
@@ -639,7 +646,9 @@ export default function SchoolStudentsManagementPage() {
             console.error('Error al inscribir en plan:', enrollErr);
             toast({
               title: '⚠️ Atleta creado, pero no se inscribió al plan',
-              description: 'Puedes inscribirlo manualmente desde Mis Planes.',
+              // El cobro del plan lo emite esta llamada: si falló, el atleta quedó
+              // creado y SIN mensualidad. Hay que decirlo, no solo que falta el plan.
+              description: 'Quedó sin inscripción y sin cobro del plan. Inscríbelo desde Mis Planes.',
             });
           }
         }

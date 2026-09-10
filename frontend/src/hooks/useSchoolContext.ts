@@ -90,7 +90,11 @@ const SchoolContext = createContext<SchoolContext | undefined>(undefined);
 
 // Email de la escuela demo para usuarios invitados (solo si se configura en .env)
 const DEMO_SCHOOL_EMAIL = import.meta.env.VITE_DEMO_SCHOOL_EMAIL || '';
-const DEFAULT_MONTHLY_FEE = 150000; // COP
+// Sin cuota configurada NO se inventa una. Antes valía $150.000 y ese monto se
+// colaba como precargado en el alta, en la invitación y en el cobro: el atleta
+// nacía debiendo una mensualidad que la escuela nunca definió. Mismo criterio
+// que el alta canónica del BFF (students-create-one): sin cuota, sin cobro.
+const DEFAULT_MONTHLY_FEE = 0; // COP
 const STORAGE_KEY_ACTIVE_SCHOOL = 'sportmaps_active_school_id';
 
 /**
@@ -797,6 +801,15 @@ export async function createStudentWithPendingPayment(params: {
      *  distintas". Mismo criterio que `allow_duplicate` del BFF: la salida para
      *  el homónimo real existe, pero es consciente, nunca silenciosa. */
     allowDuplicate?: boolean;
+    /**
+     * ¿Este alta emite el cobro? `false` para el caller que acto seguido inscribe
+     * en un plan por `POST /api/v1/enrollments`: esa ruta emite la mensualidad del
+     * plan (emitPlanCharge) y si acá también se emitía, el mismo atleta nacía con
+     * DOS cobros del mismo valor en meses distintos — y ni siquiera chocaban con
+     * el índice único porque caían en períodos diferentes.
+     * Por defecto true: el alta a secas (solo equipo) sigue cobrando una vez.
+     */
+    emitirCobro?: boolean;
 }) {
     const { schoolId, teamId } = params;
     let { monthlyFee } = params;
@@ -818,12 +831,12 @@ export async function createStudentWithPendingPayment(params: {
             .maybeSingle();
 
         if (team) {
-            monthlyFee = team.price_monthly || 150000;
+            // Equipo sin precio configurado = sin cuota. Antes caía en $150.000
+            // inventados y el atleta nacía debiendo un monto que nadie definió.
+            monthlyFee = Number(team.price_monthly) || 0;
             if (!params.teamName) params.teamName = team.name;
         }
     }
-
-    if (!monthlyFee) monthlyFee = 150000; // Final fallback
 
     // 1. Create student record in children table
     const { data: child, error: childError } = await supabase
@@ -861,13 +874,22 @@ export async function createStudentWithPendingPayment(params: {
     const childId = child.id;
 
     // 2. Create pending payment for this student
-    const dueDate = new Date();
+    const hoy = new Date();
+    const dueDate = new Date(hoy);
     dueDate.setMonth(dueDate.getMonth() + 1);
+    // EL PERÍODO ES EL MES DE ENTRADA, no el del vencimiento. Sin
+    // period_year/period_month el trigger `trg_payments_fill_period` los deriva del
+    // `due_date` (que acá cae el mes siguiente) y el mes en que el atleta entró no
+    // se facturaba nunca. Mismo criterio que `calcFirstPayment` (prorationUtils) en
+    // el alta canónica del BFF.
+    const periodYear = hoy.getFullYear();
+    const periodMonth = hoy.getMonth() + 1;
 
     let paymentError: any = null;
 
     // Solo se genera cobro si hay cuota (constraint payments_amount_positive: amount > 0)
-    if (monthlyFee && monthlyFee > 0) {
+    // y si este alta es el que cobra (ver `emitirCobro`).
+    if (params.emitirCobro !== false && monthlyFee && monthlyFee > 0) {
         const { error } = await supabase
             .from('payments')
             .insert({
@@ -881,6 +903,8 @@ export async function createStudentWithPendingPayment(params: {
                 status: 'pending',
                 // 'one_time'|'subscription' (payments_payment_type_check); 'monthly' rompía el INSERT
                 payment_type: 'one_time',
+                period_year: periodYear,
+                period_month: periodMonth,
             });
         paymentError = error;
 
