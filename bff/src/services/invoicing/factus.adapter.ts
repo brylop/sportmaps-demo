@@ -78,7 +78,22 @@ export const factusAdapter: InvoicingAdapter = {
             payment_method_code: '10',    // 10 = genérico
             customer: {
                 identification: req.customer.identification,
+                // Acá `names` viaja SIEMPRE, también para una persona jurídica, y
+                // es deliberado: NO es el mismo bug que se corrigió en V2. Factus
+                // retiró de su sitio la tabla de campos de V1 (hoy solo documenta
+                // V2) y su página de cambios V1→V2 enumera los campos del cliente
+                // que se renombraron —identification_document_id,
+                // legal_organization_id, tribute_id, municipality_id— sin mencionar
+                // `company`/`names`, lo que sugiere que V1 tiene los mismos dos
+                // campos con la misma semántica. Al no poder confirmarlo contra
+                // doc de V1, se agrega `company` para que la razón social viaje
+                // donde debe y se conserva `names`: si V1 no conociera `company`
+                // descartaría la clave y quedaría igual que hoy, mientras que
+                // omitir `names` dejaría a la empresa sin nombre alguno.
+                // PENDIENTE DE VERIFICAR contra un sandbox V1: si `company` se
+                // refleja en la factura, quitar el `names` duplicado.
                 names: req.customer.name,
+                ...(isCompany ? { company: req.customer.name } : {}),
                 address: req.customer.address ?? '',
                 email: req.customer.email ?? '',
                 phone: req.customer.phone ?? '',

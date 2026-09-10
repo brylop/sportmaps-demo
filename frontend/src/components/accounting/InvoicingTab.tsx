@@ -4,6 +4,12 @@
  * Parametrizada por dueño (ownerType/ownerId) → sirve igual para school,
  * vendor (coach/tienda/wellness) y organizer. Toda la I/O pasa por el BFF
  * (invoicingApi); las credenciales del PAC nunca se muestran.
+ *
+ * Debajo de la configuración del facturador van dos pestañas: las facturas ya
+ * emitidas y —solo para dueño 'school'— los datos fiscales faltantes, que es la
+ * lista de pagadores con pagos cobrados que NO se pueden facturar
+ * (MissingBillingDataPanel, que sí lee Supabase directo porque las policies
+ * alcanzan y no hay endpoint que agregue eso).
  */
 
 import { useState } from 'react';
@@ -26,6 +32,10 @@ import {
 import {
     Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+    MissingBillingDataPanel, useMissingBillingData, countBlocking,
+} from '@/components/accounting/MissingBillingDataPanel';
 import {
     FileText, Loader2, Plus, AlertCircle, RefreshCw, ExternalLink, CheckCircle2, Settings2,
 } from 'lucide-react';
@@ -59,6 +69,85 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
     const provider = providersQuery.data?.providers?.[0] ?? null;
     const supported = providersQuery.data?.supported ?? ['factus'];
     const invoices = invoicesQuery.data?.invoices ?? [];
+
+    // Los datos fiscales faltantes solo aplican al dueño 'school': la lista se
+    // arma sobre `payments.school_id` y el formulario del admin pasa por
+    // admin_set_payer_billing_details, que valida alcance por escuela.
+    const esEscuela = ownerType === 'school';
+    const missingQuery = useMissingBillingData(esEscuela ? ownerId : null);
+    const pendientesFiscales = countBlocking(missingQuery.data);
+
+    // La tabla de facturas emitidas se comparte entre el layout con pestañas
+    // (dueño 'school') y el de una sola sección (vendor/organizer).
+    const facturasEmitidasCard = (
+        <Card>
+            <CardHeader>
+                <CardTitle>Facturas emitidas</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+                {invoicesQuery.isError ? (
+                    <div className="p-6">
+                        <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                            <AlertCircle className="h-4 w-4 mt-0.5 text-destructive" />
+                            <span>No se pudieron cargar las facturas.</span>
+                            <Button size="sm" variant="outline" onClick={() => invoicesQuery.refetch()}>
+                                <RefreshCw className="mr-2 h-3 w-3" /> Reintentar
+                            </Button>
+                        </div>
+                    </div>
+                ) : invoicesQuery.isLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    </div>
+                ) : invoices.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
+                        <FileText className="h-10 w-10 opacity-30" />
+                        <p className="text-sm">Aún no hay facturas emitidas.</p>
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Número</TableHead>
+                                    <TableHead>Estado</TableHead>
+                                    <TableHead>Fecha</TableHead>
+                                    <TableHead className="text-right">Total</TableHead>
+                                    <TableHead className="text-right">Acción</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {invoices.map((inv) => {
+                                    const st = STATUS_STYLES[inv.status] ?? { label: inv.status, cls: 'bg-muted' };
+                                    return (
+                                        <TableRow key={inv.id}>
+                                            <TableCell className="font-mono text-sm">{inv.number ?? '—'}</TableCell>
+                                            <TableCell><Badge className={st.cls}>{st.label}</Badge></TableCell>
+                                            <TableCell className="text-sm">
+                                                {new Date(inv.validated_at ?? inv.created_at).toLocaleDateString('es-CO')}
+                                            </TableCell>
+                                            <TableCell className="text-right font-semibold">
+                                                {inv.total != null ? formatCurrency(Number(inv.total)) : '—'}
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                {inv.public_url ? (
+                                                    <Button size="sm" variant="ghost" asChild>
+                                                        <a href={inv.public_url} target="_blank" rel="noreferrer">
+                                                            <ExternalLink className="h-4 w-4 mr-1" /> Ver
+                                                        </a>
+                                                    </Button>
+                                                ) : '—'}
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                })}
+                            </TableBody>
+                        </Table>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    );
 
     return (
         <div className="space-y-6">
@@ -106,72 +195,28 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
                 </CardContent>
             </Card>
 
-            {/* Facturas emitidas */}
-            <Card>
-                <CardHeader>
-                    <CardTitle>Facturas emitidas</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                    {invoicesQuery.isError ? (
-                        <div className="p-6">
-                            <div className="flex items-start gap-2 text-sm text-muted-foreground">
-                                <AlertCircle className="h-4 w-4 mt-0.5 text-destructive" />
-                                <span>No se pudieron cargar las facturas.</span>
-                                <Button size="sm" variant="outline" onClick={() => invoicesQuery.refetch()}>
-                                    <RefreshCw className="mr-2 h-3 w-3" /> Reintentar
-                                </Button>
-                            </div>
-                        </div>
-                    ) : invoicesQuery.isLoading ? (
-                        <div className="flex items-center justify-center py-12">
-                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                        </div>
-                    ) : invoices.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
-                            <FileText className="h-10 w-10 opacity-30" />
-                            <p className="text-sm">Aún no hay facturas emitidas.</p>
-                        </div>
-                    ) : (
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Número</TableHead>
-                                    <TableHead>Estado</TableHead>
-                                    <TableHead>Fecha</TableHead>
-                                    <TableHead className="text-right">Total</TableHead>
-                                    <TableHead className="text-right">Acción</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {invoices.map((inv) => {
-                                    const st = STATUS_STYLES[inv.status] ?? { label: inv.status, cls: 'bg-muted' };
-                                    return (
-                                        <TableRow key={inv.id}>
-                                            <TableCell className="font-mono text-sm">{inv.number ?? '—'}</TableCell>
-                                            <TableCell><Badge className={st.cls}>{st.label}</Badge></TableCell>
-                                            <TableCell className="text-sm">
-                                                {new Date(inv.validated_at ?? inv.created_at).toLocaleDateString('es-CO')}
-                                            </TableCell>
-                                            <TableCell className="text-right font-semibold">
-                                                {inv.total != null ? formatCurrency(Number(inv.total)) : '—'}
-                                            </TableCell>
-                                            <TableCell className="text-right">
-                                                {inv.public_url ? (
-                                                    <Button size="sm" variant="ghost" asChild>
-                                                        <a href={inv.public_url} target="_blank" rel="noreferrer">
-                                                            <ExternalLink className="h-4 w-4 mr-1" /> Ver
-                                                        </a>
-                                                    </Button>
-                                                ) : '—'}
-                                            </TableCell>
-                                        </TableRow>
-                                    );
-                                })}
-                            </TableBody>
-                        </Table>
-                    )}
-                </CardContent>
-            </Card>
+            {/* Facturas emitidas + datos fiscales faltantes.
+                El segundo solo existe para 'school'; para vendor/organizer no
+                hay pagos de escuela que auditar y una pestaña sola sobra. */}
+            {esEscuela ? (
+                <Tabs defaultValue="emitidas" className="space-y-4">
+                    <TabsList>
+                        <TabsTrigger value="emitidas">Facturas emitidas</TabsTrigger>
+                        <TabsTrigger value="faltantes" className="gap-2">
+                            Datos fiscales faltantes
+                            {pendientesFiscales > 0 && (
+                                <Badge variant="destructive" className="px-1.5 py-0 text-[10px]">
+                                    {pendientesFiscales}
+                                </Badge>
+                            )}
+                        </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="emitidas">{facturasEmitidasCard}</TabsContent>
+                    <TabsContent value="faltantes">
+                        <MissingBillingDataPanel schoolId={ownerId} />
+                    </TabsContent>
+                </Tabs>
+            ) : facturasEmitidasCard}
 
             <ProviderConfigDialog
                 open={configOpen}
