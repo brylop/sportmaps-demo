@@ -32,6 +32,14 @@
  *     la factura sale con la ciudad equivocada. No bloquea la emisión, así que
  *     va aparte detrás de un interruptor: en bases con perfiles viejos es la
  *     mayoría de la lista y taparía lo que sí bloquea.
+ *
+ * LO QUE EL PANEL NO PUEDE PROMETER: que un pago con los datos completos se
+ * facture. El barrido automático mira solo los últimos CRON_WINDOW_DAYS días
+ * (`autoEmitPendingInvoices`, `sinceDays ?? 3`), así que un pago más viejo NO
+ * se emite solo por muy completo que esté. El panel diagnostica; lo que
+ * desatasca es la emisión por rango del InvoicingTab, y por eso el panel
+ * recibe `onIrABackfill` en vez de dejar al admin llenando formularios y
+ * esperando facturas que nadie va a pedir.
  */
 
 import { useMemo, useState } from 'react';
@@ -52,7 +60,7 @@ import {
 } from '@/components/ui/dialog';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import {
-    AlertCircle, CheckCircle2, Loader2, Mail, Phone, RefreshCw, UserX, Pencil, MapPin,
+    AlertCircle, CheckCircle2, Clock, Loader2, Mail, Phone, RefreshCw, Send, UserX, Pencil, MapPin,
 } from 'lucide-react';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
@@ -89,12 +97,41 @@ interface OrphanRow {
 
 type Row = PayerRow | OrphanRow;
 
-interface MissingBillingData {
+/** Por qué un pago sin factura está como está. Es lo que decidiría el motor si se lo pidieran HOY. */
+export type PendingState =
+    /** El motor emitiría: hay pagador con documento y dirección. */
+    | 'ready'
+    /** Falta documento y/o dirección → `customer_missing_fiscal_data`. */
+    | 'missing_fiscal'
+    /** Sin parent_id ni user_id → `payment_without_payer`. El formulario no lo arregla. */
+    | 'no_payer';
+
+/**
+ * Un pago cobrado y sin factura, con la fecha y el veredicto ya calculados.
+ *
+ * Se expone por pago (y no solo agregado por pagador) porque el backfill se
+ * pide por RANGO DE FECHAS: sin la fecha de cada pago no hay forma de decirle
+ * al admin "vas a emitir 107 documentos por $16,3M" antes de disparar algo
+ * irreversible.
+ */
+export interface PendingPaymentInfo {
+    id: string;
+    /** `payments.payment_date` (día, sin hora). Es la columna por la que filtra el barrido. */
+    date: string | null;
+    amount: number;
+    state: PendingState;
+    /** true si el pagador no tiene código DANE: la factura sale con el municipio de la ESCUELA. */
+    municipalityFallback: boolean;
+}
+
+export interface MissingBillingData {
     rows: Row[];
     /** Pagos 'paid' sin factura viva cuyo pagador YA tiene documento y dirección: el motor los puede emitir. */
     invoiceablePayments: number;
     /** Total de pagos 'paid' sin factura viva que se revisaron. */
     scannedPayments: number;
+    /** Detalle pago por pago, para el resumen del rango del backfill. */
+    pending: PendingPaymentInfo[];
 }
 
 // ─── Carga ──────────────────────────────────────────────────────────────────
@@ -196,6 +233,7 @@ async function loadMissingBillingData(schoolId: string): Promise<MissingBillingD
 
     const porPagador = new Map<string, PayerRow>();
     const porAtleta = new Map<string, OrphanRow>();
+    const detallePorPago: PendingPaymentInfo[] = [];
     let invoiceablePayments = 0;
 
     for (const p of pendientes) {
@@ -203,6 +241,10 @@ async function loadMissingBillingData(schoolId: string): Promise<MissingBillingD
         const payerId = p.parent_id || p.user_id;
 
         if (!payerId) {
+            detallePorPago.push({
+                id: p.id, date: p.payment_date, amount: monto,
+                state: 'no_payer', municipalityFallback: false,
+            });
             const refId = p.child_id || p.unregistered_athlete_id || p.id;
             const prev = porAtleta.get(refId);
             porAtleta.set(refId, {
@@ -230,6 +272,11 @@ async function loadMissingBillingData(schoolId: string): Promise<MissingBillingD
         // impide (cae al de la escuela), así que ese pago cuenta como facturable
         // aunque su pagador aparezca en la lista con el aviso del municipio.
         if (!blocking) invoiceablePayments += 1;
+        detallePorPago.push({
+            id: p.id, date: p.payment_date, amount: monto,
+            state: blocking ? 'missing_fiscal' : 'ready',
+            municipalityFallback: missing.includes('municipality'),
+        });
         if (missing.length === 0) continue;
 
         const prev = porPagador.get(payerId);
@@ -257,13 +304,113 @@ async function loadMissingBillingData(schoolId: string): Promise<MissingBillingD
         return sev(a) - sev(b) || b.amount - a.amount;
     });
 
-    return { rows, invoiceablePayments, scannedPayments: pendientes.length };
+    return { rows, invoiceablePayments, scannedPayments: pendientes.length, pending: detallePorPago };
 }
 
 function maxDate(a: string | null, b: string | null) {
     if (!a) return b;
     if (!b) return a;
     return a > b ? a : b;
+}
+
+// ─── Ventana del barrido automático ─────────────────────────────────────────
+
+/**
+ * Días que mira el cron (`autoEmitPendingInvoices`, `sinceDays ?? 3`).
+ *
+ * Está acá porque es el dato que vuelve MENTIRA la frase "se puede facturar":
+ * un pago cobrado hace más de 3 días ya salió de la ventana y el proceso
+ * automático NO lo va a tomar nunca, por muy completos que estén sus datos
+ * fiscales. La única vía que lo desatasca es el backfill por rango.
+ */
+export const CRON_WINDOW_DAYS = 3;
+
+/** Día (ISO) desde el que el barrido automático todavía alcanza a un pago. */
+export function cronWindowStart(hoy = new Date()): string {
+    return new Date(hoy.getTime() - CRON_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** Cuántos de los pagos emitibles quedaron FUERA de la ventana del cron. */
+export function countStaleInvoiceable(data: MissingBillingData | undefined): number {
+    if (!data) return 0;
+    const desde = cronWindowStart();
+    return data.pending.filter((p) => p.state === 'ready' && (!p.date || p.date < desde)).length;
+}
+
+// ─── Resumen de un rango (insumo del backfill) ──────────────────────────────
+
+export interface RangeSummary {
+    /** Documentos que el motor emitiría HOY si se le pidiera este rango. */
+    ready: number;
+    readyAmount: number;
+    /** Se saltarían: falta documento o dirección del pagador. */
+    missingFiscal: number;
+    missingFiscalAmount: number;
+    /** Se saltarían: el cobro no tiene pagador vinculado. El formulario no lo arregla. */
+    noPayer: number;
+    noPayerAmount: number;
+    /** De los `ready`, cuántos saldrían con el municipio de la escuela por no tener código DANE. */
+    readyWithMunicipalityFallback: number;
+    /**
+     * Se saltarían por falta de código DANE, porque el dueño puso la política
+     * del municipio en 'require'. Con la política por defecto ('fallback') esto
+     * es 0 y esos pagos cuentan como `ready`.
+     */
+    missingMunicipality: number;
+    missingMunicipalityAmount: number;
+}
+
+const EMPTY_SUMMARY: RangeSummary = {
+    ready: 0, readyAmount: 0,
+    missingFiscal: 0, missingFiscalAmount: 0,
+    noPayer: 0, noPayerAmount: 0,
+    readyWithMunicipalityFallback: 0,
+    missingMunicipality: 0, missingMunicipalityAmount: 0,
+};
+
+/**
+ * Cuenta y suma los pagos sin factura que caen en [from, to].
+ *
+ * Se calcula del mismo `useMissingBillingData` que pinta el panel (react-query
+ * deduplica por queryKey), así que la confirmación del backfill y la lista de
+ * datos faltantes NUNCA pueden decir números distintos. Un pago sin
+ * `payment_date` no entra: el barrido filtra por esa columna y no lo tomaría.
+ *
+ * `municipalityRequired` refleja `config.customer_municipality_policy` del
+ * facturador. Importa porque cambia el VEREDICTO del mismo pago: con la
+ * política por defecto un pagador sin código DANE se factura (con el municipio
+ * de la escuela) y con 'require' se rechaza. Si la pantalla no lo mirara,
+ * ofrecería emitir 107 documentos y el motor devolvería 107 saltados.
+ */
+export function summarizeRange(
+    data: MissingBillingData | undefined,
+    from: string,
+    to: string,
+    opts?: { municipalityRequired?: boolean },
+): RangeSummary {
+    if (!data || !from || !to) return EMPTY_SUMMARY;
+    const exigeMunicipio = opts?.municipalityRequired === true;
+    const out: RangeSummary = { ...EMPTY_SUMMARY };
+    for (const p of data.pending) {
+        if (!p.date || p.date < from || p.date > to) continue;
+        if (p.state === 'ready') {
+            if (exigeMunicipio && p.municipalityFallback) {
+                out.missingMunicipality += 1;
+                out.missingMunicipalityAmount += p.amount;
+                continue;
+            }
+            out.ready += 1;
+            out.readyAmount += p.amount;
+            if (p.municipalityFallback) out.readyWithMunicipalityFallback += 1;
+        } else if (p.state === 'missing_fiscal') {
+            out.missingFiscal += 1;
+            out.missingFiscalAmount += p.amount;
+        } else {
+            out.noPayer += 1;
+            out.noPayerAmount += p.amount;
+        }
+    }
+    return out;
 }
 
 /** Compartido por el panel y el contador de la pestaña: react-query deduplica por queryKey. */
@@ -297,11 +444,20 @@ const RELATION_LABEL: Record<PayerRow['relation'], string> = {
 
 // ─── Panel ──────────────────────────────────────────────────────────────────
 
-export function MissingBillingDataPanel({ schoolId }: { schoolId: string }) {
+export function MissingBillingDataPanel({
+    schoolId, onIrABackfill,
+}: {
+    schoolId: string;
+    /** Lleva al admin a la acción de emisión por rango. Sin esto el panel diagnostica y no ofrece salida. */
+    onIrABackfill?: () => void;
+}) {
     const queryClient = useQueryClient();
     const query = useMissingBillingData(schoolId);
     const [incluirMunicipio, setIncluirMunicipio] = useState(false);
     const [editing, setEditing] = useState<PayerRow | null>(null);
+
+    // Emitibles que el cron ya no alcanza: son los que necesitan el backfill.
+    const rezagados = countStaleInvoiceable(query.data);
 
     const { visibles, soloMunicipio } = useMemo(() => {
         const todas = query.data?.rows ?? [];
@@ -324,6 +480,9 @@ export function MissingBillingDataPanel({ schoolId }: { schoolId: string }) {
                         Pagos ya cobrados que no se pueden facturar porque al pagador le falta un dato
                         obligatorio para la DIAN. Los pagos hechos por la app traen los datos completos;
                         los que se registran a mano (efectivo/transferencia) son los que suelen quedar así.
+                        Completar el dato acá <strong>habilita</strong> la factura, pero no la emite: el
+                        proceso automático solo mira los últimos {CRON_WINDOW_DAYS} días, así que un pago
+                        más viejo hay que emitirlo por rango.
                     </CardDescription>
                 </div>
                 <Button size="sm" variant="outline" onClick={() => query.refetch()} disabled={query.isFetching}>
@@ -383,10 +542,42 @@ export function MissingBillingDataPanel({ schoolId }: { schoolId: string }) {
                         {!incluirMunicipio && soloMunicipio.length > 0 && (
                             <Alert>
                                 <MapPin className="h-4 w-4" />
-                                <AlertDescription className="text-xs">
-                                    Otros <strong>{soloMunicipio.length}</strong> pagadores tienen documento y dirección
-                                    pero su municipio no está guardado como código DANE. La factura se emite igual, con
-                                    el municipio de la escuela. Enciende el interruptor para verlos.
+                                <AlertDescription className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                                    <span>
+                                        Otros <strong>{soloMunicipio.length}</strong> pagadores tienen documento y
+                                        dirección pero su municipio no está guardado como código DANE. La factura se
+                                        emite igual,<strong> con el municipio de la escuela impreso en el
+                                        documento</strong>, no con el del pagador.
+                                    </span>
+                                    {/* El interruptor está arriba a la derecha y con la lista
+                                        larga queda fuera de vista: el aviso trae su propia
+                                        forma de actuar, si no es solo una queja. */}
+                                    <Button size="sm" variant="outline" onClick={() => setIncluirMunicipio(true)}>
+                                        Ver y corregir
+                                    </Button>
+                                </AlertDescription>
+                            </Alert>
+                        )}
+
+                        {/* Lo que el panel NO puede resolver por sí solo: el dato completo
+                            habilita la factura, pero al pago viejo nadie lo va a emitir.
+                            Sin este aviso el admin completa 27 formularios y se queda
+                            esperando facturas que el cron ya no mira. */}
+                        {rezagados > 0 && (
+                            <Alert>
+                                <Clock className="h-4 w-4" />
+                                <AlertDescription className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                                    <span>
+                                        <strong>{rezagados}</strong> pago(s) ya tienen todo lo que la DIAN pide, pero se
+                                        cobraron hace más de {CRON_WINDOW_DAYS} días: el proceso automático solo mira esa
+                                        ventana, así que <strong>no se van a emitir solos</strong>. Hay que emitirlos por
+                                        rango de fechas.
+                                    </span>
+                                    {onIrABackfill && (
+                                        <Button size="sm" variant="outline" onClick={onIrABackfill}>
+                                            <Send className="mr-2 h-3 w-3" /> Emitir por rango
+                                        </Button>
+                                    )}
                                 </AlertDescription>
                             </Alert>
                         )}
@@ -402,10 +593,22 @@ export function MissingBillingDataPanel({ schoolId }: { schoolId: string }) {
                                         ? 'Nada bloquea la facturación.'
                                         : 'Todo el mundo tiene sus datos fiscales.'}
                                 </p>
-                                <p className="text-xs text-muted-foreground">
-                                    Los {query.data?.invoiceablePayments ?? 0} pago(s) cobrados y sin factura tienen un pagador
-                                    con documento y dirección: se pueden facturar.
+                                {/* Antes acá decía "se pueden facturar", y era falso por dos
+                                    motivos: al pago viejo el cron ya no lo mira, y sin código
+                                    DANE la factura sale con el municipio de la escuela. Se dice
+                                    qué falta para que salgan de verdad, no que ya está resuelto. */}
+                                <p className="text-xs text-muted-foreground max-w-md">
+                                    {query.data?.invoiceablePayments ?? 0} pago(s) cobrados y sin factura tienen un
+                                    pagador con documento y dirección: nada los bloquea.
+                                    {rezagados > 0
+                                        ? ` De esos, ${rezagados} se cobraron hace más de ${CRON_WINDOW_DAYS} días y el proceso automático ya no los mira: hay que emitirlos por rango.`
+                                        : ' El proceso automático los tomará en su próxima corrida.'}
                                 </p>
+                                {rezagados > 0 && onIrABackfill && (
+                                    <Button size="sm" variant="outline" onClick={onIrABackfill}>
+                                        <Send className="mr-2 h-3 w-3" /> Emitir por rango
+                                    </Button>
+                                )}
                             </div>
                         ) : (
                             <div className="overflow-x-auto">
@@ -513,9 +716,12 @@ export function MissingBillingDataPanel({ schoolId }: { schoolId: string }) {
                 <DialogContent className="max-w-lg">
                     <DialogHeader>
                         <DialogTitle>Datos de facturación de {editing?.name}</DialogTitle>
+                        {/* "quedan facturables", no "quedan facturados": guardar el dato
+                            habilita la emisión, no la dispara. Prometer la factura acá es
+                            exactamente cómo se pierde el rastro de un mes entero. */}
                         <DialogDescription>
                             {editing
-                                ? `${editing.payments} pago(s) por ${formatCurrency(editing.amount)} quedan facturables al guardar.`
+                                ? `${editing.payments} pago(s) por ${formatCurrency(editing.amount)} quedan habilitados para facturar. La factura no sale al guardar: los pagos de más de ${CRON_WINDOW_DAYS} días hay que emitirlos por rango.`
                                 : null}
                         </DialogDescription>
                     </DialogHeader>

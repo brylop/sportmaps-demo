@@ -100,18 +100,46 @@ export const requireAuth = async (
         // Rol + escuela van juntos en una sola entrada de cache: son las dos
         // consultas que corrian en CADA request. Solo se resuelven en miss.
         const membership = await getCachedMembership(user.id, targetSchoolId, token, async () => {
-            const { data: platformProfile } = await supabase
-                .from('profiles')
-                .select('role')
-                .eq('id', user.id)
+            // El staff de plataforma se pregunta a `platform_admins`, NO a
+            // `profiles.role`.
+            //
+            // Esto era la mitad no cerrada de una escalada real. `authenticated`
+            // tiene GRANT de UPDATE sobre las columnas `role` y `role_id` de
+            // `profiles`, y su única policy de UPDATE es `USING (auth.uid() = id)`,
+            // que ata la FILA al usuario pero no dice nada de las COLUMNAS (en RLS
+            // no existe granularidad por columna). O sea que cualquier usuario
+            // podía escribirse `role='super_admin'` desde el navegador y, con este
+            // escape hatch, recibir membresía de CUALQUIER escuela que nombrara en
+            // el header x-school-id — sin figurar en school_members.
+            //
+            // Las policies de RLS ya se habían migrado a is_super_admin() en
+            // agosto (20260821200453, 20260821201424, 20260824165639), pero el BFF
+            // entra con service_role y salta RLS: este chequeo es su propio gate y
+            // se quedó leyendo la columna vieja. Cerrar solo un plano no cierra
+            // nada.
+            //
+            // `platform_admins` es la misma fuente que usa is_super_admin(), y el
+            // cliente no la puede escribir. Ojo (documentado en el repo): si esa
+            // tabla queda vacía, NADIE es staff de plataforma.
+            //
+            // No lleva columna de nivel: figurar ahí ES ser super admin, igual que
+            // asume is_super_admin(). Por eso se devuelve 'super_admin' fijo y no
+            // se conserva la distinción con 'admin' que hacía el chequeo viejo —
+            // esa distinción venía de profiles.role, que es justo el dato que no
+            // se puede creer. requireSuperAdminStrict (admin-support.routes.ts)
+            // sigue funcionando: la única fila activa es la del super admin real.
+            const { data: platformAdmin } = await supabase
+                .from('platform_admins')
+                .select('profile_id')
+                .eq('profile_id', user.id)
+                .eq('is_active', true)
                 .maybeSingle();
 
-            const platformRole = (platformProfile as any)?.role as string | undefined;
-            if (platformRole === 'super_admin' || platformRole === 'admin') {
+            if (platformAdmin) {
                 return {
                     schoolId: targetSchoolId || '',
                     branchId: null,
-                    role: platformRole,
+                    role: 'super_admin',
                 };
             }
 

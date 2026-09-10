@@ -16,16 +16,32 @@ Object.defineProperty(window, 'matchMedia', {
     })),
 });
 
-// Mock ResizeObserver
-global.ResizeObserver = vi.fn().mockImplementation(() => ({
-    observe: vi.fn(),
-    unobserve: vi.fn(),
-    disconnect: vi.fn(),
-}));
+// ResizeObserver e IntersectionObserver van como CLASES, no como
+// `vi.fn().mockImplementation(() => ({...}))`.
+//
+// Con una arrow function como implementación, `new ResizeObserver(cb)` lanza
+// «is not a constructor»: una arrow no puede construirse. Nada lo notaba porque
+// ningún test abría un Popover — y floating-ui, que es el motor de Popover y
+// Select de Radix, los CONSTRUYE. O sea que este mock reventaba de entrada
+// cualquier prueba de componente que abriera un desplegable: MunicipalitySelect,
+// el tipo de documento, los Select de toda la app.
+//
+// Se agrega `takeRecords` y las props de solo lectura de IntersectionObserver
+// porque son parte de la interfaz real y alguna librería las lee.
+class ResizeObserverMock implements ResizeObserver {
+    observe = vi.fn();
+    unobserve = vi.fn();
+    disconnect = vi.fn();
+}
+global.ResizeObserver = ResizeObserverMock;
 
-// Mock IntersectionObserver
-global.IntersectionObserver = vi.fn().mockImplementation(() => ({
-    observe: vi.fn(),
-    unobserve: vi.fn(),
-    disconnect: vi.fn(),
-}));
+class IntersectionObserverMock implements IntersectionObserver {
+    readonly root: Element | Document | null = null;
+    readonly rootMargin: string = '';
+    readonly thresholds: ReadonlyArray<number> = [];
+    observe = vi.fn();
+    unobserve = vi.fn();
+    disconnect = vi.fn();
+    takeRecords = vi.fn(() => [] as IntersectionObserverEntry[]);
+}
+global.IntersectionObserver = IntersectionObserverMock;

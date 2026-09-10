@@ -18,8 +18,8 @@ Estado del plan al escribir esto: fase 0 (token permanente de System User)
 **Entra:**
 
 1. Tabla `whatsapp_optins` — consentimiento **explícito**, por número y por integración.
-2. Pregunta de consentimiento en el bot: primer contacto sin opt-in → se pide, y solo
-   la confirmación lo estampa.
+2. Pregunta de consentimiento en el bot: pegada a la verificación por OTP, una sola vez,
+   y solo la confirmación la estampa. Par STOP / ACTIVAR. Ver §5.1.
 3. Baja por palabra clave (STOP) — requisito de Meta, no opcional.
 4. Función `wa_can_send_template()` — la pregunta que todo envío debe hacerse antes.
 5. Columnas `meta_*` en `payment_message_templates`.
@@ -361,8 +361,31 @@ Es un paso conversacional en `whatsapp-bot.service.ts`, no en la base.
 > identificación por OTP (`wa_start_identification` / `wa_verify_otp`). La pregunta de
 > consentimiento va **junto a ese flujo**, no como un segundo interrogatorio paralelo —
 > dos "responde SÍ" seguidos por motivos distintos es una experiencia mala y una fuente
-> de respuestas ambiguas ("sí" ¿a cuál de las dos?). El detalle de la redacción se
-> resuelve al implementar, con el texto a la vista.
+> de respuestas ambiguas ("sí" ¿a cuál de las dos?).
+
+### 5.1 Cómo quedó implementado (2026-09-09)
+
+En `bff/src/services/whatsapp-bot.service.ts`, como paso 2 del turno del bot, entre la
+identificación y los intents:
+
+- **La pregunta viaja pegada al mensaje de "identidad verificada"**, con
+  `step='ask_consent'` en el payload. No es un turno aparte.
+- Se pregunta **una sola vez por conversación**. El "ya se preguntó" se deriva de la
+  propia conversación: un saliente con `payload->>step='ask_consent'`, o —en modo
+  asistido, donde la pregunta espera aprobación— un borrador con
+  `tool_context->>step='ask_consent'`. Sin eso, cada mensaje del padre generaría un
+  borrador nuevo pidiendo lo mismo.
+- **Solo un afirmativo estampa el opt-in**, con `source='user_confirmed'` y
+  `source_ref` = `wa_message_id` de ESA confirmación.
+- **Un "no" no registra nada** y no se vuelve a insistir: no hay consentimiento que
+  guardar, y la pregunta ya quedó hecha.
+- Cualquier otra cosa (vino a preguntar por el entreno) **sigue su camino al LLM**. La
+  comparación es contra el mensaje completo normalizado, igual que el STOP: *"no quiero
+  perderme la clase"* no puede leerse como un "no".
+- **Par STOP / ACTIVAR.** El STOP lo registra la ingesta en la base; el bot lo confirma
+  y deja de preguntarle cosas. `ACTIVAR` es la única palabra que escucha de alguien ya
+  de baja, y revierte el opt-out. El mensaje de baja lo anuncia, así que tiene que
+  funcionar.
 
 ---
 

@@ -163,6 +163,42 @@ npm run migrations:drift    # mide la deriva
 Consecuencia práctica: no asumir que un objeto existe porque hay una migración
 que lo crea, ni que no existe porque no la hay.
 
+### `DROP CONSTRAINT IF EXISTS` + `ADD` no es re-ejecutable
+
+El `IF EXISTS` protege del caso "no está". **No** protege del caso "está y otro
+objeto depende de ella", que es el que aparece al re-correr una migración ya
+aplicada:
+
+```
+ERROR: cannot drop constraint uq_… because other objects depend on it
+DETAIL: constraint fk_… on table … depends on index uq_…
+HINT: Use DROP ... CASCADE
+```
+
+Pasó el 2026-09-09 con `20260909215933`: crea un `UNIQUE (id, school_id)` en
+`school_whatsapp_integrations` y después una tabla cuya FK compuesta apunta a
+ese único. En base limpia corre; en base ya migrada, la tabla que ella misma
+creó le bloquea su primera sentencia.
+
+**No aceptar el `HINT` de Postgres.** El `CASCADE` se lleva la FK dependiente y
+te deja la tabla funcionando *sin* la garantía que esa FK daba — en ese caso,
+que el `school_id` desnormalizado no pueda apuntar a otra escuela. Falla
+silenciosa y difícil de detectar después.
+
+Para una constraint que va a ser destino de una FK, la forma re-ejecutable es
+agregar solo si falta:
+
+```sql
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_…') THEN
+    ALTER TABLE … ADD CONSTRAINT uq_… UNIQUE (…);
+  END IF;
+END $$;
+```
+
+Y el error, cuando aparece, casi siempre significa **que la migración ya está
+aplicada** y alguien la está corriendo de nuevo — no que haya algo roto.
+
 ---
 
 ## Frontend
@@ -305,3 +341,82 @@ confirmar que el proyecto vinculado (`.vercel/project.json`, que **no** se
 commitea) es el que se espera. Si la CLI dice "Project was either deleted,
 transferred..." o pregunta si crear uno nuevo, **parar y avisar**, no aceptar
 por default.
+
+## Llamar una RPC desde el BFF le apaga su propia autorización
+
+`bff/src/config/supabase.ts` crea el cliente con `SUPABASE_SERVICE_ROLE_KEY`.
+Con el service role, **`auth.uid()` dentro de la RPC es `NULL`**. Y la guarda
+estándar de las RPCs de este repo tiene esta forma:
+
+```sql
+IF v_caller IS NOT NULL AND NOT (public.is_super_admin() OR public.is_school_admin(...)) THEN
+  RAISE EXCEPTION 'No autorizado…';
+END IF;
+```
+
+Ese `v_caller IS NOT NULL` está ahí para que el cron y `service_role` puedan
+correr. El efecto colateral es que **una RPC llamada desde el BFF se saltea su
+propio chequeo de permisos**: pasa siempre. Si el endpoint del BFF no replica la
+autorización, cualquiera con sesión válida puede operar sobre cualquier escuela.
+
+Peor todavía con las RPCs que *derivan* identidad de `auth.uid()` en vez de solo
+autorizar: `request_enrollment_pause` resuelve si el que pide es el acudiente con
+`is_parent_of_child(auth.uid())`, así que por el BFF **falla siempre** con "No
+autorizado", no es que pase de largo.
+
+Regla: una RPC que autoriza por `auth.uid()` se llama **desde el frontend** con
+el JWT del usuario —`(supabase.rpc as any)('nombre', { … })`, como
+`set_school_athlete_status` y `create_invitation`— y así su gate es el gate real.
+Por el BFF van solo las cosas que genuinamente necesitan service role (webhooks,
+crons, el roster de asistencia que arma la lista él mismo).
+
+## La pausa de vacaciones tiene DOS reglas, y confundirlas es el bug
+
+`enrollment_pause_requests` (migración `20260910080206`) responde dos preguntas
+distintas con granularidades distintas:
+
+| Pregunta | Granularidad | Dónde vive |
+|---|---|---|
+| ¿Se cobra el mes M? | **MES** — `month_from`/`month_to` | `enrollment_pausada_en()`, usada por `open_month` |
+| ¿Aparece en la lista de asistencia del día D? | **DÍA** — ventana recortada en `resumed_at` | `v_enrollment_pauses_effective` / `enrollment_pausada_el()` |
+
+El que vuelve de vacaciones el 12 reaparece en el roster **el 12**, pero el mes
+sigue sin cobro: la plata de ese mes ya se decidió cuando se aprobó la pausa (y
+el cobro se anuló). Usar la ventana de días para decidir el cobro haría que el
+cron del día siguiente le re-emitiera la cuota — un `payment` en `cancelled`
+**no** bloquea la regeneración, porque el dedup de `open_month` solo mira
+`pending/awaiting_approval/paid/partial/overdue/glosado`.
+
+Pero "ignorar `resumed_at` en el cobro" a secas también estaba mal, y costó una
+migración de fix (`20260910082323`): una pausa **programada** para un mes futuro
+y **cancelada antes de que ese mes arranque** dejaba el mes sin cobro para
+siempre. El admin programa julio por error, lo cancela en junio, y julio no se
+factura nunca. La condición correcta es *el mes no se cobra si la pausa lo cubre
+Y no terminó antes de que el mes empezara*:
+
+```sql
+AND (r.resumed_at IS NULL
+     OR date_trunc('month', (r.resumed_at AT TIME ZONE 'America/Bogota')::date)::date
+          >= <primer dia del mes>)
+```
+
+Esa condición está **duplicada** en tres lugares a propósito —
+`enrollment_pausada_en()`, `open_month` y `preview_open_month`— para no meter una
+llamada a función por fila en el CTE de generación. Si se toca uno, tocar los
+tres.
+
+Dos consecuencias que no se deducen leyendo el código:
+
+- **`apply_late_fees` no excluye pausados y no hace falta que lo haga**: sin
+  cobro no hay a qué aplicarle recargo. La nota de la migración `20260902171932`
+  que decía que anular cobros era impracticable "porque `payments` no tiene
+  `enrollment_id`" quedó superada: no lo tiene, pero sí tiene
+  `period_year`/`period_month` + el trío de identidad del atleta.
+- **El autopay, cuando se despliegue, hay que tocarlo.**
+  `recurring_subscriptions` hoy **no existe en la base**, pero
+  `bff/src/services/recurring-charges.service.ts` crea su propio `payments` por
+  fuera de `open_month`. El chequeo de pausa va dentro de
+  `claim_due_recurring_subscriptions`, o le cobrará la tarjeta a un pausado.
+- **La puerta le sigue abriendo al pausado**: `access-auto-block.job.ts` bloquea
+  por `payments.status = 'overdue'`, y un pausado nunca llega a overdue. Sale de
+  la lista de asistencia pero el torno lo deja entrar. Deliberado, no un olvido.

@@ -133,12 +133,20 @@ async function processInboundMessage(req: Request, msg: ParsedInboundMessage): P
 
     const conversationId = (ingest as any)?.conversation_id as string;
 
+    // La ingesta detecta las palabras de baja (STOP, baja, no molestar…) y ya
+    // registró el opt-out. El bot tiene que confirmarlo y NO seguir su flujo
+    // normal: a quien pide que no le escriban no se le pregunta el email.
+    const optedOut = (ingest as any)?.opted_out === true;
+    if (optedOut) {
+        req.log?.info({ conversationId, contactWaId: msg.contactWaId }, 'WhatsApp: opt-out registrado');
+    }
+
     // 4. Marcar como leído (best-effort, no bloquea).
     void markAsRead(integration, msg.waMessageId);
 
     // 5. Disparar el bot. En WA2 esto encola en pg-boss y corre DeepSeek +
     //    intents + identificación OTP. Por ahora dejamos el punto de entrada.
-    await handleBotTurn(req, integration, conversationId, msg);
+    await handleBotTurn(req, integration, conversationId, msg, optedOut);
 }
 
 /**
@@ -155,13 +163,14 @@ async function handleBotTurn(
     integration: WhatsAppIntegration,
     conversationId: string,
     msg: ParsedInboundMessage,
+    optedOut = false,
 ): Promise<void> {
     if (msg.type !== 'text' && msg.type !== 'interactive' && msg.type !== 'button') {
         req.log?.info({ conversationId, type: msg.type }, 'WhatsApp: tipo no textual, bot no responde');
         return;
     }
     try {
-        await runBotTurn(integration, conversationId, msg.contactWaId, msg.textBody);
+        await runBotTurn(integration, conversationId, msg.contactWaId, msg.textBody, msg.waMessageId, optedOut);
     } catch (err: any) {
         req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: runBotTurn failed');
     }

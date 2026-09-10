@@ -491,7 +491,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
   const {
     data: rosterData,
     isLoading: loadingRoster,
-  } = useQuery<{ athletes: RosterItem[]; bookings: any[]; atletas_sin_equipo?: number }>({
+  } = useQuery<{ athletes: RosterItem[]; bookings: any[]; atletas_sin_equipo?: number; atletas_pausados?: number }>({
     queryKey: ['attendance-roster', contextType, contextId],
     queryFn: async () => {
       if (!contextType || !contextId) return { athletes: [], bookings: [] };
@@ -1314,6 +1314,23 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
                     Las clases se descuentan del plan con esa fecha, así que un atleta cuyo plan ya
                     estaba vencido ese día queda registrado pero sin descuento.
                     {!isAdmin && ` Puedes retroceder hasta ${RETRO_DIAS_COACH} días; para algo más antiguo, pídeselo a la administración.`}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* En pausa por vacaciones/lesión: el BFF los saca de la lista.
+                  Se avisa por la misma razón que los sin-equipo — si no, el
+                  entrenador busca a alguien que "desapareció" sin explicación.
+                  Reaparecen el día en que se los reactive. */}
+              {(rosterData?.atletas_pausados ?? 0) > 0 && (
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    <strong>{rosterData?.atletas_pausados}</strong>{' '}
+                    {rosterData?.atletas_pausados === 1 ? 'atleta está' : 'atletas están'} en pausa
+                    (vacaciones o lesión) y no {rosterData?.atletas_pausados === 1 ? 'aparece' : 'aparecen'}{' '}
+                    en esta lista. {rosterData?.atletas_pausados === 1 ? 'Vuelve' : 'Vuelven'} cuando la
+                    administración {rosterData?.atletas_pausados === 1 ? 'lo' : 'los'} reactive.
                   </AlertDescription>
                 </Alert>
               )}
