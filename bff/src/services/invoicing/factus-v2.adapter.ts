@@ -30,23 +30,44 @@
  *     { "status": "Accepted", "message": "Documento en proceso de validación" }
  * La validación ante la DIAN ocurre después, en segundo plano. Por eso en
  * producción el resultado cae a status 'sent' (enviada, todavía sin número ni
- * CUFE) y hace falta un paso de reconciliación que consulte GET /v2/bills por
- * reference_code y complete number/cufe/validated_at.
- * ESE RECONCILIADOR AÚN NO EXISTE: sin él, una factura de producción se queda
- * en 'sent' para siempre aunque la DIAN ya la haya validado.
+ * CUFE) y la completa después `fetchByReference` desde
+ * reconcilePendingInvoices, que consulta GET /v2/bills por reference_code.
  *
  * Idempotencia CONFIRMADA: reenviar el mismo reference_code devuelve el MISMO
  * documento (mismo número y CUFE), no crea otro. Eso es lo que hace inofensivo
- * que los tres BFF de Render corran este cron sobre la misma base compartida.
+ * que los tres BFF de Render corran este cron sobre la misma base compartida, y
+ * también lo que permite REINTENTAR una emisión que falló por transporte sin
+ * riesgo de duplicar el documento.
+ *
+ * TODA petición sale con `AbortSignal.timeout`. Sin timeout, un cuelgue durante
+ * un redeploy de Render dejaba la fila en 'queued' —contada como facturada— y
+ * sin rescate posible.
  *
  * cfg.credentials: { base_url?, client_id, client_secret, username, password }
- * cfg.config:      { numbering_range_id, default_municipality_id? }
+ * cfg.config:      ver ProviderConfig en ./types
  */
 
-import { InvoicingAdapter, InvoiceRequest, InvoiceResult, ProviderConfig } from './types';
+import {
+    InvoicingAdapter,
+    InvoiceRequest,
+    InvoiceResult,
+    ProviderConfig,
+    PacTransportError,
+    pacJsonFetch,
+    normalizeDaneMunicipality,
+    resolvePaymentMethodCode,
+} from './types';
 
 const SANDBOX_URL = 'https://api-sandbox.factus.com.co';
 const PROD_URL = 'https://api.factus.com.co';
+
+/**
+ * Presupuesto de tiempo por petición al PAC. 25s para emitir (el PAC firma y
+ * habla con la DIAN) y 15s para consultar. Cualquiera de los dos vencido es un
+ * fallo de transporte, NO un rechazo: el documento pudo quedar creado.
+ */
+const EMIT_TIMEOUT_MS = 25_000;
+const READ_TIMEOUT_MS = 15_000;
 
 // Tipo de documento SportMaps → código DIAN (V2 usa el código oficial, no el
 // id del catálogo interno de Factus que usaba V1).
@@ -66,6 +87,10 @@ function baseUrl(cfg: ProviderConfig): string {
     return cfg.credentials.base_url || (cfg.sandbox ? SANDBOX_URL : PROD_URL);
 }
 
+/** Transporte compartido (timeout + res.ok antes de parsear + clasificación). */
+const pacFetch = (url: string, init: RequestInit, timeoutMs: number) =>
+    pacJsonFetch('Factus V2', url, init, timeoutMs);
+
 async function getToken(cfg: ProviderConfig): Promise<string> {
     const cacheKey = `v2:${baseUrl(cfg)}:${cfg.credentials.client_id}`;
     const cached = tokenCache.get(cacheKey);
@@ -78,14 +103,21 @@ async function getToken(cfg: ProviderConfig): Promise<string> {
         username: cfg.credentials.username,
         password: cfg.credentials.password,
     });
-    const res = await fetch(`${baseUrl(cfg)}/oauth/token`, {
+    const res = await pacFetch(`${baseUrl(cfg)}/oauth/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,
-    });
-    const json = (await res.json()) as any;
+    }, READ_TIMEOUT_MS);
+
+    const json = res.json ?? {};
     if (!res.ok || !json.access_token) {
-        throw new Error(`Factus V2 auth failed: ${json.error_description || json.message || res.status}`);
+        // Credenciales vencidas o mal cargadas es un problema NUESTRO, no un
+        // rechazo de la DIAN: se lanza como transporte para que la factura
+        // quede reintentable en vez de morir como 'rejected'.
+        throw new PacTransportError(
+            `Factus V2 auth failed: ${json.error_description || json.message || res.status}`,
+            res.status,
+        );
     }
     tokenCache.set(cacheKey, {
         token: json.access_token,
@@ -186,6 +218,17 @@ export const factusV2Adapter: InvoicingAdapter = {
             0,
         );
 
+        // El municipio del cliente ya viene resuelto por el servicio (política
+        // del dueño incluida). Acá NO se sustituye por el del emisor: ese
+        // fallback silencioso es el que le ponía Bogotá a familias de Mosquera
+        // y de Madrid. Si no hay dato, el campo simplemente no viaja — es
+        // opcional en la doc oficial de V2.
+        const municipalityCode = normalizeDaneMunicipality(req.customer.municipalityCode);
+
+        // Medio de pago REAL (ver resolvePaymentMethodCode). Antes iba '10' =
+        // efectivo clavado para todo, incluidas 350 transferencias de Dynasty.
+        const paymentMethodCode = resolvePaymentMethodCode(req.paymentMethod, cfg);
+
         const payload = {
             numbering_range_id: cfg.config.numbering_range_id,
             reference_code: req.referenceCode,
@@ -196,9 +239,9 @@ export const factusV2Adapter: InvoicingAdapter = {
             // es una decisión de producto, no un default heredado.
             send_email: false,
             payment_details: [{
-                payment_form: '1',          // 1 = pago de contado
-                payment_method_code: '10',  // 10 = efectivo (genérico)
-                amount: total.toFixed(2),   // la doc declara string
+                payment_form: '1',                        // 1 = pago de contado
+                payment_method_code: paymentMethodCode,   // tabla oficial, ver types.ts
+                amount: total.toFixed(2),                 // la doc declara string
             }],
             customer: {
                 identification: req.customer.identification,
@@ -228,9 +271,14 @@ export const factusV2Adapter: InvoicingAdapter = {
                 // DIAN devuelve la notificación FAK08 por grupo de dirección
                 // incompleto. Verificado en sandbox: con municipality_code el
                 // municipio y el país se resuelven y FAK08 desaparece.
-                municipality_code: String(
-                    req.customer.municipalityId ?? cfg.config.default_municipality_id ?? '',
-                ),
+                //
+                // Y es un STRING de 5 dígitos con el cero inicial. El valor
+                // pasaba por Number() aguas arriba, y `Number('05001')` = 5001
+                // no es ningún municipio: se perdían los 148 de Antioquia
+                // (05xxx) y Atlántico (08xxx). Cuando no hay dato la clave NO
+                // se manda (es opcional) en vez de rellenarla con el municipio
+                // del emisor.
+                ...(municipalityCode ? { municipality_code: municipalityCode } : {}),
             },
             items: req.items.map((it) => ({
                 code_reference: it.codeReference,
@@ -255,7 +303,7 @@ export const factusV2Adapter: InvoicingAdapter = {
             })),
         };
 
-        const res = await fetch(`${baseUrl(cfg)}/v2/bills/validate`, {
+        const res = await pacFetch(`${baseUrl(cfg)}/v2/bills/validate`, {
             method: 'POST',
             headers: {
                 Authorization: `Bearer ${token}`,
@@ -263,14 +311,17 @@ export const factusV2Adapter: InvoicingAdapter = {
                 Accept: 'application/json',
             },
             body: JSON.stringify(payload),
-        });
-        const json = (await res.json()) as any;
+        }, EMIT_TIMEOUT_MS);
+        const json = res.json;
 
+        // Acá solo se llega con un no-ok TERMINAL (400/409/422): el PAC revisó
+        // el contenido y lo rechazó, no hay nada que reintentar. Los fallos de
+        // transporte ya salieron por excepción desde pacFetch.
         if (!res.ok) {
             return {
                 status: 'rejected',
                 errorMessage: json?.data?.message || json?.message || `Factus V2 HTTP ${res.status}`,
-                raw: json,
+                raw: json ?? res.body,
             };
         }
 
@@ -292,24 +343,27 @@ export const factusV2Adapter: InvoicingAdapter = {
         const token = await getToken(cfg);
         const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
 
-        const listRes = await fetch(
+        const listRes = await pacFetch(
             `${baseUrl(cfg)}/v2/bills?filter%5Breference_code%5D=${encodeURIComponent(referenceCode)}`,
             { headers },
+            READ_TIMEOUT_MS,
         );
         if (!listRes.ok) return null;
-        const listJson = (await listRes.json()) as any;
+        const listJson = listRes.json;
         const rows = listJson?.data?.data;
         const number = Array.isArray(rows) && rows.length > 0 ? rows[0]?.number : null;
         if (!number) return null;
 
-        const detRes = await fetch(
+        // El detalle es el que trae cufe y links; si el PAC lo rechaza,
+        // devolvemos lo del listado (número y total) en vez de perder el
+        // hallazgo. Un fallo de transporte sí sale por excepción: mejor volver
+        // a intentarlo en el siguiente barrido que escribir un dato a medias.
+        const detRes = await pacFetch(
             `${baseUrl(cfg)}/v2/bills/${encodeURIComponent(String(number))}`,
             { headers },
+            READ_TIMEOUT_MS,
         );
-        // El detalle es el que trae cufe y links; si falla, al menos devolvemos
-        // lo del listado (número y total) en vez de perder el hallazgo.
         if (!detRes.ok) return mapBill(rows[0], listJson);
-        const detJson = (await detRes.json()) as any;
-        return mapBill(detJson?.data ?? rows[0], detJson);
+        return mapBill(detRes.json?.data ?? rows[0], detRes.json);
     },
 };

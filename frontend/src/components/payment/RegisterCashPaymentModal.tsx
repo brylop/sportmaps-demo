@@ -39,6 +39,32 @@ interface RegisterCashPaymentModalProps {
   onSuccess: () => void;
 }
 
+/**
+ * Qué tan listos están los datos fiscales del pagador.
+ *
+ * Antes era un booleano y `billing_city_dane` se daba por bueno por ser
+ * truthy: 'Bogotá' es truthy, así que un perfil con el municipio en texto
+ * libre contaba como completo y el código DANE NUNCA se llegaba a pedir. Por
+ * eso 0 de 147 pagos de septiembre lo tienen, y las 147 facturas saldrían
+ * diciendo el municipio de la escuela.
+ *
+ * Se parte en tres y no en dos porque el municipio NO bloquea la emisión (el
+ * adaptador cae al municipio de la escuela): tratarlo como "faltan datos"
+ * pintaría el mismo aviso que un perfil vacío y el registro de pagos en fila
+ * se volvería un campo de alertas rojas idénticas. `no_dane` dice exactamente
+ * lo que pasa y ofrece corregirlo, sin frenar nada.
+ */
+type PayerDianState =
+  /** Documento, dirección y municipio como código DANE. Nada que hacer. */
+  | 'complete'
+  /** Emitible, pero el municipio no es código DANE → la factura sale con la ciudad de la escuela. */
+  | 'no_dane'
+  /** Falta documento y/o dirección → el motor corta con customer_missing_fiscal_data. */
+  | 'incomplete';
+
+/** El código DANE del municipio: 4 o 5 dígitos. Texto libre no sirve para facturar. */
+const DANE_CODE = /^\d{4,5}$/;
+
 export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: RegisterCashPaymentModalProps) {
   const { user } = useAuth();
   const { schoolId, schoolName } = useSchoolContext();
@@ -96,7 +122,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
   // ese formulario nunca se le muestra — sin esto, el pago quedaba `paid`
   // pero la factura se saltaba en silencio (customer_missing_fiscal_data).
   const [wantsEInvoice, setWantsEInvoice] = useState(false);
-  const [payerHasDianData, setPayerHasDianData] = useState<boolean | null>(null); // null = aún sin consultar
+  const [payerDianState, setPayerDianState] = useState<PayerDianState | null>(null); // null = aún sin consultar
   const [checkingDian, setCheckingDian] = useState(false);
 
   const filteredAthletes = athletes.filter(ath => {
@@ -128,7 +154,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
 
   useEffect(() => {
     if (!payerProfileId || !hasAddon('invoicing')) {
-      setPayerHasDianData(null);
+      setPayerDianState(null);
       setWantsEInvoice(false);
       return;
     }
@@ -139,7 +165,12 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
         .select('document_type, document_number, billing_address, billing_city_dane')
         .eq('id', payerProfileId).single();
       if (cancelled) return;
-      setPayerHasDianData(!!(data?.document_type && data?.document_number && data?.billing_address && data?.billing_city_dane));
+      // El bloqueo duro es documento + dirección: es lo que hace que
+      // loadCustomer devuelva null y el motor corte. `document_type` no se
+      // exige porque loadCustomer lo asume 'CC' cuando falta.
+      const emitible = !!(data?.document_number && data?.billing_address);
+      const conDane = DANE_CODE.test(String(data?.billing_city_dane ?? '').trim());
+      setPayerDianState(!emitible ? 'incomplete' : conDane ? 'complete' : 'no_dane');
       setCheckingDian(false);
     })();
     return () => { cancelled = true; };
@@ -523,7 +554,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
     setPeriod(null);
     setPeriodSuggested(null);
     setWantsEInvoice(false);
-    setPayerHasDianData(null);
+    setPayerDianState(null);
     clearReceipt();
   };
 
@@ -783,10 +814,16 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
           )}
 
           {/* Facturación electrónica del pagador. Se muestra SIEMPRE que la
-              escuela tenga el addon, con los tres estados dichos en voz alta:
-              datos listos / faltan / no hay a quién cargarlos. Antes solo
-              aparecía cuando faltaban, y desde afuera no se distinguía "ya
-              está" de "no aplica" — ni había forma de corregir un dato malo. */}
+              escuela tenga el addon, con los cuatro estados dichos en voz alta:
+              datos listos / listos pero sin código DANE / faltan / no hay a
+              quién cargarlos. Antes solo aparecía cuando faltaban, y desde
+              afuera no se distinguía "ya está" de "no aplica" — ni había forma
+              de corregir un dato malo.
+
+              NINGUNO de estos estados frena el registro del pago: este bloque
+              es informativo. La escuela registra la plata que ya recibió, y el
+              dato fiscal se completa acá si está a mano o después desde
+              Contabilidad → Datos fiscales faltantes. */}
           {selectedAthleteId && hasAddon('invoicing') && (
             <div className="rounded-2xl border border-border/40 bg-muted/10 p-4 space-y-3">
               {!payerProfileId ? (
@@ -803,7 +840,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
                 <span className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" /> Revisando datos de facturación…
                 </span>
-              ) : payerHasDianData ? (
+              ) : payerDianState === 'complete' ? (
                 <div className="flex items-center justify-between gap-3">
                   <span className="flex items-center gap-2 text-xs font-bold text-emerald-600">
                     <CheckCircle2 className="h-4 w-4 shrink-0" /> Datos de facturación completos
@@ -812,6 +849,23 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
                     onClick={() => setWantsEInvoice((v) => !v)}>
                     {wantsEInvoice ? 'Cerrar' : 'Corregir'}
                   </Button>
+                </div>
+              ) : payerDianState === 'no_dane' ? (
+                /* Emitible, pero el municipio está en texto libre. Se dice qué
+                   sale mal en el documento —no un genérico "faltan datos"—
+                   porque el dato existe y quien registra el pago puede tener al
+                   acudiente enfrente para preguntarle la ciudad. */
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-relaxed">
+                      <span className="font-bold">Falta el municipio con código DANE.</span> La factura
+                      se emite igual, pero saldrá con la ciudad de la escuela, no con la del pagador.
+                    </p>
+                    <Button type="button" variant="outline" size="sm" className="h-7 shrink-0 text-xs"
+                      onClick={() => setWantsEInvoice((v) => !v)}>
+                      {wantsEInvoice ? 'Cerrar' : 'Completar'}
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="flex items-center justify-between gap-3">
@@ -828,7 +882,9 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
                   schoolId={schoolId || undefined}
                   payerName={payerName || undefined}
                   payerKind={selectedAthleteForPayer?.athlete_type === 'adult' ? 'adult_athlete' : 'guardian'}
-                  onComplete={() => { setPayerHasDianData(true); setWantsEInvoice(false); }}
+                  /* El formulario exige el código DANE (regex en su schema), así
+                     que al guardar el perfil queda 'complete' de verdad. */
+                  onComplete={() => { setPayerDianState('complete'); setWantsEInvoice(false); }}
                 />
               )}
             </div>

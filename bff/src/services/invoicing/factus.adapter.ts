@@ -6,17 +6,45 @@
  * Emisión:  POST /v1/bills/validate.
  *
  * cfg.credentials: { base_url?, client_id, client_secret, username, password }
- * cfg.config:      { numbering_range_id, default_municipality_id? }
+ * cfg.config:      ver ProviderConfig en ./types
  *
  * VALIDADO contra sandbox: data.bill trae { id, number, cufe, qr, qr_image,
  * public_url, document.code, taxable_amount, tax_amount, total, validated }.
  * Nota: `price` del item es IVA-incluido → Factus back-calcula base + IVA.
+ *
+ * LIMITACIÓN CONOCIDA DE V1 — el municipio del cliente NO puede viajar acá.
+ * V1 espera `municipality_id`, que es el id INTERNO del catálogo de Factus (el
+ * de la escuela demo es 169 = Bogotá) y se obtenía consumiendo un endpoint de
+ * V1; V2 lo reemplazó por `municipality_code`, que sí es el código DANE.
+ * Confirmado en developers.factus.com.co/buenas-practicas/cambios-v2-v1: «el
+ * valor se ha modificado de id por código». Nuestro dato del cliente es DANE,
+ * así que mandarlo como id de V1 apuntaría a OTRO municipio: por eso se manda
+ * únicamente el default del emisor y el código del cliente se ignora aquí.
+ * Para facturar de verdad con el municipio del adquirente hay que usar V2 (o
+ * implementar la traducción DANE → id de V1 contra su endpoint).
  */
 
-import { InvoicingAdapter, InvoiceRequest, InvoiceResult, ProviderConfig } from './types';
+import {
+    InvoicingAdapter,
+    InvoiceRequest,
+    InvoiceResult,
+    ProviderConfig,
+    PacTransportError,
+    pacJsonFetch,
+    defaultMunicipalityLegacyId,
+    resolvePaymentMethodCode,
+} from './types';
 
 const SANDBOX_URL = 'https://api-sandbox.factus.com.co';
 const PROD_URL = 'https://api.factus.com.co';
+
+/** Presupuesto de tiempo por petición. Ver pacJsonFetch en ./types. */
+const EMIT_TIMEOUT_MS = 25_000;
+const READ_TIMEOUT_MS = 15_000;
+
+/** Transporte compartido (timeout + res.ok antes de parsear + clasificación). */
+const pacFetch = (url: string, init: RequestInit, timeoutMs: number) =>
+    pacJsonFetch('Factus', url, init, timeoutMs);
 
 // Tipo de documento SportMaps → identification_document_id de Factus (códigos DIAN).
 const DOC_TYPE_MAP: Record<string, number> = {
@@ -42,14 +70,20 @@ async function getToken(cfg: ProviderConfig): Promise<string> {
         username: cfg.credentials.username,
         password: cfg.credentials.password,
     });
-    const res = await fetch(`${baseUrl(cfg)}/oauth/token`, {
+    const res = await pacFetch(`${baseUrl(cfg)}/oauth/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,
-    });
-    const json = (await res.json()) as any;
+    }, READ_TIMEOUT_MS);
+    const json = res.json ?? {};
     if (!res.ok || !json.access_token) {
-        throw new Error(`Factus auth failed: ${json.error_description || json.message || res.status}`);
+        // Credenciales vencidas o mal cargadas es un problema NUESTRO, no un
+        // rechazo de la DIAN: se lanza como transporte para que la factura
+        // quede reintentable en vez de morir como 'rejected'.
+        throw new PacTransportError(
+            `Factus auth failed: ${json.error_description || json.message || res.status}`,
+            res.status,
+        );
     }
     tokenCache.set(cacheKey, {
         token: json.access_token,
@@ -70,12 +104,21 @@ export const factusAdapter: InvoicingAdapter = {
         const token = await getToken(cfg);
         const isCompany = req.customer.documentType === 'NIT';
 
+        // Id interno del catálogo V1 (NO el código DANE del cliente; ver el
+        // encabezado). Se manda solo si el dueño lo configuró.
+        const municipalityLegacyId = defaultMunicipalityLegacyId(cfg);
+
         const payload = {
             numbering_range_id: cfg.config.numbering_range_id,
             reference_code: req.referenceCode,
             observation: req.observation ?? '',
             payment_form: '1',            // 1 = contado
-            payment_method_code: '10',    // 10 = genérico
+            // Medio de pago REAL. V1 y V2 comparten el nombre del campo y la
+            // tabla de códigos de la DIAN; lo que cambió en V2 es que viaja
+            // dentro de payment_details. Antes acá iba '10' clavado, que NO es
+            // un genérico: es «efectivo», y declaraba en efectivo plata que
+            // entró por transferencia.
+            payment_method_code: resolvePaymentMethodCode(req.paymentMethod, cfg),
             customer: {
                 identification: req.customer.identification,
                 // Acá `names` viaja SIEMPRE, también para una persona jurídica, y
@@ -100,9 +143,10 @@ export const factusAdapter: InvoicingAdapter = {
                 legal_organization_id: isCompany ? '1' : '2',   // 1=jurídica, 2=natural
                 tribute_id: '21',                                // No responsable de IVA (consumidor)
                 identification_document_id: String(DOC_TYPE_MAP[req.customer.documentType] ?? 3),
-                municipality_id: String(
-                    req.customer.municipalityId ?? cfg.config.default_municipality_id ?? '',
-                ),
+                // Sin dato configurado la clave NO viaja: antes se mandaba
+                // `municipality_id: ''`, que es un valor que no identifica
+                // ningún municipio y que el PAC descarta en silencio.
+                ...(municipalityLegacyId ? { municipality_id: municipalityLegacyId } : {}),
             },
             items: req.items.map((it) => ({
                 code_reference: it.codeReference,
@@ -119,7 +163,7 @@ export const factusAdapter: InvoicingAdapter = {
             })),
         };
 
-        const res = await fetch(`${baseUrl(cfg)}/v1/bills/validate`, {
+        const res = await pacFetch(`${baseUrl(cfg)}/v1/bills/validate`, {
             method: 'POST',
             headers: {
                 Authorization: `Bearer ${token}`,
@@ -127,14 +171,18 @@ export const factusAdapter: InvoicingAdapter = {
                 Accept: 'application/json',
             },
             body: JSON.stringify(payload),
-        });
-        const json = (await res.json()) as any;
+        }, EMIT_TIMEOUT_MS);
+        const json = res.json;
 
+        // Acá solo se llega con un no-ok TERMINAL (400/409/422): el PAC revisó
+        // el contenido y lo rechazó. Los fallos de transporte —donde el
+        // documento PUDO quedar creado ante la DIAN— ya salieron por excepción
+        // desde pacFetch para que la fila quede reintentable.
         if (!res.ok) {
             return {
                 status: 'rejected',
                 errorMessage: json?.message || `Factus HTTP ${res.status}`,
-                raw: json,
+                raw: json ?? res.body,
             };
         }
 
