@@ -100,14 +100,40 @@ function toNum(v: unknown): number | null {
 }
 
 /**
+ * Separa un RECHAZO de la DIAN de una simple notificación.
+ *
+ * Factus mete las dos cosas en el mismo campo `errors`, y hay que
+ * distinguirlas por el texto:
+ *   - "Regla: FAK08, Notificación: ..."  → aviso blando, el documento vale
+ *   - "Regla: 90, Rechazo: Documento procesado anteriormente" → RECHAZADO
+ * El formato también varía (objeto indexado por regla, o array de strings),
+ * así que se normaliza a lista de textos antes de mirar.
+ *
+ * Sin esto un documento rechazado por la DIAN se quedaba para siempre como
+ * "enviada, esperando validación" y nadie se enteraba: exactamente lo que
+ * pasó con DYTY1 el 2026-09-09 (rechazo por regla 90).
+ */
+function dianRejection(errors: unknown): string | null {
+    const textos: string[] = Array.isArray(errors)
+        ? errors.map((e) => String(e))
+        : errors && typeof errors === 'object'
+            ? Object.values(errors as Record<string, unknown>).map((e) => String(e))
+            : [];
+    const rechazos = textos.filter((t) => /rechazo/i.test(t));
+    return rechazos.length > 0 ? rechazos.join(' | ') : null;
+}
+
+/**
  * Mapea un documento V2 (`data` de bills/validate síncrono, o de
  * GET /v2/bills/{number}) al resultado canónico. El total llega como
  * `totals.total` en el detalle y como `total` plano en el listado.
  */
 function mapBill(d: any, raw: unknown): InvoiceResult {
+    const rechazo = dianRejection(d?.errors);
     return {
-        // is_validated=false NO es rechazo: es "la DIAN todavía no la validó".
-        status: d?.is_validated ? 'accepted' : 'sent',
+        // is_validated=false por sí solo NO es rechazo (puede estar en cola),
+        // pero un "Rechazo" en errors sí es terminal.
+        status: d?.is_validated ? 'accepted' : (rechazo ? 'rejected' : 'sent'),
         // V2 no devuelve un id numérico del documento; el número es su
         // identificador estable ante el PAC y la DIAN.
         providerBillId: d?.number ?? null,
@@ -129,7 +155,7 @@ function mapBill(d: any, raw: unknown): InvoiceResult {
         taxAmount: toNum(d?.totals?.tax_amount),
         total: toNum(d?.totals?.total ?? d?.total),
         validatedAt: d?.validated_at ?? null,
-        errorMessage: null,
+        errorMessage: rechazo,
         raw,
     };
 }

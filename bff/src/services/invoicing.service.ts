@@ -483,8 +483,9 @@ export async function reconcilePendingInvoices(
             if (!result) { stillPending++; continue; }
 
             // Solo se escribe cuando hay algo nuevo que escribir: si la DIAN
-            // sigue sin validar, la fila se queda como está.
-            if (!result.number && !result.cufe) { stillPending++; continue; }
+            // sigue sin validar, la fila se queda como está. Un rechazo SÍ es
+            // algo nuevo aunque no traiga número.
+            if (!result.number && !result.cufe && !result.errorMessage) { stillPending++; continue; }
 
             await supabase.from('electronic_invoices').update({
                 status: result.status,
@@ -499,6 +500,9 @@ export async function reconcilePendingInvoices(
                 tax_amount: result.taxAmount ?? null,
                 total: result.total ?? null,
                 dian_response: result.raw ?? null,
+                // El rechazo de la DIAN se sube a error_message para que se vea
+                // en la UI; enterrado solo en dian_response nadie lo miraba.
+                error_message: result.errorMessage ?? null,
                 validated_at: result.validatedAt ? new Date().toISOString() : null,
                 updated_at: new Date().toISOString(),
             }).eq('id', row.id);
