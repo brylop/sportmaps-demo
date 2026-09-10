@@ -98,6 +98,15 @@ interface BillingSettings {
   // esta página nunca lo escribe — un trigger en DB lo revertiría igual.
   merchandise_enabled: boolean;
   tournament_charges_enabled: boolean;
+  /**
+   * Pausa por vacaciones/lesión (mig. 20260910080206). Opt-in: apagado, nadie
+   * puede pausar y `open_month` no cambia de comportamiento.
+   * Ver docs/specs/pausa-vacaciones-enrollments.md
+   */
+  pause_enabled: boolean;
+  pause_max_months_per_year: number;
+  /** false deja solo el botón del admin: el acudiente no puede solicitarla. */
+  pause_parent_can_request: boolean;
 }
 
 
@@ -109,6 +118,9 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   reminder_days_before: 3,
   late_fee_enabled: false,
   late_fee_percentage: 5,
+  pause_enabled: false,
+  pause_max_months_per_year: 2,
+  pause_parent_can_request: true,
   allow_coach_messaging: true,
   // Default alineado con el de la columna en DB: es el comportamiento de siempre.
   coach_can_enroll_paid_teams: true,
@@ -556,6 +568,9 @@ export default function PaymentsAutomationPage() {
         reminder_days_before: billing.reminder_days_before,
         late_fee_enabled: billing.late_fee_enabled,
         late_fee_percentage: billing.late_fee_percentage,
+        pause_enabled: billing.pause_enabled,
+        pause_max_months_per_year: billing.pause_max_months_per_year,
+        pause_parent_can_request: billing.pause_parent_can_request,
         allow_coach_messaging: billing.allow_coach_messaging,
         coach_can_enroll_paid_teams: billing.coach_can_enroll_paid_teams,
         require_payment_proof: billing.require_payment_proof,
@@ -2375,6 +2390,48 @@ export default function PaymentsAutomationPage() {
                         supera la fecha de vencimiento más los {billing.payment_grace_days} días de gracia.
                         El recargo se suma al monto a cobrar y el pago pasa a “Vencido”.
                       </p>
+                    </div>
+                  )}
+                  {/* ── Pausa por vacaciones / lesión ───────────────────── */}
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <div>
+                      <Label className="font-medium">🏖️ Permitir pausa por vacaciones</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Durante la pausa no se le generan cobros ni aparece en la lista de asistencia
+                      </p>
+                    </div>
+                    <Switch checked={billing.pause_enabled} onCheckedChange={v => updateBilling('pause_enabled', v)} />
+                  </div>
+                  {billing.pause_enabled && (
+                    <div className="space-y-3 p-3 rounded-lg border bg-muted/30">
+                      <div className="space-y-2">
+                        <Label htmlFor="pause_max">Tope de meses por año</Label>
+                        <div className="flex items-center gap-2">
+                          <NumberStepper
+                            min={0} max={12} className="w-28 h-9"
+                            value={billing.pause_max_months_per_year}
+                            onChange={v => updateBilling('pause_max_months_per_year', v === "" ? 2 : v)}
+                          />
+                          <span className="text-sm text-muted-foreground">mes(es) por atleta</span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground leading-snug">
+                          En 0 no hay tope automático. La pausa se toma por meses completos: solo se
+                          salta el cobro de los meses que cubre enteros, y los cobros pendientes de
+                          esos meses se anulan.
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-between pt-1 border-t">
+                        <div>
+                          <Label className="font-medium text-sm">El acudiente puede solicitarla</Label>
+                          <p className="text-[11px] text-muted-foreground">
+                            La solicita desde su app y la administración la aprueba. Apagado, solo la aplica la administración.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={billing.pause_parent_can_request}
+                          onCheckedChange={v => updateBilling('pause_parent_can_request', v)}
+                        />
+                      </div>
                     </div>
                   )}
                   <div className="flex items-center justify-between pt-2">

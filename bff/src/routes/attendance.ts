@@ -175,6 +175,40 @@ export function athleteKey(a: AthleteRef): string | null {
   return a.childId ?? a.userId ?? a.unregisteredId ?? null;
 }
 
+/**
+ * Inscripciones pausadas por vacaciones/lesión el día `date`, para sacarlas del
+ * roster: el pausado no le aparece al entrenador al pasar lista, y el día que
+ * vuelve reaparece.
+ *
+ * OJO — son DOS reglas distintas y esta es la OPERATIVA:
+ *   · COBRO     → granularidad de MES, vive en `open_month` vía month_from/
+ *                 month_to. Un mes que ya se saltó sigue saltado.
+ *   · OPERATIVA → granularidad de DÍA, esta. Sale de
+ *                 `v_enrollment_pauses_effective`, cuya ventana se recorta en
+ *                 `resumed_at`, así que el que vuelve de vacaciones el 12 sale
+ *                 en la lista del 12 — no del mes siguiente.
+ * Ver docs/specs/pausa-vacaciones-enrollments.md.
+ *
+ * Falla ABIERTA a propósito: si la consulta se cae, se devuelve un set vacío y
+ * el pausado aparece en la lista. Un pausado de más en el roster es una
+ * molestia; un roster vacío deja al entrenador sin poder pasar lista.
+ */
+async function pausedEnrollmentIds(schoolId: string, date: string): Promise<Set<string>> {
+  if (!schoolId) return new Set();
+  const { data, error } = await supabase
+    .from('v_enrollment_pauses_effective')
+    .select('enrollment_id')
+    .eq('school_id', schoolId)
+    .lte('effective_from', date)
+    .gt('effective_until', date);
+
+  if (error) {
+    console.error('[attendance] pausedEnrollmentIds fallo (se sigue sin filtrar):', error.message);
+    return new Set();
+  }
+  return new Set((data ?? []).map((r: any) => r.enrollment_id as string));
+}
+
 function toCreditEnrollment(row: any): CreditEnrollment {
   const plan = row?.offering_plans;
   return {
@@ -258,7 +292,13 @@ export async function findCreditEnrollment(
     .not('offering_plan_id', 'is', null)
     .order('created_at', { ascending: true });
 
-  const todas = (data || []).map(toCreditEnrollment);
+  // Una inscripción en pausa no presta su crédito: se juzga con la fecha del
+  // EVENTO, igual que el saldo más abajo, porque en una carga retroactiva
+  // importa si estaba en vacaciones el día que entrenó, no si lo está hoy.
+  const pausadas = await pausedEnrollmentIds(schoolId, day ?? todayString());
+  const vivas = (data || []).filter((r: any) => !pausadas.has(r.id));
+
+  const todas = vivas.map(toCreditEnrollment);
   if (!todas.length) return null;
   if (todas.length === 1) return todas[0];
 
@@ -1057,8 +1097,20 @@ router.get(
         enrollmentQuery = enrollmentQuery.in('offering_plan_id', offeringPlanIds);
       }
 
-      const { data: enrollments, error: enrErr } = await enrollmentQuery;
+      const { data: enrollmentsRaw, error: enrErr } = await enrollmentQuery;
       if (enrErr) throw enrErr;
+
+      // Pausados por vacaciones/lesión: fuera del roster del día. `?date=` puede
+      // apuntar a un día pasado, así que la ventana se evalúa contra ESE día, no
+      // contra hoy — abrir la lista del 20 de julio muestra quién estaba activo
+      // el 20 de julio.
+      const rosterDate = (req.query.date as string | undefined) &&
+        /^\d{4}-\d{2}-\d{2}$/.test(req.query.date as string)
+          ? (req.query.date as string)
+          : todayInZone();
+      const pausadas = await pausedEnrollmentIds(schoolId as string, rosterDate);
+      const enrollments = (enrollmentsRaw ?? []).filter((e: any) => !pausadas.has(e.id));
+      const atletasPausados = (enrollmentsRaw ?? []).length - enrollments.length;
 
       // ── Los que NO van a aparecer, y por qué ──────────────────────────────
       //
@@ -1081,7 +1133,7 @@ router.get(
       }
 
       if (!enrollments?.length)
-        return res.json({ athletes: [], bookings: [], atletas_sin_equipo: sinEquipo });
+        return res.json({ athletes: [], bookings: [], atletas_sin_equipo: sinEquipo, atletas_pausados: atletasPausados });
 
       // ── 3. Resolver nombres e info de cada tipo de atleta ─────────────────
       const childIds        = enrollments.filter((e: any) => e.child_id).map((e: any) => e.child_id);
@@ -1232,6 +1284,10 @@ router.get(
         athletes, bookings,
         context_type: contextType, context_id: contextId,
         atletas_sin_equipo: sinEquipo,
+        // Cuántos quedaron fuera por pausa de vacaciones/lesión, para que la
+        // pantalla lo diga en vez de dejar al entrenador buscando a alguien que
+        // "desapareció" de la lista.
+        atletas_pausados: atletasPausados,
       });
     } catch (err: any) {
       req.log?.error({ err: err.message || err }, 'Error cargando roster');
@@ -2488,7 +2544,7 @@ router.get('/school-roster', requireAuth, requireRole('owner', 'super_admin', 'a
       const search = ((req.query.search as string) ?? '').trim();
       if (search.length < 2) return res.json({ athletes: [] });
 
-      const { data: enrollments, error } = await supabase
+      const { data: enrollmentsRaw, error } = await supabase
         .from('enrollments')
         .select(`id, child_id, user_id, unregistered_athlete_id, expires_at, sessions_used,
           offering_plans!enrollments_offering_plan_id_fkey(name, max_sessions, price, currency)`)
@@ -2497,7 +2553,14 @@ router.get('/school-roster', requireAuth, requireRole('owner', 'super_admin', 'a
         .limit(500); // filtramos por nombre en memoria tras resolver los nombres
 
       if (error) throw error;
-      if (!enrollments?.length) return res.json({ athletes: [] });
+      if (!enrollmentsRaw?.length) return res.json({ athletes: [] });
+
+      // Un pausado por vacaciones no se puede marcar por carnet/QR: se saca de
+      // la búsqueda igual que del roster del equipo, o el entrenador lo
+      // encontraría acá y le descontaría un crédito de un plan en pausa.
+      const pausadasSR = await pausedEnrollmentIds(schoolId as string, todayInZone());
+      const enrollments = enrollmentsRaw.filter((e: any) => !pausadasSR.has(e.id));
+      if (!enrollments.length) return res.json({ athletes: [] });
 
       const childIds = enrollments.filter((e: any) => e.child_id).map((e: any) => e.child_id);
       const userIds = enrollments.filter((e: any) => e.user_id).map((e: any) => e.user_id);
