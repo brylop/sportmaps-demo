@@ -6,7 +6,7 @@ import {
     copToCents,
 } from '../services/wompi.service';
 import { reprocessOrphanWebhooks } from '../services/webhook-reprocess.service';
-import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders } from '../services/invoicing.service';
+import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders, reconcilePendingInvoices } from '../services/invoicing.service';
 import { runGlosaNotifications } from './glosa-notifications.job';
 import { sendChargeCreatedEmails, sendOverdueNoticeEmails } from './payment-lifecycle-emails.job';
 import { runNotificationDispatch } from './notifications-dispatch.job';
@@ -262,6 +262,19 @@ export function initMaintenanceJobs() {
         } catch (err: any) {
             Sentry.captureException(err);
             console.error('[CRON] Error en auto-facturación (tienda/orders):', err?.message || err);
+        }
+        // Reconciliación: los PACs que validan asíncrono (Factus V2 en
+        // producción solo acusa recibo) dejan la factura sin número ni CUFE.
+        // Sin este paso se queda así para siempre: el dueño ve "—" y el
+        // pagador no tiene nada que abrir, aunque la DIAN ya la validó.
+        try {
+            const rr = await reconcilePendingInvoices();
+            if (rr.scanned > 0) {
+                console.log(`[CRON] Reconciliación de facturas: scanned=${rr.scanned} completed=${rr.completed} stillPending=${rr.stillPending} failed=${rr.failed}`);
+            }
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en reconciliación de facturas:', err?.message || err);
         }
     });
 

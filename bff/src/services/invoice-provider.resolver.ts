@@ -15,18 +15,26 @@ export type OwnerType = 'school' | 'vendor' | 'organizer';
 /**
  * Resuelve el facturador efectivo para un dueño: is_default gana, si no el
  * primer enabled. Devuelve null si el dueño no tiene facturador configurado.
+ *
+ * `includeDisabled` es para RECONCILIAR, no para emitir: apagar el facturador
+ * detiene la emisión, pero las facturas que YA salieron siguen necesitando que
+ * se les complete número y CUFE. Sin esta opción, apagar el facturador dejaba
+ * esos documentos huérfanos para siempre.
  */
 export async function resolveInvoiceProvider(
     ownerType: OwnerType,
     ownerId: string,
+    opts?: { includeDisabled?: boolean },
 ): Promise<ProviderConfig | null> {
-    const { data, error } = await supabase
+    let query = supabase
         .from('electronic_invoice_providers')
         .select('provider, credentials, config, sandbox, is_default')
         .eq('owner_type', ownerType)
-        .eq('owner_id', ownerId)
-        .eq('enabled', true)
-        .order('is_default', { ascending: false });
+        .eq('owner_id', ownerId);
+
+    if (!opts?.includeDisabled) query = query.eq('enabled', true);
+
+    const { data, error } = await query.order('is_default', { ascending: false });
 
     if (error) {
         console.error('[invoice-provider.resolver]', error.message);
