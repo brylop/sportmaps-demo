@@ -294,10 +294,18 @@ export async function emitInvoiceForPayment(paymentId: string): Promise<EmitResu
     // alinea, no es un criterio nuevo.
     //
     // `gross_amount` es NULL en todo pago que no pasó por pasarela (efectivo,
-    // transferencia, manual: la mayoría), y verificado contra la base nunca es
-    // menor que `amount` (relación entre 1,00 y 1,05), así que el coalesce no
-    // puede bajar el monto facturado.
-    const unitPrice = Number(payment.gross_amount ?? payment.amount);
+    // transferencia, manual: la mayoría). Contra la base de hoy nunca es menor
+    // que `amount` (relación entre 1,00 y 1,05) — pero eso es una OBSERVACIÓN
+    // de los datos actuales, no un invariante que nadie sostenga: `??` solo
+    // atrapa null/undefined, así que un `gross_amount` en 0 (un bug de la
+    // pasarela, una migración, una cortesía mal registrada) emitiría el
+    // documento por CERO. Facturar por debajo de lo cobrado no se corrige: se
+    // anula con nota crédito, y Dynasty hoy no tiene rango de nota crédito en
+    // producción. Por eso el piso es explícito y no una confianza en los datos.
+    const unitPrice = Math.max(
+        Number(payment.amount) || 0,
+        Number(payment.gross_amount) || 0,
+    );
 
     const request: InvoiceRequest = {
         referenceCode: `SM-${paymentId}`,
