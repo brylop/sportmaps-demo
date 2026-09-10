@@ -11,7 +11,7 @@
  * (MissingBillingDataPanel, que sí lee Supabase directo porque las policies
  * alcanzan y no hay endpoint que agregue eso).
  *
- * DOS COSAS QUE ESTA PANTALLA TIENE QUE DECIR EN VOZ ALTA:
+ * TRES COSAS QUE ESTA PANTALLA TIENE QUE DECIR EN VOZ ALTA:
  *
  *  1. POR QUÉ SE VE EL MOTIVO DEL RECHAZO. `error_message` se guarda en
  *     `electronic_invoices` desde siempre, pero no se devolvía ni se pintaba.
@@ -26,8 +26,19 @@
  *     se factura nunca solo. `invoicingApi.emit` (pago por pago) no tenía ni un
  *     llamador en el frontend, así que no había NINGUNA vía de producto para
  *     emitir un mes cerrado. La emisión por rango es esa vía — y como cada
- *     documento quema un número de la resolución DIAN y todavía no hay notas
- *     crédito, pasa por una confirmación que dice cuántos y por cuánto.
+ *     documento quema un número de la resolución DIAN, pasa por una
+ *     confirmación que dice cuántos y por cuánto.
+ *
+ *  3. POR QUÉ LA ANULACIÓN ES UNA ACCIÓN POR FILA Y NO UN BOTÓN GLOBAL. Una
+ *     factura emitida solo se deshace con una NOTA CRÉDITO, que es otro
+ *     documento electrónico: consume un número de su propio rango y queda ante
+ *     la DIAN para siempre. Así que la acción vive en la fila de la factura
+ *     concreta —para que la confirmación pueda decir cuál se anula, por cuánto
+ *     y con qué concepto— y solo aparece donde tiene sentido: en una validada.
+ *     Una rechazada no existe ante la DIAN (no hay nada que anular) y una
+ *     'sent' todavía no se sabe. Después, la anulada se ve anulada CON el
+ *     número de la nota que la dejó sin efecto: si no, el documento desaparece
+ *     del total y nadie sabe por qué.
  */
 
 import { useMemo, useRef, useState } from 'react';
@@ -36,7 +47,7 @@ import { useToast } from '@/hooks/use-toast';
 import { formatCurrency } from '@/lib/utils';
 import {
     invoicingApi, OwnerType, InvoiceProviderRow, InvoiceRow, BackfillInvoicesResult,
-    BACKFILL_MAX_LIMIT, BACKFILL_MAX_DAYS,
+    BACKFILL_MAX_LIMIT, BACKFILL_MAX_DAYS, CREDIT_NOTE_RANGE_KEY, creditNoteRangeId,
 } from '@/lib/api/invoicing';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -65,9 +76,11 @@ import {
     CRON_WINDOW_DAYS,
 } from '@/components/accounting/MissingBillingDataPanel';
 import type { MissingBillingData, RangeSummary } from '@/components/accounting/MissingBillingDataPanel';
+import { CopyButton, CufeLine } from '@/components/accounting/InvoiceIdentifiers';
+import { VoidInvoiceDialog } from '@/components/accounting/VoidInvoiceDialog';
 import {
     FileText, Loader2, Plus, AlertCircle, RefreshCw, ExternalLink, CheckCircle2, Settings2,
-    Check, Copy, Clock, Hourglass, XCircle, Ban, Send, ShieldAlert, MapPin,
+    Clock, Hourglass, XCircle, Ban, Send, ShieldAlert, MapPin, FileMinus2, CornerUpLeft,
 } from 'lucide-react';
 
 // ─── Estados ────────────────────────────────────────────────────────────────
@@ -105,7 +118,7 @@ const STATUS_STYLES: Record<string, {
         label: 'Emitida · esperando DIAN',
         cls: 'bg-blue-600 text-white hover:bg-blue-600',
         Icon: Clock,
-        hint: 'Ya salió al proveedor y consumió número. La DIAN valida en minutos.',
+        hint: 'Ya salió al proveedor y consumió número. La DIAN valida en minutos. Todavía no se puede anular: hasta que no esté validada no se sabe qué hay que anular.',
     },
     queued: {
         label: 'En cola (nuestra)',
@@ -117,7 +130,7 @@ const STATUS_STYLES: Record<string, {
         label: 'Rechazada',
         cls: 'bg-red-600 text-white hover:bg-red-600',
         Icon: XCircle,
-        hint: 'No es un documento válido. Hay que corregir el dato y volver a emitir.',
+        hint: 'No es un documento válido. Hay que corregir el dato y volver a emitir. No se anula con nota crédito: no existe ante la DIAN, así que no hay nada que anular.',
     },
     draft: {
         label: 'Borrador',
@@ -129,7 +142,10 @@ const STATUS_STYLES: Record<string, {
         label: 'Anulada',
         cls: 'bg-muted text-muted-foreground hover:bg-muted',
         Icon: Ban,
-        hint: 'Documento anulado.',
+        // No dice «cancelada» ni «borrada» a propósito: el documento sigue
+        // existiendo ante la DIAN con su número consumido. Lo que la deja sin
+        // efecto es la nota crédito, y su número está en la sub-fila.
+        hint: 'Sin efecto por una nota crédito. El número de la factura sigue consumido ante la DIAN.',
     },
 };
 
@@ -247,70 +263,6 @@ function backfillErrorLabel(err: any): string {
     return err?.message ?? 'Error desconocido';
 }
 
-// ─── Copiar al portapapeles ─────────────────────────────────────────────────
-
-/**
- * Botón de copiar para valores largos (CUFE de 96 caracteres, reference_code).
- *
- * `navigator.clipboard` no existe en http ni en algunos WebView, y ahí la
- * promesa revienta: se avisa en vez de que el clic no haga nada y el admin
- * crea que copió el CUFE que va a pegar en el portal de la DIAN.
- */
-function CopyButton({ value, label }: { value: string; label: string }) {
-    const { toast } = useToast();
-    const [copiado, setCopiado] = useState(false);
-
-    const copiar = async () => {
-        try {
-            await navigator.clipboard.writeText(value);
-            setCopiado(true);
-            window.setTimeout(() => setCopiado(false), 1500);
-        } catch {
-            toast({
-                title: 'No se pudo copiar',
-                description: `Selecciona el ${label} y cópialo a mano.`,
-                variant: 'destructive',
-            });
-        }
-    };
-
-    return (
-        <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="h-5 w-5 shrink-0"
-            title={`Copiar ${label}`}
-            aria-label={`Copiar ${label}`}
-            onClick={copiar}
-        >
-            {copiado
-                ? <Check className="h-3 w-3 text-emerald-600" />
-                : <Copy className="h-3 w-3 text-muted-foreground" />}
-        </Button>
-    );
-}
-
-/**
- * CUFE: el identificador legal con el que la escuela consulta el documento en
- * el portal de la DIAN. Son 96 caracteres, así que se muestra truncado con
- * `title` para verlo completo y un botón para copiarlo; pintarlo entero
- * ensancharía la tabla y forzaría scroll horizontal en toda la pantalla.
- */
-function CufeLine({ cufe }: { cufe: string }) {
-    return (
-        <span className="flex items-center gap-1">
-            <span
-                className="font-mono text-[10px] text-muted-foreground truncate max-w-[9rem]"
-                title={cufe}
-            >
-                CUFE {cufe}
-            </span>
-            <CopyButton value={cufe} label="CUFE" />
-        </span>
-    );
-}
-
 export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; ownerId: string }) {
     const { toast } = useToast();
     const queryClient = useQueryClient();
@@ -330,7 +282,11 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
 
     const provider = providersQuery.data?.providers?.[0] ?? null;
     const supported = providersQuery.data?.supported ?? ['factus'];
-    const invoices = invoicesQuery.data?.invoices ?? [];
+    // Memoizada, no `?? []` suelto: ese literal es un array nuevo en cada
+    // render, así que TODOS los useMemo que dependen de él (los conteos y el
+    // índice factura ↔ nota crédito) se recalculaban siempre y la memoización
+    // era decorativa.
+    const invoices = useMemo(() => invoicesQuery.data?.invoices ?? [], [invoicesQuery.data]);
 
     // Los datos fiscales faltantes solo aplican al dueño 'school': la lista se
     // arma sobre `payments.school_id` y el formulario del admin pasa por
@@ -354,6 +310,43 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
 
     const rechazadas = useMemo(() => invoices.filter((i) => i.status === 'rejected'), [invoices]);
     const enCola = useMemo(() => invoices.filter((i) => i.status === 'queued'), [invoices]);
+    const anuladas = useMemo(
+        () => invoices.filter((i) => i.status === 'void' && i.document_type !== 'credit_note'),
+        [invoices],
+    );
+
+    /**
+     * Índice de las dos direcciones del enlace factura ↔ nota crédito.
+     *
+     * El dato vive en UN solo lado —`voided_by_invoice_id` en la factura, ver la
+     * migración 20260910092915— así que el camino inverso («esta nota crédito a
+     * qué factura anuló») se deduce recorriendo la lista una vez. Deducirlo por
+     * `payment_id` compartido sería más fácil y estaría MAL: un pago con dos
+     * intentos de facturación tiene varias filas, y eso es justamente lo que
+     * pasa cuando hay algo que anular.
+     */
+    const { notaDeFactura, facturaDeNota } = useMemo(() => {
+        const porId = new Map(invoices.map((i) => [i.id, i]));
+        const notaDeFactura = new Map<string, InvoiceRow>();
+        const facturaDeNota = new Map<string, InvoiceRow>();
+        for (const inv of invoices) {
+            const ncId = inv.voided_by_invoice_id;
+            if (!ncId) continue;
+            const nc = porId.get(ncId);
+            // La nota crédito puede no estar en esta lista (el endpoint todavía
+            // no devuelve la columna, o la fila quedó fuera del filtro): eso
+            // deja la tabla sin el cruce, no sin pintarse.
+            if (!nc) continue;
+            notaDeFactura.set(inv.id, nc);
+            facturaDeNota.set(nc.id, inv);
+        }
+        return { notaDeFactura, facturaDeNota };
+    }, [invoices]);
+
+    // La factura que el admin pidió anular. Una sola a la vez y en estado del
+    // padre: un diálogo por fila multiplicaría por 200 el formulario de una
+    // operación que se hace de a una.
+    const [aAnular, setAAnular] = useState<InvoiceRow | null>(null);
 
     // La tabla de facturas emitidas se comparte entre el layout con pestañas
     // (dueño 'school') y el de una sola sección (vendor/organizer).
@@ -392,9 +385,13 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
                                 <Alert variant="destructive">
                                     <ShieldAlert className="h-4 w-4" />
                                     <AlertDescription className="text-xs">
-                                        <strong>{rechazadas.length} factura(s) rechazada(s)</strong> por{' '}
+                                        {/* «documento(s)» y no «factura(s)»: desde que existen las
+                                            notas crédito, la tabla tiene dos tipos de documento y una
+                                            nota crédito rechazada significa que la factura que iba a
+                                            anular SIGUE vigente. */}
+                                        <strong>{rechazadas.length} documento(s) rechazado(s)</strong> por{' '}
                                         {formatCurrency(rechazadas.reduce((a, i) => a + (Number(i.total) || 0), 0))}.
-                                        Ninguna se reemite sola: el motivo de cada una está en su fila, y hay que
+                                        Ninguno se reemite solo: el motivo de cada uno está en su fila, y hay que
                                         corregir ese dato antes de volver a emitir.
                                     </AlertDescription>
                                 </Alert>
@@ -412,6 +409,24 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
                                 </Alert>
                             </div>
                         )}
+                        {/* Las anuladas se cuentan aparte y en tono neutro: no
+                            hay nada roto, pero dejaron de sumar al total
+                            facturado y su número sigue consumido. Sin este
+                            renglón, un mes que cuadraba deja de cuadrar y no hay
+                            dónde ver por qué. */}
+                        {anuladas.length > 0 && (
+                            <div className="px-6 pt-2">
+                                <Alert>
+                                    <Ban className="h-4 w-4" />
+                                    <AlertDescription className="text-xs">
+                                        <strong>{anuladas.length} factura(s) anulada(s)</strong> por{' '}
+                                        {formatCurrency(anuladas.reduce((a, i) => a + (Number(i.total) || 0), 0))}.
+                                        Ya no tienen efecto, pero <strong>siguen existiendo</strong> ante la DIAN con
+                                        su número consumido: la nota crédito que anuló a cada una está en su fila.
+                                    </AlertDescription>
+                                </Alert>
+                            </div>
+                        )}
                         <div className="overflow-x-auto">
                             <Table>
                                 <TableHeader>
@@ -425,7 +440,13 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
                                 </TableHeader>
                                 <TableBody>
                                     {invoices.map((inv) => (
-                                        <InvoiceRows key={inv.id} inv={inv} />
+                                        <InvoiceRows
+                                            key={inv.id}
+                                            inv={inv}
+                                            notaCredito={notaDeFactura.get(inv.id) ?? null}
+                                            facturaAnulada={facturaDeNota.get(inv.id) ?? null}
+                                            onAnular={() => setAAnular(inv)}
+                                        />
                                     ))}
                                 </TableBody>
                             </Table>
@@ -471,6 +492,25 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
                                 : <span className="text-sm text-muted-foreground">Deshabilitado</span>}
                             {provider.config?.numbering_range_id != null && (
                                 <span className="text-xs text-muted-foreground">Rango #{String(provider.config.numbering_range_id)}</span>
+                            )}
+                            {/* El rango de notas crédito se muestra SIEMPRE, y
+                                cuando falta se dice que falta. Es la diferencia
+                                entre poder anular una factura y no poder, y
+                                producción de Dynasty hoy no lo tiene: sin este
+                                renglón eso se descubre recién el día que hay una
+                                factura mal emitida y ya es urgente. */}
+                            {creditNoteRangeId(provider) ? (
+                                <span className="text-xs text-muted-foreground">
+                                    Notas crédito: rango #{creditNoteRangeId(provider)}
+                                </span>
+                            ) : (
+                                <span
+                                    className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400"
+                                    title="Una nota crédito se numera con su propio rango, con otro prefijo y otra resolución de la DIAN. Hay que crearlo en el portal del proveedor y anotar su id en la configuración del facturador."
+                                >
+                                    <FileMinus2 className="h-3 w-3" />
+                                    Sin rango de notas crédito: no se puede anular
+                                </span>
                             )}
                             {/* El municipio por defecto se imprime en TODA factura cuyo
                                 pagador no tenga código DANE propio. Verlo acá es lo que
@@ -523,6 +563,7 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
                                 ownerType={ownerType}
                                 ownerId={ownerId}
                                 provider={provider}
+                                anuladas={anuladas.length}
                                 missing={missingQuery.data}
                                 missingLoading={missingQuery.isLoading}
                                 missingError={missingQuery.isError}
@@ -540,7 +581,42 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
                 </Tabs>
             ) : facturasEmitidasCard}
 
+            {/* Anulación por nota crédito. Vive acá, en el padre, para que
+                después de emitirla se invaliden las mismas queries que refrescan
+                la tabla: si la factura anulada no se repinta como «Anulada», el
+                admin no tiene forma de saber si la operación —que no se puede
+                repetir— surtió efecto. */}
+            <VoidInvoiceDialog
+                invoice={aAnular}
+                provider={provider}
+                onClose={() => setAAnular(null)}
+                onCambio={() => {
+                    queryClient.invalidateQueries({ queryKey: ['einv-invoices', ownerType, ownerId] });
+                    // También el resumen de datos faltantes: cuenta como
+                    // «facturado» solo lo que tiene factura en 'accepted' o
+                    // 'sent', así que al pasar la factura a 'void' su pago
+                    // vuelve a aparecer como pendiente. Refrescarlo no lo
+                    // arregla, lo hace visible — y de eso avisa la tarjeta de
+                    // emisión por rango.
+                    queryClient.invalidateQueries({ queryKey: ['einv-missing-billing', ownerId] });
+                }}
+                onConfigurarFacturador={() => {
+                    // Un diálogo a la vez: se cierra este antes de abrir el de
+                    // configuración, o Radix deja dos overlays apilados y el de
+                    // abajo se queda sin poder cerrarse.
+                    setAAnular(null);
+                    setConfigOpen(true);
+                }}
+            />
+
             <ProviderConfigDialog
+                /* key por facturador: el formulario inicializa su estado con
+                   useState(existing?…), que corre UNA vez. El diálogo se monta
+                   mientras la query todavía carga (existing = null), así que sin
+                   este key los campos se quedaban vacíos aunque el facturador ya
+                   estuviera configurado — y guardar desde ahí sobreescribía la
+                   config buena con la mitad de los datos. */
+                key={provider?.id ?? 'nuevo'}
                 open={configOpen}
                 onOpenChange={setConfigOpen}
                 supported={supported}
@@ -566,21 +642,69 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
  * procesado anteriormente" en una celda obliga a scroll horizontal a la tabla
  * completa, y el scroll horizontal es exactamente donde un aviso se deja de
  * leer. A todo el ancho el texto envuelve y no empuja ninguna columna.
+ *
+ * La misma sub-fila lleva el cruce con la nota crédito, en las DOS direcciones:
+ * en la factura anulada, con qué nota se anuló; en la nota crédito, a qué
+ * factura anuló. Son documentos separados con numeración separada y los dos
+ * siguen en la lista —ninguno se esconde—, así que sin el cruce quedan dos
+ * filas que nadie relaciona.
  */
-function InvoiceRows({ inv }: { inv: InvoiceRow }) {
+function InvoiceRows({
+    inv, notaCredito, facturaAnulada, onAnular,
+}: {
+    inv: InvoiceRow;
+    /** Si `inv` es una factura anulada: la nota crédito que la anuló. */
+    notaCredito: InvoiceRow | null;
+    /** Si `inv` es una nota crédito: la factura que anuló. */
+    facturaAnulada: InvoiceRow | null;
+    onAnular: () => void;
+}) {
     const st = statusMeta(inv.status);
     const esRechazada = inv.status === 'rejected';
+    const esNotaCredito = inv.document_type === 'credit_note';
     // El motivo se muestra siempre que exista; y si la factura está rechazada
     // sin motivo, se dice ESO, que también es información: significa que el
     // proveedor no devolvió nada y hay que ir a buscarlo al portal.
     const motivo = inv.error_message?.trim() || null;
-    const mostrarDetalle = !!motivo || esRechazada;
+    const anulada = inv.status === 'void';
+    const mostrarDetalle = !!motivo || esRechazada || anulada || esNotaCredito;
+
+    /**
+     * Anular se ofrece SOLO sobre una factura validada por la DIAN, y esa
+     * restricción no es un detalle de UI:
+     *   · 'rejected' no existe ante la DIAN — no hay documento que dejar sin
+     *     efecto, y emitir una nota crédito contra él quemaría un número para
+     *     anular nada.
+     *   · 'sent' todavía no se sabe: Factus V2 valida asíncrono y el número y el
+     *     CUFE llegan minutos después. La nota crédito referencia la factura por
+     *     su NÚMERO, que en ese momento puede no existir.
+     *   · 'queued' nunca salió, y 'void' ya está anulada.
+     *   · una nota crédito no se anula con otra nota crédito.
+     */
+    const puedeAnular = inv.status === 'accepted' && !esNotaCredito;
 
     return (
         <>
             <TableRow className={esRechazada ? 'bg-destructive/5 border-b-0' : undefined}>
                 <TableCell className="align-top">
-                    <div className="font-mono text-sm">{inv.number ?? '—'}</div>
+                    <div className="flex items-center gap-1.5">
+                        <span className={`font-mono text-sm ${anulada ? 'line-through text-muted-foreground' : ''}`}>
+                            {inv.number ?? '—'}
+                        </span>
+                        {/* Etiqueta de tipo solo en las notas crédito: la tabla
+                            se llama «Facturas emitidas» y una nota crédito con
+                            su propio número y su propio CUFE, sin marca, se lee
+                            como una factura más. */}
+                        {esNotaCredito && (
+                            <Badge
+                                variant="outline"
+                                className="gap-1 whitespace-nowrap px-1.5 py-0 text-[10px]"
+                                title="Nota crédito: el documento que deja sin efecto una factura. Tiene su propia numeración."
+                            >
+                                <FileMinus2 className="h-3 w-3" /> Nota crédito
+                            </Badge>
+                        )}
+                    </div>
                     {inv.cufe ? <CufeLine cufe={inv.cufe} /> : null}
                 </TableCell>
                 <TableCell className="align-top">
@@ -595,31 +719,136 @@ function InvoiceRows({ inv }: { inv: InvoiceRow }) {
                     {inv.total != null ? formatCurrency(Number(inv.total)) : '—'}
                 </TableCell>
                 <TableCell className="align-top text-right">
-                    {inv.public_url ? (
-                        <Button size="sm" variant="ghost" asChild>
-                            <a href={inv.public_url} target="_blank" rel="noreferrer">
-                                <ExternalLink className="h-4 w-4 mr-1" /> Ver
-                            </a>
-                        </Button>
-                    ) : '—'}
+                    <div className="flex items-center justify-end gap-1">
+                        {inv.public_url ? (
+                            <Button size="sm" variant="ghost" asChild>
+                                <a href={inv.public_url} target="_blank" rel="noreferrer">
+                                    <ExternalLink className="h-4 w-4 mr-1" /> Ver
+                                </a>
+                            </Button>
+                        ) : null}
+                        {puedeAnular && (
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                onClick={onAnular}
+                                title="Emitir la nota crédito que deja esta factura sin efecto"
+                            >
+                                <Ban className="h-4 w-4 mr-1" /> Anular
+                            </Button>
+                        )}
+                        {!inv.public_url && !puedeAnular && <span className="text-muted-foreground">—</span>}
+                    </div>
                 </TableCell>
             </TableRow>
 
             {mostrarDetalle && (
                 <TableRow className={esRechazada ? 'bg-destructive/5 hover:bg-destructive/5' : 'hover:bg-transparent'}>
                     <TableCell colSpan={5} className="pt-0 pb-3">
-                        <div className="space-y-1">
-                            <div className="flex items-start gap-2">
-                                <AlertCircle
-                                    className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${esRechazada ? 'text-destructive' : 'text-muted-foreground'}`}
-                                />
-                                <p className={`text-xs leading-relaxed break-words ${esRechazada ? 'text-destructive' : 'text-muted-foreground'}`}>
-                                    <span className="font-semibold">
-                                        {esRechazada ? 'Motivo del rechazo: ' : 'Aviso del proveedor: '}
-                                    </span>
-                                    {motivo ?? 'el proveedor no devolvió motivo. Búscala en el portal del PAC por su código de referencia.'}
-                                </p>
-                            </div>
+                        <div className="space-y-1.5">
+                            {/* El bloque del motivo se pinta solo si hay algo que
+                                decir del PAC. Antes se pintaba siempre que la
+                                sub-fila existiera, y ahora la sub-fila también
+                                aparece por la anulación: sin esta condición, una
+                                factura anulada limpiamente mostraría «el
+                                proveedor no devolvió motivo» como si algo hubiera
+                                fallado. */}
+                            {(motivo || esRechazada) && (
+                                <div className="flex items-start gap-2">
+                                    <AlertCircle
+                                        className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${esRechazada ? 'text-destructive' : 'text-muted-foreground'}`}
+                                    />
+                                    <p className={`text-xs leading-relaxed break-words ${esRechazada ? 'text-destructive' : 'text-muted-foreground'}`}>
+                                        <span className="font-semibold">
+                                            {esRechazada ? 'Motivo del rechazo: ' : 'Aviso del proveedor: '}
+                                        </span>
+                                        {motivo ?? 'el proveedor no devolvió motivo. Búscala en el portal del PAC por su código de referencia.'}
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Factura anulada → CON QUÉ nota crédito.
+                                Los cuatro casos se distinguen a propósito, y la
+                                diferencia entre «null» y «no vino el campo» no es
+                                pedantería: si el endpoint todavía no devuelve la
+                                columna, afirmar «no hay nota crédito» convertiría
+                                una anulación real en un descarte local a los ojos
+                                del contador. Cuando no sabemos, no se afirma. */}
+                            {anulada && (
+                                <div className="flex items-start gap-2">
+                                    <Ban className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+                                    <p className="text-xs leading-relaxed break-words text-muted-foreground">
+                                        <span className="font-semibold">
+                                            Anulada
+                                            {inv.voided_at
+                                                ? ` el ${new Date(inv.voided_at).toLocaleDateString('es-CO')}`
+                                                : ''}
+                                            {': '}
+                                        </span>
+                                        {notaCredito ? (
+                                            <>
+                                                la deja sin efecto la nota crédito{' '}
+                                                <span className="font-mono">{notaCredito.number ?? '(sin número todavía)'}</span>
+                                                {notaCredito.public_url ? (
+                                                    <>
+                                                        {' · '}
+                                                        <a
+                                                            href={notaCredito.public_url}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="underline underline-offset-2"
+                                                        >
+                                                            ver la nota crédito
+                                                        </a>
+                                                    </>
+                                                ) : null}
+                                            </>
+                                        ) : inv.voided_by_invoice_id ? (
+                                            'la nota crédito que la anuló no está en esta lista. Búscala en el portal del proveedor.'
+                                        ) : inv.voided_by_invoice_id === null ? (
+                                            'sin nota crédito. Es un descarte local: la factura nunca llegó a la DIAN, así que no había documento que anular ante ella.'
+                                        ) : (
+                                            'la nota crédito que la anuló no viene en esta lista todavía.'
+                                        )}
+                                        {inv.void_reason?.trim() ? (
+                                            <>
+                                                <br />
+                                                <span className="font-semibold">Motivo: </span>
+                                                {inv.void_reason.trim()}
+                                            </>
+                                        ) : null}
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Nota crédito → A QUÉ factura anuló. El camino
+                                inverso importa igual: una nota crédito suelta en
+                                la lista, con su número y su monto, se lee como
+                                una factura negativa que nadie sabe de dónde
+                                salió. */}
+                            {esNotaCredito && (
+                                <div className="flex items-start gap-2">
+                                    <CornerUpLeft className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+                                    <p className="text-xs leading-relaxed break-words text-muted-foreground">
+                                        <span className="font-semibold">Nota crédito: </span>
+                                        {facturaAnulada ? (
+                                            <>
+                                                deja sin efecto la factura{' '}
+                                                <span className="font-mono">{facturaAnulada.number ?? '(sin número)'}</span>
+                                                {facturaAnulada.total != null
+                                                    ? ` por ${formatCurrency(Number(facturaAnulada.total))}`
+                                                    : ''}
+                                                .
+                                            </>
+                                        ) : (
+                                            'no se pudo identificar en esta lista a qué factura corresponde. El documento que anula figura en el portal del proveedor.'
+                                        )}
+                                        {' '}Consumió un número del rango de notas crédito, que tampoco se recupera.
+                                    </p>
+                                </div>
+                            )}
+
                             {inv.reference_code ? (
                                 <div className="flex items-center gap-1 pl-[1.375rem]">
                                     <span className="font-mono text-[10px] text-muted-foreground">
@@ -639,11 +868,13 @@ function InvoiceRows({ inv }: { inv: InvoiceRow }) {
 // ─── Emisión por rango (backfill) ───────────────────────────────────────────
 
 function BackfillCard({
-    ownerType, ownerId, provider, missing, missingLoading, missingError, onEmitted,
+    ownerType, ownerId, provider, anuladas, missing, missingLoading, missingError, onEmitted,
 }: {
     ownerType: OwnerType;
     ownerId: string;
     provider: InvoiceProviderRow | null;
+    /** Cuántas facturas de esta entidad están anuladas. Ver el aviso del resumen. */
+    anuladas: number;
     missing: MissingBillingData | undefined;
     missingLoading: boolean;
     missingError: boolean;
@@ -766,9 +997,19 @@ function BackfillCard({
                     <Alert variant="destructive">
                         <ShieldAlert className="h-4 w-4" />
                         <AlertDescription className="text-xs">
+                            {/* Esta advertencia decía «todavía no hay notas crédito
+                                en la app». Ya hay — pero eso NO vuelve la emisión
+                                reversible: anular gasta un segundo número, en otro
+                                rango. Y si el rango de notas crédito no está
+                                configurado, sigue sin haber vuelta atrás. */}
                             Facturador en <strong>producción</strong>: cada documento consume un número de tu
-                            resolución DIAN y <strong>no se puede deshacer</strong> (todavía no hay notas
-                            crédito en la app). Revisa el rango antes de emitir.
+                            resolución DIAN.{' '}
+                            {creditNoteRangeId(provider)
+                                ? <>Deshacer una factura exige emitir una <strong>nota crédito</strong>, que gasta
+                                    otro número de otro rango: corregir cuesta dos documentos, no cero.</>
+                                : <><strong>No se puede deshacer:</strong> tu facturador no tiene rango de notas
+                                    crédito, así que desde la app no hay forma de anular una factura mal emitida.</>}
+                            {' '}Revisa el rango antes de emitir.
                         </AlertDescription>
                     </Alert>
                 ) : (
@@ -886,6 +1127,23 @@ function BackfillCard({
                                 && resumen.missingMunicipality === 0 && (
                                 <li>No hay pagos cobrados sin factura en este rango.</li>
                             )}
+                            {/* Una factura anulada devuelve su pago a esta cuenta:
+                                el resumen considera «facturado» solo lo que tiene
+                                factura en 'accepted' o 'sent'. Y volver a emitir
+                                ese pago NO es emitirlo por primera vez — nuestro
+                                código de referencia es el mismo documento para el
+                                proveedor. Sin este renglón, el pago de la factura
+                                que se acaba de anular se cuela en la próxima
+                                corrida del rango sin que nadie lo haya pedido. */}
+                            {anuladas > 0 && (
+                                <li>
+                                    Ojo: hay <strong>{anuladas}</strong> factura(s) anulada(s). El pago de una
+                                    factura anulada vuelve a contarse acá como «por emitir», pero reemitirlo no es
+                                    lo mismo que emitirlo por primera vez: para el proveedor es el mismo documento
+                                    y puede devolver el que ya existe. Si anulaste para corregir, revisa con tu
+                                    contador antes de emitir el rango completo.
+                                </li>
+                            )}
                         </ul>
                     </div>
                 )}
@@ -900,10 +1158,11 @@ function BackfillCard({
                 {resultado && <BackfillResultado r={resultado} />}
             </CardContent>
 
-            {/* Confirmación explícita. Emitir es irreversible: cada documento
-                quema un número de la resolución DIAN y no hay notas crédito
-                todavía. El diálogo dice cuántos, por cuánto y en qué rango, y
-                el botón no se habilita hasta que se marque la casilla. */}
+            {/* Confirmación explícita. Emitir sigue siendo irreversible aunque ya
+                existan las notas crédito: cada documento quema un número de la
+                resolución DIAN, y deshacerlo quema otro en el rango de notas
+                crédito. El diálogo dice cuántos, por cuánto y en qué rango, y el
+                botón no se habilita hasta que se marque la casilla. */}
             <AlertDialog open={confirmOpen} onOpenChange={(v) => { setConfirmOpen(v); if (!v) setEntendido(false); }}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
@@ -924,10 +1183,24 @@ function BackfillCard({
                                 Cada documento consume un número de tu resolución DIAN y{' '}
                                 <strong>ese número no se recupera</strong>.
                             </li>
-                            <li>
-                                <strong>No hay notas crédito en la app todavía:</strong> una factura mal emitida
-                                se corrige por fuera, con tu contador.
-                            </li>
+                            {/* La copia vieja («no hay notas crédito en la app»)
+                                dejó de ser cierta, pero la conclusión no cambia
+                                tanto: anular no devuelve el número, gasta uno más.
+                                Y sin rango de notas crédito configurado —el caso de
+                                producción de Dynasty hoy— sigue sin haber ninguna
+                                vía de deshacer desde la app. */}
+                            {creditNoteRangeId(provider) ? (
+                                <li>
+                                    Una factura mal emitida <strong>no se borra</strong>: se anula con una nota
+                                    crédito desde la lista de abajo, y esa nota consume otro número de tu rango de
+                                    notas crédito.
+                                </li>
+                            ) : (
+                                <li>
+                                    <strong>Tu facturador no tiene rango de notas crédito:</strong> una factura mal
+                                    emitida no se puede anular desde la app; se corrige por fuera, con tu contador.
+                                </li>
+                            )}
                             {resumen.readyWithMunicipalityFallback > 0 && (
                                 <li className="text-amber-700 dark:text-amber-400">
                                     {resumen.readyWithMunicipalityFallback} saldrán con el municipio de la escuela
@@ -1105,6 +1378,16 @@ function ProviderConfigDialog({
     const [numberingRangeId, setNumberingRangeId] = useState(
         existing?.config?.numbering_range_id != null ? String(existing.config.numbering_range_id) : '',
     );
+    // Rango de NOTA CRÉDITO: otro rango, otro prefijo, otra resolución de la
+    // DIAN. Se pide acá porque es el único dato que separa «se puede anular una
+    // factura» de «no se puede», y hoy producción de Dynasty no lo tiene: sin
+    // un campo donde anotarlo, el id que alguien cree en el portal del PAC no
+    // tiene forma de llegar a la app.
+    const [creditNoteRange, setCreditNoteRange] = useState(
+        existing?.config?.[CREDIT_NOTE_RANGE_KEY] != null
+            ? String(existing.config[CREDIT_NOTE_RANGE_KEY])
+            : '',
+    );
     const [municipalityId, setMunicipalityId] = useState(
         existing?.config?.default_municipality_id != null ? String(existing.config.default_municipality_id) : '',
     );
@@ -1132,6 +1415,12 @@ function ProviderConfigDialog({
                 },
                 config: {
                     numbering_range_id: Number(numberingRangeId),
+                    // Se omite la clave si el campo está vacío en vez de mandar
+                    // '' o 0: el BFF descarta lo que no sean dígitos, y un valor
+                    // basura ahí sería peor que la ausencia — el PAC caería a su
+                    // rango por defecto, que es el de FACTURAS, y gastaría un
+                    // número de esa resolución en una nota crédito.
+                    ...(creditNoteRange.trim() ? { [CREDIT_NOTE_RANGE_KEY]: Number(creditNoteRange) } : {}),
                     // STRING, no Number: `Number('05001')` da 5001 y al guardarlo
                     // se pierde el cero inicial del código DANE para siempre. Es
                     // el municipio que se imprime en toda factura cuyo pagador no
@@ -1201,9 +1490,26 @@ function ProviderConfigDialog({
 
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
-                            <Label>Rango de numeración</Label>
+                            <Label>Rango de numeración (facturas)</Label>
                             <Input type="number" value={numberingRangeId} onChange={(e) => setNumberingRangeId(e.target.value)} placeholder="Ej. 8" />
                         </div>
+                        <div className="grid gap-2">
+                            <Label>Rango de notas crédito</Label>
+                            <Input
+                                type="number"
+                                value={creditNoteRange}
+                                onChange={(e) => setCreditNoteRange(e.target.value)}
+                                placeholder="Ej. 5225"
+                            />
+                            <p className="text-[10px] text-muted-foreground">
+                                Es un rango <strong>distinto</strong> del de facturas, con su propio prefijo y su
+                                propia resolución. Créalo en el portal de tu proveedor y pega su id acá.{' '}
+                                <strong>Sin esto no se puede anular ninguna factura.</strong>
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
                             <Label>Municipio por defecto</Label>
                             {/* type="text", no "number": el código DANE es una

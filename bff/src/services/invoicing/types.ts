@@ -67,6 +67,79 @@ export interface InvoiceRequest {
     paymentMethod?: string | null;
 }
 
+// ─── Nota crédito (el único camino para deshacer una factura) ─────────────────
+
+/**
+ * Concepto de corrección de la DIAN. Catálogo oficial completo, verificado en
+ * developers.factus.com.co/notas-credito (consultado 2026-09-10):
+ *
+ *   1  Devolución parcial de los bienes y/o no aceptación parcial del servicio
+ *   2  Anulación de factura electrónica          ← el que anula
+ *   3  Rebaja o descuento parcial o total
+ *   4  Ajuste de precio
+ *   5  Descuento comercial por pronto pago
+ *   6  Descuento comercial por volumen de ventas
+ *
+ * Va como STRING porque el API lo declara string, y el catálogo se escribe
+ * COMPLETO acá aunque hoy sólo se use el 2: el día que alguien necesite un
+ * ajuste de precio, el código válido tiene que estar a la vista y no en el
+ * historial de un chat.
+ */
+export type CorrectionConceptCode = '1' | '2' | '3' | '4' | '5' | '6';
+
+export const CORRECTION_CONCEPTS: Record<CorrectionConceptCode, string> = {
+    '1': 'Devolución parcial de los bienes y/o no aceptación parcial del servicio',
+    '2': 'Anulación de factura electrónica',
+    '3': 'Rebaja o descuento parcial o total',
+    '4': 'Ajuste de precio',
+    '5': 'Descuento comercial por pronto pago',
+    '6': 'Descuento comercial por volumen de ventas',
+};
+
+/** Anulación total: el concepto que usa `voidInvoice` salvo que le pidan otro. */
+export const CORRECTION_CONCEPT_ANULACION: CorrectionConceptCode = '2';
+
+export function isCorrectionConceptCode(v: unknown): v is CorrectionConceptCode {
+    return Object.prototype.hasOwnProperty.call(CORRECTION_CONCEPTS, String(v));
+}
+
+/**
+ * Nota crédito canónica. Es una FACTURA AL REVÉS y comparte casi todo con
+ * InvoiceRequest, pero tiene dos campos propios que no existen en una factura
+ * y que son lo que la ata al documento que anula.
+ *
+ * `customer` SÍ ESTÁ ACÁ, y esto es una corrección sobre el diseño original,
+ * no el diseño original: la doc de campos de V2 dice que el objeto `customer`
+ * es OPCIONAL en la nota crédito y que, si no viaja, el API toma los datos del
+ * adquirente de la factura referenciada. **Verificado contra el sandbox real
+ * de Dynasty: es falso.** Omitir `customer` responde 422 con
+ * `"El campo customer es obligatorio"` — el PAC no copia nada. Así que se
+ * manda siempre, con el MISMO snapshot que se guardó al emitir la factura
+ * original (`electronic_invoices.customer_snapshot`), no reconstruido desde
+ * `profiles` hoy: `profiles` se edita (una cédula corregida, un nombre
+ * completado), y una nota crédito a nombre de un adquirente DISTINTO del que
+ * figura en la factura no empareja ante la DIAN.
+ */
+export const CREDIT_NOTE_OBSERVATION_MAX = 500;
+
+export interface CreditNoteRequest {
+    referenceCode: string;            // idempotencia (generado por nosotros)
+    /**
+     * NÚMERO de la factura que se anula ('DYTY1', 'SETP990000001'), NO un id
+     * interno nuestro ni el uuid de la fila. Obligatorio salvo que
+     * customization_id sea 22 (nota crédito sin referencia), que no usamos.
+     */
+    billNumber: string;
+    correctionConceptCode: CorrectionConceptCode;
+    /** El adquirente de la FACTURA ORIGINAL. Ver el comentario de arriba: es obligatorio, el PAC no lo copia solo. */
+    customer: InvoiceCustomer;
+    items: InvoiceLine[];
+    /** Máx. CREDIT_NOTE_OBSERVATION_MAX caracteres; el adaptador lo recorta. */
+    observation?: string;
+    /** Mismo medio de pago crudo de SportMaps que en InvoiceRequest. */
+    paymentMethod?: string | null;
+}
+
 /** Resultado normalizado de cualquier PAC. raw → electronic_invoices.dian_response. */
 export interface InvoiceResult {
     status: 'accepted' | 'rejected' | 'sent';
@@ -93,6 +166,12 @@ export interface InvoiceResult {
  *
  * Claves de `config` que entiende el flujo (todas opcionales salvo la primera):
  *   numbering_range_id            rango de numeración del PAC (sin él no se emite)
+ *   credit_note_numbering_range_id  rango de NOTA CRÉDITO. Es OTRO rango, con
+ *                                 otro prefijo y otra resolución DIAN (en el
+ *                                 sandbox de Dynasty: 5224/SETP para facturas,
+ *                                 5225/NC para notas crédito). Ver
+ *                                 `creditNoteNumberingRangeId`: sin esta clave
+ *                                 NO se emite nota crédito.
  *   default_municipality_id       municipio del EMISOR. Se lee como STRING, ver
  *                                 `defaultMunicipalityCode`. OJO: el significado
  *                                 depende de la versión del API — en V2 es el
@@ -126,6 +205,58 @@ export interface InvoicingAdapter {
      * Opcional: un PAC síncrono (Factus V1) no la necesita.
      */
     fetchByReference?(referenceCode: string, cfg: ProviderConfig): Promise<InvoiceResult | null>;
+    /**
+     * Emite la nota crédito que anula (o corrige) una factura ya emitida.
+     *
+     * OPCIONAL porque no todo adaptador la implementa: Factus V1 no la tiene
+     * escrita y su única cuenta es la Escuela Demo en sandbox. Un dueño con un
+     * PAC sin este método tiene que enterarse con un motivo claro
+     * ('credit_note_not_supported:<provider>') y no con un
+     * `adapter.emitCreditNote is not a function` a mitad del handler.
+     */
+    emitCreditNote?(req: CreditNoteRequest, cfg: ProviderConfig): Promise<InvoiceResult>;
+    /**
+     * `fetchByReference` para NOTAS CRÉDITO. Va aparte y no como un parámetro
+     * de la otra porque en el PAC son DOS colecciones distintas: la nota
+     * crédito no aparece en /v2/bills y preguntar por ella ahí devuelve «no
+     * existe», que es indistinguible de «todavía no validó».
+     *
+     * Sin esto, en PRODUCCIÓN la nota crédito se queda sin número para siempre:
+     * Factus V2 responde a la emisión solo con un acuse, así que la fila nace
+     * en 'sent' con todo en null y la única forma de completarla es volver a
+     * preguntar por reference_code. Una anulación sin número es una anulación
+     * que no se puede demostrar.
+     */
+    fetchCreditNoteByReference?(referenceCode: string, cfg: ProviderConfig): Promise<InvoiceResult | null>;
+}
+
+/**
+ * Rango de numeración de NOTA CRÉDITO del dueño. null = no configurado.
+ *
+ * Se exige SIEMPRE, aunque el API lo declare opcional «si la empresa tiene un
+ * solo rango activo», y eso es deliberado: desde acá no hay forma de saber
+ * cuántos rangos tiene activos la empresa, y el modo de fallar al adivinar es
+ * el peor posible. PRODUCCIÓN de Dynasty tiene UN solo rango activo y es el de
+ * FACTURAS (2697, prefijo DYTY): omitir la clave ahí no haría que el PAC
+ * eligiera «el rango de notas crédito», haría que gastara un número de la
+ * resolución de FACTURAS en una nota crédito. Un número de resolución quemado
+ * no se recupera.
+ *
+ * Así que si falta, no se emite y el motivo dice qué hacer: crear el rango de
+ * nota crédito en el portal del PAC y anotar su id acá. Eso NO lo arregla el
+ * código.
+ */
+export function creditNoteNumberingRangeId(cfg: ProviderConfig): number | string | null {
+    const raw = cfg.config?.credit_note_numbering_range_id;
+    if (raw == null) return null;
+    // El id viaja como número en la fila de Dynasty y como string si alguien lo
+    // escribe a mano en el formulario; los dos son válidos para el PAC. Lo que
+    // NO vale es una cadena vacía, que es lo que deja un input dejado en blanco
+    // y que el PAC descartaría en silencio cayendo otra vez al rango por
+    // defecto (= el de facturas).
+    const s = String(raw).trim();
+    if (!s || !/^\d+$/.test(s)) return null;
+    return typeof raw === 'number' ? raw : s;
 }
 
 // ─── Municipio (código DANE) ──────────────────────────────────────────────────

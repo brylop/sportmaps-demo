@@ -42,7 +42,7 @@ const estado = vi.hoisted(() => ({
     /** token → usuario, para el `auth.getUser` del requireAuth REAL. */
     tokens: {} as Record<string, { id: string; email: string }>,
     /** Efectos que NO deben ocurrir cuando la autorización dice no. */
-    llamadas: { emit: [] as string[], backfill: [] as any[], deletes: [] as string[] },
+    llamadas: { emit: [] as string[], backfill: [] as any[], deletes: [] as string[], void: [] as any[] },
 }));
 
 // ─── Supabase moqueado ───────────────────────────────────────────────────────
@@ -101,6 +101,15 @@ vi.mock('../services/invoicing.service', () => ({
         estado.llamadas.backfill.push(args);
         return { emitted: 0, skipped: 0, failed: 0 };
     },
+    // El resultado de voidInvoice en sí (bill_number, discarded vs credit_note,
+    // el corte por rango faltante…) se prueba con la lógica REAL en
+    // invoicing.voidInvoice.test.ts. Acá lo único que importa es SI la ruta lo
+    // llamó — la autorización y la correlación con el dueño de la FILA, que es
+    // lo que este archivo vigila.
+    voidInvoice: async (args: any) => {
+        estado.llamadas.void.push(args);
+        return { ok: true, mode: 'credit_note', invoiceStatus: 'void', creditNote: { id: 'nc-1', number: 'NC-1', cufe: 'c', publicUrl: null } };
+    },
 }));
 
 vi.mock('../services/invoicing', () => ({
@@ -147,6 +156,13 @@ const ADMIN_GLOBAL_FALSO = 'u0000000-0000-4000-8000-000000000012';
 const VENDOR_PROFILE = 'v0000000-0000-4000-8000-000000000001';
 const PAGO = 'p0000000-0000-4000-8000-000000000001';
 const PROVEEDOR_ID = 'f0000000-0000-4000-8000-000000000001';
+/**
+ * UUID de VERDAD (solo hex 0-9a-f): la ruta valida `z.string().uuid()` antes
+ * de tocar la base, y el resto de los ids de este archivo ('u0000000…',
+ * 'e0000000…') no lo son —'u' no es hexadecimal— pero ninguna otra ruta valida
+ * el formato del id, así que nunca hizo falta que lo fueran.
+ */
+const FACTURA_ANULABLE = 'a0000000-0000-4000-8000-000000000001';
 
 let server: http.Server;
 let baseUrl: string;
@@ -186,11 +202,12 @@ beforeEach(async () => {
         payments: [{ id: PAGO, school_id: ESCUELA, status: 'paid', parent_id: PADRE_PAGADOR }],
         electronic_invoices: [
             { id: 'inv-1', owner_type: 'school', owner_id: ESCUELA, payment_id: PAGO, number: 'SETP-1', status: 'sent' },
+            { id: FACTURA_ANULABLE, owner_type: 'school', owner_id: ESCUELA, document_type: 'invoice', payment_id: PAGO, number: 'SETP-2', status: 'accepted' },
         ],
     };
     estado.usuarioRouter = { id: DUENO, email: 'quien@test.co' };
     estado.tokens = {};
-    estado.llamadas = { emit: [], backfill: [], deletes: [] };
+    estado.llamadas = { emit: [], backfill: [], deletes: [], void: [] };
 
     const app = express();
     app.use(express.json());
@@ -433,6 +450,69 @@ describe('POST /backfill — el barrido no es una puerta trasera', () => {
         const { status } = await como(DUENO, `/api/v1/invoicing/backfill/school/${ESCUELA}`, cuerpo);
         expect(status).toBe(200);
         expect(estado.llamadas.backfill).toHaveLength(1);
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('POST /credit-note/:invoiceId — el dueño se lee de la FILA, no de la URL', () => {
+    const cuerpo = { method: 'POST', body: JSON.stringify({ correctionConceptCode: '2', reason: 'prueba' }) };
+
+    // Es el catcher central de este bloque: un invoiceId no implica de quién es
+    // la factura, y confiar en que sí lo implica es exactamente cómo se llega
+    // al facturador de otra escuela (el mismo vector que ADMIN_DE_OTRA prueba
+    // en /emit y /backfill, acá contra el camino MÁS sensible: uno que quema
+    // numeración de nota crédito).
+    it('un admin de otra escuela no anula una factura que no es suya', async () => {
+        const { status } = await como(ADMIN_DE_OTRA, `/api/v1/invoicing/credit-note/${FACTURA_ANULABLE}`, cuerpo);
+        expect(status).toBe(403);
+        expect(estado.llamadas.void).toEqual([]);
+    });
+
+    it('un padre (pagador de la factura) tampoco puede anularla: pagar no es administrar finanzas', async () => {
+        const { status } = await como(PADRE_PAGADOR, `/api/v1/invoicing/credit-note/${FACTURA_ANULABLE}`, cuerpo);
+        expect(status).toBe(403);
+        expect(estado.llamadas.void).toEqual([]);
+    });
+
+    it('un id que no es uuid se rechaza ANTES de tocar la base (400, no 500 de Postgres)', async () => {
+        const { status, body } = await como(DUENO, '/api/v1/invoicing/credit-note/no-es-un-uuid', cuerpo);
+        expect(status).toBe(400);
+        expect(body.error).toBe('invalid_invoice_id');
+        expect(estado.llamadas.void).toEqual([]);
+    });
+
+    it('una factura que no existe responde 404 y no llama al servicio', async () => {
+        const idInexistente = 'a0000000-0000-4000-8000-000000000099';
+        const { status, body } = await como(DUENO, `/api/v1/invoicing/credit-note/${idInexistente}`, cuerpo);
+        expect(status).toBe(404);
+        expect(body.error).toBe('invoice_not_found');
+        expect(estado.llamadas.void).toEqual([]);
+    });
+
+    it('un concepto de corrección fuera del catálogo DIAN (1-6) se rechaza con 400', async () => {
+        const malo = { method: 'POST', body: JSON.stringify({ correctionConceptCode: '9' }) };
+        const { status, body } = await como(DUENO, `/api/v1/invoicing/credit-note/${FACTURA_ANULABLE}`, malo);
+        expect(status).toBe(400);
+        expect(body.error).toBe('invalid_body');
+        expect(estado.llamadas.void).toEqual([]);
+    });
+
+    it('el dueño sí anula (si esto no pasara, los 403 de arriba serían vacuos)', async () => {
+        const { status, body } = await como(DUENO, `/api/v1/invoicing/credit-note/${FACTURA_ANULABLE}`, cuerpo);
+        expect(status).toBe(200);
+        expect(body.ok).toBe(true);
+        expect(estado.llamadas.void).toHaveLength(1);
+        expect(estado.llamadas.void[0]).toMatchObject({
+            invoiceId: FACTURA_ANULABLE,
+            correctionConceptCode: '2',
+            actorId: DUENO,
+        });
+    });
+
+    it('un admin activo de ESTA escuela también puede (no es exclusivo del dueño)', async () => {
+        const { status } = await como(ADMIN_DE_ESTA, `/api/v1/invoicing/credit-note/${FACTURA_ANULABLE}`, cuerpo);
+        expect(status).toBe(200);
+        expect(estado.llamadas.void).toHaveLength(1);
     });
 });
 

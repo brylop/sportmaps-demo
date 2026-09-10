@@ -12,6 +12,18 @@
  * public_url, document.code, taxable_amount, tax_amount, total, validated }.
  * Nota: `price` del item es IVA-incluido → Factus back-calcula base + IVA.
  *
+ * NO implementa `emitCreditNote`, y es una decisión, no un olvido: `payload` de
+ * V1 usa otro espacio de nombres para TODO (identification_document_id,
+ * tribute_id, municipality_id, unit_measure_id, is_excluded como 1/0), así que
+ * la nota crédito de V1 no es el payload de V2 con otra URL — hay que escribirla
+ * y verificarla contra un sandbox V1 al que hoy no le entra ni el token (las
+ * credenciales de la Escuela Demo devuelven «Client authentication failed»).
+ * Escribirla a ciegas sería peor que no tenerla: el único modo de fallar de una
+ * nota crédito mal armada es consumir un número de la resolución DIAN sin anular
+ * nada. Mientras no exista, el servicio corta con
+ * 'credit_note_not_supported:factus' y lo dice; la única cuenta afectada es la
+ * Escuela Demo en sandbox.
+ *
  * LIMITACIÓN CONOCIDA DE V1 — el municipio del cliente NO puede viajar acá.
  * V1 espera `municipality_id`, que es el id INTERNO del catálogo de Factus (el
  * de la escuela demo es 169 = Bogotá) y se obtenía consumiendo un endpoint de

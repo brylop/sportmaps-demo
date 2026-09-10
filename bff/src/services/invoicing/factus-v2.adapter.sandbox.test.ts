@@ -25,13 +25,15 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { factusV2Adapter } from './factus-v2.adapter';
-import type { InvoiceRequest, ProviderConfig } from './types';
+import type { CreditNoteRequest, InvoiceRequest, ProviderConfig } from './types';
 
 const HABILITADA = process.env.FACTUS_SANDBOX_TEST === '1';
 
 const SANDBOX_URL = 'https://api-sandbox.factus.com.co';
 /** Rango "Factura de Venta" del sandbox de Dynasty (prefijo SETP). */
 const RANGO_FACTURA_SANDBOX = 5224;
+/** Rango "Nota Crédito" del sandbox de Dynasty (prefijo NC). Verificado por API: en PRODUCCIÓN este rango NO existe todavía. */
+const RANGO_NOTA_CREDITO_SANDBOX = 5225;
 /** client_id de PRODUCCIÓN. Si aparece, se aborta: emitiría contra la resolución DIAN real. */
 const CLIENT_ID_PRODUCCION_PREFIJO = 'a2b28e28';
 
@@ -47,6 +49,7 @@ const cfg: ProviderConfig = {
     },
     config: {
         numbering_range_id: RANGO_FACTURA_SANDBOX,
+        credit_note_numbering_range_id: RANGO_NOTA_CREDITO_SANDBOX,
         // A propósito Bogotá, distinto del municipio del cliente (Medellín):
         // así se distingue si la factura viajó con el municipio DEL CLIENTE o
         // si cayó al del emisor, que era justo el bug.
@@ -79,6 +82,20 @@ async function token(): Promise<string> {
 async function leerFactura(numero: string): Promise<any> {
     const t = await token();
     const res = await fetch(`${SANDBOX_URL}/v2/bills/${encodeURIComponent(numero)}`, {
+        headers: { Authorization: `Bearer ${t}`, Accept: 'application/json' },
+    });
+    const json = (await res.json()) as any;
+    return json?.data;
+}
+
+/**
+ * Lo mismo para una NOTA CRÉDITO. Es OTRA colección (/v2/credit-notes), no un
+ * filtro de /v2/bills: mismo motivo que fetchCreditNoteByReference en el
+ * adaptador.
+ */
+async function leerNotaCredito(numero: string): Promise<any> {
+    const t = await token();
+    const res = await fetch(`${SANDBOX_URL}/v2/credit-notes/${encodeURIComponent(numero)}`, {
         headers: { Authorization: `Bearer ${t}`, Accept: 'application/json' },
     });
     const json = (await res.json()) as any;
@@ -260,4 +277,130 @@ describe.skipIf(!HABILITADA)('factus_v2 adapter contra el sandbox real', () => {
         const encontrada = await factusV2Adapter.fetchByReference!(referencia, cfg);
         expect(encontrada?.number).toBe(emitida.number);
     }, 180_000);
+
+    it('emitCreditNote anula una factura real: el PAC guarda la referencia a bill_number y el concepto', async () => {
+        // El mismo cliente que la factura que se va a anular: la nota crédito
+        // tiene que emparejar con el adquirente ORIGINAL (ver el comentario de
+        // CreditNoteRequest en types.ts — es lo que se guarda como
+        // customer_snapshot y se reutiliza en producción, nunca uno reconstruido).
+        const clienteFactura: InvoiceRequest['customer'] = {
+            documentType: 'CC',
+            identification: '1020304050',
+            name: 'Familia De Prueba Sandbox',
+            email: 'prueba.sandbox@sportmaps.co',
+            address: 'Calle 10 # 43-30',
+            municipalityCode: '05001',
+        };
+
+        // 1. Se emite una factura de verdad, para tener un número real que anular.
+        const facturaOriginal = await factusV2Adapter.emit({
+            referenceCode: ref('NC-ORIGEN'),
+            documentType: 'invoice',
+            customer: clienteFactura,
+            items: [{
+                codeReference: 'MENS-2026-09',
+                name: 'Mensualidad septiembre 2026 (para anular)',
+                quantity: 1,
+                unitPrice: 150000,
+                taxRate: 0,
+                isExcluded: true,
+            }],
+        }, cfg);
+        expect(facturaOriginal.status, `no se pudo emitir la factura a anular: ${facturaOriginal.errorMessage ?? ''}`).not.toBe('rejected');
+        expect(facturaOriginal.number, 'sin número no hay bill_number que anular').toBeTruthy();
+
+        // 2. Se anula con la nota crédito. Concepto 2 = anulación de factura
+        // electrónica, el caso que usa el producto.
+        const req: CreditNoteRequest = {
+            referenceCode: ref('NC'),
+            billNumber: facturaOriginal.number as string,
+            correctionConceptCode: '2',
+            customer: clienteFactura,
+            items: [{
+                codeReference: 'MENS-2026-09',
+                name: 'Mensualidad septiembre 2026 (para anular)',
+                quantity: 1,
+                unitPrice: 150000,
+                taxRate: 0,
+                isExcluded: true,
+            }],
+            observation: 'Anulación de prueba — suite de integración',
+            paymentMethod: 'transfer',
+        };
+        const nc = await factusV2Adapter.emitCreditNote!(req, cfg);
+
+        expect(nc.status, `el PAC rechazó la nota crédito: ${nc.errorMessage ?? ''}`).not.toBe('rejected');
+        expect(nc.number, 'la nota crédito no devolvió número').toBeTruthy();
+
+        // 3. LEE de vuelta el documento — no basta con que el PAC respondiera
+        // 201. Los bugs de este módulo eran silenciosos: una clave que Factus
+        // no reconoce se descarta sin error, así que hay que comprobar qué
+        // quedó guardado de verdad.
+        const doc = await leerNotaCredito(String(nc.number));
+
+        // La referencia a la factura anulada: el nombre exacto de la clave lo
+        // decide el PAC (bill/related_bill/billing_reference…), así que se
+        // busca en las formas razonables en vez de asumir una sola.
+        const referenciaGuardada = JSON.stringify(
+            doc?.bill ?? doc?.related_bill ?? doc?.billing_reference ?? doc?.bill_number ?? doc,
+        );
+        expect(referenciaGuardada, `documento guardado: ${JSON.stringify(doc).slice(0, 500)}`)
+            .toContain(String(facturaOriginal.number));
+
+        // El concepto de corrección también tiene que haber llegado.
+        const conceptoGuardado = String(
+            doc?.correction_concept?.code ?? doc?.correction_concept_code ?? '',
+        );
+        expect(conceptoGuardado, `documento guardado: ${JSON.stringify(doc).slice(0, 500)}`).toBe('2');
+    }, 240_000);
+
+    it('fetchCreditNoteByReference encuentra la nota crédito por su referencia (camino de reconciliación)', async () => {
+        const clienteFactura: InvoiceRequest['customer'] = {
+            documentType: 'CC',
+            identification: '1020304050',
+            name: 'Familia De Prueba Sandbox',
+            email: 'prueba.sandbox@sportmaps.co',
+            address: 'Calle 10 # 43-30',
+            municipalityCode: '05001',
+        };
+        const facturaOriginal = await factusV2Adapter.emit({
+            referenceCode: ref('NC-ORIGEN2'),
+            documentType: 'invoice',
+            customer: clienteFactura,
+            items: [{
+                codeReference: 'MENS-2026-09',
+                name: 'Mensualidad septiembre 2026 (para anular)',
+                quantity: 1,
+                unitPrice: 150000,
+                taxRate: 0,
+                isExcluded: true,
+            }],
+        }, cfg);
+        expect(facturaOriginal.number).toBeTruthy();
+
+        const referencia = ref('NC-FETCH');
+        const nc = await factusV2Adapter.emitCreditNote!({
+            referenceCode: referencia,
+            billNumber: facturaOriginal.number as string,
+            correctionConceptCode: '2',
+            customer: clienteFactura,
+            items: [{
+                codeReference: 'MENS-2026-09',
+                name: 'Mensualidad septiembre 2026 (para anular)',
+                quantity: 1,
+                unitPrice: 150000,
+                taxRate: 0,
+                isExcluded: true,
+            }],
+            paymentMethod: 'transfer',
+        }, cfg);
+        expect(nc.number).toBeTruthy();
+
+        // Es el camino que en producción completa número y CUFE cuando la
+        // emisión solo devolvió el acuse. Sin este método por colección
+        // separada, una nota crédito en 'sent' se queda sin número para
+        // siempre (no aparece en /v2/bills, que es donde mira fetchByReference).
+        const encontrada = await factusV2Adapter.fetchCreditNoteByReference!(referencia, cfg);
+        expect(encontrada?.number).toBe(nc.number);
+    }, 240_000);
 });
