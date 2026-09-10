@@ -422,6 +422,97 @@ export async function autoEmitPendingInvoices(
     return { scanned: pending.length, emitted, failed, skipped };
 }
 
+/**
+ * Completa las facturas que quedaron a medias porque el PAC valida ASÍNCRONO.
+ *
+ * Factus V2 en producción responde a la emisión solo con un acuse
+ * ("Documento en proceso de validación"), sin número ni CUFE: la fila nace en
+ * 'sent' con casi todo en null y la DIAN valida minutos después. Sin este
+ * barrido esa fila se queda así para siempre — el dueño ve "—" en su tabla y
+ * el pagador no tiene factura que abrir, aunque el documento exista y esté
+ * validado en el PAC.
+ *
+ * Pregunta por reference_code (que es nuestro, `SM-<paymentId>`) en vez de por
+ * el número, justamente porque el número es lo que no tenemos. Idempotente:
+ * volver a correrlo sobre una fila ya completa no cambia nada.
+ */
+export async function reconcilePendingInvoices(
+    opts?: { sinceDays?: number; limit?: number },
+): Promise<{ scanned: number; completed: number; stillPending: number; failed: number }> {
+    const sinceDays = opts?.sinceDays ?? 15;
+    const limit = opts?.limit ?? 100;
+    const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString();
+
+    // 'sent' y 'queued' son los dos estados a medias: enviada sin confirmar, y
+    // el upsert previo a llamar al PAC. 'accepted' ya está completa y
+    // 'rejected' no tiene nada que reconciliar.
+    const { data: rows } = await supabase
+        .from('electronic_invoices')
+        .select('id, owner_type, owner_id, reference_code, status, cufe, validated_at')
+        .in('status', ['sent', 'queued'])
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+    if (!rows || rows.length === 0) return { scanned: 0, completed: 0, stillPending: 0, failed: 0 };
+
+    let completed = 0, stillPending = 0, failed = 0;
+
+    // Una config de facturador por dueño, no por fila: varias facturas de la
+    // misma escuela comparten credenciales y token.
+    const cfgCache = new Map<string, ProviderConfig | null>();
+
+    for (const row of rows) {
+        try {
+            const key = `${row.owner_type}:${row.owner_id}`;
+            if (!cfgCache.has(key)) {
+                // includeDisabled: apagar el facturador detiene la emisión, pero
+                // lo ya emitido igual hay que completarlo.
+                cfgCache.set(key, await resolveInvoiceProvider(
+                    row.owner_type as OwnerType, row.owner_id, { includeDisabled: true },
+                ));
+            }
+            const cfg = cfgCache.get(key);
+            if (!cfg) { failed++; continue; }
+
+            const adapter = getAdapter(cfg.provider);
+            // Un PAC síncrono no implementa fetchByReference y no necesita esto.
+            if (!adapter?.fetchByReference) { stillPending++; continue; }
+
+            const result = await adapter.fetchByReference(row.reference_code, cfg);
+            if (!result) { stillPending++; continue; }
+
+            // Solo se escribe cuando hay algo nuevo que escribir: si la DIAN
+            // sigue sin validar, la fila se queda como está.
+            if (!result.number && !result.cufe) { stillPending++; continue; }
+
+            await supabase.from('electronic_invoices').update({
+                status: result.status,
+                provider_bill_id: result.providerBillId ?? null,
+                prefix: result.prefix ?? null,
+                number: result.number ?? null,
+                dian_code: result.dianCode ?? null,
+                cufe: result.cufe ?? null,
+                qr_url: result.qrUrl ?? null,
+                public_url: result.publicUrl ?? null,
+                taxable_amount: result.taxableAmount ?? null,
+                tax_amount: result.taxAmount ?? null,
+                total: result.total ?? null,
+                dian_response: result.raw ?? null,
+                validated_at: result.validatedAt ? new Date().toISOString() : null,
+                updated_at: new Date().toISOString(),
+            }).eq('id', row.id);
+
+            if (result.status === 'accepted') completed++;
+            else stillPending++;
+        } catch {
+            failed++;
+        }
+    }
+
+    return { scanned: rows.length, completed, stillPending, failed };
+}
+
 /** Barre ventas de marketplace 'paid' recientes sin factura (tienda escolar y externa). */
 export async function autoEmitPendingMarketplaceInvoices(
     opts?: { sinceDays?: number; limit?: number },

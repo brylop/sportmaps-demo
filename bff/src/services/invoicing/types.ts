@@ -74,4 +74,13 @@ export interface ProviderConfig {
 export interface InvoicingAdapter {
     readonly provider: string;
     emit(req: InvoiceRequest, cfg: ProviderConfig): Promise<InvoiceResult>;
+    /**
+     * Consulta el estado real del documento en el PAC a partir del
+     * reference_code que nosotros generamos. Necesario para los PACs que
+     * validan ASÍNCRONO (Factus V2 en producción responde solo un acuse:
+     * la factura nace sin número ni CUFE de nuestro lado y hay que
+     * completarla después). Devuelve null si el PAC no conoce esa referencia.
+     * Opcional: un PAC síncrono (Factus V1) no la necesita.
+     */
+    fetchByReference?(referenceCode: string, cfg: ProviderConfig): Promise<InvoiceResult | null>;
 }
