@@ -385,6 +385,12 @@ router.post(
 
                 const dueDate = new Date();
                 dueDate.setMonth(dueDate.getMonth() + 1);
+                // EL PERÍODO ES EL MES DE ENTRADA, no el del vencimiento. Sin
+                // period_year/period_month el trigger `trg_payments_fill_period` los
+                // deriva del `due_date` (que acá cae el mes siguiente) y el mes en que
+                // el atleta entró no se facturaba nunca. Mismo criterio que
+                // `calcFirstPayment` (prorationUtils) en el alta de a uno.
+                const [periodYear, periodMonth] = todayInZone().split('-').map(Number);
 
                 for (const student of students) {
                     const childId = docToChildId.get(student.document_id);
@@ -403,18 +409,24 @@ router.post(
 
                     // Solo crear pago para los recién insertados para evitar duplicar cobros en upsert
                     const isNewChild = [...insertedChildMap.values()].includes(childId);
-                    if (isNewChild) {
+                    // Sin cuota en el CSV no nace cobro. Antes se inventaban $150.000:
+                    // el atleta entraba debiendo un monto que la escuela nunca configuró.
+                    // Mismo criterio que students-create-one (sin cuota, sin cobro).
+                    const cuota = Number(student.monthly_fee) || 0;
+                    if (isNewChild && cuota > 0) {
                         paymentRecords.push({
                             parent_id: null,
                             child_id: childId,
                             school_id: schoolId,
                             branch_id: resolveBranchId(student),
-                            amount: student.monthly_fee || 150000,
+                            amount: cuota,
                             concept: `Mensualidad ${student.team || 'Programa'} - ${student.first_name} ${student.last_name}`.trim(),
                             due_date: dueDate.toISOString().split('T')[0],
                             status: 'pending',
                             // 'one_time'|'subscription' (payments_payment_type_check); 'monthly' rompía el INSERT
                             payment_type: 'one_time',
+                            period_year: periodYear,
+                            period_month: periodMonth,
                         });
                     }
                 }
@@ -470,7 +482,7 @@ router.post(
             let invitationsCreated = 0;
 
             // Recolectar correos únicos de padres con la info del primer hijo que encontremos para la plantilla
-            const parentEmailMap = new Map<string, { childName: string; teamId: string | null; fee: number; parentName: string }>();
+            const parentEmailMap = new Map<string, { childName: string; teamId: string | null; fee: number | null; parentName: string }>();
 
             for (const s of students) {
                 if (s.parent_email && s.parent_email.trim() !== '') {
@@ -479,7 +491,9 @@ router.post(
                         parentEmailMap.set(emailKey, {
                             childName: `${s.first_name} ${s.last_name}`.trim(),
                             teamId: existingTeamMap.get(s.team?.trim()?.toLowerCase() || '') || null,
-                            fee: s.monthly_fee || 150000,
+                            // Sin cuota en el CSV la invitación va sin cuota (null), no
+                            // con los $150.000 inventados que el acudiente veía como suyos.
+                            fee: s.monthly_fee ?? null,
                             parentName: s.parent_name || emailKey.split('@')[0]
                         });
                     }

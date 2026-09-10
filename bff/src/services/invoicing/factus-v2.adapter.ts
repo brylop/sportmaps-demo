@@ -24,6 +24,21 @@
  * notificaciones blandas de la DIAN (RUT01/FAJ43b/FAK08) y NO impiden la
  * validación — se guardan en dian_response.
  *
+ * DIFERENCIA CRÍTICA SANDBOX vs PRODUCCIÓN (verificada con Dynasty): el sandbox
+ * responde SÍNCRONO con el documento completo ("Created" + number + cufe), pero
+ * producción responde solo un acuse, sin `data`:
+ *     { "status": "Accepted", "message": "Documento en proceso de validación" }
+ * La validación ante la DIAN ocurre después, en segundo plano. Por eso en
+ * producción el resultado cae a status 'sent' (enviada, todavía sin número ni
+ * CUFE) y hace falta un paso de reconciliación que consulte GET /v2/bills por
+ * reference_code y complete number/cufe/validated_at.
+ * ESE RECONCILIADOR AÚN NO EXISTE: sin él, una factura de producción se queda
+ * en 'sent' para siempre aunque la DIAN ya la haya validado.
+ *
+ * Idempotencia CONFIRMADA: reenviar el mismo reference_code devuelve el MISMO
+ * documento (mismo número y CUFE), no crea otro. Eso es lo que hace inofensivo
+ * que los tres BFF de Render corran este cron sobre la misma base compartida.
+ *
  * cfg.credentials: { base_url?, client_id, client_secret, username, password }
  * cfg.config:      { numbering_range_id, default_municipality_id? }
  */
@@ -114,7 +129,13 @@ export const factusV2Adapter: InvoicingAdapter = {
                 phone: req.customer.phone ?? '',
                 legal_organization_code: isCompany ? '1' : '2',  // 1=jurídica, 2=natural
                 tribute_code: isCompany ? '01' : 'ZZ',           // 01=IVA, ZZ=no aplica
-                municipality_id: String(
+                // OJO: `municipality_code` (código DANE), NO `municipality_id`
+                // como en V1. Mandarlo con el nombre viejo NO da error: V2 lo
+                // ignora en silencio, el cliente queda sin ciudad ni país y la
+                // DIAN devuelve la notificación FAK08 por grupo de dirección
+                // incompleto. Verificado en sandbox: con municipality_code el
+                // municipio y el país se resuelven y FAK08 desaparece.
+                municipality_code: String(
                     req.customer.municipalityId ?? cfg.config.default_municipality_id ?? '',
                 ),
             },
