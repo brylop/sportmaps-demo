@@ -57,6 +57,34 @@ export interface FootballSummary {
     red_cards: number;
 }
 
+/** Una opción de una métrica de sesión con distribución (§3.4 del spec). */
+export interface SessionMetricOption {
+    value: number;
+    label: string;
+    n: number;
+    pct: number;
+}
+
+/**
+ * Agregado del periodo para una métrica de alta frecuencia (una medición por
+ * sesión, ej. BORG, esfuerzo, comprensión — spec evaluacion-post-entrenamiento.md
+ * §3.4). `metrics` (arriba) solo compara última-vs-anterior; esto promedia o
+ * distribuye TODAS las mediciones del mes, que es lo que reproduce el PDF
+ * original (fatiga en cubetas, % por respuesta, veces seleccionado).
+ */
+export interface SessionMetricSummary {
+    metric_key: string;
+    label: string;
+    category: string | null;
+    aggregation: 'avg' | 'distribution' | 'count';
+    /** Sesiones respondidas en el periodo — SIEMPRE visible junto al dato (nunca se imputa lo que falta). */
+    n: number;
+    avg?: number;
+    distribution?: SessionMetricOption[];
+    /** Veces seleccionada (solo aggregation='count', ej. un ítem de "aspectos a mejorar"). */
+    count?: number;
+}
+
 export interface ReportSnapshot {
     version: 1;
     generated_at: string;
@@ -71,6 +99,8 @@ export interface ReportSnapshot {
     highlights: SnapshotMetric[];
     to_work_on: SnapshotMetric[];
     metrics: SnapshotMetric[];
+    /** Agregados de sesión del periodo (BORG, esfuerzo, comprensión, satisfacción, aspectos a mejorar). */
+    metrics_session: SessionMetricSummary[];
     football: FootballSummary | null;
 }
 
@@ -276,6 +306,74 @@ async function loadFootballSummary(
     }
 }
 
+/**
+ * Agregados de sesión del periodo (§3.4 del spec) — promedio/distribución/conteo
+ * de las métricas con context_type='session', a diferencia de `loadMetricSeries`
+ * que solo compara última medición vs. anterior (correcto para una prueba física
+ * mensual, no para algo que se registra 8-18 veces al mes).
+ *
+ * Denominador de las 'count' (aspectos a mejorar): sesiones donde SÍ hubo
+ * autoevaluación ese periodo (proxy: cuántas veces se cargó rpe_borg, la única
+ * pregunta obligatoria que ancla "respondió esta sesión").
+ */
+async function loadSessionMetrics(
+    schoolId: string,
+    subjectType: SubjectType,
+    subjectId: string,
+    periodStart: Date,
+    periodEnd: Date,
+    catalogo: Map<string, MetricDefinition>,
+): Promise<SessionMetricSummary[]> {
+    const { data, error } = await supabase
+        .from('performance_entries')
+        .select('metric_key, value')
+        .eq('school_id', schoolId)
+        .eq('subject_type', subjectType)
+        .eq('subject_id', subjectId)
+        .eq('context_type', 'session')
+        .gte('recorded_at', periodStart.toISOString())
+        .lte('recorded_at', periodEnd.toISOString());
+
+    if (error || !data) return [];
+
+    const porMetrica = new Map<string, number[]>();
+    for (const row of data as any[]) {
+        const arr = porMetrica.get(row.metric_key) ?? [];
+        arr.push(Number(row.value));
+        porMetrica.set(row.metric_key, arr);
+    }
+
+    const sesionesRespondidas = porMetrica.get('rpe_borg')?.length ?? 0;
+    const resultado: SessionMetricSummary[] = [];
+
+    for (const [key, valores] of porMetrica) {
+        const def = catalogo.get(key);
+        if (!def || def.aggregation === 'latest') continue; // 'latest' ya lo cubre `metrics`
+        const label = def.parent_label ?? def.display_name;
+
+        if (def.aggregation === 'avg') {
+            const avg = Math.round((valores.reduce((a, b) => a + b, 0) / valores.length) * 10) / 10;
+            resultado.push({ metric_key: key, label, category: def.category, aggregation: 'avg', n: valores.length, avg });
+        } else if (def.aggregation === 'distribution') {
+            const total = valores.length;
+            const counts = new Map<number, number>();
+            for (const v of valores) counts.set(v, (counts.get(v) ?? 0) + 1);
+            const distribution: SessionMetricOption[] = (def.options ?? []).map((o) => {
+                const n = counts.get(o.value) ?? 0;
+                return { value: o.value, label: o.label, n, pct: total > 0 ? Math.round((n / total) * 1000) / 10 : 0 };
+            });
+            resultado.push({ metric_key: key, label, category: def.category, aggregation: 'distribution', n: total, distribution });
+        } else if (def.aggregation === 'count') {
+            resultado.push({
+                metric_key: key, label, category: def.category, aggregation: 'count',
+                n: sesionesRespondidas, count: valores.length,
+            });
+        }
+    }
+
+    return resultado.sort((a, b) => a.metric_key.localeCompare(b.metric_key));
+}
+
 export interface BuildSnapshotInput {
     schoolId: string;
     subjectType: SubjectType;
@@ -361,10 +459,16 @@ export async function buildReportSnapshot(input: BuildSnapshotInput): Promise<Re
         : [];
     const catalogo = new Map<string, MetricDefinition>(definiciones.map((d) => [d.metric_key, d]));
 
+    const metricsSession = await loadSessionMetrics(schoolId, subjectType, subjectId, periodStart, periodEnd, catalogo);
+
     const metrics: SnapshotMetric[] = [];
     for (const [key, punto] of series) {
         const def = catalogo.get(key);
         if (!def) continue; // métrica sin catálogo: no hay forma de nombrarla al padre
+        // Las de sesión (avg/distribution/count) ya se resumen en metrics_session
+        // — mostrar además "última vs. anterior" de un valor que se registra 8-18
+        // veces al mes es ruido, no información (spec §3.4).
+        if (def.aggregation !== 'latest') continue;
 
         metrics.push({
             metric_key: key,
@@ -417,6 +521,7 @@ export async function buildReportSnapshot(input: BuildSnapshotInput): Promise<Re
         highlights,
         to_work_on: toWorkOn,
         metrics,
+        metrics_session: metricsSession,
         football,
     };
 }

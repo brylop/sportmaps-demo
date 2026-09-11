@@ -99,6 +99,7 @@ const AcademicProgressPage = lazy(() => import("./pages/AcademicProgressPage"));
 const AttendancePage = lazy(() => import("./pages/AttendancePage"));
 const MyPaymentsPage = lazy(() => import("./pages/MyPaymentsPage"));
 const AccountStatementPage = lazy(() => import("./pages/AccountStatementPage"));
+const PostTrainingSelfEvalPage = lazy(() => import("./pages/PostTrainingSelfEvalPage"));
 
 // ─── Coach pages (lazy) ───────────────────────────────────────────────────────
 const CoachAttendancePage = lazy(() => import("./pages/CoachAttendancePage"));
@@ -355,6 +356,9 @@ const App = () => (
                     } />
                     <Route path="/parent-checkout" element={
                       <ProtectedRoute><ParentCheckoutPage /></ProtectedRoute>
+                    } />
+                    <Route path="/post-entreno/:sessionId" element={
+                      <ProtectedRoute><PostTrainingSelfEvalPage /></ProtectedRoute>
                     } />
                     <Route path="/payment-result" element={<PaymentResultPage />} />
                     <Route path="/pagos/confirmacion" element={<PaymentConfirmationPage />} />
