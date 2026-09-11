@@ -450,7 +450,9 @@ async function deliver(
     // Se exceptúan los pasos que HABLAN del consentimiento, o el mensaje queda
     // contradiciéndose («no volverás a recibir… tienes las notificaciones
     // apagadas»).
-    const PASOS_DE_CONSENTIMIENTO = ['opt_out_confirmado', 'opt_in_confirmado', 'ask_consent'];
+    const PASOS_DE_CONSENTIMIENTO = [
+        'opt_out_confirmado', 'opt_in_confirmado', 'opt_in_reactivado', 'ask_consent',
+    ];
     let texto = proposedText;
     if (!PASOS_DE_CONSENTIMIENTO.includes(String((context as any)?.step ?? ''))
         && await estaDadoDeBaja(integration.id, contactWaId)) {
