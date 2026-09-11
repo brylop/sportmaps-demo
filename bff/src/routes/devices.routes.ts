@@ -8,7 +8,7 @@
 //   GET    /api/v1/devices            → listar mis devices
 
 import { Router, Request, Response } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth } from '../middlewares/authMiddleware';
@@ -25,7 +25,7 @@ const deviceLimiter = rateLimit({
     max: process.env.NODE_ENV === 'production' ? 5 : 100,
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => `device-${(req as any).user?.id || req.ip}`,
+    keyGenerator: (req) => `device-${(req as any).user?.id || ipKeyGenerator(req.ip ?? '')}`,
 });
 
 const RegisterSchema = z.object({

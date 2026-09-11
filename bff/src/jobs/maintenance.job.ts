@@ -16,6 +16,7 @@ import { runAccessAutoBlockCycle } from './access-auto-block.job';
 import { runSaasBillingCycle } from './saas-billing-cycle.job';
 import { runBridgeHeartbeatCheck } from './bridge-heartbeat-check.job';
 import { runAccountDeletionCycle } from './account-deletion.job';
+import { runPostTrainingReminders } from './post-training-reminders.job';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -350,6 +351,25 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Ciclo de informes registrado para las 06:10 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Evaluación Post-Entrenamiento (F2) — recordatorios.
+    // El disparo del aviso original NO va acá: es un trigger SQL sobre
+    // attendance_sessions.finalized (post_training_notify_on_finalize). Esto
+    // es solo el recordatorio único a las 20h para el padre que no respondió, y
+    // el aviso al coach con una sesión sin cerrar — ambos idempotentes en SQL.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('0 20 * * *', async () => {
+        if (process.env.DISABLE_POST_TRAINING_REMINDERS_CRON === 'true') return;
+        try {
+            await runPostTrainingReminders();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en recordatorios de post-entrenamiento:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Recordatorios de post-entrenamiento registrados para las 20:00 COT.');
 
     // ────────────────────────────────────────────────────────────────────────
     // Despachador unificado (F1) — red de seguridad. Drena el outbox

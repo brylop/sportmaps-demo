@@ -28,6 +28,7 @@ import { AvisoFichaStaff } from '@/components/common/AvisoFichaStaff';
 import { useUpdatePTAttendance, useHandleNoShow } from '@/hooks/useAthleteSessionBookings';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useActiveWorkPage } from '@/hooks/useActiveWorkPage';
+import { CoachPostTrainingRatingDialog } from '@/components/attendance/CoachPostTrainingRatingDialog';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
@@ -280,6 +281,10 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
   const [isSecondary, setIsSecondary] = useState(false);
   const [attendanceState, setAttendanceState] = useState<Record<string, AttendanceStatus>>({});
   const [finalizeDialogOpen, setFinalizeDialogOpen] = useState(false);
+  // Spec docs/specs/evaluacion-post-entrenamiento.md §5.2 — al finalizar, se
+  // abre la pantalla de rating del coach (no depende de la notificación al
+  // padre, que dispara aparte vía trigger post_training_notify_on_finalize).
+  const [postTrainingDialogOpen, setPostTrainingDialogOpen] = useState(false);
   const [noShowDialog, setNoShowDialog] = useState<{ open: boolean; session: any | null }>({
     open: false,
     session: null,
@@ -788,6 +793,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedItem, fechaLista] });
       toast({ title: '🏁 Sesión finalizada', description: 'Los datos quedan bloqueados.' });
+      setPostTrainingDialogOpen(true);
     },
     onError: (err: any) => {
       toast({ title: 'Error al finalizar', description: err?.message, variant: 'destructive' });
@@ -1461,6 +1467,12 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <CoachPostTrainingRatingDialog
+        sessionId={session?.id ?? null}
+        open={postTrainingDialogOpen}
+        onOpenChange={setPostTrainingDialogOpen}
+      />
 
       <Dialog open={walkInOpen} onOpenChange={setWalkInOpen}>
         <DialogContent className="max-w-md">
