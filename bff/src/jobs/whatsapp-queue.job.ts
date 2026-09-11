@@ -25,7 +25,7 @@ import { downloadMedia, sendTextMessage, type WhatsAppIntegration } from '../ser
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from '../services/whatsapp-optin.service';
 import { extractReceipt } from '../services/ocr.service';
 import { buildVerdictContext } from '../services/receipt-context.service';
-import { normalizeDestination } from '../services/receipt-verdict';
+import { normalizeDestination, normalizeReference, evaluateVerdict } from '../services/receipt-verdict';
 import { evaluatePaymentReceipt, redRejectionMessage } from '../services/receipt-approval.service';
 import {
     pagosPendientesDe, resolverPago, describirPago, mensajeElegirPago,
@@ -328,10 +328,38 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
         return;
     }
 
-    // 7. Un solo destino: se estampa y se evalúa por el MISMO camino que la app.
-    //    El veredicto no se reimplementa acá.
+    // 7. Un solo destino: se estampa el comprobante Y SU VEREDICTO.
     const pago: PagoPendiente = match.pago;
     const sha = crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex');
+
+    /**
+     * El veredicto se calcula ACÁ y se persiste. No es opcional.
+     *
+     * `evaluatePaymentReceipt` no lo computa cuando la escuela tiene el
+     * auto-approve apagado: su comentario lo dice — «se decide con el veredicto
+     * ya persistido, que lo computó el BFF en /extract-receipt». En la app ese
+     * endpoint lo calcula al subir; el worker no pasa por ahí.
+     *
+     * Sin este bloque el comprobante quedaba en `awaiting_approval` con
+     * `receipt_verdict` en null y la escuela lo revisaba a ciegas — exactamente
+     * los 45 pagos sin veredicto que encontramos el 2026-09-11, reproducidos
+     * por este código. Y `REFERENCIA_DUPLICADA` nunca se disparaba, que es la
+     * defensa contra que el mismo comprobante se aplique dos veces.
+     *
+     * Se reconstruye el contexto porque el de §6 se armó sin referencia ni hash
+     * —no se conocían todavía—, y son justo los que alimentan el dedup.
+     */
+    const ctxPago = await buildVerdictContext(fila.school_id, {
+        referenceNorm: normalizeReference(ocr.reference),
+        imageSha256: sha,
+        expectedAmount: pago.amount,
+        paymentId: pago.id,
+    });
+    const veredicto = evaluateVerdict(ocr, ctxPago);
+    log?.info?.(
+        { queueId: fila.id, paymentId: pago.id, veredicto: veredicto.verdict, motivos: veredicto.reasons.map((r) => r.code) },
+        '[wa-queue] veredicto',
+    );
 
     const { error: stampErr } = await supabase.from('payments').update({
         receipt_url: storagePath,
@@ -341,6 +369,9 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
         ocr_amount: ocr.amount, ocr_date: ocr.date, ocr_bank: ocr.bank,
         ocr_reference: ocr.reference, ocr_destination: ocr.destination,
         ocr_provider: ocr.provider,
+        receipt_verdict: veredicto.verdict,
+        receipt_verdict_reasons: veredicto.reasons,
+        receipt_verdict_at: new Date().toISOString(),
         status: 'awaiting_approval',
     }).eq('id', pago.id).in('status', ['pending', 'overdue']);
 
