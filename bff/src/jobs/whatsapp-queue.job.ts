@@ -375,7 +375,42 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
         status: 'awaiting_approval',
     }).eq('id', pago.id).in('status', ['pending', 'overdue']);
 
-    if (stampErr) { await reintentar(fila, `no se pudo estampar el pago: ${stampErr.message}`, log); return; }
+    if (stampErr) {
+        // 23505 sobre `uq_payments_school_ocr_reference` NO es un fallo: es la
+        // base diciendo que esa referencia de banco ya se usó en esta escuela.
+        // Es la última defensa contra aplicar el mismo comprobante dos veces, y
+        // hay que leerla como tal.
+        //
+        // Tratarla como transitorio —que es lo que hacía— dejaba al acudiente sin
+        // ninguna respuesta y ponía la fila a reintentar cinco veces contra una
+        // restricción que nunca va a ceder, pagando OCR en cada vuelta.
+        if (stampErr.code === '23505') {
+            const { data: yaAplicado } = await supabase
+                .from('payments')
+                .select('concept, amount, status')
+                .eq('school_id', fila.school_id)
+                .eq('ocr_reference', ocr.reference)
+                .maybeSingle();
+
+            const donde = yaAplicado
+                ? ` Ya está aplicado a *${yaAplicado.concept}* por ${cop(Number(yaAplicado.amount))}.`
+                : '';
+            await responder(
+                `Ese comprobante ya lo había recibido, así que no lo apliqué de nuevo.${donde}\n\n` +
+                'Si hiciste otra transferencia, mándame el comprobante de esa — el número de ' +
+                'aprobación tiene que ser distinto.',
+                'comprobante_repetido',
+            );
+            await cerrar(fila.id, 'ignored', {
+                result_type: 'none',
+                error_message: `referencia ya usada: ${ocr.reference}`,
+            });
+            log?.info?.({ queueId: fila.id, referencia: ocr.reference }, '[wa-queue] comprobante repetido');
+            return;
+        }
+        await reintentar(fila, `no se pudo estampar el pago: ${stampErr.message}`, log);
+        return;
+    }
 
     const resultado = await evaluatePaymentReceipt(pago.id, log);
 
