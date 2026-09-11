@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 538,
-  "head": "20260911171023",
+  "count": 539,
+  "head": "20260911184400",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -541,6 +541,7 @@
     {"v":"20260911125148","file":"20260911125148_post_entreno_recordatorios_rpcs.sql","sha256":"f846c4e70cb600d51df9d05258487db09d660502935ff665d2feb1b436487d13","added":"2026-09-11","by":"brylop"},
     {"v":"20260911170115","file":"20260911170115_whatsapp_cola_comprobantes.sql","sha256":"7186fe3af3d03d79cf3bf16930d241fa28d33a664e33e81c60ed06a203aed3d8","added":"2026-09-11","by":"brylop"},
     {"v":"20260911170505","file":"20260911170505_whatsapp_cola_claim_rpc.sql","sha256":"2ac361ab8946bb91dce21febec7d1fa0cf29c73ebff220926a79a6273e7112a0","added":"2026-09-11","by":"brylop"},
-    {"v":"20260911171023","file":"20260911171023_whatsapp_cola_media_id.sql","sha256":"1d3519705f4690d97fe78fd528eef5848de6862337491b1941f51d983cf0b4f6","added":"2026-09-11","by":"brylop"}
+    {"v":"20260911171023","file":"20260911171023_whatsapp_cola_media_id.sql","sha256":"1d3519705f4690d97fe78fd528eef5848de6862337491b1941f51d983cf0b4f6","added":"2026-09-11","by":"brylop"},
+    {"v":"20260911184400","file":"20260911184400_whatsapp_pagos_vistos_y_aviso_resultado.sql","sha256":"1a4f7fc3cc978f4064f00b8c7824eee80e8beaf0c1879a352253c1d9023f6166","added":"2026-09-11","by":"brylop"}
   ]
 }

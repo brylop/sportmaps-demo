@@ -337,7 +337,7 @@ Reglas estrictas:
 const TOOLS: LlmTool[] = [
     {
         name: 'get_payment_status',
-        description: 'Devuelve los pagos pendientes o vencidos del acudiente en esta escuela. Úsala cuando pregunte por pagos, mensualidades, saldos o vencimientos.',
+        description: 'Estado de los pagos del acudiente en esta escuela: lo que debe Y lo resuelto en los ultimos 60 dias. Cada pago trae `estado_legible` (pagado y confirmado, comprobante en revision, rechazado, pendiente) y `debe_pagarse`. Usala SIEMPRE que pregunte por pagos, mensualidades, inscripciones, saldos, vencimientos, o si un pago suyo ya quedo aprobado. Si un concepto no aparece en el resultado, di que no lo encuentras — NUNCA afirmes que un cobro no existe.',
         parameters: { type: 'object', properties: {}, required: [] },
     },
     {

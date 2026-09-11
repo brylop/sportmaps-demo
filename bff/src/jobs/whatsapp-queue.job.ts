@@ -40,6 +40,8 @@ const BUCKET = 'payment-receipts';
 const LOTE = 10;
 const LEASE_MIN = 5;
 const MAX_REINTENTOS = 5;
+/** Minutos en los que NO se repite un mensaje idéntico al mismo contacto. */
+const VENTANA_ANTI_REPETICION_MIN = 10;
 
 interface FilaCola {
     id: string;
@@ -186,6 +188,28 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
      */
     const responder = async (texto: string, paso: string) => {
         const final = aFormatoWhatsApp(dadoDeBaja ? texto + AVISO_DADO_DE_BAJA : texto);
+
+        // Si ese MISMO texto ya salió hace poco a este contacto, no se repite.
+        // Medido el 2026-09-11: 8 imágenes de golpe produjeron 7 mensajes
+        // idénticos seguidos, uno cada 5 segundos. Desde el lado del acudiente
+        // eso es spam, y en un canal donde Meta mide la calidad del número,
+        // repetir lo mismo siete veces es justo lo que penaliza.
+        if (conversationId) {
+            const desde = new Date(Date.now() - VENTANA_ANTI_REPETICION_MIN * 60_000).toISOString();
+            const { data: repetido } = await supabase
+                .from('whatsapp_messages')
+                .select('id')
+                .eq('conversation_id', conversationId)
+                .eq('direction', 'outbound')
+                .eq('text_body', final)
+                .gte('created_at', desde)
+                .limit(1);
+            if (repetido && repetido.length > 0) {
+                log?.info?.({ queueId: fila.id, paso }, '[wa-queue] mismo mensaje reciente, no se repite');
+                return { ok: true };
+            }
+        }
+
         const enviado = await sendTextMessage(wa, fila.wa_phone_number, final);
         if (conversationId) {
             await supabase.rpc('wa_record_outbound_message', {
@@ -250,7 +274,15 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
         storagePath = `${fila.school_id}/whatsapp/${fila.id}.${ext}`;
         const { error: upErr } = await supabase.storage.from(BUCKET)
             .upload(storagePath, Buffer.from(base64, 'base64'), { contentType: mime, upsert: true });
-        if (upErr) { await reintentar(fila, `no se pudo guardar en el bucket: ${upErr.message}`, log); return; }
+        if (upErr) {
+            // `.message` puede venir vacío y dejaba «no se pudo guardar en el
+            // bucket: <none>», que no dice nada al diagnosticar. Se guarda todo
+            // lo que traiga el error.
+            const detalle = [upErr.message, (upErr as { statusCode?: string }).statusCode, upErr.name]
+                .filter(Boolean).join(' · ') || JSON.stringify(upErr).slice(0, 200);
+            await reintentar(fila, `no se pudo guardar en el bucket: ${detalle}`, log);
+            return;
+        }
 
         // Se estampa YA, antes del OCR: si el OCR falla, el reintento parte del
         // bucket y no de una URL de Meta que para entonces ya expiró.

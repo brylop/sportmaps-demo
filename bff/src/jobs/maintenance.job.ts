@@ -18,6 +18,7 @@ import { runBridgeHeartbeatCheck } from './bridge-heartbeat-check.job';
 import { runAccountDeletionCycle } from './account-deletion.job';
 import { runPostTrainingReminders } from './post-training-reminders.job';
 import { runWhatsAppQueue } from './whatsapp-queue.job';
+import { runWhatsAppPaymentOutcome } from './whatsapp-payment-outcome.job';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -414,6 +415,27 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Cola de comprobantes de WhatsApp registrada (cada minuto).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // El desenlace del comprobante vuelve al chat donde entró.
+    //
+    // El bot promete "la escuela lo está revisando y te confirma"; al aprobar
+    // salía correo y notificación in-app, pero por WhatsApp nada. Va como job y
+    // no enganchado al botón porque hay mas de un camino de aprobación en la
+    // app y enganchar uno dejaria el otro mudo.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('* * * * *', async () => {
+        if (process.env.DISABLE_WHATSAPP_QUEUE_CRON === 'true') return;
+        try {
+            const r = await runWhatsAppPaymentOutcome();
+            if (r.avisados > 0) console.log(`[CRON] WhatsApp: ${r.avisados} desenlace(s) avisado(s).`);
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error avisando el desenlace de comprobantes:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Aviso de desenlace de comprobantes registrado (cada minuto).');
 
     // ────────────────────────────────────────────────────────────────────────
     // Banco de horas por torniquete (F5) — auto-cierre de visitas 'open'.
