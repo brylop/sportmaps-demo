@@ -266,6 +266,23 @@ function parseLlmJson(content: string, provider: string): OcrResult {
     }
 }
 
+/**
+ * ¿Groq puede leer imágenes con la llave actual?
+ *
+ * Por defecto NO, y no es una sospecha: el 2026-09-11 se listó
+ * `GET https://api.groq.com/openai/v1/models` con nuestra llave y devolvió 14
+ * modelos, **ninguno de visión** (gpt-oss y qwen son de texto, whisper es audio,
+ * prompt-guard clasifica, orpheus es voz). Por eso el OCR por Groq daba 404 y
+ * fallaba en silencio durante semanas.
+ *
+ * Queda fuera de la cadena de OCR, pero `GROQ_OCR_MODEL` sirve de interruptor de
+ * reingreso: el día que la cuenta tenga un modelo de visión, se define esa
+ * variable con su id y Groq vuelve solo, sin tocar código.
+ */
+function groqPuedeVer(): boolean {
+    return Boolean(process.env.GROQ_OCR_MODEL);
+}
+
 export async function extractReceipt(base64Image: string, mimeType: string = 'image/png'): Promise<OcrResult> {
     // Default gemini (antes groq, que hoy da 404 al modelo de vision).
     const order = (process.env.OCR_PROVIDER || 'gemini').toLowerCase();
@@ -276,7 +293,9 @@ export async function extractReceipt(base64Image: string, mimeType: string = 'im
         gemini: () => extractWithGemini(base64Image, mimeType),
     };
 
-    const tryOrder = [order, 'gemini', 'openai', 'groq'].filter((v, i, a) => a.indexOf(v) === i && providers[v]);
+    const tryOrder = [order, 'gemini', 'openai', 'groq']
+        .filter((v, i, a) => a.indexOf(v) === i && providers[v])
+        .filter((v) => v !== 'groq' || groqPuedeVer());
     // (el orden de respaldo ya tenia gemini primero; solo cambio el default de `order`)
 
     let lastErr: Error | null = null;
@@ -309,7 +328,7 @@ export function listConfiguredProviders(): OcrProvider[] {
     const out: OcrProvider[] = [];
     if (process.env.GEMINI_API_KEY) out.push('gemini');
     if (process.env.OPENAI_API_KEY) out.push('openai');
-    if (process.env.GROQ_API_KEY) out.push('groq');
+    if (process.env.GROQ_API_KEY && groqPuedeVer()) out.push('groq');
     return out;
 }
 

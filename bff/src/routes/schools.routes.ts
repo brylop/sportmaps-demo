@@ -13,7 +13,7 @@
 //  - auditLog adicional en security_audit_log (correlacion cross-action)
 
 import { Router, Request, Response } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, auditLog } from '../middlewares/authMiddleware';
@@ -36,7 +36,7 @@ const brandingLimiter = rateLimit({
     keyGenerator: (req) => {
         // Cap por escuela, no por IP (varios admins desde misma red).
         const schoolId = (req as any).params?.id || (req as any).schoolId;
-        return schoolId ? `branding-school-${schoolId}` : `branding-ip-${req.ip}`;
+        return schoolId ? `branding-school-${schoolId}` : `branding-ip-${ipKeyGenerator(req.ip ?? '')}`;
     },
     message: {
         error: 'rate_limited',

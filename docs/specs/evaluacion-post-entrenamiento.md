@@ -1,8 +1,24 @@
 # Spec — Evaluación Post-Entrenamiento (autoevaluación de la deportista + rating del coach)
 
 **Producto:** SportMaps · **Versión:** v0.3 (revisión de diseño integrada: modelo de datos corregido contra el PDF fuente, disparo, concurrencia, UX completa, informe grupal)
-**Fecha:** 2026-09-08
-**Estado:** 🟢 listo para aprobación, con 2 correcciones de esta revisión aplicadas contra el código real (§4). **No se escribe código de migraciones hasta que el plan esté aprobado** (convención del repo).
+**Fecha:** 2026-09-08 · **Actualizado:** 2026-09-11 — F0 y F1 aplicados en la base
+**Estado:** 🟢 F0-F4 implementadas y verificadas contra la base viva / typecheck del BFF, en la rama `feat/post-entreno-f0-catalogo` (**sin commitear todavía** — pendiente de tu ok). F-SEC no fue necesaria (ver nota abajo).
+
+**F2 — aplicado y probado:** migraciones `20260911124834` (trigger `post_training_notify_on_finalize` sobre `attendance_sessions.finalized` false→true, columna `children.post_training_opt_out`, categoría `post_training` en `notifications`) y `20260911125148` (RPCs de sistema `post_training_send_parent_reminders_system` / `post_training_send_coach_reminders_system`, `service_role` únicamente) + `bff/src/jobs/post-training-reminders.job.ts` registrado en `maintenance.job.ts` a las 20:00 COT. Probado con una sesión real: cerrar dispara 1 notificación al padre correcto; reabrir+cerrar NO duplica. **Corrección sobre mi propia revisión anterior:** el botón "Finalizar sesión" de `CoachAttendancePage.tsx` **sí existe y sí escribe** `finalized=true` vía `PATCH /api/v1/attendance/session/:id/finalize` en el BFF — mi lectura previa (grep que no encontró la escritura) fue un falso negativo, confirmado ahora leyendo el archivo completo. El trigger de F2 se dispara con el flujo real, no uno hipotético.
+
+**F3 — construido (frontend):**
+- `frontend/src/pages/PostTrainingSelfEvalPage.tsx`, ruta `/post-entreno/:sessionId?child_id=` (registrada en `App.tsx`, protegida): las 7 pantallas de §5.1 con los componentes/tokens reales de la app (no el HTML del mockup), llamando `submit_post_training_self_eval` directo desde el cliente de Supabase (patrón ya usado en 10+ páginas del repo).
+- `frontend/src/components/attendance/CoachPostTrainingRatingDialog.tsx`: se abre solo al finalizar asistencia (`finalizeMutation.onSuccess` en `CoachAttendancePage.tsx`), llama `submit_post_training_coach_rating`.
+- Ambos con `eslint` limpio (solo warnings preexistentes de estilo `any`, mismos que ya tenía el resto del archivo) y el BFF con `tsc --noEmit` en verde.
+- **Gap conocido, fuera de este spec:** la vista/PDF del informe mensual (§5.3) no está construida en el frontend todavía — no encontré ningún componente que renderice `ReportSnapshot` hoy, solo un archivo de queries. Construirla es del módulo "Informe Mensual del Atleta", no de este spec; F4 deja el dato listo (`metrics_session`) para cuando esa vista exista.
+
+**F4 — aplicado (backend):** `report-snapshot.service.ts` gana `metrics_session: SessionMetricSummary[]` — promedio (BORG, esfuerzo, rating del coach), distribución (comprensión, satisfacción, nunca promediadas) y conteo (aspectos a mejorar), calculados desde `performance_entries` con `context_type='session'`. Las métricas con `aggregation≠'latest'` se sacaron del arreglo `metrics` existente (evita el ruido de "última vs. anterior" en algo que se mide 8-18 veces al mes). `metric-catalog.service.ts` expone `aggregation`/`options`/`required`. `tsc --noEmit` del BFF completo: 0 errores.
+
+**F-SEC — verificado, no hacía falta:** se consultó `pg_policies` en la base viva y tanto `performance_entries` como `attendance_sessions` ya usan `user_staff_school_ids()` en sus policies de escritura desde `20260814185120_padres_no_escriben_tablas_operativas.sql`. El hallazgo de §1.1 estaba basado en el archivo de creación original, no en el estado real de la base — lección aplicada de este mismo repo ("la fuente de verdad es la base, nunca el repo").
+
+**F0 — aplicado:** migración `20260911122709_post_entreno_catalogo_metricas.sql`. Columnas `aggregation`/`options`/`required` en `sport_metric_definitions` + catálogo sembrado para **Voleibol** (`3eeda4d4-…`) y **Fútbol** (`5c560204-…`): las 5 métricas universales (`rpe_borg`, `task_comprehension`, `self_effort_pct`, `satisfaction`, `coach_effort_rating`) y los `focus_*` de cada deporte (13 en voleibol tomados del PDF de Besser, 8 en fútbol tomados del mockup ya aprobado).
+
+**F1 — aplicado y probado:** migración `20260911123141_post_entreno_rpcs_captura.sql`. `submit_post_training_self_eval` y `submit_post_training_coach_rating` (`SECURITY DEFINER`, no dependen de RLS), índice único `performance_entries_session_unique`, columna `attendance_sessions.coach_notes`. Probado contra la base viva con una sesión y un padre reales, dentro de una transacción sin `COMMIT` (no quedó ningún dato de prueba): el padre autorizado guarda las 5 respuestas + 2 `focus_*`, el coach guarda su rating y la nota, y un padre **no autorizado** para ese atleta recibe `42501` como se esperaba.
 
 > Se construye **por fases con revisión entre cada una** (una rama por fase). Plan aprobado antes de código en migraciones. RLS revisado línea por línea. Tests de concurrencia en la fase backend. Cada fase tiene criterios de aceptación explícitos (§6).
 

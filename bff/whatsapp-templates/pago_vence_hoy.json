@@ -5,13 +5,29 @@
   "components": [
     {
       "type": "BODY",
-      "text": "{{1}}, hoy vence la mensualidad de {{2}} en {{3}} por {{4}}. Paga en un tap desde el botón.",
-      "example": { "body_text": [["Carolina", "Samuel", "Academia Tigres FC", "$150.000"]] }
+      "text": "Hola {{1}}, hoy vence la mensualidad de {{2}} en {{3}} por {{4}}. Paga en un tap desde el botón.",
+      "example": {
+        "body_text": [
+          [
+            "Carolina",
+            "Samuel",
+            "Academia Tigres FC",
+            "$150.000"
+          ]
+        ]
+      }
     },
     {
       "type": "BUTTONS",
       "buttons": [
-        { "type": "URL", "text": "Pagar ahora", "url": "https://sportmaps.co/p/{{1}}", "example": ["https://sportmaps.co/p/aB3xK9mQ"] }
+        {
+          "type": "URL",
+          "text": "Pagar ahora",
+          "url": "https://sportmaps.co/p/{{1}}",
+          "example": [
+            "https://sportmaps.co/p/aB3xK9mQ"
+          ]
+        }
       ]
     }
   ]
