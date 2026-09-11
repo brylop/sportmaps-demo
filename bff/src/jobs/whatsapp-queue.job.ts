@@ -1,0 +1,335 @@
+/**
+ * whatsapp-queue.job — procesa los comprobantes que llegan por el chat.
+ *
+ * El webhook solo encola (ver whatsapp-queue.service). Acá se hace el trabajo
+ * lento: bajar el archivo de Graph, guardarlo, leerlo y aplicarlo al pago que
+ * corresponde.
+ *
+ * Dos reglas que mandan sobre todo lo demás:
+ *
+ *  1. **El archivo se guarda ANTES del OCR.** La URL de media de Meta expira en
+ *     minutos; si se baja, se pasa al OCR y el OCR falla, un reintento veinte
+ *     minutos después ya no puede bajar nada y el comprobante del padre se
+ *     pierde sin dejar rastro.
+ *
+ *  2. **Un OCR caído nunca rechaza.** Si no se pudo leer, la fila espera y
+ *     reintenta; jamás produce un veredicto. Confundir «no pude leer» con «no es
+ *     válido» rechazaría pagos buenos en masa.
+ *
+ * Plan: docs/specs/whatsapp-cola-de-comprobantes-plan.md §4.3 y §4.4
+ */
+
+import crypto from 'node:crypto';
+import { supabase } from '../config/supabase';
+import { downloadMedia, sendTextMessage, type WhatsAppIntegration } from '../services/whatsapp.service';
+import { extractReceipt } from '../services/ocr.service';
+import { evaluatePaymentReceipt, redRejectionMessage } from '../services/receipt-approval.service';
+import {
+    pagosPendientesDe, resolverPago, describirPago, mensajeElegirPago,
+    type PagoPendiente,
+} from '../services/whatsapp-receipt-matching.service';
+
+// El mismo Logger que usa receipt-approval.service, para poder pasárselo tal cual
+// a evaluatePaymentReceipt sin castear.
+import type { Logger } from 'pino';
+
+const BUCKET = 'payment-receipts';
+const LOTE = 10;
+const LEASE_MIN = 5;
+const MAX_REINTENTOS = 5;
+
+interface FilaCola {
+    id: string;
+    integration_id: string;
+    school_id: string;
+    wa_phone_number: string;
+    wa_message_id: string;
+    media_id: string | null;
+    media_mime_type: string | null;
+    storage_path: string | null;
+    retries: number;
+}
+
+// ─── Mensajes al acudiente ───────────────────────────────────────────────────
+// Todos siguen la misma forma: qué revisamos → qué encontró → qué necesitamos →
+// cómo seguir. Nunca «contáctanos».
+
+const M = {
+    noIdentificado:
+        'Recibí tu comprobante 📄 Para poder aplicarlo necesito saber quién eres. ' +
+        'Escríbeme el correo con el que estás registrado en la escuela y te mando un código.',
+
+    sinPendientes:
+        'Recibí tu comprobante, pero ahora mismo no tienes cobros pendientes ✅ ' +
+        'Si crees que falta alguno, la escuela lo revisa y te confirma.',
+
+    noEsComprobante:
+        'Revisé el archivo que enviaste y *no es un comprobante de pago*.\n\n' +
+        'Si es el código QR o la llave para pagar: eso es lo que usas para *hacer* ' +
+        'la transferencia. Lo que necesito es la pantalla que te muestra el banco ' +
+        '*después* de enviar el dinero, la que dice "Transferencia exitosa" con el ' +
+        'valor, la fecha y el número de aprobación.\n\n' +
+        'Cuando la tengas, mándala por acá y la valido en un minuto.',
+
+    esListado:
+        'Revisé el archivo y es un *listado de movimientos*, no el comprobante de ' +
+        'un pago puntual. Mándame el comprobante de esa transferencia sola y lo ' +
+        'valido enseguida.',
+
+    noSePudoLeer:
+        'Recibí tu comprobante pero no logré leerlo bien 😕 La escuela lo va a ' +
+        'revisar a mano y te confirma.',
+} as const;
+
+const cop = (n: number) =>
+    new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
+
+/**
+ * ¿Vale la pena reintentar este fallo de `downloadMedia`?
+ *
+ * Se decide por LISTA BLANCA de lo transitorio, no por lista negra de lo
+ * permanente: los códigos llevan sufijo (`mime_no_soportado:image/gif`,
+ * `archivo_muy_grande:9400000`), así que compararlos por igualdad falla en
+ * silencio y termina reintentando cinco veces algo irrecuperable, contra un
+ * proveedor que cobra.
+ *
+ * Transitorio: la red, el 429 y los 5xx. Todo lo demás —mime rechazado, archivo
+ * muy grande, token que no desencripta, media que ya expiró (4xx)— no mejora
+ * reintentando.
+ */
+function esTransitorio(error: string): boolean {
+    if (error === 'network_error' || error === '') return true;
+    const m = error.match(/_(\d{3})(?::|$)/);
+    if (m) {
+        const codigo = Number(m[1]);
+        return codigo === 408 || codigo === 429 || codigo >= 500;
+    }
+    return false;
+}
+
+// ─── Cierres de fila ─────────────────────────────────────────────────────────
+
+async function cerrar(
+    id: string,
+    status: 'done' | 'ignored' | 'failed',
+    extra: Record<string, unknown> = {},
+) {
+    await supabase.from('whatsapp_inbound_queue')
+        .update({ status, processed_at: new Date().toISOString(), locked_until: null, ...extra })
+        .eq('id', id);
+}
+
+/** Espera a que el bot resuelva la pregunta de a cuál pago aplicar. */
+async function esperarAlUsuario(id: string) {
+    await supabase.from('whatsapp_inbound_queue')
+        .update({ status: 'waiting_user', locked_until: null, updated_at: new Date().toISOString() })
+        .eq('id', id);
+}
+
+/**
+ * Fallo TRANSITORIO: vuelve a 'pending' con backoff. Esto es lo que separa «no
+ * pude leer» de «no es válido»: acá no hay veredicto, hay otra oportunidad.
+ */
+async function reintentar(fila: FilaCola, motivo: string, log?: Logger) {
+    const intentos = fila.retries + 1;
+    const esperaMin = Math.min(2 ** intentos, 60); // 2, 4, 8, 16, 32, tope 60
+    log?.warn?.({ queueId: fila.id, intentos, motivo }, '[wa-queue] transitorio, reintenta');
+    await supabase.from('whatsapp_inbound_queue')
+        .update({
+            status: 'pending',
+            retries: intentos,
+            error_message: motivo,
+            locked_until: null,
+            next_retry_at: new Date(Date.now() + esperaMin * 60_000).toISOString(),
+        })
+        .eq('id', fila.id);
+}
+
+// ─── El procesamiento de una fila ────────────────────────────────────────────
+
+async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
+    // 1. La integración, que trae el token para bajar el archivo.
+    const { data: integration } = await supabase
+        .from('school_whatsapp_integrations')
+        .select('*')
+        .eq('id', fila.integration_id)
+        .single();
+
+    if (!integration) {
+        await cerrar(fila.id, 'failed', { error_message: 'la integración ya no existe' });
+        return;
+    }
+    const wa = integration as WhatsAppIntegration;
+
+    // 2. ¿Quién es? Un comprobante no identifica a nadie: primero OTP.
+    const { data: conv } = await supabase
+        .from('whatsapp_conversations')
+        .select('parent_id, identified')
+        .eq('integration_id', fila.integration_id)
+        .eq('contact_wa_id', fila.wa_phone_number)
+        .maybeSingle();
+
+    if (!conv?.identified || !conv.parent_id) {
+        await sendTextMessage(wa, fila.wa_phone_number, M.noIdentificado);
+        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'contacto sin identificar' });
+        return;
+    }
+    const parentId = conv.parent_id as string;
+
+    // 3. Bajar y GUARDAR antes de leer (ver el encabezado del archivo).
+    let base64: string;
+    let mime = fila.media_mime_type ?? 'image/jpeg';
+    let storagePath = fila.storage_path;
+
+    if (storagePath) {
+        // Reintento: el archivo ya está a salvo, se relee del bucket.
+        const { data: blob, error } = await supabase.storage.from(BUCKET).download(storagePath);
+        if (error || !blob) { await reintentar(fila, `no se pudo releer del bucket: ${error?.message}`, log); return; }
+        base64 = Buffer.from(await blob.arrayBuffer()).toString('base64');
+    } else {
+        if (!fila.media_id) {
+            await cerrar(fila.id, 'failed', { error_message: 'fila sin media_id' });
+            return;
+        }
+        const bajada = await downloadMedia(wa, fila.media_id);
+        if (!bajada.ok || !bajada.base64) {
+            if (!esTransitorio(bajada.error ?? '')) {
+                await cerrar(fila.id, 'failed', { error_message: bajada.error ?? 'no se pudo bajar' });
+            } else {
+                await reintentar(fila, bajada.error ?? 'fallo al bajar', log);
+            }
+            return;
+        }
+        base64 = bajada.base64;
+        mime = bajada.mimeType ?? mime;
+
+        const ext = mime === 'application/pdf' ? 'pdf' : (mime.split('/')[1] ?? 'jpg');
+        storagePath = `${fila.school_id}/whatsapp/${fila.id}.${ext}`;
+        const { error: upErr } = await supabase.storage.from(BUCKET)
+            .upload(storagePath, Buffer.from(base64, 'base64'), { contentType: mime, upsert: true });
+        if (upErr) { await reintentar(fila, `no se pudo guardar en el bucket: ${upErr.message}`, log); return; }
+
+        // Se estampa YA, antes del OCR: si el OCR falla, el reintento parte del
+        // bucket y no de una URL de Meta que para entonces ya expiró.
+        await supabase.from('whatsapp_inbound_queue')
+            .update({ storage_path: storagePath, media_mime_type: mime })
+            .eq('id', fila.id);
+    }
+
+    // 4. Leer. Si el OCR no responde, NO hay veredicto: se reintenta.
+    let ocr;
+    try {
+        ocr = await extractReceipt(base64, mime);
+    } catch (err: any) {
+        await reintentar(fila, `OCR no disponible: ${err?.message ?? err}`, log);
+        return;
+    }
+
+    // 5. ¿Es siquiera un comprobante? Este es el caso del papá que sube el QR de
+    //    pago en vez de la transferencia — el error más probable del flujo.
+    if (ocr.isReceipt === false) {
+        await sendTextMessage(wa, fila.wa_phone_number, M.noEsComprobante);
+        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'no es un comprobante' });
+        return;
+    }
+    if (ocr.isTransactionList === true) {
+        await sendTextMessage(wa, fila.wa_phone_number, M.esListado);
+        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'listado de movimientos' });
+        return;
+    }
+
+    // 6. ¿A qué pago va?
+    const pendientes = await pagosPendientesDe(parentId, fila.school_id);
+    const match = resolverPago(pendientes, ocr.amount ?? null);
+
+    if (match.tipo === 'sin_pendientes') {
+        await sendTextMessage(wa, fila.wa_phone_number, M.sinPendientes);
+        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'sin pagos pendientes' });
+        return;
+    }
+
+    if (match.tipo === 'preguntar' || match.tipo === 'combinacion') {
+        // No se adivina y no se reparte plata sin un sí explícito.
+        const texto = match.tipo === 'preguntar'
+            ? mensajeElegirPago(match.opciones)
+            : `Recibí tu comprobante por ${cop(ocr.amount ?? 0)}. Parece que cubre estos cobros:\n\n` +
+              `${match.pagos.map((p) => `• ${describirPago(p)}`).join('\n')}\n\n` +
+              'Respóndeme *sí* para aplicarlo así.';
+        await sendTextMessage(wa, fila.wa_phone_number, texto);
+        await esperarAlUsuario(fila.id);
+        return;
+    }
+
+    // 7. Un solo destino: se estampa y se evalúa por el MISMO camino que la app.
+    //    El veredicto no se reimplementa acá.
+    const pago: PagoPendiente = match.pago;
+    const sha = crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex');
+
+    const { error: stampErr } = await supabase.from('payments').update({
+        receipt_url: storagePath,
+        receipt_storage_bucket: BUCKET,
+        receipt_image_sha256: sha,
+        receipt_image_sha256_source: 'server_verified',
+        ocr_amount: ocr.amount, ocr_date: ocr.date, ocr_bank: ocr.bank,
+        ocr_reference: ocr.reference, ocr_destination: ocr.destination,
+        ocr_provider: ocr.provider,
+        status: 'awaiting_approval',
+    }).eq('id', pago.id).in('status', ['pending', 'overdue']);
+
+    if (stampErr) { await reintentar(fila, `no se pudo estampar el pago: ${stampErr.message}`, log); return; }
+
+    const resultado = await evaluatePaymentReceipt(pago.id, log);
+
+    // 8. Contarle al acudiente qué pasó, nombrando el pago para que pueda corregir.
+    let respuesta: string;
+    if (resultado.action === 'approved') {
+        respuesta = `¡Listo! ✅ Apliqué tu pago a *${describirPago(pago)}*. Queda al día.`;
+    } else if (resultado.action === 'rejected') {
+        respuesta =
+            `Revisé tu comprobante para *${describirPago(pago)}* y no lo pude validar.\n\n` +
+            `${resultado.reason ?? ''}\n\nSi crees que hay un error, mándame el comprobante correcto por acá.`;
+    } else {
+        respuesta =
+            `Recibí tu comprobante y lo apliqué a *${describirPago(pago)}* 📄\n\n` +
+            'La escuela lo está revisando y te confirma en poco tiempo.';
+    }
+    await sendTextMessage(wa, fila.wa_phone_number, respuesta);
+
+    await cerrar(fila.id, 'done', {
+        result_type: 'payment_receipt',
+        result_ref_id: pago.id,
+        matched_parent_id: parentId,
+        matched_child_id: pago.child_id,
+        error_message: null,
+    });
+    log?.info?.({ queueId: fila.id, paymentId: pago.id, accion: resultado.action }, '[wa-queue] aplicado');
+}
+
+// ─── Entrada del job ─────────────────────────────────────────────────────────
+
+export async function runWhatsAppQueue(log?: Logger): Promise<{ tomadas: number; errores: number }> {
+    const { data: filas, error } = await supabase.rpc('wa_queue_claim', {
+        p_limit: LOTE, p_lease_minutes: LEASE_MIN, p_max_retries: MAX_REINTENTOS,
+    });
+
+    if (error) {
+        log?.error?.({ err: error.message }, '[wa-queue] el claim falló');
+        return { tomadas: 0, errores: 1 };
+    }
+    const lote = (filas ?? []) as FilaCola[];
+    if (lote.length === 0) return { tomadas: 0, errores: 0 };
+
+    let errores = 0;
+    for (const fila of lote) {
+        try {
+            await procesarFila(fila, log);
+        } catch (err: any) {
+            errores++;
+            // Una excepción inesperada no puede dejar la fila colgada en
+            // 'processing': se devuelve a la rueda con su motivo.
+            await reintentar(fila, `excepción: ${err?.message ?? err}`, log).catch(() => {});
+            log?.error?.({ err: err?.message ?? err, queueId: fila.id }, '[wa-queue] fila explotó');
+        }
+    }
+    return { tomadas: lote.length, errores };
+}
