@@ -57,7 +57,10 @@ const OPENAI_COMPAT: Record<string, { baseUrl: string; model: string; keyEnv: st
     },
     groq: {
         baseUrl: 'https://api.groq.com/openai/v1',
-        model: process.env.WHATSAPP_GROQ_MODEL || 'llama-3.3-70b-versatile',
+        // `llama-3.3-70b-versatile` daba 404: no existe en nuestra cuenta. De los 14
+        // modelos que sí tiene (listados el 2026-09-11), gpt-oss-120b es el único
+        // de texto con tool-calling apto para el bot.
+        model: process.env.WHATSAPP_GROQ_MODEL || 'openai/gpt-oss-120b',
         keyEnv: 'GROQ_API_KEY',
     },
 };

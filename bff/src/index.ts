@@ -46,7 +46,7 @@ import recurringRouter from './routes/recurring.routes';
 import { vendorPayoutsRouter, adminPayoutsRouter } from './routes/vendor-payouts.routes';
 import vendorBankAccountsRouter from './routes/vendor-bank-accounts.routes';
 import shippingRouter, { shippingWebhookRouter, vendorShippingRouter } from './routes/shipping.routes';
-import { requireTrainerAuth, requireAthleteAuth, requireAuth } from './middlewares/authMiddleware';
+import { requireTrainerAuth, requireAthleteAuth, requireAuth, requireRole } from './middlewares/authMiddleware';
 import { requireCsrfHeader } from './middlewares/csrfHeader';
 import { requireOperationalSchool } from './middlewares/requireOperationalSchool';
 import systemRouter from './routes/system';
@@ -73,6 +73,7 @@ import athleteReportsPdfRouter from './routes/athlete-reports-pdf';
 import equipmentActaRouter from './routes/equipment.route';
 import joinQrRouter from './routes/join-qr';
 import { assertMpEnvCoherente } from './services/mercadopago.service';
+import { probeAiProviders, logAiProvidersAtStartup } from './services/ai-providers.health';
 import admsRouter from './routes/access-adms';
 import accessApiRouter from './routes/access-api';
 import accessAdminRouter from './routes/access-admin.routes';
@@ -273,6 +274,14 @@ app.get('/health', (_req: Request, res: Response) => {
     });
 });
 
+// Estado de los proveedores de IA (OCR de comprobantes y LLM del bot). Revela qué
+// modelo y qué variables quedaron configuradas, así que NO es público: solo
+// super_admin. Nunca devuelve el valor de una llave, solo si está presente.
+// Sondea el metadato del modelo, que es gratis y no gasta tokens.
+app.get('/health/ai', requireAuth, requireRole('super_admin'), async (_req: Request, res: Response) => {
+    res.status(200).json(await probeAiProviders());
+});
+
 // Bloqueo por fin del periodo de prueba. Va ANTES de todos los routers para que
 // no queden huecos por ruta olvidada: solo intercepta mutaciones y respeta una
 // allowlist (webhooks, /me, /admin, pagos de familias). Los GET siempre pasan.
@@ -459,6 +468,10 @@ app.listen(PORT, () => {
     console.log(`🚀 BFF corriendo en http://localhost:${PORT}`);
     console.log(`   NODE_ENV: ${process.env.NODE_ENV ?? 'development'}`);
     
+    // Qué proveedores de IA quedaron vivos. No aborta el arranque: un OCR mal
+    // configurado no debe tumbar el resto del BFF, pero tiene que verse en el log.
+    logAiProvidersAtStartup();
+
     // Iniciar trabajos de mantenimiento programados
     initMaintenanceJobs();
 });
