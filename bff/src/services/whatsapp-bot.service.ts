@@ -34,6 +34,7 @@ import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
 import { chatWithTools, type LlmTool, type LlmMessage } from './llm.service';
 import { sendTextMessage, type WhatsAppIntegration } from './whatsapp.service';
+import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
 
 const OTP_TTL_MIN = 10;
 
@@ -441,14 +442,29 @@ async function deliver(
         s?.mode === 'auto' &&
         (!s?.assisted_until || new Date(s.assisted_until).getTime() < now);
 
+    // A quien pidió la baja y AUN ASÍ nos escribe se le responde —él inició el
+    // contacto—, pero enterándose de que sigue con las notificaciones apagadas.
+    // Va acá porque `deliver` es el embudo único de todo lo que sale del bot:
+    // puesto en cada intent, el primero que se agregue mañana se olvida.
+    //
+    // Se exceptúan los pasos que HABLAN del consentimiento, o el mensaje queda
+    // contradiciéndose («no volverás a recibir… tienes las notificaciones
+    // apagadas»).
+    const PASOS_DE_CONSENTIMIENTO = ['opt_out_confirmado', 'opt_in_confirmado', 'ask_consent'];
+    let texto = proposedText;
+    if (!PASOS_DE_CONSENTIMIENTO.includes(String((context as any)?.step ?? ''))
+        && await estaDadoDeBaja(integration.id, contactWaId)) {
+        texto += AVISO_DADO_DE_BAJA;
+    }
+
     if (autoAllowed) {
-        const sent = await sendTextMessage(integration, contactWaId, proposedText);
+        const sent = await sendTextMessage(integration, contactWaId, texto);
         await supabase.rpc('wa_record_outbound_message', {
             p_conversation_id: conversationId,
             p_integration_id: integration.id,
             p_wa_message_id: sent.waMessageId || `local-${crypto.randomUUID()}`,
             p_type: 'text',
-            p_text_body: proposedText,
+            p_text_body: texto,
             p_payload: context,
             p_ai_generated: true,
             p_to_wa_id: contactWaId,
@@ -460,7 +476,7 @@ async function deliver(
     await supabase.from('whatsapp_message_drafts').insert({
         conversation_id: conversationId,
         integration_id: integration.id,
-        proposed_text: proposedText,
+        proposed_text: texto,
         tool_context: context,
         llm_provider: (context as any)?.provider ?? null,
         status: 'pending',

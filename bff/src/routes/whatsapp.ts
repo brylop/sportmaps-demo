@@ -174,12 +174,10 @@ async function handleBotTurn(
     // Va ANTES del filtro de tipo textual — si no, cae en el `return` de abajo y
     // el archivo se pierde.
     if (msg.type === 'image' || msg.type === 'document') {
-        // A quien pidió la baja no se le responde nada salvo la confirmación de
-        // la baja, que ya mandó la ingesta.
-        if (optedOut) {
-            req.log?.info({ conversationId }, 'WhatsApp: adjunto de un contacto dado de baja, se ignora');
-            return;
-        }
+        // El adjunto se encola aunque el contacto esté dado de baja: mandar un
+        // comprobante es una gestión sobre su propia plata que él inició, y
+        // perderla en silencio es peor que responderle. El worker le agrega la
+        // coletilla que le recuerda que tiene las notificaciones apagadas.
         const resultado = await encolarAdjunto(integration, msg, req.log).catch((err) => {
             req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: encolarAdjunto explotó');
             return 'error' as const;

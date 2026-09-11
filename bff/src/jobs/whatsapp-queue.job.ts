@@ -22,7 +22,10 @@
 import crypto from 'node:crypto';
 import { supabase } from '../config/supabase';
 import { downloadMedia, sendTextMessage, type WhatsAppIntegration } from '../services/whatsapp.service';
+import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from '../services/whatsapp-optin.service';
 import { extractReceipt } from '../services/ocr.service';
+import { buildVerdictContext } from '../services/receipt-context.service';
+import { normalizeDestination } from '../services/receipt-verdict';
 import { evaluatePaymentReceipt, redRejectionMessage } from '../services/receipt-approval.service';
 import {
     pagosPendientesDe, resolverPago, describirPago, mensajeElegirPago,
@@ -161,6 +164,17 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
     }
     const wa = integration as WhatsAppIntegration;
 
+    // Se consulta el ESTADO de baja, no el evento. La ingesta solo marca
+    // `opted_out` cuando el mensaje trae la palabra STOP, y una imagen no trae
+    // texto: por eso un contacto dado de baja en un mensaje anterior recibía
+    // respuesta igual. Medido el 2026-09-11.
+    //
+    // Se le responde —él inició el contacto mandando un comprobante—, pero con
+    // la coletilla que le recuerda que tiene las notificaciones apagadas.
+    const dadoDeBaja = await estaDadoDeBaja(fila.integration_id, fila.wa_phone_number);
+    const responder = (texto: string) =>
+        sendTextMessage(wa, fila.wa_phone_number, dadoDeBaja ? texto + AVISO_DADO_DE_BAJA : texto);
+
     // 2. ¿Quién es? Un comprobante no identifica a nadie: primero OTP.
     const { data: conv } = await supabase
         .from('whatsapp_conversations')
@@ -170,7 +184,7 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
         .maybeSingle();
 
     if (!conv?.identified || !conv.parent_id) {
-        await sendTextMessage(wa, fila.wa_phone_number, M.noIdentificado);
+        await responder(M.noIdentificado);
         await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'contacto sin identificar' });
         return;
     }
@@ -228,22 +242,46 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
     // 5. ¿Es siquiera un comprobante? Este es el caso del papá que sube el QR de
     //    pago en vez de la transferencia — el error más probable del flujo.
     if (ocr.isReceipt === false) {
-        await sendTextMessage(wa, fila.wa_phone_number, M.noEsComprobante);
+        await responder(M.noEsComprobante);
         await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'no es un comprobante' });
         return;
     }
     if (ocr.isTransactionList === true) {
-        await sendTextMessage(wa, fila.wa_phone_number, M.esListado);
+        await responder(M.esListado);
         await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'listado de movimientos' });
         return;
     }
 
-    // 6. ¿A qué pago va?
+    // 6. ¿El dinero fue siquiera a la escuela?
+    //
+    //    Va ANTES de mirar los pendientes. Si no, alguien que manda un
+    //    comprobante de otra cosa recibe «no tienes cobros pendientes», que es
+    //    cierto pero inútil: lo que necesita saber es que ese pago no llegó a la
+    //    escuela. Caso real del 2026-09-11.
+    //
+    //    Solo se puede afirmar si la escuela TIENE cuentas registradas. Sin
+    //    ellas no hay contra qué comparar y callar es lo correcto — decir «no es
+    //    nuestra cuenta» sin saberlo sería peor que no decir nada.
+    const ctx = await buildVerdictContext(fila.school_id, { referenceNorm: null, imageSha256: null });
+    const cuentas = ctx.registeredAccounts ?? [];
+    const destino = normalizeDestination(ocr.destination);
+    if (destino && cuentas.length > 0 && !cuentas.includes(destino)) {
+        await responder(
+            `Revisé tu comprobante y el dinero se envió a la cuenta *${ocr.destination}*, ` +
+            'que no es ninguna de las cuentas registradas por la escuela.\n\n' +
+            'Verifica la llave o el número antes de volver a transferir, y si ya lo hiciste ' +
+            'escríbele a la escuela para que lo revisen contigo.',
+        );
+        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'destino no es de la escuela' });
+        return;
+    }
+
+    // 7. ¿A qué pago va?
     const pendientes = await pagosPendientesDe(parentId, fila.school_id);
     const match = resolverPago(pendientes, ocr.amount ?? null);
 
     if (match.tipo === 'sin_pendientes') {
-        await sendTextMessage(wa, fila.wa_phone_number, M.sinPendientes);
+        await responder(M.sinPendientes);
         await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'sin pagos pendientes' });
         return;
     }
@@ -255,7 +293,7 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
             : `Recibí tu comprobante por ${cop(ocr.amount ?? 0)}. Parece que cubre estos cobros:\n\n` +
               `${match.pagos.map((p) => `• ${describirPago(p)}`).join('\n')}\n\n` +
               'Respóndeme *sí* para aplicarlo así.';
-        await sendTextMessage(wa, fila.wa_phone_number, texto);
+        await responder(texto);
         await esperarAlUsuario(fila.id);
         return;
     }
@@ -293,7 +331,7 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
             `Recibí tu comprobante y lo apliqué a *${describirPago(pago)}* 📄\n\n` +
             'La escuela lo está revisando y te confirma en poco tiempo.';
     }
-    await sendTextMessage(wa, fila.wa_phone_number, respuesta);
+    await responder(respuesta);
 
     await cerrar(fila.id, 'done', {
         result_type: 'payment_receipt',
