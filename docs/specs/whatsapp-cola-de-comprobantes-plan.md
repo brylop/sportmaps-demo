@@ -13,6 +13,99 @@ proveedores de IA. Los cambios de fondo están marcados con ⟳.
 
 ---
 
+## 0. Estado — CONSTRUIDO Y VALIDADO EN VIVO (2026-09-11)
+
+Este plan ya se ejecutó. Lo que sigue queda como el porqué de cada decisión;
+para el estado real, esta sección manda.
+
+| Pieza | Commit |
+|---|---|
+| Migración de la cola (permisos, FK compuesta, estados) | `29d7066a` |
+| `wa_queue_claim` — claim atómico con lease y SKIP LOCKED | `6834c3fc` |
+| Webhook que encola + columna `media_id` | `1b4297c7` |
+| Worker: baja, guarda, lee, aplica y responde | `84b019f3` |
+| Respetar la baja + avisar destino ajeno | `de035e8d` |
+| El worker registra lo que responde | `fabcd1e4` |
+| El worker computa y persiste el veredicto | `0482f3dd` |
+| El comprobante repetido se responde, no se reintenta | `2dead3b7` |
+| Responder a las notas de voz | `c9bfcaec` |
+
+El webhook dejó de apuntar a ngrok: ahora va a
+`https://bffdev.sportmaps.co/api/v1/webhooks/whatsapp` (paso 4 del App Review).
+
+### Verificado con mensajes reales
+
+| Caso | Resultado |
+|---|---|
+| Comprobante válido | aplicado en 16 s, `awaiting_approval`, nombrando el cobro |
+| Comprobante repetido | NO se aplica dos veces; dice a qué pago quedó la plata |
+| QR de pago en vez del comprobante | mensaje que explica qué mandar en su lugar |
+| Nota de voz | respuesta en 1 s |
+| Sin cobros pendientes / sin identificar | mensaje correcto |
+| Fila atascada con lease vencido | se rescató sola, sin intervención |
+| Reintento de Meta | un solo acuse (verificado 1, 0, 0) |
+| `anon` y `authenticated` sobre la cola | `42501 permission denied` |
+| **Destino que no es de la escuela** | ⏳ sin ejercitar: falta un comprobante a otra cuenta |
+
+### Cuatro bugs que solo aparecieron mandando mensajes reales
+
+Ninguno se veía leyendo el código, y los cuatro estaban en código que yo mismo
+había escrito y dado por bueno.
+
+1. **La baja se miraba como evento, nunca como estado.** La ingesta marca
+   `opted_out` solo si el mensaje trae la palabra STOP; una imagen no trae texto.
+   Seis mensajes automáticos salieron después de una baja.
+2. **El worker no registraba sus respuestas.** Usaba `sendTextMessage` pelado,
+   sin `wa_record_outbound_message`: la escuela veía la foto del papá y ninguna
+   respuesta del bot sobre su plata.
+3. **El veredicto quedaba en `null`.** `evaluatePaymentReceipt` no lo computa
+   con el auto-approve apagado — lo asume ya persistido por `/extract-receipt`,
+   por donde el worker no pasa. Revisión a ciegas y, peor, sin la defensa
+   antiduplicado.
+4. **El duplicado no respondía y reintentaba.** El 23505 del UNIQUE
+   `(school_id, ocr_reference)` se clasificó como transitorio: el papá no recibía
+   nada y la fila giraba cinco veces pagando OCR.
+
+### Lo que sigue pendiente
+
+- **El inbox de la escuela.** Las filas `failed` e `ignored` se acumulan y hoy
+  NADIE las ve. Por eso sigue en pie: no habilitar esto con tráfico real de una
+  escuela antes de la fase 4.
+- **El chequeo del comprobante adulterado** (§9).
+- Los cuatro intents que faltan: el bot solo tiene `get_payment_status` y
+  `escalate_to_human`, así que todo lo demás escala a un humano.
+- Datos de prueba a limpiar: en *Escuela Pruebas* quedaron dos cobros con
+  "PRUEBA WhatsApp" en el concepto y un `nequi_number` cargado.
+
+---
+
+## 9. ⟳ El comprobante adulterado — medido, sin construir
+
+Pregunta abierta del 2026-09-11: ¿y si editan el número de aprobación de la
+imagen y lo reenvían? **Hoy pasa.** El hash cambia, la referencia cambia, y el
+monto, la fecha y el destino siguen siendo válidos; ninguno de los diez códigos
+de veredicto lo mira.
+
+Medición sobre los 389 pagos con OCR:
+
+| Regla candidata | Pagos marcados | |
+|---|---|---|
+| mismo monto + fecha + destino | **166** (43%) | inservible: son familias pagando lo mismo el mismo día |
+| **+ mismo acudiente** | **10** (2,6%) | viable como AMARILLO |
+
+Propuesta: mismo acudiente, escuela, monto, fecha y destino con referencia
+distinta → **amarillo**, nunca rojo. No prueba fraude — un papá con dos hijos
+hace exactamente eso de forma legítima.
+
+**El límite hay que decirlo:** mirando la imagen no se puede saber. La única
+verdad de campo es el extracto bancario — el banco muestra UN movimiento y
+nosotros tendríamos DOS pagos reclamándolo. Eso lo cierra la conciliación, que
+hoy no opera (883 pagos por $156,9 M sin conciliar).
+
+NO se recomienda preguntarle al modelo «¿esta imagen parece editada?»: da falsos
+positivos con capturas comprimidas, falsos negativos con ediciones prolijas, y
+genera confianza falsa en quien revisa.
+
 ## 1. Lo que ya está construido
 
 | | |
