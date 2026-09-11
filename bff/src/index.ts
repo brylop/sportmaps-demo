@@ -5,7 +5,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
 import pinoHttp from 'pino-http';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import path from 'path';
 
 // Cargar variables de entorno PRIMERO, antes de cualquier import que las use
@@ -154,7 +154,7 @@ const cardAlterLimiter = rateLimit({
     legacyHeaders: false,
     keyGenerator: (req) => {
         const userId = (req as any).user?.id;
-        return userId ? `card-alter-user-${userId}` : `card-alter-ip-${req.ip}`;
+        return userId ? `card-alter-user-${userId}` : `card-alter-ip-${ipKeyGenerator(req.ip ?? '')}`;
     },
     message: { error: 'Demasiadas operaciones sobre tus tarjetas guardadas. Intenta en 1 hora.' },
 });
