@@ -31,7 +31,7 @@ import {
     type WhatsAppIntegration,
     type ParsedInboundMessage,
 } from '../services/whatsapp.service';
-import { runBotTurn } from '../services/whatsapp-bot.service';
+import { runBotTurn, deliver } from '../services/whatsapp-bot.service';
 import { encolarAdjunto } from '../services/whatsapp-queue.service';
 
 const router = Router();
@@ -183,6 +183,23 @@ async function handleBotTurn(
             return 'error' as const;
         });
         req.log?.info({ conversationId, resultado }, 'WhatsApp: adjunto entrante');
+        return;
+    }
+
+    // Audio y video NO se pueden procesar, pero callarse es peor: el acudiente
+    // manda una nota de voz preguntando algo y se queda esperando una respuesta
+    // que nunca llega. Antes caían en el `return` de abajo, en silencio.
+    //
+    // Los stickers y las reacciones sí se ignoran: son ruido social, no una
+    // pregunta, y responderles sería molesto.
+    if (msg.type === 'audio' || msg.type === 'video') {
+        const texto = msg.type === 'audio'
+            ? 'No puedo escuchar notas de voz 🙊 Escríbeme el mensaje y te ayudo. Y si es un ' +
+              'comprobante de pago, mándame la *foto* o el *PDF* que te da el banco.'
+            : 'No puedo ver videos. Si es un comprobante de pago, mándame la *foto* o el *PDF* ' +
+              'que te da el banco y lo valido enseguida.';
+        await deliver(integration, conversationId, msg.contactWaId, texto, { step: `tipo_no_soportado_${msg.type}` })
+            .catch((err) => req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: no se pudo responder al tipo no soportado'));
         return;
     }
 

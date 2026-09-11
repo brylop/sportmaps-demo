@@ -421,7 +421,14 @@ async function handleIntent(
 
 // ─── Entrega: modo asistido (draft) vs auto (envío) ────────────────────────────
 
-async function deliver(
+/**
+ * Embudo UNICO de todo lo que el bot le dice al acudiente: respeta el modo
+ * (auto envia, asistido deja borrador), registra el saliente y agrega la
+ * coletilla de baja cuando corresponde. Exportada para que el webhook pueda
+ * responder a los tipos que el bot no procesa (audio, video) sin duplicar nada
+ * de eso.
+ */
+export async function deliver(
     integration: WhatsAppIntegration,
     conversationId: string,
     contactWaId: string,
