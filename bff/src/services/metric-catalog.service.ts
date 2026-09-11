@@ -33,11 +33,16 @@ export interface MetricDefinition {
   max_value: number | null;
   higher_is_better: boolean;
   is_active: boolean;
+  /** Cómo agrega el informe mensual mediciones de sesión (spec evaluacion-post-entrenamiento.md §3.1/§3.4). */
+  aggregation: 'latest' | 'avg' | 'distribution' | 'count';
+  /** Opciones de valor fijo, [{value,label}], o null en métricas numéricas puras. */
+  options: { value: number; label: string }[] | null;
+  required: boolean;
   thresholds: MetricThreshold[];
 }
 
 const DEFINITION_COLUMNS =
-  'id, metric_key, display_name, parent_label, parent_hint, data_type, unit, category, subcategory, min_value, max_value, higher_is_better, is_active';
+  'id, metric_key, display_name, parent_label, parent_hint, data_type, unit, category, subcategory, min_value, max_value, higher_is_better, is_active, aggregation, options, required';
 
 const VALID_BANDS: Band[] = ['green', 'yellow', 'red'];
 
