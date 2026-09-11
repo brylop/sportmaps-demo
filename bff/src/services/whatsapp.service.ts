@@ -221,6 +221,30 @@ export async function sendTextMessage(
     }
 }
 
+/**
+ * Traduce Markdown estandar al formato de WhatsApp.
+ *
+ * WhatsApp usa UN asterisco para negrita (*asi*), no dos. Un LLM entrenado en
+ * Markdown escribe `**Concepto:**` por defecto y al acudiente le llegan los
+ * asteriscos literales. Visto el 2026-09-11 en una respuesta real.
+ *
+ * Se hace por conversion y no solo pidiendoselo al prompt: una instruccion es
+ * una sugerencia, esto es una garantia. El prompt igual lo pide, para que el
+ * modelo no gaste tokens en algo que despues hay que deshacer.
+ */
+export function aFormatoWhatsApp(texto: string): string {
+    return texto
+        // **negrita** y __negrita__ -> *negrita*
+        .replace(/\*\*(.+?)\*\*/gs, '*$1*')
+        .replace(/__(.+?)__/gs, '*$1*')
+        // Encabezados de Markdown: WhatsApp no los tiene.
+        .replace(/^#{1,6}\s*(.+)$/gm, '*$1*')
+        // [texto](url) -> texto (url), que es lo unico que WhatsApp puede mostrar
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '$1 ($2)')
+        // Vinetas de Markdown a un caracter que WhatsApp no interpreta
+        .replace(/^\s*[-*]\s+/gm, '• ');
+}
+
 // ─── Bajada de archivos (comprobantes) ───────────────────────────────────────
 
 export interface MediaDownloadResult {

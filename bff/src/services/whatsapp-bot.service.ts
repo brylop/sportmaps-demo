@@ -33,7 +33,7 @@ import crypto from 'crypto';
 import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
 import { chatWithTools, type LlmTool, type LlmMessage } from './llm.service';
-import { sendTextMessage, type WhatsAppIntegration } from './whatsapp.service';
+import { sendTextMessage, aFormatoWhatsApp, type WhatsAppIntegration } from './whatsapp.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
 
 const OTP_TTL_MIN = 10;
@@ -328,7 +328,11 @@ Reglas estrictas:
 - NUNCA inventes datos. Si necesitas información de pagos, USA la herramienta get_payment_status.
 - Si no puedes ayudar o piden algo fuera de tu alcance, usa escalate_to_human.
 - No pidas datos personales ni el email otra vez (ya está identificado).
-- Formatea montos en pesos colombianos y fechas en formato legible.`;
+- Formatea montos en pesos colombianos y fechas en formato legible.
+- Formato de WhatsApp, NO Markdown: negrita con UN asterisco (*asi*), cursiva con _asi_.
+  Nunca uses ** ni ## ni tablas ni enlaces [texto](url): WhatsApp los muestra literales.
+- No ofrezcas nada que no puedas hacer. Solo sabes consultar pagos y pasar a un humano;
+  no ofrezcas "medios de pago", agendar, ni enviar documentos.`;
 
 const TOOLS: LlmTool[] = [
     {
@@ -460,7 +464,8 @@ export async function deliver(
     const PASOS_DE_CONSENTIMIENTO = [
         'opt_out_confirmado', 'opt_in_confirmado', 'opt_in_reactivado', 'ask_consent',
     ];
-    let texto = proposedText;
+    // WhatsApp usa UN asterisco para negrita; el modelo escribe Markdown estandar.
+    let texto = aFormatoWhatsApp(proposedText);
     if (!PASOS_DE_CONSENTIMIENTO.includes(String((context as any)?.step ?? ''))
         && await estaDadoDeBaja(integration.id, contactWaId)) {
         texto += AVISO_DADO_DE_BAJA;

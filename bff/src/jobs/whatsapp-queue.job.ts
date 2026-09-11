@@ -21,7 +21,7 @@
 
 import crypto from 'node:crypto';
 import { supabase } from '../config/supabase';
-import { downloadMedia, sendTextMessage, type WhatsAppIntegration } from '../services/whatsapp.service';
+import { downloadMedia, sendTextMessage, aFormatoWhatsApp, type WhatsAppIntegration } from '../services/whatsapp.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from '../services/whatsapp-optin.service';
 import { extractReceipt } from '../services/ocr.service';
 import { buildVerdictContext } from '../services/receipt-context.service';
@@ -185,7 +185,7 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
      * no puede pasar: la ingesta la crea antes de encolar.
      */
     const responder = async (texto: string, paso: string) => {
-        const final = dadoDeBaja ? texto + AVISO_DADO_DE_BAJA : texto;
+        const final = aFormatoWhatsApp(dadoDeBaja ? texto + AVISO_DADO_DE_BAJA : texto);
         const enviado = await sendTextMessage(wa, fila.wa_phone_number, final);
         if (conversationId) {
             await supabase.rpc('wa_record_outbound_message', {
