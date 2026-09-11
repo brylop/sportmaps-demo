@@ -122,9 +122,63 @@ async function extractWithGroq(base64Image: string, mimeType: string): Promise<O
 // ─────────────────────────────────────────────────────────────────────────────
 // OPENAI — GPT-4o-mini (fallback 1)
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * OpenAI con un PDF: va por `/v1/responses` con `input_file`, NO por
+ * `chat/completions`.
+ *
+ * `chat/completions` recibe el archivo como `image_url` y responde
+ * `400 Invalid MIME type. Only image types are supported.` — no es que OpenAI no
+ * lea PDFs, es que ese endpoint no los acepta. Verificado el 2026-09-11 con un
+ * comprobante real: mismo PDF, 400 por chat/completions y extracción completa
+ * (monto, fecha, banco, referencia, destino) por `/v1/responses`.
+ *
+ * Importa tener las dos vías porque `evaluatePaymentReceipt` exige que DOS
+ * proveedores distintos coincidan para auto-aprobar. Si OpenAI no puede leer
+ * PDFs, todo comprobante en PDF cae a revisión manual aunque sea perfecto.
+ */
+async function extractOpenAIPdf(apiKey: string, base64Pdf: string): Promise<OcrResult> {
+    const res = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        signal: AbortSignal.timeout(30_000),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            temperature: 0,
+            instructions: SYSTEM_PROMPT,
+            input: [{
+                role: 'user',
+                content: [
+                    { type: 'input_file', filename: 'comprobante.pdf', file_data: `data:application/pdf;base64,${base64Pdf}` },
+                    { type: 'input_text', text: USER_PROMPT },
+                ],
+            }],
+        }),
+    });
+
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`OpenAI responses error ${res.status}: ${errText.slice(0, 200)}`);
+    }
+
+    const json: any = await res.json();
+    // `output_text` es el atajo del SDK; por HTTP crudo puede no venir, así que
+    // se arma desde `output[].content[].text`.
+    const content: string =
+        json.output_text
+        ?? (json.output ?? [])
+            .flatMap((o: any) => o.content ?? [])
+            .map((c: any) => c.text)
+            .filter(Boolean)
+            .join('')
+        ?? '';
+    return parseLlmJson(content, 'openai');
+}
+
 async function extractWithOpenAI(base64Image: string, mimeType: string): Promise<OcrResult> {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OPENAI_API_KEY no configurada');
+
+    if (mimeType === 'application/pdf') return extractOpenAIPdf(apiKey, base64Image);
 
     const dataUrl = `data:${mimeType};base64,${base64Image}`;
 
@@ -283,6 +337,23 @@ function groqPuedeVer(): boolean {
     return Boolean(process.env.GROQ_OCR_MODEL);
 }
 
+/**
+ * ¿Este proveedor sabe leer este tipo de archivo?
+ *
+ * Con PDF quedan Gemini (nativo) y OpenAI (por `/v1/responses`, ver
+ * `extractOpenAIPdf`). Groq no: su endpoint es compatible con OpenAI pero solo
+ * `chat/completions`, que responde `400 Invalid MIME type. Only image types are
+ * supported.` — y ese 400 es PERMANENTE, así que gastar un intento en él solo
+ * ensucia el log y retrasa la lectura.
+ *
+ * Varios bancos colombianos exportan el comprobante en PDF, así que no es un
+ * caso de borde: es la mitad de lo que llega.
+ */
+function proveedorSoportaMime(provider: string, mimeType: string): boolean {
+    if (mimeType !== 'application/pdf') return true;
+    return provider === 'gemini' || provider === 'openai';
+}
+
 export async function extractReceipt(base64Image: string, mimeType: string = 'image/png'): Promise<OcrResult> {
     // Default gemini (antes groq, que hoy da 404 al modelo de vision).
     const order = (process.env.OCR_PROVIDER || 'gemini').toLowerCase();
@@ -295,8 +366,15 @@ export async function extractReceipt(base64Image: string, mimeType: string = 'im
 
     const tryOrder = [order, 'gemini', 'openai', 'groq']
         .filter((v, i, a) => a.indexOf(v) === i && providers[v])
-        .filter((v) => v !== 'groq' || groqPuedeVer());
+        .filter((v) => v !== 'groq' || groqPuedeVer())
+        .filter((v) => proveedorSoportaMime(v, mimeType));
     // (el orden de respaldo ya tenia gemini primero; solo cambio el default de `order`)
+
+    if (tryOrder.length === 0) {
+        // Mejor un error que nombra el problema que el 400 del primer proveedor
+        // que no sabe leerlo.
+        throw new Error(`Ningun proveedor de OCR configurado soporta ${mimeType}`);
+    }
 
     let lastErr: Error | null = null;
     for (const name of tryOrder) {
@@ -364,7 +442,9 @@ export async function extractReceiptWithFallback(
     base64Image: string,
     mimeType: string = 'image/png',
 ): Promise<{ provider: OcrProvider; result: OcrResult } | null> {
-    for (const provider of candidates) {
+    // Mismo filtro que `extractReceipt`: con un PDF, OpenAI y Groq devuelven un
+    // 400 permanente, y gastar un intento en ellos solo ensucia el log.
+    for (const provider of candidates.filter((p) => proveedorSoportaMime(p, mimeType))) {
         try {
             const result = await extractReceiptWith(provider, base64Image, mimeType);
             return { provider, result };

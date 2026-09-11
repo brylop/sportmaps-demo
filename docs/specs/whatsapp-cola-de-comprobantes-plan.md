@@ -24,19 +24,47 @@ proveedores de IA. Los cambios de fondo están marcados con ⟳.
 | **PDF de punta a punta** | ✅ ⟳ verificado hoy: Gemini extrae monto, fecha, referencia y destino de un PDF en 1.7 s. Varios bancos exportan así |
 | **La tabla `whatsapp_inbound_queue`** | ⚠️ existe en la base, **sin migración** |
 
-### 1.1 ⟳ Un dato que cambia el diseño: el OCR tiene un solo proveedor vivo
+### 1.1 ⟳ El doble lector estaba roto, y eso explica el trabajo manual
 
-Al reparar los proveedores (commit `09095b42`) quedó a la vista que la cadena de
-OCR es **Gemini y nada más**:
+`evaluatePaymentReceipt` exige que **dos proveedores distintos coincidan** en
+monto y referencia para auto-aprobar. Si no hay segundo lector, la línea es
+explícita: `// Sin 2º provider no se puede confirmar → no auto-aprueba (manual).`
 
-- **Groq** no puede leer imágenes: la cuenta tiene 14 modelos y **ninguno de
-  visión**. Salió de la cadena.
-- **OpenAI** tiene la llave válida y el modelo existe, pero la cuenta está **sin
-  saldo** — devuelve `429 no credits remaining` al pedirle una extracción real.
+Y no había segundo lector. Groq se cayó (404, sin modelos de visión) y OpenAI
+estaba sin saldo, así que quedaba solo Gemini. El efecto, medido:
 
-Consecuencia para este plan, y no es menor: **una caída de Gemini no puede
-rechazar un comprobante.** Si el OCR no está disponible, la fila espera y
-reintenta; jamás produce un veredicto. Esto se detalla en §4.4.
+| | |
+|---|---|
+| Comprobantes con veredicto **verde** | **180** |
+| De esos, **auto-aprobados** | **3** |
+
+177 comprobantes perfectos aprobados a mano, uno por uno. No era un problema de
+criterio: era que no había con quién contrastar.
+
+**Con OpenAI ya con saldo (verificado el 2026-09-11) el doble lector revive.**
+
+### 1.2 ⟳ Lo que cuesta cada lectura, medido
+
+| Entrada | Vía | Tokens de entrada |
+|---|---|---|
+| Imagen (PNG/JPEG) | `chat/completions` + `image_url` | **25.535** |
+| PDF con capa de texto | `/v1/responses` + `input_file` | **115** |
+
+Dos consecuencias de diseño:
+
+- En dinero da igual (gasto real medido: **$0,01** por 79 mil tokens). Lo que
+  aprieta es el **límite de 60.000 tokens por minuto** de la organización: son
+  **~2 comprobantes en imagen por minuto** por OpenAI. El worker tiene que
+  tolerar el 429, que §4.4 ya clasifica como transitorio.
+- Un PDF **escaneado** (sin capa de texto) se cobra como imagen, no como los 115
+  tokens de arriba. La medición se hizo con un PDF generado digitalmente.
+
+### 1.3 ⟳ La regla que sobrevive: el OCR caído nunca rechaza
+
+Aunque vuelva a haber dos lectores, **una caída del OCR no puede rechazar un
+comprobante**. Si no se pudo leer, la fila espera y reintenta; jamás produce un
+veredicto. Confundir "no pude leer" con "no es válido" rechazaría pagos buenos en
+masa. Se detalla en §4.4.
 
 ---
 
@@ -431,8 +459,11 @@ advertirlo en la pantalla de subida, antes de enviar.
 - No construye el inbox. Las filas `failed` e `ignored` se acumulan hasta que exista;
   conviene no habilitar esto con tráfico real de una escuela antes de la fase 4.
 - No toca Wompi: la opción B sigue bloqueada por `school_payment_providers`.
-- ⟳ No resuelve el proveedor único de OCR. Mientras OpenAI no tenga saldo, Gemini
-  es un punto único de falla; el plan lo *tolera* (§4.4), no lo elimina.
+- ⟳ No sube el límite de 60.000 tokens/minuto de OpenAI (§1.2). El worker lo
+  *tolera* reintentando; si el volumen crece, hay que pedir aumento de cuota o
+  mandar las imágenes a un modelo con menor conteo de tokens de imagen.
+- ⟳ No resuelve los PDF escaneados, que se cobran como imagen y además pueden
+  leerse peor. Las fichas escaneadas son otro caso de uso, no este.
 
 ## 8. Fuentes
 
