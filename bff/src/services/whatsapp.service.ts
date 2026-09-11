@@ -221,6 +221,103 @@ export async function sendTextMessage(
     }
 }
 
+// ─── Bajada de archivos (comprobantes) ───────────────────────────────────────
+
+export interface MediaDownloadResult {
+    ok: boolean;
+    /** contenido en base64, listo para extractReceipt() */
+    base64?: string;
+    mimeType?: string;
+    /** sha256 que reporta Meta; sirve para detectar el mismo comprobante repetido */
+    sha256?: string;
+    sizeBytes?: number;
+    error?: string;
+}
+
+/**
+ * Lo que se acepta como comprobante. Todo lo demás se rechaza ANTES de bajarlo:
+ * un video de 50 MB no tiene por qué pasar por la red ni por el OCR.
+ */
+const MEDIA_MIME_PERMITIDOS = new Set([
+    'image/jpeg', 'image/png', 'image/webp', 'application/pdf',
+]);
+const MEDIA_MAX_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Baja un archivo que el padre mandó por WhatsApp. Son DOS saltos:
+ *
+ *   1. GET /{media_id}  → devuelve { url, mime_type, sha256, file_size }
+ *   2. GET esa url      → el binario
+ *
+ * La trampa está en el paso 2: esa URL es temporal y **exige el header de
+ * autorización igual que el paso 1**. Sin él responde 401, y como la URL
+ * "parece" pública es el error natural al implementarlo.
+ *
+ * No lanza: devuelve `{ ok: false, error }`, igual que sendTextMessage.
+ */
+export async function downloadMedia(
+    integration: WhatsAppIntegration,
+    mediaId: string,
+): Promise<MediaDownloadResult> {
+    if (!integration.access_token_encrypted) {
+        return { ok: false, error: 'integration_without_token' };
+    }
+    let token: string;
+    try {
+        token = decryptToken(integration.access_token_encrypted);
+    } catch {
+        return { ok: false, error: 'token_decrypt_failed' };
+    }
+
+    try {
+        // 1. Metadatos
+        const metaRes = await fetch(`${GRAPH_BASE_URL}/${mediaId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        const meta: any = await metaRes.json().catch(() => ({}));
+        if (!metaRes.ok) {
+            return { ok: false, error: meta?.error?.message || `graph_media_${metaRes.status}` };
+        }
+
+        const mimeType: string = String(meta?.mime_type || '').split(';')[0].trim();
+        const declarado = Number(meta?.file_size || 0);
+
+        if (!MEDIA_MIME_PERMITIDOS.has(mimeType)) {
+            return { ok: false, error: `mime_no_soportado:${mimeType || 'desconocido'}` };
+        }
+        if (declarado > MEDIA_MAX_BYTES) {
+            return { ok: false, error: `archivo_muy_grande:${declarado}` };
+        }
+        if (!meta?.url) {
+            return { ok: false, error: 'media_sin_url' };
+        }
+
+        // 2. El binario. El header de autorización es obligatorio también aquí.
+        const binRes = await fetch(String(meta.url), {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!binRes.ok) {
+            return { ok: false, error: `descarga_${binRes.status}` };
+        }
+        const buf = Buffer.from(await binRes.arrayBuffer());
+
+        // Se vuelve a medir: el file_size declarado no es de fiar.
+        if (buf.byteLength > MEDIA_MAX_BYTES) {
+            return { ok: false, error: `archivo_muy_grande:${buf.byteLength}` };
+        }
+
+        return {
+            ok: true,
+            base64: buf.toString('base64'),
+            mimeType,
+            sha256: meta?.sha256 ? String(meta.sha256) : undefined,
+            sizeBytes: buf.byteLength,
+        };
+    } catch (err: any) {
+        return { ok: false, error: err?.message || 'network_error' };
+    }
+}
+
 /**
  * Marca un mensaje entrante como leído (check azul). Best-effort, no bloquea.
  */
@@ -260,6 +357,12 @@ export interface ParsedInboundMessage {
     type: string;
     textBody: string | null;
     waTimestamp: string;       // ISO
+    /** id del archivo en Meta (image/document/audio/video). Hay que bajarlo aparte. */
+    mediaId: string | null;
+    /** mime que reporta Meta en el webhook (el definitivo viene al bajar el archivo). */
+    mediaMimeType: string | null;
+    /** texto que el usuario escribió junto a la imagen, si lo hubo. */
+    mediaCaption: string | null;
     raw: any;
 }
 
@@ -292,6 +395,14 @@ export function parseInboundMessages(body: any): ParsedInboundMessage[] {
                         || m?.interactive?.list_reply?.title
                         || null;
                 }
+                // Los tipos con archivo traen el id del media en su propio nodo
+                // (m.image.id, m.document.id…), no en un campo común.
+                const mediaNode = m?.[type];
+                const conArchivo = ['image', 'document', 'audio', 'video', 'sticker'].includes(type);
+                const mediaId: string | null = conArchivo ? (mediaNode?.id ?? null) : null;
+                const mediaMimeType: string | null = conArchivo ? (mediaNode?.mime_type ?? null) : null;
+                const mediaCaption: string | null = conArchivo ? (mediaNode?.caption ?? null) : null;
+
                 const epoch = Number(m?.timestamp || 0);
                 out.push({
                     phoneNumberId,
@@ -301,6 +412,9 @@ export function parseInboundMessages(body: any): ParsedInboundMessage[] {
                     type,
                     textBody,
                     waTimestamp: epoch ? new Date(epoch * 1000).toISOString() : new Date().toISOString(),
+                    mediaId,
+                    mediaMimeType,
+                    mediaCaption,
                     raw: m,
                 });
             }
