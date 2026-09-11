@@ -32,6 +32,7 @@ import {
     type ParsedInboundMessage,
 } from '../services/whatsapp.service';
 import { runBotTurn } from '../services/whatsapp-bot.service';
+import { encolarAdjunto } from '../services/whatsapp-queue.service';
 
 const router = Router();
 
@@ -155,8 +156,9 @@ async function processInboundMessage(req: Request, msg: ParsedInboundMessage): P
  *  - Gemini (fallback DeepSeek) con function-calling sobre los intents
  *  - modo asistido (draft para aprobación) vs auto (envía directo)
  *
- * Solo procesa mensajes de texto por ahora; tipos ricos (imagen, audio…) se
- * ignoran en el bot pero ya quedaron guardados por la ingesta.
+ * Los adjuntos (imagen, PDF) NO los atiende el bot: se encolan y los procesa el
+ * worker. El resto de tipos ricos (audio, video, sticker) se ignoran en el bot
+ * pero ya quedaron guardados por la ingesta.
  */
 async function handleBotTurn(
     req: Request,
@@ -165,6 +167,27 @@ async function handleBotTurn(
     msg: ParsedInboundMessage,
     optedOut = false,
 ): Promise<void> {
+    // Un adjunto es, casi siempre, un comprobante. Se encola y el webhook
+    // termina: procesarlo acá no es una opción porque el OCR tarda segundos y
+    // Meta reintenta si no respondemos rápido.
+    //
+    // Va ANTES del filtro de tipo textual — si no, cae en el `return` de abajo y
+    // el archivo se pierde.
+    if (msg.type === 'image' || msg.type === 'document') {
+        // A quien pidió la baja no se le responde nada salvo la confirmación de
+        // la baja, que ya mandó la ingesta.
+        if (optedOut) {
+            req.log?.info({ conversationId }, 'WhatsApp: adjunto de un contacto dado de baja, se ignora');
+            return;
+        }
+        const resultado = await encolarAdjunto(integration, msg, req.log).catch((err) => {
+            req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: encolarAdjunto explotó');
+            return 'error' as const;
+        });
+        req.log?.info({ conversationId, resultado }, 'WhatsApp: adjunto entrante');
+        return;
+    }
+
     if (msg.type !== 'text' && msg.type !== 'interactive' && msg.type !== 'button') {
         req.log?.info({ conversationId, type: msg.type }, 'WhatsApp: tipo no textual, bot no responde');
         return;
