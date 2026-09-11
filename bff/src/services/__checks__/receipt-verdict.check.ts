@@ -7,7 +7,7 @@
  */
 import assert from 'node:assert';
 import type { OcrResult } from '../ocr.service';
-import { evaluateVerdict, normalizeReference, REFERENCE_PATTERNS } from '../receipt-verdict';
+import { evaluateVerdict, normalizeReference, clasificarReferencia } from '../receipt-verdict';
 
 const TODAY = '2026-07-17';
 
@@ -42,10 +42,70 @@ console.log('receipt-verdict checks:');
 
 // #9 — referencia Nequi "M09743655" pasa el check de formato.
 check('#9 Nequi "M09743655" matchea patrón (sin FORMATO_REFERENCIA)', () => {
-    assert.ok(REFERENCE_PATTERNS.Nequi.test('M09743655'));
+    assert.ok(clasificarReferencia('M09743655').ok);
     const r = evaluateVerdict(ocr(), { today: TODAY, expectedAmount: 150000 });
     assert.equal(r.verdict, 'verde', `esperaba verde, dio ${r.verdict}: ${JSON.stringify(r.reasons)}`);
     assert.ok(!r.reasons.some((x) => x.code === 'FORMATO_REFERENCIA'));
+});
+
+// Calibración 2026-09-11: formas tomadas de comprobantes reales de la base.
+// Si alguna de estas vuelve a fallar, volvimos a glosar comprobantes buenos.
+check('#9 las formas reales observadas se reconocen', () => {
+    const reales: [string, string][] = [
+        ['M00944183', 'app_nequi'],                                   // 86 casos
+        ['M1338970', 'app_nequi'],                                    // letra + 7 dígitos
+        ['TRcjXnMoooEC', 'breb_trec'],                                // Bre-B / Transfiya
+        ['10007461150366217313585571635943677', 'riel_largo'],        // 35 dígitos del riel
+        ['1d88d01d-01d1-4ca1-8f13-c399ecf44007', 'uuid'],             // Davivienda
+        ['1d0078924bf1', 'hex12'],
+        ['93LDJV4LNT', 'codigo10'],
+        ['APIU6249326017491581', 'apiu'],
+        ['11494938', 'numerico'],
+        ['178550921349762', 'numerico'],
+        ['20260803901383474SRV001785778599258', 'mixto_srv'],
+    ];
+    for (const [ref, forma] of reales) {
+        const c = clasificarReferencia(ref);
+        assert.ok(c.ok, `"${ref}" deberia reconocerse y dio ${JSON.stringify(c)}`);
+        assert.equal(c.forma, forma, `"${ref}" clasifico como ${c.forma}, esperaba ${forma}`);
+    }
+});
+
+// Lo único que sigue siendo problema: lectura cortada y número imposible.
+check('#9 el UUID truncado se marca como lectura cortada, no como otro formato', () => {
+    const c = clasificarReferencia('0e8b59a0-ee8f-4a59-adb5-0069bf556'); // 33, deberian ser 36
+    assert.ok(!c.ok);
+    assert.equal(c.problema, 'truncada');
+});
+
+check('#9 una referencia de 4 caracteres es implausible', () => {
+    const c = clasificarReferencia('0543');
+    assert.ok(!c.ok);
+    assert.equal(c.problema, 'muy_corta');
+});
+
+// El cambio de fondo: desconocido ya NO es glosa.
+check('#9 un formato desconocido pero plausible NO genera FORMATO_REFERENCIA', () => {
+    const c = clasificarReferencia('ZX-9981-QQ-4417-BB');
+    assert.ok(!c.ok);
+    assert.equal(c.problema, 'desconocida');
+    const r = evaluateVerdict(ocr({ reference: 'ZX-9981-QQ-4417-BB' }), { today: TODAY, expectedAmount: 150000 });
+    assert.ok(
+        !r.reasons.some((x) => x.code === 'FORMATO_REFERENCIA'),
+        `un formato nuevo no es evidencia de nada: ${JSON.stringify(r.reasons)}`,
+    );
+});
+
+// El banco declarado no debe decidir: Bancolombia con referencia forma Bre-B.
+check('#9 el banco declarado no cambia el resultado', () => {
+    const r = evaluateVerdict(
+        ocr({ bank: 'Bancolombia', reference: 'TRMgzmmFhKEC' }),
+        { today: TODAY, expectedAmount: 150000 },
+    );
+    assert.ok(
+        !r.reasons.some((x) => x.code === 'FORMATO_REFERENCIA'),
+        `medido en la base: Bancolombia trae referencias forma Bre-B: ${JSON.stringify(r.reasons)}`,
+    );
 });
 
 // Caso limpio → VERDE.
