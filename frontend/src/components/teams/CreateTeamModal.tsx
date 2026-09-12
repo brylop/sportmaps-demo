@@ -378,6 +378,33 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
         try {
             setCreating(true);
 
+            // Evita el duplicado silencioso: un coach que no ve confirmación
+            // clara reabre el modal y vuelve a crear el mismo equipo (pasó en
+            // Carmel: 3 equipos "Categoria 2018-19" creados 10s aparte). Si ya
+            // existe uno activo con el mismo nombre en la escuela, se avisa en
+            // vez de insertar otra fila igual.
+            if (!team?.id) {
+                const { data: duplicados, error: dupError } = await supabase
+                    .from('teams')
+                    .select('id')
+                    .eq('school_id', schoolId)
+                    .eq('status', 'active')
+                    .ilike('name', formData.name.trim())
+                    .limit(1);
+
+                if (dupError) throw dupError;
+
+                if (duplicados && duplicados.length > 0) {
+                    toast({
+                        title: 'Ya existe un equipo con este nombre',
+                        description: 'Revisa la lista de equipos antes de crear otro: puede que ya se haya guardado. Si es un grupo distinto, usa un nombre que lo diferencie (ej. la sede o el año).',
+                        variant: 'destructive',
+                    });
+                    setCreating(false);
+                    return;
+                }
+            }
+
             const teamData = {
                 name: formData.name,
                 description: formData.description,
