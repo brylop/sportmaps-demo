@@ -674,8 +674,17 @@ export function getNavigationByRole(
           },
           { title: 'Constancias', href: '/certificates', icon: FileCheck2, moduleKey: 'documentos_constancias' },
           { title: 'QR de Inscripción', href: '/qr-signup', icon: QrCode, moduleKey: 'documentos_qr_inscripcion' },
-          // Movidos acá desde "Finanzas": son comunicación con la familia, no
-          // operación de dinero.
+        ]
+      },
+      {
+        // Espejo del arbol `school`. Este arbol es una copia aparte y el
+        // refactor que saco "Recordatorios" y "Plantillas" de "Documentos e
+        // Identidad" para juntarlos con WhatsApp solo se aplico alla: el
+        // school_admin se quedo sin el canal de WhatsApp, aunque la ruta
+        // siempre lo dejo entrar. Si se toca un arbol, tocar el otro.
+        title: 'Comunicación',
+        items: [
+          { title: 'WhatsApp', href: '/whatsapp', icon: MessageSquare, moduleKey: 'comunicacion_whatsapp' },
           { title: 'Recordatorios', href: '/payment-reminders', icon: Bell, moduleKey: 'documentos_recordatorios' },
           { title: 'Plantillas de Mensajes', href: '/message-templates', icon: MessageSquare, moduleKey: 'documentos_plantillas_mensajes' },
         ]
