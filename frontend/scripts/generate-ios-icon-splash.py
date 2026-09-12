@@ -1,86 +1,76 @@
 """
 Genera el ícono de iOS (edge-to-edge, SIN esquinas redondeadas horneadas —
 Apple aplica su propia máscara y rechaza íconos con transparencia/redondeo
-propio) y el splash screen, reusando el diseño real de scripts/generate-logo.py.
+propio) y el splash screen, a partir del ícono REAL de la app
+(public/icons/icon-512.png — el que usan la PWA y toda la app en pantalla).
 
 Antes de esto, ios/App/App/Assets.xcassets tenía el ícono placeholder
 genérico de Capacitor (la "X" azul de plantilla), no el logo de SportMaps.
+
+CORRECCIÓN 2026-09-06: esta función antes REDIBUJABA el logo a mano
+(mismo código que generate-logo.py), lo que produjo un diseño simplificado
+y desincronizado del real (pose del corredor distinta, sin la textura
+granulada). Ahora parte del PNG real y solo le quita las esquinas
+redondeadas horneadas — no vuelve a dibujar nada desde cero.
 """
 from PIL import Image, ImageDraw
 import os
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# Color de fondo real de public/icons/icon-512.png, muestreado de una zona
+# sólida (no es el #FFA826 de generate-logo.py — es un asset distinto).
+REAL_ICON_ORANGE = (251, 162, 34)
+
 
 def create_sportmaps_icon_full_bleed(size=1024):
-    """Mismo diseño de generate-logo.py pero SIN margen ni esquinas
-    redondeadas — edge-to-edge, como exige el App Icon de iOS."""
-    img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
+    """Parte de public/icons/icon-512.png (el ícono real, con esquinas
+    redondeadas horneadas) y rellena esas esquinas con el mismo naranja
+    para dejarlo edge-to-edge — sin redibujar el logo desde cero."""
+    src_path = os.path.join(BASE, 'public', 'icons', 'icon-512.png')
+    src = Image.open(src_path).convert('RGB')
+    src_size = src.size[0]
 
-    margin = 0
-    x0, y0 = margin, margin
-    x1, y1 = size - margin, size - margin
+    # Radio verificado a mano contra este asset específico (public/icons/
+    # icon-512.png, 512x512): 90 cubre el borde con antialiasing sin comerse
+    # las líneas blancas de "calle" que llegan cerca de las esquinas. Si se
+    # reemplaza icon-512.png por un diseño con otro radio de esquina, hay
+    # que reverificar visualmente (ver corner crops usados al depurar esto).
+    radius = 90
+    mask = Image.new('L', (src_size, src_size), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        [0, 0, src_size - 1, src_size - 1], radius=radius, fill=255)
 
-    orange = (255, 168, 38)  # #FFA826
-    draw.rectangle([x0, y0, x1, y1], fill=orange)
+    orange_layer = Image.new('RGB', (src_size, src_size), REAL_ICON_ORANGE)
+    flat = Image.composite(src, orange_layer, mask)
 
-    line_w = int(size * 0.02)
-    white = (255, 255, 255, 200)
-    draw.line([(margin, int(size * 0.3)), (int(size * 0.45), margin)], fill=white, width=line_w)
-    draw.line([(margin, int(size * 0.6)), (int(size * 0.7), margin)], fill=white, width=line_w)
-    draw.line([(int(size * 0.2), size - margin), (size - margin, int(size * 0.35))], fill=white, width=line_w)
-    draw.line([(margin, int(size * 0.85)), (size - margin, int(size * 0.6))], fill=white, width=line_w)
-    draw.line([(int(size * 0.55), size - margin), (size - margin, int(size * 0.8))], fill=white, width=line_w)
-
-    green = (46, 139, 87)  # #2E8B57
-    cx, cy = int(size * 0.45), int(size * 0.42)
-    pin_r = int(size * 0.18)
-
-    point_y = cy + int(pin_r * 2.2)
-    draw.polygon([
-        (cx - int(pin_r * 0.5), cy + int(pin_r * 0.7)),
-        (cx + int(pin_r * 0.5), cy + int(pin_r * 0.7)),
-        (cx, point_y)
-    ], fill=green)
-
-    outline_w = int(size * 0.025)
-    draw.ellipse([cx - pin_r - outline_w, cy - pin_r - outline_w,
-                  cx + pin_r + outline_w, cy + pin_r + outline_w], fill=(255, 255, 255))
-    draw.ellipse([cx - pin_r, cy - pin_r, cx + pin_r, cy + pin_r], fill=green)
-
-    runner_white = (255, 255, 255)
-    sw = max(int(size * 0.018), 2)
-
-    head_r = int(pin_r * 0.15)
-    head_cx = cx + int(pin_r * 0.1)
-    head_cy = cy - int(pin_r * 0.45)
-    draw.ellipse([head_cx - head_r, head_cy - head_r, head_cx + head_r, head_cy + head_r], fill=runner_white)
-
-    body_top = (head_cx - int(pin_r * 0.05), head_cy + head_r)
-    body_bottom = (cx - int(pin_r * 0.1), cy + int(pin_r * 0.3))
-    draw.line([body_top, body_bottom], fill=runner_white, width=sw)
-
-    arm_start = (head_cx - int(pin_r * 0.02), cy - int(pin_r * 0.15))
-    draw.line([arm_start, (cx - int(pin_r * 0.35), cy - int(pin_r * 0.3))], fill=runner_white, width=sw)
-    draw.line([arm_start, (cx + int(pin_r * 0.3), cy + int(pin_r * 0.05))], fill=runner_white, width=sw)
-
-    hip = body_bottom
-    draw.line([hip, (cx - int(pin_r * 0.4), cy + int(pin_r * 0.55))], fill=runner_white, width=sw)
-    draw.line([hip, (cx + int(pin_r * 0.2), cy + int(pin_r * 0.6))], fill=runner_white, width=sw)
-
-    # Apple no acepta canal alfa en el App Icon: aplanar sobre fondo opaco.
-    flat = Image.new('RGB', (size, size), orange)
-    flat.paste(img, (0, 0), img)
+    if size != src_size:
+        flat = flat.resize((size, size), Image.LANCZOS)
     return flat
 
 
+def create_rounded_mark_rgba():
+    """Versión del ícono real CON esquinas transparentes de verdad (a
+    diferencia de icon-512.png, que las trae rellenas de negro opaco) —
+    para pegar sobre el fondo blanco del splash sin que se vean cuadradas."""
+    src_path = os.path.join(BASE, 'public', 'icons', 'icon-512.png')
+    src = Image.open(src_path).convert('RGB')
+    size = src.size[0]
+    radius = 90  # ver nota de radio en create_sportmaps_icon_full_bleed
+
+    alpha = Image.new('L', (size, size), 0)
+    ImageDraw.Draw(alpha).rounded_rectangle(
+        [0, 0, size - 1, size - 1], radius=radius, fill=255)
+
+    rgba = src.convert('RGBA')
+    rgba.putalpha(alpha)
+    return rgba
+
+
 def create_splash(canvas_size=2732, mark_size=900):
-    """Fondo blanco + logo de marca (ya redondeado, asset existente)
-    centrado — el splash NO se enmascara, así que reusar el asset con
-    esquinas redondeadas ya generado está bien acá."""
+    """Fondo blanco + ícono real (con esquinas transparentes) centrado."""
     canvas = Image.new('RGB', (canvas_size, canvas_size), (255, 255, 255))
-    mark = Image.open(os.path.join(BASE, 'public', 'sportmaps-logo.png')).convert('RGBA')
+    mark = create_rounded_mark_rgba()
     mark = mark.resize((mark_size, mark_size), Image.LANCZOS)
     offset = ((canvas_size - mark_size) // 2, (canvas_size - mark_size) // 2)
     canvas.paste(mark, offset, mark)

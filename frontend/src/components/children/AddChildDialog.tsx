@@ -42,12 +42,13 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { Calendar as CalendarIcon } from 'lucide-react';
+import { normalizeText } from '@/lib/normalizeText';
 
 const childSchema = z.object({
   // Step 1: Información Básica
   full_name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres').max(100),
   date_of_birth: z.string().min(1, 'La fecha de nacimiento es requerida'),
-  grade: z.string().min(1, 'El grado escolar es requerido'),
+  grade: z.string().optional(),
   doc_type: z.string().min(1, 'El tipo de documento es requerido'),
   doc_number: z.string().min(5, 'El número de documento debe tener al menos 5 caracteres'),
 
@@ -60,7 +61,7 @@ const childSchema = z.object({
   tshirt_size: z.string().optional(),
   blood_type: z.string().optional(),
   eps_name: z.string().optional(),
-  has_allergies: z.boolean().optional(),
+  has_allergies: z.boolean({ invalid_type_error: 'Selecciona una opción' }),
   allergy_type: z.string().optional(),
   allergy_severity: z.string().optional(),
   allergy_treatment: z.string().optional(),
@@ -81,13 +82,21 @@ interface AddChildDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
+  /** Hijos que ya tiene el acudiente + los que vienen en invitaciones sin aceptar. */
+  nombresTomados?: string[];
 }
 
-export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialogProps) {
+// Mismo criterio que normalize_athlete_name() en la base: sin tildes, en
+// minúsculas y con los espacios internos colapsados. Si el frontend normaliza
+// distinto que la base, el aviso y el bloqueo real dejan de coincidir.
+function normalizarNombre(valor: string): string {
+  return normalizeText(valor).replace(/\s+/g, ' ');
+}
+
+export function AddChildDialog({ open, onOpenChange, onSuccess, nombresTomados = [] }: AddChildDialogProps) {
   const { user } = useAuth();
   const { uploadFile, uploading: isUploading } = useStorage();
   const [currentStep, setCurrentStep] = useState(1);
-  const [hasAllergies, setHasAllergies] = useState(false);
 
   const form = useForm<ChildFormValues>({
     resolver: zodResolver(childSchema),
@@ -115,6 +124,12 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
     },
   });
 
+  // Derivado del propio form en vez de un useState aparte: dos fuentes de
+  // verdad para lo mismo se desincronizaban (ej. al volver del paso 2 al 1
+  // y regresar, el radio visual quedaba desalineado del valor real y el
+  // bloque de campos de alergia no coincidía con la opción marcada).
+  const hasAllergies = form.watch('has_allergies');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -122,12 +137,31 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
+  // Devuelve true y marca el campo si ese atleta ya existe en la cuenta o ya
+  // viene en una invitación sin aceptar. Crearlo de nuevo produce dos personas
+  // facturables para el mismo atleta.
+  const nombreYaTomado = (): boolean => {
+    const candidato = normalizarNombre(form.getValues('full_name') || '');
+    if (!candidato) return false;
+    if (!nombresTomados.some(n => normalizarNombre(n) === candidato)) return false;
+
+    form.setError('full_name', {
+      type: 'manual',
+      message: 'Ese atleta ya está en tu cuenta o ya viene en una invitación sin aceptar. Acepta la invitación en vez de crearlo de nuevo; si es otro hijo, escribe su nombre completo.',
+    });
+    return true;
+  };
+
   const nextStep = async () => {
     const fieldsToValidate = currentStep === 1
-      ? ['full_name', 'date_of_birth', 'grade', 'doc_type', 'doc_number', 'id_document_url']
+      ? ['full_name', 'date_of_birth', 'doc_type', 'doc_number', 'id_document_url']
       : ['emergency_contact_name', 'emergency_contact_phone', 'accept_general_data', 'accept_sensitive_data'];
 
     const isValid = await form.trigger(fieldsToValidate as any);
+    if (currentStep === 1 && nombreYaTomado()) {
+      toast.error('Ese atleta ya existe en tu cuenta');
+      return;
+    }
     if (isValid) {
       setCurrentStep(prev => prev + 1);
     } else {
@@ -166,6 +200,12 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
   const onSubmit = async (values: ChildFormValues) => {
     if (!user?.id) {
       toast.error('Debes iniciar sesión para añadir un hijo');
+      return;
+    }
+
+    if (nombreYaTomado()) {
+      setCurrentStep(1);
+      toast.error('Ese atleta ya existe en tu cuenta');
       return;
     }
 
@@ -397,7 +437,7 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
                       name="grade"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Grado / Nivel *</FormLabel>
+                          <FormLabel>Grado / Nivel</FormLabel>
                           <FormControl>
                             <Input placeholder="Ej: 5° Primaria" {...field} />
                           </FormControl>
@@ -631,12 +671,8 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
                           <FormLabel>¿El menor tiene alguna alergia o condición médica? *</FormLabel>
                           <FormControl>
                             <RadioGroup
-                              onValueChange={(val) => {
-                                const boolVal = val === 'true';
-                                field.onChange(boolVal);
-                                setHasAllergies(boolVal);
-                              }}
-                              defaultValue={field.value ? 'true' : 'false'}
+                              onValueChange={(val) => field.onChange(val === 'true')}
+                              value={field.value ? 'true' : 'false'}
                               className="flex gap-4"
                             >
                               <div className="flex items-center space-x-2">
@@ -777,7 +813,7 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
               )}
             </div>
 
-            <div className="flex justify-between items-center pt-4 border-t border-muted">
+            <div className="sticky bottom-0 bg-background flex justify-between items-center pt-4 border-t border-muted">
               {currentStep === 1 ? (
                 <>
                   <Button

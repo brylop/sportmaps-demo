@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { emailClient } from '@/lib/email-client';
 import { bffClient } from '@/lib/api/bffClient';
+import { normalizeText } from '@/lib/normalizeText';
 
 /**
  * Represents a sports team or group offered by a school.
@@ -89,7 +90,11 @@ const SchoolContext = createContext<SchoolContext | undefined>(undefined);
 
 // Email de la escuela demo para usuarios invitados (solo si se configura en .env)
 const DEMO_SCHOOL_EMAIL = import.meta.env.VITE_DEMO_SCHOOL_EMAIL || '';
-const DEFAULT_MONTHLY_FEE = 150000; // COP
+// Sin cuota configurada NO se inventa una. Antes valía $150.000 y ese monto se
+// colaba como precargado en el alta, en la invitación y en el cobro: el atleta
+// nacía debiendo una mensualidad que la escuela nunca definió. Mismo criterio
+// que el alta canónica del BFF (students-create-one): sin cuota, sin cobro.
+const DEFAULT_MONTHLY_FEE = 0; // COP
 const STORAGE_KEY_ACTIVE_SCHOOL = 'sportmaps_active_school_id';
 
 /**
@@ -586,17 +591,200 @@ export function useSchoolContext(): SchoolContext {
     return context;
 }
 
+// ─── Deduplicación de atletas en el alta de staff ────────────────────────────
+//
+// Un atleta puede existir en la escuela como fila de `children` o como ficha en
+// `unregistered_athletes`. Cuando nace por dos caminos quedan DOS identidades
+// facturables y la familia recibe el cobro dos veces (48 personas duplicadas en
+// 16 escuelas, con cobros que hubo que anular a mano).
+//
+// El guardián de la base (`trg_bloquear_atleta_duplicado`) no cubre este alta:
+// solo dispara si viene el documento, o si el nombre coincide Y la fecha de
+// nacimiento es IDÉNTICA — y este flujo no mandaba documento y deja la fecha
+// opcional. Además solo mira `children`, nunca `unregistered_athletes`.
+//
+// Mismo criterio que `findExistingAthlete` del BFF
+// (bff/src/routes/students-create-one.route.ts): se cruza por documento y por
+// nombre normalizado, NO por teléfono ni por fecha de nacimiento — esas dos
+// señales dan falsos positivos entre hermanos (las hermanas Ariza comparten
+// fecha y teléfono del acudiente).
+
+/** Mismo criterio que `normalize_athlete_name()` en la base: sin tildes, en
+ *  minúsculas y con los espacios internos colapsados. `normalizeText` sola no
+ *  colapsa espacios internos, y ese hueco exacto ya generó fichas duplicadas. */
+function normalizarNombreAtleta(valor: string | null | undefined): string {
+    return normalizeText(valor).replace(/\s+/g, ' ');
+}
+
+/** Tope explícito del padrón que se trae para comparar. Explícito para poder
+ *  detectar el truncamiento; el implícito de PostgREST corta sin avisar. */
+const TOPE_PADRON = 2000;
+
+/** Mismo criterio que `normalize_doc_number()` en la base: solo alfanuméricos. */
+function normalizarDocumento(valor: string | null | undefined): string | null {
+    const limpio = (valor ?? '').replace(/[^0-9A-Za-z]/g, '');
+    return limpio || null;
+}
+
+/**
+ * ¿Un nombre está contenido en el otro como secuencia de palabras completas?
+ * Cubre el caso real "Sergio Herrera" ⊂ "SERGIO HERRERA TORRES" (apellido que
+ * falta en una de las dos altas). Exige 2+ palabras en el nombre corto para no
+ * marcar a medio padrón por un nombre de pila suelto.
+ */
+function nombreContenido(a: string, b: string): boolean {
+    const ta = a.split(' ').filter(Boolean);
+    const tb = b.split(' ').filter(Boolean);
+    const [corto, largo] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+    if (corto.length < 2 || corto.length === largo.length) return false;
+    for (let i = 0; i + corto.length <= largo.length; i++) {
+        if (largo.slice(i, i + corto.length).join(' ') === corto.join(' ')) return true;
+    }
+    return false;
+}
+
+export interface AtletaDuplicado {
+    tabla: 'children' | 'unregistered_athletes';
+    id: string;
+    full_name: string;
+    doc_number: string | null;
+    date_of_birth: string | null;
+    activo: boolean;
+    coincide_por: 'documento' | 'nombre' | 'nombre_parecido';
+}
+
+/** Texto para el staff. Nombra CON QUIÉN coincide: sin eso no puede decidir. */
+export function describirAtletaDuplicado(dup: AtletaDuplicado): string {
+    const donde = dup.tabla === 'children'
+        ? 'ya está registrado en la escuela'
+        : 'ya existe como ficha precargada de la escuela';
+    const como = dup.coincide_por === 'documento'
+        ? `el documento ${dup.doc_number}`
+        : dup.coincide_por === 'nombre'
+            ? 'el mismo nombre'
+            : 'un nombre casi igual';
+    const datos = [
+        dup.date_of_birth ? `nacido ${dup.date_of_birth}` : 'sin fecha de nacimiento',
+        dup.doc_number ? `documento ${dup.doc_number}` : 'sin documento',
+        dup.activo ? null : 'ficha INACTIVA',
+    ].filter(Boolean).join(', ');
+    return `"${dup.full_name}" ${donde} y coincide por ${como} (${datos}). `
+        + 'Si es la misma persona, edita ese registro en vez de crear otro: '
+        + 'crearlo de nuevo genera dos atletas facturables y la familia recibe el cobro dos veces.';
+}
+
+/** Se lanza en vez de insertar en silencio. El caller decide si ofrece la salida. */
+export class AtletaDuplicadoError extends Error {
+    readonly duplicado: AtletaDuplicado;
+    constructor(duplicado: AtletaDuplicado) {
+        super(describirAtletaDuplicado(duplicado));
+        this.name = 'AtletaDuplicadoError';
+        this.duplicado = duplicado;
+        // La cadena de prototipos se pierde al extender Error compilando a ES5.
+        Object.setPrototypeOf(this, AtletaDuplicadoError.prototype);
+    }
+}
+
+export function esAtletaDuplicado(error: unknown): error is AtletaDuplicadoError {
+    return error instanceof AtletaDuplicadoError
+        || (typeof error === 'object' && error !== null && (error as any).name === 'AtletaDuplicadoError');
+}
+
+/**
+ * Busca en la escuela un atleta que probablemente sea la misma persona.
+ * Devuelve el primer match, priorizando documento > nombre exacto > contenido.
+ *
+ * Trae el padrón y compara en memoria a propósito: quitar acentos exige
+ * `unaccent` y PostgREST no lo expone. La escuela más grande tiene 544 atletas
+ * (debajo del tope de filas de PostgREST), así que el costo es irrelevante
+ * frente a un alta.
+ *
+ * Si la consulta falla (RLS, red) devuelve null en vez de bloquear el alta: el
+ * trigger de la base queda como última red. Se registra en consola porque un
+ * fallo silencioso acá es exactamente cómo se colaron los duplicados.
+ */
+export async function buscarAtletaExistente(
+    schoolId: string,
+    opts: { docNumber?: string | null; fullName?: string | null },
+): Promise<AtletaDuplicado | null> {
+    const doc = normalizarDocumento(opts.docNumber);
+    const nombre = normalizarNombreAtleta(opts.fullName) || null;
+    if (!doc && !nombre) return null;
+
+    const [kids, fichas] = await Promise.all([
+        supabase.from('children')
+            .select('id, full_name, doc_number, date_of_birth, is_active')
+            .eq('school_id', schoolId)
+            .limit(TOPE_PADRON),
+        supabase.from('unregistered_athletes')
+            .select('id, full_name, doc_number, date_of_birth, is_active')
+            .eq('school_id', schoolId)
+            .limit(TOPE_PADRON),
+    ]);
+
+    if (kids.error) console.error('Dedup atleta — no se pudo leer children:', kids.error.message);
+    if (fichas.error) console.error('Dedup atleta — no se pudo leer unregistered_athletes:', fichas.error.message);
+
+    const padron: AtletaDuplicado[] = [
+        ...((kids.data ?? []) as any[]).map(r => ({
+            tabla: 'children' as const,
+            id: r.id, full_name: r.full_name, doc_number: r.doc_number ?? null,
+            date_of_birth: r.date_of_birth ?? null,
+            activo: r.is_active !== false,
+            coincide_por: 'nombre' as const,
+        })),
+        ...((fichas.data ?? []) as any[]).map(r => ({
+            tabla: 'unregistered_athletes' as const,
+            id: r.id, full_name: r.full_name, doc_number: r.doc_number ?? null,
+            date_of_birth: r.date_of_birth ?? null,
+            activo: r.is_active !== false,
+            coincide_por: 'nombre' as const,
+        })),
+    ];
+
+    // PostgREST corta el resultado en su tope de filas sin avisar, y un padrón
+    // truncado deja la comparación ciega justo en la escuela más grande — que es
+    // donde más duplicados hay. Hoy la mayor va en 556 atletas, así que no se
+    // alcanza; si algún día se alcanza, que se vea.
+    if ((kids.data?.length ?? 0) >= TOPE_PADRON || (fichas.data?.length ?? 0) >= TOPE_PADRON) {
+        console.error(
+            `Dedup atleta — el padrón de la escuela ${schoolId} llegó al tope de ${TOPE_PADRON} filas: `
+            + 'la búsqueda de duplicados puede estar incompleta. Hay que paginarla.',
+        );
+    }
+
+    if (doc) {
+        const hit = padron.find(r => normalizarDocumento(r.doc_number) === doc);
+        if (hit) return { ...hit, coincide_por: 'documento' };
+    }
+
+    if (nombre) {
+        const exacto = padron.find(r => normalizarNombreAtleta(r.full_name) === nombre);
+        if (exacto) return { ...exacto, coincide_por: 'nombre' };
+
+        const parecido = padron.find(r => nombreContenido(normalizarNombreAtleta(r.full_name), nombre));
+        if (parecido) return { ...parecido, coincide_por: 'nombre_parecido' };
+    }
+
+    return null;
+}
+
 /**
  * Helper: Crea un deportista y su pago pendiente de forma atómica.
  * Reutilizable desde cualquier flujo (modal, CSV, invitación).
- * 
+ *
  * @param params Objeto con la información del deportista y del padre.
  * @returns Un objeto con el ID del deportista creado y estados de éxito de las inserciones.
+ * @throws {AtletaDuplicadoError} si ya hay un atleta con ese documento o nombre
+ *         en la escuela y el caller no pasó `allowDuplicate`.
  * @throws Error si la creación del deportista falla.
  */
 export async function createStudentWithPendingPayment(params: {
     fullName: string;
     dateOfBirth?: string;
+    /** Documento del atleta. Se persiste para que el guardián de la base
+     *  (`trg_bloquear_atleta_duplicado`) tenga con qué comparar en el próximo alta. */
+    docNumber?: string;
     parentEmail?: string;
     parentPhone?: string;
     parentName?: string;
@@ -609,9 +797,30 @@ export async function createStudentWithPendingPayment(params: {
     medicalInfo?: string;
     notes?: string;
     dorsal?: string;
+    /** Confirmación explícita del staff: "ya vi el duplicado, son personas
+     *  distintas". Mismo criterio que `allow_duplicate` del BFF: la salida para
+     *  el homónimo real existe, pero es consciente, nunca silenciosa. */
+    allowDuplicate?: boolean;
+    /**
+     * ¿Este alta emite el cobro? `false` para el caller que acto seguido inscribe
+     * en un plan por `POST /api/v1/enrollments`: esa ruta emite la mensualidad del
+     * plan (emitPlanCharge) y si acá también se emitía, el mismo atleta nacía con
+     * DOS cobros del mismo valor en meses distintos — y ni siquiera chocaban con
+     * el índice único porque caían en períodos diferentes.
+     * Por defecto true: el alta a secas (solo equipo) sigue cobrando una vez.
+     */
+    emitirCobro?: boolean;
 }) {
     const { schoolId, teamId } = params;
     let { monthlyFee } = params;
+
+    if (!params.allowDuplicate) {
+        const dup = await buscarAtletaExistente(schoolId, {
+            docNumber: params.docNumber,
+            fullName: params.fullName,
+        });
+        if (dup) throw new AtletaDuplicadoError(dup);
+    }
 
     // 0. Fetch team price if not provided (from teams table)
     if (!monthlyFee && teamId) {
@@ -622,12 +831,12 @@ export async function createStudentWithPendingPayment(params: {
             .maybeSingle();
 
         if (team) {
-            monthlyFee = team.price_monthly || 150000;
+            // Equipo sin precio configurado = sin cuota. Antes caía en $150.000
+            // inventados y el atleta nacía debiendo un monto que nadie definió.
+            monthlyFee = Number(team.price_monthly) || 0;
             if (!params.teamName) params.teamName = team.name;
         }
     }
-
-    if (!monthlyFee) monthlyFee = 150000; // Final fallback
 
     // 1. Create student record in children table
     const { data: child, error: childError } = await supabase
@@ -635,6 +844,7 @@ export async function createStudentWithPendingPayment(params: {
         .insert({
             full_name: params.fullName,
             date_of_birth: params.dateOfBirth || null,
+            doc_number: params.docNumber?.trim() || null,
             parent_email_temp: params.parentEmail || null,
             parent_phone_temp: params.parentPhone || null,
             medical_info: params.medicalInfo || null,
@@ -649,19 +859,37 @@ export async function createStudentWithPendingPayment(params: {
     // For production: throw error if insert fails
     if (childError) {
         console.error('Child insert failed:', childError.message);
+        // El guardián de la base bloquea con unique_violation y solo se puede
+        // forzar con `SET LOCAL app.permitir_atleta_duplicado`, que desde el
+        // cliente no existe: acá el "crear igual" no alcanza y hay que decirlo.
+        if ((childError as any).code === '23505' && /ya existe/i.test(childError.message ?? '')) {
+            throw new Error(
+                `${childError.message} La base bloquea este alta (mismo documento, o mismo nombre y misma `
+                + 'fecha de nacimiento). Edita la ficha existente, o corrige el dato que de verdad difiere.',
+            );
+        }
         throw new Error(childError.message || 'Error al crear el deportista');
     }
 
     const childId = child.id;
 
     // 2. Create pending payment for this student
-    const dueDate = new Date();
+    const hoy = new Date();
+    const dueDate = new Date(hoy);
     dueDate.setMonth(dueDate.getMonth() + 1);
+    // EL PERÍODO ES EL MES DE ENTRADA, no el del vencimiento. Sin
+    // period_year/period_month el trigger `trg_payments_fill_period` los deriva del
+    // `due_date` (que acá cae el mes siguiente) y el mes en que el atleta entró no
+    // se facturaba nunca. Mismo criterio que `calcFirstPayment` (prorationUtils) en
+    // el alta canónica del BFF.
+    const periodYear = hoy.getFullYear();
+    const periodMonth = hoy.getMonth() + 1;
 
     let paymentError: any = null;
 
     // Solo se genera cobro si hay cuota (constraint payments_amount_positive: amount > 0)
-    if (monthlyFee && monthlyFee > 0) {
+    // y si este alta es el que cobra (ver `emitirCobro`).
+    if (params.emitirCobro !== false && monthlyFee && monthlyFee > 0) {
         const { error } = await supabase
             .from('payments')
             .insert({
@@ -675,6 +903,8 @@ export async function createStudentWithPendingPayment(params: {
                 status: 'pending',
                 // 'one_time'|'subscription' (payments_payment_type_check); 'monthly' rompía el INSERT
                 payment_type: 'one_time',
+                period_year: periodYear,
+                period_month: periodMonth,
             });
         paymentError = error;
 

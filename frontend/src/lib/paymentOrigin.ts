@@ -75,14 +75,33 @@ function gatewayName(provider?: string | null): string {
     return provider === 'mercadopago' ? 'MercadoPago' : 'Wompi';
 }
 
-const METHOD_LABEL: Record<string, string> = {
+/**
+ * Etiqueta en español de `payments.payment_method`. FUENTE ÚNICA: la usa este
+ * módulo para los chips de origen y `receipt-generator.ts` para el recibo PDF.
+ * Antes el recibo tenía su propio mapa con solo card/pse/nequi, así que
+ * imprimía la palabra cruda en inglés ("transfer", "cash", "other") — que son
+ * la mayoría de los cobros con método registrado.
+ *
+ * Valores reales en la base (2026-09-10): transfer 654, cash 145, card 96,
+ * other 71, pse 16, y 3.626 en NULL.
+ */
+export const METHOD_LABEL: Record<string, string> = {
     card: 'Tarjeta',
     pse: 'PSE',
     transfer: 'Transferencia',
     cash: 'Efectivo',
     nequi: 'Nequi',
+    daviplata: 'Daviplata',
     bancolombia: 'Bancolombia',
+    other: 'Otro medio',
 };
+
+/** Etiqueta legible de un método, con respaldo para NULL y para un valor que
+ *  no esté en el mapa (mejor "Otro medio" que el string crudo del proveedor). */
+export function labelMetodoDePago(method?: string | null): string {
+    if (!method) return 'No registrado';
+    return METHOD_LABEL[method.toLowerCase()] ?? 'Otro medio';
+}
 
 export function resolvePaymentOrigin(p: PaymentOriginInput): PaymentOrigin {
     const viaQr = !!p.qr_id;

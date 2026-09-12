@@ -14,10 +14,11 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Users, UserPlus, Baby, Loader2, ChevronRight } from 'lucide-react';
+import { Users, UserPlus, Baby, Loader2, ChevronRight, School, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { normalizeText } from '@/lib/normalizeText';
 
 interface ChildSelectorModalProps {
     open: boolean;
@@ -61,6 +62,21 @@ function computeAge(dob: string): number {
     }
 }
 
+// Mismo criterio que normalize_athlete_name() en la base: sin tildes, en
+// minúsculas y con los espacios internos colapsados. Si el frontend normaliza
+// distinto que la base, el aviso y el bloqueo real dejan de coincidir.
+function normalizarNombre(valor: string): string {
+    return normalizeText(valor).replace(/\s+/g, ' ');
+}
+
+/** Un nombre que el acudiente NO puede volver a crear, y de dónde viene. */
+interface NombreTomado {
+    nombre: string;
+    /** Academia que ya cargó al atleta, cuando el nombre viene de una invitación. */
+    academia?: string;
+    origen: 'hijo' | 'invitacion';
+}
+
 export function ChildSelectorModal({
     open,
     onOpenChange,
@@ -95,13 +111,67 @@ export function ChildSelectorModal({
         enabled: open && !!user,
     });
 
+    // Con una invitación pendiente el atleta YA está cargado por la academia.
+    // Volver a crearlo acá deja dos personas facturables para el mismo atleta.
+    const { data: pendingInvitations = [], isLoading: isLoadingInvitations } = useQuery({
+        queryKey: ['my-invitations', user?.id],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from('invitations')
+                // Misma lista de campos que MyChildrenPage: comparten queryKey, así
+                // que pedir distinto deja la caché con una forma u otra según quién
+                // monte primero.
+                .select('id, child_name, role_to_assign, schools(name)')
+                .eq('email', user?.email ?? '')
+                .eq('status', 'pending');
+
+            if (error) throw error;
+            return (data || []) as any[];
+        },
+        enabled: open && !!user?.email,
+    });
+
+    const nombresTomados: NombreTomado[] = [
+        ...children.map((c) => ({ nombre: c.full_name, origen: 'hijo' as const })),
+        ...pendingInvitations
+            .filter((i) => i.child_name)
+            .map((i) => ({
+                nombre: i.child_name as string,
+                academia: i.schools?.name as string | undefined,
+                origen: 'invitacion' as const,
+            })),
+    ];
+
+    function buscarNombreTomado(valor: string): NombreTomado | undefined {
+        const candidato = normalizarNombre(valor);
+        if (!candidato) return undefined;
+        return nombresTomados.find((n) => normalizarNombre(n.nombre) === candidato);
+    }
+
+    function mensajeDuplicado(tomado: NombreTomado): string {
+        if (tomado.origen === 'invitacion') {
+            const academia = tomado.academia || 'la academia';
+            return `${tomado.nombre} ya viene cargado por ${academia} en una invitación sin aceptar. Acepta la invitación en vez de crearlo de nuevo: si lo creas acá queda inscrito y cobrado dos veces. Si es OTRO hijo distinto, escribe su nombre completo.`;
+        }
+        return `${tomado.nombre} ya está en tu cuenta; selecciónalo de la lista en vez de crearlo de nuevo. Si es OTRO hijo distinto, escribe su nombre completo.`;
+    }
+
+    const nombreTomado = buscarNombreTomado(newChildName);
+
     // Auto-select if only one child
     if (!selectedChildId && children.length === 1) {
         setSelectedChildId(children[0].id);
     }
 
-    // Auto-show form if no children
-    if (!showNewChildForm && children.length === 0 && !isLoading) {
+    // Auto-show form if no children. Con invitación pendiente NO se auto-abre:
+    // el camino correcto es aceptarla, no crear al atleta a mano.
+    if (
+        !showNewChildForm &&
+        children.length === 0 &&
+        !isLoading &&
+        !isLoadingInvitations &&
+        pendingInvitations.length === 0
+    ) {
         setShowNewChildForm(true);
     }
 
@@ -112,13 +182,28 @@ export function ChildSelectorModal({
                 throw new Error('El nombre del hijo es requerido');
             }
 
-            const dobValue = newChildDob || todayColombia();
+            // Este insert manda school_id, así que el trigger nuevo
+            // (trg_guard_alta_manual_hijo_duplicado, solo para school_id NULL) lo
+            // exime, y el viejo (trg_bloquear_atleta_duplicado) exige documento o
+            // nombre + fecha de nacimiento idénticos contra otra fila de children
+            // — nunca contra la ficha de unregistered_athletes ni contra la
+            // invitación. Por esa costura, el único filtro real es este.
+            const tomado = buscarNombreTomado(newChildName);
+            if (tomado) {
+                throw new Error(mensajeDuplicado(tomado));
+            }
+
+            // Sin fallback a hoy: una fecha inventada guarda un dato falso y
+            // además desarma la rama nombre + fecha del trigger viejo.
+            if (!newChildDob) {
+                throw new Error('La fecha de nacimiento es requerida');
+            }
 
             const { data, error } = await supabase
                 .from('children')
                 .insert({
                     full_name: newChildName.trim(),
-                    date_of_birth: dobValue,
+                    date_of_birth: newChildDob,
                     parent_id: user.id,
                     school_id: schoolId as string,
                 })
@@ -186,12 +271,32 @@ export function ChildSelectorModal({
                     <DialogDescription>{description}</DialogDescription>
                 </DialogHeader>
 
-                {isLoading ? (
+                {isLoading || isLoadingInvitations ? (
                     <div className="flex items-center justify-center py-8">
                         <Loader2 className="h-6 w-6 animate-spin text-primary" />
                     </div>
                 ) : (
                     <div className="space-y-4 py-2">
+                        {pendingInvitations.length > 0 && (
+                            <div className="flex items-start gap-3 p-3 rounded-xl border border-primary/30 bg-primary/5">
+                                <School className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+                                <div className="text-xs">
+                                    <p className="font-semibold text-sm">
+                                        {pendingInvitations[0].schools?.name || 'Tu academia'} ya cargó a
+                                        {pendingInvitations[0].child_name
+                                            ? ` ${pendingInvitations[0].child_name}`
+                                            : ' tu hijo/a'}
+                                    </p>
+                                    <p className="text-muted-foreground mt-1">
+                                        Acepta la invitación desde tu inicio y aparecerá acá con su plan y su
+                                        equipo. No lo registres a mano: quedaría inscrito y cobrado dos veces.
+                                        Si tienes <strong>otro</strong> hijo/a que la academia no cargó, ese sí
+                                        puedes agregarlo.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Existing children */}
                         {children.length > 0 && !showNewChildForm && (
                             <RadioGroup
@@ -257,7 +362,14 @@ export function ChildSelectorModal({
                                         value={newChildName}
                                         onChange={(e) => setNewChildName(e.target.value)}
                                         disabled={createChildMutation.isPending}
+                                        aria-invalid={!!nombreTomado}
                                     />
+                                    {nombreTomado && (
+                                        <p className="flex items-start gap-1.5 text-xs text-destructive">
+                                            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                                            <span>{mensajeDuplicado(nombreTomado)}</span>
+                                        </p>
+                                    )}
                                 </div>
                                 <div className="space-y-1.5">
                                     <Label htmlFor="child-dob" className="text-xs">
@@ -266,13 +378,15 @@ export function ChildSelectorModal({
                                     <Input
                                         id="child-dob"
                                         type="date"
+                                        required
+                                        max={todayColombia()}
                                         value={newChildDob}
                                         onChange={(e) => setNewChildDob(e.target.value)}
                                         disabled={createChildMutation.isPending}
                                     />
                                 </div>
                                 <div className="flex gap-2 pt-1">
-                                    {children.length > 0 && (
+                                    {(children.length > 0 || pendingInvitations.length > 0) && (
                                         <Button
                                             type="button"
                                             variant="ghost"
@@ -286,7 +400,7 @@ export function ChildSelectorModal({
                                     <Button
                                         type="submit"
                                         size="sm"
-                                        disabled={createChildMutation.isPending}
+                                        disabled={createChildMutation.isPending || !!nombreTomado}
                                         className="flex-1"
                                     >
                                         {createChildMutation.isPending ? (
@@ -303,7 +417,7 @@ export function ChildSelectorModal({
                         )}
 
                         {/* Button to add another child (when not showing form) */}
-                        {!showNewChildForm && children.length > 0 && (
+                        {!showNewChildForm && (children.length > 0 || pendingInvitations.length > 0) && (
                             <Button
                                 variant="outline"
                                 size="sm"
@@ -320,7 +434,9 @@ export function ChildSelectorModal({
                 <DialogFooter>
                     <Button
                         onClick={handleConfirm}
-                        disabled={!selectedChildId || showNewChildForm || isLoading}
+                        disabled={
+                            !selectedChildId || showNewChildForm || isLoading || isLoadingInvitations
+                        }
                         className="w-full"
                     >
                         Continuar inscripción

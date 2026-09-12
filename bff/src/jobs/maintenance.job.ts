@@ -6,7 +6,7 @@ import {
     copToCents,
 } from '../services/wompi.service';
 import { reprocessOrphanWebhooks } from '../services/webhook-reprocess.service';
-import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders } from '../services/invoicing.service';
+import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders, reconcilePendingInvoices } from '../services/invoicing.service';
 import { runGlosaNotifications } from './glosa-notifications.job';
 import { sendChargeCreatedEmails, sendOverdueNoticeEmails } from './payment-lifecycle-emails.job';
 import { runNotificationDispatch } from './notifications-dispatch.job';
@@ -16,6 +16,9 @@ import { runAccessAutoBlockCycle } from './access-auto-block.job';
 import { runSaasBillingCycle } from './saas-billing-cycle.job';
 import { runBridgeHeartbeatCheck } from './bridge-heartbeat-check.job';
 import { runAccountDeletionCycle } from './account-deletion.job';
+import { runPostTrainingReminders } from './post-training-reminders.job';
+import { runWhatsAppQueue } from './whatsapp-queue.job';
+import { runWhatsAppPaymentOutcome } from './whatsapp-payment-outcome.job';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -263,6 +266,19 @@ export function initMaintenanceJobs() {
             Sentry.captureException(err);
             console.error('[CRON] Error en auto-facturación (tienda/orders):', err?.message || err);
         }
+        // Reconciliación: los PACs que validan asíncrono (Factus V2 en
+        // producción solo acusa recibo) dejan la factura sin número ni CUFE.
+        // Sin este paso se queda así para siempre: el dueño ve "—" y el
+        // pagador no tiene nada que abrir, aunque la DIAN ya la validó.
+        try {
+            const rr = await reconcilePendingInvoices();
+            if (rr.scanned > 0) {
+                console.log(`[CRON] Reconciliación de facturas: scanned=${rr.scanned} completed=${rr.completed} stillPending=${rr.stillPending} failed=${rr.failed}`);
+            }
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en reconciliación de facturas:', err?.message || err);
+        }
     });
 
     console.log('[CRON] Auto-facturación electrónica registrada (cada 15 min).');
@@ -339,6 +355,25 @@ export function initMaintenanceJobs() {
     console.log('[CRON] Ciclo de informes registrado para las 06:10 COT.');
 
     // ────────────────────────────────────────────────────────────────────────
+    // Evaluación Post-Entrenamiento (F2) — recordatorios.
+    // El disparo del aviso original NO va acá: es un trigger SQL sobre
+    // attendance_sessions.finalized (post_training_notify_on_finalize). Esto
+    // es solo el recordatorio único a las 20h para el padre que no respondió, y
+    // el aviso al coach con una sesión sin cerrar — ambos idempotentes en SQL.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('0 20 * * *', async () => {
+        if (process.env.DISABLE_POST_TRAINING_REMINDERS_CRON === 'true') return;
+        try {
+            await runPostTrainingReminders();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en recordatorios de post-entrenamiento:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Recordatorios de post-entrenamiento registrados para las 20:00 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
     // Despachador unificado (F1) — red de seguridad. Drena el outbox
     // notification_deliveries cada minuto: cubre fallos de pg_net, BFF caído,
     // reintentos con backoff y crashes entre claim y envío (lease expira).
@@ -354,6 +389,53 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Despachador de notificaciones registrado (cada minuto).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Cola de comprobantes de WhatsApp — cada minuto.
+    //
+    // El webhook solo encola (procesar ahí no es opción: el OCR tarda segundos
+    // y Meta reintenta si no respondemos rápido). Este job baja el archivo, lo
+    // guarda en el bucket ANTES de leerlo, extrae y aplica al pago.
+    //
+    // El claim es una RPC con lease y SKIP LOCKED, así que dos instancias del
+    // BFF no se pisan. Kill-switch por env para poder apagarlo sin redeploy si
+    // el proveedor de OCR se cae.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('* * * * *', async () => {
+        if (process.env.DISABLE_WHATSAPP_QUEUE_CRON === 'true') return;
+        try {
+            const r = await runWhatsAppQueue();
+            if (r.tomadas > 0) {
+                console.log(`[CRON] Cola de WhatsApp: ${r.tomadas} tomada(s), ${r.errores} con error.`);
+            }
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en la cola de comprobantes de WhatsApp:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Cola de comprobantes de WhatsApp registrada (cada minuto).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // El desenlace del comprobante vuelve al chat donde entró.
+    //
+    // El bot promete "la escuela lo está revisando y te confirma"; al aprobar
+    // salía correo y notificación in-app, pero por WhatsApp nada. Va como job y
+    // no enganchado al botón porque hay mas de un camino de aprobación en la
+    // app y enganchar uno dejaria el otro mudo.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('* * * * *', async () => {
+        if (process.env.DISABLE_WHATSAPP_QUEUE_CRON === 'true') return;
+        try {
+            const r = await runWhatsAppPaymentOutcome();
+            if (r.avisados > 0) console.log(`[CRON] WhatsApp: ${r.avisados} desenlace(s) avisado(s).`);
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error avisando el desenlace de comprobantes:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Aviso de desenlace de comprobantes registrado (cada minuto).');
 
     // ────────────────────────────────────────────────────────────────────────
     // Banco de horas por torniquete (F5) — auto-cierre de visitas 'open'.

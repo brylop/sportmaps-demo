@@ -15,12 +15,21 @@ import { UploadChildDocumentsDialog } from '@/components/children/UploadChildDoc
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Badge } from '@/components/ui/badge';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
+import RequestPauseDialog from '@/components/children/RequestPauseDialog';
+import { ChildPauseSection } from '@/components/children/ChildPauseSection';
+import { useParentPauseActions } from '@/hooks/usePauses';
 
 export default function MyChildrenPage() {
   const { user } = useAuth();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingChild, setEditingChild] = useState<any | null>(null);
   const [uploadingDocsFor, setUploadingDocsFor] = useState<any | null>(null);
+
+  // Pausa por vacaciones/lesión (spec §9.2). El gate por escuela lo resuelve
+  // cada tarjeta con `usePauseConfig`, porque un acudiente puede tener hijos en
+  // escuelas distintas y una puede tenerlo habilitado y la otra no.
+  const [pausingChild, setPausingChild] = useState<{ child: any; enrollmentId: string; maxMonths: number } | null>(null);
+  const { solicitar, retirar } = useParentPauseActions();
 
 
 
@@ -68,6 +77,33 @@ export default function MyChildrenPage() {
     enabled: !!user?.id,
   });
 
+  // Con una invitación pendiente el hijo YA viene cargado por la academia, con
+  // su plan y su equipo. Se puede agregar OTRO hijo distinto, pero no volver a
+  // crear al que ya viene en la invitación: eso deja dos personas facturables
+  // para el mismo atleta (la ficha de la escuela y la del acudiente).
+  const { data: pendingInvitations } = useQuery({
+    queryKey: ['my-invitations', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('invitations')
+        .select('id, child_name, role_to_assign, schools(name)')
+        .eq('email', user?.email ?? '')
+        .eq('status', 'pending');
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!user?.email,
+  });
+
+  const invitacionPendiente = (pendingInvitations || [])[0] as any;
+
+  // Nombres que el acudiente NO puede volver a crear: los hijos que ya tiene y
+  // los que vienen en invitaciones sin aceptar.
+  const nombresTomados = [
+    ...(children || []).map((c: any) => c.full_name),
+    ...(pendingInvitations || []).map((i: any) => i.child_name),
+  ].filter(Boolean) as string[];
+
   // Demo data only for demo users
   const displayChildren = children || [];
 
@@ -99,6 +135,30 @@ export default function MyChildrenPage() {
           Registrar Hijo
         </Button>
       </div>
+
+      {invitacionPendiente && (
+        <Card className="border-primary/30 bg-primary/5 rounded-2xl">
+          <CardContent className="flex items-start gap-3 pt-6">
+            <School className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-semibold">
+                {invitacionPendiente.schools?.name || 'Tu academia'} ya cargó a
+                {invitacionPendiente.child_name ? ` ${invitacionPendiente.child_name}` : ' tu hijo'}
+              </p>
+              <p className="text-muted-foreground mt-1">
+                Acepta la invitación desde tu inicio y aparecerá aquí con su plan y su equipo.
+                No lo registres a mano: quedaría duplicado. Si tienes <strong>otro</strong> hijo
+                que la academia no cargó, ese sí puedes agregarlo.
+              </p>
+              <Link to="/dashboard">
+                <Button variant="outline" size="sm" className="mt-3 rounded-xl">
+                  Ir a aceptar la invitación
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {displayChildren?.map((child: any) => (
@@ -237,16 +297,40 @@ export default function MyChildrenPage() {
                     Subir documentos
                   </Button>
                 </div>
+                {/* Pausa por vacaciones/lesión. Se auto-oculta si la escuela no
+                    la habilitó o si no hay inscripción activa. */}
+                <ChildPauseSection
+                  child={child}
+                  enrollmentId={
+                    (child.enrollments || []).find((e: any) =>
+                      ['active', 'activo'].includes(e.status?.toLowerCase())
+                    )?.id ?? null
+                  }
+                  onSolicitar={setPausingChild}
+                  onRetirar={(requestId) => retirar.mutate(requestId)}
+                  isRetiring={retirar.isPending}
+                />
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
 
+      <RequestPauseDialog
+        open={!!pausingChild}
+        onOpenChange={(o) => { if (!o) setPausingChild(null); }}
+        athleteName={pausingChild?.child?.full_name ?? ''}
+        enrollmentId={pausingChild?.enrollmentId ?? null}
+        maxMonths={pausingChild?.maxMonths}
+        isSubmitting={solicitar.isPending}
+        onSubmit={(args) => solicitar.mutate(args, { onSuccess: () => setPausingChild(null) })}
+      />
+
       <AddChildDialog
         open={showAddDialog}
         onOpenChange={setShowAddDialog}
         onSuccess={refetch}
+        nombresTomados={nombresTomados}
       />
 
       {editingChild && (

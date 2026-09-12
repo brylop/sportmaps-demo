@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import crypto from 'crypto';
 import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
@@ -10,7 +10,7 @@ const router = Router();
 // ── Rate limiting propio de este router ────────────────────────────────────
 const otpStartLimiter = rateLimit({
   windowMs: 10 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false,
-  keyGenerator: (req) => `otp-start-${req.ip}`,
+  keyGenerator: (req) => `otp-start-${ipKeyGenerator(req.ip ?? '')}`,
   message: { error: 'Demasiados intentos. Espera unos minutos.' },
 });
 

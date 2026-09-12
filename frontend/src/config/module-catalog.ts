@@ -24,6 +24,7 @@ export type ModuleKey =
   | 'finanzas_pagos'
   | 'finanzas_recepcion'
   | 'finanzas_contabilidad'
+  | 'finanzas_facturacion_electronica'
   | 'reportes_finanzas'
   | 'reportes_reportes'
   | 'reportes_panel'
@@ -90,6 +91,12 @@ export const MODULE_CATALOG: Record<ModuleKey, ModuleDefinition> = {
     label: 'Contabilidad',
     group: 'Finanzas',
     addon: 'accounting',
+  },
+  finanzas_facturacion_electronica: {
+    key: 'finanzas_facturacion_electronica',
+    label: 'Facturación electrónica',
+    group: 'Finanzas',
+    addon: 'invoicing',
   },
   reportes_finanzas: {
     key: 'reportes_finanzas',

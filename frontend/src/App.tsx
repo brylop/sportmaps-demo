@@ -99,6 +99,7 @@ const AcademicProgressPage = lazy(() => import("./pages/AcademicProgressPage"));
 const AttendancePage = lazy(() => import("./pages/AttendancePage"));
 const MyPaymentsPage = lazy(() => import("./pages/MyPaymentsPage"));
 const AccountStatementPage = lazy(() => import("./pages/AccountStatementPage"));
+const PostTrainingSelfEvalPage = lazy(() => import("./pages/PostTrainingSelfEvalPage"));
 
 // ─── Coach pages (lazy) ───────────────────────────────────────────────────────
 const CoachAttendancePage = lazy(() => import("./pages/CoachAttendancePage"));
@@ -121,6 +122,7 @@ const AttendanceHistoryPage = lazy(() => import("./pages/AttendanceHistoryPage")
 const ResultsOverviewPage = lazy(() => import("./pages/ResultsOverviewPage"));
 const FinancesPage = lazy(() => import("./pages/FinancesPage"));
 const AccountingPage = lazy(() => import("./pages/AccountingPage"));
+const InvoicingStandalonePage = lazy(() => import("./pages/InvoicingStandalonePage"));
 const AccountingSuppliersPage = lazy(() => import("./pages/AccountingSuppliersPage"));
 const PayrollPage = lazy(() => import("./pages/PayrollPage"));
 const AccountingReportsPage = lazy(() => import("./pages/AccountingReportsPage"));
@@ -354,6 +356,9 @@ const App = () => (
                     } />
                     <Route path="/parent-checkout" element={
                       <ProtectedRoute><ParentCheckoutPage /></ProtectedRoute>
+                    } />
+                    <Route path="/post-entreno/:sessionId" element={
+                      <ProtectedRoute><PostTrainingSelfEvalPage /></ProtectedRoute>
                     } />
                     <Route path="/payment-result" element={<PaymentResultPage />} />
                     <Route path="/pagos/confirmacion" element={<PaymentConfirmationPage />} />
@@ -673,6 +678,13 @@ const App = () => (
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <ModuleGate moduleKey="finanzas_contabilidad">
                             <AccountingBudgetPage />
+                          </ModuleGate>
+                        </ProtectedRoute>
+                      } />
+                      <Route path="facturacion-electronica" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <ModuleGate moduleKey="finanzas_facturacion_electronica">
+                            <InvoicingStandalonePage />
                           </ModuleGate>
                         </ProtectedRoute>
                       } />

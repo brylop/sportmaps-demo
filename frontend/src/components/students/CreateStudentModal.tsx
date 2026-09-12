@@ -11,10 +11,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { UserPlus, Loader2 } from 'lucide-react';
+import { UserPlus, Loader2, AlertTriangle } from 'lucide-react';
 import { NumberStepper } from '../ui/number-stepper';
 import { useToast } from '@/hooks/use-toast';
-import { createStudentWithPendingPayment, useSchoolContext } from '@/hooks/useSchoolContext';
+import {
+    createStudentWithPendingPayment,
+    describirAtletaDuplicado,
+    esAtletaDuplicado,
+    useSchoolContext,
+    type AtletaDuplicado,
+} from '@/hooks/useSchoolContext';
 
 interface CreateStudentModalProps {
     open: boolean;
@@ -31,6 +37,7 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
     const [formData, setFormData] = useState({
         fullName: '',
         dateOfBirth: '',
+        docNumber: '',
         parentName: '',
         parentEmail: '',
         parentPhone: '',
@@ -38,6 +45,54 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
         monthlyFee: defaultMonthlyFee,
         dorsal: '',
     });
+
+    // Atleta que ya existe en la escuela y coincide con lo que se está creando.
+    // Mientras esté acá, el alta NO se hizo: el staff tiene que decidir.
+    const [duplicado, setDuplicado] = useState<AtletaDuplicado | null>(null);
+
+    const crear = async (allowDuplicate: boolean) => {
+        setLoading(true);
+        try {
+            const selectedProgram = teams.find(p => p.id === formData.teamId);
+
+            await createStudentWithPendingPayment({
+                fullName: formData.fullName,
+                dateOfBirth: formData.dateOfBirth || undefined,
+                docNumber: formData.docNumber || undefined,
+                parentName: formData.parentName || undefined,
+                parentEmail: formData.parentEmail,
+                parentPhone: formData.parentPhone || undefined,
+                schoolId,
+                schoolName: schoolName || 'Tu Escuela',
+                branchId: selectedProgram?.branch_id || activeBranchId || undefined,
+                teamId: formData.teamId || undefined,
+                teamName: selectedProgram?.name || 'Programa General',
+                monthlyFee: formData.monthlyFee,
+                dorsal: formData.dorsal || undefined,
+                allowDuplicate,
+            });
+
+            toast({
+                title: '¡Deportista creado!',
+                description: `Se ha enviado la invitación a ${formData.parentEmail}`,
+            });
+
+            onSuccess();
+            handleClose();
+        } catch (error: any) {
+            if (esAtletaDuplicado(error)) {
+                setDuplicado(error.duplicado);
+                return;   // el aviso queda en el formulario; nada se creó
+            }
+            toast({
+                title: 'Error',
+                description: error.message || 'No se pudo crear el deportista',
+                variant: 'destructive',
+            });
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -49,48 +104,15 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
             });
             return;
         }
-
-        setLoading(true);
-        try {
-            const selectedProgram = teams.find(p => p.id === formData.teamId);
-
-            await createStudentWithPendingPayment({
-                fullName: formData.fullName,
-                dateOfBirth: formData.dateOfBirth || undefined,
-                parentName: formData.parentName || undefined,
-                parentEmail: formData.parentEmail,
-                parentPhone: formData.parentPhone || undefined,
-                schoolId,
-                schoolName: schoolName || 'Tu Escuela',
-                branchId: selectedProgram?.branch_id || activeBranchId || undefined,
-                teamId: formData.teamId || undefined,
-                teamName: selectedProgram?.name || 'Programa General',
-                monthlyFee: formData.monthlyFee,
-                dorsal: formData.dorsal || undefined,
-            });
-
-            toast({
-                title: '¡Deportista creado!',
-                description: `Se ha enviado la invitación a ${formData.parentEmail}`,
-            });
-
-            onSuccess();
-            handleClose();
-        } catch (error: any) {
-            toast({
-                title: 'Error',
-                description: error.message || 'No se pudo crear el deportista',
-                variant: 'destructive',
-            });
-        } finally {
-            setLoading(false);
-        }
+        setDuplicado(null);
+        await crear(false);
     };
 
     const handleClose = () => {
         setFormData({
             fullName: '',
             dateOfBirth: '',
+            docNumber: '',
             parentName: '',
             parentEmail: '',
             parentPhone: '',
@@ -98,6 +120,7 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
             monthlyFee: defaultMonthlyFee,
             dorsal: '',
         });
+        setDuplicado(null);
         onClose();
     };
 
@@ -130,9 +153,24 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
                             id="stdName"
                             placeholder="Ej: Mateo Pérez"
                             value={formData.fullName}
-                            onChange={(e) => setFormData(p => ({ ...p, fullName: e.target.value }))}
+                            onChange={(e) => { setDuplicado(null); setFormData(p => ({ ...p, fullName: e.target.value })); }}
                             required
                         />
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label htmlFor="stdDoc">
+                            Documento del Deportista <span className="text-muted-foreground font-normal">(opcional)</span>
+                        </Label>
+                        <Input
+                            id="stdDoc"
+                            placeholder="Ej: 1012345678"
+                            value={formData.docNumber}
+                            onChange={(e) => { setDuplicado(null); setFormData(p => ({ ...p, docNumber: e.target.value })); }}
+                        />
+                        <p className="text-[11px] text-muted-foreground">
+                            Con documento el sistema puede reconocer al atleta y no volver a crearlo por error.
+                        </p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
@@ -215,11 +253,46 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
                         />
                     </div>
 
+                    {duplicado && (
+                        <div className="rounded-md border border-amber-400 bg-amber-50 p-3 space-y-2 dark:bg-amber-950/30">
+                            <div className="flex items-start gap-2">
+                                <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-600 shrink-0" />
+                                <div className="space-y-1">
+                                    <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                                        Este atleta ya podría existir
+                                    </p>
+                                    <p className="text-xs text-amber-900/90 dark:text-amber-200/90">
+                                        {describirAtletaDuplicado(duplicado)}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2 pl-6">
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setDuplicado(null)}
+                                >
+                                    Corregir los datos
+                                </Button>
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="destructive"
+                                    disabled={loading}
+                                    onClick={() => crear(true)}
+                                >
+                                    Es otra persona — crear igual
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+
                     <DialogFooter className="pt-4">
                         <Button variant="outline" type="button" onClick={handleClose}>
                             Cancelar
                         </Button>
-                        <Button type="submit" disabled={loading}>
+                        <Button type="submit" disabled={loading || !!duplicado}>
                             {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <UserPlus className="h-4 w-4 mr-2" />}
                             Crear Deportista e Invitar
                         </Button>

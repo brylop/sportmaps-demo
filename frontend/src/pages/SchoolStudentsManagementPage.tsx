@@ -20,7 +20,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { StatFilterBar, type StatFilterTone } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
-import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin, X, RefreshCw, Clock, Upload } from 'lucide-react';
+import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin, X, RefreshCw, Clock, Upload, AlertTriangle } from 'lucide-react';
 import { HourBankBalanceCard } from '@/components/access/HourBankBalanceCard';
 import { StudentReportPanel } from '@/components/access/StudentReportPanel';
 import { useToast } from '@/hooks/use-toast';
@@ -40,8 +40,22 @@ import { EpsCombobox } from '@/components/common/EpsCombobox';
 import { TSHIRT_SIZES, BLOOD_TYPES } from '@/lib/athlete-options';
 import { CreateChildModal } from '@/components/students/CreateChildModal';
 import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
-import { useSchoolContext, createStudentWithPendingPayment } from '@/hooks/useSchoolContext';
+import {
+  useSchoolContext,
+  createStudentWithPendingPayment,
+  describirAtletaDuplicado,
+  esAtletaDuplicado,
+  type AtletaDuplicado,
+} from '@/hooks/useSchoolContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
+import PauseAthleteDialog from '@/components/students/PauseAthleteDialog';
+import PauseRequestsInbox from '@/components/students/PauseRequestsInbox';
+import {
+  useActivePauses,
+  usePendingPauseRequests,
+  usePauseActions,
+  mesLegible,
+} from '@/hooks/usePauses';
 import { studentsAPI, StudentViewRow } from '@/lib/api/students';
 import { daysDiffFromToday } from '@/lib/dateUtils';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
@@ -221,6 +235,9 @@ export default function SchoolStudentsManagementPage() {
   // Besser: el coach no ve mensualidad ni estado de pago en ninguna pantalla.
   const hideFinancials = profile?.role === 'coach' && coachHideFinancialInfo;
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Atleta que ya existe en la escuela y coincide con el que se está creando.
+  // Mientras esté acá, el alta NO se hizo.
+  const [dupAviso, setDupAviso] = useState<AtletaDuplicado | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [showCreateChildModal, setShowCreateChildModal] = useState(false);
@@ -263,7 +280,17 @@ export default function SchoolStudentsManagementPage() {
   } | null>(null);
   const [loadingPlanInfo, setLoadingPlanInfo] = useState(false);
 
-  const { schoolId, schoolName, teams, branches, activeBranchId, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
+  const { schoolId, schoolName, teams, branches, activeBranchId, defaultMonthlyFee, schoolSettings, loading: schoolLoading } = useSchoolContext();
+
+  // Pausa por vacaciones/lesión: opt-in por escuela (D7). Con el flag apagado
+  // no se muestra nada — es el mismo patrón que `militaryDiscountEnabled`.
+  const pauseEnabled = schoolSettings?.pause_enabled === true;
+  const { byEnrollment: pauseByEnrollment } = useActivePauses(pauseEnabled ? schoolId : null);
+  const { data: pauseRequests } = usePendingPauseRequests(
+    pauseEnabled && canManageStudents ? schoolId : null
+  );
+  const { preview: previewPause, pausar, reactivar, aprobar, rechazar } = usePauseActions(schoolId);
+  const [pausingStudent, setPausingStudent] = useState<any | null>(null);
 
   const { data: offeringPlans = [] } = useQuery({
     queryKey: ['offering-plans', schoolId],
@@ -596,12 +623,13 @@ export default function SchoolStudentsManagementPage() {
   });
 
   const createStudentMutation = useMutation({
-    mutationFn: async (data: StudentFormData) => {
+    mutationFn: async (data: StudentFormData & { allowDuplicate?: boolean }) => {
       const selectedTeam = teams.find(p => p.id === data.team_id);
       if (schoolId) {
         const result = await createStudentWithPendingPayment({
           fullName: data.full_name,
           dateOfBirth: data.date_of_birth,
+          allowDuplicate: data.allowDuplicate,
           parentEmail: data.parent_email,
           parentPhone: data.parent_phone,
           parentName: data.parent_email.split('@')[0],
@@ -613,6 +641,13 @@ export default function SchoolStudentsManagementPage() {
           monthlyFee: (data.offering_plan_id && Number(data.plan_monthly_fee) > 0)
             ? Number(data.plan_monthly_fee)
             : (Number(data.team_monthly_fee) || Number(data.plan_monthly_fee) || 0),
+          // Con plan, el cobro lo emite POST /api/v1/enrollments (emitPlanCharge)
+          // acá abajo. Si además lo emitiera el alta, el atleta nacía con DOS
+          // cobros del mismo valor en meses distintos (el del alta con período del
+          // mes siguiente, el del plan con período del mes de entrada), y como
+          // caían en períodos distintos el índice único no los frenaba.
+          // Sin plan (solo equipo) no hay segunda emisión: sigue cobrando acá.
+          emitirCobro: !data.offering_plan_id,
           medicalInfo: data.medical_info,
           notes: data.notes,
         });
@@ -629,7 +664,9 @@ export default function SchoolStudentsManagementPage() {
             console.error('Error al inscribir en plan:', enrollErr);
             toast({
               title: '⚠️ Atleta creado, pero no se inscribió al plan',
-              description: 'Puedes inscribirlo manualmente desde Mis Planes.',
+              // El cobro del plan lo emite esta llamada: si falló, el atleta quedó
+              // creado y SIN mensualidad. Hay que decirlo, no solo que falta el plan.
+              description: 'Quedó sin inscripción y sin cobro del plan. Inscríbelo desde Mis Planes.',
             });
           }
         }
@@ -641,8 +678,23 @@ export default function SchoolStudentsManagementPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['school-students'] });
+      setDupAviso(null);
       setDialogOpen(false);
       form.reset();
+    },
+    // Sin onError el alta fallaba en silencio: el diálogo quedaba abierto y el
+    // staff volvía a darle "Agregar Atleta". Un duplicado se muestra en el
+    // formulario (con quién coincide) en vez de crear la segunda identidad.
+    onError: (error: any) => {
+      if (esAtletaDuplicado(error)) {
+        setDupAviso(error.duplicado);
+        return;
+      }
+      toast({
+        title: '❌ Error al registrar',
+        description: error?.message || 'Ocurrió un error inesperado',
+        variant: 'destructive',
+      });
     },
   });
 
@@ -705,7 +757,17 @@ export default function SchoolStudentsManagementPage() {
   const onSubmit = (input: z.input<typeof studentSchema>) => {
     const data = studentSchema.parse(input);
     if (editingStudent) updateStudentMutation.mutate(data);
-    else createStudentMutation.mutate(data);
+    else {
+      setDupAviso(null);
+      createStudentMutation.mutate(data);
+    }
+  };
+
+  /** El staff confirmó que el homónimo es otra persona: se crea con la misma
+   *  data del formulario, ahora con la excepción explícita. */
+  const crearIgualPeseAlDuplicado = () => {
+    const data = studentSchema.parse(form.getValues());
+    createStudentMutation.mutate({ ...data, allowDuplicate: true });
   };
 
   const handleCreateStudent = () => setShowTypeSelector(true);
@@ -1102,6 +1164,22 @@ export default function SchoolStudentsManagementPage() {
             {student.status === 'inactive' ? 'Reactivar' : 'Inactivar'}
           </DropdownMenuItem>
         )}
+        {/* Pausa por vacaciones/lesión. Mismo nivel de permiso que inactivar
+            (la RPC exige is_school_admin: aprobar una pausa exime de pagar) y
+            gateada por el opt-in de la escuela. */}
+        {pauseEnabled && canManageStudents && student.status !== 'inactive' && (
+          pauseByEnrollment.has(student.enrollment_id)
+            ? (
+              <DropdownMenuItem onClick={() => reactivar.mutate({ enrollmentId: student.enrollment_id })}>
+                Reactivar de la pausa
+              </DropdownMenuItem>
+            )
+            : (
+              <DropdownMenuItem onClick={() => setPausingStudent(student)}>
+                🏖️ Vacaciones / pausa
+              </DropdownMenuItem>
+            )
+        )}
         {/* PATCH: label y params según tipo de atleta */}
         <DropdownMenuItem onClick={() => navigate(`/invitations?${buildInviteParams(student)}`)}>
           {getAthleteType(student) === 'unregistered' ? 'Invitar Atleta' : 'Invitar Acudiente'}
@@ -1149,6 +1227,24 @@ export default function SchoolStudentsManagementPage() {
           </div>
         )}
       </div>
+
+      {/* Bandeja de solicitudes de pausa. Se auto-oculta si no hay ninguna. */}
+      {pauseEnabled && canManageStudents && (
+        <PauseRequestsInbox
+          requests={pauseRequests ?? []}
+          // Contra la lista COMPLETA, no contra `tabStudents`: si no, una
+          // solicitud de alguien que no está en la pestaña abierta se
+          // mostraría como "Atleta" sin nombre.
+          nameByEnrollment={new Map(
+            enhancedStudents
+              .filter((st: any) => st.enrollment_id)
+              .map((st: any) => [st.enrollment_id, st.full_name])
+          )}
+          onApprove={(args) => aprobar.mutate(args)}
+          onReject={(args) => rechazar.mutate(args)}
+          isBusy={aprobar.isPending || rechazar.isPending}
+        />
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
@@ -1295,6 +1391,13 @@ export default function SchoolStudentsManagementPage() {
                             <Clock className="h-2.5 w-2.5 mr-1" /> {formatHourBankMinutes(hourBankByEnrollment.get(student.enrollment_id)!)}
                           </Badge>
                         )}
+                        {student.enrollment_id && pauseByEnrollment.has(student.enrollment_id) && (
+                          <Badge variant="outline" className="text-[10px] bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/40 py-0 h-5">
+                            🏖️ {pauseByEnrollment.get(student.enrollment_id)!.vigente
+                              ? `En pausa hasta ${mesLegible(pauseByEnrollment.get(student.enrollment_id)!.month_to)}`
+                              : `Pausa desde ${mesLegible(pauseByEnrollment.get(student.enrollment_id)!.month_from)}`}
+                          </Badge>
+                        )}
                         {!student.team_name && !(student as any).plan_name && <span className="text-xs text-muted-foreground">Sin asignar</span>}
                         <span className="text-muted-foreground text-xs ml-1">· {student.branch_name || "Sin sede"}</span>
                       </div>
@@ -1366,6 +1469,13 @@ export default function SchoolStudentsManagementPage() {
                             {student.enrollment_id && hourBankByEnrollment.has(student.enrollment_id) && (
                               <Badge variant="outline" className={`text-xs w-fit ${hourBankByEnrollment.get(student.enrollment_id)! < 0 ? 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/40' : 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/40'}`}>
                                 <Clock className="h-3 w-3 mr-1" /> {formatHourBankMinutes(hourBankByEnrollment.get(student.enrollment_id)!)}
+                              </Badge>
+                            )}
+                            {student.enrollment_id && pauseByEnrollment.has(student.enrollment_id) && (
+                              <Badge variant="outline" className="text-xs w-fit bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/40">
+                                🏖️ {pauseByEnrollment.get(student.enrollment_id)!.vigente
+                                  ? `En pausa hasta ${mesLegible(pauseByEnrollment.get(student.enrollment_id)!.month_to)}`
+                                  : `Pausa desde ${mesLegible(pauseByEnrollment.get(student.enrollment_id)!.month_from)}`}
                               </Badge>
                             )}
                             {!student.team_name && !(student as any).plan_name && <span className="text-xs text-muted-foreground">Sin asignar</span>}
@@ -1444,7 +1554,7 @@ export default function SchoolStudentsManagementPage() {
       </Card>
 
       {/* Dialogs — sin cambios respecto al original */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={(o) => { if (!o) setDupAviso(null); setDialogOpen(o); }}>
         <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingStudent ? `Editar ${editingAthleteType === 'child' ? 'Menor' : 'Atleta'} — ${editingStudent.full_name}` : 'Agregar Nuevo Atleta'}</DialogTitle>
@@ -1839,9 +1949,42 @@ export default function SchoolStudentsManagementPage() {
               )}
             </div>
 
+            {!editingStudent && dupAviso && (
+              <div className="rounded-md border border-amber-400 bg-amber-50 p-3 space-y-2 dark:bg-amber-950/30">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-600 shrink-0" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                      Este atleta ya podría existir
+                    </p>
+                    <p className="text-xs text-amber-900/90 dark:text-amber-200/90">
+                      {describirAtletaDuplicado(dupAviso)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 pl-6">
+                  <Button type="button" size="sm" variant="outline" onClick={() => setDupAviso(null)}>
+                    Corregir los datos
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    disabled={createStudentMutation.isPending}
+                    onClick={crearIgualPeseAlDuplicado}
+                  >
+                    Es otra persona — crear igual
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
-              <Button type="submit" disabled={createStudentMutation.isPending || updateStudentMutation.isPending}>
+              <Button
+                type="submit"
+                disabled={createStudentMutation.isPending || updateStudentMutation.isPending || (!editingStudent && !!dupAviso)}
+              >
                 {createStudentMutation.isPending || updateStudentMutation.isPending ? 'Guardando...' : (editingStudent ? 'Guardar Cambios' : 'Agregar Atleta')}
               </Button>
             </DialogFooter>
@@ -2216,6 +2359,16 @@ export default function SchoolStudentsManagementPage() {
           })()}
         </DialogContent>
       </Dialog>
+
+      <PauseAthleteDialog
+        open={!!pausingStudent}
+        onOpenChange={(o) => { if (!o) setPausingStudent(null); }}
+        athleteName={pausingStudent?.full_name ?? ''}
+        enrollmentId={pausingStudent?.enrollment_id ?? null}
+        onPreview={previewPause}
+        isSubmitting={pausar.isPending}
+        onConfirm={(args) => pausar.mutate(args, { onSuccess: () => setPausingStudent(null) })}
+      />
 
       <CSVImportModal open={showImportModal} onClose={() => setShowImportModal(false)}
         onSuccess={() => { setShowImportModal(false); toast({ title: "Importación completada", description: "La lista de atletas se ha actualizado." }); queryClient.invalidateQueries({ queryKey: ['school-students'] }); }}

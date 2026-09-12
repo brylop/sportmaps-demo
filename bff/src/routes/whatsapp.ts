@@ -31,7 +31,8 @@ import {
     type WhatsAppIntegration,
     type ParsedInboundMessage,
 } from '../services/whatsapp.service';
-import { runBotTurn } from '../services/whatsapp-bot.service';
+import { runBotTurn, deliver } from '../services/whatsapp-bot.service';
+import { encolarAdjunto } from '../services/whatsapp-queue.service';
 
 const router = Router();
 
@@ -133,12 +134,20 @@ async function processInboundMessage(req: Request, msg: ParsedInboundMessage): P
 
     const conversationId = (ingest as any)?.conversation_id as string;
 
+    // La ingesta detecta las palabras de baja (STOP, baja, no molestar…) y ya
+    // registró el opt-out. El bot tiene que confirmarlo y NO seguir su flujo
+    // normal: a quien pide que no le escriban no se le pregunta el email.
+    const optedOut = (ingest as any)?.opted_out === true;
+    if (optedOut) {
+        req.log?.info({ conversationId, contactWaId: msg.contactWaId }, 'WhatsApp: opt-out registrado');
+    }
+
     // 4. Marcar como leído (best-effort, no bloquea).
     void markAsRead(integration, msg.waMessageId);
 
     // 5. Disparar el bot. En WA2 esto encola en pg-boss y corre DeepSeek +
     //    intents + identificación OTP. Por ahora dejamos el punto de entrada.
-    await handleBotTurn(req, integration, conversationId, msg);
+    await handleBotTurn(req, integration, conversationId, msg, optedOut);
 }
 
 /**
@@ -147,21 +156,59 @@ async function processInboundMessage(req: Request, msg: ParsedInboundMessage): P
  *  - Gemini (fallback DeepSeek) con function-calling sobre los intents
  *  - modo asistido (draft para aprobación) vs auto (envía directo)
  *
- * Solo procesa mensajes de texto por ahora; tipos ricos (imagen, audio…) se
- * ignoran en el bot pero ya quedaron guardados por la ingesta.
+ * Los adjuntos (imagen, PDF) NO los atiende el bot: se encolan y los procesa el
+ * worker. El resto de tipos ricos (audio, video, sticker) se ignoran en el bot
+ * pero ya quedaron guardados por la ingesta.
  */
 async function handleBotTurn(
     req: Request,
     integration: WhatsAppIntegration,
     conversationId: string,
     msg: ParsedInboundMessage,
+    optedOut = false,
 ): Promise<void> {
+    // Un adjunto es, casi siempre, un comprobante. Se encola y el webhook
+    // termina: procesarlo acá no es una opción porque el OCR tarda segundos y
+    // Meta reintenta si no respondemos rápido.
+    //
+    // Va ANTES del filtro de tipo textual — si no, cae en el `return` de abajo y
+    // el archivo se pierde.
+    if (msg.type === 'image' || msg.type === 'document') {
+        // El adjunto se encola aunque el contacto esté dado de baja: mandar un
+        // comprobante es una gestión sobre su propia plata que él inició, y
+        // perderla en silencio es peor que responderle. El worker le agrega la
+        // coletilla que le recuerda que tiene las notificaciones apagadas.
+        const resultado = await encolarAdjunto(integration, msg, req.log).catch((err) => {
+            req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: encolarAdjunto explotó');
+            return 'error' as const;
+        });
+        req.log?.info({ conversationId, resultado }, 'WhatsApp: adjunto entrante');
+        return;
+    }
+
+    // Audio y video NO se pueden procesar, pero callarse es peor: el acudiente
+    // manda una nota de voz preguntando algo y se queda esperando una respuesta
+    // que nunca llega. Antes caían en el `return` de abajo, en silencio.
+    //
+    // Los stickers y las reacciones sí se ignoran: son ruido social, no una
+    // pregunta, y responderles sería molesto.
+    if (msg.type === 'audio' || msg.type === 'video') {
+        const texto = msg.type === 'audio'
+            ? 'No puedo escuchar notas de voz 🙊 Escríbeme el mensaje y te ayudo. Y si es un ' +
+              'comprobante de pago, mándame la *foto* o el *PDF* que te da el banco.'
+            : 'No puedo ver videos. Si es un comprobante de pago, mándame la *foto* o el *PDF* ' +
+              'que te da el banco y lo valido enseguida.';
+        await deliver(integration, conversationId, msg.contactWaId, texto, { step: `tipo_no_soportado_${msg.type}` })
+            .catch((err) => req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: no se pudo responder al tipo no soportado'));
+        return;
+    }
+
     if (msg.type !== 'text' && msg.type !== 'interactive' && msg.type !== 'button') {
         req.log?.info({ conversationId, type: msg.type }, 'WhatsApp: tipo no textual, bot no responde');
         return;
     }
     try {
-        await runBotTurn(integration, conversationId, msg.contactWaId, msg.textBody);
+        await runBotTurn(integration, conversationId, msg.contactWaId, msg.textBody, msg.waMessageId, optedOut);
     } catch (err: any) {
         req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: runBotTurn failed');
     }
