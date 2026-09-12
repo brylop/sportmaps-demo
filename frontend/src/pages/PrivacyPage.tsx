@@ -17,7 +17,7 @@ export default function PrivacyPage() {
             </div>
             <h1 className="text-3xl font-bold tracking-tight">Politica de Privacidad y Aviso de Privacidad</h1>
           </div>
-          <p className="text-muted-foreground text-sm">Tratamiento de Datos Personales · Ultima actualizacion: abril de 2026 · Version 2.0 · Ley 1581 de 2012 (Colombia)</p>
+          <p className="text-muted-foreground text-sm">Tratamiento de Datos Personales · Ultima actualizacion: septiembre de 2026 · Version 2.1 · Ley 1581 de 2012 (Colombia)</p>
         </div>
       </div>
 
@@ -323,6 +323,10 @@ export default function PrivacyPage() {
                 <li><strong className="text-foreground">Resend:</strong> servicio de envío de correos electrónicos transaccionales (confirmaciones, recordatorios).</li>
                 <li><strong className="text-foreground">Vercel:</strong> plataforma de hosting y despliegue de la aplicación web.</li>
                 <li><strong className="text-foreground">Sentry:</strong> monitoreo de errores técnicos (datos anonimizados).</li>
+                <li><strong className="text-foreground">Render:</strong> alojamiento de nuestros servicios de backend.</li>
+                <li><strong className="text-foreground">Google Firebase:</strong> notificaciones push a la aplicación móvil.</li>
+                <li><strong className="text-foreground">Meta Platforms:</strong> mensajería a través de la WhatsApp Business Platform, cuando la escuela habilita ese canal.</li>
+                <li><strong className="text-foreground">Google (Gemini), Groq, OpenAI y DeepSeek:</strong> lectura automática de comprobantes de pago y asistencia conversacional en los canales de atención. Usamos varios proveedores con conmutación automática para garantizar la disponibilidad del servicio.</li>
               </ul>
             </div>
 
@@ -340,6 +344,46 @@ export default function PrivacyPage() {
           <p className="mt-3">
             Todos los proveedores externos están sujetos a acuerdos de confidencialidad y tratamiento de datos compatibles con esta Política y la legislación colombiana. SportMaps exige garantías contractuales de seguridad y uso restringido de los datos a las finalidades acordadas.
           </p>
+
+          {/* 8.1 Canal de WhatsApp — el tratamiento propio de ese canal, que
+              antes solo estaba descrito en la politica publicada en la landing. */}
+          <h3 className="text-base font-semibold text-foreground mt-5 mb-2">8.1. Canal de Atención por WhatsApp</h3>
+          <div className="space-y-3">
+            <p>
+              Cuando una escuela habilita el canal de WhatsApp, la atención se presta sobre la
+              <strong className="text-foreground"> WhatsApp Business Platform de Meta Platforms, Inc.</strong> El tratamiento en ese canal funciona así:
+            </p>
+            <ul className="list-disc list-inside space-y-1">
+              <li>
+                <strong className="text-foreground">La conversación la inicia el titular.</strong> SportMaps responde dentro de la
+                ventana de servicio de 24 horas definida por Meta. Fuera de esa ventana solo se envían
+                plantillas previamente aprobadas por Meta y de contenido transaccional (avisos de cobro,
+                confirmaciones de pago, resultado de la validación de un comprobante).
+              </li>
+              <li>
+                <strong className="text-foreground">Qué se conserva.</strong> El número de teléfono, el contenido de los mensajes
+                intercambiados y los archivos que el titular adjunte (imágenes o PDF de comprobantes de pago),
+                para que la escuela pueda revisar, validar y dejar trazabilidad del pago.
+              </li>
+              <li>
+                <strong className="text-foreground">Lectura automatizada.</strong> Los comprobantes se procesan con los proveedores de
+                inteligencia artificial indicados en esta sección, con la única finalidad de extraer el monto,
+                la fecha y el número de referencia y contrastarlos contra el cobro correspondiente. La
+                aprobación final del pago siempre la realiza una persona de la escuela; no se adoptan
+                decisiones con efectos jurídicos basadas exclusivamente en el tratamiento automatizado.
+              </li>
+              <li>
+                <strong className="text-foreground">Revocatoria del consentimiento.</strong> El titular puede escribir
+                <strong className="text-foreground"> STOP</strong> en cualquier momento para dejar de recibir mensajes automatizados.
+                La solicitud se registra como un estado permanente de la cuenta, no como un evento aislado, y
+                se respeta en envíos posteriores. Esto no afecta los demás derechos reconocidos en la Sección 10.
+              </li>
+              <li>
+                <strong className="text-foreground">Costos.</strong> El costo de los mensajes corre por cuenta de la escuela y de su
+                operador. SportMaps no cobra al titular por mensaje enviado o recibido.
+              </li>
+            </ul>
+          </div>
         </section>
 
         {/* 9. Seguridad */}
@@ -455,10 +499,10 @@ export default function PrivacyPage() {
         <section>
           <h2 className="text-lg font-semibold text-foreground mb-3">14. Transferencia y Transmisión Internacional de Datos</h2>
           <p>
-            Algunos proveedores de infraestructura de SportMaps (Supabase, Vercel, Resend, Sentry) tienen servidores ubicados fuera del territorio colombiano, principalmente en los Estados Unidos y en la Unión Europea. Al aceptar esta Política, el Usuario autoriza expresamente la <strong className="text-foreground">transferencia y/o transmisión internacional</strong> de sus datos personales a estos proveedores.
+            Los proveedores de infraestructura y de procesamiento de SportMaps (Supabase, Vercel, Render, Resend, Sentry, Google, Meta Platforms, OpenAI, Groq y DeepSeek) tienen servidores ubicados fuera del territorio colombiano. Los datos se tratan principalmente en los <strong className="text-foreground">Estados Unidos</strong> y en la <strong className="text-foreground">Unión Europea</strong>; en el caso específico de DeepSeek, utilizado como proveedor de respaldo del asistente conversacional, el tratamiento puede ocurrir en la <strong className="text-foreground">República Popular China</strong>. Al aceptar esta Política, el Usuario autoriza expresamente la <strong className="text-foreground">transferencia y/o transmisión internacional</strong> de sus datos personales a estos proveedores, para las finalidades descritas en la Sección 8.
           </p>
           <p className="mt-2">
-            De conformidad con el artículo 26 del Decreto 1377 de 2013, SportMaps garantiza que los países de destino cuentan con niveles adecuados de protección de datos o, en su defecto, suscribe acuerdos contractuales que aseguran estándares equivalentes a los exigidos por la legislación colombiana.
+            De conformidad con el artículo 26 del Decreto 1377 de 2013, SportMaps garantiza que los países de destino cuentan con niveles adecuados de protección de datos o, en su defecto, suscribe acuerdos contractuales que aseguran estándares equivalentes a los exigidos por la legislación colombiana. Cuando el país de destino no figura entre los declarados con nivel adecuado de protección por la Superintendencia de Industria y Comercio, la transferencia se ampara en la autorización expresa e informada del titular y en las cláusulas contractuales suscritas con el encargado, que restringen el uso de los datos a la prestación del servicio contratado y prohíben su uso para entrenamiento de modelos, publicidad o cualquier finalidad distinta.
           </p>
         </section>
 
