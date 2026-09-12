@@ -27,6 +27,7 @@ import {
     verifyWebhookSignature,
     resolveIntegration,
     parseInboundMessages,
+    parseStatuses,
     markAsRead,
     type WhatsAppIntegration,
     type ParsedInboundMessage,
@@ -78,11 +79,63 @@ router.post('/', async (req: Request, res: Response) => {
                 req.log?.error({ err: err?.message || err, waMessageId: msg.waMessageId }, 'WhatsApp message processing failed');
             });
         }
-        // Aquí también se procesarían los `statuses` (delivered/read/failed) en WA4.
+        // Estados de entrega. Llegan por el MISMO campo suscrito que los
+        // mensajes, asi que ya estaban entrando: hasta hoy se descartaban.
+        //
+        // Importan por dos razones. Meta cobra por mensaje ENTREGADO, no
+        // enviado, y el evento trae el bloque `pricing` que dice si fue
+        // facturable y en que categoria — o sea, la misma senal con la que
+        // Meta arma la factura. Es lo que alimenta el medidor de consumo.
+        await procesarEstados(req, body).catch((err) => {
+            req.log?.error({ err: err?.message || err }, 'WhatsApp: fallo el procesamiento de estados');
+        });
     } catch (err: any) {
         req.log?.error({ err: err?.message || err }, 'WhatsApp webhook processing error');
     }
 });
+
+/**
+ * Guarda el estado de entrega de los salientes y, sobre todo, lo que Meta cobro.
+ *
+ * No falla la peticion si algo sale mal: un estado perdido descuadra el medidor,
+ * pero tumbar el webhook perderia mensajes de padres, que es peor.
+ */
+async function procesarEstados(req: Request, body: any): Promise<void> {
+    const estados = parseStatuses(body);
+    if (estados.length === 0) return;
+
+    for (const e of estados) {
+        if (!e.waMessageId) continue;
+
+        const parche: Record<string, unknown> = {
+            status: e.status,
+            status_at: e.timestamp,
+        };
+        // Solo se pisa lo de cobro si el evento lo trae. Meta manda varios
+        // estados por mensaje (sent, delivered, read) y no todos incluyen
+        // `pricing`: sobrescribir con null borraria el dato del medidor.
+        if (e.pricingRaw !== null && e.pricingRaw !== undefined) {
+            parche.billable = e.billable;
+            parche.pricing_category = e.pricingCategory;
+            parche.pricing_raw = e.pricingRaw;
+        }
+        if (e.errorDetail) parche.error_detail = e.errorDetail;
+
+        const { error } = await supabase
+            .from('whatsapp_messages')
+            .update(parche)
+            .eq('wa_message_id', e.waMessageId);
+
+        if (error) {
+            req.log?.warn({ err: error.message, waMessageId: e.waMessageId }, 'WhatsApp: no se pudo guardar el estado');
+        }
+    }
+
+    const facturables = estados.filter((e) => e.billable === true).length;
+    if (facturables > 0) {
+        req.log?.info({ estados: estados.length, facturables }, 'WhatsApp: estados procesados');
+    }
+}
 
 // ─── Procesamiento de un mensaje entrante ────────────────────────────────────
 async function processInboundMessage(req: Request, msg: ParsedInboundMessage): Promise<void> {

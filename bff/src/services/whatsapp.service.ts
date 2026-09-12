@@ -245,6 +245,65 @@ export function aFormatoWhatsApp(texto: string): string {
         .replace(/^\s*[-*]\s+/gm, '• ');
 }
 
+// ─── Estados de entrega (y lo que Meta cobra) ────────────────────────────────
+
+/**
+ * Un evento `statuses` del webhook: lo que le paso a un mensaje que enviamos.
+ *
+ * Llega por el MISMO campo suscrito que los mensajes entrantes (`messages`), asi
+ * que no hay nada que configurar en Meta: ya estaba entrando y se descartaba.
+ */
+export interface ParsedStatus {
+    phoneNumberId: string;
+    /** El wa_message_id del SALIENTE al que se refiere. */
+    waMessageId: string;
+    /** sent | delivered | read | failed */
+    status: string;
+    recipientWaId: string | null;
+    timestamp: string;
+    /** Lo dice Meta, que es quien cobra. null si el evento no trae `pricing`. */
+    billable: boolean | null;
+    pricingCategory: string | null;
+    /** El bloque `pricing` crudo: su forma ya cambio una vez y volvera a cambiar. */
+    pricingRaw: any | null;
+    errorDetail: string | null;
+}
+
+export function parseStatuses(body: any): ParsedStatus[] {
+    const out: ParsedStatus[] = [];
+    const entries = Array.isArray(body?.entry) ? body.entry : [];
+    for (const entry of entries) {
+        const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+        for (const change of changes) {
+            const value = change?.value;
+            if (!value || change?.field !== 'messages') continue;
+            const phoneNumberId: string = value?.metadata?.phone_number_id || '';
+            const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
+            for (const st of statuses) {
+                const pricing = st?.pricing ?? null;
+                const epoch = Number(st?.timestamp || 0);
+                const errores = Array.isArray(st?.errors) ? st.errors : [];
+                out.push({
+                    phoneNumberId,
+                    waMessageId: st?.id || '',
+                    status: st?.status || 'unknown',
+                    recipientWaId: st?.recipient_id ?? null,
+                    timestamp: epoch ? new Date(epoch * 1000).toISOString() : new Date().toISOString(),
+                    // `billable` puede venir ausente; no se asume false, que
+                    // reportaria de menos lo que se le paga a Meta.
+                    billable: typeof pricing?.billable === 'boolean' ? pricing.billable : null,
+                    pricingCategory: pricing?.category ?? null,
+                    pricingRaw: pricing,
+                    errorDetail: errores.length
+                        ? String(errores[0]?.title ?? errores[0]?.message ?? errores[0]?.code ?? '').slice(0, 300)
+                        : null,
+                });
+            }
+        }
+    }
+    return out;
+}
+
 // ─── Bajada de archivos (comprobantes) ───────────────────────────────────────
 
 export interface MediaDownloadResult {
