@@ -94,6 +94,28 @@ which the app honours as a stored state, not as a single event.
 
 ---
 
+## Important note about the test phone number
+
+The number connected to this test account is a **Meta-provided test number**
+(`+1 555-659-2322`). Test numbers only deliver messages to recipients that
+have been pre-registered in the app dashboard, so an inbound message from an
+arbitrary phone will fail to receive a reply with error `#131030`. This is a
+platform restriction on test numbers, not a defect in the application.
+
+For this reason:
+
+- **`whatsapp_business_management` can be tested live.** Logging in and
+  creating a template calls the Graph API in real time against the connected
+  WhatsApp Business Account. Please follow the steps above.
+- **`whatsapp_business_messaging` is demonstrated in the attached video**,
+  recorded against a pre-registered recipient. If you would prefer to test it
+  live, tell us which phone number to allow-list and we will add it.
+
+Schools will connect their own production numbers through Embedded Signup once
+this app is approved. Until then, this is the only number available to us.
+
+---
+
 ## Test credentials
 
 - URL: `https://stg.sportmaps.co/login`
