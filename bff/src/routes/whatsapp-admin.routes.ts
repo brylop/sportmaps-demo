@@ -22,6 +22,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth, type AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { decryptToken } from '../services/whatsapp.service';
 
 const router = Router();
 
@@ -204,6 +205,136 @@ router.get('/:schoolId/eventos', requireAuth, async (req: AuthenticatedRequest, 
 
     if (error) return res.status(500).json({ error: error.message });
     return res.json({ eventos: data ?? [] });
+});
+
+// ── Plantillas de Meta ──────────────────────────────────────────────────────
+// La escuela necesita verlas por una razon concreta: si Meta desactiva o
+// recategoriza una plantilla de cobranza, los envios dejan de salir. Hasta hoy
+// eso solo se veia preguntandole a Graph a mano.
+
+const GRAPH = `https://graph.facebook.com/${process.env.WHATSAPP_GRAPH_VERSION || 'v21.0'}`;
+
+/** Token de la integracion, descifrado. Nunca sale de aca. */
+function tokenDe(integracion: { access_token_encrypted: string | null }): string | null {
+    if (!integracion.access_token_encrypted) return null;
+    try { return decryptToken(integracion.access_token_encrypted); } catch { return null; }
+}
+
+router.get('/:schoolId/plantillas', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId } = req.params as { schoolId: string };
+    if (!(await administraEstaEscuela(req.user.id, schoolId))) {
+        return res.status(403).json({ error: 'forbidden' });
+    }
+
+    const { data: integracion } = await supabase
+        .from('school_whatsapp_integrations')
+        .select('waba_id, access_token_encrypted')
+        .eq('school_id', schoolId)
+        .maybeSingle();
+
+    if (!integracion?.waba_id) return res.status(404).json({ error: 'sin_integracion' });
+    const token = tokenDe(integracion as any);
+    if (!token) return res.status(409).json({ error: 'sin_token' });
+
+    const r = await fetch(
+        `${GRAPH}/${integracion.waba_id}/message_templates?fields=name,status,category,language,quality_score&limit=100`,
+        { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) },
+    );
+    const j: any = await r.json();
+    if (!r.ok) {
+        req.log?.warn({ schoolId, status: r.status }, '[wa-admin] Meta rechazo el listado de plantillas');
+        return res.status(502).json({ error: 'meta_error', detalle: j?.error?.message ?? null });
+    }
+
+    return res.json({ plantillas: j.data ?? [] });
+});
+
+const PlantillaSchema = z.object({
+    // Meta exige minusculas, numeros y guion bajo.
+    name: z.string().regex(/^[a-z0-9_]{3,60}$/, 'solo minusculas, numeros y guion bajo'),
+    language: z.string().min(2).max(10).default('es_CO'),
+    category: z.enum(['UTILITY', 'MARKETING', 'AUTHENTICATION']).default('UTILITY'),
+    body: z.string().min(10).max(1024),
+    // Los ejemplos de cada {{n}}: Meta los EXIGE si el texto trae variables.
+    ejemplos: z.array(z.string()).default([]),
+});
+
+router.post('/:schoolId/plantillas', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId } = req.params as { schoolId: string };
+    if (!(await administraEstaEscuela(req.user.id, schoolId))) {
+        return res.status(403).json({ error: 'forbidden' });
+    }
+
+    const parsed = PlantillaSchema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: 'datos_invalidos', details: parsed.error.issues });
+    }
+    const p = parsed.data;
+
+    // Se valida ANTES de llamar a Meta, porque su error para esto es opaco.
+    const variables = [...new Set(Array.from(p.body.matchAll(/\{\{(\d+)\}\}/g)).map((m) => Number(m[1])))]
+        .sort((a, b) => a - b);
+    if (variables.length !== p.ejemplos.length) {
+        return res.status(400).json({
+            error: 'ejemplos_incompletos',
+            detalle: `El texto usa ${variables.length} variable(s) y llegaron ${p.ejemplos.length} ejemplo(s).`,
+        });
+    }
+    if (variables.length && (variables[0] !== 1 || variables[variables.length - 1] !== variables.length)) {
+        return res.status(400).json({
+            error: 'variables_no_consecutivas',
+            detalle: 'Las variables deben ir de {{1}} en adelante, sin saltos.',
+        });
+    }
+    // Meta rechaza que el cuerpo empiece o termine con una variable. Ya nos paso
+    // con tres plantillas y el mensaje de error no lo dice claro.
+    if (/^\s*\{\{\d+\}\}/.test(p.body) || /\{\{\d+\}\}\s*$/.test(p.body)) {
+        return res.status(400).json({
+            error: 'variable_en_el_borde',
+            detalle: 'El texto no puede empezar ni terminar con una variable. Agrega una palabra antes o despues.',
+        });
+    }
+
+    const { data: integracion } = await supabase
+        .from('school_whatsapp_integrations')
+        .select('waba_id, access_token_encrypted')
+        .eq('school_id', schoolId)
+        .maybeSingle();
+
+    if (!integracion?.waba_id) return res.status(404).json({ error: 'sin_integracion' });
+    const token = tokenDe(integracion as any);
+    if (!token) return res.status(409).json({ error: 'sin_token' });
+
+    const cuerpo: any = {
+        name: p.name,
+        language: p.language,
+        category: p.category,
+        components: [{
+            type: 'BODY',
+            text: p.body,
+            ...(p.ejemplos.length ? { example: { body_text: [p.ejemplos] } } : {}),
+        }],
+    };
+
+    const r = await fetch(`${GRAPH}/${integracion.waba_id}/message_templates`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(cuerpo),
+        signal: AbortSignal.timeout(30_000),
+    });
+    const j: any = await r.json();
+
+    if (!r.ok) {
+        return res.status(400).json({
+            error: 'meta_rechazo',
+            // `error_user_msg` es el texto que Meta escribe para humanos; el
+            // `message` tecnico no le sirve a nadie en la pantalla.
+            detalle: j?.error?.error_user_msg ?? j?.error?.message ?? 'Meta rechazo la plantilla.',
+        });
+    }
+
+    req.log?.info({ schoolId, plantilla: p.name, id: j?.id, estado: j?.status }, '[wa-admin] plantilla registrada');
+    return res.status(201).json({ id: j?.id, status: j?.status, category: j?.category, name: p.name });
 });
 
 export default router;

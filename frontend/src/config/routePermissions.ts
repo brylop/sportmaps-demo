@@ -122,6 +122,7 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     '/facturacion-electronica': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Facturación electrónica' },
     '/payments-automation': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:manage', description: 'Automatización de pagos' },
     '/payment-reminders': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:manage', description: 'Recordatorios de pago' },
+    '/whatsapp': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Canal de WhatsApp' },
     '/message-templates': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Plantillas de mensaje' },
     '/school-reports': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'reports:view', description: 'Reportes escolares' },
     '/facilities': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Instalaciones' },

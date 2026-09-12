@@ -1,0 +1,34 @@
+{
+  "name": "comprobante_rechazado",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Hola {{1}}, revisamos el comprobante que enviaste por {{2}} de {{3}} y no pudimos validarlo: {{4}}. Puedes enviar el comprobante correcto desde el botón.",
+      "example": {
+        "body_text": [
+          [
+            "Carolina",
+            "$150.000",
+            "Samuel",
+            "el archivo no es un comprobante de pago"
+          ]
+        ]
+      }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "Enviar comprobante",
+          "url": "https://sportmaps.co/p/{{1}}",
+          "example": [
+            "https://sportmaps.co/p/aB3xK9mQ"
+          ]
+        }
+      ]
+    }
+  ]
+}

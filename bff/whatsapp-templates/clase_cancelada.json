@@ -1,0 +1,22 @@
+{
+  "name": "clase_cancelada",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Hola {{1}}, la clase de {{2}} del {{3}} a las {{4}} fue cancelada por {{5}}. Te avisamos apenas se reprograme.",
+      "example": {
+        "body_text": [
+          [
+            "Carolina",
+            "Samuel",
+            "13 de septiembre",
+            "4:00 p. m.",
+            "lluvia"
+          ]
+        ]
+      }
+    }
+  ]
+}
