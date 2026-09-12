@@ -37,6 +37,13 @@ const UMBRAL_AVISO = 0.8;
  * Se pregunta por la membresía real, no por el rol del perfil. El super admin de
  * plataforma pasa, como en el resto del producto.
  */
+/** Primer instante del mes corriente en hora de Bogota, que es como factura Meta. */
+function inicioDelMesBogota(): string {
+    const ahora = new Date();
+    const bogota = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Bogota' }));
+    return new Date(Date.UTC(bogota.getFullYear(), bogota.getMonth(), 1, 5, 0, 0)).toISOString();
+}
+
 async function administraEstaEscuela(userId: string, schoolId: string): Promise<boolean> {
     // Las tres preguntas van EN PARALELO. Encadenadas costaban ~1,6 s, y como
     // este chequeo corre en cada endpoint, la pantalla gastaba unos 6 segundos
@@ -86,7 +93,18 @@ router.get('/:schoolId', requireAuth, async (req: AuthenticatedRequest, res: Res
         supabase.from('whatsapp_settings')
             .select('mode, ai_enabled, assisted_until, business_hours, welcome_message')
             .eq('integration_id', integracion.id).maybeSingle(),
-        supabase.rpc('wa_consumo_del_mes', { p_integration_id: integracion.id }),
+        // OJO: aca NO va `wa_consumo_del_mes`. Ese RPC lleva su propio candado
+        // (`is_school_admin`) pensado para que el navegador lo llame directo. El
+        // BFF entra con service_role, que no tiene JWT, asi que el candado daba
+        // false y la funcion devolvia todo en cero — el medidor se veia vacio con
+        // mensajes cobrados de por medio. Se lee la tabla directo, que es lo que
+        // la propia migracion prescribe para los llamadores internos; la
+        // autorizacion ya la hizo `administraEstaEscuela()` mas arriba.
+        supabase.from('whatsapp_messages')
+            .select('billable, pricing_category')
+            .eq('integration_id', integracion.id)
+            .eq('direction', 'outbound')
+            .gte('created_at', inicioDelMesBogota()),
         supabase.from('whatsapp_inbound_queue')
             .select('id, status, wa_phone_number, message_type, media_mime_type, storage_path, '
                 + 'error_message, result_type, result_ref_id, retries, created_at, processed_at')
@@ -99,7 +117,25 @@ router.get('/:schoolId', requireAuth, async (req: AuthenticatedRequest, res: Res
             .order('created_at', { ascending: false }).limit(50),
     ]);
     const ajustes = ajustesR.data;
-    const consumo = consumoR.data;
+
+    // El desglose se arma aca con la misma forma que devolvia el RPC, para que
+    // la pantalla no note la diferencia.
+    const salientes = consumoR.data ?? [];
+    const porCategoria: Record<string, number> = {};
+    for (const m of salientes) {
+        if (m.billable !== true) continue;
+        const k = m.pricing_category ?? 'sin_categoria';
+        porCategoria[k] = (porCategoria[k] ?? 0) + 1;
+    }
+    const consumo = {
+        desde: inicioDelMesBogota(),
+        facturables: salientes.filter((m) => m.billable === true).length,
+        gratis: salientes.filter((m) => m.billable === false).length,
+        // Salientes cuyo `status` de Meta nunca llego. Si esto crece, el webhook
+        // de statuses dejo de procesarse y el medidor esta quedando ciego.
+        sin_estado: salientes.filter((m) => m.billable === null || m.billable === undefined).length,
+        por_categoria: porCategoria,
+    };
 
     const facturables = Number((consumo as any)?.facturables ?? 0);
     const incluidos = INCLUIDOS_POR_DEFECTO;
