@@ -31,6 +31,7 @@ export type ModuleKey =
   | 'documentos_carnets'
   | 'documentos_constancias'
   | 'documentos_qr_inscripcion'
+  | 'comunicacion_whatsapp'
   | 'documentos_recordatorios'
   | 'documentos_plantillas_mensajes'
   | 'sedes_sedes'
@@ -128,15 +129,20 @@ export const MODULE_CATALOG: Record<ModuleKey, ModuleDefinition> = {
     label: 'QR de Inscripción',
     group: 'Documentos e Identidad',
   },
+  comunicacion_whatsapp: {
+    key: 'comunicacion_whatsapp',
+    label: 'WhatsApp',
+    group: 'Comunicación',
+  },
   documentos_recordatorios: {
     key: 'documentos_recordatorios',
     label: 'Recordatorios',
-    group: 'Documentos e Identidad',
+    group: 'Comunicación',
   },
   documentos_plantillas_mensajes: {
     key: 'documentos_plantillas_mensajes',
     label: 'Plantillas de Mensajes',
-    group: 'Documentos e Identidad',
+    group: 'Comunicación',
   },
   sedes_sedes: {
     key: 'sedes_sedes',

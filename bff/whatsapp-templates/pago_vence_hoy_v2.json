@@ -1,0 +1,34 @@
+{
+  "name": "pago_vence_hoy_v2",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Hola {{1}}, hoy vence la mensualidad de {{2}} en {{3}} por {{4}}. Puedes pagarla desde el botón para evitar recargos.",
+      "example": {
+        "body_text": [
+          [
+            "Carolina",
+            "Samuel",
+            "Academia Tigres FC",
+            "$150.000"
+          ]
+        ]
+      }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "Pagar ahora",
+          "url": "https://sportmaps.co/p/{{1}}",
+          "example": [
+            "https://sportmaps.co/p/aB3xK9mQ"
+          ]
+        }
+      ]
+    }
+  ]
+}

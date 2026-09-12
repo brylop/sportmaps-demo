@@ -110,7 +110,28 @@ DEVICES = [
     },
 ]
 
-POLL_INTERVAL_SECONDS = 3
+# Ajustado 2026-09-06, en dos pasos:
+# 1) Poll simple de 3s a 15s para bajar la carga sobre el BFF en Render
+#    (~80% menos peticiones). Costo: hasta 15s de latencia para que la
+#    puerta abra despues del click en el dashboard -- demasiado para el
+#    caso de uso real (alguien parado esperando en la puerta).
+# 2) Long-polling (este cambio): en vez de subir la frecuencia de sondeo
+#    para bajar la latencia, la MISMA peticion se queda esperando en el
+#    backend (bff/src/routes/bridge.routes.ts) hasta LONG_POLL_WAIT_SECONDS
+#    o hasta que aparezca un comando, lo que pase primero -- el backend
+#    reintenta el reclamo cada ~1.5s puertas adentro de esa misma conexion.
+#    Resultado: misma cantidad (o menos) de conexiones por dia que el poll
+#    de 15s, pero la puerta abre en ~1-2s despues del click, no hasta 15s.
+#    Requiere el backend desplegado con soporte de `wait_seconds` -- si el
+#    backend viejo esta corriendo, ignora el parametro y responde al
+#    instante como antes (sin romper nada, solo sin la mejora de latencia).
+LONG_POLL_WAIT_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_LONG_POLL_SECONDS", "20"))
+# Margen sobre LONG_POLL_WAIT_SECONDS para que el cliente no corte la espera
+# antes de que el backend responda por su propia cuenta.
+LONG_POLL_REQUEST_TIMEOUT = LONG_POLL_WAIT_SECONDS + 10
+# Solo para el backoff tras un error (red caida, 401, backend no desplegado)
+# -- ya no es el intervalo de sondeo normal, que ahora lo maneja el backend.
+ERROR_BACKOFF_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_DOOR_INTERVAL_SECONDS", "15"))
 REQUEST_TIMEOUT = 10
 DEVICE_CONNECT_TIMEOUT = 8
 
@@ -147,9 +168,9 @@ def fetch_pending_commands():
     """
     url = f"{BACKEND_BASE_URL}/bridge/door-commands"
     headers = {"X-Bridge-Api-Key": BRIDGE_API_KEY}
-    params = {"school_id": SCHOOL_ID}
+    params = {"school_id": SCHOOL_ID, "wait_seconds": LONG_POLL_WAIT_SECONDS}
     try:
-        resp = requests.get(url, headers=headers, params=params, timeout=REQUEST_TIMEOUT)
+        resp = requests.get(url, headers=headers, params=params, timeout=LONG_POLL_REQUEST_TIMEOUT)
     except requests.RequestException as e:
         log(f"ERROR de red consultando comandos pendientes: {e}")
         return None
@@ -266,7 +287,8 @@ def main():
     log(f"Backend: {BACKEND_BASE_URL}")
     log(f"School ID: {SCHOOL_ID}")
     log(f"Dispositivos: {', '.join(d['name'] + ' (' + d['ip'] + ')' for d in DEVICES)}")
-    log(f"Intervalo de sondeo: {POLL_INTERVAL_SECONDS}s")
+    log(f"Long-polling: hasta {LONG_POLL_WAIT_SECONDS}s por conexion "
+        f"(reintento tras error: {ERROR_BACKOFF_SECONDS}s)")
 
     if BRIDGE_API_KEY == "CAMBIAR_ESTA_LLAVE":
         log("ADVERTENCIA CRITICA: SPORTMAPS_BRIDGE_API_KEY no esta configurada "
@@ -275,11 +297,18 @@ def main():
 
     while True:
         commands = fetch_pending_commands()
+        if commands is None:
+            # Error de red / auth / backend viejo -- no reintentar de
+            # inmediato, para no hamacar al backend caido.
+            time.sleep(ERROR_BACKOFF_SECONDS)
+            continue
         if commands:
             log(f"{len(commands)} comando(s) pendiente(s) encontrado(s).")
             for cmd in commands:
                 process_command(cmd)
-        time.sleep(POLL_INTERVAL_SECONDS)
+        # Si no hubo error ni comandos, la conexion anterior ya esperó
+        # LONG_POLL_WAIT_SECONDS del lado del backend -- se vuelve a
+        # preguntar de inmediato, sin sleep extra acá.
 
 
 if __name__ == "__main__":

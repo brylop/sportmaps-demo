@@ -31,7 +31,15 @@ export interface ProviderCheck {
     keyPresent: boolean;
     /** Posición en la cadena de intentos del rol: 1 = el que se usa primero. */
     order: number;
-    /** null = no se sondeó (sin llave). */
+    /**
+     * La llave es válida y el modelo existe. **No** significa que pueda inferir:
+     * el endpoint de metadatos responde 200 aunque la cuenta esté sin saldo
+     * (verificado con OpenAI el 2026-09-11, que devolvía 200 acá y 429 "no
+     * credits remaining" al pedirle una extracción de verdad). Un verde acá
+     * descarta llave equivocada y modelo inexistente, nada más.
+     *
+     * null = no se sondeó (sin llave).
+     */
     reachable: boolean | null;
     detail?: string;
 }
@@ -218,7 +226,9 @@ export function logAiProvidersAtStartup(): void {
             }
             if (r.warnings.length === 0) {
                 const ok = r.checks.filter((c) => c.reachable).map((c) => `${c.role}/${c.provider}`);
-                console.log(`   ✓ proveedores respondiendo: ${ok.join(', ') || 'ninguno'}`);
+                // "llave y modelo OK", no "puede inferir": ver el comentario de
+                // `reachable`. Un proveedor sin saldo sale igual en esta lista.
+                console.log(`   ✓ llave y modelo OK: ${ok.join(', ') || 'ninguno'}`);
                 return;
             }
             console.warn('   ⚠️  Revisar la configuracion de IA:');
