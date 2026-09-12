@@ -49,6 +49,35 @@ function apiKeyOk(req: Request): boolean {
 // por ese canal — quedaban 'pending' para siempre, nunca 'executed' ni
 // 'failed'. Mismo mecanismo de reclamo, ejecución vía SDK local en vez de
 // ADMS.
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Long-polling opcional (2026-09-06): `wait_seconds` (0-20, default 0 = el
+// comportamiento de siempre, responder al instante haya o no comandos).
+// Pedido explícito para GYM RM -- el pulso de apertura debe sentirse
+// instantáneo, pero sin subir la frecuencia de sondeo del script. En vez de
+// que el bridge pregunte "¿hay algo?" cada N segundos, la petición se queda
+// abierta reintentando el reclamo cada LONG_POLL_STEP_MS hasta encontrar un
+// comando o agotar wait_seconds. Mismo endpoint, mismo query de reclamo
+// atómico -- Dreamers, que no manda este parámetro, sigue con el
+// comportamiento anterior sin cambios.
+const MAX_WAIT_SECONDS = 20;
+const LONG_POLL_STEP_MS = 1500;
+
+async function claimPendingCommands(schoolId: string, commandTypes: string[]) {
+  const { data: claimed, error } = await supabase
+    .from('device_commands')
+    .update({ claimed_at: new Date().toISOString() })
+    .eq('school_id', schoolId)
+    .in('command_type', commandTypes)
+    .eq('status', 'pending')
+    .is('claimed_at', null)
+    .gt('expires_at', new Date().toISOString())
+    .select('id, device_id, direction, command_type, metadata');
+
+  if (error) throw error;
+  return claimed || [];
+}
+
 router.get('/door-commands', async (req: Request, res: Response) => {
   if (!apiKeyOk(req)) return res.status(401).json({ error: 'unauthorized' });
 
@@ -60,29 +89,29 @@ router.get('/door-commands', async (req: Request, res: Response) => {
     .map(t => t.trim())
     .filter(Boolean);
 
+  const waitSeconds = Math.max(0, Math.min(MAX_WAIT_SECONDS, Number(req.query.wait_seconds) || 0));
+
   // Latido: cada sondeo exitoso del bridge (haya o no comandos) prueba que
   // sigue vivo y llegando al backend. alerted_at: null para que, si venia de
   // una caida ya avisada, el proximo chequeo del cron la vea sana de nuevo y
   // una caida futura pueda alertar otra vez. Best-effort -- un fallo acá no
-  // debe tumbar el reclamo real de comandos.
+  // debe tumbar el reclamo real de comandos. Se sella una sola vez al
+  // entrar, no en cada reintento del long-poll -- el "sigue vivo" ya quedó
+  // probado con esta conexión abierta.
   supabase.from('bridge_heartbeats').upsert(
     { school_id: schoolId, bridge_name: 'door-bridge', last_seen_at: new Date().toISOString(), alerted_at: null },
     { onConflict: 'school_id,bridge_name' },
   ).then(() => {}, () => {});
 
   try {
-    const { data: claimed, error } = await supabase
-      .from('device_commands')
-      .update({ claimed_at: new Date().toISOString() })
-      .eq('school_id', schoolId)
-      .in('command_type', commandTypes)
-      .eq('status', 'pending')
-      .is('claimed_at', null)
-      .gt('expires_at', new Date().toISOString())
-      .select('id, device_id, direction, command_type, metadata');
+    const deadline = Date.now() + waitSeconds * 1000;
+    let claimed = await claimPendingCommands(schoolId, commandTypes);
+    while (claimed.length === 0 && Date.now() < deadline) {
+      await sleep(Math.min(LONG_POLL_STEP_MS, deadline - Date.now()));
+      claimed = await claimPendingCommands(schoolId, commandTypes);
+    }
 
-    if (error) throw error;
-    if (!claimed || claimed.length === 0) return res.json({ commands: [] });
+    if (claimed.length === 0) return res.json({ commands: [] });
 
     // Sin FK declarada entre device_commands.device_id y turnstile_devices
     // (device_id es un uuid suelto) — PostgREST no puede embeber el join, así
