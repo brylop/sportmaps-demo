@@ -44,7 +44,9 @@ punto 3 de `VALIDACION-2026-08-25.md` para el detalle de la decisión.
 
 ## Qué hace `door_bridge.py`
 
-Corre en una PC de la red local de GYM RM. Cada 3 segundos:
+Corre en una PC de la red local de GYM RM. Cada 15 segundos (antes 3s,
+ajustado 2026-09-06 para bajar la carga sobre Render — ver
+`SPORTMAPS_BRIDGE_DOOR_INTERVAL_SECONDS` abajo si hace falta calibrarlo):
 1. Pregunta al backend (`GET /bridge/door-commands`, un endpoint dedicado
    — **no** el canal ADMS) si hay comandos `open_door` pendientes.
 2. Si hay uno, se conecta por SDK local al dispositivo correspondiente
@@ -92,7 +94,7 @@ es seguro dejarlo instalado esperando.
 ## Verificar que está funcionando
 
 1. Revisar `bridge_supervisor.log` en esta carpeta — debe mostrar el
-   arranque y, cada 3 segundos, el sondeo silencioso (sin líneas nuevas
+   arranque y, cada 15 segundos, el sondeo silencioso (sin líneas nuevas
    si no hay comandos pendientes).
 2. **Prueba real end-to-end**: desde el dashboard de SportMaps, usar el
    botón de apertura manual para GYM RM y confirmar:
@@ -142,7 +144,8 @@ Unregister-ScheduledTask -TaskName "SportMaps-GymRM-DoorBridge" -Confirm:$false
 - ✅ **Resuelto 2026-08-26: alerta automática si el bridge deja de responder.**
   Cada sondeo exitoso a `GET /bridge/door-commands` sella
   `bridge_heartbeats.last_seen_at` (sin cambios en este script — el latido
-  es implícito en el sondeo que ya hace cada 3s). El cron
+  es implícito en el sondeo, que desde 2026-09-06 corre cada 15s en vez de
+  3s — sigue muy por debajo del umbral de 10 min de abajo). El cron
   `bridge-heartbeat-check.job.ts` en el BFF (cada 5 min) avisa al owner por
   notificación si pasan 10+ min sin sondeo — típicamente la PC del gym
   apagada o sin red. Una sola alerta por caída (se resetea sola al volver).

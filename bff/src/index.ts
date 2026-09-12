@@ -51,6 +51,7 @@ import { requireCsrfHeader } from './middlewares/csrfHeader';
 import { requireOperationalSchool } from './middlewares/requireOperationalSchool';
 import systemRouter from './routes/system';
 import whatsappWebhookRouter from './routes/whatsapp';
+import whatsappAdminRouter from './routes/whatsapp-admin.routes';
 import publicBookingRouter from './routes/public-booking.routes';
 import { initMaintenanceJobs } from './jobs/maintenance.job';
 import organizerRouter from './routes/organizers.route';
@@ -296,6 +297,11 @@ app.use('/api/v1/webhooks/wompi', wompiRouter);
 // Webhook único multi-tenant de WhatsApp Cloud API (Bloque 6). Sin generalLimiter:
 // Meta puede ráfagar; el control real es la firma HMAC + idempotencia por wa_message_id.
 app.use('/api/v1/webhooks/whatsapp', whatsappWebhookRouter);
+
+// Panel de la escuela sobre su canal de WhatsApp: ajustes, horario, consumo del
+// mes, bandeja de comprobantes sin resolver y avisos de Meta. Lleva requireAuth
+// dentro del router, con verificacion de membresia REAL en esa escuela.
+app.use('/api/v1/whatsapp', generalLimiter, whatsappAdminRouter);
 
 // Link público de agendamiento de instalaciones — sin requireAuth, rate-limit propio
 const publicBookingLimiter = rateLimit({

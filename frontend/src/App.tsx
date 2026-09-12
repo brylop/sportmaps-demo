@@ -130,6 +130,7 @@ const AccountingBudgetPage = lazy(() => import("./pages/AccountingBudgetPage"));
 const PaymentsAutomationPage = lazy(() => import("./pages/PaymentsAutomationPage"));
 const PaymentRemindersPage = lazy(() => import("./pages/PaymentRemindersPage"));
 const MessageTemplatesPage = lazy(() => import("./pages/MessageTemplatesPage"));
+const WhatsAppPage = lazy(() => import("./pages/WhatsAppPage"));
 const ReportsPage = lazy(() => import("./pages/ReportsPage"));
 const MonthlyReportsPage = lazy(() => import("./pages/MonthlyReportsPage"));
 const SchoolFacilitiesPage = lazy(() => import("./pages/SchoolFacilitiesPage"));
@@ -742,6 +743,13 @@ const App = () => (
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <ModuleGate moduleKey="documentos_recordatorios">
                             <PaymentRemindersPage />
+                          </ModuleGate>
+                        </ProtectedRoute>
+                      } />
+                      <Route path="whatsapp" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <ModuleGate moduleKey="comunicacion_whatsapp">
+                            <WhatsAppPage />
                           </ModuleGate>
                         </ProtectedRoute>
                       } />

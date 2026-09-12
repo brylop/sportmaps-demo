@@ -33,7 +33,9 @@ import crypto from 'crypto';
 import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
 import { chatWithTools, type LlmTool, type LlmMessage } from './llm.service';
-import { sendTextMessage, type WhatsAppIntegration } from './whatsapp.service';
+import { sendTextMessage, aFormatoWhatsApp, type WhatsAppIntegration } from './whatsapp.service';
+import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
+import { estadoDeHorario, mensajeDeEscalamiento } from './whatsapp-horario.service';
 
 const OTP_TTL_MIN = 10;
 
@@ -327,12 +329,21 @@ Reglas estrictas:
 - NUNCA inventes datos. Si necesitas información de pagos, USA la herramienta get_payment_status.
 - Si no puedes ayudar o piden algo fuera de tu alcance, usa escalate_to_human.
 - No pidas datos personales ni el email otra vez (ya está identificado).
-- Formatea montos en pesos colombianos y fechas en formato legible.`;
+- Formatea montos en pesos colombianos y fechas en formato legible.
+- Formato de WhatsApp, NO Markdown: negrita con UN asterisco (*asi*), cursiva con _asi_.
+  Nunca uses ** ni ## ni tablas ni enlaces [texto](url): WhatsApp los muestra literales.
+- No ofrezcas nada que no puedas hacer. Solo sabes consultar pagos y pasar a un humano;
+  no ofrezcas "medios de pago", agendar, ni enviar documentos.
+- Al listar pagos, mira SIEMPRE el campo debe_pagarse. Los que vienen en false YA
+  ESTAN RESUELTOS: no los pongas bajo "pagos pendientes" ni menciones su saldo en $0.
+  Si el acudiente pregunta por uno de esos, responde con su estado_legible
+  ("ya esta pagado y confirmado por la escuela").
+- Si NINGUNO tiene debe_pagarse en true, di que esta al dia; no inventes una lista.`;
 
 const TOOLS: LlmTool[] = [
     {
         name: 'get_payment_status',
-        description: 'Devuelve los pagos pendientes o vencidos del acudiente en esta escuela. Úsala cuando pregunte por pagos, mensualidades, saldos o vencimientos.',
+        description: 'Estado de los pagos del acudiente en esta escuela: lo que debe Y lo resuelto en los ultimos 60 dias. Cada pago trae `estado_legible` (pagado y confirmado, comprobante en revision, rechazado, pendiente) y `debe_pagarse`. Usala SIEMPRE que pregunte por pagos, mensualidades, inscripciones, saldos, vencimientos, o si un pago suyo ya quedo aprobado. Si un concepto no aparece en el resultado, di que no lo encuentras — NUNCA afirmes que un cobro no existe.',
         parameters: { type: 'object', properties: {}, required: [] },
     },
     {
@@ -420,7 +431,14 @@ async function handleIntent(
 
 // ─── Entrega: modo asistido (draft) vs auto (envío) ────────────────────────────
 
-async function deliver(
+/**
+ * Embudo UNICO de todo lo que el bot le dice al acudiente: respeta el modo
+ * (auto envia, asistido deja borrador), registra el saliente y agrega la
+ * coletilla de baja cuando corresponde. Exportada para que el webhook pueda
+ * responder a los tipos que el bot no procesa (audio, video) sin duplicar nada
+ * de eso.
+ */
+export async function deliver(
     integration: WhatsAppIntegration,
     conversationId: string,
     contactWaId: string,
@@ -441,14 +459,32 @@ async function deliver(
         s?.mode === 'auto' &&
         (!s?.assisted_until || new Date(s.assisted_until).getTime() < now);
 
+    // A quien pidió la baja y AUN ASÍ nos escribe se le responde —él inició el
+    // contacto—, pero enterándose de que sigue con las notificaciones apagadas.
+    // Va acá porque `deliver` es el embudo único de todo lo que sale del bot:
+    // puesto en cada intent, el primero que se agregue mañana se olvida.
+    //
+    // Se exceptúan los pasos que HABLAN del consentimiento, o el mensaje queda
+    // contradiciéndose («no volverás a recibir… tienes las notificaciones
+    // apagadas»).
+    const PASOS_DE_CONSENTIMIENTO = [
+        'opt_out_confirmado', 'opt_in_confirmado', 'opt_in_reactivado', 'ask_consent',
+    ];
+    // WhatsApp usa UN asterisco para negrita; el modelo escribe Markdown estandar.
+    let texto = aFormatoWhatsApp(proposedText);
+    if (!PASOS_DE_CONSENTIMIENTO.includes(String((context as any)?.step ?? ''))
+        && await estaDadoDeBaja(integration.id, contactWaId)) {
+        texto += AVISO_DADO_DE_BAJA;
+    }
+
     if (autoAllowed) {
-        const sent = await sendTextMessage(integration, contactWaId, proposedText);
+        const sent = await sendTextMessage(integration, contactWaId, texto);
         await supabase.rpc('wa_record_outbound_message', {
             p_conversation_id: conversationId,
             p_integration_id: integration.id,
             p_wa_message_id: sent.waMessageId || `local-${crypto.randomUUID()}`,
             p_type: 'text',
-            p_text_body: proposedText,
+            p_text_body: texto,
             p_payload: context,
             p_ai_generated: true,
             p_to_wa_id: contactWaId,
@@ -460,7 +496,7 @@ async function deliver(
     await supabase.from('whatsapp_message_drafts').insert({
         conversation_id: conversationId,
         integration_id: integration.id,
-        proposed_text: proposedText,
+        proposed_text: texto,
         tool_context: context,
         llm_provider: (context as any)?.provider ?? null,
         status: 'pending',
@@ -477,9 +513,14 @@ async function escalate(
         .update({ status: 'open', assigned_to: null, updated_at: new Date().toISOString() })
         .eq('id', conversationId);
 
+    // El bot responde 24/7 — eso no cambia. Lo que cambia fuera de horario es lo
+    // que PROMETE: decir "en breve te contactan" a las 11 de la noche, cuando en
+    // la escuela no hay nadie hasta el otro dia, es prometer algo que no se
+    // puede cumplir.
+    const horario = await estadoDeHorario(integration.id);
     await deliver(integration, conversationId, contactWaId,
-        'Voy a pasar tu caso con una persona del equipo de la escuela para ayudarte mejor. En breve te contactan. 🙌',
-        { step: 'escalated', reason });
+        mensajeDeEscalamiento(horario),
+        { step: 'escalated', reason, fuera_de_horario: horario.fueraDeHorario });
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

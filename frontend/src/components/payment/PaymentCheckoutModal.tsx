@@ -1054,7 +1054,7 @@ export function PaymentCheckoutModal({
       */}
         <DialogContent
           className="
-        w-[100vw] h-[100dvh] max-h-[100dvh] rounded-none overflow-y-auto p-4
+        w-[100vw] h-[100dvh] max-h-[100dvh] rounded-none overflow-y-auto p-4 pt-[max(1rem,env(safe-area-inset-top))]
         sm:w-full sm:max-w-md sm:h-auto sm:max-h-[90vh] sm:rounded-lg sm:p-6
         "
           onPointerDownOutside={(e) => {

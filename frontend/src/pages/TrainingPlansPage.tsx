@@ -184,7 +184,7 @@ export default function TrainingPlansPage() {
     mutationFn: async (input: any) => {
       const { data, error } = await supabase
         .from('training_sessions')
-        .insert({ ...input, school_id: schoolId })
+        .insert(input)
         .select()
         .single();
       if (error) throw error;

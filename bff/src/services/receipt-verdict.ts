@@ -70,17 +70,78 @@ export interface VerdictResult {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Patrones de referencia por banco. PUNTO DE PARTIDA — calibrar con comprobantes
-// reales en modo sombra antes de confiar. Un patrón que falla = AMARILLO, nunca ROJO.
+// Formas de referencia, calibradas contra comprobantes reales el 2026-09-11.
+//
+// El bloque anterior indexaba por banco y decía «PUNTO DE PARTIDA — calibrar con
+// comprobantes reales antes de confiar». Esta es esa calibración, medida sobre
+// las 317 referencias que había en la base, y cambia dos cosas de fondo.
+//
+// 1) NO se indexa por banco declarado, porque el banco NO es confiable. Medido:
+//    comprobantes rotulados "Bancolombia" traen referencias con forma Nequi
+//    (M01914211) y forma Bre-B (TRMgzmmFhKEC). Tiene sentido — Nequi es de
+//    Bancolombia, y "BreB" ni siquiera es una entidad: es el riel de pagos
+//    inmediatos. Elegir el patrón por el rótulo hacía fallar comprobantes sanos.
+//
+// 2) Una forma DESCONOCIDA ya no es sospechosa. El diseño viejo era lista blanca:
+//    lo que no reconocía, lo mandaba a revisión humana. Resultado medido: 116 de
+//    158 motivos de glosa eran FORMATO_REFERENCIA — el 73% — sobre comprobantes
+//    buenos. Una referencia que no conocemos no es evidencia de nada; el banco
+//    puede estrenar formato mañana. Ahora solo se marca lo IMPLAUSIBLE (§ abajo).
+//
+// Frecuencias observadas: nequi 93 · bre-b 59 · numérico 53 · riel-35 51 · uuid 32.
 // ─────────────────────────────────────────────────────────────────────────────
-export const REFERENCE_PATTERNS: Record<string, RegExp> = {
-    Nequi: /^[A-Z]?\d{8,12}$/i, // ej: "M09743655" — letra opcional + 8-12 dígitos
-    Bancolombia: /^\d{8,12}$/,
-    DaviPlata: /^\d{6,12}$/,
-    BreB: /^[A-Z0-9-]{8,30}$/i,
-    PSE: /^\d{6,15}$/, // CUS
-    Otro: /^[A-Z0-9-]{4,30}$/i,
-};
+export const REFERENCE_SHAPES: { nombre: string; re: RegExp }[] = [
+    // "M00944183" (86 casos), "M1338970". Letra + 7-9 dígitos: app Nequi/Bancolombia.
+    { nombre: 'app_nequi', re: /^[A-Z]\d{7,9}$/i },
+    // "TRcjXnMoooEC" (59). Transfiya/Bre-B: TR + 8 alfanuméricos + EC.
+    { nombre: 'breb_trec', re: /^TR[A-Z0-9]{8}EC$/i },
+    // 21-35 dígitos. Id del riel nacional; aparece bajo BBVA, DaviPlata, BreB,
+    // Bancolombia y "Otro" indistintamente, que es la prueba de que es del riel.
+    { nombre: 'riel_largo', re: /^\d{21,35}$/ },
+    // UUID completo (32). Davivienda lo usa como id de transacción.
+    { nombre: 'uuid', re: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i },
+    // "1d0078924bf1" — 12 hex.
+    { nombre: 'hex12', re: /^[0-9a-f]{12}$/i },
+    // "93LDJV4LNT" — 10 alfanuméricos en mayúscula.
+    { nombre: 'codigo10', re: /^[A-Z0-9]{10}$/i },
+    // "APIU6249326017491581".
+    { nombre: 'apiu', re: /^APIU\d{16}$/i },
+    // "11494938", "178550921349762" — el numérico corriente.
+    { nombre: 'numerico', re: /^\d{6,20}$/ },
+    // "20260803901383474SRV001785778599258".
+    { nombre: 'mixto_srv', re: /^\d{17}[A-Z]{3}\d{15}$/i },
+];
+
+/** Largo mínimo para que una referencia sea creíble como tal. */
+const REFERENCIA_LARGO_MINIMO = 6;
+
+/**
+ * Clasifica una referencia. Devuelve el nombre de la forma si la reconoce, o un
+ * problema concreto si la referencia es implausible.
+ *
+ * Solo dos cosas se consideran problema, y ninguna es «no la reconozco»:
+ *
+ *  - `truncada`: empieza como UUID pero no tiene los 36 caracteres exactos. Eso
+ *    NO es otro formato, es una mala lectura del OCR — medido: 8 casos de 33 y 34
+ *    caracteres. Vale la pena decirlo, porque se arregla releyendo, no revisando
+ *    a mano.
+ *  - `muy_corta`: menos de 6 caracteres ("0543"). Ningún banco emite eso; es un
+ *    pedazo de otro número.
+ */
+export function clasificarReferencia(
+    reference: string,
+): { ok: true; forma: string } | { ok: false; problema: 'truncada' | 'muy_corta' | 'desconocida' } {
+    const ref = reference.trim();
+
+    const match = REFERENCE_SHAPES.find((s) => s.re.test(ref));
+    if (match) return { ok: true, forma: match.nombre };
+
+    // Se parece a un UUID pero no lo es → lectura cortada, no formato nuevo.
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(ref)) return { ok: false, problema: 'truncada' };
+    if (ref.replace(/[\s-]/g, '').length < REFERENCIA_LARGO_MINIMO) return { ok: false, problema: 'muy_corta' };
+
+    return { ok: false, problema: 'desconocida' };
+}
 
 /**
  * Normaliza una referencia para dedup/índice único: mayúsculas, sin espacios ni
@@ -251,20 +312,24 @@ export function evaluateVerdict(ocr: OcrResult, ctx: VerdictContext): VerdictRes
         });
     }
 
-    // 9) Formato de referencia no matchea el patrón del banco.
+    // 9) La referencia es implausible como referencia.
+    //
+    //    Antes: lista blanca por banco — lo que no reconocía iba a revisión humana.
+    //    Eso producía el 73% de las glosas sobre comprobantes buenos (ver el bloque
+    //    de REFERENCE_SHAPES). Ahora solo se marca lo que NO puede ser una
+    //    referencia: una lectura cortada o un número demasiado corto. Un formato
+    //    que no conocemos no es evidencia de nada.
     if (ocr.reference) {
-        const bankKey = ocr.bank && REFERENCE_PATTERNS[ocr.bank] ? ocr.bank : 'Otro';
-        const pattern = REFERENCE_PATTERNS[bankKey];
-        // Comparamos contra la referencia normalizada (sin espacios/guiones), salvo
-        // BreB cuyo patrón admite guiones: para ese usamos la referencia cruda.
-        const candidate = bankKey === 'BreB' ? ocr.reference.trim().toUpperCase() : referenceNorm ?? '';
-        if (candidate && !pattern.test(candidate)) {
+        const clasificacion = clasificarReferencia(ocr.reference);
+        if (!clasificacion.ok && clasificacion.problema !== 'desconocida') {
             reasons.push({
                 check: 9,
                 code: 'FORMATO_REFERENCIA',
                 level: 'amarillo',
-                message: 'El número de referencia no tiene el formato esperado para el banco.',
-                detail: { bank: bankKey, reference: ocr.reference },
+                message: clasificacion.problema === 'truncada'
+                    ? 'La referencia quedó cortada al leerla; conviene volver a leer el comprobante.'
+                    : 'El número de referencia es demasiado corto para ser una referencia.',
+                detail: { bank: ocr.bank ?? null, reference: ocr.reference, problema: clasificacion.problema },
             });
         }
     }

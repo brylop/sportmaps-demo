@@ -423,8 +423,16 @@ export function getNavigationByRole(
           },
           { title: 'Constancias', href: '/certificates', icon: FileCheck2, moduleKey: 'documentos_constancias' },
           { title: 'QR de Inscripción', href: '/qr-signup', icon: QrCode, moduleKey: 'documentos_qr_inscripcion' },
-          // Movidos acá desde "Finanzas": son comunicación con la familia, no
-          // operación de dinero.
+        ]
+      },
+      {
+        // Grupo nuevo. "Recordatorios" y "Plantillas de Mensajes" vivían en
+        // "Documentos e Identidad" con un comentario que admitía que estaban ahí
+        // por falta de lugar: «son comunicación con la familia, no operación de
+        // dinero». Ahora tienen casa, junto con el canal de WhatsApp.
+        title: 'Comunicación',
+        items: [
+          { title: 'WhatsApp', href: '/whatsapp', icon: MessageSquare, moduleKey: 'comunicacion_whatsapp' },
           { title: 'Recordatorios', href: '/payment-reminders', icon: Bell, moduleKey: 'documentos_recordatorios' },
           { title: 'Plantillas de Mensajes', href: '/message-templates', icon: MessageSquare, moduleKey: 'documentos_plantillas_mensajes' },
         ]

@@ -865,9 +865,12 @@ export default function MyPaymentsPage() {
         />
       )}
 
-      {/* Barra de acción flotante (estilo atleta) */}
+      {/* Barra de acción flotante (estilo atleta). Offset inferior mayor que
+          bottom-6 en móvil: MobileBottomNav (h-16 + safe-area, ver
+          components/navigation/MobileBottomNav.tsx) vive fijo en el mismo
+          borde y esta barra, con z-index mayor, quedaba encima tapándolo. */}
       {selectedPayment && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-2xl bg-zinc-900 dark:bg-zinc-950 border border-zinc-800 dark:border-zinc-800 text-white p-4 rounded-xl shadow-2xl flex items-center justify-between z-50 animate-in fade-in slide-in-from-bottom-5 duration-300">
+        <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom)+0.75rem)] md:bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-2xl bg-zinc-900 dark:bg-zinc-950 border border-zinc-800 dark:border-zinc-800 text-white p-4 rounded-xl shadow-2xl flex items-center justify-between z-50 animate-in fade-in slide-in-from-bottom-5 duration-300">
           <div className="flex flex-col min-w-0">
             <span className="text-zinc-500 dark:text-zinc-400 text-[10px] uppercase tracking-wider font-bold truncate">
               {selectedPayment.childName} — {selectedPayment.teamName}
