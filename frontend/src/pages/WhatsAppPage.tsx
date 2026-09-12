@@ -45,6 +45,8 @@ interface Estado {
     integracion: { display_phone_number: string | null; waba_id: string | null; status: string } | null;
     ajustes: Ajustes | null;
     consumo: Consumo | null;
+    bandeja?: FilaBandeja[];
+    eventos?: EventoMeta[];
 }
 interface Plantilla {
     name: string; status: string; category: string; language: string;
@@ -79,26 +81,19 @@ export default function WhatsAppPage() {
     const [bandeja, setBandeja] = useState<FilaBandeja[]>([]);
     const [eventos, setEventos] = useState<EventoMeta[]>([]);
     const [cargando, setCargando] = useState(true);
+    const [cargandoPlantillas, setCargandoPlantillas] = useState(false);
     const [guardando, setGuardando] = useState(false);
 
     const cargar = useCallback(async () => {
         if (!schoolId) return;
         setCargando(true);
         try {
+            // Una sola llamada trae estado, bandeja y eventos: los tres salen de
+            // la misma base y antes costaban tres verificaciones de permisos.
             const e = await bffClient.get<Estado>(`/api/v1/whatsapp/${schoolId}`);
             setEstado(e);
-            if (e.conectado) {
-                // En paralelo: ninguna depende de la otra y la pantalla se siente
-                // instantánea aunque Meta tarde en responder el listado.
-                const [p, b, ev] = await Promise.allSettled([
-                    bffClient.get<{ plantillas: Plantilla[] }>(`/api/v1/whatsapp/${schoolId}/plantillas`),
-                    bffClient.get<{ filas: FilaBandeja[] }>(`/api/v1/whatsapp/${schoolId}/bandeja`),
-                    bffClient.get<{ eventos: EventoMeta[] }>(`/api/v1/whatsapp/${schoolId}/eventos`),
-                ]);
-                if (p.status === 'fulfilled') setPlantillas(p.value.plantillas ?? []);
-                if (b.status === 'fulfilled') setBandeja(b.value.filas ?? []);
-                if (ev.status === 'fulfilled') setEventos(ev.value.eventos ?? []);
-            }
+            setBandeja(e.bandeja ?? []);
+            setEventos(e.eventos ?? []);
         } catch (err: any) {
             toast({ title: 'No se pudo cargar', description: err?.message ?? 'Error', variant: 'destructive' });
         } finally {
@@ -106,7 +101,24 @@ export default function WhatsAppPage() {
         }
     }, [schoolId, toast]);
 
+    // Las plantillas las responde Meta, no nuestra base: ~650 ms que no tienen
+    // por que retener el resto de la pantalla. Van aparte y con su propio spinner.
+    const cargarPlantillas = useCallback(async () => {
+        if (!schoolId) return;
+        setCargandoPlantillas(true);
+        try {
+            const r = await bffClient.get<{ plantillas: Plantilla[] }>(
+                `/api/v1/whatsapp/${schoolId}/plantillas`);
+            setPlantillas(r.plantillas ?? []);
+        } catch {
+            // Que Meta no responda no deja la pantalla inservible: el resto ya cargo.
+        } finally {
+            setCargandoPlantillas(false);
+        }
+    }, [schoolId]);
+
     useEffect(() => { void cargar(); }, [cargar]);
+    useEffect(() => { void cargarPlantillas(); }, [cargarPlantillas]);
 
     const guardarAjustes = async (cambios: Partial<Ajustes>) => {
         if (!schoolId) return;
@@ -286,7 +298,8 @@ export default function WhatsAppPage() {
                     <PanelPlantillas
                         schoolId={schoolId!}
                         plantillas={plantillas}
-                        onCreada={() => void cargar()}
+                        cargando={cargandoPlantillas}
+                        onCreada={() => void cargarPlantillas()}
                     />
                 </TabsContent>
 
@@ -343,8 +356,8 @@ export default function WhatsAppPage() {
 
 // ─── Plantillas ─────────────────────────────────────────────────────────────
 
-function PanelPlantillas({ schoolId, plantillas, onCreada }: {
-    schoolId: string; plantillas: Plantilla[]; onCreada: () => void;
+function PanelPlantillas({ schoolId, plantillas, cargando, onCreada }: {
+    schoolId: string; plantillas: Plantilla[]; cargando: boolean; onCreada: () => void;
 }) {
     const { toast } = useToast();
     const [abriendo, setAbriendo] = useState(false);
@@ -433,7 +446,9 @@ function PanelPlantillas({ schoolId, plantillas, onCreada }: {
                     </div>
                 )}
 
-                {plantillas.length === 0 ? (
+                {cargando ? (
+                    <p className="text-sm text-muted-foreground py-6 text-center">Consultando a Meta…</p>
+                ) : plantillas.length === 0 ? (
                     <p className="text-sm text-muted-foreground py-6 text-center">Todavía no hay plantillas.</p>
                 ) : (
                     <div className="space-y-1">

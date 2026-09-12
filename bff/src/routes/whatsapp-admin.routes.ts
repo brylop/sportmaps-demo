@@ -38,23 +38,22 @@ const UMBRAL_AVISO = 0.8;
  * plataforma pasa, como en el resto del producto.
  */
 async function administraEstaEscuela(userId: string, schoolId: string): Promise<boolean> {
-    const { data: perfil } = await supabase
-        .from('profiles').select('role').eq('id', userId).maybeSingle();
-    if (perfil?.role === 'super_admin' || perfil?.role === 'admin') return true;
+    // Las tres preguntas van EN PARALELO. Encadenadas costaban ~1,6 s, y como
+    // este chequeo corre en cada endpoint, la pantalla gastaba unos 6 segundos
+    // verificando cuatro veces lo mismo. Cada consulta contra esta Supabase
+    // ronda el medio segundo, asi que lo que se paga es el viaje, no el trabajo.
+    const [perfil, escuela, miembro] = await Promise.all([
+        supabase.from('profiles').select('role').eq('id', userId).maybeSingle(),
+        supabase.from('schools').select('owner_id').eq('id', schoolId).maybeSingle(),
+        supabase.from('school_members').select('role, status')
+            .eq('school_id', schoolId).eq('profile_id', userId).maybeSingle(),
+    ]);
 
-    const { data: escuela } = await supabase
-        .from('schools').select('owner_id').eq('id', schoolId).maybeSingle();
-    if (escuela?.owner_id === userId) return true;
+    if (perfil.data?.role === 'super_admin' || perfil.data?.role === 'admin') return true;
+    if (escuela.data?.owner_id === userId) return true;
 
-    const { data: miembro } = await supabase
-        .from('school_members')
-        .select('role, status')
-        .eq('school_id', schoolId)
-        .eq('profile_id', userId)
-        .maybeSingle();
-
-    return miembro?.status === 'active'
-        && ['owner', 'admin', 'school_admin'].includes(String(miembro?.role));
+    return miembro.data?.status === 'active'
+        && ['owner', 'admin', 'school_admin'].includes(String(miembro.data?.role));
 }
 
 async function integracionDe(schoolId: string) {
@@ -80,15 +79,27 @@ router.get('/:schoolId', requireAuth, async (req: AuthenticatedRequest, res: Res
         return res.json({ conectado: false, integracion: null, ajustes: null, consumo: null });
     }
 
-    const { data: ajustes } = await supabase
-        .from('whatsapp_settings')
-        .select('mode, ai_enabled, assisted_until, business_hours, welcome_message')
-        .eq('integration_id', integracion.id)
-        .maybeSingle();
-
-    const { data: consumo } = await supabase.rpc('wa_consumo_del_mes', {
-        p_integration_id: integracion.id,
-    });
+    // Todo lo que sale de la base, en un solo viaje de ida. La bandeja y los
+    // eventos venian en endpoints aparte: eran dos verificaciones de permisos
+    // mas y dos round-trips mas, para datos chicos de la misma consulta.
+    const [ajustesR, consumoR, bandejaR, eventosR] = await Promise.all([
+        supabase.from('whatsapp_settings')
+            .select('mode, ai_enabled, assisted_until, business_hours, welcome_message')
+            .eq('integration_id', integracion.id).maybeSingle(),
+        supabase.rpc('wa_consumo_del_mes', { p_integration_id: integracion.id }),
+        supabase.from('whatsapp_inbound_queue')
+            .select('id, status, wa_phone_number, message_type, media_mime_type, storage_path, '
+                + 'error_message, result_type, result_ref_id, retries, created_at, processed_at')
+            .eq('school_id', schoolId)
+            .in('status', ['failed', 'ignored', 'waiting_user'])
+            .order('created_at', { ascending: false }).limit(100),
+        supabase.from('whatsapp_account_events')
+            .select('id, field, template_name, estado_previo, nuevo_estado, motivo, visto_at, created_at')
+            .eq('school_id', schoolId)
+            .order('created_at', { ascending: false }).limit(50),
+    ]);
+    const ajustes = ajustesR.data;
+    const consumo = consumoR.data;
 
     const facturables = Number((consumo as any)?.facturables ?? 0);
     const incluidos = INCLUIDOS_POR_DEFECTO;
@@ -110,6 +121,8 @@ router.get('/:schoolId', requireAuth, async (req: AuthenticatedRequest, res: Res
             // ahorra; el excedente se factura como paquete.
             avisar: facturables >= incluidos * UMBRAL_AVISO,
         },
+        bandeja: bandejaR.data ?? [],
+        eventos: eventosR.data ?? [],
     });
 });
 
