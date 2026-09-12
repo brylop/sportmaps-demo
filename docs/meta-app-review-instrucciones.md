@@ -94,26 +94,50 @@ which the app honours as a stored state, not as a single event.
 
 ---
 
+## Important note about the test phone number
+
+The number connected to this test account is a **Meta-provided test number**
+(`+1 555-659-2322`). Test numbers only deliver messages to recipients that
+have been pre-registered in the app dashboard, so an inbound message from an
+arbitrary phone will fail to receive a reply with error `#131030`. This is a
+platform restriction on test numbers, not a defect in the application.
+
+For this reason:
+
+- **`whatsapp_business_management` can be tested live.** Logging in and
+  creating a template calls the Graph API in real time against the connected
+  WhatsApp Business Account. Please follow the steps above.
+- **`whatsapp_business_messaging` is demonstrated in the attached video**,
+  recorded against a pre-registered recipient. If you would prefer to test it
+  live, tell us which phone number to allow-list and we will add it.
+
+Schools will connect their own production numbers through Embedded Signup once
+this app is approved. Until then, this is the only number available to us.
+
+---
+
 ## Test credentials
 
-> PENDIENTE — hay que crear un usuario de prueba para el revisor antes de
-> enviar. Ver la nota de abajo.
+- URL: `https://stg.sportmaps.co/login`
+- Email: `meta.reviewer@sportmaps.co`
+- Password: ver `C:	mp\meta-reviewer-credenciales.txt`
 
-- URL:
-- Email:
-- Password:
+Cuenta creada solo para esta revision: admin de Escuela Pruebas, sin acceso a
+ninguna otra escuela ni a datos de otros clientes.
 
 ---
 
 ## Nota interna (NO pegar en Meta)
 
-Falta decidir dos cosas antes de enviar:
+Resuelto el 2026-09-12:
 
-1. **Credenciales para el revisor.** Meta necesita entrar a la app. Hay que
-   crear un usuario con acceso de admin a Escuela Pruebas, con una clave que
-   se pueda escribir en el formulario. No usar una cuenta real.
+- **Ambiente:** staging. Las tres ramas quedaron iguales ese dia, y el BFF de
+  staging responde 401 (no 404) en la ruta de WhatsApp, o sea que esta
+  desplegada. Se eligio staging sobre dev porque dev se toca todo el dia y un
+  despliegue a medias durante la revision es un rechazo.
+- **Credenciales:** usuario `meta.reviewer@sportmaps.co`, perfil `school`,
+  miembro `school_admin` activo de Escuela Pruebas, con
+  `onboarding_completed = true` — sin eso el revisor cae en el onboarding y
+  nunca llega a la pantalla.
 
-2. **Contra qué ambiente lo mandamos.** El video se grabó en dev. Si el
-   revisor entra a dev y está caído o a medio desplegar, es un rechazo. Si se
-   apunta a producción, la pantalla de WhatsApp tiene que estar desplegada
-   ahí — hoy solo está en develop.
+Pendiente: borrar esa cuenta cuando Meta apruebe.

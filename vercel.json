@@ -21,18 +21,6 @@
       "permanent": false
     },
     {
-      "source": "/login",
-      "has": [{ "type": "host", "value": "stg\\.sportmaps\\.co" }],
-      "destination": "https://app.sportmaps.co/login",
-      "permanent": false
-    },
-    {
-      "source": "/auth",
-      "has": [{ "type": "host", "value": "stg\\.sportmaps\\.co" }],
-      "destination": "https://app.sportmaps.co/auth",
-      "permanent": false
-    },
-    {
       "source": "/my-payments",
       "has": [{ "type": "host", "value": "stg\\.sportmaps\\.co" }],
       "destination": "https://app.sportmaps.co/my-payments",
