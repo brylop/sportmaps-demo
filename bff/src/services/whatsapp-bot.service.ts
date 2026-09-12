@@ -35,6 +35,7 @@ import { emailClient } from '../utils/emailClient';
 import { chatWithTools, type LlmTool, type LlmMessage } from './llm.service';
 import { sendTextMessage, aFormatoWhatsApp, type WhatsAppIntegration } from './whatsapp.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
+import { estadoDeHorario, mensajeDeEscalamiento } from './whatsapp-horario.service';
 
 const OTP_TTL_MIN = 10;
 
@@ -332,7 +333,12 @@ Reglas estrictas:
 - Formato de WhatsApp, NO Markdown: negrita con UN asterisco (*asi*), cursiva con _asi_.
   Nunca uses ** ni ## ni tablas ni enlaces [texto](url): WhatsApp los muestra literales.
 - No ofrezcas nada que no puedas hacer. Solo sabes consultar pagos y pasar a un humano;
-  no ofrezcas "medios de pago", agendar, ni enviar documentos.`;
+  no ofrezcas "medios de pago", agendar, ni enviar documentos.
+- Al listar pagos, mira SIEMPRE el campo debe_pagarse. Los que vienen en false YA
+  ESTAN RESUELTOS: no los pongas bajo "pagos pendientes" ni menciones su saldo en $0.
+  Si el acudiente pregunta por uno de esos, responde con su estado_legible
+  ("ya esta pagado y confirmado por la escuela").
+- Si NINGUNO tiene debe_pagarse en true, di que esta al dia; no inventes una lista.`;
 
 const TOOLS: LlmTool[] = [
     {
@@ -507,9 +513,14 @@ async function escalate(
         .update({ status: 'open', assigned_to: null, updated_at: new Date().toISOString() })
         .eq('id', conversationId);
 
+    // El bot responde 24/7 — eso no cambia. Lo que cambia fuera de horario es lo
+    // que PROMETE: decir "en breve te contactan" a las 11 de la noche, cuando en
+    // la escuela no hay nadie hasta el otro dia, es prometer algo que no se
+    // puede cumplir.
+    const horario = await estadoDeHorario(integration.id);
     await deliver(integration, conversationId, contactWaId,
-        'Voy a pasar tu caso con una persona del equipo de la escuela para ayudarte mejor. En breve te contactan. 🙌',
-        { step: 'escalated', reason });
+        mensajeDeEscalamiento(horario),
+        { step: 'escalated', reason, fuera_de_horario: horario.fueraDeHorario });
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
