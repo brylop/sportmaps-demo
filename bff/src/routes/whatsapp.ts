@@ -89,6 +89,13 @@ router.post('/', async (req: Request, res: Response) => {
         await procesarEstados(req, body).catch((err) => {
             req.log?.error({ err: err?.message || err }, 'WhatsApp: fallo el procesamiento de estados');
         });
+
+        // Eventos de cuenta: plantillas desactivadas o recategorizadas, calidad
+        // del numero, restricciones, cambios de limite de envio. Rompen el canal
+        // sin hacer ruido, asi que se guardan todos.
+        await procesarEventosDeCuenta(req, body).catch((err) => {
+            req.log?.error({ err: err?.message || err }, 'WhatsApp: fallo el procesamiento de eventos de cuenta');
+        });
     } catch (err: any) {
         req.log?.error({ err: err?.message || err }, 'WhatsApp webhook processing error');
     }
@@ -134,6 +141,108 @@ async function procesarEstados(req: Request, body: any): Promise<void> {
     const facturables = estados.filter((e) => e.billable === true).length;
     if (facturables > 0) {
         req.log?.info({ estados: estados.length, facturables }, 'WhatsApp: estados procesados');
+    }
+}
+
+/** Campos del webhook que NO son mensajes y que ahora escuchamos. */
+const CAMPOS_DE_CUENTA = new Set([
+    'message_template_status_update',
+    'message_template_quality_update',
+    'template_category_update',
+    'phone_number_quality_update',
+    'account_update',
+    'business_capability_update',
+]);
+
+/**
+ * Guarda los eventos de cuenta de Meta.
+ *
+ * Son los avisos que rompen el canal en silencio: una plantilla que Meta
+ * desactiva deja de enviar cobranza y el primer sintoma seria que nadie paga;
+ * una recategorizacion a MARKETING cambia el costo Y el consentimiento exigido;
+ * la calidad en rojo restringe el numero.
+ *
+ * Se guarda el payload CRUDO ademas de los campos extraidos: son estructuras de
+ * Meta que cambian sin aviso, y perder el evento por no haber previsto un campo
+ * seria repetir el error de haber descartado los `statuses`.
+ */
+async function procesarEventosDeCuenta(req: Request, body: any): Promise<void> {
+    const entries = Array.isArray(body?.entry) ? body.entry : [];
+
+    for (const entry of entries) {
+        const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+        for (const change of changes) {
+            const field: string = change?.field ?? '';
+            if (!CAMPOS_DE_CUENTA.has(field)) continue;
+
+            const v = change?.value ?? {};
+            const phoneNumberId: string | null = v?.phone_number_id ?? v?.metadata?.phone_number_id ?? null;
+
+            // Se intenta atribuir a una escuela, pero varios de estos eventos son
+            // de nivel WABA y no traen numero: se guardan igual, sin escuela.
+            let integrationId: string | null = null;
+            let schoolId: string | null = null;
+            if (phoneNumberId) {
+                const integration = await resolveIntegration(phoneNumberId);
+                if (integration) {
+                    integrationId = integration.id;
+                    schoolId = integration.school_id;
+                }
+            }
+            // Los eventos de PLANTILLA son de nivel WABA y no traen numero. Sin
+            // este fallback quedaban sin escuela, y la escuela no veria que su
+            // propia plantilla de cobranza fue desactivada — que es justo lo que
+            // hay que avisarle.
+            if (!schoolId && entry?.id) {
+                const { data: porWaba } = await supabase
+                    .from('school_whatsapp_integrations')
+                    .select('id, school_id')
+                    .eq('waba_id', String(entry.id))
+                    .maybeSingle();
+                if (porWaba) {
+                    integrationId = porWaba.id as string;
+                    schoolId = porWaba.school_id as string;
+                }
+            }
+
+            // El orden importa: `event` es el TIPO de evento ("FLAGGED"), no el
+            // valor nuevo. Ponerlo primero producia "paso de GREEN a FLAGGED",
+            // que mezcla dos cosas distintas y no es una transicion de puntaje.
+            const nuevoEstado = v?.new_quality_score
+                ?? v?.new_category
+                ?? v?.max_daily_conversation_per_phone   // business_capability_update
+                ?? v?.current_limit
+                ?? v?.decision
+                ?? v?.event
+                ?? null;
+            const estadoPrevio = v?.previous_quality_score ?? v?.previous_category
+                ?? v?.old_category ?? null;
+
+            const { error } = await supabase.from('whatsapp_account_events').insert({
+                integration_id: integrationId,
+                school_id: schoolId,
+                field,
+                waba_id: entry?.id ?? null,
+                phone_number_id: phoneNumberId,
+                template_name: v?.message_template_name ?? null,
+                nuevo_estado: nuevoEstado !== null ? String(nuevoEstado) : null,
+                estado_previo: estadoPrevio !== null ? String(estadoPrevio) : null,
+                motivo: v?.reason ?? v?.rejected_reason ?? v?.disable_info?.disable_date ?? v?.event ?? null,
+                payload: change,
+            });
+
+            if (error) {
+                req.log?.error({ err: error.message, field }, 'WhatsApp: no se pudo guardar el evento de cuenta');
+                continue;
+            }
+
+            // A nivel log va como warn: son cosas que alguien tiene que mirar,
+            // no ruido informativo.
+            req.log?.warn(
+                { field, plantilla: v?.message_template_name, de: estadoPrevio, a: nuevoEstado, schoolId },
+                'WhatsApp: evento de cuenta de Meta',
+            );
+        }
     }
 }
 
