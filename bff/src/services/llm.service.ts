@@ -207,7 +207,16 @@ export async function chatWithTools(params: {
             : chatOpenAICompatible(p, params.system, params.messages, tools);
 
     // Cadena: primario → resto (resiliencia si un proveedor está sin saldo/caído).
-    const order: LlmProvider[] = [primary, ...(['gemini', 'groq', 'deepseek'] as LlmProvider[])]
+    //
+    // DeepSeek salió el 2026-09-12. Era el TERCER respaldo —solo entraba si
+    // Gemini y Groq fallaban a la vez— y a cambio obligaba a declarar una
+    // transferencia de datos a China: país sin nivel adecuado de protección
+    // según la SIC, con datos de menores y de pagos de familias colombianas
+    // de por medio. El amparo habría sido una cláusula contractual con el
+    // encargado, y con DeepSeek no hay contrato: es una llave de API y nada
+    // más. La política de privacidad no puede afirmar garantías que no
+    // existen. Si algún día se firma un DPA, se vuelve a agregar acá.
+    const order: LlmProvider[] = [primary, ...(['gemini', 'groq'] as LlmProvider[])]
         .filter((p, i, a) => a.indexOf(p) === i);
 
     let lastErr: any;
