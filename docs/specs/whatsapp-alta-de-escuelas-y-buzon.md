@@ -67,6 +67,28 @@ pago queda asociado**. Si la vía fuera compartir línea de crédito, eso sí es
 territorio de Solution Partner y cambia los requisitos. Resolverlo antes de
 facturarle a nadie.
 
+**D4-bis — El modelo comercial: se vende la integración, no los mensajes.**
+*(resuelto el 2026-09-14 contra la documentación)*
+Meta lo impone: «si no eres Solution Partner, el cliente debe asociar un método
+de pago a su WABA antes de poder enviar mensajes». Con Embedded Signup el WABA
+es de la escuela, así que **Meta le cobra a ella directamente** y SportMaps no
+intermedia plata de mensajería. Lo que se cobra es el addon de la integración
+en el SaaS.
+
+Consecuencia operativa: **la escuela necesita una tarjeta registrada aunque no
+vaya a pagar nada** — los 1.000 mensajes de servicio gratis al mes no eximen
+del requisito. Va en la pantalla de alta junto con D5.
+
+**Lo que la escuela NO tiene que hacer** (verificado en la documentación): no
+necesita App Review propio —ese fue de la app de SportMaps, una sola vez—, ni
+Business Verification por adelantado, ni aprobación del nombre para mostrar
+(eso solo aplica a los números de prueba `555`). Sí tiene que verificar su
+número con un código, así que el alta exige tener el celular a mano.
+
+**Techo de escuelas:** con Business Verification, App Review y Access
+Verification completos —los tres lo están— el límite es de **200 clientes
+nuevos**. No hay que pedir nada más hasta llegar ahí.
+
 **D5 — Lo que Coexistence le quita a la escuela se le avisa ANTES de conectar.**
 WhatsApp desactiva en ese número: mensajes temporales, ver una vez, ubicación
 en tiempo real, y deja las **listas de difusión en solo lectura**. Los chats de
