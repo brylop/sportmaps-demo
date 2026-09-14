@@ -36,11 +36,24 @@ Consecuencias medidas el 2026-09-14:
 
 Resueltas. No se re-abren durante la implementación.
 
-**D1 — Dynasty entra por Coexistence, no por migración.**
-Milena usa el número de Dynasty desde su celular para hablar con los papás.
-Migrarlo a la API se lo quitaría del teléfono y no traería el historial.
-Coexistence deja el número en los dos lados: ella sigue en WhatsApp normal y el
-bot atiende lo repetitivo. Su número **personal** no se toca en ningún caso.
+**D1 — Hay DOS caminos de alta, y Dynasty va por el manual.**
+*(corregido el 2026-09-14: Dynasty tiene un solo número, y es el personal)*
+
+| La escuela… | Camino | Quién paga los mensajes |
+|---|---|---|
+| Quiere seguir usando su número desde el celular | Embedded Signup + Coexistence | Ella, con su tarjeta |
+| No tiene número aparte, o acepta uno nuevo | **Manual**: el número entra al WABA de SportMaps | **SportMaps**, y le factura |
+
+**Dynasty va por el manual, con una línea nueva.** La razón no es la tarjeta: es
+que su único número es el personal, y conectarlo haría que el bot le respondiera
+a *todos* sus contactos. Hoy, a quien no reconoce, el bot le pide un correo para
+identificarse — o sea que su mamá recibiría un pedido de identificación. Eso
+descarta el número personal, y con un número nuevo no hay nada que preservar:
+Coexistence deja de hacer falta para ella.
+
+Consecuencia: **Dynasty no depende de F0–F4.** Se conecta con
+`scripts/wa-conectar-escuela.ts`. El Embedded Signup sigue siendo necesario
+para las escuelas que sí quieran conservar su número.
 
 **D2 — El modo asistido queda apagado hasta que exista el buzón.**
 Hoy produce silencio. Mientras no haya pantalla de aprobación, `mode` solo
