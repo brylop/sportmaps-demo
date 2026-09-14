@@ -62,6 +62,8 @@ export interface SchoolProfile {
     staff?: any[];
     /** school_settings.show_facilities — la página consulta facilities aparte. */
     show_facilities?: boolean;
+    /** Layout del perfil público, ver docs/specs/perfil-publico-plantillas.md. */
+    public_page_layout?: 'classic' | 'modern' | 'minimal' | 'magazine';
 }
 
 class SchoolsAPI {

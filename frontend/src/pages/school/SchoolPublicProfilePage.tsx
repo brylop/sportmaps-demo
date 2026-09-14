@@ -15,7 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   User, DollarSign, Phone, Eye, Save, Loader2, Upload, Plus, ExternalLink, Globe,
-  MapPin, Mail, Building2, Trophy, Copy,
+  MapPin, Mail, Building2, Trophy, Copy, Check, LayoutTemplate,
 } from 'lucide-react';
 import { PublishedSuccessModal } from '@/components/settings/PublishedSuccessModal';
 import { PlanCard, type PlanFeature, type PlanDuration } from '@/components/explore/PlanCard';
@@ -35,7 +35,17 @@ interface SchoolRow {
   logo_url: string | null;
   cover_image_url: string | null;
   sports: string[] | null;
+  public_page_layout: PublicPageLayout | null;
 }
+
+type PublicPageLayout = 'classic' | 'modern' | 'minimal' | 'magazine';
+
+const LAYOUT_OPTIONS: { key: PublicPageLayout; name: string; hint: string; available: boolean }[] = [
+  { key: 'classic', name: 'Clásica', hint: 'Portada ancha + pestañas', available: true },
+  { key: 'modern', name: 'Moderna', hint: 'Hero partido + scroll continuo', available: true },
+  { key: 'minimal', name: 'Minimal', hint: 'Compacta, carga rápida', available: true },
+  { key: 'magazine', name: 'Revista', hint: 'Portada editorial, para fotos', available: true },
+];
 
 interface SchoolSettingsRow {
   school_id: string;
@@ -95,6 +105,7 @@ export default function SchoolPublicProfilePage() {
     logo_url: '',
     cover_image_url: '',
     sports: '' as string,
+    public_page_layout: 'classic' as PublicPageLayout,
     show_plans: true,
     show_programs: true,
     show_facilities: false,
@@ -106,7 +117,7 @@ export default function SchoolPublicProfilePage() {
     try {
       const [schoolRes, settingsRes, offeringsRes] = await Promise.allSettled([
         (supabase.from('schools') as any)
-          .select('id, slug, name, description, city, address, phone, email, website, logo_url, cover_image_url, sports')
+          .select('id, slug, name, description, city, address, phone, email, website, logo_url, cover_image_url, sports, public_page_layout')
           .eq('id', schoolId).single(),
         supabase.from('school_settings')
           .select('school_id, public_profile_enabled, show_plans, show_programs, show_facilities')
@@ -135,6 +146,7 @@ export default function SchoolPublicProfilePage() {
           logo_url: s.logo_url ?? '',
           cover_image_url: s.cover_image_url ?? '',
           sports: (s.sports ?? []).join(', '),
+          public_page_layout: (s.public_page_layout ?? 'classic') as PublicPageLayout,
         }));
       }
       if (st) {
@@ -162,6 +174,10 @@ export default function SchoolPublicProfilePage() {
 
   const handleUpload = async (file: File, field: 'logo_url' | 'cover_image_url') => {
     if (!schoolId) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Ese archivo no es una imagen. Subí un PNG, JPG, WEBP o SVG.');
+      return;
+    }
     try {
       const folder = field === 'logo_url' ? `logos/${schoolId}` : `covers/${schoolId}`;
       const publicUrl = await uploadFile(file, 'school-assets', folder);
@@ -194,6 +210,7 @@ export default function SchoolPublicProfilePage() {
         p_logo_url: form.logo_url ?? '',
         p_cover_image_url: form.cover_image_url ?? '',
         p_sports: sportsArray,
+        p_public_page_layout: form.public_page_layout,
       });
       if (se) throw se;
       if (res && (res as { ok?: boolean }).ok === false) {
@@ -408,6 +425,37 @@ export default function SchoolPublicProfilePage() {
                     <p className="text-sm text-muted-foreground mt-1">Subir portada (recomendado 1200x300)</p>
                   </label>
                 )}
+              </div>
+
+              {/* Layout del micrositio */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1.5">
+                  <LayoutTemplate className="h-3.5 w-3.5" /> Diseño del micrositio
+                </Label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {LAYOUT_OPTIONS.map(opt => {
+                    const selected = form.public_page_layout === opt.key;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        disabled={!opt.available}
+                        onClick={() => set('public_page_layout', opt.key)}
+                        className={`relative text-left p-3 rounded-lg border-2 transition-colors ${
+                          selected ? 'border-primary bg-primary/5' : 'border-muted'
+                        } ${opt.available ? 'hover:border-primary/60 cursor-pointer' : 'opacity-50 cursor-not-allowed'}`}
+                      >
+                        {selected && (
+                          <span className="absolute top-1.5 right-1.5 h-4 w-4 rounded-full bg-primary text-white flex items-center justify-center">
+                            <Check className="h-2.5 w-2.5" />
+                          </span>
+                        )}
+                        <p className="font-medium text-sm">{opt.name}</p>
+                        <p className="text-xs text-muted-foreground">{opt.hint}</p>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="grid md:grid-cols-2 gap-4">

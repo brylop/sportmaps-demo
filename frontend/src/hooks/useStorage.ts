@@ -5,6 +5,16 @@ import { getStoragePath } from '@/lib/utils';
 
 export type BucketName = 'avatars' | 'medical-documents' | 'payment-receipts' | 'facility-photos' | 'identity-documents' | 'coach-certificates' | 'school-assets' | 'equipment-photos';
 
+function friendlyUploadError(message: string): string {
+  if (/mime type .* is not supported/i.test(message)) {
+    return 'Ese tipo de archivo no está permitido acá. Subí una imagen (PNG, JPG, WEBP o SVG).';
+  }
+  if (/exceeded the maximum allowed size/i.test(message)) {
+    return 'El archivo pesa más de lo permitido.';
+  }
+  return message;
+}
+
 export function useStorage() {
   const [uploading, setUploading] = useState(false);
   const { toast } = useToast();
@@ -69,7 +79,8 @@ export function useStorage() {
       return urlData.publicUrl;
     } catch (error: unknown) {
       console.error('Error uploading file:', error);
-      const message = error instanceof Error ? error.message : 'No se pudo subir el archivo';
+      const rawMessage = error instanceof Error ? error.message : 'No se pudo subir el archivo';
+      const message = friendlyUploadError(rawMessage);
       toast({
         title: '❌ Error',
         description: message,
