@@ -525,3 +525,141 @@ export async function buildReportSnapshot(input: BuildSnapshotInput): Promise<Re
         football,
     };
 }
+
+// =============================================================================
+// Informe DE EQUIPO (spec evaluacion-post-entrenamiento.md §3.5, F4 segunda
+// mitad) — el PDF original de Besser es grupal, no por atleta. Reusa la misma
+// agregación de `loadSessionMetrics` pero sobre TODAS las mediciones de sesión
+// del equipo en el periodo, no de un solo sujeto.
+// =============================================================================
+
+export interface TeamReportSnapshot {
+    version: 1;
+    generated_at: string;
+    period: { year: number; month: number; label: string };
+    team: { id: string; name: string };
+    school: { id: string; name: string };
+    /** Deportistas distintos con al menos una autoevaluación en el periodo. */
+    athlete_count: number;
+    /** Sesiones del equipo en el periodo (hayan tenido respuestas o no). */
+    sessions_count: number;
+    metrics_session: SessionMetricSummary[];
+}
+
+async function loadTeamSessionMetrics(
+    schoolId: string,
+    teamId: string,
+    periodStart: Date,
+    periodEnd: Date,
+    catalogo: Map<string, MetricDefinition>,
+): Promise<{ metrics: SessionMetricSummary[]; sessionsCount: number; athleteCount: number }> {
+    const { data: sesiones, error: sesionesErr } = await supabase
+        .from('attendance_sessions')
+        .select('id')
+        .eq('team_id', teamId)
+        .gte('session_date', periodStart.toISOString().slice(0, 10))
+        .lte('session_date', periodEnd.toISOString().slice(0, 10));
+
+    if (sesionesErr || !sesiones || sesiones.length === 0) {
+        return { metrics: [], sessionsCount: 0, athleteCount: 0 };
+    }
+
+    const sessionIds = sesiones.map((s: any) => s.id);
+
+    const { data, error } = await supabase
+        .from('performance_entries')
+        .select('metric_key, value, subject_type, subject_id')
+        .eq('school_id', schoolId)
+        .eq('context_type', 'session')
+        .in('context_id', sessionIds);
+
+    if (error || !data) return { metrics: [], sessionsCount: sessionIds.length, athleteCount: 0 };
+
+    const porMetrica = new Map<string, number[]>();
+    const atletas = new Set<string>();
+    for (const row of data as any[]) {
+        const arr = porMetrica.get(row.metric_key) ?? [];
+        arr.push(Number(row.value));
+        porMetrica.set(row.metric_key, arr);
+        atletas.add(`${row.subject_type}:${row.subject_id}`);
+    }
+
+    // Denominador de las 'count': respuestas totales del equipo (suma de todas
+    // las deportistas en todas las sesiones), no sesiones distintas — a nivel
+    // de equipo "cuántas veces se respondió" es más útil que "cuántas sesiones".
+    const totalRespuestas = porMetrica.get('rpe_borg')?.length ?? 0;
+    const resultado: SessionMetricSummary[] = [];
+
+    for (const [key, valores] of porMetrica) {
+        const def = catalogo.get(key);
+        if (!def || def.aggregation === 'latest') continue;
+        const label = def.parent_label ?? def.display_name;
+
+        if (def.aggregation === 'avg') {
+            const avg = Math.round((valores.reduce((a, b) => a + b, 0) / valores.length) * 10) / 10;
+            resultado.push({ metric_key: key, label, category: def.category, aggregation: 'avg', n: valores.length, avg });
+        } else if (def.aggregation === 'distribution') {
+            const total = valores.length;
+            const counts = new Map<number, number>();
+            for (const v of valores) counts.set(v, (counts.get(v) ?? 0) + 1);
+            const distribution: SessionMetricOption[] = (def.options ?? []).map((o) => {
+                const n = counts.get(o.value) ?? 0;
+                return { value: o.value, label: o.label, n, pct: total > 0 ? Math.round((n / total) * 1000) / 10 : 0 };
+            });
+            resultado.push({ metric_key: key, label, category: def.category, aggregation: 'distribution', n: total, distribution });
+        } else if (def.aggregation === 'count') {
+            resultado.push({
+                metric_key: key, label, category: def.category, aggregation: 'count',
+                n: totalRespuestas, count: valores.length,
+            });
+        }
+    }
+
+    return {
+        metrics: resultado.sort((a, b) => a.metric_key.localeCompare(b.metric_key)),
+        sessionsCount: sessionIds.length,
+        athleteCount: atletas.size,
+    };
+}
+
+export interface BuildTeamSnapshotInput {
+    schoolId: string;
+    teamId: string;
+    year: number;
+    month: number;
+}
+
+export async function buildTeamReportSnapshot(input: BuildTeamSnapshotInput): Promise<TeamReportSnapshot> {
+    const { schoolId, teamId, year, month } = input;
+    const periodStart = new Date(Date.UTC(year, month - 1, 1));
+    const periodEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59));
+
+    const [teamRes, escuelaRes] = await Promise.all([
+        supabase.from('teams').select('id, name').eq('id', teamId).maybeSingle(),
+        supabase.from('schools').select('id, name, category_id').eq('id', schoolId).maybeSingle(),
+    ]);
+
+    const teamName = (teamRes.data as any)?.name || 'Equipo';
+    const schoolName = (escuelaRes.data as any)?.name || 'la escuela';
+    const sportCategoryId = (escuelaRes.data as any)?.category_id as string | null;
+
+    const definiciones = sportCategoryId
+        ? await getMetricCatalog([sportCategoryId], { includeInactive: true })
+        : [];
+    const catalogo = new Map<string, MetricDefinition>(definiciones.map((d) => [d.metric_key, d]));
+
+    const { metrics, sessionsCount, athleteCount } = await loadTeamSessionMetrics(
+        schoolId, teamId, periodStart, periodEnd, catalogo,
+    );
+
+    return {
+        version: 1,
+        generated_at: new Date().toISOString(),
+        period: { year, month, label: `${MESES[month - 1]} ${year}` },
+        team: { id: teamId, name: teamName },
+        school: { id: schoolId, name: schoolName },
+        athlete_count: athleteCount,
+        sessions_count: sessionsCount,
+        metrics_session: metrics,
+    };
+}
