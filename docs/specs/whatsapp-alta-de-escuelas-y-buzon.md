@@ -179,6 +179,24 @@ Pestaña nueva en la pantalla de WhatsApp: lista de conversaciones, hilo
 completo, responder a mano, y aprobar o descartar los borradores del modo
 asistido. Al existir esto, D2 se levanta y `assisted` vuelve a ser elegible.
 
+**Dos requisitos que no son opcionales**, porque sin ellos el buzón existe pero
+no se usa:
+
+- **Aviso cuando alguien espera.** Si la escuela tiene que acordarse de entrar a
+  revisar, en dos días deja de hacerlo. Hay push andando (Firebase, ver
+  `project_firebase_fcm`): se conecta a la escalación del bot — «un padre está
+  esperando respuesta».
+- **La ventana de 24 horas, visible.** Meta no deja responder en texto libre a
+  una conversación que lleva más de 24 h sin actividad del titular: hay que
+  mandar una plantilla. Si el buzón muestra un cuadro de texto normal, la
+  escuela escribe, le da enviar, y recibe un error que no entiende. El hilo
+  tiene que decir cuándo está fuera de ventana y ofrecer las plantillas
+  aprobadas en vez del cuadro de texto.
+
+Para el piloto de Dynasty esto es lo que decide si ella puede operar: con el
+alta manual el número no vive en ningún celular, así que **este buzón es su
+único acceso** a lo que le escriben.
+
 **RLS línea por línea antes de aplicar.** Estas tablas traen teléfonos,
 nombres de menores y montos. El alcance correcto es `user_staff_school_ids()`,
 no `user_school_ids()` — que incluye padres y atletas.
