@@ -20,6 +20,19 @@
 
 **F1 — aplicado y probado:** migración `20260911123141_post_entreno_rpcs_captura.sql`. `submit_post_training_self_eval` y `submit_post_training_coach_rating` (`SECURITY DEFINER`, no dependen de RLS), índice único `performance_entries_session_unique`, columna `attendance_sessions.coach_notes`. Probado contra la base viva con una sesión y un padre reales, dentro de una transacción sin `COMMIT` (no quedó ningún dato de prueba): el padre autorizado guarda las 5 respuestas + 2 `focus_*`, el coach guarda su rating y la nota, y un padre **no autorizado** para ese atleta recibe `42501` como se esperaba.
 
+**F2 — aplicado:** migración `20260911124834_post_entreno_disparo_notificacion.sql` (trigger sobre `attendance_sessions.finalized` → `notifications`, idempotente) + `20260911125148_post_entreno_recordatorios_rpcs.sql` (recordatorio al padre a las 20h, recordatorio al coach por sesión sin cerrar), enganchado en `bff/src/jobs/post-training-reminders.job.ts` vía `maintenance.job.ts`.
+
+**F3 — aplicado:** `frontend/src/pages/PostTrainingSelfEvalPage.tsx` (las 7 pantallas del padre, ruta `/post-entreno/:sessionId`) y `frontend/src/components/attendance/CoachPostTrainingRatingDialog.tsx`, enganchado al botón "Finalizar sesión" ya existente en `CoachAttendancePage.tsx`. **No probado en navegador real** — solo `tsc`/lint/build.
+
+**F4 (primera mitad) — aplicado:** `report-snapshot.service.ts` → `metrics_session` dentro de `buildReportSnapshot()` (agregados de sesión por atleta: avg/distribution/count).
+
+**F4 (segunda mitad, informe grupal) — aplicado y probado 2026-09-14:** migración `20260914151925_post_entreno_informe_grupal.sql` — tablas `team_reports` y `report_section_notes` (calcadas del patrón de `athlete_reports`, deliberadamente sin snapshots archivados ni destinatario individual — spec §7 abierta #1 sigue sin decidir si se manda a las familias), RPCs `generate_team_report_drafts_system()` / `publish_team_report_system()`, y `buildTeamReportSnapshot()` en el BFF (misma agregación que `metrics_session` pero sobre TODAS las mediciones de sesión del equipo vía `attendance_sessions.team_id`, no de un solo atleta). Probado contra la base viva en transacción sin `COMMIT`: la query de agregación por equipo devuelve exactamente las filas esperadas.
+
+**Deuda explícita que queda (documentada, no descuido):**
+- No hay job de cron que llame `generate_team_report_drafts_system()` / `publish_team_report_system()` automáticamente — evité inventar una cadencia de publicación (mensual, "última semana") sin una decisión de producto real detrás; publicarlo prematuramente a mitad de mes sería peor que dejarlo manual por ahora. `buildTeamReportSnapshot()` ya funciona y es invocable.
+- No hay vista de frontend para el informe grupal (spec §5.3, versión coach/admin) ni para "compartir"/export a imagen — solo existe el backend.
+- Sin tests automatizados nuevos (vitest) para `report-snapshot.service.ts` ni para los jobs — verificado con `tsc --noEmit` (0 errores) y contra la base viva, no con suite de tests.
+
 > Se construye **por fases con revisión entre cada una** (una rama por fase). Plan aprobado antes de código en migraciones. RLS revisado línea por línea. Tests de concurrencia en la fase backend. Cada fase tiene criterios de aceptación explícitos (§6).
 
 **Cambios v0.2 → v0.3:**
