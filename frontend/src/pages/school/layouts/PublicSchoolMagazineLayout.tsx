@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { MapPin, Mail, Phone, Globe, Calendar, Users, Clock, CheckCircle2 } from 'lucide-react';
 import { DEFAULT_BANNER, GENERIC_SPORT_IMAGE, initialsOf, sportImage } from '@/lib/sportImages';
 import type { PublicSchoolLayoutProps } from './PublicSchoolClassicLayout';
+import { BusinessHoursRows } from './BusinessHoursRows';
 
 /**
  * Layout "Revista" — portada a sangre completa tipo editorial (badges de
@@ -141,9 +142,7 @@ export function PublicSchoolMagazineLayout({ school, facilities, slug, onAction 
                     <Card className="bg-blue-50/50 border-blue-100">
                         <CardHeader><CardTitle className="flex items-center gap-2 text-primary text-lg"><Clock className="w-4 h-4" /> Horarios de Atención</CardTitle></CardHeader>
                         <CardContent className="space-y-2 text-sm">
-                            <div className="flex justify-between"><span>Lunes - Viernes</span><span className="font-medium">8:00 AM - 8:00 PM</span></div>
-                            <div className="flex justify-between"><span>Sábados</span><span className="font-medium">9:00 AM - 5:00 PM</span></div>
-                            <div className="flex justify-between"><span>Domingos</span><span className="font-medium">Cerrado</span></div>
+                            <BusinessHoursRows businessHours={school.business_hours} />
                         </CardContent>
                     </Card>
                 </div>

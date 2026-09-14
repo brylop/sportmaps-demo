@@ -41,3 +41,16 @@ test('el layout configurado en DB se refleja en /s/:slug', async ({ page }) => {
     // el layout — la "conexión" no cambia entre plantillas.
     await expect(page.getByRole('heading', { name: /Club Campestre/i })).toBeVisible();
 });
+
+test('el horario configurado por la escuela reemplaza al genérico (Fase 4)', async ({ page }) => {
+    // Requiere que school_settings.business_hours de la escuela demo esté
+    // seteado a Lun-Vie 10:00-14:00, Sáb+Dom cerrado (ver comando SQL usado
+    // para prepararlo). Si nadie lo configuró, el genérico sigue mostrando
+    // "8:00 AM - 8:00 PM" y este test lo detecta como falla real.
+    test.skip(!process.env.PLAYWRIGHT_CUSTOM_HOURS_CONFIGURED, 'Requiere PLAYWRIGHT_CUSTOM_HOURS_CONFIGURED=1');
+
+    await page.goto(`/s/${DEMO_SLUG}`);
+
+    await expect(page.getByText('10:00 AM - 2:00 PM').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('8:00 AM - 8:00 PM')).not.toBeVisible();
+});

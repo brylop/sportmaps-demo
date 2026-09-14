@@ -1,8 +1,9 @@
 # Spec — Plantillas de diseño para el perfil público de la escuela
 
-**Producto:** SportMaps · **Versión:** v1 (borrador para revisión)
+**Producto:** SportMaps · **Versión:** v1.1 (Fases 1-4 construidas)
 **Fecha:** Septiembre 2026
-**Estado:** propuesta — **nada aprobado todavía**, no se escribe código hasta revisar este documento.
+**Estado:** Fases 1-4 en `develop`. Los 4 layouts (§4) y el horario real (§7.4) están
+construidos y con E2E pasando (`frontend/e2e/public-school-layouts.spec.ts`).
 
 > Mismo patrón que **Carnets Digitales** ([[project_carnets_digitales]]): una sola conexión de
 > datos, varias composiciones visuales que la escuela elige. La diferencia es de alcance: acá
@@ -102,20 +103,28 @@ alcanza.
    `SchoolPublicProfilePage.tsx`. Primera vez que una escuela puede elegir algo distinto de
    Clásica.
 3. **Fase 3 — Minimal + Revista:** los dos layouts restantes, mismo patrón.
-4. **Fase 4 (opcional, a decidir):** resolver el gap de §2 (horarios reales, CTAs con acción de
-   verdad) — probablemente conviene hacerlo **antes** de Fase 2, para no repetir el mismo
-   hardcodeo en 3 layouts nuevos.
+4. **Fase 4 — DONE:** horarios de atención reales. `school_settings.business_hours` (jsonb,
+   migración `20260914184316`), editable desde `SchoolPublicProfilePage.tsx` (tab Contacto, con
+   un switch "activar horario propio" — apagado por default, cada escuela existente sigue
+   viendo el genérico hasta que lo prende) y consumido por los 4 layouts vía
+   `BusinessHoursRows` (`frontend/src/pages/school/layouts/BusinessHoursRows.tsx`), con fallback
+   automático al horario fijo mientras `business_hours` sea `NULL`. Los CTAs sin acción real
+   (Inscribirse/Contactar/etc.) **quedan fuera de esta fase** — no se tocaron.
 
 Revisión entre cada fase, rama por fase — igual que el resto de módulos grandes.
 
 ---
 
-## 7. Decisiones de producto pendientes (bloquean Fase 1)
+## 7. Decisiones de producto (§7.1-7.3 resueltas al construir; §7.5 sigue abierta)
 
-1. ¿El campo va en `schools` directo o protegido por RPC (`update_school_public_profile`)?
-2. ¿Se resuelve el hardcodeo de horarios/CTAs antes de multiplicar el layout en 4 variantes, o
-   se acepta la deuda por ahora y se resuelve aparte?
-3. ¿Los 4 nombres/tonos de layout (Clásica/Moderna/Minimal/Revista) son los correctos, o hay
-   una quinta idea que falta?
-4. ¿"Horarios de Atención" real sale de una tabla nueva (`school_business_hours`) o de un campo
-   JSON en `school_settings`? (Necesario si se resuelve el punto 2.)
+1. **Resuelto:** el campo va en `schools` directo (`public_page_layout`) y se guarda vía la RPC
+   existente `update_school_public_profile` (se le sumó `p_public_page_layout`), no con un
+   `UPDATE` directo.
+2. **Resuelto:** se resolvió el horario (Fase 4) antes de dar por cerrado el módulo. Los CTAs
+   quedaron explícitamente fuera de alcance (ver punto 5).
+3. **Resuelto:** los 4 nombres (Clásica/Moderna/Minimal/Revista) se mantuvieron tal cual.
+4. **Resuelto:** el horario real vive en `school_settings.business_hours` (jsonb), no en una
+   tabla nueva — mismo patrón que `payment_accounts` (jsonb) que ya existía en esa tabla.
+5. **Abierto:** los CTAs (Inscribirse, Contactar, Ver Detalle, Reservar Espacio, Solicitar
+   Info/Reserva) siguen disparando un toast `"Acción Demo"` en vez de una acción real, en los 4
+   layouts. Queda pendiente para una fase aparte.

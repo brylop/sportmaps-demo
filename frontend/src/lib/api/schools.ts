@@ -45,6 +45,66 @@ function formatSchedule(schedule: any, fallback?: string | null): string {
 const money = (n: number, currency = 'COP') =>
     `$${Number(n || 0).toLocaleString('es-CO')}${currency && currency !== 'COP' ? ` ${currency}` : ''}`;
 
+/** school_settings.business_hours — ver migración 20260914184316. */
+export interface BusinessHourRow {
+    /** 0=domingo .. 6=sábado, igual que DAYS de arriba. */
+    day: number;
+    closed: boolean;
+    open?: string | null;
+    close?: string | null;
+}
+
+const DAY_NAMES_FULL = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+/** Orden de exhibición: Lunes...Domingo (el que ya usaba el horario hardcodeado). */
+const DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+
+function formatTime12h(hhmm?: string | null): string {
+    if (!hhmm) return '';
+    const [h, m] = hhmm.split(':').map(Number);
+    if (!Number.isInteger(h)) return hhmm;
+    const period = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${h12}:${String(m || 0).padStart(2, '0')} ${period}`;
+}
+
+/**
+ * Agrupa el horario configurado por la escuela en filas "Lunes - Viernes
+ * 8:00 AM - 8:00 PM" (mismo aspecto que el bloque hardcodeado que
+ * reemplaza). `null` cuando la escuela no configuró nada todavía — el
+ * perfil público entonces usa el horario fijo de respaldo.
+ */
+export function formatBusinessHours(rows: BusinessHourRow[] | null | undefined): { label: string; value: string }[] | null {
+    if (!rows || !Array.isArray(rows) || rows.length === 0) return null;
+
+    const byDay = new Map<number, BusinessHourRow>();
+    for (const r of rows) {
+        if (r && Number.isInteger(r.day) && r.day >= 0 && r.day <= 6) byDay.set(r.day, r);
+    }
+    if (byDay.size === 0) return null;
+
+    const valueOf = (d: number): string => {
+        const r = byDay.get(d);
+        if (!r || r.closed) return 'Cerrado';
+        if (!r.open || !r.close) return 'Horario por definir';
+        return `${formatTime12h(r.open)} - ${formatTime12h(r.close)}`;
+    };
+
+    const groups: { days: number[]; value: string }[] = [];
+    for (const d of DISPLAY_ORDER) {
+        const value = valueOf(d);
+        const last = groups[groups.length - 1];
+        if (last && last.value === value) last.days.push(d);
+        else groups.push({ days: [d], value });
+    }
+
+    return groups.map(g => {
+        const label = g.days.length > 1
+            ? `${DAY_NAMES_FULL[g.days[0]]} - ${DAY_NAMES_FULL[g.days[g.days.length - 1]]}`
+            : DAY_NAMES_FULL[g.days[0]];
+        return { label, value: g.value };
+    });
+}
+
 export interface SchoolProfile {
     id: string;
     name: string;
@@ -64,6 +124,8 @@ export interface SchoolProfile {
     show_facilities?: boolean;
     /** Layout del perfil público, ver docs/specs/perfil-publico-plantillas.md. */
     public_page_layout?: 'classic' | 'modern' | 'minimal' | 'magazine';
+    /** null = la escuela no configuró horarios; el layout usa su respaldo fijo. */
+    business_hours?: { label: string; value: string }[] | null;
 }
 
 class SchoolsAPI {
@@ -114,7 +176,7 @@ class SchoolsAPI {
         // transferencia y payment_accounts. Ver migración 20260814190601.
         const { data: settings } = await supabase
             .from('v_school_settings_publico')
-            .select('show_programs, show_plans, show_facilities')
+            .select('show_programs, show_plans, show_facilities, business_hours')
             .eq('school_id', school.id)
             .maybeSingle();
         const showTeams = settings?.show_programs !== false;
@@ -177,6 +239,7 @@ class SchoolsAPI {
             banner_url: school.cover_image_url || DEFAULT_BANNER,
             logo_url: school.logo_url || undefined,
             show_facilities: settings?.show_facilities !== false,
+            business_hours: formatBusinessHours(settings?.business_hours as BusinessHourRow[] | null | undefined),
             branding: {
                 primaryColor: brand.primary_color || '#248223',
                 secondaryColor: brand.secondary_color || '#64748b',

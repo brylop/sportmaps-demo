@@ -15,12 +15,25 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   User, DollarSign, Phone, Eye, Save, Loader2, Upload, Plus, ExternalLink, Globe,
-  MapPin, Mail, Building2, Trophy, Copy, Check, LayoutTemplate,
+  MapPin, Mail, Building2, Trophy, Copy, Check, LayoutTemplate, Clock,
 } from 'lucide-react';
 import { PublishedSuccessModal } from '@/components/settings/PublishedSuccessModal';
 import { PlanCard, type PlanFeature, type PlanDuration } from '@/components/explore/PlanCard';
 import { useStorage } from '@/hooks/useStorage';
 import { formatFriendlyDuration } from '@/lib/utils';
+import type { BusinessHourRow } from '@/lib/api/schools';
+
+const DAY_NAMES_FULL = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+/** Horario por defecto al activar por primera vez — mismo aspecto que el respaldo fijo. */
+function defaultBusinessHours(): BusinessHourRow[] {
+  return [0, 1, 2, 3, 4, 5, 6].map((day) => ({
+    day,
+    closed: day === 0,
+    open: day === 0 ? null : day === 6 ? '09:00' : '08:00',
+    close: day === 0 ? null : day === 6 ? '17:00' : '20:00',
+  }));
+}
 
 interface SchoolRow {
   id: string;
@@ -53,6 +66,7 @@ interface SchoolSettingsRow {
   show_plans: boolean;
   show_programs: boolean;
   show_facilities: boolean;
+  business_hours: BusinessHourRow[] | null;
 }
 
 interface OfferingPlanRow {
@@ -109,6 +123,8 @@ export default function SchoolPublicProfilePage() {
     show_plans: true,
     show_programs: true,
     show_facilities: false,
+    business_hours_enabled: false,
+    business_hours: defaultBusinessHours(),
   });
 
   const loadData = async () => {
@@ -120,7 +136,7 @@ export default function SchoolPublicProfilePage() {
           .select('id, slug, name, description, city, address, phone, email, website, logo_url, cover_image_url, sports, public_page_layout')
           .eq('id', schoolId).single(),
         supabase.from('school_settings')
-          .select('school_id, public_profile_enabled, show_plans, show_programs, show_facilities')
+          .select('school_id, public_profile_enabled, show_plans, show_programs, show_facilities, business_hours')
           .eq('school_id', schoolId).maybeSingle(),
         supabase.from('offerings')
           .select('id, name, description, sport, offering_type, is_active, offering_plans(id, name, description, price, currency, duration_days, max_sessions, is_active)')
@@ -151,11 +167,14 @@ export default function SchoolPublicProfilePage() {
       }
       if (st) {
         setSettings(st as SchoolSettingsRow);
+        const savedHours = (st as SchoolSettingsRow).business_hours;
         setForm(prev => ({
           ...prev,
           show_plans: st.show_plans ?? true,
           show_programs: st.show_programs ?? true,
           show_facilities: st.show_facilities ?? false,
+          business_hours_enabled: !!savedHours && savedHours.length > 0,
+          business_hours: savedHours && savedHours.length > 0 ? savedHours : defaultBusinessHours(),
         }));
       }
       if (off) setOfferings(off as unknown as OfferingRow[]);
@@ -171,6 +190,12 @@ export default function SchoolPublicProfilePage() {
 
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
     setForm(prev => ({ ...prev, [k]: v }));
+
+  const setDayHours = (day: number, patch: Partial<BusinessHourRow>) =>
+    setForm(prev => ({
+      ...prev,
+      business_hours: prev.business_hours.map(r => r.day === day ? { ...r, ...patch } : r),
+    }));
 
   const handleUpload = async (file: File, field: 'logo_url' | 'cover_image_url') => {
     if (!schoolId) return;
@@ -224,6 +249,8 @@ export default function SchoolPublicProfilePage() {
         show_plans: form.show_plans,
         show_programs: form.show_programs,
         show_facilities: form.show_facilities,
+        // null = "no configurado", el perfil público usa el horario fijo de respaldo.
+        business_hours: form.business_hours_enabled ? form.business_hours : null,
       }, { onConflict: 'school_id' });
       if (te) throw te;
 
@@ -636,6 +663,66 @@ export default function SchoolPublicProfilePage() {
                   <Link to="/branches" className="underline underline-offset-2 font-medium">Sedes</Link>.
                 </p>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Horarios de Atención */}
+          <Card>
+            <CardContent className="p-6 space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="font-semibold text-base flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-primary" />
+                    Horarios de Atención
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {form.business_hours_enabled
+                      ? 'Este horario se muestra en tu perfil público.'
+                      : 'Mientras esté apagado, tu perfil público muestra un horario genérico.'}
+                  </p>
+                </div>
+                <Switch
+                  checked={form.business_hours_enabled}
+                  onCheckedChange={v => set('business_hours_enabled', v)}
+                />
+              </div>
+
+              {form.business_hours_enabled && (
+                <div className="space-y-2 pt-2 border-t">
+                  {form.business_hours.map(row => (
+                    <div key={row.day} className="flex items-center gap-3 py-1.5">
+                      <span className="text-sm font-medium w-24 shrink-0">{DAY_NAMES_FULL[row.day]}</span>
+                      <Switch
+                        checked={!row.closed}
+                        onCheckedChange={v => setDayHours(row.day, {
+                          closed: !v,
+                          open: !v ? null : (row.open ?? '08:00'),
+                          close: !v ? null : (row.close ?? '20:00'),
+                        })}
+                      />
+                      {row.closed ? (
+                        <span className="text-sm text-muted-foreground">Cerrado</span>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="time"
+                            className="w-28"
+                            value={row.open ?? ''}
+                            onChange={e => setDayHours(row.day, { open: e.target.value })}
+                          />
+                          <span className="text-sm text-muted-foreground">a</span>
+                          <Input
+                            type="time"
+                            className="w-28"
+                            value={row.close ?? ''}
+                            onChange={e => setDayHours(row.day, { close: e.target.value })}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { MapPin, Mail, Phone, Globe, Calendar, Users, Star, Clock, CheckCircle2 } from 'lucide-react';
 import { DEFAULT_BANNER, GENERIC_SPORT_IMAGE, initialsOf, sportImage } from '@/lib/sportImages';
 import type { SchoolProfile } from '@/lib/api/schools';
+import { BusinessHoursRows } from './BusinessHoursRows';
 
 export interface PublicSchoolLayoutProps {
     school: SchoolProfile;
@@ -111,18 +112,7 @@ export function PublicSchoolClassicLayout({ school, facilities, slug, onAction }
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-2">
-                                <div className="flex justify-between text-sm">
-                                    <span>Lunes - Viernes</span>
-                                    <span className="font-medium">8:00 AM - 8:00 PM</span>
-                                </div>
-                                <div className="flex justify-between text-sm">
-                                    <span>Sábados</span>
-                                    <span className="font-medium">9:00 AM - 5:00 PM</span>
-                                </div>
-                                <div className="flex justify-between text-sm">
-                                    <span>Domingos</span>
-                                    <span className="font-medium">Cerrado</span>
-                                </div>
+                                <BusinessHoursRows businessHours={school.business_hours} />
                             </CardContent>
                         </Card>
                     </div>
