@@ -108,6 +108,7 @@ const CoachPlansPage = lazy(() => import("./pages/CoachPlansPage"));
 const ResultsPage = lazy(() => import("./pages/ResultsPage"));
 const TrainingPlansPage = lazy(() => import("./pages/TrainingPlansPage"));
 const CoachReportsPage = lazy(() => import("./pages/CoachReportsPage"));
+const CoachTeamPostTrainingReportPage = lazy(() => import("./pages/CoachTeamPostTrainingReportPage"));
 const CoachEvaluationsPage = lazy(() => import("./pages/CoachEvaluationsPage"));
 const AnnouncementsPage = lazy(() => import("./pages/AnnouncementsPage"));
 
@@ -526,6 +527,7 @@ const App = () => (
                         </ModuleGate>
                       } />
                       <Route path="coach-reports" element={<CoachReportsPage />} />
+                      <Route path="coach-reports/entreno-equipo" element={<CoachTeamPostTrainingReportPage />} />
                       <Route path="evaluations" element={<CoachEvaluationsPage />} />
                       <Route path="announcements" element={<AnnouncementsPage />} />
 

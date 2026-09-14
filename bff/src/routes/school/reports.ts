@@ -21,7 +21,7 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../../middlewares/authMiddleware';
-import { buildReportSnapshot, type SubjectType } from '../../services/report-snapshot.service';
+import { buildReportSnapshot, buildTeamReportSnapshot, type SubjectType } from '../../services/report-snapshot.service';
 import { deliverPublishedReports } from '../../services/report-delivery.service';
 import { userClient } from '../../utils/userClient';
 
@@ -476,6 +476,216 @@ router.post(
             req.log?.error({ err }, 'envío de informes falló');
             res.status(500).json({ error: 'Error enviando los informes.', details: err?.message });
         }
+    },
+);
+
+// =============================================================================
+// Informe DE EQUIPO — evaluacion-post-entrenamiento.md §3.5 (F4 segunda mitad).
+// Mismo patrón que arriba: RPCs `_system` porque exigen service_role (no
+// auth.uid()), así que el gate real es `requireRole` acá, no la RPC.
+// =============================================================================
+
+const TeamPeriodSchema = PeriodSchema;
+
+// ── GET /api/v1/school/reports/team/:teamId/preview?year&month ──────────────
+// Snapshot SIEMPRE en vivo (no depende de que exista team_reports todavía) +
+// el estado publicado/borrador y las notas por bloque si ya se escribieron.
+router.get(
+    '/reports/team/:teamId/preview',
+    requireAuth,
+    requireRole(...STAFF_ROLES),
+    async (req: AuthenticatedRequest, res: Response) => {
+        const parsed = TeamPeriodSchema.safeParse(req.query ?? {});
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Periodo inválido', details: parsed.error.issues });
+        }
+        const { year, month } = parsed.data;
+        const teamId = paramId(req.params.teamId);
+
+        // El equipo tiene que ser de esta escuela — sin esto, un coach podría
+        // pedir el snapshot de un equipo de otra escuela por id adivinado.
+        const { data: equipo } = await userClient(req)
+            .from('teams')
+            .select('id, name')
+            .eq('id', teamId)
+            .eq('school_id', req.schoolId)
+            .maybeSingle();
+
+        if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado.' });
+
+        try {
+            const snapshot = await buildTeamReportSnapshot({ schoolId: req.schoolId, teamId, year, month });
+
+            // find-or-create del borrador: las notas por bloque necesitan un
+            // report_id real para engancharse. Efecto secundario deliberado de
+            // este GET — igual que abrir un documento nuevo lo crea — porque
+            // pedirle al coach un paso aparte de "generar" antes de poder
+            // comentar es fricción sin beneficio (el borrador no se publica solo).
+            let informe: any = (
+                await userClient(req)
+                    .from('team_reports')
+                    .select('id, status, published_at')
+                    .eq('school_id', req.schoolId)
+                    .eq('team_id', teamId)
+                    .eq('period_year', year)
+                    .eq('period_month', month)
+                    .maybeSingle()
+            ).data;
+
+            if (!informe) {
+                const { data: creado } = await supabase
+                    .from('team_reports')
+                    .insert({ school_id: req.schoolId, team_id: teamId, period_year: year, period_month: month })
+                    .select('id, status, published_at')
+                    .maybeSingle();
+                informe = creado ?? null;
+            }
+
+            const { data: notas } = await userClient(req)
+                .from('report_section_notes')
+                .select('section_key, body, author_id, updated_at')
+                .eq('school_id', req.schoolId)
+                .eq('report_type', 'team')
+                .eq('report_id', (informe as any)?.id ?? '00000000-0000-0000-0000-000000000000');
+
+            res.json({ snapshot, report: informe ?? null, section_notes: notas ?? [] });
+        } catch (err: any) {
+            req.log?.error({ err }, 'preview de informe de equipo falló');
+            res.status(500).json({ error: 'No se pudo armar el informe de equipo.', details: err?.message });
+        }
+    },
+);
+
+// ── POST /api/v1/school/reports/team/:teamId/publish { year, month } ────────
+// Crea (si no existe) el borrador del periodo, arma el snapshot en vivo y
+// publica. Solo admin — igual que el informe por atleta, publicar es de la
+// escuela, escribir la nota es del coach (D1/D2 del spec original).
+router.post(
+    '/reports/team/:teamId/publish',
+    requireAuth,
+    requireRole(...ADMIN_ROLES),
+    async (req: AuthenticatedRequest, res: Response) => {
+        const parsed = TeamPeriodSchema.safeParse(req.body ?? {});
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Periodo inválido', details: parsed.error.issues });
+        }
+        const { year, month } = parsed.data;
+        const teamId = paramId(req.params.teamId);
+
+        const { data: equipo } = await userClient(req)
+            .from('teams')
+            .select('id')
+            .eq('id', teamId)
+            .eq('school_id', req.schoolId)
+            .maybeSingle();
+
+        if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado.' });
+
+        try {
+            // find-or-create del borrador. Sin RPC de por medio: es un INSERT
+            // simple, la RLS de team_reports ya lo permite solo a staff.
+            let reportId: string;
+            const { data: existente } = await supabase
+                .from('team_reports')
+                .select('id, status')
+                .eq('school_id', req.schoolId)
+                .eq('team_id', teamId)
+                .eq('period_year', year)
+                .eq('period_month', month)
+                .maybeSingle();
+
+            if ((existente as any)?.status === 'publicado') {
+                return res.status(409).json({ error: 'Este informe de equipo ya fue publicado.' });
+            }
+
+            if (existente) {
+                reportId = (existente as any).id;
+            } else {
+                const { data: creado, error: crearErr } = await supabase
+                    .from('team_reports')
+                    .insert({ school_id: req.schoolId, team_id: teamId, period_year: year, period_month: month })
+                    .select('id')
+                    .single();
+                if (crearErr || !creado) throw crearErr ?? new Error('No se pudo crear el borrador.');
+                reportId = (creado as any).id;
+            }
+
+            const snapshot = await buildTeamReportSnapshot({ schoolId: req.schoolId, teamId, year, month });
+
+            // service client: publish_team_report_system exige service_role
+            // (el gate de "quién puede publicar" ya lo hizo requireRole arriba).
+            const { error: pubErr } = await supabase.rpc('publish_team_report_system', {
+                p_report_id: reportId,
+                p_snapshot: snapshot,
+            });
+
+            if (pubErr) return res.status(rpcStatus(pubErr)).json({ error: pubErr.message });
+
+            res.json({ ok: true, report_id: reportId, snapshot });
+        } catch (err: any) {
+            req.log?.error({ err }, 'publicar informe de equipo falló');
+            res.status(500).json({ error: 'No se pudo publicar el informe de equipo.', details: err?.message });
+        }
+    },
+);
+
+// ── PUT /api/v1/school/reports/team-section-note ─────────────────────────────
+// Comentario del coach POR BLOQUE del informe (spec: "cada gráfico lleva
+// debajo un párrafo interpretativo"), para athlete_reports o team_reports.
+// Escritura directa (report_section_notes concede INSERT/UPDATE a staff vía
+// RLS) — sin máquina de estados que proteger, igual que team_report_notes.
+const SectionNoteSchema = z.object({
+    report_type: z.enum(['athlete', 'team']),
+    report_id: z.string().uuid(),
+    section_key: z.enum([
+        'rpe_borg', 'task_comprehension', 'self_effort_pct', 'satisfaction',
+        'focus', 'coach_effort_rating', 'general',
+    ]),
+    body: z.string().trim().min(1).max(2000),
+});
+
+router.put(
+    '/reports/team-section-note',
+    requireAuth,
+    requireRole(...STAFF_ROLES),
+    async (req: AuthenticatedRequest, res: Response) => {
+        const parsed = SectionNoteSchema.safeParse(req.body ?? {});
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+        }
+
+        const { data: coachRow } = req.user?.id
+            ? await supabase
+                .from('school_staff')
+                .select('id')
+                .eq('coach_auth_id', req.user.id)
+                .eq('school_id', req.schoolId)
+                .eq('status', 'active')
+                .maybeSingle()
+            : { data: null };
+
+        const { data, error } = await userClient(req)
+            .from('report_section_notes')
+            .upsert(
+                {
+                    school_id: req.schoolId,
+                    report_type: parsed.data.report_type,
+                    report_id: parsed.data.report_id,
+                    section_key: parsed.data.section_key,
+                    body: parsed.data.body,
+                    author_id: (coachRow as any)?.id ?? null,
+                },
+                { onConflict: 'report_type,report_id,section_key' },
+            )
+            .select()
+            .single();
+
+        if (error) {
+            req.log?.error({ err: error }, 'guardar nota de bloque falló');
+            return res.status(500).json({ error: 'No se pudo guardar la nota.' });
+        }
+
+        res.json(data);
     },
 );
 
