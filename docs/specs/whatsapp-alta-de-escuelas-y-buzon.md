@@ -51,11 +51,21 @@ Coexistence exige suscribirse a `history`, `smb_app_state_sync` y
 `smb_message_echoes`. Esos son exactamente los datos que alimentan un buzón de
 conversaciones: construir uno sin el otro es hacer el mismo trabajo dos veces.
 
-**D4 — `business_management` se pide en un segundo App Review.**
-Se sacó de la solicitud del 2026-09-14 porque sin la pantalla construida no
-había cómo demostrarlo. Hoy está en *"Listo para prueba"*, o sea usable en
-desarrollo: se construye, se graba el flujo funcionando y se pide el acceso
-avanzado con el video.
+**D4 — NO hace falta un segundo App Review.** *(corregido el 2026-09-14)*
+La suposición original era que el Embedded Signup exigía `business_management`.
+La documentación dice otra cosa: ese permiso es requisito de los **Solution
+Partners**, y solo para compartir línea de crédito con el cliente. Para un
+**Tech Provider** el Embedded Signup necesita `whatsapp_business_management` y
+`whatsapp_business_messaging` — los dos aprobados con acceso avanzado el
+2026-09-14. La configuración creada en el panel (`1781832532844989`) pide
+exactamente esos dos y ninguno más.
+
+**Queda abierto, y es de negocio, no de código:** se decidió que *SportMaps
+paga a Meta* los excedentes y le vende paquetes a la escuela. Con Embedded
+Signup la escuela es dueña de su WABA, así que hay que resolver **qué método de
+pago queda asociado**. Si la vía fuera compartir línea de crédito, eso sí es
+territorio de Solution Partner y cambia los requisitos. Resolverlo antes de
+facturarle a nadie.
 
 **D5 — Lo que Coexistence le quita a la escuela se le avisa ANTES de conectar.**
 WhatsApp desactiva en ese número: mensajes temporales, ver una vez, ubicación
@@ -142,10 +152,10 @@ no `user_school_ids()` — que incluye padres y atletas.
 aparece y se puede responder. Verificado con un `school_admin`, no solo con el
 dueño — el arbol de menu de `school_admin` es una copia aparte del de `school`.
 
-### F4 — La pantalla de alta y el segundo App Review
+### F4 — La pantalla de alta
 
 La pantalla donde la escuela se conecta sola, con el aviso de D5 antes del
-botón. Grabar el flujo y pedir `business_management`.
+botón. Ya no incluye un segundo App Review: ver D4.
 
 ---
 
@@ -164,6 +174,12 @@ botón. Grabar el flujo y pedir `business_management`.
   volver a vincularlo. WhatsApp para Windows y WearOS no están soportados.
 - **Error `131060`** es esperado en el primer mensaje; se resuelve solo en
   segundos. No tratarlo como fallo permanente.
+- **Falta el callback de desautorización.** El panel de Meta tiene un campo
+  (*URL de devolución de llamada de retirada de autorización*) que se dejó
+  vacío a propósito: hoy no existe ese endpoint. Sin él, si una escuela le
+  quita el permiso a SportMaps no nos enteramos — lo descubriríamos cuando las
+  llamadas empiecen a fallar. Va en F1: recibir el ping y marcar la integración
+  como inactiva, en vez de dejarla fallando en silencio.
 - **Rotación del token por escuela.** Ya existe `wa-set-token.ts` para el
   número de prueba; el alta automática tiene que escribir por el mismo camino.
 
