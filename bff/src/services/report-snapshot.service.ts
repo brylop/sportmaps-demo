@@ -316,7 +316,7 @@ async function loadFootballSummary(
  * autoevaluación ese periodo (proxy: cuántas veces se cargó rpe_borg, la única
  * pregunta obligatoria que ancla "respondió esta sesión").
  */
-async function loadSessionMetrics(
+export async function loadSessionMetrics(
     schoolId: string,
     subjectType: SubjectType,
     subjectId: string,

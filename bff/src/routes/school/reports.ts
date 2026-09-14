@@ -21,7 +21,8 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../../middlewares/authMiddleware';
-import { buildReportSnapshot, buildTeamReportSnapshot, type SubjectType } from '../../services/report-snapshot.service';
+import { buildReportSnapshot, buildTeamReportSnapshot, loadSessionMetrics, type SubjectType } from '../../services/report-snapshot.service';
+import { getMetricCatalog, type MetricDefinition } from '../../services/metric-catalog.service';
 import { deliverPublishedReports } from '../../services/report-delivery.service';
 import { userClient } from '../../utils/userClient';
 
@@ -686,6 +687,137 @@ router.put(
         }
 
         res.json(data);
+    },
+);
+
+// =============================================================================
+// Vista del PADRE del informe grupal — spec evaluacion-post-entrenamiento.md
+// §5.3: "la misma plantilla con el dato de su hija sobrepuesta al grupo […]
+// Sin nombres de otras deportistas." NO reusa la ruta de staff de arriba: acá
+// NO hay `requireRole(STAFF_ROLES)` porque el padre no es staff. La
+// autorización real es de negocio, no de rol — "child_id es hijo de quien
+// llama Y ese hijo está inscrito activamente en teamId" — y se valida a mano
+// abajo con `userClient(req)` para que la RLS existente de `children`
+// confirme el vínculo padre→hijo.
+//
+// Solo se expone si el informe de equipo YA fue publicado (igual criterio
+// que el informe individual, spec §8.4): mostrarle a la familia un borrador
+// que el coach todavía puede corregir no es "publicar", es filtrar.
+// =============================================================================
+
+const ParentTeamPreviewSchema = PeriodSchema.extend({
+    child_id: z.string().uuid(),
+});
+
+// ── GET /api/v1/school/reports/team/:teamId/preview-for-parent?child_id&year&month
+router.get(
+    '/reports/team/:teamId/preview-for-parent',
+    requireAuth,
+    async (req: AuthenticatedRequest, res: Response) => {
+        const parsed = ParentTeamPreviewSchema.safeParse(req.query ?? {});
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+        }
+        const { year, month, child_id } = parsed.data;
+        const teamId = paramId(req.params.teamId);
+
+        // 1) child_id tiene que ser hijo de quien llama. Como el usuario, no
+        // como el servicio: la RLS de `children` es la que de verdad decide
+        // "es tu hijo", no un filtro que se pueda pasar por alto pasando el
+        // id de un hijo ajeno.
+        const { data: hijo } = await userClient(req)
+            .from('children')
+            .select('id, full_name, school_id')
+            .eq('id', child_id)
+            .maybeSingle();
+
+        if (!hijo) {
+            return res.status(403).json({ error: 'No tienes acceso a este atleta.' });
+        }
+
+        // 2) Ese hijo tiene que estar inscrito ACTIVAMENTE en teamId — sin
+        // esto, un padre podría ver el agregado de un equipo donde su hijo
+        // nunca estuvo, con solo adivinar un teamId de la misma escuela.
+        const { data: inscripcion } = await userClient(req)
+            .from('enrollments')
+            .select('id')
+            .eq('child_id', child_id)
+            .eq('team_id', teamId)
+            .eq('status', 'active')
+            .maybeSingle();
+
+        if (!inscripcion) {
+            return res.status(403).json({ error: 'Tu hijo no está inscrito activamente en este equipo.' });
+        }
+
+        try {
+            // 3) El informe de EQUIPO tiene que existir y estar publicado.
+            // Se lee con el cliente de servicio porque `team_reports` solo
+            // concede SELECT a staff por RLS (20260914151925) — el padre no
+            // tiene ni debería tener acceso directo a la tabla; el gate real
+            // ya se hizo arriba con datos que sí puede leer.
+            const { data: informe } = await supabase
+                .from('team_reports')
+                .select('id, status')
+                .eq('school_id', hijo.school_id)
+                .eq('team_id', teamId)
+                .eq('period_year', year)
+                .eq('period_month', month)
+                .maybeSingle();
+
+            if (!informe || (informe as any).status !== 'publicado') {
+                return res.status(404).json({ error: 'El informe de este equipo aún no ha sido publicado.' });
+            }
+
+            const periodStart = new Date(Date.UTC(year, month - 1, 1));
+            const periodEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59));
+
+            const { data: escuela } = await supabase
+                .from('schools')
+                .select('category_id')
+                .eq('id', hijo.school_id)
+                .maybeSingle();
+            const sportCategoryId = (escuela as any)?.category_id as string | null;
+            const definiciones = sportCategoryId
+                ? await getMetricCatalog([sportCategoryId], { includeInactive: true })
+                : [];
+            const catalogo = new Map<string, MetricDefinition>(definiciones.map((d) => [d.metric_key, d]));
+
+            // team_snapshot: el mismo agregado que arma la ruta de staff — sin
+            // nombres de otras deportistas, porque `buildTeamReportSnapshot`
+            // nunca los incluye (solo agregados: avg/distribution/count).
+            // child_metrics: el equivalente individual, mismas métricas y
+            // mismo periodo, para sobreponer "acá está tu hija" sobre el
+            // agregado del punto anterior — es la pieza que la ruta de staff
+            // no necesita y esta sí.
+            const [team_snapshot, child_metrics] = await Promise.all([
+                buildTeamReportSnapshot({ schoolId: hijo.school_id, teamId, year, month }),
+                loadSessionMetrics(hijo.school_id, 'child', child_id, periodStart, periodEnd, catalogo),
+            ]);
+
+            // Único contenido del coach que cruza al padre: la nota general
+            // del bloque 'general' (mensaje al grupo completo). El resto de
+            // las notas por bloque (rpe_borg, focus, etc.) son herramienta de
+            // trabajo del coach y no viajan acá — a propósito, no por omisión.
+            const { data: notaGeneral } = await supabase
+                .from('report_section_notes')
+                .select('body')
+                .eq('school_id', hijo.school_id)
+                .eq('report_type', 'team')
+                .eq('report_id', (informe as any).id)
+                .eq('section_key', 'general')
+                .maybeSingle();
+
+            res.json({
+                team_snapshot,
+                child_metrics,
+                child_name: hijo.full_name,
+                coach_note: (notaGeneral as any)?.body ?? null,
+            });
+        } catch (err: any) {
+            req.log?.error({ err }, 'preview de informe de equipo para padre falló');
+            res.status(500).json({ error: 'No se pudo armar el informe.', details: err?.message });
+        }
     },
 );
 
