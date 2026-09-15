@@ -590,4 +590,123 @@ router.post('/:schoolId/conversaciones/:conversationId/responder', requireAuth, 
     return res.status(201).json({ ok: true });
 });
 
+const AprobarSchema = z.object({
+    // Si la escuela corrigio el borrador, se manda lo corregido. Se guardan los
+    // dos: `proposed_text` es lo que dijo el modelo y `edited_text` lo que la
+    // persona decidio enviar. Comparar los dos con el tiempo es lo unico que
+    // dice si el bot esta mejorando o empeorando.
+    texto: z.string().trim().min(1).max(4000).optional(),
+});
+
+/** POST /api/v1/whatsapp/:schoolId/borradores/:draftId/aprobar */
+router.post('/:schoolId/borradores/:draftId/aprobar', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId, draftId } = req.params as { schoolId: string; draftId: string };
+    const userId = req.user.id;
+    if (!(await administraEstaEscuela(userId, schoolId))) {
+        return res.status(403).json({ error: 'Sin permiso sobre esta escuela' });
+    }
+
+    const parsed = AprobarSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: 'Texto invalido' });
+
+    // El borrador se lee JUNTO con su conversacion y filtrando por escuela: sin
+    // eso, un admin podria aprobar el borrador de otra escuela conociendo su id.
+    const { data: draft } = await supabase
+        .from('whatsapp_message_drafts')
+        .select('id, status, proposed_text, conversation_id, '
+              + 'conversacion:whatsapp_conversations!inner(id, school_id, contact_wa_id, last_inbound_at)')
+        .eq('id', draftId)
+        .eq('whatsapp_conversations.school_id', schoolId)
+        .maybeSingle();
+    if (!draft) return res.status(404).json({ error: 'Borrador no encontrado' });
+
+    // Dos personas mirando la misma bandeja aprueban el mismo borrador: el
+    // segundo no debe enviar otra vez.
+    if ((draft as any).status !== 'pending') {
+        return res.status(409).json({ error: 'Ese borrador ya fue resuelto' });
+    }
+
+    const conv = (draft as any).conversacion;
+    const ventana = estadoDeVentana(conv.last_inbound_at);
+    if (!ventana.ventana_abierta) {
+        return res.status(409).json({
+            error: 'ventana_cerrada',
+            mensaje: 'Pasaron mas de 24 horas desde el ultimo mensaje de esta persona. '
+                   + 'WhatsApp solo permite responder con una plantilla aprobada.',
+            ...ventana,
+        });
+    }
+
+    const integracion = await integracionParaEnviar(schoolId);
+    if (!integracion) return res.status(409).json({ error: 'La escuela no tiene WhatsApp conectado' });
+
+    const texto = aFormatoWhatsApp(parsed.data.texto ?? (draft as any).proposed_text);
+    const enviado = await sendTextMessage(integracion, conv.contact_wa_id, texto);
+    if (!enviado.ok) {
+        req.log?.warn({ schoolId, draftId, error: enviado.error }, '[wa-admin] no se pudo enviar el borrador');
+        return res.status(502).json({ error: 'No se pudo enviar', detalle: enviado.error });
+    }
+
+    // Se marca DESPUES de enviar. Al reves, un fallo de red dejaria el borrador
+    // como enviado sin que el padre haya recibido nada.
+    await supabase.from('whatsapp_message_drafts').update({
+        status: 'sent',
+        edited_text: parsed.data.texto ?? null,
+        approved_by: userId,
+        approved_at: new Date().toISOString(),
+        sent_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+    }).eq('id', draftId);
+
+    // `ai_generated` en true: lo escribio el modelo aunque lo haya aprobado una
+    // persona. Si la escuela lo corrigio, deja de serlo.
+    await supabase.rpc('wa_record_outbound_message', {
+        p_conversation_id: (draft as any).conversation_id,
+        p_integration_id: integracion.id,
+        p_wa_message_id: enviado.waMessageId || `local-${crypto.randomUUID()}`,
+        p_type: 'text',
+        p_text_body: texto,
+        p_payload: { draft_id: draftId, aprobado_por: userId, editado: Boolean(parsed.data.texto) },
+        p_ai_generated: !parsed.data.texto,
+        p_to_wa_id: conv.contact_wa_id,
+    });
+
+    await supabase.from('whatsapp_conversations')
+        .update({ status: 'active', unread_count: 0, updated_at: new Date().toISOString() })
+        .eq('id', (draft as any).conversation_id);
+
+    return res.status(201).json({ ok: true });
+});
+
+/** POST /api/v1/whatsapp/:schoolId/borradores/:draftId/descartar */
+router.post('/:schoolId/borradores/:draftId/descartar', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId, draftId } = req.params as { schoolId: string; draftId: string };
+    const userId = req.user.id;
+    if (!(await administraEstaEscuela(userId, schoolId))) {
+        return res.status(403).json({ error: 'Sin permiso sobre esta escuela' });
+    }
+
+    const { data: draft } = await supabase
+        .from('whatsapp_message_drafts')
+        .select('id, status, conversacion:whatsapp_conversations!inner(school_id)')
+        .eq('id', draftId)
+        .eq('whatsapp_conversations.school_id', schoolId)
+        .maybeSingle();
+    if (!draft) return res.status(404).json({ error: 'Borrador no encontrado' });
+    if ((draft as any).status !== 'pending') {
+        return res.status(409).json({ error: 'Ese borrador ya fue resuelto' });
+    }
+
+    // No se borra: queda el rastro de que el modelo propuso algo y una persona
+    // dijo que no. Es lo que permite medir cuanto se descarta.
+    await supabase.from('whatsapp_message_drafts').update({
+        status: 'discarded',
+        approved_by: userId,
+        approved_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+    }).eq('id', draftId);
+
+    return res.json({ ok: true });
+});
+
 export default router;

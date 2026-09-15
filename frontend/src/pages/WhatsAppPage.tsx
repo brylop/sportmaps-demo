@@ -16,6 +16,7 @@ import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { bffClient } from '@/lib/api/bffClient';
 import { ConectarNumero, ALTA_CONFIGURADA, type ResultadoDelAlta }
     from '@/components/whatsapp/ConectarNumero';
+import { Conversaciones } from '@/components/whatsapp/Conversaciones';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -86,11 +87,13 @@ export default function WhatsAppPage() {
     const [cargandoPlantillas, setCargandoPlantillas] = useState(false);
     // F0: lo que devuelve el diálogo de Meta. Todavía no se persiste nada.
     const [alta, setAlta] = useState<ResultadoDelAlta | null>(null);
+    const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
     const [guardando, setGuardando] = useState(false);
 
     const cargar = useCallback(async () => {
         if (!schoolId) return;
         setCargando(true);
+        setErrorDeCarga(null);
         try {
             // Una sola llamada trae estado, bandeja y eventos: los tres salen de
             // la misma base y antes costaban tres verificaciones de permisos.
@@ -99,6 +102,7 @@ export default function WhatsAppPage() {
             setBandeja(e.bandeja ?? []);
             setEventos(e.eventos ?? []);
         } catch (err: any) {
+            setErrorDeCarga(err?.message ?? 'Error desconocido');
             toast({ title: 'No se pudo cargar', description: err?.message ?? 'Error', variant: 'destructive' });
         } finally {
             setCargando(false);
@@ -148,6 +152,28 @@ export default function WhatsAppPage() {
         return <div className="p-8 flex items-center gap-2 text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Cargando el canal…
         </div>;
+    }
+
+    if (errorDeCarga || !estado) {
+        return (
+            <div className="p-6 max-w-2xl">
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <MessageSquare className="h-5 w-5" /> No se pudo cargar el canal
+                        </CardTitle>
+                        <CardDescription>
+                            {errorDeCarga ?? 'No llegó respuesta del servidor.'}
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Button variant="outline" onClick={() => void cargar()}>
+                            <RefreshCw className="h-4 w-4 mr-2" /> Reintentar
+                        </Button>
+                    </CardContent>
+                </Card>
+            </div>
+        );
     }
 
     if (estado && !estado.conectado) {
@@ -263,6 +289,9 @@ export default function WhatsAppPage() {
             <Tabs defaultValue="resumen">
                 <TabsList>
                     <TabsTrigger value="resumen">Resumen</TabsTrigger>
+                    <TabsTrigger value="conversaciones">
+                        <MessageSquare className="h-4 w-4 mr-1.5" /> Conversaciones
+                    </TabsTrigger>
                     <TabsTrigger value="plantillas">
                         <FileText className="h-4 w-4 mr-1" /> Plantillas
                     </TabsTrigger>
@@ -339,6 +368,10 @@ export default function WhatsAppPage() {
                 </TabsContent>
 
                 {/* ── Plantillas ── */}
+                <TabsContent value="conversaciones">
+                    <Conversaciones schoolId={schoolId!} />
+                </TabsContent>
+
                 <TabsContent value="plantillas">
                     <PanelPlantillas
                         schoolId={schoolId!}
