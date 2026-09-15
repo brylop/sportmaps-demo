@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 545,
-  "head": "20260914184316",
+  "count": 546,
+  "head": "20260914193611",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -548,6 +548,7 @@
     {"v":"20260912144331","file":"20260912144331_whatsapp_eventos_de_cuenta.sql","sha256":"c47733602801645b94396496cfe93e94e61ffc210d67987c41956ffa80fd984e","added":"2026-09-12","by":"brylop"},
     {"v":"20260914151925","file":"20260914151925_post_entreno_informe_grupal.sql","sha256":"d36d76f1f6ebe5b19eb7e1c11145a34282e9f2cd820f190d00b3b21bafadd435","added":"2026-09-14","by":"brylop"},
     {"v":"20260914151934","file":"20260914151934_perfil_publico_layout_fase1.sql","sha256":"20d132a3e6b147584fe0549d7efb2ff10ed604b578f20c62303ccb4607672fa6","added":"2026-09-14","by":"brylop"},
-    {"v":"20260914184316","file":"20260914184316_perfil_publico_horarios_reales.sql","sha256":"ad19dd12aa7cef79a19cdc6569f25f9f3011856692fd5ae511b5961ba79b45f6","added":"2026-09-14","by":"brylop"}
+    {"v":"20260914184316","file":"20260914184316_perfil_publico_horarios_reales.sql","sha256":"ad19dd12aa7cef79a19cdc6569f25f9f3011856692fd5ae511b5961ba79b45f6","added":"2026-09-14","by":"brylop"},
+    {"v":"20260914193611","file":"20260914193611_fix_team_report_drafts_ambiguous_column.sql","sha256":"48b0e34d5b43e517b9f222b6a519afac5088d1acd504dba9a85bb3e2f97aaa05","added":"2026-09-15","by":"brylop"}
   ]
 }
