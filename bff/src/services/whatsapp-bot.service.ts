@@ -451,11 +451,22 @@ async function handleIntent(
         messages.push({ role: 'tool', toolName: 'get_payment_methods', content: JSON.stringify(medios) });
         let final;
         try {
-            final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: TOOLS });
+            // SIN herramientas, a proposito. Este turno solo REDACTA con datos que
+            // ya llegaron; ofrecerle TOOLS lo invita a llamar otra, y cuando lo
+            // hace `text` vuelve vacio y caemos al texto plano.
+            final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: [] });
         } catch {
             await deliver(integration, conversationId, contactWaId,
                 fallbackMediosDePago(medios), { step: 'medios_fallback' });
             return;
+        }
+        // Un degradado al texto plano NO puede ser silencioso. El 2026-09-14
+        // ocurrio cuatro veces sin dejar rastro en ningun lado, y buscar la
+        // causa costo descartar saturacion, proveedor, configuracion de dev y
+        // recursos de Render, uno por uno. La proxima vez lo dira.
+        if (!final.text) {
+            console.warn('[whatsapp-bot] medios_de_pago: el modelo no devolvio texto',
+                { proveedor: final.provider, toolCalls: (final as any).toolCalls?.length ?? 0 });
         }
         await deliver(integration, conversationId, contactWaId,
             final.text || fallbackMediosDePago(medios),
@@ -482,7 +493,10 @@ async function handleIntent(
 
         let final;
         try {
-            final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: TOOLS });
+            // SIN herramientas, a proposito. Este turno solo REDACTA con datos que
+            // ya llegaron; ofrecerle TOOLS lo invita a llamar otra, y cuando lo
+            // hace `text` vuelve vacio y caemos al texto plano.
+            final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: [] });
         } catch {
             // Si la 2a llamada falla, redactar un fallback determinista con los datos.
             await deliver(integration, conversationId, contactWaId,
@@ -490,6 +504,14 @@ async function handleIntent(
             return;
         }
 
+        // Un degradado al texto plano NO puede ser silencioso. El 2026-09-14
+        // ocurrio cuatro veces sin dejar rastro en ningun lado, y buscar la
+        // causa costo descartar saturacion, proveedor, configuracion de dev y
+        // recursos de Render, uno por uno. La proxima vez lo dira.
+        if (!final.text) {
+            console.warn('[whatsapp-bot] estado_de_pagos: el modelo no devolvio texto',
+                { proveedor: final.provider, toolCalls: (final as any).toolCalls?.length ?? 0 });
+        }
         await deliver(integration, conversationId, contactWaId,
             final.text || fallbackPaymentText(payments),
             { step: 'get_payment_status', provider: final.provider, tool_result: payments });
