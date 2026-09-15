@@ -8,7 +8,8 @@ export default defineConfig({
     workers: process.env.CI ? 1 : undefined,
     reporter: 'html',
     use: {
-        baseURL: 'http://localhost:5173',
+        // vite.config.ts fija el puerto en 3001 (no el 5173 default de Vite).
+        baseURL: 'http://localhost:3001',
         trace: 'on-first-retry',
     },
     projects: [
@@ -19,7 +20,7 @@ export default defineConfig({
     ],
     webServer: {
         command: 'npm run dev',
-        url: 'http://localhost:5173',
+        url: 'http://localhost:3001',
         reuseExistingServer: !process.env.CI,
     },
 });

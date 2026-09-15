@@ -444,6 +444,15 @@ async function handleSchoolPayment(args: HandlerArgs): Promise<HandlerResult> {
             req.log?.warn({ err: notifErr, paymentId: link.payment_id }, 'notify_school_payment_paid falló (no-bloqueante)');
         }
 
+        // Y al PADRE. Mismo hueco que tenia Wompi: la funcion de arriba avisa
+        // solo a la escuela, asi que quien pagaba por pasarela no se enteraba.
+        const { error: padreErr } = await supabase.rpc('notify_parent_payment_paid', {
+            p_payment_id: link.payment_id,
+        });
+        if (padreErr) {
+            req.log?.warn({ err: padreErr, paymentId: link.payment_id }, 'notify_parent_payment_paid falló (no-bloqueante)');
+        }
+
         req.log?.info({ paymentId: link.payment_id, externalRef }, 'MP school payment confirmed');
         return { status: 200, body: { status: 'ok', kind: 'school_payment' } };
     }

@@ -18,12 +18,23 @@
  * en su cuerpo, y la RLS de M2 filtra las lecturas.
  */
 import { Router, Response } from 'express';
+import PDFDocument from 'pdfkit';
 import { z } from 'zod';
 import { supabase } from '../../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../../middlewares/authMiddleware';
-import { buildReportSnapshot, type SubjectType } from '../../services/report-snapshot.service';
+import {
+    buildReportSnapshot, buildTeamReportSnapshot, loadSessionMetrics,
+    type SubjectType, type TeamReportSnapshot, type SessionMetricSummary,
+} from '../../services/report-snapshot.service';
+import { getMetricCatalog, type MetricDefinition } from '../../services/metric-catalog.service';
 import { deliverPublishedReports } from '../../services/report-delivery.service';
 import { userClient } from '../../utils/userClient';
+import { resolveSchoolBranding } from '../../utils/schoolBrandingResolver';
+import {
+    INK, MUTED,
+    loadSportmapsLogo, fetchSchoolLogo, capitalize,
+    sectionTitle, noteBox, addFooterToAllPages, drawDistributionBar,
+} from '../../utils/reportPdfHelpers';
 
 const router = Router();
 
@@ -475,6 +486,552 @@ router.post(
         } catch (err: any) {
             req.log?.error({ err }, 'envío de informes falló');
             res.status(500).json({ error: 'Error enviando los informes.', details: err?.message });
+        }
+    },
+);
+
+// =============================================================================
+// Informe DE EQUIPO — evaluacion-post-entrenamiento.md §3.5 (F4 segunda mitad).
+// Mismo patrón que arriba: RPCs `_system` porque exigen service_role (no
+// auth.uid()), así que el gate real es `requireRole` acá, no la RPC.
+// =============================================================================
+
+const TeamPeriodSchema = PeriodSchema;
+
+// ── GET /api/v1/school/reports/team/:teamId/preview?year&month ──────────────
+// Snapshot SIEMPRE en vivo (no depende de que exista team_reports todavía) +
+// el estado publicado/borrador y las notas por bloque si ya se escribieron.
+router.get(
+    '/reports/team/:teamId/preview',
+    requireAuth,
+    requireRole(...STAFF_ROLES),
+    async (req: AuthenticatedRequest, res: Response) => {
+        const parsed = TeamPeriodSchema.safeParse(req.query ?? {});
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Periodo inválido', details: parsed.error.issues });
+        }
+        const { year, month } = parsed.data;
+        const teamId = paramId(req.params.teamId);
+
+        // El equipo tiene que ser de esta escuela — sin esto, un coach podría
+        // pedir el snapshot de un equipo de otra escuela por id adivinado.
+        const { data: equipo } = await userClient(req)
+            .from('teams')
+            .select('id, name')
+            .eq('id', teamId)
+            .eq('school_id', req.schoolId)
+            .maybeSingle();
+
+        if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado.' });
+
+        try {
+            const snapshot = await buildTeamReportSnapshot({ schoolId: req.schoolId, teamId, year, month });
+
+            // find-or-create del borrador: las notas por bloque necesitan un
+            // report_id real para engancharse. Efecto secundario deliberado de
+            // este GET — igual que abrir un documento nuevo lo crea — porque
+            // pedirle al coach un paso aparte de "generar" antes de poder
+            // comentar es fricción sin beneficio (el borrador no se publica solo).
+            let informe: any = (
+                await userClient(req)
+                    .from('team_reports')
+                    .select('id, status, published_at')
+                    .eq('school_id', req.schoolId)
+                    .eq('team_id', teamId)
+                    .eq('period_year', year)
+                    .eq('period_month', month)
+                    .maybeSingle()
+            ).data;
+
+            if (!informe) {
+                const { data: creado } = await supabase
+                    .from('team_reports')
+                    .insert({ school_id: req.schoolId, team_id: teamId, period_year: year, period_month: month })
+                    .select('id, status, published_at')
+                    .maybeSingle();
+                informe = creado ?? null;
+            }
+
+            const { data: notas } = await userClient(req)
+                .from('report_section_notes')
+                .select('section_key, body, author_id, updated_at')
+                .eq('school_id', req.schoolId)
+                .eq('report_type', 'team')
+                .eq('report_id', (informe as any)?.id ?? '00000000-0000-0000-0000-000000000000');
+
+            res.json({ snapshot, report: informe ?? null, section_notes: notas ?? [] });
+        } catch (err: any) {
+            req.log?.error({ err }, 'preview de informe de equipo falló');
+            res.status(500).json({ error: 'No se pudo armar el informe de equipo.', details: err?.message });
+        }
+    },
+);
+
+// ── POST /api/v1/school/reports/team/:teamId/publish { year, month } ────────
+// Crea (si no existe) el borrador del periodo, arma el snapshot en vivo y
+// publica. Solo admin — igual que el informe por atleta, publicar es de la
+// escuela, escribir la nota es del coach (D1/D2 del spec original).
+router.post(
+    '/reports/team/:teamId/publish',
+    requireAuth,
+    requireRole(...ADMIN_ROLES),
+    async (req: AuthenticatedRequest, res: Response) => {
+        const parsed = TeamPeriodSchema.safeParse(req.body ?? {});
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Periodo inválido', details: parsed.error.issues });
+        }
+        const { year, month } = parsed.data;
+        const teamId = paramId(req.params.teamId);
+
+        const { data: equipo } = await userClient(req)
+            .from('teams')
+            .select('id')
+            .eq('id', teamId)
+            .eq('school_id', req.schoolId)
+            .maybeSingle();
+
+        if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado.' });
+
+        try {
+            // find-or-create del borrador. Sin RPC de por medio: es un INSERT
+            // simple, la RLS de team_reports ya lo permite solo a staff.
+            let reportId: string;
+            const { data: existente } = await supabase
+                .from('team_reports')
+                .select('id, status')
+                .eq('school_id', req.schoolId)
+                .eq('team_id', teamId)
+                .eq('period_year', year)
+                .eq('period_month', month)
+                .maybeSingle();
+
+            if ((existente as any)?.status === 'publicado') {
+                return res.status(409).json({ error: 'Este informe de equipo ya fue publicado.' });
+            }
+
+            if (existente) {
+                reportId = (existente as any).id;
+            } else {
+                const { data: creado, error: crearErr } = await supabase
+                    .from('team_reports')
+                    .insert({ school_id: req.schoolId, team_id: teamId, period_year: year, period_month: month })
+                    .select('id')
+                    .single();
+                if (crearErr || !creado) throw crearErr ?? new Error('No se pudo crear el borrador.');
+                reportId = (creado as any).id;
+            }
+
+            const snapshot = await buildTeamReportSnapshot({ schoolId: req.schoolId, teamId, year, month });
+
+            // service client: publish_team_report_system exige service_role
+            // (el gate de "quién puede publicar" ya lo hizo requireRole arriba).
+            const { error: pubErr } = await supabase.rpc('publish_team_report_system', {
+                p_report_id: reportId,
+                p_snapshot: snapshot,
+            });
+
+            if (pubErr) return res.status(rpcStatus(pubErr)).json({ error: pubErr.message });
+
+            res.json({ ok: true, report_id: reportId, snapshot });
+        } catch (err: any) {
+            req.log?.error({ err }, 'publicar informe de equipo falló');
+            res.status(500).json({ error: 'No se pudo publicar el informe de equipo.', details: err?.message });
+        }
+    },
+);
+
+// ── PUT /api/v1/school/reports/team-section-note ─────────────────────────────
+// Comentario del coach POR BLOQUE del informe (spec: "cada gráfico lleva
+// debajo un párrafo interpretativo"), para athlete_reports o team_reports.
+// Escritura directa (report_section_notes concede INSERT/UPDATE a staff vía
+// RLS) — sin máquina de estados que proteger, igual que team_report_notes.
+const SectionNoteSchema = z.object({
+    report_type: z.enum(['athlete', 'team']),
+    report_id: z.string().uuid(),
+    section_key: z.enum([
+        'rpe_borg', 'task_comprehension', 'self_effort_pct', 'satisfaction',
+        'focus', 'coach_effort_rating', 'general',
+    ]),
+    body: z.string().trim().min(1).max(2000),
+});
+
+router.put(
+    '/reports/team-section-note',
+    requireAuth,
+    requireRole(...STAFF_ROLES),
+    async (req: AuthenticatedRequest, res: Response) => {
+        const parsed = SectionNoteSchema.safeParse(req.body ?? {});
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+        }
+
+        const { data: coachRow } = req.user?.id
+            ? await supabase
+                .from('school_staff')
+                .select('id')
+                .eq('coach_auth_id', req.user.id)
+                .eq('school_id', req.schoolId)
+                .eq('status', 'active')
+                .maybeSingle()
+            : { data: null };
+
+        const { data, error } = await userClient(req)
+            .from('report_section_notes')
+            .upsert(
+                {
+                    school_id: req.schoolId,
+                    report_type: parsed.data.report_type,
+                    report_id: parsed.data.report_id,
+                    section_key: parsed.data.section_key,
+                    body: parsed.data.body,
+                    author_id: (coachRow as any)?.id ?? null,
+                },
+                { onConflict: 'report_type,report_id,section_key' },
+            )
+            .select()
+            .single();
+
+        if (error) {
+            req.log?.error({ err: error }, 'guardar nota de bloque falló');
+            return res.status(500).json({ error: 'No se pudo guardar la nota.' });
+        }
+
+        res.json(data);
+    },
+);
+
+// =============================================================================
+// Vista del PADRE del informe grupal — spec evaluacion-post-entrenamiento.md
+// §5.3: "la misma plantilla con el dato de su hija sobrepuesta al grupo […]
+// Sin nombres de otras deportistas." NO reusa la ruta de staff de arriba: acá
+// NO hay `requireRole(STAFF_ROLES)` porque el padre no es staff. La
+// autorización real es de negocio, no de rol — "child_id es hijo de quien
+// llama Y ese hijo está inscrito activamente en teamId" — y se valida a mano
+// abajo con `userClient(req)` para que la RLS existente de `children`
+// confirme el vínculo padre→hijo.
+//
+// Solo se expone si el informe de equipo YA fue publicado (igual criterio
+// que el informe individual, spec §8.4): mostrarle a la familia un borrador
+// que el coach todavía puede corregir no es "publicar", es filtrar.
+// =============================================================================
+
+const ParentTeamPreviewSchema = PeriodSchema.extend({
+    child_id: z.string().uuid(),
+});
+
+// ── GET /api/v1/school/reports/team/:teamId/preview-for-parent?child_id&year&month
+router.get(
+    '/reports/team/:teamId/preview-for-parent',
+    requireAuth,
+    async (req: AuthenticatedRequest, res: Response) => {
+        const parsed = ParentTeamPreviewSchema.safeParse(req.query ?? {});
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+        }
+        const { year, month, child_id } = parsed.data;
+        const teamId = paramId(req.params.teamId);
+
+        // 1) child_id tiene que ser hijo de quien llama. Como el usuario, no
+        // como el servicio: la RLS de `children` es la que de verdad decide
+        // "es tu hijo", no un filtro que se pueda pasar por alto pasando el
+        // id de un hijo ajeno.
+        const { data: hijo } = await userClient(req)
+            .from('children')
+            .select('id, full_name, school_id')
+            .eq('id', child_id)
+            .maybeSingle();
+
+        if (!hijo) {
+            return res.status(403).json({ error: 'No tienes acceso a este atleta.' });
+        }
+
+        // 2) Ese hijo tiene que estar inscrito ACTIVAMENTE en teamId — sin
+        // esto, un padre podría ver el agregado de un equipo donde su hijo
+        // nunca estuvo, con solo adivinar un teamId de la misma escuela.
+        const { data: inscripcion } = await userClient(req)
+            .from('enrollments')
+            .select('id')
+            .eq('child_id', child_id)
+            .eq('team_id', teamId)
+            .eq('status', 'active')
+            .maybeSingle();
+
+        if (!inscripcion) {
+            return res.status(403).json({ error: 'Tu hijo no está inscrito activamente en este equipo.' });
+        }
+
+        try {
+            // 3) El informe de EQUIPO tiene que existir y estar publicado.
+            // Se lee con el cliente de servicio porque `team_reports` solo
+            // concede SELECT a staff por RLS (20260914151925) — el padre no
+            // tiene ni debería tener acceso directo a la tabla; el gate real
+            // ya se hizo arriba con datos que sí puede leer.
+            const { data: informe } = await supabase
+                .from('team_reports')
+                .select('id, status')
+                .eq('school_id', hijo.school_id)
+                .eq('team_id', teamId)
+                .eq('period_year', year)
+                .eq('period_month', month)
+                .maybeSingle();
+
+            if (!informe || (informe as any).status !== 'publicado') {
+                return res.status(404).json({ error: 'El informe de este equipo aún no ha sido publicado.' });
+            }
+
+            const periodStart = new Date(Date.UTC(year, month - 1, 1));
+            const periodEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59));
+
+            const { data: escuela } = await supabase
+                .from('schools')
+                .select('category_id')
+                .eq('id', hijo.school_id)
+                .maybeSingle();
+            const sportCategoryId = (escuela as any)?.category_id as string | null;
+            const definiciones = sportCategoryId
+                ? await getMetricCatalog([sportCategoryId], { includeInactive: true })
+                : [];
+            const catalogo = new Map<string, MetricDefinition>(definiciones.map((d) => [d.metric_key, d]));
+
+            // team_snapshot: el mismo agregado que arma la ruta de staff — sin
+            // nombres de otras deportistas, porque `buildTeamReportSnapshot`
+            // nunca los incluye (solo agregados: avg/distribution/count).
+            // child_metrics: el equivalente individual, mismas métricas y
+            // mismo periodo, para sobreponer "acá está tu hija" sobre el
+            // agregado del punto anterior — es la pieza que la ruta de staff
+            // no necesita y esta sí.
+            const [team_snapshot, child_metrics] = await Promise.all([
+                buildTeamReportSnapshot({ schoolId: hijo.school_id, teamId, year, month }),
+                loadSessionMetrics(hijo.school_id, 'child', child_id, periodStart, periodEnd, catalogo),
+            ]);
+
+            // Único contenido del coach que cruza al padre: la nota general
+            // del bloque 'general' (mensaje al grupo completo). El resto de
+            // las notas por bloque (rpe_borg, focus, etc.) son herramienta de
+            // trabajo del coach y no viajan acá — a propósito, no por omisión.
+            const { data: notaGeneral } = await supabase
+                .from('report_section_notes')
+                .select('body')
+                .eq('school_id', hijo.school_id)
+                .eq('report_type', 'team')
+                .eq('report_id', (informe as any).id)
+                .eq('section_key', 'general')
+                .maybeSingle();
+
+            res.json({
+                team_snapshot,
+                child_metrics,
+                child_name: hijo.full_name,
+                coach_note: (notaGeneral as any)?.body ?? null,
+            });
+        } catch (err: any) {
+            req.log?.error({ err }, 'preview de informe de equipo para padre falló');
+            res.status(500).json({ error: 'No se pudo armar el informe.', details: err?.message });
+        }
+    },
+);
+
+// ── GET /api/v1/school/reports/team/:teamId/pdf?year&month ──────────────────
+// La exportación del informe grupal (spec §5.3: "el PDF se genera igual,
+// Besser lo necesita para el club"). Mismo principio que el PDF por atleta
+// (§8.4): un informe YA PUBLICADO lee su snapshot CONGELADO, nunca recalcula
+// — la familia/el club ya vio esos números y no pueden cambiar en silencio.
+// Sin publicar, se arma en vivo (buildTeamReportSnapshot) y se marca como
+// borrador, para que el coach pueda revisar el PDF antes de publicar.
+const SECTIONS_PDF: { key: string; title: string; metricKeys: string[] }[] = [
+    { key: 'rpe_borg', title: 'Cansancio (BORG)', metricKeys: ['rpe_borg'] },
+    { key: 'task_comprehension', title: 'Comprensión de las tareas', metricKeys: ['task_comprehension'] },
+    { key: 'self_effort_pct', title: 'Esfuerzo y entrega', metricKeys: ['self_effort_pct'] },
+    { key: 'satisfaction', title: 'Satisfacción y alegría', metricKeys: ['satisfaction'] },
+    { key: 'focus', title: 'Aspectos a mejorar', metricKeys: [] }, // se completa dinámico: focus_*
+    { key: 'coach_effort_rating', title: 'Lo que vio el entrenador', metricKeys: ['coach_effort_rating'] },
+    { key: 'general', title: 'Nota general del periodo', metricKeys: [] },
+];
+
+/** Dibuja una `SessionMetricSummary` (avg/distribution/count) como se ve en
+ *  pantalla (`MetricCard` de `CoachTeamPostTrainingReportPage.tsx`), pero en
+ *  papel: número grande para `avg`, barras horizontales para `distribution`,
+ *  y una sola barra "seleccionado N de M" para `count`. */
+function drawSessionMetric(doc: PDFKit.PDFDocument, m: SessionMetricSummary, accent: string) {
+    if (doc.y > doc.page.height - 130) doc.addPage();
+
+    doc.fillColor(INK).font('Helvetica-Bold').fontSize(10).text(m.label, 60, doc.y);
+    doc.fillColor(MUTED).font('Helvetica').fontSize(8)
+        .text(`${m.n} respuesta${m.n === 1 ? '' : 's'}`, doc.page.width - 180, doc.y - 12, { width: 120, align: 'right' });
+    doc.moveDown(0.3);
+
+    if (m.aggregation === 'avg') {
+        doc.fillColor(accent).font('Helvetica-Bold').fontSize(20).text(String(m.avg ?? '—'), 60, doc.y);
+        doc.moveDown(0.5);
+    } else if (m.aggregation === 'distribution') {
+        for (const o of m.distribution ?? []) {
+            drawDistributionBar(doc, o.label, o.pct, o.n, accent);
+        }
+        doc.moveDown(0.2);
+    } else if (m.aggregation === 'count') {
+        const pct = m.n > 0 ? Math.round(((m.count ?? 0) / m.n) * 1000) / 10 : 0;
+        drawDistributionBar(doc, 'Veces seleccionado', pct, m.count ?? 0, accent);
+        doc.moveDown(0.2);
+    }
+    doc.fillColor(INK);
+}
+
+router.get(
+    '/reports/team/:teamId/pdf',
+    requireAuth,
+    requireRole(...STAFF_ROLES),
+    async (req: AuthenticatedRequest, res: Response) => {
+        const parsed = TeamPeriodSchema.safeParse(req.query ?? {});
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Periodo inválido', details: parsed.error.issues });
+        }
+        const { year, month } = parsed.data;
+        const teamId = paramId(req.params.teamId);
+
+        // El equipo tiene que ser de esta escuela — mismo guardrail que preview/publish.
+        const { data: equipo } = await userClient(req)
+            .from('teams')
+            .select('id')
+            .eq('id', teamId)
+            .eq('school_id', req.schoolId)
+            .maybeSingle();
+
+        if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado.' });
+
+        try {
+            const { data: informe } = await userClient(req)
+                .from('team_reports')
+                .select('id, status, snapshot')
+                .eq('school_id', req.schoolId)
+                .eq('team_id', teamId)
+                .eq('period_year', year)
+                .eq('period_month', month)
+                .maybeSingle();
+
+            const yaPublicado = (informe as any)?.status === 'publicado' && (informe as any)?.snapshot;
+            const snapshot: TeamReportSnapshot = yaPublicado
+                ? ((informe as any).snapshot as TeamReportSnapshot)
+                : await buildTeamReportSnapshot({ schoolId: req.schoolId, teamId, year, month });
+            const isDraft = !yaPublicado;
+
+            // Notas por bloque: una sola consulta para las 7 secciones, atadas al
+            // report_id real (si ya existe una fila, publicada o no).
+            const reportId = (informe as any)?.id as string | undefined;
+            const { data: notasRows } = reportId
+                ? await userClient(req)
+                    .from('report_section_notes')
+                    .select('section_key, body')
+                    .eq('school_id', req.schoolId)
+                    .eq('report_type', 'team')
+                    .eq('report_id', reportId)
+                : { data: [] as any[] };
+            const notas = new Map<string, string>(
+                ((notasRows ?? []) as any[]).map((n) => [n.section_key, n.body]),
+            );
+
+            const branding = await resolveSchoolBranding(req.schoolId);
+            const [sportmapsLogo, schoolLogo] = await Promise.all([
+                Promise.resolve(loadSportmapsLogo()),
+                fetchSchoolLogo(branding.logoUrl),
+            ]);
+
+            const doc = new PDFDocument({ size: 'A4', margin: 60, bufferPages: true });
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader(
+                'Content-Disposition',
+                `inline; filename="informe-equipo-${snapshot.period.year}-${String(snapshot.period.month).padStart(2, '0')}.pdf"`,
+            );
+            doc.pipe(res);
+
+            // ── Header: logo + branding, igual que el informe por atleta ─────────
+            const headerLogo = schoolLogo ?? sportmapsLogo;
+            if (headerLogo) {
+                try {
+                    doc.image(headerLogo, 60, 50, { height: 34 });
+                } catch {
+                    doc.fillColor(INK).fontSize(17).font('Helvetica-Bold').text(branding.schoolName, 60, 55);
+                }
+            } else {
+                doc.fillColor(INK).fontSize(17).font('Helvetica-Bold').text(branding.schoolName, 60, 55);
+            }
+            doc.fillColor(MUTED).fontSize(9).font('Helvetica')
+                .text('Evaluación post-entrenamiento — informe de equipo', 60, 92);
+
+            doc.fillColor(MUTED).fontSize(9).font('Helvetica')
+                .text(capitalize(snapshot.period.label), doc.page.width - 220, 55, { width: 160, align: 'right' });
+            doc.fillColor(INK).fontSize(11).font('Helvetica-Bold')
+                .text(snapshot.team.name, doc.page.width - 220, 69, { width: 160, align: 'right' });
+
+            const accentY = 112;
+            doc.rect(60, accentY, doc.page.width - 120, 2.5).fill(branding.primaryColor);
+            doc.y = accentY + 20;
+
+            // ── Aviso de borrador — el spec pide "BORRADOR — sin publicar" visible ──
+            if (isDraft) {
+                const bandY = doc.y;
+                doc.roundedRect(60, bandY, doc.page.width - 120, 24, 4).fillColor('#fef3c7').fill();
+                doc.fillColor('#92400e').font('Helvetica-Bold').fontSize(9)
+                    .text('BORRADOR — SIN PUBLICAR · los números pueden cambiar hasta que se publique', 60, bandY + 7, {
+                        width: doc.page.width - 120, align: 'center',
+                    });
+                doc.y = bandY + 24 + 14;
+                doc.fillColor(INK);
+            }
+
+            // ── Resumen: N deportistas · M sesiones ──────────────────────────────
+            doc.fillColor(MUTED).fontSize(10).font('Helvetica').text(
+                `${snapshot.athlete_count} deportista${snapshot.athlete_count === 1 ? '' : 's'} respondió · `
+                + `${snapshot.sessions_count} ${snapshot.sessions_count === 1 ? 'sesión' : 'sesiones'} del equipo este mes`,
+                60, doc.y,
+            );
+            doc.moveDown(1);
+            doc.fillColor(INK);
+
+            if (snapshot.athlete_count === 0) {
+                doc.fillColor(MUTED).font('Helvetica').fontSize(10)
+                    .text(`Todavía no hay autoevaluaciones registradas para este equipo en ${snapshot.period.label}.`, 60, doc.y);
+            }
+
+            // ── Una sección por bloque, calcado del orden que ve el coach en pantalla ──
+            const metricsByKey = new Map(snapshot.metrics_session.map((m) => [m.metric_key, m]));
+            const focusMetrics = snapshot.metrics_session.filter((m) => m.metric_key.startsWith('focus_'));
+
+            for (const section of SECTIONS_PDF) {
+                const metrics = section.key === 'focus'
+                    ? focusMetrics
+                    : section.metricKeys.map((k) => metricsByKey.get(k)).filter((m): m is SessionMetricSummary => !!m);
+
+                const nota = notas.get(section.key);
+                // Igual que en pantalla: sin métricas y sin nota, la sección no
+                // aporta nada — salvo "general", que es solo la nota del cierre.
+                if (section.key !== 'general' && metrics.length === 0 && !nota) continue;
+
+                if (doc.y > doc.page.height - 160) doc.addPage();
+                sectionTitle(doc, section.title, branding.primaryColor);
+
+                for (const m of metrics) drawSessionMetric(doc, m, branding.primaryColor);
+
+                if (nota) {
+                    doc.moveDown(0.2);
+                    noteBox(doc, section.key === 'general' ? 'Nota del profe' : 'Comentario del entrenador', nota, branding.primaryColor);
+                } else if (section.key === 'general') {
+                    doc.fillColor(MUTED).font('Helvetica-Oblique').fontSize(9)
+                        .text('Sin nota general todavía.', 60, doc.y);
+                }
+                doc.moveDown(0.6);
+                doc.fillColor(INK);
+            }
+
+            addFooterToAllPages(doc, branding.showWatermark);
+            doc.end();
+        } catch (err: any) {
+            req.log?.error({ err }, 'PDF de informe de equipo falló');
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'No se pudo generar el PDF del informe de equipo.', details: err?.message });
+            } else {
+                res.end();
+            }
         }
     },
 );

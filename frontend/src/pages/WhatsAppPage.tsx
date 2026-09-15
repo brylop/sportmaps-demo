@@ -14,6 +14,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { bffClient } from '@/lib/api/bffClient';
+import { type ResultadoDelAlta } from '@/components/whatsapp/ConectarNumero';
+import { AltaDelCanal } from '@/components/whatsapp/AltaDelCanal';
+import { Conversaciones } from '@/components/whatsapp/Conversaciones';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -82,11 +85,16 @@ export default function WhatsAppPage() {
     const [eventos, setEventos] = useState<EventoMeta[]>([]);
     const [cargando, setCargando] = useState(true);
     const [cargandoPlantillas, setCargandoPlantillas] = useState(false);
+    // Lo que devuelve el diálogo de Meta, mientras se canjea contra el BFF.
+    const [alta, setAlta] = useState<ResultadoDelAlta | null>(null);
+    const [conectando, setConectando] = useState(false);
+    const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
     const [guardando, setGuardando] = useState(false);
 
     const cargar = useCallback(async () => {
         if (!schoolId) return;
         setCargando(true);
+        setErrorDeCarga(null);
         try {
             // Una sola llamada trae estado, bandeja y eventos: los tres salen de
             // la misma base y antes costaban tres verificaciones de permisos.
@@ -95,6 +103,7 @@ export default function WhatsAppPage() {
             setBandeja(e.bandeja ?? []);
             setEventos(e.eventos ?? []);
         } catch (err: any) {
+            setErrorDeCarga(err?.message ?? 'Error desconocido');
             toast({ title: 'No se pudo cargar', description: err?.message ?? 'Error', variant: 'destructive' });
         } finally {
             setCargando(false);
@@ -116,6 +125,33 @@ export default function WhatsAppPage() {
             setCargandoPlantillas(false);
         }
     }, [schoolId]);
+
+    /**
+     * Canjea contra el BFF lo que devolvió el diálogo.
+     *
+     * El código vence en minutos y es de un solo uso, así que se manda de
+     * inmediato y no se guarda en ningún lado del navegador.
+     */
+    const conectar = useCallback(async (r: ResultadoDelAlta) => {
+        setAlta(r);
+        setConectando(true);
+        try {
+            const res = await bffClient.post<{ display_phone_number: string | null; coexistence: boolean }>(
+                `/api/v1/whatsapp/${schoolId}/conectar`, { code: r.code, sesion: r.sesion?.data ?? null });
+            toast({
+                title: 'WhatsApp conectado',
+                description: res.coexistence
+                    ? `${res.display_phone_number ?? 'El número'} quedó conectado y sigue funcionando en tu celular.`
+                    : `${res.display_phone_number ?? 'El número'} quedó conectado.`,
+            });
+            setAlta(null);
+            await cargar();
+        } catch (e: any) {
+            toast({ title: 'No se pudo conectar', description: e?.message ?? 'Error', variant: 'destructive' });
+        } finally {
+            setConectando(false);
+        }
+    }, [schoolId, cargar, toast]);
 
     useEffect(() => { void cargar(); }, [cargar]);
     useEffect(() => { void cargarPlantillas(); }, [cargarPlantillas]);
@@ -146,22 +182,35 @@ export default function WhatsAppPage() {
         </div>;
     }
 
-    if (estado && !estado.conectado) {
+    if (errorDeCarga || !estado) {
         return (
             <div className="p-6 max-w-2xl">
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                            <MessageSquare className="h-5 w-5" /> WhatsApp no está conectado
+                            <MessageSquare className="h-5 w-5" /> No se pudo cargar el canal
                         </CardTitle>
                         <CardDescription>
-                            Esta escuela todavía no tiene un número de WhatsApp conectado a SportMaps.
-                            Cuando se conecte, acá vas a poder ver las conversaciones, configurar el
-                            horario de atención y revisar el consumo del mes.
+                            {errorDeCarga ?? 'No llegó respuesta del servidor.'}
                         </CardDescription>
                     </CardHeader>
+                    <CardContent>
+                        <Button variant="outline" onClick={() => void cargar()}>
+                            <RefreshCw className="h-4 w-4 mr-2" /> Reintentar
+                        </Button>
+                    </CardContent>
                 </Card>
             </div>
+        );
+    }
+
+    if (estado && !estado.conectado) {
+        return (
+            <AltaDelCanal
+                onListo={(r) => void conectar(r)}
+                conectando={conectando}
+                avisoSinCoexistence={Boolean(alta && !alta.esCoexistence)}
+            />
         );
     }
 
@@ -218,6 +267,9 @@ export default function WhatsAppPage() {
             <Tabs defaultValue="resumen">
                 <TabsList>
                     <TabsTrigger value="resumen">Resumen</TabsTrigger>
+                    <TabsTrigger value="conversaciones">
+                        <MessageSquare className="h-4 w-4 mr-1.5" /> Conversaciones
+                    </TabsTrigger>
                     <TabsTrigger value="plantillas">
                         <FileText className="h-4 w-4 mr-1" /> Plantillas
                     </TabsTrigger>
@@ -294,6 +346,10 @@ export default function WhatsAppPage() {
                 </TabsContent>
 
                 {/* ── Plantillas ── */}
+                <TabsContent value="conversaciones">
+                    <Conversaciones schoolId={schoolId!} />
+                </TabsContent>
+
                 <TabsContent value="plantillas">
                     <PanelPlantillas
                         schoolId={schoolId!}

@@ -18,11 +18,14 @@
  * REAL en ESA escuela.
  */
 
+import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth, type AuthenticatedRequest } from '../middlewares/authMiddleware';
-import { decryptToken } from '../services/whatsapp.service';
+import { decryptToken, sendTextMessage, aFormatoWhatsApp,
+         type WhatsAppIntegration } from '../services/whatsapp.service';
+import { conectarEscuela } from '../services/whatsapp-onboarding.service';
 
 const router = Router();
 
@@ -384,6 +387,373 @@ router.post('/:schoolId/plantillas', requireAuth, async (req: AuthenticatedReque
 
     req.log?.info({ schoolId, plantilla: p.name, id: j?.id, estado: j?.status }, '[wa-admin] plantilla registrada');
     return res.status(201).json({ id: j?.id, status: j?.status, category: j?.category, name: p.name });
+});
+
+// ─── Buzon de conversaciones (F3) ────────────────────────────────────────────
+//
+// Hasta ahora la escuela no tenia donde LEER ni RESPONDER: la pestania
+// "Bandeja" lista comprobantes que fallaron, no chats. El bot atendia, y lo que
+// no sabia manejar quedaba marcado como escalado sin que nadie pudiera verlo.
+//
+// La ventana de 24 horas manda sobre todo lo de aca. Meta solo deja responder
+// en texto libre mientras el titular haya escrito en las ultimas 24 h; pasado
+// eso hay que mandar una plantilla aprobada. Por eso cada conversacion viaja
+// con `ventana_abierta` y `ventana_vence`: si la pantalla mostrara un cuadro de
+// texto normal con la ventana cerrada, la escuela escribiria, enviaria, y
+// recibiria un error que no sabe leer.
+
+const VENTANA_MS = 24 * 60 * 60 * 1000;
+
+function estadoDeVentana(lastInboundAt: string | null) {
+    if (!lastInboundAt) return { ventana_abierta: false, ventana_vence: null };
+    const vence = new Date(new Date(lastInboundAt).getTime() + VENTANA_MS);
+    return { ventana_abierta: vence.getTime() > Date.now(), ventana_vence: vence.toISOString() };
+}
+
+/**
+ * La integracion CON el token descifrable, para poder enviar.
+ *
+ * Distinta de `integracionDe`, que alimenta la pantalla de estado y a
+ * proposito no selecciona `access_token_encrypted`: ese dato no tiene por
+ * que viajar en una respuesta que solo pinta un encabezado.
+ */
+async function integracionParaEnviar(schoolId: string): Promise<WhatsAppIntegration | null> {
+    const { data } = await supabase
+        .from('school_whatsapp_integrations')
+        .select('id, school_id, phone_number_id, waba_id, display_phone_number, '
+              + 'access_token_encrypted, verify_token, status')
+        .eq('school_id', schoolId)
+        .maybeSingle();
+    return (data as unknown as WhatsAppIntegration) ?? null;
+}
+
+/** GET /api/v1/whatsapp/:schoolId/conversaciones */
+router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId } = req.params as { schoolId: string };
+    const userId = req.user.id;
+    if (!(await administraEstaEscuela(userId, schoolId))) {
+        return res.status(403).json({ error: 'Sin permiso sobre esta escuela' });
+    }
+
+    const { data, error } = await supabase
+        .from('whatsapp_conversations')
+        .select('id, contact_wa_id, contact_name, identified, status, unread_count, '
+              + 'last_message_at, last_inbound_at, parent_id')
+        .eq('school_id', schoolId)
+        .order('last_message_at', { ascending: false, nullsFirst: false })
+        .limit(200);
+    if (error) return res.status(500).json({ error: error.message });
+
+    const ids = (data ?? []).map((c: any) => c.id);
+
+    // El ultimo mensaje de cada hilo. Una sola consulta para las 200
+    // conversaciones, no una por cada una.
+    const ultimos = new Map<string, any>();
+    if (ids.length) {
+        const { data: msgs } = await supabase
+            .from('whatsapp_messages')
+            .select('conversation_id, direction, text_body, type, created_at, ai_generated')
+            .in('conversation_id', ids)
+            .order('created_at', { ascending: false })
+            .limit(1000);
+        for (const m of (msgs ?? []) as any[]) {
+            if (!ultimos.has(m.conversation_id)) ultimos.set(m.conversation_id, m);
+        }
+    }
+
+    // Cuantos borradores esperan aprobacion en cada hilo.
+    const borradores = new Map<string, number>();
+    if (ids.length) {
+        const { data: d } = await supabase
+            .from('whatsapp_message_drafts')
+            .select('conversation_id')
+            .in('conversation_id', ids)
+            .eq('status', 'pending');
+        for (const x of (d ?? []) as any[]) {
+            borradores.set(x.conversation_id, (borradores.get(x.conversation_id) ?? 0) + 1);
+        }
+    }
+
+    return res.json({
+        conversaciones: (data ?? []).map((c: any) => ({
+            ...c,
+            ...estadoDeVentana(c.last_inbound_at),
+            ultimo_mensaje: ultimos.get(c.id) ?? null,
+            borradores_pendientes: borradores.get(c.id) ?? 0,
+        })),
+    });
+});
+
+/** GET /api/v1/whatsapp/:schoolId/conversaciones/:conversationId */
+router.get('/:schoolId/conversaciones/:conversationId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId, conversationId } = req.params as { schoolId: string; conversationId: string };
+    const userId = req.user.id;
+    if (!(await administraEstaEscuela(userId, schoolId))) {
+        return res.status(403).json({ error: 'Sin permiso sobre esta escuela' });
+    }
+
+    // El school_id va en el FILTRO, no solo en la autorizacion. Sin eso, un
+    // admin de la escuela A podria leer el hilo de la escuela B pasando su
+    // propio schoolId en la ruta y el id de la conversacion ajena.
+    const { data: conv } = await supabase
+        .from('whatsapp_conversations')
+        .select('id, contact_wa_id, contact_name, identified, status, parent_id, last_inbound_at')
+        .eq('id', conversationId)
+        .eq('school_id', schoolId)
+        .maybeSingle();
+    if (!conv) return res.status(404).json({ error: 'Conversacion no encontrada' });
+
+    const { data: mensajes } = await supabase
+        .from('whatsapp_messages')
+        .select('id, direction, type, text_body, status, ai_generated, created_at, error_detail')
+        .eq('conversation_id', conversationId)
+        .order('created_at');
+
+    const { data: drafts } = await supabase
+        .from('whatsapp_message_drafts')
+        .select('id, proposed_text, edited_text, status, llm_provider, created_at')
+        .eq('conversation_id', conversationId)
+        .eq('status', 'pending')
+        .order('created_at');
+
+    return res.json({
+        conversacion: { ...conv, ...estadoDeVentana((conv as any).last_inbound_at) },
+        mensajes: mensajes ?? [],
+        borradores: drafts ?? [],
+    });
+});
+
+const RespuestaSchema = z.object({ texto: z.string().trim().min(1).max(4000) });
+
+/** POST /api/v1/whatsapp/:schoolId/conversaciones/:conversationId/responder */
+router.post('/:schoolId/conversaciones/:conversationId/responder', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId, conversationId } = req.params as { schoolId: string; conversationId: string };
+    const userId = req.user.id;
+    if (!(await administraEstaEscuela(userId, schoolId))) {
+        return res.status(403).json({ error: 'Sin permiso sobre esta escuela' });
+    }
+
+    const parsed = RespuestaSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Texto invalido' });
+
+    const { data: conv } = await supabase
+        .from('whatsapp_conversations')
+        .select('id, contact_wa_id, last_inbound_at')
+        .eq('id', conversationId)
+        .eq('school_id', schoolId)
+        .maybeSingle();
+    if (!conv) return res.status(404).json({ error: 'Conversacion no encontrada' });
+
+    // Se corta ACA, no en la pantalla. Una pestania abierta desde ayer, un
+    // cliente viejo o una llamada directa a la API se saltarian el aviso
+    // visual, y Meta devolveria un error que la escuela no sabe leer.
+    const ventana = estadoDeVentana((conv as any).last_inbound_at);
+    if (!ventana.ventana_abierta) {
+        return res.status(409).json({
+            error: 'ventana_cerrada',
+            mensaje: 'Pasaron mas de 24 horas desde el ultimo mensaje de esta persona. '
+                   + 'WhatsApp solo permite responder con una plantilla aprobada.',
+            ...ventana,
+        });
+    }
+
+    const integracion = await integracionParaEnviar(schoolId);
+    if (!integracion) return res.status(409).json({ error: 'La escuela no tiene WhatsApp conectado' });
+
+    // WhatsApp usa UN asterisco para negrita: quien escriba en Markdown desde
+    // la pantalla veria los dos asteriscos literales del otro lado.
+    const texto = aFormatoWhatsApp(parsed.data.texto);
+    const enviado = await sendTextMessage(integracion, (conv as any).contact_wa_id, texto);
+    if (!enviado.ok) {
+        req.log?.warn({ schoolId, conversationId, error: enviado.error }, '[wa-admin] no se pudo responder');
+        return res.status(502).json({ error: 'No se pudo enviar', detalle: enviado.error });
+    }
+
+    // Por la MISMA RPC que usa el bot. Insertar directo dejaria el mensaje con
+    // otra forma y la escuela veria huecos en el hilo. `ai_generated: false` es
+    // lo que distingue lo que escribio una persona.
+    await supabase.rpc('wa_record_outbound_message', {
+        p_conversation_id: conversationId,
+        p_integration_id: integracion.id,
+        p_wa_message_id: enviado.waMessageId || `local-${crypto.randomUUID()}`,
+        p_type: 'text',
+        p_text_body: texto,
+        p_payload: { manual: true, por: userId },
+        p_ai_generated: false,
+        p_to_wa_id: (conv as any).contact_wa_id,
+    });
+
+    // Atendida por una persona: deja de estar escalada.
+    await supabase.from('whatsapp_conversations')
+        .update({ status: 'active', assigned_to: userId, unread_count: 0, updated_at: new Date().toISOString() })
+        .eq('id', conversationId);
+
+    return res.status(201).json({ ok: true });
+});
+
+const AprobarSchema = z.object({
+    // Si la escuela corrigio el borrador, se manda lo corregido. Se guardan los
+    // dos: `proposed_text` es lo que dijo el modelo y `edited_text` lo que la
+    // persona decidio enviar. Comparar los dos con el tiempo es lo unico que
+    // dice si el bot esta mejorando o empeorando.
+    texto: z.string().trim().min(1).max(4000).optional(),
+});
+
+/** POST /api/v1/whatsapp/:schoolId/borradores/:draftId/aprobar */
+router.post('/:schoolId/borradores/:draftId/aprobar', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId, draftId } = req.params as { schoolId: string; draftId: string };
+    const userId = req.user.id;
+    if (!(await administraEstaEscuela(userId, schoolId))) {
+        return res.status(403).json({ error: 'Sin permiso sobre esta escuela' });
+    }
+
+    const parsed = AprobarSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: 'Texto invalido' });
+
+    // El borrador se lee JUNTO con su conversacion y filtrando por escuela: sin
+    // eso, un admin podria aprobar el borrador de otra escuela conociendo su id.
+    const { data: draft } = await supabase
+        .from('whatsapp_message_drafts')
+        .select('id, status, proposed_text, conversation_id, '
+              + 'conversacion:whatsapp_conversations!inner(id, school_id, contact_wa_id, last_inbound_at)')
+        .eq('id', draftId)
+        .eq('whatsapp_conversations.school_id', schoolId)
+        .maybeSingle();
+    if (!draft) return res.status(404).json({ error: 'Borrador no encontrado' });
+
+    // Dos personas mirando la misma bandeja aprueban el mismo borrador: el
+    // segundo no debe enviar otra vez.
+    if ((draft as any).status !== 'pending') {
+        return res.status(409).json({ error: 'Ese borrador ya fue resuelto' });
+    }
+
+    const conv = (draft as any).conversacion;
+    const ventana = estadoDeVentana(conv.last_inbound_at);
+    if (!ventana.ventana_abierta) {
+        return res.status(409).json({
+            error: 'ventana_cerrada',
+            mensaje: 'Pasaron mas de 24 horas desde el ultimo mensaje de esta persona. '
+                   + 'WhatsApp solo permite responder con una plantilla aprobada.',
+            ...ventana,
+        });
+    }
+
+    const integracion = await integracionParaEnviar(schoolId);
+    if (!integracion) return res.status(409).json({ error: 'La escuela no tiene WhatsApp conectado' });
+
+    const texto = aFormatoWhatsApp(parsed.data.texto ?? (draft as any).proposed_text);
+    const enviado = await sendTextMessage(integracion, conv.contact_wa_id, texto);
+    if (!enviado.ok) {
+        req.log?.warn({ schoolId, draftId, error: enviado.error }, '[wa-admin] no se pudo enviar el borrador');
+        return res.status(502).json({ error: 'No se pudo enviar', detalle: enviado.error });
+    }
+
+    // Se marca DESPUES de enviar. Al reves, un fallo de red dejaria el borrador
+    // como enviado sin que el padre haya recibido nada.
+    await supabase.from('whatsapp_message_drafts').update({
+        status: 'sent',
+        edited_text: parsed.data.texto ?? null,
+        approved_by: userId,
+        approved_at: new Date().toISOString(),
+        sent_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+    }).eq('id', draftId);
+
+    // `ai_generated` en true: lo escribio el modelo aunque lo haya aprobado una
+    // persona. Si la escuela lo corrigio, deja de serlo.
+    await supabase.rpc('wa_record_outbound_message', {
+        p_conversation_id: (draft as any).conversation_id,
+        p_integration_id: integracion.id,
+        p_wa_message_id: enviado.waMessageId || `local-${crypto.randomUUID()}`,
+        p_type: 'text',
+        p_text_body: texto,
+        p_payload: { draft_id: draftId, aprobado_por: userId, editado: Boolean(parsed.data.texto) },
+        p_ai_generated: !parsed.data.texto,
+        p_to_wa_id: conv.contact_wa_id,
+    });
+
+    await supabase.from('whatsapp_conversations')
+        .update({ status: 'active', unread_count: 0, updated_at: new Date().toISOString() })
+        .eq('id', (draft as any).conversation_id);
+
+    return res.status(201).json({ ok: true });
+});
+
+/** POST /api/v1/whatsapp/:schoolId/borradores/:draftId/descartar */
+router.post('/:schoolId/borradores/:draftId/descartar', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId, draftId } = req.params as { schoolId: string; draftId: string };
+    const userId = req.user.id;
+    if (!(await administraEstaEscuela(userId, schoolId))) {
+        return res.status(403).json({ error: 'Sin permiso sobre esta escuela' });
+    }
+
+    const { data: draft } = await supabase
+        .from('whatsapp_message_drafts')
+        .select('id, status, conversacion:whatsapp_conversations!inner(school_id)')
+        .eq('id', draftId)
+        .eq('whatsapp_conversations.school_id', schoolId)
+        .maybeSingle();
+    if (!draft) return res.status(404).json({ error: 'Borrador no encontrado' });
+    if ((draft as any).status !== 'pending') {
+        return res.status(409).json({ error: 'Ese borrador ya fue resuelto' });
+    }
+
+    // No se borra: queda el rastro de que el modelo propuso algo y una persona
+    // dijo que no. Es lo que permite medir cuanto se descarta.
+    await supabase.from('whatsapp_message_drafts').update({
+        status: 'discarded',
+        approved_by: userId,
+        approved_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+    }).eq('id', draftId);
+
+    return res.json({ ok: true });
+});
+
+const ConectarSchema = z.object({
+    code: z.string().trim().min(10).max(1000),
+    sesion: z.object({
+        event: z.string().optional(),
+        waba_id: z.string().optional(),
+        phone_number_id: z.string().optional(),
+        business_id: z.string().optional(),
+    }).nullable().optional(),
+});
+
+/**
+ * POST /api/v1/whatsapp/:schoolId/conectar
+ *
+ * Cierra el alta que empezo el dialogo de Meta en el navegador. El `code` es de
+ * un solo uso y vence en minutos: no se reintenta solo, y si falla la escuela
+ * tiene que volver a pasar por el dialogo.
+ */
+router.post('/:schoolId/conectar', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId } = req.params as { schoolId: string };
+    const userId = req.user.id;
+    if (!(await administraEstaEscuela(userId, schoolId))) {
+        return res.status(403).json({ error: 'Sin permiso sobre esta escuela' });
+    }
+
+    const parsed = ConectarSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Datos de conexión inválidos' });
+
+    const r = await conectarEscuela(schoolId, parsed.data.code, parsed.data.sesion ?? null, userId);
+
+    if (!r.ok) {
+        // El code NUNCA se registra, ni truncado: es una credencial de un solo
+        // uso y los logs se leen en pantalla compartida.
+        req.log?.warn({ schoolId, error: r.error }, '[wa-admin] alta fallida');
+        const status = r.error === 'ya_conectada' || r.error === 'numero_ocupado' ? 409 : 502;
+        return res.status(status).json({ error: r.error, detalle: r.detalle });
+    }
+
+    req.log?.info({ schoolId, integrationId: r.integrationId, coexistence: r.coexistence },
+                  '[wa-admin] escuela conectada');
+    return res.status(201).json({
+        ok: true,
+        display_phone_number: r.displayPhoneNumber,
+        coexistence: r.coexistence,
+    });
 });
 
 export default router;

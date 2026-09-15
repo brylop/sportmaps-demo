@@ -34,6 +34,8 @@ import {
 } from '../services/whatsapp.service';
 import { runBotTurn, deliver } from '../services/whatsapp-bot.service';
 import { encolarAdjunto } from '../services/whatsapp-queue.service';
+import { procesarEchos, procesarHistorial, registrarAppState }
+    from '../services/whatsapp-coexistence.service';
 
 const router = Router();
 
@@ -96,6 +98,23 @@ router.post('/', async (req: Request, res: Response) => {
         await procesarEventosDeCuenta(req, body).catch((err) => {
             req.log?.error({ err: err?.message || err }, 'WhatsApp: fallo el procesamiento de eventos de cuenta');
         });
+
+        // Coexistence: el numero vive a la vez en el celular de la escuela y
+        // en la API. Los echos son lo que la escuela escribe desde su
+        // telefono — sin ellos el buzon mostraria conversaciones a medias y el
+        // bot creeria que nadie respondio.
+        await procesarEchos(body, req.log).catch((err) => {
+            req.log?.error({ err: err?.message || err }, 'WhatsApp: fallo el procesamiento de echos');
+        });
+
+        // El historial llega en trozos y Meta da 24 h desde el alta para
+        // sincronizarlo: pasadas, hay que desconectar y repetir. Por eso se
+        // procesa al vuelo y no se difiere a un cron.
+        await procesarHistorial(body, req.log).catch((err) => {
+            req.log?.error({ err: err?.message || err }, 'WhatsApp: fallo el procesamiento del historial');
+        });
+
+        registrarAppState(body, req.log);
     } catch (err: any) {
         req.log?.error({ err: err?.message || err }, 'WhatsApp webhook processing error');
     }
