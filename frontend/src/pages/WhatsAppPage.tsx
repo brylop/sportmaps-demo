@@ -14,8 +14,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { bffClient } from '@/lib/api/bffClient';
-import { ConectarNumero, ALTA_CONFIGURADA, type ResultadoDelAlta }
-    from '@/components/whatsapp/ConectarNumero';
+import { type ResultadoDelAlta } from '@/components/whatsapp/ConectarNumero';
+import { AltaDelCanal } from '@/components/whatsapp/AltaDelCanal';
 import { Conversaciones } from '@/components/whatsapp/Conversaciones';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -206,47 +206,11 @@ export default function WhatsAppPage() {
 
     if (estado && !estado.conectado) {
         return (
-            <div className="p-6 max-w-2xl">
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <MessageSquare className="h-5 w-5" /> WhatsApp no está conectado
-                        </CardTitle>
-                        <CardDescription>
-                            Esta escuela todavía no tiene un número de WhatsApp conectado a SportMaps.
-                            Cuando se conecte, acá vas a poder ver las conversaciones, configurar el
-                            horario de atención y revisar el consumo del mes.
-                        </CardDescription>
-                    </CardHeader>
-
-                    {/* El botón solo existe donde el alta está configurada.
-                        Mientras F0 no persista nada, mostrárselo a una escuela de
-                        verdad la llevaría por todo el flujo de Meta para que al
-                        final no pase nada. */}
-                    {ALTA_CONFIGURADA && (
-                        <CardContent className="space-y-4">
-                            <ConectarNumero onListo={(r) => void conectar(r)} />
-
-                            {conectando && (
-                                <p className="text-sm text-muted-foreground flex items-center gap-2">
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                    Conectando con Meta…
-                                </p>
-                            )}
-
-                            {/* Si Meta no dio Coexistence, la escuela pierde el número
-                                de su celular. Se avisa acá, que es cuando todavía se
-                                puede deshacer, y no cuando ya no lo pueda usar. */}
-                            {alta && !alta.esCoexistence && !conectando && (
-                                <p className="text-sm text-amber-600 dark:text-amber-500">
-                                    Meta no ofreció conectar una cuenta existente, así que este
-                                    número no seguirá funcionando en el celular.
-                                </p>
-                            )}
-                        </CardContent>
-                    )}
-                </Card>
-            </div>
+            <AltaDelCanal
+                onListo={(r) => void conectar(r)}
+                conectando={conectando}
+                avisoSinCoexistence={Boolean(alta && !alta.esCoexistence)}
+            />
         );
     }
 
