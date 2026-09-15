@@ -2182,9 +2182,10 @@ export default function SchoolStudentsManagementPage() {
                   </section>
 
                   {/* ── Sección: Banco de horas (docs/specs/dreamers-banco-de-horas-torniquete.md) ──
-                      No renderiza nada si esta inscripción no tiene un plan de horas —
-                      HourBankBalanceCard ya hace ese chequeo por su cuenta. */}
-                  {s.enrollment_id && (
+                      Gateada por hourBankByEnrollment (piloto Dreamers): antes solo
+                      HourBankBalanceCard se ocultaba sin plan, pero el título y el
+                      botón "Ver reporte" quedaban visibles igual en cualquier escuela. */}
+                  {s.enrollment_id && hourBankByEnrollment.has(s.enrollment_id) && (
                     <section>
                       <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
                         <Clock className="w-4 h-4 text-primary" /> Banco de horas

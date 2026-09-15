@@ -174,11 +174,14 @@ export function ConectarNumero({ onListo }: { onListo: (r: ResultadoDelAlta) => 
                 // Sin esto el SDK devuelve un token de usuario en vez del código
                 // de intercambio, y el backend no puede canjearlo.
                 override_default_response_type: true,
-                // Copiado literal de lo que genera el «Creador de registro
-                // insertado» del panel con Coexistence activo. No inventar
-                // valores acá: es la combinación que Meta da por buena.
+                // EXACTAMENTE lo que genera el «Creador de registro insertado»
+                // del panel con Coexistence activo — ni un campo mas.
+                //
+                // El ejemplo de la documentacion trae `setup: {}` y yo lo habia
+                // copiado de ahi; la URL del panel NO lo lleva, y con el puesto
+                // el dialogo abria en blanco. Probado el 2026-09-14: la misma
+                // URL sin `setup` funciona y ofrece conectar la cuenta existente.
                 extras: {
-                    setup: {},
                     featureType: 'whatsapp_business_app_onboarding',
                     sessionInfoVersion: '3',
                     version: 'v4',
