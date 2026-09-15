@@ -36,6 +36,7 @@ import { chatWithTools, type LlmTool, type LlmMessage } from './llm.service';
 import { sendTextMessage, aFormatoWhatsApp, type WhatsAppIntegration } from './whatsapp.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
 import { estadoDeHorario, mensajeDeEscalamiento } from './whatsapp-horario.service';
+import { sendToUser } from './push.service';
 
 const OTP_TTL_MIN = 10;
 
@@ -169,11 +170,37 @@ async function handleIdentification(
         return;
     }
 
-    // (c) Ni email ni código → pedir el email.
+    // (c) Ni email ni código.
+    //
+    // Antes esto exigia el correo de entrada: «Escríbeme el correo electrónico
+    // con el que estás registrado en la escuela». Para un padre que escribe
+    // desde otro telefono esta bien. Para quien NO es de la escuela —la mama de
+    // la duenia, un proveedor, un numero equivocado— es una maquina pidiendole
+    // credenciales, y el numero de la escuela suele ser tambien el personal de
+    // quien la dirige.
+    //
+    // Ahora se presenta y ofrece las dos salidas sin exigir ninguna, y la
+    // conversacion escala al buzon para que un humano la vea. Quien sea de la
+    // escuela sigue teniendo su camino; quien no, deja de sentirse interrogado.
+    const nombreEscuela = await nombreDeEscuela(integration.school_id);
     await deliver(integration, conversationId, contactWaId,
-        'Hola 👋 Para ayudarte con información de tu atleta necesito verificar tu identidad. ' +
-        'Escríbeme el *correo electrónico* con el que estás registrado en la escuela.',
+        `Hola 👋 Este es el WhatsApp de *${nombreEscuela}*.` + '\n\n' +
+        'Si eres familia de un atleta y quieres consultar pagos o inscripciones, ' +
+        'escríbeme el *correo electrónico* con el que estás registrado y te ayudo enseguida.' + '\n\n' +
+        'Si buscas otra cosa, cuéntame y alguien de la escuela te responde.',
         { step: 'ask_email' });
+
+    // Escala, pero SIN el mensaje de escalamiento: `escalate` manda su propio
+    // «en breve te contactan» y quedarian dos mensajes seguidos diciendo casi lo
+    // mismo. Acá solo se marca para que aparezca en el buzón.
+    const { data: previa } = await supabase.from('whatsapp_conversations')
+        .select('status, contact_name').eq('id', conversationId).maybeSingle();
+    if ((previa as any)?.status !== 'open') {
+        await supabase.from('whatsapp_conversations')
+            .update({ status: 'open', updated_at: new Date().toISOString() })
+            .eq('id', conversationId);
+        await avisarQueEsperan(integration, conversationId, (previa as any)?.contact_name ?? null);
+    }
 }
 
 // ─── 2. Consentimiento explícito (opt-in) ─────────────────────────────────────
@@ -503,15 +530,68 @@ export async function deliver(
     });
 }
 
+/**
+ * Avisa a quien administra la escuela que hay alguien esperando.
+ *
+ * Sin esto el buzon existe pero no se usa: la escuela tendria que acordarse de
+ * entrar a revisar, y en dos dias deja de hacerlo. El push ya existia para
+ * otras cosas; aca solo se engancha a la escalacion.
+ *
+ * Nunca revienta el flujo del bot: si el aviso falla, el padre igual recibio su
+ * respuesta y la conversacion igual quedo marcada como abierta. Un push caido
+ * no puede dejar a la familia sin atencion.
+ */
+async function avisarQueEsperan(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    nombreContacto: string | null,
+): Promise<void> {
+    try {
+        const [{ data: escuela }, { data: miembros }] = await Promise.all([
+            supabase.from('schools').select('name, owner_id').eq('id', integration.school_id).maybeSingle(),
+            supabase.from('school_members').select('profile_id')
+                .eq('school_id', integration.school_id).eq('status', 'active')
+                .in('role', ['owner', 'admin', 'school_admin']),
+        ]);
+
+        // El dueno puede no tener fila en school_members: se suma aparte y se
+        // deduplica, o recibiria dos avisos por el mismo mensaje.
+        const destinos = new Set<string>();
+        for (const m of (miembros ?? []) as any[]) if (m.profile_id) destinos.add(m.profile_id);
+        if ((escuela as any)?.owner_id) destinos.add((escuela as any).owner_id);
+        if (!destinos.size) return;
+
+        const quien = nombreContacto?.trim() || 'Una familia';
+        await Promise.allSettled([...destinos].map((uid) => sendToUser(uid, {
+            title: `${quien} espera respuesta`,
+            body: 'El asistente no pudo resolverlo. Abre WhatsApp en SportMaps para responder.',
+            data: { tipo: 'whatsapp_escalado', conversation_id: conversationId,
+                    school_id: integration.school_id },
+        })));
+    } catch {
+        // A proposito en silencio. Ver el comentario de arriba.
+    }
+}
+
 async function escalate(
     integration: WhatsAppIntegration,
     conversationId: string,
     contactWaId: string,
     reason: string,
 ): Promise<void> {
+    // Solo se avisa en la TRANSICION a abierta. `escalate` puede correr varias
+    // veces sobre la misma conversacion —el bot se atasca dos veces seguidas— y
+    // sin esto la escuela recibiria un push por cada intento.
+    const { data: previa } = await supabase.from('whatsapp_conversations')
+        .select('status, contact_name').eq('id', conversationId).maybeSingle();
+
     await supabase.from('whatsapp_conversations')
         .update({ status: 'open', assigned_to: null, updated_at: new Date().toISOString() })
         .eq('id', conversationId);
+
+    if ((previa as any)?.status !== 'open') {
+        await avisarQueEsperan(integration, conversationId, (previa as any)?.contact_name ?? null);
+    }
 
     // El bot responde 24/7 — eso no cambia. Lo que cambia fuera de horario es lo
     // que PROMETE: decir "en breve te contactan" a las 11 de la noche, cuando en
