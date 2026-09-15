@@ -25,6 +25,7 @@ import { supabase } from '../config/supabase';
 import { requireAuth, type AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { decryptToken, sendTextMessage, aFormatoWhatsApp,
          type WhatsAppIntegration } from '../services/whatsapp.service';
+import { conectarEscuela } from '../services/whatsapp-onboarding.service';
 
 const router = Router();
 
@@ -707,6 +708,52 @@ router.post('/:schoolId/borradores/:draftId/descartar', requireAuth, async (req:
     }).eq('id', draftId);
 
     return res.json({ ok: true });
+});
+
+const ConectarSchema = z.object({
+    code: z.string().trim().min(10).max(1000),
+    sesion: z.object({
+        event: z.string().optional(),
+        waba_id: z.string().optional(),
+        phone_number_id: z.string().optional(),
+        business_id: z.string().optional(),
+    }).nullable().optional(),
+});
+
+/**
+ * POST /api/v1/whatsapp/:schoolId/conectar
+ *
+ * Cierra el alta que empezo el dialogo de Meta en el navegador. El `code` es de
+ * un solo uso y vence en minutos: no se reintenta solo, y si falla la escuela
+ * tiene que volver a pasar por el dialogo.
+ */
+router.post('/:schoolId/conectar', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId } = req.params as { schoolId: string };
+    const userId = req.user.id;
+    if (!(await administraEstaEscuela(userId, schoolId))) {
+        return res.status(403).json({ error: 'Sin permiso sobre esta escuela' });
+    }
+
+    const parsed = ConectarSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Datos de conexión inválidos' });
+
+    const r = await conectarEscuela(schoolId, parsed.data.code, parsed.data.sesion ?? null, userId);
+
+    if (!r.ok) {
+        // El code NUNCA se registra, ni truncado: es una credencial de un solo
+        // uso y los logs se leen en pantalla compartida.
+        req.log?.warn({ schoolId, error: r.error }, '[wa-admin] alta fallida');
+        const status = r.error === 'ya_conectada' || r.error === 'numero_ocupado' ? 409 : 502;
+        return res.status(status).json({ error: r.error, detalle: r.detalle });
+    }
+
+    req.log?.info({ schoolId, integrationId: r.integrationId, coexistence: r.coexistence },
+                  '[wa-admin] escuela conectada');
+    return res.status(201).json({
+        ok: true,
+        display_phone_number: r.displayPhoneNumber,
+        coexistence: r.coexistence,
+    });
 });
 
 export default router;

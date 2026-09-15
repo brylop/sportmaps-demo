@@ -85,8 +85,9 @@ export default function WhatsAppPage() {
     const [eventos, setEventos] = useState<EventoMeta[]>([]);
     const [cargando, setCargando] = useState(true);
     const [cargandoPlantillas, setCargandoPlantillas] = useState(false);
-    // F0: lo que devuelve el diálogo de Meta. Todavía no se persiste nada.
+    // Lo que devuelve el diálogo de Meta, mientras se canjea contra el BFF.
     const [alta, setAlta] = useState<ResultadoDelAlta | null>(null);
+    const [conectando, setConectando] = useState(false);
     const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
     const [guardando, setGuardando] = useState(false);
 
@@ -124,6 +125,33 @@ export default function WhatsAppPage() {
             setCargandoPlantillas(false);
         }
     }, [schoolId]);
+
+    /**
+     * Canjea contra el BFF lo que devolvió el diálogo.
+     *
+     * El código vence en minutos y es de un solo uso, así que se manda de
+     * inmediato y no se guarda en ningún lado del navegador.
+     */
+    const conectar = useCallback(async (r: ResultadoDelAlta) => {
+        setAlta(r);
+        setConectando(true);
+        try {
+            const res = await bffClient.post<{ display_phone_number: string | null; coexistence: boolean }>(
+                `/api/v1/whatsapp/${schoolId}/conectar`, { code: r.code, sesion: r.sesion?.data ?? null });
+            toast({
+                title: 'WhatsApp conectado',
+                description: res.coexistence
+                    ? `${res.display_phone_number ?? 'El número'} quedó conectado y sigue funcionando en tu celular.`
+                    : `${res.display_phone_number ?? 'El número'} quedó conectado.`,
+            });
+            setAlta(null);
+            await cargar();
+        } catch (e: any) {
+            toast({ title: 'No se pudo conectar', description: e?.message ?? 'Error', variant: 'destructive' });
+        } finally {
+            setConectando(false);
+        }
+    }, [schoolId, cargar, toast]);
 
     useEffect(() => { void cargar(); }, [cargar]);
     useEffect(() => { void cargarPlantillas(); }, [cargarPlantillas]);
@@ -197,37 +225,23 @@ export default function WhatsAppPage() {
                         final no pase nada. */}
                     {ALTA_CONFIGURADA && (
                         <CardContent className="space-y-4">
-                            <ConectarNumero onListo={setAlta} />
+                            <ConectarNumero onListo={(r) => void conectar(r)} />
 
-                            {alta && (
-                                <div className="rounded-lg border bg-muted/30 p-4 space-y-2 text-sm">
-                                    <p className="font-medium text-foreground">
-                                        Meta respondió · {alta.esCoexistence
-                                            ? 'conectó una cuenta existente (Coexistence)'
-                                            : 'creó una cuenta nueva'}
-                                    </p>
-                                    <p className="text-muted-foreground">
-                                        Código recibido: <code>{alta.code.slice(0, 8)}…</code>{' '}
-                                        ({alta.code.length} caracteres)
-                                    </p>
-                                    {alta.sesion?.data?.waba_id && (
-                                        <p className="text-muted-foreground">
-                                            WABA: <code>{alta.sesion.data.waba_id}</code>
-                                        </p>
-                                    )}
-                                    {alta.sesion?.data?.phone_number_id && (
-                                        <p className="text-muted-foreground">
-                                            Número: <code>{alta.sesion.data.phone_number_id}</code>
-                                        </p>
-                                    )}
-                                    {!alta.esCoexistence && (
-                                        <p className="text-amber-600 dark:text-amber-500">
-                                            Se esperaba Coexistence. Revisa el featureType y que estén
-                                            suscritos los webhooks history, smb_app_state_sync y
-                                            smb_message_echoes.
-                                        </p>
-                                    )}
-                                </div>
+                            {conectando && (
+                                <p className="text-sm text-muted-foreground flex items-center gap-2">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Conectando con Meta…
+                                </p>
+                            )}
+
+                            {/* Si Meta no dio Coexistence, la escuela pierde el número
+                                de su celular. Se avisa acá, que es cuando todavía se
+                                puede deshacer, y no cuando ya no lo pueda usar. */}
+                            {alta && !alta.esCoexistence && !conectando && (
+                                <p className="text-sm text-amber-600 dark:text-amber-500">
+                                    Meta no ofreció conectar una cuenta existente, así que este
+                                    número no seguirá funcionando en el celular.
+                                </p>
                             )}
                         </CardContent>
                     )}
