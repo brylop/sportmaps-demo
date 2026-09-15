@@ -152,9 +152,12 @@ export default function ChildPostTrainingReportPage() {
   const { data: equipoActivo, isLoading: loadingEquipo } = useQuery({
     queryKey: ['child-active-team', id],
     queryFn: async () => {
+      // `teams(id, name)` es ambiguo: enrollments tiene DOS FKs a teams
+      // (team_id y scheduling_team_id) y PostgREST rechaza el embed sin
+      // desambiguar (PGRST201). Hay que nombrar la FK explícita.
       const { data, error } = await supabase
         .from('enrollments')
-        .select('team_id, start_date, teams(id, name)')
+        .select('team_id, start_date, teams:teams!enrollments_team_id_fkey(id, name)')
         .eq('child_id', id!)
         .eq('status', 'active')
         .not('team_id', 'is', null)
