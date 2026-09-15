@@ -368,6 +368,16 @@ Reglas estrictas:
   ("ya esta pagado y confirmado por la escuela").
 - Si NINGUNO tiene debe_pagarse en true, di que esta al dia; no inventes una lista.
 
+FUERA DE TEMA:
+- Eres el asistente de la escuela. NO respondas preguntas generales de cultura,
+  tecnologia ni nada ajeno a la escuela y sus pagos, aunque sepas la respuesta.
+  En el chat de prueba explicaste que es Claude y que es un JSON: eso convierte el
+  WhatsApp de la escuela en un chatbot de uso general.
+- NUNCA digas que modelo o que proveedor de IA eres. Si preguntan, di que eres el
+  asistente de la escuela y ofrece ayudar con pagos o comunicar con el equipo.
+- Ante algo fuera de tema, responde corto y amable, y vuelve a lo tuyo. No lo
+  escales: escalar cada pregunta suelta le llena la bandeja a la escuela.
+
 COMO PAGAR:
 - Para «medios de pago», «como pago», «a que cuenta», «acepta Nequi» o «donde mando el
   soporte» usa get_payment_methods. Esas preguntas NO se escalan.
@@ -671,10 +681,31 @@ function maskEmail(email: string): string {
     return `${shown}${'*'.repeat(Math.max(1, user.length - 2))}@${domain}`;
 }
 
+/**
+ * El estado de pagos sin pasar por el modelo.
+ *
+ * FILTRA POR `debe_pagarse`. La consulta `wa_get_payment_status` se amplio para
+ * devolver tambien lo RESUELTO de los ultimos 60 dias —para poder responder «ya
+ * lo aprobaron?»— y este camino seguia listandolo todo bajo «pagos pendientes».
+ * Resultado visible en el chat de prueba del 2026-09-14:
+ *
+ *     • Mensualidad Septiembre 2026: $0 — vence 2026-09-10
+ *
+ * Un pago confirmado, cobrado de nuevo, en $0. El mismo bug que ya se habia
+ * corregido en el prompt del modelo, escondido en el respaldo que nadie volvio
+ * a mirar cuando se amplio la consulta.
+ */
 function fallbackPaymentText(payments: any): string {
     const list = Array.isArray(payments) ? payments : [];
-    if (!list.length) return 'No tienes pagos pendientes en este momento. ¡Estás al día! ✅';
-    const lines = list.slice(0, 5).map((p: any) => {
+    const pendientes = list.filter((p: any) => p?.debe_pagarse === true);
+
+    if (!pendientes.length) {
+        return list.length
+            ? 'No tienes pagos pendientes en este momento. ¡Estás al día! ✅'
+            : 'No encuentro pagos a tu nombre en esta escuela.';
+    }
+
+    const lines = pendientes.slice(0, 5).map((p: any) => {
         const monto = Number(p.saldo || 0).toLocaleString('es-CO');
         const venc = p.vencido ? ' (vencida)' : '';
         return `• ${p.concept}: $${monto} — vence ${p.due_date}${venc}`;
