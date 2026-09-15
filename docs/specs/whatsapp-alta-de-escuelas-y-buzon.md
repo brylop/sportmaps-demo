@@ -36,11 +36,30 @@ Consecuencias medidas el 2026-09-14:
 
 Resueltas. No se re-abren durante la implementación.
 
-**D1 — Dynasty entra por Coexistence, no por migración.**
-Milena usa el número de Dynasty desde su celular para hablar con los papás.
-Migrarlo a la API se lo quitaría del teléfono y no traería el historial.
-Coexistence deja el número en los dos lados: ella sigue en WhatsApp normal y el
-bot atiende lo repetitivo. Su número **personal** no se toca en ningún caso.
+**D1 — Hay DOS caminos de alta.** *(revisado el 2026-09-14)*
+
+| La escuela… | Camino | Quién paga los mensajes |
+|---|---|---|
+| Quiere seguir atendiendo desde su celular | Embedded Signup + Coexistence | Ella, con su tarjeta |
+| No tiene quién atienda, o prefiere el panel | **Manual**: el número entra al WABA de SportMaps | **SportMaps**, y le factura |
+
+**Dynasty va por Coexistence, con una vuelta de tuerca.** No es la escuela la
+que cambia de número: **es Milena.** El número que hoy usa —que es a la vez el
+suyo y el de Dynasty— se queda como el oficial de la escuela, y ella saca una
+línea nueva para su vida personal.
+
+La razón es de adopción: cambiar el número de la escuela obliga a ~400 familias
+a aprenderse uno nuevo. Cambiar el personal obliga a su círculo cercano, que es
+mucho más chico y le escribe a diario de todas formas.
+
+**Dos condiciones de privacidad, y van antes de conectar:**
+
+1. **Que borre las conversaciones personales de ese número.** Coexistence
+   sincroniza los últimos 6 meses de chats, todos, y quedarían guardados en la
+   base de SportMaps. Lo que no esté en el teléfono no se sincroniza.
+2. **Que anuncie su número nuevo ANTES**, no después. Sus contactos van a
+   seguir escribiéndole al viejo durante meses, y ahí ya habrá un bot
+   respondiendo.
 
 **D2 — El modo asistido queda apagado hasta que exista el buzón.**
 Hoy produce silencio. Mientras no haya pantalla de aprobación, `mode` solo
@@ -51,11 +70,58 @@ Coexistence exige suscribirse a `history`, `smb_app_state_sync` y
 `smb_message_echoes`. Esos son exactamente los datos que alimentan un buzón de
 conversaciones: construir uno sin el otro es hacer el mismo trabajo dos veces.
 
-**D4 — `business_management` se pide en un segundo App Review.**
-Se sacó de la solicitud del 2026-09-14 porque sin la pantalla construida no
-había cómo demostrarlo. Hoy está en *"Listo para prueba"*, o sea usable en
-desarrollo: se construye, se graba el flujo funcionando y se pide el acceso
-avanzado con el video.
+**D4 — NO hace falta un segundo App Review.** *(corregido el 2026-09-14)*
+La suposición original era que el Embedded Signup exigía `business_management`.
+La documentación dice otra cosa: ese permiso es requisito de los **Solution
+Partners**, y solo para compartir línea de crédito con el cliente. Para un
+**Tech Provider** el Embedded Signup necesita `whatsapp_business_management` y
+`whatsapp_business_messaging` — los dos aprobados con acceso avanzado el
+2026-09-14. La configuración creada en el panel (`1781832532844989`) pide
+exactamente esos dos y ninguno más.
+
+**Queda abierto, y es de negocio, no de código:** se decidió que *SportMaps
+paga a Meta* los excedentes y le vende paquetes a la escuela. Con Embedded
+Signup la escuela es dueña de su WABA, así que hay que resolver **qué método de
+pago queda asociado**. Si la vía fuera compartir línea de crédito, eso sí es
+territorio de Solution Partner y cambia los requisitos. Resolverlo antes de
+facturarle a nadie.
+
+**D4-bis — El modelo comercial: se vende la integración, no los mensajes.**
+*(resuelto el 2026-09-14 contra la documentación)*
+Meta lo impone: «si no eres Solution Partner, el cliente debe asociar un método
+de pago a su WABA antes de poder enviar mensajes». Con Embedded Signup el WABA
+es de la escuela, así que **Meta le cobra a ella directamente** y SportMaps no
+intermedia plata de mensajería. Lo que se cobra es el addon de la integración
+en el SaaS.
+
+Consecuencia operativa: **la escuela necesita una tarjeta registrada aunque no
+vaya a pagar nada** — los 1.000 mensajes de servicio gratis al mes no eximen
+del requisito. Va en la pantalla de alta junto con D5.
+
+**Lo que la escuela NO tiene que hacer** (verificado en la documentación): no
+necesita App Review propio —ese fue de la app de SportMaps, una sola vez—, ni
+Business Verification por adelantado, ni aprobación del nombre para mostrar
+(eso solo aplica a los números de prueba `555`). Sí tiene que verificar su
+número con un código, así que el alta exige tener el celular a mano.
+
+**Techo de escuelas:** con Business Verification, App Review y Access
+Verification completos —los tres lo están— el límite es de **200 clientes
+nuevos**. No hay que pedir nada más hasta llegar ahí.
+
+**D6 — El bot deja de interrogar a los desconocidos.**
+Hoy, a cualquier número que no reconoce, responde: «Escríbeme el *correo
+electrónico* con el que estás registrado en la escuela». Para un padre que
+escribe desde otro teléfono está bien. Para la mamá de la dueña, un proveedor o
+alguien equivocado, es una máquina exigiéndole credenciales.
+
+El mensaje pasa a presentarse y ofrecer las dos salidas sin exigir ninguna:
+dice de qué escuela es, que si es familia de un atleta puede identificarse con
+su correo, y que si busca otra cosa alguien de la escuela le responde. Y la
+conversación **escala al buzón** para que un humano la vea.
+
+No es un arreglo para Dynasty: hoy le pasa a cualquiera que le escriba a
+cualquier escuela sin ser de ella. Depende de F3 para ser útil — sin buzón, lo
+que escale no lo ve nadie.
 
 **D5 — Lo que Coexistence le quita a la escuela se le avisa ANTES de conectar.**
 WhatsApp desactiva en ese número: mensajes temporales, ver una vez, ubicación
@@ -134,6 +200,24 @@ Pestaña nueva en la pantalla de WhatsApp: lista de conversaciones, hilo
 completo, responder a mano, y aprobar o descartar los borradores del modo
 asistido. Al existir esto, D2 se levanta y `assisted` vuelve a ser elegible.
 
+**Dos requisitos que no son opcionales**, porque sin ellos el buzón existe pero
+no se usa:
+
+- **Aviso cuando alguien espera.** Si la escuela tiene que acordarse de entrar a
+  revisar, en dos días deja de hacerlo. Hay push andando (Firebase, ver
+  `project_firebase_fcm`): se conecta a la escalación del bot — «un padre está
+  esperando respuesta».
+- **La ventana de 24 horas, visible.** Meta no deja responder en texto libre a
+  una conversación que lleva más de 24 h sin actividad del titular: hay que
+  mandar una plantilla. Si el buzón muestra un cuadro de texto normal, la
+  escuela escribe, le da enviar, y recibe un error que no entiende. El hilo
+  tiene que decir cuándo está fuera de ventana y ofrecer las plantillas
+  aprobadas en vez del cuadro de texto.
+
+Para el piloto de Dynasty esto es lo que decide si ella puede operar: con el
+alta manual el número no vive en ningún celular, así que **este buzón es su
+único acceso** a lo que le escriben.
+
 **RLS línea por línea antes de aplicar.** Estas tablas traen teléfonos,
 nombres de menores y montos. El alcance correcto es `user_staff_school_ids()`,
 no `user_school_ids()` — que incluye padres y atletas.
@@ -142,10 +226,10 @@ no `user_school_ids()` — que incluye padres y atletas.
 aparece y se puede responder. Verificado con un `school_admin`, no solo con el
 dueño — el arbol de menu de `school_admin` es una copia aparte del de `school`.
 
-### F4 — La pantalla de alta y el segundo App Review
+### F4 — La pantalla de alta
 
 La pantalla donde la escuela se conecta sola, con el aviso de D5 antes del
-botón. Grabar el flujo y pedir `business_management`.
+botón. Ya no incluye un segundo App Review: ver D4.
 
 ---
 
@@ -164,6 +248,12 @@ botón. Grabar el flujo y pedir `business_management`.
   volver a vincularlo. WhatsApp para Windows y WearOS no están soportados.
 - **Error `131060`** es esperado en el primer mensaje; se resuelve solo en
   segundos. No tratarlo como fallo permanente.
+- **Falta el callback de desautorización.** El panel de Meta tiene un campo
+  (*URL de devolución de llamada de retirada de autorización*) que se dejó
+  vacío a propósito: hoy no existe ese endpoint. Sin él, si una escuela le
+  quita el permiso a SportMaps no nos enteramos — lo descubriríamos cuando las
+  llamadas empiecen a fallar. Va en F1: recibir el ping y marcar la integración
+  como inactiva, en vez de dejarla fallando en silencio.
 - **Rotación del token por escuela.** Ya existe `wa-set-token.ts` para el
   número de prueba; el alta automática tiene que escribir por el mismo camino.
 
