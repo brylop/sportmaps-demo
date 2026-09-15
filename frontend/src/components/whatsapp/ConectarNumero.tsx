@@ -5,14 +5,24 @@
  * consigue el `code` y la información de sesión. NO se persiste nada todavía —
  * eso es F1.
  *
- * COEXISTENCE NO SE PIDE DESDE ACÁ. No existe un parámetro de frontend que lo
- * active: depende de cómo esté armada la *configuración* de Facebook Login for
- * Business en el panel, más las suscripciones a los webhooks `history`,
- * `smb_app_state_sync` y `smb_message_echoes`. La señal de que quedó bien
- * configurado es visual: la pantalla de selección de WABA se reemplaza por una
- * que ofrece conectar la cuenta de WhatsApp Business que la escuela ya tiene.
- * Si el diálogo sigue pidiendo crear una WABA nueva, la configuración del panel
- * está incompleta y el código de acá no lo puede arreglar.
+ * COEXISTENCE SE PIDE ACÁ, con `extras.featureType`. La documentación pública
+ * no lo menciona —de hecho dice que se activa solo por configuración— pero el
+ * generador del panel («Creador de registro insertado») arma esta URL:
+ *
+ *     extras={"featureType":"whatsapp_business_app_onboarding",
+ *             "sessionInfoVersion":"3","version":"v4",
+ *             "features":[{"name":"app_only_install"}]}
+ *
+ * Sin `featureType`, el diálogo abre igual de bien pero SIN Coexistence: le
+ * ofrece a la escuela crear una cuenta nueva en vez de conectar la que ya usa
+ * en su celular. Falla hacia el lado silencioso, que es el peor.
+ *
+ * Los webhooks `history`, `smb_app_state_sync` y `smb_message_echoes` siguen
+ * haciendo falta —van suscritos desde el panel— pero no reemplazan a este
+ * parámetro.
+ *
+ * La señal de que todo quedó bien es visual: la pantalla de selección de WABA
+ * se reemplaza por una que ofrece conectar la cuenta existente.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -154,7 +164,16 @@ export function ConectarNumero({ onListo }: { onListo: (r: ResultadoDelAlta) => 
                 // Sin esto el SDK devuelve un token de usuario en vez del código
                 // de intercambio, y el backend no puede canjearlo.
                 override_default_response_type: true,
-                extras: { setup: {} },
+                // Copiado literal de lo que genera el «Creador de registro
+                // insertado» del panel con Coexistence activo. No inventar
+                // valores acá: es la combinación que Meta da por buena.
+                extras: {
+                    setup: {},
+                    featureType: 'whatsapp_business_app_onboarding',
+                    sessionInfoVersion: '3',
+                    version: 'v4',
+                    features: [{ name: 'app_only_install' }],
+                },
             },
         );
     }, [onListo]);
