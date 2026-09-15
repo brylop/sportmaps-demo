@@ -14,6 +14,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { bffClient } from '@/lib/api/bffClient';
+import { ConectarNumero, ALTA_CONFIGURADA, type ResultadoDelAlta }
+    from '@/components/whatsapp/ConectarNumero';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -82,6 +84,8 @@ export default function WhatsAppPage() {
     const [eventos, setEventos] = useState<EventoMeta[]>([]);
     const [cargando, setCargando] = useState(true);
     const [cargandoPlantillas, setCargandoPlantillas] = useState(false);
+    // F0: lo que devuelve el diálogo de Meta. Todavía no se persiste nada.
+    const [alta, setAlta] = useState<ResultadoDelAlta | null>(null);
     const [guardando, setGuardando] = useState(false);
 
     const cargar = useCallback(async () => {
@@ -160,6 +164,47 @@ export default function WhatsAppPage() {
                             horario de atención y revisar el consumo del mes.
                         </CardDescription>
                     </CardHeader>
+
+                    {/* El botón solo existe donde el alta está configurada.
+                        Mientras F0 no persista nada, mostrárselo a una escuela de
+                        verdad la llevaría por todo el flujo de Meta para que al
+                        final no pase nada. */}
+                    {ALTA_CONFIGURADA && (
+                        <CardContent className="space-y-4">
+                            <ConectarNumero onListo={setAlta} />
+
+                            {alta && (
+                                <div className="rounded-lg border bg-muted/30 p-4 space-y-2 text-sm">
+                                    <p className="font-medium text-foreground">
+                                        Meta respondió · {alta.esCoexistence
+                                            ? 'conectó una cuenta existente (Coexistence)'
+                                            : 'creó una cuenta nueva'}
+                                    </p>
+                                    <p className="text-muted-foreground">
+                                        Código recibido: <code>{alta.code.slice(0, 8)}…</code>{' '}
+                                        ({alta.code.length} caracteres)
+                                    </p>
+                                    {alta.sesion?.data?.waba_id && (
+                                        <p className="text-muted-foreground">
+                                            WABA: <code>{alta.sesion.data.waba_id}</code>
+                                        </p>
+                                    )}
+                                    {alta.sesion?.data?.phone_number_id && (
+                                        <p className="text-muted-foreground">
+                                            Número: <code>{alta.sesion.data.phone_number_id}</code>
+                                        </p>
+                                    )}
+                                    {!alta.esCoexistence && (
+                                        <p className="text-amber-600 dark:text-amber-500">
+                                            Se esperaba Coexistence. Revisa el featureType y que estén
+                                            suscritos los webhooks history, smb_app_state_sync y
+                                            smb_message_echoes.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+                        </CardContent>
+                    )}
                 </Card>
             </div>
         );
