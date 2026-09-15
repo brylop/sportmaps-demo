@@ -221,11 +221,37 @@ export async function chatWithTools(params: {
 
     let lastErr: any;
     for (const p of order) {
-        try {
-            return await run(p);
-        } catch (err: any) {
-            lastErr = err;
-            console.warn(`[llm.service] ${p} falló (${err?.message}); intento siguiente`);
+        // Un 429 NO es que el proveedor este caido: es que llegamos muy rapido.
+        // Antes se pasaba al siguiente sin esperar ni un segundo, y si el
+        // siguiente tambien venia saturado la cadena entera se caia y el padre
+        // recibia el texto plano de respaldo.
+        //
+        // Se ve con un solo usuario mandando mensajes cada 15 segundos (chat de
+        // prueba, 2026-09-14: el respaldo salio 4 veces). Con treinta familias
+        // escribiendo a la vez —un dia de cobro— seria el comportamiento normal,
+        // no la excepcion.
+        //
+        // Dos reintentos cortos absorben la rafaga. Mas que eso no: Meta espera
+        // el webhook y el padre esta mirando la pantalla.
+        for (let intento = 0; intento < 3; intento++) {
+            try {
+                return await run(p);
+            } catch (err: any) {
+                lastErr = err;
+                const msg = String(err?.message ?? '');
+                const saturado = /\b429\b|rate.?limit|too many requests|quota|resource_exhausted/i.test(msg);
+
+                if (!saturado || intento === 2) {
+                    console.warn(`[llm.service] ${p} falló (${msg}); intento siguiente proveedor`);
+                    break;
+                }
+                // 400 ms, 1200 ms. Con jitter para que treinta webhooks
+                // simultaneos no reintenten todos en el mismo instante y se
+                // vuelvan a saturar entre ellos.
+                const espera = 400 * Math.pow(3, intento) * (0.7 + Math.random() * 0.6);
+                console.warn(`[llm.service] ${p} saturado; reintento en ${Math.round(espera)} ms`);
+                await new Promise((r) => setTimeout(r, espera));
+            }
         }
     }
     throw lastErr || new Error('todos los proveedores LLM fallaron');
