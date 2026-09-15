@@ -33,6 +33,16 @@ const APP_ID = import.meta.env.VITE_META_APP_ID as string | undefined;
 const CONFIG_ID = import.meta.env.VITE_META_ES_CONFIG_ID as string | undefined;
 const SDK_VERSION = 'v25.0';
 
+/**
+ * ¿Está el alta configurada en este ambiente?
+ *
+ * Mientras el alta no persista nada (F0), el botón no debe existir para una
+ * escuela de verdad: la llevaría por todo el flujo de Meta para que al final
+ * no pase nada. Sin las variables el botón no se pinta, y el ambiente se
+ * comporta como antes de que esto existiera.
+ */
+export const ALTA_CONFIGURADA = Boolean(APP_ID && CONFIG_ID);
+
 /** Lo que Meta devuelve por `postMessage` mientras la escuela avanza. */
 export interface InfoDeSesion {
     /** `FINISH` en el alta normal; `FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING` si fue Coexistence. */
