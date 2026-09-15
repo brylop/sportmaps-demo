@@ -238,7 +238,16 @@ export function aFormatoWhatsApp(texto: string): string {
         .replace(/\*\*(.+?)\*\*/gs, '*$1*')
         .replace(/__(.+?)__/gs, '*$1*')
         // Encabezados de Markdown: WhatsApp no los tiene.
-        .replace(/^#{1,6}\s*(.+)$/gm, '*$1*')
+        //
+        // Se limpia el texto ANTES de envolverlo. Sin esto, `### **Titulo**`
+        // pasaba por la regla de negrita, quedaba `### *Titulo*`, y esta lo
+        // envolvia otra vez: `**Titulo**`. Y el doble asterisco en WhatsApp no
+        // es negrita — se ve literal, que es el bug que ya habiamos corregido
+        // una vez y volvio por el orden de las reglas.
+        .replace(/^#{1,6}\s*(.+)$/gm, (_m, t) => `*${String(t).replace(/^\*+|\*+$/g, '').trim()}*`)
+        // Separadores horizontales: el modelo los usa para dar estructura y
+        // WhatsApp los muestra tal cual, como tres guiones sueltos.
+        .replace(/^\s*([-*_]){2,}\s*$/gm, '')
         // [texto](url) -> texto (url), que es lo unico que WhatsApp puede mostrar
         .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '$1 ($2)')
         // Vinetas de Markdown a un caracter que WhatsApp no interpreta
