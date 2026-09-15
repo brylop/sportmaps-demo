@@ -36,24 +36,30 @@ Consecuencias medidas el 2026-09-14:
 
 Resueltas. No se re-abren durante la implementación.
 
-**D1 — Hay DOS caminos de alta, y Dynasty va por el manual.**
-*(corregido el 2026-09-14: Dynasty tiene un solo número, y es el personal)*
+**D1 — Hay DOS caminos de alta.** *(revisado el 2026-09-14)*
 
 | La escuela… | Camino | Quién paga los mensajes |
 |---|---|---|
-| Quiere seguir usando su número desde el celular | Embedded Signup + Coexistence | Ella, con su tarjeta |
-| No tiene número aparte, o acepta uno nuevo | **Manual**: el número entra al WABA de SportMaps | **SportMaps**, y le factura |
+| Quiere seguir atendiendo desde su celular | Embedded Signup + Coexistence | Ella, con su tarjeta |
+| No tiene quién atienda, o prefiere el panel | **Manual**: el número entra al WABA de SportMaps | **SportMaps**, y le factura |
 
-**Dynasty va por el manual, con una línea nueva.** La razón no es la tarjeta: es
-que su único número es el personal, y conectarlo haría que el bot le respondiera
-a *todos* sus contactos. Hoy, a quien no reconoce, el bot le pide un correo para
-identificarse — o sea que su mamá recibiría un pedido de identificación. Eso
-descarta el número personal, y con un número nuevo no hay nada que preservar:
-Coexistence deja de hacer falta para ella.
+**Dynasty va por Coexistence, con una vuelta de tuerca.** No es la escuela la
+que cambia de número: **es Milena.** El número que hoy usa —que es a la vez el
+suyo y el de Dynasty— se queda como el oficial de la escuela, y ella saca una
+línea nueva para su vida personal.
 
-Consecuencia: **Dynasty no depende de F0–F4.** Se conecta con
-`scripts/wa-conectar-escuela.ts`. El Embedded Signup sigue siendo necesario
-para las escuelas que sí quieran conservar su número.
+La razón es de adopción: cambiar el número de la escuela obliga a ~400 familias
+a aprenderse uno nuevo. Cambiar el personal obliga a su círculo cercano, que es
+mucho más chico y le escribe a diario de todas formas.
+
+**Dos condiciones de privacidad, y van antes de conectar:**
+
+1. **Que borre las conversaciones personales de ese número.** Coexistence
+   sincroniza los últimos 6 meses de chats, todos, y quedarían guardados en la
+   base de SportMaps. Lo que no esté en el teléfono no se sincroniza.
+2. **Que anuncie su número nuevo ANTES**, no después. Sus contactos van a
+   seguir escribiéndole al viejo durante meses, y ahí ya habrá un bot
+   respondiendo.
 
 **D2 — El modo asistido queda apagado hasta que exista el buzón.**
 Hoy produce silencio. Mientras no haya pantalla de aprobación, `mode` solo
@@ -101,6 +107,21 @@ número con un código, así que el alta exige tener el celular a mano.
 **Techo de escuelas:** con Business Verification, App Review y Access
 Verification completos —los tres lo están— el límite es de **200 clientes
 nuevos**. No hay que pedir nada más hasta llegar ahí.
+
+**D6 — El bot deja de interrogar a los desconocidos.**
+Hoy, a cualquier número que no reconoce, responde: «Escríbeme el *correo
+electrónico* con el que estás registrado en la escuela». Para un padre que
+escribe desde otro teléfono está bien. Para la mamá de la dueña, un proveedor o
+alguien equivocado, es una máquina exigiéndole credenciales.
+
+El mensaje pasa a presentarse y ofrecer las dos salidas sin exigir ninguna:
+dice de qué escuela es, que si es familia de un atleta puede identificarse con
+su correo, y que si busca otra cosa alguien de la escuela le responde. Y la
+conversación **escala al buzón** para que un humano la vea.
+
+No es un arreglo para Dynasty: hoy le pasa a cualquiera que le escriba a
+cualquier escuela sin ser de ella. Depende de F3 para ser útil — sin buzón, lo
+que escale no lo ve nadie.
 
 **D5 — Lo que Coexistence le quita a la escuela se le avisa ANTES de conectar.**
 WhatsApp desactiva en ese número: mensajes temporales, ver una vez, ubicación
