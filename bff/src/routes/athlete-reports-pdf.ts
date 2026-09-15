@@ -15,62 +15,22 @@
  */
 import { Router, Request, Response, NextFunction } from 'express';
 import PDFDocument from 'pdfkit';
-import fs from 'fs';
-import path from 'path';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth } from '../middlewares/authMiddleware';
 import { resolveSchoolBranding } from '../utils/schoolBrandingResolver';
+import {
+    INK, MUTED, HAIRLINE,
+    loadSportmapsLogo, fetchSchoolLogo, fmt, capitalize,
+    sectionTitle, noteBox, addFooterToAllPages,
+} from '../utils/reportPdfHelpers';
 
 const router = Router();
 
-const INK = '#1f2937';
-const MUTED = '#6b7280';
-const HAIRLINE = '#e5e7eb';
 const BAND_HEX: Record<string, string> = { green: '#16a34a', yellow: '#d97706', red: '#dc2626' };
 const CATEGORY_LABEL: Record<string, string> = {
     physical: 'Físico', technical: 'Técnico', tactical: 'Táctico', attendance: 'Asistencia', other: 'Otro',
 };
-
-// Mismo patrón de cache-por-proceso que saasInvoicePdf.service.ts — el logo
-// de SportMaps no cambia en caliente, y si el asset no copió en el build, el
-// PDF sigue generándose sin logo en vez de tumbarse.
-let cachedSportmapsLogo: Buffer | null | undefined;
-function loadSportmapsLogo(): Buffer | null {
-    if (cachedSportmapsLogo !== undefined) return cachedSportmapsLogo;
-    try {
-        cachedSportmapsLogo = fs.readFileSync(path.join(__dirname, '../assets/sportmaps-logo.png'));
-    } catch {
-        cachedSportmapsLogo = null;
-    }
-    return cachedSportmapsLogo;
-}
-
-/** Logo propio de la escuela (solo si tiene whitelabel) — se descarga por
- *  request porque a diferencia del de SportMaps no es un asset local, y con
- *  timeout corto para que una URL caída no cuelgue la descarga del informe. */
-async function fetchSchoolLogo(url: string | null): Promise<Buffer | null> {
-    if (!url) return null;
-    try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000);
-        const res = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeout);
-        if (!res.ok) return null;
-        return Buffer.from(await res.arrayBuffer());
-    } catch {
-        return null;
-    }
-}
-
-function fmt(value: number, unit?: string | null): string {
-    const n = Number.isInteger(value) ? String(value) : value.toFixed(1);
-    return unit ? `${n} ${unit}` : n;
-}
-
-function capitalize(s: string): string {
-    return s.charAt(0).toUpperCase() + s.slice(1);
-}
 
 async function isAuthorized(req: Request, report: any): Promise<boolean> {
     const userId = req.user!.id;
@@ -248,11 +208,7 @@ router.get(
 
             // Footer en cada página ya creada, después de que todo el contenido
             // se terminó de escribir -- range() es estable recién acá.
-            const range = doc.bufferedPageRange();
-            for (let i = range.start; i < range.start + range.count; i++) {
-                doc.switchToPage(i);
-                addFooter(doc, branding.showWatermark);
-            }
+            addFooterToAllPages(doc, branding.showWatermark);
 
             doc.end();
         } catch (err) {
@@ -260,12 +216,6 @@ router.get(
         }
     },
 );
-
-function sectionTitle(doc: PDFKit.PDFDocument, text: string, color: string) {
-    doc.fillColor(color).font('Helvetica-Bold').fontSize(11).text(text);
-    doc.moveDown(0.3);
-    doc.fillColor(INK);
-}
 
 function drawMetricLine(doc: PDFKit.PDFDocument, m: any) {
     const bandColor = m.band ? BAND_HEX[m.band] : '#9ca3af';
@@ -277,46 +227,6 @@ function drawMetricLine(doc: PDFKit.PDFDocument, m: any) {
     doc.fillColor(INK).font('Helvetica').fontSize(10)
         .text(`${m.label}: ${fmt(m.value, m.unit)}${deltaTxt}`, 74, y);
     doc.moveDown(0.25);
-}
-
-function noteBox(doc: PDFKit.PDFDocument, title: string, body: string, accent: string) {
-    const startY = doc.y;
-    doc.fillColor(MUTED).fontSize(8).font('Helvetica-Bold')
-        .text(title.toUpperCase(), 68, startY, { characterSpacing: 0.4 });
-    doc.moveDown(0.25);
-    doc.fillColor(INK).font('Helvetica').fontSize(10).text(body, 68, doc.y, {
-        width: doc.page.width - 128, align: 'justify', lineGap: 2,
-    });
-    // Barra de acento a la izquierda del bloque completo (título + cuerpo).
-    doc.rect(60, startY, 2.5, doc.y - startY).fill(accent);
-    doc.fillColor(INK);
-    doc.moveDown(0.6);
-}
-
-/** "Powered by SportMaps" — mismo criterio de showWatermark que ya rige
- *  correos y PWA: forzado en free tier, opcional recién con la app nativa de
- *  marca blanca (BrandingSettingsForm.tsx). Solo texto: `sportmaps-logo.png`
- *  trae el wordmark completo integrado a la imagen (mismo comentario que
- *  saasInvoicePdf.service.ts), y a la escala de un footer (~12px) el wordmark
- *  se ve ilegible y se pisa con el texto -- probado en QA visual, se sacó. */
-function addFooter(doc: PDFKit.PDFDocument, showWatermark: boolean) {
-    // El footer vive DENTRO del margen inferior (60pt) a propósito. Sin bajar
-    // el margen a 0 acá, cualquier .text() por debajo de `page.height - 60`
-    // dispara la paginación automática de pdfkit y crea una página fantasma
-    // -- el mismo bug que bufferPages+switchToPage por sí solos no evitan.
-    const originalBottom = doc.page.margins.bottom;
-    doc.page.margins.bottom = 0;
-    try {
-        const y = doc.page.height - 42;
-        doc.moveTo(60, y - 10).lineTo(doc.page.width - 60, y - 10).strokeColor(HAIRLINE).lineWidth(0.75).stroke();
-        if (!showWatermark) return;
-        const label = 'Powered by SportMaps';
-        doc.fillColor('#9ca3af').fontSize(7.5).font('Helvetica');
-        const textWidth = doc.widthOfString(label);
-        doc.text(label, doc.page.width / 2 - textWidth / 2, y);
-    } finally {
-        doc.page.margins.bottom = originalBottom;
-    }
 }
 
 export default router;

@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { bffClient } from '@/lib/api/bffClient';
+import { downloadTeamReportPdf } from '@/lib/school/reportsQueries';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +19,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useCoachStaffId } from '@/hooks/useCoachStaffId';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { CheckCircle2, Loader2 } from 'lucide-react';
+import { CheckCircle2, Loader2, Download } from 'lucide-react';
 
 interface TeamOption {
   id: string;
@@ -110,6 +111,7 @@ export default function CoachTeamPostTrainingReportPage() {
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
   const [savingSection, setSavingSection] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   const { data: teams = [], isLoading: teamsLoading } = useQuery<TeamOption[]>({
     queryKey: ['coach-teams-post-entreno', user?.id, schoolId, staffId],
@@ -160,6 +162,18 @@ export default function CoachTeamPostTrainingReportPage() {
       toast({ title: 'No se pudo guardar la nota', description: e?.message, variant: 'destructive' });
     } finally {
       setSavingSection(null);
+    }
+  }
+
+  async function descargarPdf() {
+    if (!selectedTeamId || !schoolId) return;
+    setDownloadingPdf(true);
+    try {
+      await downloadTeamReportPdf(schoolId, selectedTeamId, year, month);
+    } catch (e: any) {
+      toast({ title: 'No se pudo descargar el PDF', description: e?.message, variant: 'destructive' });
+    } finally {
+      setDownloadingPdf(false);
     }
   }
 
@@ -242,14 +256,20 @@ export default function CoachTeamPostTrainingReportPage() {
                   {isFetching && <span className="ml-2 italic">actualizando…</span>}
                 </CardDescription>
               </div>
-              {yaPublicado ? (
-                <Badge className="gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Publicado</Badge>
-              ) : (
-                <Button onClick={publicar} disabled={publishing || snapshot.athlete_count === 0}>
-                  {publishing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                  Publicar informe
+              <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={descargarPdf} disabled={downloadingPdf}>
+                  {downloadingPdf ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                  Descargar PDF
                 </Button>
-              )}
+                {yaPublicado ? (
+                  <Badge className="gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Publicado</Badge>
+                ) : (
+                  <Button onClick={publicar} disabled={publishing || snapshot.athlete_count === 0}>
+                    {publishing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                    Publicar informe
+                  </Button>
+                )}
+              </div>
             </CardHeader>
           </Card>
 

@@ -18,13 +18,23 @@
  * en su cuerpo, y la RLS de M2 filtra las lecturas.
  */
 import { Router, Response } from 'express';
+import PDFDocument from 'pdfkit';
 import { z } from 'zod';
 import { supabase } from '../../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../../middlewares/authMiddleware';
-import { buildReportSnapshot, buildTeamReportSnapshot, loadSessionMetrics, type SubjectType } from '../../services/report-snapshot.service';
+import {
+    buildReportSnapshot, buildTeamReportSnapshot, loadSessionMetrics,
+    type SubjectType, type TeamReportSnapshot, type SessionMetricSummary,
+} from '../../services/report-snapshot.service';
 import { getMetricCatalog, type MetricDefinition } from '../../services/metric-catalog.service';
 import { deliverPublishedReports } from '../../services/report-delivery.service';
 import { userClient } from '../../utils/userClient';
+import { resolveSchoolBranding } from '../../utils/schoolBrandingResolver';
+import {
+    INK, MUTED,
+    loadSportmapsLogo, fetchSchoolLogo, capitalize,
+    sectionTitle, noteBox, addFooterToAllPages, drawDistributionBar,
+} from '../../utils/reportPdfHelpers';
 
 const router = Router();
 
@@ -817,6 +827,211 @@ router.get(
         } catch (err: any) {
             req.log?.error({ err }, 'preview de informe de equipo para padre falló');
             res.status(500).json({ error: 'No se pudo armar el informe.', details: err?.message });
+        }
+    },
+);
+
+// ── GET /api/v1/school/reports/team/:teamId/pdf?year&month ──────────────────
+// La exportación del informe grupal (spec §5.3: "el PDF se genera igual,
+// Besser lo necesita para el club"). Mismo principio que el PDF por atleta
+// (§8.4): un informe YA PUBLICADO lee su snapshot CONGELADO, nunca recalcula
+// — la familia/el club ya vio esos números y no pueden cambiar en silencio.
+// Sin publicar, se arma en vivo (buildTeamReportSnapshot) y se marca como
+// borrador, para que el coach pueda revisar el PDF antes de publicar.
+const SECTIONS_PDF: { key: string; title: string; metricKeys: string[] }[] = [
+    { key: 'rpe_borg', title: 'Cansancio (BORG)', metricKeys: ['rpe_borg'] },
+    { key: 'task_comprehension', title: 'Comprensión de las tareas', metricKeys: ['task_comprehension'] },
+    { key: 'self_effort_pct', title: 'Esfuerzo y entrega', metricKeys: ['self_effort_pct'] },
+    { key: 'satisfaction', title: 'Satisfacción y alegría', metricKeys: ['satisfaction'] },
+    { key: 'focus', title: 'Aspectos a mejorar', metricKeys: [] }, // se completa dinámico: focus_*
+    { key: 'coach_effort_rating', title: 'Lo que vio el entrenador', metricKeys: ['coach_effort_rating'] },
+    { key: 'general', title: 'Nota general del periodo', metricKeys: [] },
+];
+
+/** Dibuja una `SessionMetricSummary` (avg/distribution/count) como se ve en
+ *  pantalla (`MetricCard` de `CoachTeamPostTrainingReportPage.tsx`), pero en
+ *  papel: número grande para `avg`, barras horizontales para `distribution`,
+ *  y una sola barra "seleccionado N de M" para `count`. */
+function drawSessionMetric(doc: PDFKit.PDFDocument, m: SessionMetricSummary, accent: string) {
+    if (doc.y > doc.page.height - 130) doc.addPage();
+
+    doc.fillColor(INK).font('Helvetica-Bold').fontSize(10).text(m.label, 60, doc.y);
+    doc.fillColor(MUTED).font('Helvetica').fontSize(8)
+        .text(`${m.n} respuesta${m.n === 1 ? '' : 's'}`, doc.page.width - 180, doc.y - 12, { width: 120, align: 'right' });
+    doc.moveDown(0.3);
+
+    if (m.aggregation === 'avg') {
+        doc.fillColor(accent).font('Helvetica-Bold').fontSize(20).text(String(m.avg ?? '—'), 60, doc.y);
+        doc.moveDown(0.5);
+    } else if (m.aggregation === 'distribution') {
+        for (const o of m.distribution ?? []) {
+            drawDistributionBar(doc, o.label, o.pct, o.n, accent);
+        }
+        doc.moveDown(0.2);
+    } else if (m.aggregation === 'count') {
+        const pct = m.n > 0 ? Math.round(((m.count ?? 0) / m.n) * 1000) / 10 : 0;
+        drawDistributionBar(doc, 'Veces seleccionado', pct, m.count ?? 0, accent);
+        doc.moveDown(0.2);
+    }
+    doc.fillColor(INK);
+}
+
+router.get(
+    '/reports/team/:teamId/pdf',
+    requireAuth,
+    requireRole(...STAFF_ROLES),
+    async (req: AuthenticatedRequest, res: Response) => {
+        const parsed = TeamPeriodSchema.safeParse(req.query ?? {});
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Periodo inválido', details: parsed.error.issues });
+        }
+        const { year, month } = parsed.data;
+        const teamId = paramId(req.params.teamId);
+
+        // El equipo tiene que ser de esta escuela — mismo guardrail que preview/publish.
+        const { data: equipo } = await userClient(req)
+            .from('teams')
+            .select('id')
+            .eq('id', teamId)
+            .eq('school_id', req.schoolId)
+            .maybeSingle();
+
+        if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado.' });
+
+        try {
+            const { data: informe } = await userClient(req)
+                .from('team_reports')
+                .select('id, status, snapshot')
+                .eq('school_id', req.schoolId)
+                .eq('team_id', teamId)
+                .eq('period_year', year)
+                .eq('period_month', month)
+                .maybeSingle();
+
+            const yaPublicado = (informe as any)?.status === 'publicado' && (informe as any)?.snapshot;
+            const snapshot: TeamReportSnapshot = yaPublicado
+                ? ((informe as any).snapshot as TeamReportSnapshot)
+                : await buildTeamReportSnapshot({ schoolId: req.schoolId, teamId, year, month });
+            const isDraft = !yaPublicado;
+
+            // Notas por bloque: una sola consulta para las 7 secciones, atadas al
+            // report_id real (si ya existe una fila, publicada o no).
+            const reportId = (informe as any)?.id as string | undefined;
+            const { data: notasRows } = reportId
+                ? await userClient(req)
+                    .from('report_section_notes')
+                    .select('section_key, body')
+                    .eq('school_id', req.schoolId)
+                    .eq('report_type', 'team')
+                    .eq('report_id', reportId)
+                : { data: [] as any[] };
+            const notas = new Map<string, string>(
+                ((notasRows ?? []) as any[]).map((n) => [n.section_key, n.body]),
+            );
+
+            const branding = await resolveSchoolBranding(req.schoolId);
+            const [sportmapsLogo, schoolLogo] = await Promise.all([
+                Promise.resolve(loadSportmapsLogo()),
+                fetchSchoolLogo(branding.logoUrl),
+            ]);
+
+            const doc = new PDFDocument({ size: 'A4', margin: 60, bufferPages: true });
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader(
+                'Content-Disposition',
+                `inline; filename="informe-equipo-${snapshot.period.year}-${String(snapshot.period.month).padStart(2, '0')}.pdf"`,
+            );
+            doc.pipe(res);
+
+            // ── Header: logo + branding, igual que el informe por atleta ─────────
+            const headerLogo = schoolLogo ?? sportmapsLogo;
+            if (headerLogo) {
+                try {
+                    doc.image(headerLogo, 60, 50, { height: 34 });
+                } catch {
+                    doc.fillColor(INK).fontSize(17).font('Helvetica-Bold').text(branding.schoolName, 60, 55);
+                }
+            } else {
+                doc.fillColor(INK).fontSize(17).font('Helvetica-Bold').text(branding.schoolName, 60, 55);
+            }
+            doc.fillColor(MUTED).fontSize(9).font('Helvetica')
+                .text('Evaluación post-entrenamiento — informe de equipo', 60, 92);
+
+            doc.fillColor(MUTED).fontSize(9).font('Helvetica')
+                .text(capitalize(snapshot.period.label), doc.page.width - 220, 55, { width: 160, align: 'right' });
+            doc.fillColor(INK).fontSize(11).font('Helvetica-Bold')
+                .text(snapshot.team.name, doc.page.width - 220, 69, { width: 160, align: 'right' });
+
+            const accentY = 112;
+            doc.rect(60, accentY, doc.page.width - 120, 2.5).fill(branding.primaryColor);
+            doc.y = accentY + 20;
+
+            // ── Aviso de borrador — el spec pide "BORRADOR — sin publicar" visible ──
+            if (isDraft) {
+                const bandY = doc.y;
+                doc.roundedRect(60, bandY, doc.page.width - 120, 24, 4).fillColor('#fef3c7').fill();
+                doc.fillColor('#92400e').font('Helvetica-Bold').fontSize(9)
+                    .text('BORRADOR — SIN PUBLICAR · los números pueden cambiar hasta que se publique', 60, bandY + 7, {
+                        width: doc.page.width - 120, align: 'center',
+                    });
+                doc.y = bandY + 24 + 14;
+                doc.fillColor(INK);
+            }
+
+            // ── Resumen: N deportistas · M sesiones ──────────────────────────────
+            doc.fillColor(MUTED).fontSize(10).font('Helvetica').text(
+                `${snapshot.athlete_count} deportista${snapshot.athlete_count === 1 ? '' : 's'} respondió · `
+                + `${snapshot.sessions_count} ${snapshot.sessions_count === 1 ? 'sesión' : 'sesiones'} del equipo este mes`,
+                60, doc.y,
+            );
+            doc.moveDown(1);
+            doc.fillColor(INK);
+
+            if (snapshot.athlete_count === 0) {
+                doc.fillColor(MUTED).font('Helvetica').fontSize(10)
+                    .text(`Todavía no hay autoevaluaciones registradas para este equipo en ${snapshot.period.label}.`, 60, doc.y);
+            }
+
+            // ── Una sección por bloque, calcado del orden que ve el coach en pantalla ──
+            const metricsByKey = new Map(snapshot.metrics_session.map((m) => [m.metric_key, m]));
+            const focusMetrics = snapshot.metrics_session.filter((m) => m.metric_key.startsWith('focus_'));
+
+            for (const section of SECTIONS_PDF) {
+                const metrics = section.key === 'focus'
+                    ? focusMetrics
+                    : section.metricKeys.map((k) => metricsByKey.get(k)).filter((m): m is SessionMetricSummary => !!m);
+
+                const nota = notas.get(section.key);
+                // Igual que en pantalla: sin métricas y sin nota, la sección no
+                // aporta nada — salvo "general", que es solo la nota del cierre.
+                if (section.key !== 'general' && metrics.length === 0 && !nota) continue;
+
+                if (doc.y > doc.page.height - 160) doc.addPage();
+                sectionTitle(doc, section.title, branding.primaryColor);
+
+                for (const m of metrics) drawSessionMetric(doc, m, branding.primaryColor);
+
+                if (nota) {
+                    doc.moveDown(0.2);
+                    noteBox(doc, section.key === 'general' ? 'Nota del profe' : 'Comentario del entrenador', nota, branding.primaryColor);
+                } else if (section.key === 'general') {
+                    doc.fillColor(MUTED).font('Helvetica-Oblique').fontSize(9)
+                        .text('Sin nota general todavía.', 60, doc.y);
+                }
+                doc.moveDown(0.6);
+                doc.fillColor(INK);
+            }
+
+            addFooterToAllPages(doc, branding.showWatermark);
+            doc.end();
+        } catch (err: any) {
+            req.log?.error({ err }, 'PDF de informe de equipo falló');
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'No se pudo generar el PDF del informe de equipo.', details: err?.message });
+            } else {
+                res.end();
+            }
         }
     },
 );
