@@ -37,6 +37,7 @@ import { sendTextMessage, aFormatoWhatsApp, type WhatsAppIntegration } from './w
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
 import { estadoDeHorario, mensajeDeEscalamiento } from './whatsapp-horario.service';
 import { sendToUser } from './push.service';
+import { mediosDePago } from './whatsapp-medios-de-pago.service';
 
 const OTP_TTL_MIN = 10;
 
@@ -365,12 +366,26 @@ Reglas estrictas:
   ESTAN RESUELTOS: no los pongas bajo "pagos pendientes" ni menciones su saldo en $0.
   Si el acudiente pregunta por uno de esos, responde con su estado_legible
   ("ya esta pagado y confirmado por la escuela").
-- Si NINGUNO tiene debe_pagarse en true, di que esta al dia; no inventes una lista.`;
+- Si NINGUNO tiene debe_pagarse en true, di que esta al dia; no inventes una lista.
+
+COMO PAGAR:
+- Para «medios de pago», «como pago», «a que cuenta», «acepta Nequi» o «donde mando el
+  soporte» usa get_payment_methods. Esas preguntas NO se escalan.
+- Ofrece SIEMPRE las tres opciones que devuelva la herramienta, y menciona que puede
+  mandar la foto del comprobante por este mismo chat: es la que nadie descubre solo.
+- Da los numeros de cuenta COMPLETOS, tal como vienen. No los recortes.
+- Si la escuela no tiene cuentas cargadas, no te las inventes: ofrece el enlace para
+  pagar en linea y el envio del comprobante por aqui.`;
 
 const TOOLS: LlmTool[] = [
     {
         name: 'get_payment_status',
         description: 'Estado de los pagos del acudiente en esta escuela: lo que debe Y lo resuelto en los ultimos 60 dias. Cada pago trae `estado_legible` (pagado y confirmado, comprobante en revision, rechazado, pendiente) y `debe_pagarse`. Usala SIEMPRE que pregunte por pagos, mensualidades, inscripciones, saldos, vencimientos, o si un pago suyo ya quedo aprobado. Si un concepto no aparece en el resultado, di que no lo encuentras — NUNCA afirmes que un cobro no existe.',
+        parameters: { type: 'object', properties: {}, required: [] },
+    },
+    {
+        name: 'get_payment_methods',
+        description: 'Como puede pagar el acudiente: las cuentas de la escuela para transferir, el enlace para pagar en linea, y que puede mandar el comprobante por este mismo chat. Usala cuando pregunte como pagar, medios de pago, a que cuenta consignar, si acepta Nequi o transferencia, o donde manda el soporte. NO escales estas preguntas: se responden con esta herramienta.',
         parameters: { type: 'object', properties: {}, required: [] },
     },
     {
@@ -419,6 +434,25 @@ async function handleIntent(
         return;
     }
 
+    if (call.name === 'get_payment_methods') {
+        const medios = await mediosDePago(integration.school_id);
+
+        messages.push({ role: 'assistant', content: `Llamando get_payment_methods` });
+        messages.push({ role: 'tool', toolName: 'get_payment_methods', content: JSON.stringify(medios) });
+        let final;
+        try {
+            final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: TOOLS });
+        } catch {
+            await deliver(integration, conversationId, contactWaId,
+                fallbackMediosDePago(medios), { step: 'medios_fallback' });
+            return;
+        }
+        await deliver(integration, conversationId, contactWaId,
+            final.text || fallbackMediosDePago(medios),
+            { step: 'get_payment_methods', provider: final.provider });
+        return;
+    }
+
     if (call.name === 'get_payment_status') {
         const { data: payments, error } = await supabase.rpc('wa_get_payment_status', {
             p_parent_id: parentId,
@@ -454,6 +488,27 @@ async function handleIntent(
 
     // Tool desconocida → escalar.
     await escalate(integration, conversationId, contactWaId, 'unknown_tool');
+}
+
+/**
+ * Texto de medios de pago sin pasar por el modelo.
+ *
+ * Si la segunda llamada al LLM falla, el acudiente igual se queda con las
+ * cuentas y el enlace. Dejarlo sin respuesta seria peor que un texto plano.
+ */
+function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>>): string {
+    const lineas: string[] = ['Puedes pagar de estas formas:', ''];
+    if (m.cuentas.length) {
+        lineas.push('*Transferencia*');
+        for (const c of m.cuentas) {
+            lineas.push(`• ${c.tipo}: ${c.numero}${c.titular ? ` (${c.titular})` : ''}`);
+        }
+        lineas.push('');
+    }
+    lineas.push(`*En línea:* ${m.enlace_para_pagar}`);
+    lineas.push('');
+    lineas.push('*Y si ya pagaste*, mándame la foto del comprobante por acá mismo y yo lo registro. 📄');
+    return lineas.join('\n');
 }
 
 // ─── Entrega: modo asistido (draft) vs auto (envío) ────────────────────────────
