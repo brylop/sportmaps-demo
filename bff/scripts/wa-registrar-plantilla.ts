@@ -1,7 +1,7 @@
 /**
  * Registra una plantilla de mensaje en la WABA de una escuela.
  *
- *   npx tsx scripts/wa-registrar-plantilla.ts <nombre-del-json>
+ *   npx tsx scripts/wa-registrar-plantilla.ts <nombre-del-json> [school_id]
  *   npx tsx scripts/wa-registrar-plantilla.ts comprobante_rechazado
  *
  * La salida está pensada para ser LEGIBLE EN UN VIDEO: el App Review de Meta
@@ -38,14 +38,33 @@ async function main() {
     }
     const plantilla = JSON.parse(fs.readFileSync(ruta, 'utf8'));
 
-    const { data: integracion, error } = await supabase
+    // Con una sola escuela conectada, `.limit(1)` daba la correcta por accidente.
+    // En cuanto haya dos, elegiria una al azar y registraria la plantilla en la
+    // WABA equivocada. Se exige decir de quien es.
+    const filtroEscuela = process.argv[3];
+    let q = supabase
         .from('school_whatsapp_integrations')
-        .select('waba_id, display_phone_number, access_token_encrypted, school:schools(name)')
-        .limit(1)
-        .single();
+        .select('waba_id, display_phone_number, access_token_encrypted, school:schools(name)');
+    if (filtroEscuela) q = q.eq('school_id', filtroEscuela);
 
-    if (error || !integracion?.access_token_encrypted) {
+    const { data: integraciones, error } = await q;
+
+    if (error || !integraciones?.length) {
         console.error('No hay una integración de WhatsApp con token.');
+        process.exit(1);
+    }
+    if (integraciones.length > 1) {
+        console.error('Hay varias integraciones. Indica de cuál escuela:');
+        console.error(`  npx tsx scripts/wa-registrar-plantilla.ts ${nombre} <school_id>`);
+        console.error();
+        for (const x of integraciones as any[]) {
+            console.error(`  ${x.school?.name ?? '—'}  ·  ${x.display_phone_number ?? '—'}`);
+        }
+        process.exit(1);
+    }
+    const integracion = integraciones[0] as any;
+    if (!integracion?.access_token_encrypted) {
+        console.error('La integración no tiene token.');
         process.exit(1);
     }
     const token = decryptToken(integracion.access_token_encrypted as string);

@@ -411,6 +411,22 @@ router.post('/:id/plans',
                 return res.status(404).json({ error: 'Offering no encontrado' });
             }
 
+            // Banco de horas (docs/specs/dreamers-banco-de-horas-torniquete.md): un plan
+            // con included_minutes_per_period solo funciona si la escuela lo tiene
+            // prendido (school_settings.hours_plan_enabled) — si no, get_or_open_hour_bank_period
+            // nunca abre período igual, pero mejor no dejar crear un plan que en la
+            // práctica no va a hacer nada, confunde a quien lo configuró.
+            if (parsed.data.included_minutes_per_period != null) {
+                const { data: ss } = await supabase
+                    .from('school_settings')
+                    .select('hours_plan_enabled')
+                    .eq('school_id', schoolId)
+                    .maybeSingle();
+                if (!ss?.hours_plan_enabled) {
+                    return res.status(403).json({ error: 'El banco de horas no está habilitado para esta escuela' });
+                }
+            }
+
             const { data, error } = await supabase
                 .from('offering_plans')
                 .insert({
@@ -456,6 +472,18 @@ router.patch('/:offeringId/plans/:planId',
 
             const { schoolId } = req;
             const { planId, offeringId } = req.params;
+
+            // Banco de horas: mismo gate que al crear el plan (ver POST /plans).
+            if (parsed.data.included_minutes_per_period != null) {
+                const { data: ss } = await supabase
+                    .from('school_settings')
+                    .select('hours_plan_enabled')
+                    .eq('school_id', schoolId)
+                    .maybeSingle();
+                if (!ss?.hours_plan_enabled) {
+                    return res.status(403).json({ error: 'El banco de horas no está habilitado para esta escuela' });
+                }
+            }
 
             const { data, error } = await supabase
                 .from('offering_plans')
