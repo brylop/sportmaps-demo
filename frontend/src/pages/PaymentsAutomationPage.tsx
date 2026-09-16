@@ -87,6 +87,14 @@ interface BillingSettings {
   early_payment_discount_enabled: boolean;
   early_payment_discount_days: number;
   early_payment_discount_percentage: number;
+  /**
+   * Descuento por hermanos (mig. 20260916101241). Automático: open_month lo
+   * calcula solo desde el 2do hijo activo (mismo parent_id, misma escuela),
+   * sin que nadie lo marque atleta por atleta. Ver
+   * docs/specs/descuentos-hermanos-primos-referidos.md
+   */
+  sibling_discount_enabled: boolean;
+  sibling_discount_percentage: number;
   // Validación automática de comprobantes (Fase 5)
   auto_approve_enabled: boolean;
   auto_approve_max_amount: number;
@@ -133,6 +141,8 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   early_payment_discount_enabled: false,
   early_payment_discount_days: 5,
   early_payment_discount_percentage: 0,
+  sibling_discount_enabled: false,
+  sibling_discount_percentage: 0,
   auto_approve_enabled: false,
   auto_approve_max_amount: 0,
   auto_glosa_enabled: false,
@@ -588,6 +598,8 @@ export default function PaymentsAutomationPage() {
         early_payment_discount_enabled: billing.early_payment_discount_enabled,
         early_payment_discount_days: billing.early_payment_discount_days,
         early_payment_discount_percentage: billing.early_payment_discount_percentage,
+        sibling_discount_enabled: billing.sibling_discount_enabled,
+        sibling_discount_percentage: billing.sibling_discount_percentage,
         auto_approve_enabled: billing.auto_approve_enabled,
         auto_approve_max_amount: billing.auto_approve_max_amount,
         auto_glosa_enabled: billing.auto_glosa_enabled,
@@ -2329,6 +2341,35 @@ export default function PaymentsAutomationPage() {
                       </div>
                       <p className="text-[11px] text-muted-foreground leading-snug">
                         No aplica si el deportista tiene otro cobro pendiente o vencido de un mes anterior en esta escuela.
+                      </p>
+                    </div>
+                  )}
+                  <Separator />
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="font-medium">Descuento por hermanos</Label>
+                      <p className="text-xs text-muted-foreground">Se aplica solo, desde el 2do hijo activo de la misma familia</p>
+                    </div>
+                    <Switch
+                      checked={billing.sibling_discount_enabled}
+                      onCheckedChange={v => updateBilling('sibling_discount_enabled', v)}
+                    />
+                  </div>
+                  {billing.sibling_discount_enabled && (
+                    <div className="space-y-3 p-3 rounded-lg border bg-muted/30">
+                      <div className="space-y-2">
+                        <Label htmlFor="sib_pct">Porcentaje de descuento</Label>
+                        <div className="flex items-center gap-2">
+                          <NumberStepper
+                            min={1} max={50} className="w-28 h-9"
+                            value={billing.sibling_discount_percentage}
+                            onChange={v => updateBilling('sibling_discount_percentage', v === "" ? 0 : v)}
+                          />
+                          <span className="text-sm text-muted-foreground">% de descuento</span>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-snug">
+                        El primer hijo (la inscripción activa más antigua) paga completo; el resto de hermanos activos en esta escuela lleva el descuento. Se recalcula cada mes: si un hermano se retira, el descuento desaparece solo.
                       </p>
                     </div>
                   )}
