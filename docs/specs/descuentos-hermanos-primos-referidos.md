@@ -1,6 +1,23 @@
 # Descuentos por hermanos, familia extendida y referidos
 
-Estado: spec, sin construir. Fuente de verdad de las decisiones de producto.
+Estado: **F1-F5 construidas y en `develop`** (2026-09-16). Fuente de verdad de
+las decisiones de producto.
+
+- F1 (DB + cascada de hermanos) — migración `20260916101241`, verificada con
+  `preview_open_month` contra Club Campestre Demo.
+- F2 (toggle en Ajustes) — `PaymentsAutomationPage.tsx`.
+- F3 (chips primos/referido en el modal de atleta) — `SchoolStudentsManagementPage.tsx`
+  + `discount_type` expuesto en `school_athletes` (migración `20260916102444`).
+- F4 (línea del descuento en el recibo) — `MyPaymentsPage.tsx`.
+- F5 (`seguridad:invariantes`) — sin violaciones CRÍTICAS; de paso se cerró una
+  regresión de `security_invoker` en `school_athletes` (migración `20260916103807`).
+- E2E — `frontend/e2e/descuentos.spec.ts` + `supabase/seed/descuentos_test_users.sql`,
+  3/3 verdes contra Escuela Demo SportMaps (corrido dos veces para confirmar
+  idempotencia).
+
+Pendiente, fuera de alcance de esta ronda: un % parcial editable para
+primos/referido vía UI (hoy es cuota exenta con tag — ver la nota de F3 en el
+historial de commits).
 
 ## Qué se pidió
 

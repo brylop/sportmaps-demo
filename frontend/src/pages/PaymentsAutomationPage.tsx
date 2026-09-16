@@ -2345,7 +2345,7 @@ export default function PaymentsAutomationPage() {
                     </div>
                   )}
                   <Separator />
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between" data-testid="sibling-discount-toggle-row">
                     <div>
                       <Label className="font-medium">Descuento por hermanos</Label>
                       <p className="text-xs text-muted-foreground">Se aplica solo, desde el 2do hijo activo de la misma familia</p>
@@ -2356,7 +2356,7 @@ export default function PaymentsAutomationPage() {
                     />
                   </div>
                   {billing.sibling_discount_enabled && (
-                    <div className="space-y-3 p-3 rounded-lg border bg-muted/30">
+                    <div className="space-y-3 p-3 rounded-lg border bg-muted/30" data-testid="sibling-discount-percentage-block">
                       <div className="space-y-2">
                         <Label htmlFor="sib_pct">Porcentaje de descuento</Label>
                         <div className="flex items-center gap-2">
