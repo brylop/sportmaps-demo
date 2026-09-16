@@ -12,7 +12,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { studentsAPI, Student } from '@/lib/api/students';
@@ -289,7 +288,11 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                         />
                     </div>
 
-                    <ScrollArea className="flex-1 min-h-0 pr-4">
+                    {/* Scroll propio, NO ScrollArea de Radix: su viewport interno se sale
+                        del contenedor acotado (medido en vivo: Root 669px, viewport 2932px)
+                        y lo que pasa del Root queda recortado por su overflow-hidden, sin
+                        forma de alcanzarlo. Era el "no deja bajar el listado" del coach. */}
+                    <div className="flex-1 min-h-0 overflow-y-auto pr-4">
                         {loading ? (
                             <div className="flex flex-col items-center justify-center py-12">
                                 <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
@@ -385,7 +388,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                                 })}
                             </div>
                         )}
-                    </ScrollArea>
+                    </div>
                 </div>
 
                 <DialogFooter className="shrink-0">
