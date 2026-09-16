@@ -67,7 +67,8 @@ la escuela, no el código.
     siendo admin-only sin excepción, y el frontend nunca muestra "Importar CSV" a un coach.
   - Inactivar/reactivar tampoco se habilita: ese RPC exige `is_school_admin` sin mirar el flag.
 - **Frontend:** [`SchoolStudentsManagementPage.tsx`](../frontend/src/pages/SchoolStudentsManagementPage.tsx)
-  agrega `canCreateOrEditStudents = canManageStudents || coachCanCreateAthletes`, leído de
+  agrega `canCreateOrEditStudents = canManageStudents || coachCanCreateAthletes` (desde
+  2026-09-03 el término `|| coachCanEditCategories` se suma — ver §7), leído de
   `useEntitlements()` → `GET /api/v1/me/entitlements` → vista `v_school_entitlements` → columna
   `coach_can_create_athletes`. Gatea solo "Agregar Atleta" y "Editar"; CSV, inactivar/reactivar
   y carga de documentos siguen atados al `canManageStudents` original (estricto).
@@ -79,3 +80,65 @@ la escuela, no el código.
   este toggle específico — a diferencia de `coach_can_enroll_paid_teams`, que tampoco
   tiene panel, este tampoco lo necesitaba para un caso puntual).
 - **RLS:** sin cambios — el gate es 100% BFF, igual que `coach_can_enroll_paid_teams`.
+
+## 7. Segunda excepción por escuela — `coach_can_edit_categories` (2026-09-03, Besser)
+
+Club Deportivo Besser (`759eee9d-05cb-4958-b84a-2560f77e3683`) se importó con
+`scripts/besser-import/01_cargar_atletas.mjs` y **todos sus atletas quedaron en el equipo
+placeholder "Sin categoría asignada"**. Sus entrenadores necesitaban repartirlos por categoría,
+pero no debían ver dinero. Migración `20260828174117` → no: eso habilita el *alta*. Se agregaron
+dos toggles propios en `20260903144504_coach_besser_financial_categoria.sql`:
+
+- `coach_can_edit_categories` — el BFF (`PUT /api/v1/students/:id`) acepta `enrollment.team_id`
+  de un coach y **sanea el resto del payload**: descarta `profile` entero y rechaza todo campo de
+  dinero (`monthly_fee`, `fee_is_manual`, `fee_reason`, `offering_plan_id`), tenga el flag o no.
+- `coach_hide_financial_info` — enmascara a NULL las columnas de dinero de la vista
+  `school_athletes` para coach. Va en el `SELECT` de la vista, no en una policy: RLS filtra
+  FILAS, no COLUMNAS, y esa pantalla lee directo contra Supabase sin pasar por el BFF.
+
+Ambos se exponen al frontend por `v_school_entitlements` → `useEntitlements()`. En
+`SchoolStudentsManagementPage.tsx` el término `|| coachCanEditCategories` entra en
+`canCreateOrEditStudents` (abre "Editar") pero **no** en `canCreateStudents` (el alta sigue
+cerrada), y `isCategoryOnlyCoach` apaga los bloques de perfil y de dinero del modal.
+
+### Los dos caminos para poner un atleta en una categoría — no confundirlos
+
+| | Camino | Gate |
+|---|---|---|
+| **(a)** | Mis Deportistas → Editar → selector de categoría → `PUT /api/v1/students/:id` | `coach_can_edit_categories` |
+| **(b)** | Mis Equipos → "Gestionar Deportistas" → `POST /api/v1/enrollments` | **ninguno** — `coach` ya está en el `requireRole` de `enrollments.ts`. Solo `coach_can_enroll_paid_teams` si el equipo tiene precio |
+
+El camino (b) funciona para **cualquier** coach de **cualquier** escuela desde antes de estos
+toggles. Un reporte de "no puedo añadir deportistas a la categoría" casi nunca es de permisos.
+
+### La trampa: el camino (a) depende de una lista que el coach quizá no ve
+
+`SchoolStudentsManagementPage.tsx` no usa `getSchoolView` cuando quien mira es coach: filtra por
+`enrolled_team_id IN (equipos del coach)`, resueltos desde `team_coaches.coach_id` y
+`teams.coach_id` (ambos apuntan a `school_staff.id`, buscado **por email**). Consecuencias:
+
+- Si el coach no está asignado al equipo placeholder, **su lista sale vacía** y no tiene a quién
+  reasignar, aunque `coach_can_edit_categories` esté activo. Esto es una falla de visibilidad,
+  no de permisos, y se ve idéntica al usuario.
+- Si el coach no tiene fila en `school_staff` con ese email, `coachId` queda `undefined` y cae al
+  branch `else`: ve **toda** la escuela.
+
+### Pendientes conocidos
+
+- **El coach puede inscribir pero no remover.** En `EnrollTeamStudentModal.tsx` "Inscribir" va por
+  el BFF y "Remover" va directo a Supabase, donde la RLS de `enrollments` lo rechaza. El propio
+  código lo comenta. Mover el remove al BFF exige decidir antes si el coach entra en el
+  `requireRole` de `DELETE/PATCH /api/v1/enrollments/:id` (hoy admin-only) — decisión de producto.
+- **Alcance sin candado servidor.** Ni el BFF ni la RLS limitan al coach a *sus* equipos: el filtro
+  por equipos del coach es de cliente. `POST /enrollments` valida `teams.school_id = req.schoolId`;
+  `PUT /students/:id` lee el equipo con `.eq('id', …)` **sin** `.eq('school_id', …)`.
+- **Los dos toggles son ortogonales y se cruzan mal.** `POST /enrollments` consulta
+  `coach_can_enroll_paid_teams` antes de inscribir a un equipo con precio; `PUT /students/:id`
+  **no**. Un coach de Besser que reasigne a una categoría con precio dispara `createPendingPayment`
+  sin pasar por ese toggle, y además no ve el monto que acaba de generar.
+- **Verificar contra la base** (el registro de migraciones no dice qué está vivo): la migración
+  `20260903144504` menciona una policy `"Staff can manage enrollments"` que usa `is_school_coach()`
+  y que **no existe en ningún `.sql` del repo**. `is_school_coach()` devuelve true para
+  owner/admin/coach. Si esa policy es de escritura y está viva, el coach tiene escritura directa a
+  `enrollments` por RLS y el razonamiento "el gate está en el BFF" es falso:
+  `select cmd, policyname, permissive, roles, qual, with_check from pg_policies where tablename = 'enrollments';`
