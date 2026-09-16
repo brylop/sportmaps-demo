@@ -93,7 +93,11 @@ vacío), previa verificación de 0 pagos y 0 asistencias.
 | Sede | 1 categoría | 2 categorías |
 |---|---|---|
 | **Suba** | $145.000 | $165.000 |
-| **Norte** | $165.000 | **¿?** — no lo dijeron (ver §6) |
+| **Norte** | $165.000 | $165.000 |
+
+Confirmado por Monster (2026-09-16): en Norte la doble categoría **también** son $165.000 — o sea, en Norte el
+precio no depende de la cantidad. Y **la doble categoría solo existe dentro de la misma sede**: no hay atleta
+con una categoría en Suba y otra en Norte.
 
 ### 3.2 Hoy, sin escribir una línea de código
 
@@ -141,11 +145,24 @@ según dónde entrena. El modelo **ya lo soporta sin columna nueva**: `school_ca
 | Sede Suba | 1 | 145.000 |
 | Sede Suba | 2 | 165.000 |
 | Sede Norte | 1 | 165.000 |
-| Sede Norte | 2 | *(decisión pendiente)* |
+| Sede Norte | 2 | 165.000 |
 
-Queda **una** pregunta que el modelo no responde solo: un atleta con una categoría en Suba y otra en Norte,
-¿qué tramo aplica? Propuesta: **manda la oferta del plan que tiene asignado** (es un dato explícito que alguien
-eligió); si no tiene plan, la sede de la **categoría principal**. Es decisión de Monster (§6).
+**La pregunta cross-sede quedó cerrada, y cierra barato:** Monster confirmó que un atleta **solo puede tener
+sus dos categorías en la misma sede**. Eso elimina el único caso que el modelo no resolvía solo — ya no hay que
+decidir "qué tramo manda" cuando las categorías cruzan sedes, porque no cruzan.
+
+A cambio aparece una **regla dura nueva**, que hay que construir (no se cumple sola):
+
+> **R8 — las categorías activas de una inscripción tienen que ser todas de la misma sede.**
+> Se valida en `set_enrollment_categories` y en el `POST /enrollments` que hoy agrega la segunda categoría
+> ([`enrollments.ts:396-470`](../bff/src/routes/enrollments.ts#L396-L470)), que **hoy no mira la sede**. Sin
+> R8, el día que Norte esté cargada, un admin puede armar un atleta Suba+Norte y el tramo vuelve a ser
+> ambiguo. La sede sale de `teams.branch_id` (o de `school_categories.branch_id` si se adopta por categoría).
+
+Nota para cuando se cargue Norte: las 13 categorías sembradas hoy son **de Suba** y tienen `branch_id = NULL`.
+Al cargar Norte hay que decidir si las categorías se duplican por sede (`school_categories.branch_id`) o si la
+sede vive solo en el equipo. **Para R8 y para los tramos basta con la sede del equipo**; duplicar el catálogo
+por sede es más ordenado pero no es requisito.
 
 ### 3.4 "Estar en las dos listas" — esto es lo que de verdad falta
 
@@ -168,17 +185,80 @@ categorías entrena en las dos, pero el sistema lo muestra en una.
 
 ---
 
+### 3.5 🔴 Cargar los planes sin que se emita un solo cobro
+
+Monster fue explícito: **no pueden emitir pagos todavía**, los planes nuevos son para *todos* los atletas, los
+de doble categoría se configuran después, y **todo lo que hay hoy queda en $0**.
+
+Eso choca de frente con algo que está vivo en producción:
+
+> El cron **`generate-monthly-charges-daily`** corre **todos los días 6:30** y llama a `open_month()` por cada
+> escuela con `school_settings.auto_generate_payments = true`
+> ([`20260724000003`](../supabase/migrations/20260724000003_generate_monthly_charges_delegates.sql),
+> re-agendado en [`20260824140944`](../supabase/migrations/20260824140944_restaurar_cron_generacion_mensual.sql)).
+> El default de la columna es **`TRUE`** ([`20260226000057`](../supabase/migrations/20260226000057_sync_school_settings.sql)).
+
+Traducción: **asignarles el plan de $145.000 a los 126 atletas con ese toggle encendido genera 126 cobros a la
+mañana siguiente, solos.** Nadie tiene que oprimir nada. Y como Monster no tiene cuenta de pago, esa cartera
+nace impagable.
+
+#### Cómo se evita
+
+`open_month` ya filtra `fee.amount > 0` ([`20260827175215:133`](../supabase/migrations/20260827175215_fee_is_manual_becas_cuota_exenta.sql#L133)):
+**cuota 0 = no se genera cobro**, no se genera un cobro de $0. Hay entonces dos palancas, y se prefiere la primera:
+
+| | Palanca | Efecto | Costo de revertir |
+|---|---|---|---|
+| **A (recomendada)** | Apagar **`auto_generate_payments`** — switch *Generar cobros automáticos* en `Pagos → Config` ([`PaymentsAutomationPage.tsx:2293`](../frontend/src/pages/PaymentsAutomationPage.tsx#L2293)) | El cron salta la escuela entera. Los planes quedan configurados y visibles, sin facturar | Un clic |
+| **B** | `monthly_fee = 0` + `fee_is_manual = true` por atleta | El atleta queda fuera de la cascada: su cuota es 0 aunque tenga plan de $145.000 | **126 filas que hay que desmarcar una por una** el día que arranquen a cobrar |
+
+**A hace lo que Monster pidió con una sola palanca reversible.** B existe para becas individuales, no para
+parar una escuela: dejar 126 atletas con `fee_is_manual` es sembrar el bug del año que viene ("configuramos los
+planes y no cobra a nadie"). Si además quieren que la ficha muestre **$0 explícito**, se usa B *encima* de A,
+sabiendo el costo.
+
+`billing_enabled = false` (super admin) es la versión pesada de A: apaga los tres toggles y además **esconde
+Pagos, Finanzas y Recordatorios** de la escuela ([`20260815141039`](../supabase/migrations/20260815141039_billing_enabled_por_escuela.sql)).
+Sirve si Monster no debe ni ver el módulo; no sirve si van a configurar planes ahí mismo.
+
+#### Orden obligatorio
+
+1. **Apagar `auto_generate_payments`** de Monster. **Antes** de tocar planes, no después.
+2. Verificar que quedó apagado (§5.7) y que no hay cobros pendientes vivos (§5.8).
+3. Crear los planes y asignarlos.
+4. Volver a mirar §5.8 al día siguiente: si aparecieron cobros, el toggle no quedó apagado.
+
+#### Lo que ya está generado
+
+El conteo va en §5.8. Según [`inscripciones-sin-monto-y-candados.md §1.2`](inscripciones-sin-monto-y-candados.md)
+Monster tiene **4 pagos históricos** y una cartera prácticamente vacía (126 inscripciones, 1 solo plan
+configurado, la mayoría sin monto → `amount > 0` nunca se cumplió). Lo esperable es que no haya casi nada que
+limpiar.
+
+Si aparece cartera pendiente, **hoy no hay una acción masiva de "anular cobros" en la UI**: lo único que anula
+pendientes en lote es inactivar al atleta (`set_school_athlete_status`), que acá no aplica. Anular N cobros
+pendientes sin tocar los `paid`/`partial` necesitaría una RPC nueva → migración → y eso es plan aprobado
+primero. **No se resuelve con un UPDATE a mano en el SQL editor**: deja la base cambiada sin rastro.
+
+---
+
 ## 4. Alcance por fases
 
 | Fase | Qué | Código | Rama |
 |---|---|---|---|
-| **0 — hoy** | Limpiar el equipo de prueba · inactivar (o depurar) el atleta · crear los 3 planes de §3.2 · **y resolver cuenta de pago + invitaciones** | Ninguno | — |
+| **0 — hoy** | **Apagar `auto_generate_payments` (§3.5)** · limpiar el equipo de prueba · inactivar (o depurar) el atleta · crear los 3 planes de §3.2 y asignarlos a todos | Ninguno | — |
+| **0.5 — cuando Monster quiera cobrar** | Cuenta de pago + invitar a las 125 fichas + volver a prender la generación | Ninguno | — |
 | **1 — las dos listas** | Cierre de F3: columnas en `school_athletes`, rosters y asistencia leyendo `enrollment_categories`, `set_enrollment_categories` + UI | DB + BFF + Front | una rama |
 | **2 — los tramos** | F4: `school_category_pricing` con alcance por oferta/sede, `resolve_athlete_fee`, `recalc_*`, trigger, UI de tramos con preview | DB + BFF + Front | una rama |
 
 Fase 1 antes que Fase 2 **a propósito**: cobrar $165.000 por dos categorías que el sistema no sabe listar es
-cobrar por un dato que nadie puede auditar. Además la Fase 0 ya deja el precio correcto en la factura mientras
-tanto.
+cobrar por un dato que nadie puede auditar. Y con la facturación apagada (§3.5) no hay prisa por los tramos:
+mientras Monster no emita, el plan de doble categoría asignado a mano alcanza — que es justo lo que pidieron
+("los de doble ya los configuramos después").
+
+**Carga de Sede Norte:** es requisito de la Fase 2 (sin sus equipos no hay a qué colgarle el tramo de Norte) y
+no depende de nada de acá. Puede ir en paralelo, con el mismo camino que se usó para Suba
+([`scripts/monster-volley-suba-import`](../scripts/monster-volley-suba-import/README.md)).
 
 ---
 
@@ -228,20 +308,60 @@ select ec.enrollment_id, count(*) as categorias
  where ec.school_id = 'eb3ebc77-4ea4-4992-96c8-3c8ec574578c'
    and ec.status = 'active'
  group by 1 having count(*) > 1;
+
+-- 5.7 EL TOGGLE QUE DECIDE SI SE FACTURA (§3.5). Correr ANTES de crear planes.
+select s.name, ss.billing_enabled, ss.auto_generate_payments,
+       ss.late_fee_enabled, ss.reminder_enabled
+  from public.school_settings ss
+  join public.schools s on s.id = ss.school_id
+ where ss.school_id = 'eb3ebc77-4ea4-4992-96c8-3c8ec574578c';
+
+-- 5.8 ¿Qué cartera existe hoy? (lo que hay que "dejar en 0")
+select status, count(*) as cobros, sum(amount) as monto,
+       min(period_year || '-' || period_month) as desde,
+       max(period_year || '-' || period_month) as hasta
+  from public.payments
+ where school_id = 'eb3ebc77-4ea4-4992-96c8-3c8ec574578c'
+ group by status
+ order by status;
+
+-- 5.9 ¿Cuántos atletas generarían cobro si el cron corriera mañana?
+--     (misma cadena que open_month; > 0 = se factura)
+select count(*) filter (where fee > 0) as generarian_cobro,
+       count(*)                         as inscripciones_activas
+  from (
+    select case when e.fee_is_manual then coalesce(e.monthly_fee, 0)
+                else coalesce(nullif(e.monthly_fee, 0), op.price, t.price_monthly, 0)
+           end as fee
+      from public.enrollments e
+      left join public.offering_plans op on op.id = e.offering_plan_id
+      left join public.teams t          on t.id  = e.team_id
+     where e.school_id = 'eb3ebc77-4ea4-4992-96c8-3c8ec574578c'
+       and e.status = 'active'
+  ) x;
 ```
 
 ---
 
-## 6. Decisiones que faltan de Monster
+## 6. Decisiones
 
-| # | Pregunta | Por qué bloquea |
+### 6.1 Cerradas (Monster, 2026-09-16)
+
+| # | Pregunta | Respuesta | Consecuencia |
+|---|---|---|---|
+| **1** | ¿Doble categoría en Norte? | **$165.000**, igual que una sola | En Norte el precio no depende de la cantidad: un solo tramo |
+| **2** | ¿Suba y Norte son dos sedes o dos escuelas? | **Dos sedes de la misma escuela.** Norte **falta por cargar** | Norte = `school_branches` + equipos + roster. La carga es requisito de la Fase 2 |
+| **3** | ¿Doble categoría cruzando sedes? | **No.** Solo dentro de la misma sede | Cierra la ambigüedad del tramo cross-sede, y obliga a construir **R8** (§3.3) |
+| **4** | ¿Se emiten cobros ya? | **No.** Los planes son para todos los atletas; los de doble se configuran después; **todo lo actual queda en 0** | §3.5: apagar `auto_generate_payments` **antes** de asignar planes, o el cron factura solo |
+
+### 6.2 Todavía abiertas
+
+| # | Pregunta | Por qué importa |
 |---|---|---|
-| **1** | En **Sede Norte**, ¿la doble categoría también cuesta $165.000, o hay otro valor? | Es el tramo `n=2` de la oferta Norte. Sin esto, Norte solo puede tener el tramo de 1 |
-| **2** | ¿Suba y Norte son **dos sedes de la misma escuela** en la plataforma, o dos escuelas? Hoy solo está cargada **Suba** (13 categorías, 14 equipos, 126 inscripciones) | Define si Norte es un `school_branches` nuevo + su roster, o una escuela aparte. Cambia todo lo demás |
-| **3** | Un atleta con una categoría en **cada** sede: ¿qué paga? | §3.3. Propuesta: manda la oferta de su plan; si no tiene, la sede de su categoría principal |
-| **4** | ¿Desde qué mes aplican los precios nuevos? | D7: los cobros **ya emitidos** no se tocan; el ajuste entra en el siguiente `open_month` |
-| **5** | ¿Cuál es el deportista inactivo (nombre + documento) y qué significa "quitar": sacarlo de la lista o borrarlo? | §2 |
-| **6** | ¿Hay matrícula/inscripción anual aparte de la mensualidad? | Cambia si va como `registration_fee` del plan o como cobro suelto |
+| **5** | ¿Cuál es el deportista inactivo (nombre + documento)? ¿"Quitar" es sacarlo de la lista o borrarlo? | §2. Con 126 inscripciones no se adivina |
+| **6** | ¿Desde qué mes empiezan a cobrar de verdad? | Define cuándo se vuelve a prender la generación (Fase 0.5) y desde qué `open_month` aplica el precio |
+| **7** | ¿Hay matrícula/inscripción anual aparte de la mensualidad? | Cambia si va como `registration_fee` del plan o como cobro suelto |
+| **8** | Al cargar Norte, ¿el catálogo de categorías se duplica por sede? | §3.3. Para R8 y los tramos basta la sede del equipo; duplicar es más ordenado, no obligatorio |
 
 ---
 
@@ -251,6 +371,8 @@ select ec.enrollment_id, count(*) as categorias
 - **No crear una segunda inscripción** para la doble categoría. Rompe `school_athletes`, `open_month` y los índices únicos (D3). La multi-categoría vive en `enrollment_categories`.
 - **No partir el cobro en dos** ($145.000 + $20.000). Obligaría a relajar `uniq_payment_active_period_per_child`, el índice que sostiene toda la protección anti-duplicado (D18).
 - **No "repartir" los $165.000 por categoría** en el desglose: dos categorías juntas valen 165.000, la segunda no "vale 20.000" (§5.3 del spec).
+- **No asignar los planes con `auto_generate_payments` encendido.** El cron de las 6:30 genera la cartera solo, al día siguiente, y Monster no tiene cuenta de pago para recibirla (§3.5).
+- **No dejar 126 atletas con `fee_is_manual = true`** como forma de "no cobrar": es la palanca de becas individuales, y el día que arranquen a cobrar hay que desmarcarlos uno por uno.
 - **No editar migraciones existentes.** Todo fix va en una nueva, creada con `npm run migrations:new -- <slug>`.
 - **No aplicar SQL desde el editor de Supabase**: deja la base cambiada sin rastro en `schema_migrations`.
 
