@@ -12,95 +12,136 @@ Lo que pidió Monster, textual:
 
 ---
 
-## 0. Método — qué está verificado y qué no
+## 0. Verificado contra la base viva — 2026-09-16
 
-Todo lo de este documento está verificado **contra el repositorio** (migraciones, BFF, frontend). **No** está
-verificado contra la base viva: esta sesión no tiene acceso a Supabase. Los conteos que deciden el camino
-(¿el equipo de prueba está vacío?, ¿existe la sede Norte?, ¿cuál es el atleta inactivo?) se confirman con el
-SQL de §5 **antes** de tocar nada.
+Este plan se escribió primero contra el repo y **después se verificó contra la base**. La verificación cambió
+tres cosas de fondo, así que lo que sigue ya no es hipótesis:
 
-Recordatorio del repo: **la fuente de verdad es la base, no el repo** — que algo esté commiteado no significa
-que esté vivo, y al revés (hay ~82 migraciones "sin registro" que sí están aplicadas).
+| Hallazgo | Detalle |
+|---|---|
+| **Hay DOS equipos "Mayores Femenino"** | El de prueba y el real del roster. No son el mismo (§1.2) |
+| **El deportista inactivo es la misma persona del equipo de prueba** | Alejandra Losada Mejía, sin ningún historial (§2.1) |
+| **Y tiene identidad duplicada: su cuenta adulta sigue activa y facturando** | Los 4 pagos de Monster son suyos; 3 están vencidos (§2.2) |
+| **Sede Norte ya existe** | `e2918c8d-b510-4f7f-9b05-e73a5e8edb68`, creada el 2026-07-06, con **0 equipos** y 0 ofertas |
+| **`auto_generate_payments` está en `true`** | El cron puede facturar mañana (§3.5) |
 
----
+Cifras de Monster´s Volley Club (`eb3ebc77-4ea4-4992-96c8-3c8ec574578c`) al 2026-09-16:
 
-## 1. Punto 1 — el equipo "MAYORES FEMENINO" de prueba
+| | |
+|---|---|
+| Inscripciones activas | **126** |
+| Equipos | **14** (13 en Sede Suba + 1 de prueba sin sede) |
+| Categorías en el catálogo | 13 |
+| Planes activos | **1** ("Tarifa plena", 145.000, **0 inscritos**) |
+| Sedes | 2 — Suba (13 equipos) y **Norte (0 equipos)** |
+| Pagos históricos | **4 — todos de la misma atleta de prueba** |
+| Cartera viva | **3 cobros vencidos · 456.750** |
+| Inscripciones que generarían cobro si el cron corre mañana | **1 de 126** |
+| Atletas con cuota manual (`fee_is_manual`) | **0** |
 
-### 1.1 Primero: son dos cosas distintas con el mismo nombre
-
-| | Qué es | Se borra |
-|---|---|---|
-| **Categoría** `MAYFEM` — "MAYORES FEMENINO" | Fila del catálogo de la escuela (`school_categories`), sembrada con las 13 categorías reales de Suba en [`20260826105957`](../supabase/migrations/20260826105957_mod3_school_categories_f1_f2.sql#L121) | **No.** Es catálogo, no roster. Si sobra: `is_active = false` (D10: nunca hard delete) |
-| **Equipo** de prueba (`teams`) | El grupo concreto que se creó en la demo presencial | Sí, con las reglas de abajo |
-
-Borrar el equipo **no** toca la categoría, y no hay por qué tocarla: es una de las 13 categorías reales que
-Monster dictó, no un artefacto de la prueba.
-
-### 1.2 Sí se puede, y ya está en la UI
-
-`Equipos` → menú **⋯** del equipo → dos opciones ([`TeamsPage.tsx:282-360`](../frontend/src/pages/TeamsPage.tsx#L282-L360)):
-
-| Acción | Qué hace | Cuándo |
-|---|---|---|
-| **Archivar** | `teams.status = 'inactive'`. Reversible. No toca inscritos ni pagos. Desaparece de los selectores de equipo (todos filtran `status='active'`, p. ej. [`CreateChildModal.tsx:304`](../frontend/src/components/students/CreateChildModal.tsx#L304)) | El equipo tiene aunque sea **una** ficha, asistencia o partido |
-| **Eliminar permanente** | `DELETE` real. **Se bloquea solo** si el equipo tiene inscripciones o `children` asociados, y el `23503` de FK lo bloquea si tiene asistencia/partidos | El equipo está **vacío** — que es lo esperable en un equipo de demo |
-
-**Recomendación:** correr el conteo de §5.1. Si da 0 → *Eliminar permanente*. Si da cualquier cosa > 0, no
-forzar el borrado: **archivar** (conserva historial y lo saca de todas las listas) o mover esas fichas al
-equipo correcto primero. Un equipo de prueba con 14 fichas adentro no es un equipo de prueba: es roster real
-mal ubicado.
-
-> Dato de contexto: Monster tiene **14 equipos** y **126 inscripciones activas** (125 fichas sin cuenta + 1
-> adulto), según [`docs/inscripciones-sin-monto-y-candados.md §1.2`](inscripciones-sin-monto-y-candados.md).
-> Vale la pena mirar los 14 de una vez: si la demo dejó más de un equipo de prueba, se limpian juntos.
+Las consultas que produjeron esto quedan en §5, para poder repetirlas.
 
 ---
+
+## 1. Punto 1 — el equipo "Mayores Femenino" de prueba
+
+### 1.1 Hay DOS equipos con ese nombre, y solo uno es el de la demo
+
+| | Equipo de prueba | Equipo real |
+|---|---|---|
+| `id` | `1906b9e5-bcab-45f9-a101-f890af865a6b` | `a9edafee-616f-42f6-94d9-392ef78016a4` |
+| Nombre | "Mayores Femenino" (minúsculas) | "MAYORES FEMENINO" (mayúsculas, como todo el roster) |
+| Creado | **2026-07-06** — el día de la visita presencial | 2026-08-26 — la carga del roster de Suba |
+| Sede | **ninguna** (`branch_id` NULL) | Sede Suba |
+| Categoría | **ninguna** (`category_id` NULL) | `MAYFEM` del catálogo |
+| `price_monthly` | **145.000** (alguien lo escribió en la demo) | 0 |
+| Inscripciones | 1, **cancelada** | **7 activas** |
+| Asistencias | 0 | 0 |
+
+**El de la demo es el de minúsculas**, sin sede y sin categoría. El otro es el real y no se toca.
+
+Y ojo con una tercera cosa que se llama igual: la **categoría** `MAYFEM` del catálogo
+([`20260826105957`](../supabase/migrations/20260826105957_mod3_school_categories_f1_f2.sql#L121)). Esa no se
+borra nunca (D10: soft delete) y no la afecta borrar ningún equipo.
+
+### 1.2 Se puede eliminar, pero la UI lo va a bloquear tal como está
+
+El menú **⋯** de `Equipos` ofrece *Archivar* y *Eliminar permanente*
+([`TeamsPage.tsx:282-360`](../frontend/src/pages/TeamsPage.tsx#L282-L360)), y el borrado se bloquea solo si el
+equipo tiene inscripciones o `children` apuntándole. El de prueba tiene **las dos cosas**:
+
+- 1 inscripción `cancelled` (de Alejandra Losada Mejía, §2), y
+- 1 fila de `children` con `team_id` apuntando al equipo.
+
+El conteo de la UI suma ambas sin mirar el estado, así que da 2 y **bloquea**. Tres salidas, en orden de menos
+a más invasivo:
+
+| | Qué | Resultado |
+|---|---|---|
+| **A** | **Archivar** el equipo | Un clic, reversible, desaparece de todos los selectores. **El historial de la demo queda**, que es lo honesto |
+| **B** | Limpiar primero las dos referencias (la inscripción cancelada y `children.team_id`) y después *Eliminar permanente* | El equipo desaparece. Son dos escrituras a mano sobre datos de prueba |
+| **C** | Borrar en bloque el artefacto completo de la demo (equipo + ficha + cobros) | §2.3. Es lo que de verdad pidió Monster, y hay que hacerlo en orden |
+
+**Recomendación: C**, porque el equipo de prueba no es el único residuo de esa demo — la misma ficha está
+generando cartera (§2.2). Archivar el equipo y dejar lo demás resuelve lo que se ve y no lo que cobra.
 
 ## 2. Punto 2 — "quitar el deportista inactivo"
 
-### 2.1 Inactivarlo ya lo saca de la operación
+### 2.1 Es uno solo, y es la misma persona del equipo de prueba
 
-La baja **no** es solo un rótulo: pasa por el RPC `set_school_athlete_status`
-([`20260730170000`](../supabase/migrations/20260730170000_deactivate_athlete_cancels_plan.sql)), que en una
-sola transacción:
+En toda la escuela hay **un** atleta inactivo: **Alejandra Losada Mejía** (ficha `children`), con
+**0 pagos conciliados, 0 asistencias y 0 documentos**. Su inscripción al equipo de prueba se canceló el
+2026-07-30. Es exactamente el perfil de una ficha de demo: sin ningún rastro que conservar.
 
-- marca el atleta inactivo en su tabla base (`children` / `school_members` / `unregistered_athletes`),
-- **cancela su inscripción**, y
-- **anula los cobros pendientes** (`pending`, `awaiting_approval`, `overdue`). Los `paid` / `partial` **nunca** se tocan.
+O sea que los dos primeros pedidos de Monster **son el mismo artefacto**: el equipo que crearon en la visita y
+la atleta que metieron para probarlo.
 
-Nació justo del caso contrario (VOLK FIT, 2026-07-30: tres atletas dados de baja que siguieron facturando).
-Un atleta inactivo no aparece en la pestaña *Activos* de `Deportistas`, no se le puede asignar equipo ni plan,
-y no entra en la generación del mes.
+### 2.2 🔴 Pero hay una segunda Alejandra, activa, y es la que factura
 
-### 2.2 Borrarlo del todo: no existe en la UI, y es a propósito
+La misma persona existe **dos veces** en la escuela:
 
-No hay borrado duro de atletas en la aplicación. Se conserva el historial (pagos conciliados, asistencia,
-documentos). **Si lo que Monster quiere es que no estorbe en la lista, inactivarlo ya lo resuelve.**
-
-Si de verdad es una ficha cargada por error, sin historial, el camino limpio es el rollback del import
-([`scripts/monster-volley-suba-import/03_rollback.sql`](../scripts/monster-volley-suba-import/03_rollback.sql),
-que borra en orden inverso: `athlete_documents` → `enrollments` → `unregistered_athletes` → el equipo si queda
-vacío), previa verificación de 0 pagos y 0 asistencias.
-
-### 2.3 Cómo decidir sin saber cuál es
-
-Monster no sabe cuál es el atleta inactivo, y con 126 inscripciones no se adivina. No hace falta adivinar: la
-consulta §5.5 lista **todos** los inactivos con su historial y aplica sola el criterio de decisión.
-
-| Veredicto | Qué significa | Qué hacer |
+| | Ficha `children` | Cuenta de atleta (adulto) |
 |---|---|---|
-| **CONSERVAR** | Tiene pagos conciliados (`paid`/`partial`) o asistencia registrada | Nada. Ya está inactivo, ya está fuera de la operación y de la generación del mes. Borrarlo destruiría historial contable |
-| **REVISAR** | Sin historial, pero con documentos cargados (foto, EPS, cédulas, firmas) | Decisión de Monster: es alguien que se inscribió y nunca entrenó. Borrarlo borra también sus documentos de `identity-documents` |
-| **CANDIDATO A BORRAR** | Ficha sin ningún rastro | Es lo que uno espera de una prueba. Acá sí aplica el rollback de §2.2 |
+| Nombre | Alejandra Losada Mejía (con tilde) | Alejandra Losada Mejia (sin tilde) |
+| `id` | ficha sin cuenta | `d15ddcca-16eb-43b6-99ee-7ae56cb70708` · alejandralosada1599@gmail.com |
+| Estado | **inactiva** | **activa** (`school_members.status = active`) |
+| Inscripción | `8263a900-…` al equipo de **prueba** — `cancelled` | `cbd17124-…` al equipo **real** MAYORES FEMENINO — **`active`** |
+| Cuota | 145.000 (congelada en la fila cancelada) | **145.000 escritos a mano en `monthly_fee`** |
+| Asistencias | 0 | 0 |
 
-**Lo más probable, por el estado de la cuenta:** Monster tiene 4 pagos históricos en total y 0 cobros
-automáticos generados, así que casi nadie va a caer en *CONSERVAR* por pagos. El discriminador real va a ser
-**asistencia** y **documentos** — que es justo lo que separa a un atleta real de una ficha de demo.
+**Los 4 pagos que tiene Monster en toda su historia son de ella**, y salen de la inscripción adulta:
 
-Si sale **más de uno** inactivo, hay que preguntarle a Monster cuál quiso decir antes de borrar nada: "el
-deportista inactivo" en singular puede ser el único que ven en su pantalla, no el único que existe.
+| Cobro | Estado | Monto | Creado |
+|---|---|---|---|
+| "Equipo Mayores Femenino — Mensualidad completa (Desc. 5%)" | `cancelled` | 137.750 | 2026-07-06 |
+| Mensualidad 07/2026 | **`overdue`** | 152.250 | 2026-07-14 |
+| Mensualidad 08/2026 | **`overdue`** | 152.250 | 2026-08-25 |
+| Mensualidad 09/2026 | **`overdue`** | 152.250 | 2026-09-01 |
 
----
+Son **456.750 de mora fantasma**, de la única persona que la escuela cree que ya dio de baja. Y se siguen
+generando: el de septiembre nació el 1.º de ese mes, solo. La causa es la de siempre
+([identidades duplicadas](specs/sport-categories-and-multi-category.md)): inactivar la **ficha** no toca la
+**cuenta**, porque para el sistema son dos atletas distintos. `set_school_athlete_status` hizo bien su trabajo
+sobre la ficha; nadie le dijo nada a la otra identidad.
+
+De las 126 inscripciones activas de Monster, **esta es la única que genera cobro**. El resto está en 0 porque
+nunca se les asignó plan ni precio de equipo.
+
+### 2.3 El orden para dejarlo limpio
+
+Nada de esto lo ejecuta este plan: son datos de producción y **las eliminaciones las hace el usuario**
+([[feedback_user_handles_deletions]]). El orden importa, porque borrar de atrás para adelante choca con las FK:
+
+1. **Apagar `auto_generate_payments`** (§3.5). Si no, mañana nace la mensualidad de 10/2026 y esto se repite.
+2. **Anular los 3 cobros vencidos** de la inscripción adulta. Con eso la cartera de Monster queda en **0**, que
+   es literalmente lo que pidieron.
+3. **Decidir qué pasa con la inscripción adulta activa** (`cbd17124-…`). Está en el equipo **real**, así que la
+   pregunta no es "borrar o no" sino **si Alejandra es una atleta de verdad de MAYORES FEMENINO**:
+   - si lo es → se le quita el `monthly_fee = 145.000` escrito a mano en la demo y queda como sus 6 compañeras, en 0;
+   - si no lo es → se cancela la inscripción y se le da de baja la cuenta, igual que a la ficha.
+   **Esto lo tiene que responder Monster**, no se deduce de la base: la cuenta tiene correo y teléfono reales.
+4. **Borrar la ficha `children` inactiva y el equipo de prueba**, en ese orden (primero la inscripción
+   cancelada y `children.team_id`, después el equipo), o simplemente archivar el equipo (§1.2, opción A).
 
 ## 3. Punto 3 — los planes
 
@@ -121,11 +162,14 @@ Se puede dejar operando ya, en `Ofertas y planes`
 ([`OfferingsPage`](../frontend/src/pages/OfferingsPage.tsx) → [`OfferingsManagement`](../frontend/src/components/universal/OfferingsManagement.tsx)),
 creando **tres planes** y asignándolos por atleta desde el editor de `Deportistas`:
 
-| Plan | Precio |
-|---|---|
-| Mensualidad Sede Suba | 145.000 |
-| Mensualidad Sede Suba — doble categoría | 165.000 |
-| Mensualidad Sede Norte | 165.000 |
+| Plan | Precio | Nota |
+|---|---|---|
+| Mensualidad Sede Suba | 145.000 | Ya existe algo muy parecido: la oferta "Entrenamientos Martes, Jueves y Domingos" con el plan **"Tarifa plena" a 145.000** — activo y con **0 inscritos**. Conviene renombrarlo y reusarlo antes que crear un duplicado |
+| Mensualidad Sede Suba — doble categoría | 165.000 | Se configura **después**, cuando Monster diga quiénes son (§4) |
+| Mensualidad Sede Norte | 165.000 | La sede **ya existe** en la plataforma (0 equipos): el plan se puede crear desde hoy, aunque el roster llegue después |
+
+> La oferta actual tiene `branch_id` NULL — no está atada a ninguna sede. Al crear las de Suba y Norte conviene
+> atarlas a su sede: es lo que después deja colgar los tramos por oferta sin columna nueva (§3.3).
 
 El motor de cobros ya resuelve el monto con la cascada
 `COALESCE(NULLIF(enrollments.monthly_fee,0), offering_plans.price, teams.price_monthly, children.monthly_fee, 0)`,
@@ -141,6 +185,9 @@ Lo que esta vía **no** da, y hay que decirlo antes de venderla como solución:
 4. **Monster tiene 0 cuentas de pago configuradas.** Los cobros se generan, pero hoy nadie puede pagarlos en
    línea, y de 125 fichas cargadas **no se envió ninguna invitación** (§1.2 del doc de inscripciones). Poner
    los planes sin resolver eso deja la cartera creciendo contra un buzón vacío. **Esto es más urgente que los tramos.**
+5. **Y asignar el plan a los 126 dispara la facturación**, que es justo lo que Monster no quiere todavía. Hoy
+   **1 sola** de las 126 inscripciones genera cobro (§2.2); con el plan asignado a todas, serían **126**. Por eso
+   §3.5 va antes que este paso, no después.
 
 ### 3.3 La forma correcta: F4 del spec, adaptada a dos sedes
 
@@ -246,15 +293,18 @@ Sirve si Monster no debe ni ver el módulo; no sirve si van a configurar planes 
 
 #### Lo que ya está generado
 
-El conteo va en §5.8. Según [`inscripciones-sin-monto-y-candados.md §1.2`](inscripciones-sin-monto-y-candados.md)
-Monster tiene **4 pagos históricos** y una cartera prácticamente vacía (126 inscripciones, 1 solo plan
-configurado, la mayoría sin monto → `amount > 0` nunca se cumplió). Lo esperable es que no haya casi nada que
-limpiar.
+Verificado: Monster tiene **4 pagos en toda su historia y los 4 son de la atleta de prueba** — 1 anulado y
+**3 vencidos por 456.750** (§2.2). No hay más cartera. De las 126 inscripciones activas, **solo 1 genera
+cobro**, y es esa misma.
 
-Si aparece cartera pendiente, **hoy no hay una acción masiva de "anular cobros" en la UI**: lo único que anula
-pendientes en lote es inactivar al atleta (`set_school_athlete_status`), que acá no aplica. Anular N cobros
-pendientes sin tocar los `paid`/`partial` necesitaría una RPC nueva → migración → y eso es plan aprobado
-primero. **No se resuelve con un UPDATE a mano en el SQL editor**: deja la base cambiada sin rastro.
+Dicho de otro modo: **apagar el toggle y anular esos 3 cobros deja la escuela exactamente en 0**, que es lo
+que Monster pidió. No hay un trabajo masivo escondido.
+
+Para anular esos 3 no hay acción en la UI (lo único que anula pendientes en lote es inactivar al atleta con
+`set_school_athlete_status`, y su ficha ya está inactiva — los cobros cuelgan de la **otra** identidad). Son
+3 filas: se resuelve puntualmente, con criterio de a quién pertenecen, **nunca con un UPDATE masivo a ciegas**.
+Y si se hace desde el SQL editor, queda sin rastro en `schema_migrations`
+([[project_supabase_sql_editor_gotchas]]).
 
 ---
 
@@ -262,7 +312,7 @@ primero. **No se resuelve con un UPDATE a mano en el SQL editor**: deja la base 
 
 | Fase | Qué | Código | Rama |
 |---|---|---|---|
-| **0 — hoy** | **Apagar `auto_generate_payments` (§3.5)** · limpiar el equipo de prueba · inactivar (o depurar) el atleta · crear los 3 planes de §3.2 y asignarlos a todos | Ninguno | — |
+| **0 — hoy** | **1)** apagar `auto_generate_payments` (§3.5) · **2)** anular los 3 cobros vencidos y resolver la inscripción adulta duplicada (§2.3) · **3)** limpiar el equipo de prueba y la ficha inactiva · **4)** crear los planes de §3.2 y asignarlos | Ninguno | — |
 | **0.5 — cuando Monster quiera cobrar** | Cuenta de pago + invitar a las 125 fichas + volver a prender la generación | Ninguno | — |
 | **1 — las dos listas** | Cierre de F3: columnas en `school_athletes`, rosters y asistencia leyendo `enrollment_categories`, `set_enrollment_categories` + UI | DB + BFF + Front | una rama |
 | **2 — los tramos** | F4: `school_category_pricing` con alcance por oferta/sede, `resolve_athlete_fee`, `recalc_*`, trigger, UI de tramos con preview | DB + BFF + Front | una rama |
@@ -278,7 +328,10 @@ no depende de nada de acá. Puede ir en paralelo, con el mismo camino que se us�
 
 ---
 
-## 5. Verificación previa (correr antes de tocar nada)
+## 5. Las consultas de verificación (ya corridas el 2026-09-16)
+
+Quedan acá para repetirlas después de cada paso — y porque la de §5.7 hay que volver a correrla al día
+siguiente de apagar el toggle, para confirmar que no nació ningún cobro nuevo.
 
 ```sql
 -- 5.1 ¿El equipo de prueba está vacío? (reemplazar el id tras identificarlo)
@@ -393,7 +446,7 @@ select count(*) filter (where fee > 0) as generarian_cobro,
 | # | Pregunta | Respuesta | Consecuencia |
 |---|---|---|---|
 | **1** | ¿Doble categoría en Norte? | **$165.000**, igual que una sola | En Norte el precio no depende de la cantidad: un solo tramo |
-| **2** | ¿Suba y Norte son dos sedes o dos escuelas? | **Dos sedes de la misma escuela.** Norte **falta por cargar** | Norte = `school_branches` + equipos + roster. La carga es requisito de la Fase 2 |
+| **2** | ¿Suba y Norte son dos sedes o dos escuelas? | **Dos sedes de la misma escuela.** Norte **falta por cargar** | Verificado: la sede Norte **ya existe** desde el 2026-07-06 con **0 equipos**. Lo que falta no es crearla, es cargarle equipos y roster |
 | **3** | ¿Doble categoría cruzando sedes? | **No.** Solo dentro de la misma sede | Cierra la ambigüedad del tramo cross-sede, y obliga a construir **R8** (§3.3) |
 | **4** | ¿Se emiten cobros ya? | **No.** Los planes son para todos los atletas; los de doble se configuran después; **todo lo actual queda en 0** | §3.5: apagar `auto_generate_payments` **antes** de asignar planes, o el cron factura solo |
 
@@ -401,7 +454,8 @@ select count(*) filter (where fee > 0) as generarian_cobro,
 
 | # | Pregunta | Por qué importa |
 |---|---|---|
-| **5** | Si la consulta §5.5 devuelve **más de un** inactivo: ¿cuál quiso decir Monster, y "quitar" es sacarlo de la lista o borrarlo? | §2.3. Con un solo inactivo la pregunta se cae sola: ya está fuera de la operación |
+| **5** | **¿Alejandra Losada Mejía es una atleta real de MAYORES FEMENINO, o era solo la prueba?** | §2.3. Es la única pregunta que bloquea la limpieza: su cuenta adulta está activa en el equipo real y es la que generó los 3 cobros vencidos. La base no lo puede responder — tiene correo y teléfono reales |
+| **9** | ¿Se anulan los 3 cobros vencidos (456.750) o se dejan como historia? | Monster dijo "todo en 0", así que la lectura por defecto es anularlos; conviene confirmarlo porque es cartera, no basura |
 | **6** | ¿Desde qué mes empiezan a cobrar de verdad? | Define cuándo se vuelve a prender la generación (Fase 0.5) y desde qué `open_month` aplica el precio |
 | **7** | ¿Hay matrícula/inscripción anual aparte de la mensualidad? | Cambia si va como `registration_fee` del plan o como cobro suelto |
 | **8** | Al cargar Norte, ¿el catálogo de categorías se duplica por sede? | §3.3. Para R8 y los tramos basta la sede del equipo; duplicar es más ordenado, no obligatorio |
