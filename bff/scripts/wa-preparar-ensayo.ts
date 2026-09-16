@@ -2,8 +2,8 @@
  * Arma en Escuela Pruebas el escenario para ensayar el bot con un WhatsApp real.
  *
  *   cd bff
- *   npx tsx scripts/wa-preparar-ensayo.ts 3001234567
- *   npx tsx scripts/wa-preparar-ensayo.ts 3001234567 --borrar
+ *   npx tsx scripts/wa-preparar-ensayo.ts tu@correo.com
+ *   npx tsx scripts/wa-preparar-ensayo.ts tu@correo.com --borrar
  *
  * POR QUÉ EXISTE
  *
@@ -18,14 +18,16 @@
  *
  * QUÉ ARMA — el caso más difícil que tiene Dynasty, en chiquito:
  *
- *   · Tu número en el perfil del acudiente  → identificación por teléfono
+ *   · El celular de tu perfil, como acudiente → identificación por teléfono
  *   · DOS hijos con ese mismo número        → la pregunta de «¿a cuál?»
  *   · Cada uno con dos cobros, uno vencido  → «el pendiente» va al más antiguo
  *   · Un tercer atleta SIN cuenta           → el aviso de registrarse
  *   · Cuentas bancarias de mentira          → get_payment_methods
  *
- * EL NÚMERO NO SE ESCRIBE EN EL CÓDIGO. Va por argumento: este archivo se
- * commitea y el celular de alguien no tiene por qué quedar en el repo.
+ * RECIBE UN CORREO, NO UN TELÉFONO. El celular se lee del perfil de esa
+ * persona. Así el número no queda ni en el repo ni en el historial de la
+ * terminal, y —más importante— NO se le sobrescribe el teléfono a nadie: el
+ * dueño del correo pasa a ser el acudiente de los atletas de ensayo.
  *
  * Es idempotente y `--borrar` deshace todo lo que crea. Solo toca Escuela
  * Pruebas: si el nombre de la escuela no coincide exacto, se planta.
@@ -40,7 +42,7 @@ const ESCUELA = 'Escuela Pruebas';
 /** Marca para reconocer lo que crea este script y poder borrarlo después. */
 const MARCA = '[ENSAYO WA]';
 
-const tel = process.argv[2];
+const correo = (process.argv[2] || '').toLowerCase();
 const borrar = process.argv.includes('--borrar');
 
 function salir(msg: string): never {
@@ -49,9 +51,9 @@ function salir(msg: string): never {
 }
 
 async function main() {
-    if (!tel || !/^3\d{9}$/.test(tel)) {
-        salir('Pasa tu celular como argumento, 10 dígitos empezando en 3.\n' +
-              '  npx tsx scripts/wa-preparar-ensayo.ts 3001234567');
+    if (!correo || !correo.includes('@')) {
+        salir('Pasa el correo de quien va a hacer el ensayo.\n' +
+              '  npx tsx scripts/wa-preparar-ensayo.ts tu@correo.com');
     }
 
     // Se busca por nombre EXACTO. Un `like '%prueba%'` puede pegarle a una
@@ -82,24 +84,29 @@ async function main() {
         return;
     }
 
-    // ── 1. Tu número en el perfil ───────────────────────────────────────────
-    // Se usa el acudiente que ya exista en la escuela. Si no hay ninguno, no se
-    // inventa una cuenta: crear perfiles sueltos ensucia auth y no se limpia
-    // solo. (Ver el gotcha de borrado total de un usuario.)
-    const { data: existente } = await supabase
-        .from('children').select('parent_id')
-        .eq('school_id', schoolId).not('parent_id', 'is', null).limit(1).maybeSingle();
+    // ── 1. El acudiente del ensayo: el dueño del correo ─────────────────────
+    //
+    // Se usa SU perfil tal como está. No se le escribe el teléfono a nadie —
+    // ni a él: si el perfil no tiene un celular usable, el ensayo no puede
+    // correr y hay que arreglarlo desde la app, que es donde se ve lo que se
+    // está cambiando.
+    //
+    // Se prefirió esto a tomar «el primer acudiente de la escuela y ponerle
+    // el número»: ese perfil puede ser acudiente en OTRA escuela, y ahí el
+    // número quedaría identificando a quien no es.
+    const { data: perfil } = await supabase
+        .from('profiles').select('id, full_name, phone').eq('email', correo).maybeSingle();
 
-    const parentId = (existente as any)?.parent_id;
-    if (!parentId) {
-        salir('Escuela Pruebas no tiene ningún atleta con acudiente vinculado.\n' +
-              '  Crea uno desde la app y vuelve a correr esto.');
+    if (!perfil) salir(`No hay ningún perfil con el correo ${correo}.`);
+
+    const parentId = (perfil as any).id;
+    const tel = String((perfil as any).phone ?? '').replace(/[^0-9]/g, '').slice(-10);
+
+    if (!/^3[0-9]{9}$/.test(tel)) {
+        salir(`El perfil de ${correo} no tiene un celular colombiano usable.\n` +
+              '  Cárgaselo desde la app (Mi perfil) y vuelve a correr esto.');
     }
-
-    const { error: errTel } = await supabase
-        .from('profiles').update({ phone: tel }).eq('id', parentId);
-    if (errTel) salir(`No pude poner el teléfono en el perfil: ${errTel.message}`);
-    console.log(`✓ Teléfono ***${tel.slice(-4)} puesto en el perfil del acudiente.`);
+    console.log(`Acudiente del ensayo: ${(perfil as any).full_name} · ***${tel.slice(-4)}`);
 
     // ── 2. Dos hermanos con ese mismo número ────────────────────────────────
     const hermanos = [`${MARCA} Sofía Ensayo`, `${MARCA} Mateo Ensayo`];
@@ -214,7 +221,7 @@ Y desde OTRO número, uno que no sea de la escuela:
   8. «hola»                    → saludo neutro, sin interrogarte
 
 Para deshacer todo:
-  npx tsx scripts/wa-preparar-ensayo.ts ${tel} --borrar
+  npx tsx scripts/wa-preparar-ensayo.ts ${correo} --borrar
 ─────────────────────────────────────────────────────────────`);
 }
 
