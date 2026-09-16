@@ -559,6 +559,6 @@
     {"v":"20260915113256","file":"20260915113256_fix_school_athletes_becado_no_pending.sql","sha256":"26df433cca51cae20bae53405c60173c23d9b3668160199f31e440f1ab7b5c02","added":"2026-09-15","by":"brylop"},
     {"v":"20260915202324","file":"20260915202324_whatsapp_respuesta_a_cual_pago.sql","sha256":"1db759cecc0699ecf5768ea968e83bfbea8091e365b59db2f1662adde900bb71","added":"2026-09-16","by":"brylop"},
     {"v":"20260916101241","file":"20260916101241_descuento_hermanos_open_month.sql","sha256":"26b7be99b9587a75f62a54d89a0fbe211092f9e8bdf76bc782f1822ab4d5abe7","added":"2026-09-16","by":"brylop"},
-    {"v":"20260916101630","file":"20260916101630_post_entreno_resumen_dia.sql","sha256":"1cd4dc91f7da66c37d9c8ea7b31b4e87a4a5bdb4423511835fe767d96f38b404","added":"2026-09-16","by":"brylop"}
+    {"v":"20260916101630","file":"20260916101630_post_entreno_resumen_dia.sql","sha256":"bd491c0ce69347fbe97b673ea234279338c21e7190d6f651d1d6ff88d848ff23","added":"2026-09-16","by":"brylop"}
   ]
 }
