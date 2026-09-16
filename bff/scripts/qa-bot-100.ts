@@ -1,9 +1,14 @@
 /**
  * Corre la batería de QA del bot contra el LLM real.
  *
- *   npx tsx scripts/qa-bot-100.ts               # las 110
- *   npx tsx scripts/qa-bot-100.ts --bloque pagos
- *   npx tsx scripts/qa-bot-100.ts --bloque critica
+ * Desde la RAIZ del repo o desde bff/, da igual:
+ *
+ *   npm run qa:bot                       # las 110
+ *   npm run qa:bot -- --bloque pagos
+ *   npm run qa:bot -- --bloque critica
+ *
+ * Bloques: general, inscripcion, categorias, horarios, precios, pagos,
+ * financiero, cuentas, entrenadores, competencias, critica.
  *
  * QUÉ MIDE, Y QUÉ NO
  *
