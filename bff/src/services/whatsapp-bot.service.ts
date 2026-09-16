@@ -38,6 +38,7 @@ import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
 import { estadoDeHorario, mensajeDeEscalamiento } from './whatsapp-horario.service';
 import { sendToUser } from './push.service';
 import { mediosDePago } from './whatsapp-medios-de-pago.service';
+import { resolverRespuestaDeCobro } from './whatsapp-respuesta-de-cobro.service';
 
 const OTP_TTL_MIN = 10;
 
@@ -83,6 +84,18 @@ export async function runBotTurn(
     if (await handleConsent(integration, conversationId, contactWaId, conv.parent_id, text, waMessageId)) {
         return;
     }
+
+    // 2.5. ¿Hay una pregunta de comprobante abierta? Va ANTES del LLM.
+    //
+    //      «2», «los dos», «el de Sharik» o «al pendiente» solo significan algo
+    //      contra las opciones que se le ofrecieron; para el modelo son ruido y
+    //      terminaba contestando cualquier cosa mientras el comprobante seguia
+    //      colgado en 'waiting_user'.
+    const respondio = await resolverRespuestaDeCobro(
+        integration, contactWaId, text,
+        (texto, paso) => deliver(integration, conversationId, contactWaId, texto, { step: paso }),
+    );
+    if (respondio) return;
 
     // 3. Identificado → intents con LLM.
     await handleIntent(integration, conversationId, contactWaId, conv.parent_id, text);

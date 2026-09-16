@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 552,
-  "head": "20260915102359",
+  "count": 554,
+  "head": "20260915202324",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -555,6 +555,8 @@
     {"v":"20260915095800","file":"20260915095800_fix_migrate_unregistered_no_propaga_parent_id.sql","sha256":"a8afb57dacb71767590680e926017fa96d5a1d7198716ac2233154ef7e73cee0","added":"2026-09-15","by":"brylop"},
     {"v":"20260915100420","file":"20260915100420_fix_linked_profile_id_fk_violation_en_migracion_de_hijo.sql","sha256":"b423f0a13bcea1e608be16c8ad5333110c0f705e6a18276575df10aa6995839c","added":"2026-09-15","by":"brylop"},
     {"v":"20260915101557","file":"20260915101557_gate_hour_bank_period_a_flag_por_escuela.sql","sha256":"fc1b4c390127bf2fd0bf4e62e535ca31b85b3851dcb9160e55508d856dffce70","added":"2026-09-15","by":"brylop"},
-    {"v":"20260915102359","file":"20260915102359_super_admin_toggle_banco_de_horas.sql","sha256":"29e55cd967191a5948af39f8a61a9723284ed9d6f32e1be0f46f4cc12362afef","added":"2026-09-15","by":"brylop"}
+    {"v":"20260915102359","file":"20260915102359_super_admin_toggle_banco_de_horas.sql","sha256":"29e55cd967191a5948af39f8a61a9723284ed9d6f32e1be0f46f4cc12362afef","added":"2026-09-15","by":"brylop"},
+    {"v":"20260915113256","file":"20260915113256_fix_school_athletes_becado_no_pending.sql","sha256":"26df433cca51cae20bae53405c60173c23d9b3668160199f31e440f1ab7b5c02","added":"2026-09-15","by":"brylop"},
+    {"v":"20260915202324","file":"20260915202324_whatsapp_respuesta_a_cual_pago.sql","sha256":"1db759cecc0699ecf5768ea968e83bfbea8091e365b59db2f1662adde900bb71","added":"2026-09-16","by":"brylop"}
   ]
 }

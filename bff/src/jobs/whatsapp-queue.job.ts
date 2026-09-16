@@ -124,10 +124,36 @@ async function cerrar(
         .eq('id', id);
 }
 
-/** Espera a que el bot resuelva la pregunta de a cuál pago aplicar. */
-async function esperarAlUsuario(id: string) {
+/**
+ * Deja la fila esperando la respuesta del acudiente, CON todo lo necesario
+ * para aplicarla despues.
+ *
+ * Hasta el 2026-09-15 esto solo ponia el estado y nadie volvia a mirar la fila:
+ * el bot preguntaba «respondeme con el numero», el padre contestaba, y ese
+ * mensaje se iba al LLM —que no sabia que hubo una pregunta—. El comprobante
+ * quedaba colgado y el padre creyendo que lo habiamos aplicado.
+ */
+async function esperarAlUsuario(id: string, pregunta: {
+    opciones: PagoPendiente[];
+    ocr: Awaited<ReturnType<typeof extractReceipt>>;
+    sha: string;
+    storagePath: string | null;
+    parentId: string;
+}) {
     await supabase.from('whatsapp_inbound_queue')
-        .update({ status: 'waiting_user', locked_until: null, updated_at: new Date().toISOString() })
+        .update({
+            status: 'waiting_user',
+            locked_until: null,
+            updated_at: new Date().toISOString(),
+            pregunta_opciones: pregunta.opciones,
+            pregunta_ocr: {
+                ocr: pregunta.ocr,
+                sha: pregunta.sha,
+                storagePath: pregunta.storagePath,
+                parentId: pregunta.parentId,
+            },
+            pregunta_at: new Date().toISOString(),
+        })
         .eq('id', id);
 }
 
@@ -152,6 +178,158 @@ async function reintentar(fila: FilaCola, motivo: string, log?: Logger) {
 
 // ─── El procesamiento de una fila ────────────────────────────────────────────
 
+/**
+ * Contexto para estampar un comprobante, sin depender de la fila de la cola.
+ *
+ * Existe porque el estampado tiene DOS entradas: el worker cuando el monto
+ * desempata solo, y la respuesta del acudiente cuando hubo que preguntarle a
+ * cuál cobro aplicarlo. Antes solo existía la primera y la pregunta quedaba en
+ * 'waiting_user' para siempre — nadie leía la respuesta.
+ */
+export interface ContextoAplicacion {
+    queueId: string;
+    schoolId: string;
+    parentId: string;
+    storagePath: string | null;
+    /** sha256 de la imagen. Es la llave del dedup: no se recalcula, se pasa. */
+    sha: string;
+    ocr: Awaited<ReturnType<typeof extractReceipt>>;
+    responder: (texto: string, paso: string) => Promise<unknown>;
+    /** Qué hacer ante un fallo transitorio. El worker reintenta; la respuesta no. */
+    alFallar: (motivo: string) => Promise<void>;
+    log?: Logger;
+}
+
+/**
+ * Estampa el comprobante en UN pago, con su veredicto, y le cuenta al acudiente.
+ *
+ * `restantes` son los cobros que quedan vivos después de este. No es cosmético:
+ * es la mitad de la regla de la escuela y lo único que evita que el padre crea
+ * que quedó al día cuando solo pagó el atrasado.
+ */
+export async function aplicarComprobante(
+    ctx: ContextoAplicacion,
+    pago: PagoPendiente,
+    restantes: PagoPendiente[],
+): Promise<void> {
+
+    /**
+     * El veredicto se calcula ACÁ y se persiste. No es opcional.
+     *
+     * `evaluatePaymentReceipt` no lo computa cuando la escuela tiene el
+     * auto-approve apagado: su comentario lo dice — «se decide con el veredicto
+     * ya persistido, que lo computó el BFF en /extract-receipt». En la app ese
+     * endpoint lo calcula al subir; el worker no pasa por ahí.
+     *
+     * Sin este bloque el comprobante quedaba en `awaiting_approval` con
+     * `receipt_verdict` en null y la escuela lo revisaba a ciegas — exactamente
+     * los 45 pagos sin veredicto que encontramos el 2026-09-11, reproducidos
+     * por este código. Y `REFERENCIA_DUPLICADA` nunca se disparaba, que es la
+     * defensa contra que el mismo comprobante se aplique dos veces.
+     *
+     * Se reconstruye el contexto porque el de §6 se armó sin referencia ni hash
+     * —no se conocían todavía—, y son justo los que alimentan el dedup.
+     */
+    const ctxPago = await buildVerdictContext(ctx.schoolId, {
+        referenceNorm: normalizeReference(ctx.ocr.reference),
+        imageSha256: ctx.sha,
+        expectedAmount: pago.amount,
+        paymentId: pago.id,
+    });
+    const veredicto = evaluateVerdict(ctx.ocr, ctxPago);
+    ctx.log?.info?.(
+        { queueId: ctx.queueId, paymentId: pago.id, veredicto: veredicto.verdict, motivos: veredicto.reasons.map((r) => r.code) },
+        '[wa-queue] veredicto',
+    );
+
+    const { error: stampErr } = await supabase.from('payments').update({
+        receipt_url: ctx.storagePath,
+        receipt_storage_bucket: BUCKET,
+        receipt_image_sha256: ctx.sha,
+        receipt_image_sha256_source: 'server_verified',
+        ocr_amount: ctx.ocr.amount, ocr_date: ctx.ocr.date, ocr_bank: ctx.ocr.bank,
+        ocr_reference: ctx.ocr.reference, ocr_destination: ctx.ocr.destination,
+        ocr_provider: ctx.ocr.provider,
+        receipt_verdict: veredicto.verdict,
+        receipt_verdict_reasons: veredicto.reasons,
+        receipt_verdict_at: new Date().toISOString(),
+        status: 'awaiting_approval',
+    }).eq('id', pago.id).in('status', ['pending', 'overdue']);
+
+    if (stampErr) {
+        // 23505 sobre `uq_payments_school_ocr_reference` NO es un fallo: es la
+        // base diciendo que esa referencia de banco ya se usó en esta escuela.
+        // Es la última defensa contra aplicar el mismo comprobante dos veces, y
+        // hay que leerla como tal.
+        //
+        // Tratarla como transitorio —que es lo que hacía— dejaba al acudiente sin
+        // ninguna respuesta y ponía la fila a reintentar cinco veces contra una
+        // restricción que nunca va a ceder, pagando OCR en cada vuelta.
+        if (stampErr.code === '23505') {
+            const { data: yaAplicado } = await supabase
+                .from('payments')
+                .select('concept, amount, status')
+                .eq('school_id', ctx.schoolId)
+                .eq('ocr_reference', ctx.ocr.reference)
+                .maybeSingle();
+
+            const donde = yaAplicado
+                ? ` Ya está aplicado a *${yaAplicado.concept}* por ${cop(Number(yaAplicado.amount))}.`
+                : '';
+            await ctx.responder(
+                `Ese comprobante ya lo había recibido, así que no lo apliqué de nuevo.${donde}\n\n` +
+                'Si hiciste otra transferencia, mándame el comprobante de esa — el número de ' +
+                'aprobación tiene que ser distinto.',
+                'comprobante_repetido',
+            );
+            await cerrar(ctx.queueId, 'ignored', {
+                result_type: 'none',
+                error_message: `referencia ya usada: ${ctx.ocr.reference}`,
+            });
+            ctx.log?.info?.({ queueId: ctx.queueId, referencia: ctx.ocr.reference }, '[wa-queue] comprobante repetido');
+            return;
+        }
+        await ctx.alFallar(`no se pudo estampar el pago: ${stampErr.message}`);
+        return;
+    }
+
+    const resultado = await evaluatePaymentReceipt(pago.id, ctx.log);
+
+    // 8. Contarle al acudiente qué pasó, nombrando el pago para que pueda corregir.
+    let respuesta: string;
+    if (resultado.action === 'approved') {
+        respuesta = `¡Listo! ✅ Apliqué tu pago a *${describirPago(pago)}*.`
+            + (restantes.length ? '' : ' Queda al día.');
+    } else if (resultado.action === 'rejected') {
+        respuesta =
+            `Revisé tu comprobante para *${describirPago(pago)}* y no lo pude validar.\n\n` +
+            `${resultado.reason ?? ''}\n\nSi crees que hay un error, mándame el comprobante correcto por acá.`;
+    } else {
+        respuesta =
+            `Recibí tu comprobante y lo apliqué a *${describirPago(pago)}* 📄\n\n` +
+            'La escuela lo está revisando y te confirma en poco tiempo.';
+    }
+
+    // Lo que SIGUE debiendo. Sin esto, el acudiente que paga «lo pendiente»
+    // se va convencido de que quedó al día y la escuela se entera cuando le
+    // vence el mes corriente. La regla la fijó la escuela el 2026-09-15: se
+    // aplica al más antiguo y el del mes en curso queda vivo — y se dice.
+    if (restantes.length) {
+        respuesta += `\n\nTe queda${restantes.length > 1 ? 'n' : ''} pendiente${restantes.length > 1 ? 's' : ''}:\n`
+            + restantes.map((r) => `• ${describirPago(r)}`).join('\n');
+    }
+
+    await ctx.responder(respuesta, 'resultado_comprobante');
+
+    await cerrar(ctx.queueId, 'done', {
+        result_type: 'payment_receipt',
+        result_ref_id: pago.id,
+        matched_parent_id: ctx.parentId,
+        matched_child_id: pago.child_id,
+        error_message: null,
+    });
+    ctx.log?.info?.({ queueId: ctx.queueId, paymentId: pago.id, accion: resultado.action }, '[wa-queue] aplicado');
+}
 async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
     // 1. La integración, que trae el token para bajar el archivo.
     const { data: integration } = await supabase
@@ -356,7 +534,17 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
               `${match.pagos.map((p) => `• ${describirPago(p)}`).join('\n')}\n\n` +
               'Respóndeme *sí* para aplicarlo así.';
         await responder(texto, match.tipo === 'preguntar' ? 'ask_cual_pago' : 'confirmar_combinacion');
-        await esperarAlUsuario(fila.id);
+        // Congelar la pregunta. Sin esto la respuesta es inaplicable: el «1»
+        // se reinterpretaria contra los pendientes del momento de contestar
+        // —que pueden haber cambiado— y volver a leer la imagen costaria OCR
+        // contra una URL de Meta que ya expiro.
+        await esperarAlUsuario(fila.id, {
+            opciones: match.tipo === 'preguntar' ? match.opciones : match.pagos,
+            ocr,
+            sha: crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex'),
+            storagePath,
+            parentId,
+        });
         return;
     }
 
@@ -364,111 +552,12 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
     const pago: PagoPendiente = match.pago;
     const sha = crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex');
 
-    /**
-     * El veredicto se calcula ACÁ y se persiste. No es opcional.
-     *
-     * `evaluatePaymentReceipt` no lo computa cuando la escuela tiene el
-     * auto-approve apagado: su comentario lo dice — «se decide con el veredicto
-     * ya persistido, que lo computó el BFF en /extract-receipt». En la app ese
-     * endpoint lo calcula al subir; el worker no pasa por ahí.
-     *
-     * Sin este bloque el comprobante quedaba en `awaiting_approval` con
-     * `receipt_verdict` en null y la escuela lo revisaba a ciegas — exactamente
-     * los 45 pagos sin veredicto que encontramos el 2026-09-11, reproducidos
-     * por este código. Y `REFERENCIA_DUPLICADA` nunca se disparaba, que es la
-     * defensa contra que el mismo comprobante se aplique dos veces.
-     *
-     * Se reconstruye el contexto porque el de §6 se armó sin referencia ni hash
-     * —no se conocían todavía—, y son justo los que alimentan el dedup.
-     */
-    const ctxPago = await buildVerdictContext(fila.school_id, {
-        referenceNorm: normalizeReference(ocr.reference),
-        imageSha256: sha,
-        expectedAmount: pago.amount,
-        paymentId: pago.id,
-    });
-    const veredicto = evaluateVerdict(ocr, ctxPago);
-    log?.info?.(
-        { queueId: fila.id, paymentId: pago.id, veredicto: veredicto.verdict, motivos: veredicto.reasons.map((r) => r.code) },
-        '[wa-queue] veredicto',
-    );
-
-    const { error: stampErr } = await supabase.from('payments').update({
-        receipt_url: storagePath,
-        receipt_storage_bucket: BUCKET,
-        receipt_image_sha256: sha,
-        receipt_image_sha256_source: 'server_verified',
-        ocr_amount: ocr.amount, ocr_date: ocr.date, ocr_bank: ocr.bank,
-        ocr_reference: ocr.reference, ocr_destination: ocr.destination,
-        ocr_provider: ocr.provider,
-        receipt_verdict: veredicto.verdict,
-        receipt_verdict_reasons: veredicto.reasons,
-        receipt_verdict_at: new Date().toISOString(),
-        status: 'awaiting_approval',
-    }).eq('id', pago.id).in('status', ['pending', 'overdue']);
-
-    if (stampErr) {
-        // 23505 sobre `uq_payments_school_ocr_reference` NO es un fallo: es la
-        // base diciendo que esa referencia de banco ya se usó en esta escuela.
-        // Es la última defensa contra aplicar el mismo comprobante dos veces, y
-        // hay que leerla como tal.
-        //
-        // Tratarla como transitorio —que es lo que hacía— dejaba al acudiente sin
-        // ninguna respuesta y ponía la fila a reintentar cinco veces contra una
-        // restricción que nunca va a ceder, pagando OCR en cada vuelta.
-        if (stampErr.code === '23505') {
-            const { data: yaAplicado } = await supabase
-                .from('payments')
-                .select('concept, amount, status')
-                .eq('school_id', fila.school_id)
-                .eq('ocr_reference', ocr.reference)
-                .maybeSingle();
-
-            const donde = yaAplicado
-                ? ` Ya está aplicado a *${yaAplicado.concept}* por ${cop(Number(yaAplicado.amount))}.`
-                : '';
-            await responder(
-                `Ese comprobante ya lo había recibido, así que no lo apliqué de nuevo.${donde}\n\n` +
-                'Si hiciste otra transferencia, mándame el comprobante de esa — el número de ' +
-                'aprobación tiene que ser distinto.',
-                'comprobante_repetido',
-            );
-            await cerrar(fila.id, 'ignored', {
-                result_type: 'none',
-                error_message: `referencia ya usada: ${ocr.reference}`,
-            });
-            log?.info?.({ queueId: fila.id, referencia: ocr.reference }, '[wa-queue] comprobante repetido');
-            return;
-        }
-        await reintentar(fila, `no se pudo estampar el pago: ${stampErr.message}`, log);
-        return;
-    }
-
-    const resultado = await evaluatePaymentReceipt(pago.id, log);
-
-    // 8. Contarle al acudiente qué pasó, nombrando el pago para que pueda corregir.
-    let respuesta: string;
-    if (resultado.action === 'approved') {
-        respuesta = `¡Listo! ✅ Apliqué tu pago a *${describirPago(pago)}*. Queda al día.`;
-    } else if (resultado.action === 'rejected') {
-        respuesta =
-            `Revisé tu comprobante para *${describirPago(pago)}* y no lo pude validar.\n\n` +
-            `${resultado.reason ?? ''}\n\nSi crees que hay un error, mándame el comprobante correcto por acá.`;
-    } else {
-        respuesta =
-            `Recibí tu comprobante y lo apliqué a *${describirPago(pago)}* 📄\n\n` +
-            'La escuela lo está revisando y te confirma en poco tiempo.';
-    }
-    await responder(respuesta, 'resultado_comprobante');
-
-    await cerrar(fila.id, 'done', {
-        result_type: 'payment_receipt',
-        result_ref_id: pago.id,
-        matched_parent_id: parentId,
-        matched_child_id: pago.child_id,
-        error_message: null,
-    });
-    log?.info?.({ queueId: fila.id, paymentId: pago.id, accion: resultado.action }, '[wa-queue] aplicado');
+    await aplicarComprobante({
+        queueId: fila.id, schoolId: fila.school_id, parentId, storagePath, sha, ocr,
+        responder,
+        alFallar: (motivo) => reintentar(fila, motivo, log),
+        log,
+    }, pago, pendientes.filter((x) => x.id !== pago.id));
 }
 
 // ─── Entrada del job ─────────────────────────────────────────────────────────
