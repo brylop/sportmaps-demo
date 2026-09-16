@@ -103,6 +103,109 @@ export async function runBotTurn(
 
 // ─── 1. Identificación (OTP por email) ────────────────────────────────────────
 
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
+
+/**
+ * Identificacion por el NUMERO desde el que escribe. Va antes que el correo.
+ *
+ * Medido en Dynasty el 2026-09-16: de 502 atletas activos, 156 no tienen
+ * ninguna cuenta de acudiente. Para esas familias el camino del correo NO
+ * EXISTE — escriben un correo que no esta en la base, el codigo nunca sale, y
+ * el bot igual contesta «te envie un codigo» (a proposito, para no revelar
+ * quien esta registrado). La conversacion se muere ahi.
+ *
+ * Por telefono el 100% es alcanzable: 346 entran directo y 156 quedan
+ * reconocidos como familia y se les pide crear la cuenta. Quien no la tenga
+ * NO recibe informacion de ningun tipo — ni el nombre del atleta, que seria
+ * decirle a quien hoy tenga ese numero de quien es familia.
+ *
+ * Devuelve true si resolvio el turno.
+ */
+async function identificarPorTelefono(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+): Promise<boolean> {
+    const { data, error } = await supabase.rpc('wa_identify_by_phone', {
+        p_integration_id: integration.id,
+        p_contact_wa_id: contactWaId,
+    });
+    if (error) {
+        console.warn('[whatsapp-bot] wa_identify_by_phone fallo', { err: error.message });
+        return false;   // se cae al camino del correo, que sigue existiendo
+    }
+
+    const estado = (data as any)?.estado;
+
+    if (estado === 'identificado') {
+        // La RPC ya dejo la conversacion vinculada. Se saluda y se pide el
+        // consentimiento en el MISMO mensaje, igual que al verificar por OTP:
+        // dos «responde SI» seguidos por motivos distintos es una experiencia
+        // mala y una fuente de respuestas ambiguas.
+        const escuela = await nombreDeEscuela(integration.school_id);
+        await deliver(integration, conversationId, contactWaId,
+            `¡Hola! Te reconocí por tu número, así que no necesitas hacer nada más. 👋` + '\n\n' +
+            `¿Quieres que *${escuela}* te envíe por aquí los recordatorios de pago ` +
+            'y los avisos de tu atleta? Responde *SÍ* para activarlos — puedes darte ' +
+            'de baja cuando quieras escribiendo *STOP*.',
+            { step: 'ask_consent', identificado_por: 'telefono' });
+        return true;
+    }
+
+    if (estado === 'debe_registrarse') {
+        // UNA VEZ POR DIA, no en cada mensaje.
+        //
+        // Esto corre mientras la conversacion siga sin identificar, que para
+        // estas 156 familias es SIEMPRE: sin el freno, cada mensaje que
+        // escriban recibe el mismo «crea tu cuenta». Desde el lado del papa
+        // eso es spam, y en un canal donde Meta mide la calidad del numero
+        // repetir lo mismo es justo lo que penaliza — ya lo vimos el
+        // 2026-09-11 con 7 respuestas identicas seguidas.
+        //
+        // Se devuelve true igual cuando se calla: el turno SI esta resuelto.
+        // Caer al camino del correo seria pedirle credenciales a alguien que
+        // acabamos de decirle que no tiene cuenta.
+        const desde = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { count: yaAvisado } = await supabase
+            .from('whatsapp_messages')
+            .select('id', { count: 'exact', head: true })
+            .eq('conversation_id', conversationId)
+            .eq('direction', 'outbound')
+            .eq('payload->>step', 'debe_registrarse')
+            .gte('created_at', desde);
+        if ((yaAvisado ?? 0) > 0) return true;
+
+        // Reconocido como familia, sin cuenta. NO se le da ningun dato.
+        await deliver(integration, conversationId, contactWaId,
+            'Tu número está registrado en la escuela, pero todavía no tienes tu cuenta creada. 🙌' + '\n\n' +
+            `Créala aquí con *este mismo número*: ${FRONTEND_URL}/register` + '\n\n' +
+            'Cuando la tengas, escríbeme por acá y podrás consultar tus pagos, mandar ' +
+            'comprobantes y recibir los avisos de tu atleta.',
+            { step: 'debe_registrarse' });
+
+        // Que quede en el buzon: son 156 familias en Dynasty que hay que
+        // empujar a registrarse, y eso lo trabaja la escuela, no el bot.
+        await supabase.from('whatsapp_conversations')
+            .update({ status: 'open', updated_at: new Date().toISOString() })
+            .eq('id', conversationId);
+        return true;
+    }
+
+    if (estado === 'ambiguo') {
+        // Dos cuentas con el mismo numero. Elegir mal es mostrarle a alguien
+        // los pagos de otra familia: lo resuelve un humano, no el bot.
+        await deliver(integration, conversationId, contactWaId,
+            'Encontré tu número en más de una cuenta y no quiero mostrarte información ' +
+            'que no sea tuya. Ya le avisé a la escuela para que lo revisen contigo. 🙏',
+            { step: 'identificacion_ambigua' });
+        await escalate(integration, conversationId, contactWaId,
+            'Dos cuentas comparten el mismo número de WhatsApp');
+        return true;
+    }
+
+    return false;
+}
+
 const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
 const CODE_RE = /\b(\d{6})\b/;
 
@@ -112,6 +215,10 @@ async function handleIdentification(
     contactWaId: string,
     text: string,
 ): Promise<void> {
+    // El numero manda. Solo si no resuelve nada se cae al correo, que sigue
+    // sirviendo para el acudiente que escribe desde OTRO telefono.
+    if (await identificarPorTelefono(integration, conversationId, contactWaId)) return;
+
     const emailMatch = text.match(EMAIL_RE);
     const codeMatch = text.match(CODE_RE);
 
