@@ -82,7 +82,23 @@ Si de verdad es una ficha cargada por error, sin historial, el camino limpio es 
 que borra en orden inverso: `athlete_documents` → `enrollments` → `unregistered_athletes` → el equipo si queda
 vacío), previa verificación de 0 pagos y 0 asistencias.
 
-**Falta el dato:** *cuál* es el atleta (nombre + documento). Con 126 inscripciones no se adivina.
+### 2.3 Cómo decidir sin saber cuál es
+
+Monster no sabe cuál es el atleta inactivo, y con 126 inscripciones no se adivina. No hace falta adivinar: la
+consulta §5.5 lista **todos** los inactivos con su historial y aplica sola el criterio de decisión.
+
+| Veredicto | Qué significa | Qué hacer |
+|---|---|---|
+| **CONSERVAR** | Tiene pagos conciliados (`paid`/`partial`) o asistencia registrada | Nada. Ya está inactivo, ya está fuera de la operación y de la generación del mes. Borrarlo destruiría historial contable |
+| **REVISAR** | Sin historial, pero con documentos cargados (foto, EPS, cédulas, firmas) | Decisión de Monster: es alguien que se inscribió y nunca entrenó. Borrarlo borra también sus documentos de `identity-documents` |
+| **CANDIDATO A BORRAR** | Ficha sin ningún rastro | Es lo que uno espera de una prueba. Acá sí aplica el rollback de §2.2 |
+
+**Lo más probable, por el estado de la cuenta:** Monster tiene 4 pagos históricos en total y 0 cobros
+automáticos generados, así que casi nadie va a caer en *CONSERVAR* por pagos. El discriminador real va a ser
+**asistencia** y **documentos** — que es justo lo que separa a un atleta real de una ficha de demo.
+
+Si sale **más de uno** inactivo, hay que preguntarle a Monster cuál quiso decir antes de borrar nada: "el
+deportista inactivo" en singular puede ser el único que ven en su pantalla, no el único que existe.
 
 ---
 
@@ -295,12 +311,39 @@ select o.id as offering_id, o.name as oferta, o.branch_id,
  order by o.name, p.price;
 
 -- 5.5 Atletas inactivos de la escuela (para identificar "el deportista inactivo")
--- ojo: la vista expone `is_active`, no `status` (la UI deriva el rótulo en
--- SchoolStudentsManagementPage.tsx:982)
-select id, athlete_type, full_name, is_active, team_name, plan_name, enrollment_id
-  from public.school_athletes
- where school_id = 'eb3ebc77-4ea4-4992-96c8-3c8ec574578c'
-   and is_active is not true;
+-- Triage completo: quiénes son los inactivos y qué historial tiene cada uno.
+-- La columna `veredicto` dice sola qué hacer con cada fila (ver §2.3).
+-- Ojo: la vista expone `is_active`, no `status` (la UI deriva el rótulo en
+-- SchoolStudentsManagementPage.tsx:982).
+with inactivos as (
+    select sa.id, sa.athlete_type, sa.full_name, sa.team_name, sa.enrollment_id
+      from public.school_athletes sa
+     where sa.school_id = 'eb3ebc77-4ea4-4992-96c8-3c8ec574578c'
+       and sa.is_active is not true
+)
+select i.full_name, i.athlete_type, i.team_name,
+       coalesce(pg.n, 0)  as pagos_conciliados,   -- paid / partial → NO se borra
+       coalesce(pp.n, 0)  as cobros_vivos,        -- pending / overdue → se anulan al inactivar
+       coalesce(a.n, 0)   as asistencias,
+       coalesce(d.n, 0)   as documentos,
+       case when coalesce(pg.n,0) > 0 or coalesce(a.n,0) > 0
+                 then 'CONSERVAR — tiene historial, solo inactivo'
+            when coalesce(d.n,0) > 0
+                 then 'REVISAR — sin historial pero con documentos cargados'
+            else 'CANDIDATO A BORRAR — ficha sin rastro'
+       end as veredicto
+  from inactivos i
+  left join lateral (select count(*) n from public.payments p
+                      where p.status in ('paid','partial')
+                        and (p.child_id = i.id or p.user_id = i.id or p.unregistered_athlete_id = i.id)) pg on true
+  left join lateral (select count(*) n from public.payments p
+                      where p.status in ('pending','overdue','awaiting_approval')
+                        and (p.child_id = i.id or p.user_id = i.id or p.unregistered_athlete_id = i.id)) pp on true
+  left join lateral (select count(*) n from public.attendance_records r
+                      where r.child_id = i.id or r.user_id = i.id or r.unregistered_athlete_id = i.id) a on true
+  left join lateral (select count(*) n from public.athlete_documents ad
+                      where ad.child_id = i.id or ad.user_id = i.id or ad.unregistered_athlete_id = i.id) d on true
+ order by i.full_name;
 
 -- 5.6 ¿Alguien ya quedó con dos categorías por la vía del BFF?
 select ec.enrollment_id, count(*) as categorias
@@ -358,7 +401,7 @@ select count(*) filter (where fee > 0) as generarian_cobro,
 
 | # | Pregunta | Por qué importa |
 |---|---|---|
-| **5** | ¿Cuál es el deportista inactivo (nombre + documento)? ¿"Quitar" es sacarlo de la lista o borrarlo? | §2. Con 126 inscripciones no se adivina |
+| **5** | Si la consulta §5.5 devuelve **más de un** inactivo: ¿cuál quiso decir Monster, y "quitar" es sacarlo de la lista o borrarlo? | §2.3. Con un solo inactivo la pregunta se cae sola: ya está fuera de la operación |
 | **6** | ¿Desde qué mes empiezan a cobrar de verdad? | Define cuándo se vuelve a prender la generación (Fase 0.5) y desde qué `open_month` aplica el precio |
 | **7** | ¿Hay matrícula/inscripción anual aparte de la mensualidad? | Cambia si va como `registration_fee` del plan o como cobro suelto |
 | **8** | Al cargar Norte, ¿el catálogo de categorías se duplica por sede? | §3.3. Para R8 y los tramos basta la sede del equipo; duplicar es más ordenado, no obligatorio |
