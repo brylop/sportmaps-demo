@@ -79,6 +79,26 @@ export async function runBotTurn(
         return;
     }
 
+    // 1b. Ya identificada: verificar que el vinculo siga siendo el correcto.
+    //
+    //     Una identificacion vieja NO caduca. Encontrado el 2026-09-16 en la
+    //     prueba: la conversacion seguia vinculada a la persona que verifico
+    //     por correo el 12 de septiembre, aunque el numero hoy sea de otra.
+    //     Quien escribiera desde ese telefono veria los pagos de la primera.
+    //
+    //     Es el caso del numero que cambia de dueno —linea reciclada, celular
+    //     que pasa de un papa a otro, el telefono familiar que queda con el
+    //     hijo mayor— y no es raro: las companias reasignan numeros a los
+    //     pocos meses.
+    //
+    //     El numero manda sobre el vinculo guardado: el `from` de WhatsApp lo
+    //     autentica Meta en CADA mensaje, mientras que el vinculo viejo es una
+    //     afirmacion de hace semanas que nadie volvio a comprobar.
+    const revision = await revisarVinculoPorTelefono(
+        integration, conversationId, contactWaId, conv.parent_id);
+    if (revision === 'corto') return;
+    if (revision !== 'sin_cambio') conv.parent_id = revision;
+
     // 2. Consentimiento: se pide UNA vez, después de identificarse.
     //    Si este turno lo resolvió (preguntó, o registró el sí/no), termina acá.
     if (await handleConsent(integration, conversationId, contactWaId, conv.parent_id, text, waMessageId)) {
@@ -121,6 +141,49 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
  *
  * Devuelve true si resolvio el turno.
  */
+/**
+ * ¿El telefono sigue apuntando al mismo acudiente al que quedo vinculada la
+ * conversacion?
+ *
+ * Devuelve el parent_id vigente, 'sin_cambio' si no hay nada que hacer, o
+ * 'corto' si el turno ya quedo resuelto y quien llama debe parar.
+ *
+ * Solo actua cuando el telefono dice algo DISTINTO y confiable. Si el numero
+ * no resuelve a nadie —un acudiente que se identifico por correo desde el
+ * celular de un vecino, o cuyo telefono nunca se cargo en la ficha— NO se le
+ * quita el acceso: seria romperle el canal a quien lo tenia bien.
+ */
+async function revisarVinculoPorTelefono(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    parentActual: string | null,
+): Promise<string | 'sin_cambio' | 'corto'> {
+    const { data, error } = await supabase.rpc('wa_identify_by_phone', {
+        p_integration_id: integration.id,
+        p_contact_wa_id: contactWaId,
+    });
+    if (error) return 'sin_cambio';
+
+    const estado = (data as any)?.estado;
+    const porTelefono = (data as any)?.parent_id as string | undefined;
+
+    // El telefono confirma lo que ya teniamos, o no sabe: nada que hacer.
+    if (estado !== 'identificado' || !porTelefono) return 'sin_cambio';
+    if (porTelefono === parentActual) return 'sin_cambio';
+
+    // Dice otra cosa. La RPC ya reescribio el vinculo; solo queda avisar, para
+    // que el nuevo dueno del numero entienda por que el bot le habla distinto.
+    console.warn('[whatsapp-bot] el telefono apunta a otro acudiente; se revinculo',
+        { conversationId, antes: parentActual, ahora: porTelefono });
+
+    await deliver(integration, conversationId, contactWaId,
+        'Actualicé tus datos: este número quedó asociado a tu cuenta. 👍',
+        { step: 'revinculado_por_telefono' });
+
+    return porTelefono;
+}
+
 async function identificarPorTelefono(
     integration: WhatsAppIntegration,
     conversationId: string,
