@@ -124,7 +124,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
     );
 
     const isEnrolled = (studentId: string) => enrolledStudents.includes(studentId);
-    const isFull = classItem ? classItem.enrolled_count >= classItem.capacity : false;
+    const isFull = classItem?.capacity ? classItem.enrolled_count >= classItem.capacity : false;
 
     return (
         <Dialog open={open} onOpenChange={onClose}>
@@ -141,9 +141,11 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
                                 <div className="flex flex-wrap gap-2 mt-2">
                                     <Badge variant="secondary">{classItem.name}</Badge>
                                     <Badge variant="outline">{classItem.sport}</Badge>
-                                    <Badge className={enrolledStudents.length >= (classItem.capacity || 20) ? 'bg-red-500' : 'bg-green-500'}>
+                                    <Badge className={isFull ? 'bg-red-500' : 'bg-green-500'}>
                                         <Users className="h-3 w-3 mr-1" />
-                                        {enrolledStudents.length}/{classItem.capacity || 20}
+                                        {classItem.capacity
+                                            ? `${enrolledStudents.length}/${classItem.capacity}`
+                                            : enrolledStudents.length}
                                     </Badge>
                                 </div>
                             )}
@@ -151,9 +153,9 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-4">
+                <div className="space-y-4 flex-1 min-h-0 flex flex-col">
                     {/* Search Input */}
-                    <div className="relative">
+                    <div className="relative shrink-0">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
                             placeholder="Buscar deportista por nombre, email o grado..."
@@ -164,7 +166,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
                     </div>
 
                     {/* Students List */}
-                    <ScrollArea className="flex-1 pr-0 sm:pr-4 -mx-1 px-1">
+                    <ScrollArea className="flex-1 min-h-0 pr-0 sm:pr-4 -mx-1 px-1">
                         {loading ? (
                             <div className="flex flex-col items-center justify-center py-12">
                                 <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
@@ -254,7 +256,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
                     </ScrollArea>
                 </div>
 
-                <DialogFooter>
+                <DialogFooter className="shrink-0">
                     <div className="flex w-full justify-between items-center">
                         <p className="text-sm text-muted-foreground">
                             {enrolledStudents.length} inscrito{enrolledStudents.length !== 1 ? 's' : ''} en esta clase
