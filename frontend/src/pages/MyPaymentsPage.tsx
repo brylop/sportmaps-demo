@@ -15,7 +15,6 @@ import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal'
 import { GlosaRespondModal } from '@/components/payment/GlosaRespondModal';
 import { FailedAttemptChip } from '@/components/payment/FailedAttemptChip';
 import { listMine as listMyGlosas, OPEN_GLOSA_STATUSES, REASON_LABELS, type Glosa } from '@/lib/api/glosas';
-import { InstallmentCheckoutModal } from '@/components/payment/InstallmentCheckoutModal';
 import { formatCurrency } from '@/lib/utils';
 import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { useToast } from '@/hooks/use-toast';
@@ -159,17 +158,6 @@ export default function MyPaymentsPage() {
     concept: '',
     amount: 0,
   });
-
-  const [showInstallment, setShowInstallment] = useState(false);
-  const [selectedInstallmentPayment, setSelectedInstallmentPayment] = useState<{
-    id: string;
-    schoolId: string;
-    balancePending: number;
-    concept: string;
-  } | null>(null);
-
-  const [installments, setInstallments] = useState<any[]>([]);
-  const [loadingInstallments, setLoadingInstallments] = useState(false);
 
   // Facturas electrónicas emitidas, mapeadas por payment_id (para mostrar el
   // botón "Factura" en los pagos que ya la tienen). La RLS deja al padre leer
@@ -857,19 +845,6 @@ export default function MyPaymentsPage() {
         onOpenChange={(o) => { if (!o) setRespondingGlosa(null); }}
         onSuccess={fetchPaymentData}
       />
-
-      {/* Installment Checkout Modal */}
-      {selectedInstallmentPayment && (
-        <InstallmentCheckoutModal
-          open={showInstallment}
-          onOpenChange={setShowInstallment}
-          paymentId={selectedInstallmentPayment.id}
-          schoolId={selectedInstallmentPayment.schoolId}
-          parentId={user?.id || ''}
-          balancePending={selectedInstallmentPayment.balancePending}
-          onSuccess={fetchPaymentData}
-        />
-      )}
 
       {/* Barra de acción flotante (estilo atleta). Offset inferior mayor que
           bottom-6 en móvil: MobileBottomNav (h-16 + safe-area, ver

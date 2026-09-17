@@ -25,6 +25,19 @@ export type ChargeState = {
   period_month?: number | null;
 };
 
+/** Un cobro con lo mínimo para calcular cuánto queda por cobrar de él. */
+export type BalanceState = { status: string; amount: number | string; amount_paid?: number | string | null };
+
+/**
+ * Saldo real por cobrar. Un `partial` ya recibió `amount_paid`: lo que falta es
+ * la diferencia, no el total del cobro — sumar `amount` entero ahí duplica lo
+ * que ya entró. Para cualquier otro estado el saldo es el monto completo.
+ */
+export const remainingBalance = (p: BalanceState): number =>
+  p.status === 'partial'
+    ? Math.max(Number(p.amount) - Number(p.amount_paid ?? 0), 0)
+    : Number(p.amount);
+
 /**
  * Un cobro de un mes que todavía no empieza NO está vencido, aunque su `due_date`
  * ya haya pasado. Salía "Mensualidad Septiembre 2026 · 2 días vencido" el 4 de
@@ -38,7 +51,15 @@ export const isFuturePeriod = (p: ChargeState): boolean => {
   return p.period_year * 12 + p.period_month > y * 12 + m;
 };
 
-export const isUnpaid = (p: ChargeState): boolean => p.status === 'pending' || p.status === 'overdue';
+/**
+ * `partial` cuenta como impago: por definición le queda saldo (si ya hubiera
+ * cubierto todo, el estado sería `paid`). Sin esto, un abono con saldo vencido
+ * desaparecía de las tres tarjetas de Finanzas y de la tabla de cartera — no
+ * salía como ingreso (correcto, no se cobró todo) NI como vencido/pendiente
+ * (incorrecto: esa plata sigue debida).
+ */
+export const isUnpaid = (p: ChargeState): boolean =>
+  p.status === 'pending' || p.status === 'overdue' || p.status === 'partial';
 
 /** Vencido de verdad: impago, de un período ya empezado, y con el plazo cumplido. */
 export const isOverdueCharge = (p: ChargeState): boolean =>

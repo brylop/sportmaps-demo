@@ -23,7 +23,6 @@ import { FileUpload } from '@/components/common/FileUpload';
 import { StatFilterBar } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { emailClient } from '@/lib/email-client';
-import { ReviewInstallmentModal } from '@/components/payment/ReviewInstallmentModal';
 import { InstallmentsConfigCard } from '@/components/payment/InstallmentsConfigCard';
 import { todayColombia, formatDayCO, daysDiffFromToday } from '@/lib/dateUtils';
 import { SportMapsPaySettings } from '@/components/settings/SportMapsPaySettings';
@@ -960,75 +959,32 @@ export default function PaymentsAutomationPage() {
   );
   if (!isAuthorized) return <Navigate to="/dashboard" replace />;
 
-  const handleManualAction = async (paymentId: string, action: 'approve' | 'reject') => {
+  // Solo rechazo: aprobar (completo o abono) SIEMPRE pasa por
+  // ApprovePaymentMethodSheet, que sí chequea abono/discrepancia y acumula
+  // amount_paid. Esta función tenía una rama 'approve' que marcaba 'paid'
+  // completo sin ese chequeo — muerta en runtime (ningún botón la llamaba con
+  // 'approve'), pero una trampa si alguien la reconectaba. Se retiró.
+  const handleManualAction = async (paymentId: string) => {
     setProcessingId(paymentId);
-    const newStatus = action === 'approve' ? 'paid' : 'rejected';
     const payment = payments.find(p => p.id === paymentId);
 
     try {
-      const updatePayload: any = { status: newStatus };
-      
-      if (action === 'approve' && profile && payment) {
-        updatePayload.approved_by = profile.id;
-        updatePayload.approved_at = new Date().toISOString();
-        updatePayload.amount_paid = payment.amount - (Number(payment.early_payment_discount_applied) || 0);
-        // Fase 5: todo aprobado (auto o manual) queda pendiente de conciliación bancaria.
-        updatePayload.reconciliation_status = 'pendiente';
-      }
-
-      const { error: updateError } = await supabase.from('payments').update(updatePayload).eq('id', paymentId);
+      const { error: updateError } = await supabase.from('payments').update({ status: 'rejected' }).eq('id', paymentId);
       if (updateError) throw updateError;
-      if (action === 'approve' && payment) {
-        // Activar enrollment asociado
-        let enrollQuery = (supabase.from('enrollments') as any)
-          .update({ status: 'active' })
-          .eq('school_id', schoolId)
-          .eq('status', 'pending');
 
-        if (payment.child_id)       enrollQuery = enrollQuery.eq('child_id', payment.child_id);
-        else if (payment.parent_id) enrollQuery = enrollQuery.eq('user_id', payment.parent_id);
-        if (payment.team_id)        enrollQuery = enrollQuery.eq('team_id', payment.team_id);
-
-        await enrollQuery;
-
-        if (payment.parent_id) {
-          if (payment.parent?.email) {
-            await emailClient.send({
-              type: 'payment_confirmation',
-              to: payment.parent.email,
-              data: {
-                userName: payment.parent.full_name || 'Usuario',
-                schoolName: 'Tu Escuela',
-                amount: formatCurrency(payment.amount),
-                concept: payment.concept,
-                reference: payment.id.slice(0, 8).toUpperCase(),
-              },
-            });
-          }
-          await supabase.rpc('notify_user', {
-            p_user_id: payment.parent_id, p_title: '✅ Pago Aprobado',
-            p_message: `Tu pago de ${formatCurrency(payment.amount)} ha sido validado.`,
-            p_type: 'success', p_link: '/my-payments',
-          });
-        }
-      }
-
-      if (action === 'reject') {
-        const payment = payments.find(p => p.id === paymentId);
-        if (payment?.parent_id) {
-          await supabase.rpc('notify_user', {
-            p_user_id: payment.parent_id,
-            p_title: '❌ Pago Rechazado',
-            p_message: `Tu comprobante de ${formatCurrency(payment.amount)} no pudo ser validado. Contáctanos para más información.`,
-            p_type: 'error',
-            p_link: '/my-payments',
-          });
-        }
+      if (payment?.parent_id) {
+        await supabase.rpc('notify_user', {
+          p_user_id: payment.parent_id,
+          p_title: '❌ Pago Rechazado',
+          p_message: `Tu comprobante de ${formatCurrency(payment.amount)} no pudo ser validado. Contáctanos para más información.`,
+          p_type: 'error',
+          p_link: '/my-payments',
+        });
       }
       toast({
-        title: action === 'approve' ? 'Pago Aprobado' : 'Pago Rechazado',
-        description: `La transacción ha sido ${action === 'approve' ? 'validada' : 'rechazada'} correctamente.`,
-        variant: action === 'approve' ? 'default' : 'destructive',
+        title: 'Pago Rechazado',
+        description: 'La transacción ha sido rechazada correctamente.',
+        variant: 'destructive',
       });
       await fetchPayments();
     } catch (error: unknown) {
@@ -1513,7 +1469,7 @@ export default function PaymentsAutomationPage() {
                             <CheckCircle2 className="h-3 w-3 mr-1" />
                             Aprobar
                           </Button>
-                          <Button size="sm" variant="outline" className="h-8 text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id, 'reject')}>
+                          <Button size="sm" variant="outline" className="h-8 text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id)}>
                             <XCircle className="h-3 w-3 mr-1" />
                             Rechazar
                           </Button>
@@ -1611,7 +1567,7 @@ export default function PaymentsAutomationPage() {
                                   <CheckCircle2 className="h-3 w-3 mr-1" />
                                   Aprobar
                                 </Button>
-                                <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id, 'reject')}>
+                                <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id)}>
                                   <XCircle className="h-3 w-3 mr-1" /> Rechazar
                                 </Button>
                                 <Button size="sm" variant="outline" className="text-orange-600 border-orange-200 hover:bg-orange-50" onClick={() => setCreatingGlosaPayment(payment)}>

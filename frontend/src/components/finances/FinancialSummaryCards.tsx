@@ -1,9 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DollarSign, AlertCircle, TrendingUp } from 'lucide-react';
-import { isOverdueCharge, isUpcomingCharge, type ChargeState } from '@/lib/paymentCartera';
+import { isOverdueCharge, isUpcomingCharge, remainingBalance, type ChargeState } from '@/lib/paymentCartera';
 
 interface FinancialSummaryCardsProps {
-  payments: Array<ChargeState & { amount: number | string }> | undefined;
+  payments: Array<ChargeState & { amount: number | string; amount_paid?: number | string | null }> | undefined;
 }
 
 /** Las 3 tarjetas KPI de arriba de los tabs — siempre visibles, no son un tab más. */
@@ -11,10 +11,18 @@ export function FinancialSummaryCards({ payments }: FinancialSummaryCardsProps) 
   // Histórico a propósito: el acumulado del mes en curso vive en la tarjeta
   // "Ingresos del Mes" del Dashboard. El rótulo decía "(Mes)" pero la cuenta
   // nunca filtró por mes.
+  //
+  // Un `partial` SÍ es ingreso real, solo que por `amount_paid` (lo abonado),
+  // no por `amount` completo — sumar el total ahí lo infla; ignorarlo (como
+  // antes) hace que ese dinero ya recibido no aparezca en ningún lado.
   const financialSummary = {
-    totalIncome: payments?.filter(p => p.status === 'paid').reduce((sum, p) => sum + Number(p.amount), 0) || 0,
-    totalOverdue: payments?.filter(isOverdueCharge).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
-    pendingPayments: payments?.filter(isUpcomingCharge).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
+    totalIncome: payments?.reduce((sum, p) => {
+      if (p.status === 'paid') return sum + Number(p.amount);
+      if (p.status === 'partial') return sum + Number(p.amount_paid ?? 0);
+      return sum;
+    }, 0) || 0,
+    totalOverdue: payments?.filter(isOverdueCharge).reduce((sum, p) => sum + remainingBalance(p), 0) || 0,
+    pendingPayments: payments?.filter(isUpcomingCharge).reduce((sum, p) => sum + remainingBalance(p), 0) || 0,
   };
 
   return (
