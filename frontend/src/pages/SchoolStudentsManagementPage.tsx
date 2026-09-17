@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
 import { useAuth } from '@/contexts/AuthContext';
+import { AssignSchedulingTeamModal } from '@/components/teams/AssignSchedulingTeamModal';
 import { normalizeText } from '@/lib/normalizeText';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -285,6 +286,11 @@ export default function SchoolStudentsManagementPage() {
   // Pausa por vacaciones/lesión: opt-in por escuela (D7). Con el flag apagado
   // no se muestra nada — es el mismo patrón que `militaryDiscountEnabled`.
   const pauseEnabled = schoolSettings?.pause_enabled === true;
+
+  // Piloto "agendar por equipo" (Dreamers, Academia Superior Bogotá) — mismo
+  // patrón de flag por escuela.
+  const teamSchedulingEnabled = schoolSettings?.team_scheduling_enabled === true;
+  const [assigningTeamStudent, setAssigningTeamStudent] = useState<any>(null);
   const { byEnrollment: pauseByEnrollment } = useActivePauses(pauseEnabled ? schoolId : null);
   const { data: pauseRequests } = usePendingPauseRequests(
     pauseEnabled && canManageStudents ? schoolId : null
@@ -1187,6 +1193,13 @@ export default function SchoolStudentsManagementPage() {
         <DropdownMenuItem onClick={() => navigate(`/estado-cuenta?${buildAccountStatementParams(student)}`)}>
           Ver estado de cuenta
         </DropdownMenuItem>
+        {/* Piloto "agendar por equipo" — solo tiene sentido si el estudiante
+            tiene una inscripción de plan (offering_plan_id) que agendar. */}
+        {teamSchedulingEnabled && student.enrollment_id && student.offering_plan_id && (
+          <DropdownMenuItem onClick={() => setAssigningTeamStudent(student)}>
+            Equipo de agendamiento
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -2373,6 +2386,16 @@ export default function SchoolStudentsManagementPage() {
       <CSVImportModal open={showImportModal} onClose={() => setShowImportModal(false)}
         onSuccess={() => { setShowImportModal(false); toast({ title: "Importación completada", description: "La lista de atletas se ha actualizado." }); queryClient.invalidateQueries({ queryKey: ['school-students'] }); }}
         schoolId={schoolId ?? ''} schoolName={schoolName} branchId={activeBranchId} students={students} teams={teams} branches={branches} />
+      {teamSchedulingEnabled && (
+        <AssignSchedulingTeamModal
+          open={!!assigningTeamStudent}
+          onOpenChange={(o) => { if (!o) setAssigningTeamStudent(null); }}
+          enrollmentId={assigningTeamStudent?.enrollment_id ?? null}
+          studentName={assigningTeamStudent?.full_name ?? ''}
+          schoolId={schoolId || ''}
+          onSuccess={() => setAssigningTeamStudent(null)}
+        />
+      )}
       <StudentTypeSelector open={showTypeSelector} onClose={() => setShowTypeSelector(false)} onSelectChild={() => setShowCreateChildModal(true)} onSelectAdult={() => setShowCreateAdultModal(true)} />
       <CreateChildModal open={showCreateChildModal} onClose={() => setShowCreateChildModal(false)} onSuccess={() => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); setShowCreateChildModal(false); }} schoolId={schoolId || ''} />
       <CreateAdultAthleteModal open={showCreateAdultModal} onClose={() => setShowCreateAdultModal(false)} onSuccess={() => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); setShowCreateAdultModal(false); }} schoolId={schoolId || ''} />

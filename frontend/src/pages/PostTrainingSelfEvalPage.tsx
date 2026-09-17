@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import type { Json } from '@/integrations/supabase/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -189,7 +190,7 @@ export default function PostTrainingSelfEvalPage() {
   const submit = useMutation({
     mutationFn: async () => {
       if (!sessionId || !ctx?.subjectId) throw new Error('Falta información de la sesión.');
-      const payload: Record<string, unknown> = {
+      const payload: Record<string, Json> = {
         rpe_borg: answers.rpe_borg,
         task_comprehension: answers.task_comprehension,
         self_effort_pct: answers.self_effort_pct,

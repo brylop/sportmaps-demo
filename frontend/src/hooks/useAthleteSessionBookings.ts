@@ -39,10 +39,68 @@ export interface BookableSession {
   coach: { id: string; name: string; full_name?: string; specialty?: string } | null;
   enrollment_id: string | null;
   offering_id: string | null;
+  school_id?: string | null;
   sessions_left: number | null;   // null = ilimitado
   booking_status: 'open' | 'full' | 'already_booked' | 'no_credits';
   already_booked: boolean;
   school_type?: string;
+  // Piloto "agendamiento flexible de banco de horas": presentes solo cuando
+  // la escuela tiene el flag y el plan es de horas — de default_minutes
+  // hasta max_bookable_minutes se puede pedir una sesión personalizada.
+  default_minutes?: number;
+  max_bookable_minutes?: number;
+  available_for_personal_classes?: boolean;
+  available_for_group_classes?: boolean;
+}
+
+// Piloto "agendamiento flexible de banco de horas" — modo "Por bloque": el
+// backend genera un candidato por CADA hora de inicio posible (necesario
+// para que "Personalizada" pueda arrancar en cualquier hora y desde ahí
+// extender la duración), así que acá se colapsa esa misma lista a bloques
+// fijos sin solapar (05-07, 07-09, 09-11...) para la vista "Por bloque".
+// Solo toca sesiones del piloto (traen default_minutes) — el resto
+// (grupales/personales normales fuera del piloto) queda intacto, cada hora
+// sigue siendo su propia tarjeta. Compartido entre "Mis Inscripciones" y el
+// link público de agendamiento — el mismo criterio en los dos lugares.
+export function collapseOverlappingBlocks<T extends Pick<BookableSession, 'start_time' | 'end_time' | 'default_minutes' | 'coach' | 'available_for_personal_classes'>>(sessions: T[]): T[] {
+  const flexible = sessions.filter(s => s.default_minutes != null);
+  const rest = sessions.filter(s => s.default_minutes == null);
+
+  const byGroup: Record<string, T[]> = {};
+  flexible.forEach(s => {
+    const type = s.available_for_personal_classes ? 'p' : 'g';
+    const key = `${s.coach?.id ?? ''}_${type}`;
+    (byGroup[key] ??= []).push(s);
+  });
+
+  const collapsed: T[] = [];
+  Object.values(byGroup).forEach(group => {
+    const sorted = [...group].sort((a, b) => a.start_time.localeCompare(b.start_time));
+    let cursorEnd: string | null = null;
+    sorted.forEach(s => {
+      if (cursorEnd === null || s.start_time >= cursorEnd) {
+        collapsed.push(s);
+        cursorEnd = s.end_time;
+      }
+    });
+  });
+
+  return [...rest, ...collapsed];
+}
+
+// Piloto "agendamiento flexible de banco de horas" — sesión personalizada:
+// grilla de horas ATÓMICAS reales (no los bloques ya armados de
+// BookableSession) para que el usuario pueda tocar horas sueltas
+// consecutivas y armar su propio bloque de 3h, 4h, etc.
+export interface FlexibleHourGridGroup {
+  enrollment_id: string;
+  school_id: string;
+  coach_id: string;
+  coach: { id: string; full_name: string } | null;
+  session_date: string;
+  kind: 'personal' | 'group';
+  default_minutes: number;
+  hours: { avail_id: string; start_time: string; end_time: string; busy: boolean }[];
 }
 
 export interface MyBooking {
@@ -56,6 +114,7 @@ export interface MyBooking {
   end_time?: string;        // Para secundarias
   facilities?: { id: string; name: string }; // Para secundarias
   enrollment_id: string;
+  school_id?: string | null;
   school_type?: string;
   attendance_sessions?: {
     id: string;
@@ -75,7 +134,7 @@ export interface MyBooking {
 export function useAvailableSessions(childId?: string) {
   const { schoolId, activeBranchId } = useSchoolContext();
   const { user } = useAuth();
-  return useQuery<{ sessions: BookableSession[] }>({
+  return useQuery<{ sessions: BookableSession[]; flexible_hour_grid?: FlexibleHourGridGroup[] }>({
     queryKey: ['athlete-available-sessions', schoolId, activeBranchId, childId],
     queryFn: () => bff('/athlete/available', undefined, childId, activeBranchId),
     staleTime: 60_000,
@@ -129,7 +188,7 @@ export function useFacilitySlots(facilityId: string, date: string | null, childI
 export function useBookSession(childId?: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { session_id: string; enrollment_id: string }) =>
+    mutationFn: (payload: { session_id: string; enrollment_id: string; duration_minutes?: number }) =>
       bff('/athlete/book-session', { method: 'POST', body: JSON.stringify({ ...payload, child_id: childId }) }),
     onSuccess: () => {
       // Prefix-match so we invalidate every (schoolId, branchId, childId) variant.

@@ -50,7 +50,8 @@ ajustado 2026-09-06 para bajar la carga sobre Render — ver
 1. Pregunta al backend (`GET /bridge/door-commands`, un endpoint dedicado
    — **no** el canal ADMS) si hay comandos `open_door` pendientes.
 2. Si hay uno, se conecta por SDK local al dispositivo correspondiente
-   (`192.168.1.6` entrada / `192.168.1.7` salida — confirmado) y ejecuta
+   (`192.168.1.4` entrada / `192.168.1.11` salida — actualizado 2026-09-16,
+   segundo cambio de red; ver "Si algo cambia en la red de GYM RM" abajo) y ejecuta
    el desbloqueo físico real vía `pyzk`, por el tiempo configurado en
    "Editar dispositivo" > "Tiempo de apertura" para ese lector.
 3. Confirma al backend si funcionó o falló (`POST .../ack`).
@@ -112,16 +113,26 @@ es seguro dejarlo instalado esperando.
 
 ## Si algo cambia en la red de GYM RM
 
-Las IPs locales de los lectores **ya cambiaron una vez** desde que se
-instalaron por primera vez (de `.4`/`.5` en junio a `.6`/`.7` en agosto,
-sin que quedara ningún registro de cuándo ni por qué). Si vuelve a pasar
-y el bridge deja de conectar:
+Las IPs locales de los lectores **ya cambiaron dos veces** desde que se
+instalaron por primera vez (de `.4`/`.5` en junio a `.6`/`.7` en agosto, y de
+`.6`/`.7` a `.4`/`.11` el 2026-09-16 — sin que quedara ningún registro de
+cuándo ni por qué en ninguno de los dos casos). Si vuelve a pasar y el
+bridge deja de conectar:
 
 1. Confirmar la IP actual directamente en el equipo físico
-   (`Menú → Comm. → Ethernet`), nunca asumir por historial.
+   (`Menú → Comm. → Ethernet`), nunca asumir por historial. **El nombre que
+   el software ZKTeco del gimnasio le pone a cada lector ("entrada"/"salida")
+   tampoco es confiable** (confirmado mal puesto 2026-09-16) — la fuente de
+   verdad es el **serial**: `JJA1254900899` = entrada, `JJA1254900898` =
+   salida, verificar contra `turnstile_devices.direction` si hay dudas.
 2. Actualizar el campo `"ip"` correspondiente en `DEVICES` dentro de
    `door_bridge.py`.
-3. Reiniciar la tarea: `Restart-ScheduledTask -TaskName "SportMaps-GymRM-DoorBridge"`
+3. Reiniciar la tarea (`Restart-ScheduledTask` no es un cmdlet real, usar
+   los dos pasos):
+   ```powershell
+   Stop-ScheduledTask -TaskName "SportMaps-GymRM-DoorBridge"
+   Start-ScheduledTask -TaskName "SportMaps-GymRM-DoorBridge"
+   ```
    (o simplemente reiniciar la PC).
 
 ## Desinstalar

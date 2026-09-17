@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 539,
-  "head": "20260911184400",
+  "count": 548,
+  "head": "20260917152834",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -542,6 +542,15 @@
     {"v":"20260911170115","file":"20260911170115_whatsapp_cola_comprobantes.sql","sha256":"7186fe3af3d03d79cf3bf16930d241fa28d33a664e33e81c60ed06a203aed3d8","added":"2026-09-11","by":"brylop"},
     {"v":"20260911170505","file":"20260911170505_whatsapp_cola_claim_rpc.sql","sha256":"2ac361ab8946bb91dce21febec7d1fa0cf29c73ebff220926a79a6273e7112a0","added":"2026-09-11","by":"brylop"},
     {"v":"20260911171023","file":"20260911171023_whatsapp_cola_media_id.sql","sha256":"1d3519705f4690d97fe78fd528eef5848de6862337491b1941f51d983cf0b4f6","added":"2026-09-11","by":"brylop"},
-    {"v":"20260911184400","file":"20260911184400_whatsapp_pagos_vistos_y_aviso_resultado.sql","sha256":"1a4f7fc3cc978f4064f00b8c7824eee80e8beaf0c1879a352253c1d9023f6166","added":"2026-09-11","by":"brylop"}
+    {"v":"20260911184400","file":"20260911184400_whatsapp_pagos_vistos_y_aviso_resultado.sql","sha256":"1a4f7fc3cc978f4064f00b8c7824eee80e8beaf0c1879a352253c1d9023f6166","added":"2026-09-11","by":"brylop"},
+    {"v":"20260912102517","file":"20260912102517_team_availability_y_scheduling_team_en_enrollments.sql","sha256":"df56b7996b264c7e2beb05eaea3036a50c2a7245d0a25f4dd8d0c2ded56fa0aa","added":"2026-09-12","by":"judegor99"},
+    {"v":"20260912102940","file":"20260912102940_attendance_sessions_team_availability_id.sql","sha256":"1a364b5927894b7cbbdf18c90b45f9a67323d6a3d43c581fe34546418ac2d76e","added":"2026-09-12","by":"judegor99"},
+    {"v":"20260912103828","file":"20260912103828_school_settings_team_scheduling_flag.sql","sha256":"720e8d36be0f287026bcf4ca204bdd47f26dc32aa4b168835620ec2911c02ae9","added":"2026-09-12","by":"judegor99"},
+    {"v":"20260914221557","file":"20260914221557_revertir_team_availability_usar_coach_availability_del_equipo.sql","sha256":"aa696e25ce739fa999920ed9b33d492c51263514af29548f1b834b29b66d1dae","added":"2026-09-15","by":"judegor99"},
+    {"v":"20260915001252","file":"20260915001252_reserve_hour_bank_minutes_override_y_flag_flexible.sql","sha256":"9446aae7888a7557f813564423ed74a2b1548c6236c30d02214a22276b50e823","added":"2026-09-15","by":"judegor99"},
+    {"v":"20260915121329","file":"20260915121329_corrige_hours_plan_enabled_academia_superior.sql","sha256":"3351bde5e55dfbf8fdb192cefd496a9d1cc2b59e904a71bafe27ecae81b1e348","added":"2026-09-15","by":"judegor99"},
+    {"v":"20260915185925","file":"20260915185925_add_child_id_access_control.sql","sha256":"9dd2a4236f59913a0fa28b62221859b392506bf4046a6a6509079c1608ef7722","added":"2026-09-15","by":"judegor99"},
+    {"v":"20260917152141","file":"20260917152141_revoca_grant_authenticated_get_or_open_hour_bank_period.sql","sha256":"ba4a855a38d8da8932f9a2dcc913b4025eb653f530834213f811f767b858e35c","added":"2026-09-17","by":"judegor99"},
+    {"v":"20260917152834","file":"20260917152834_revoca_default_privilege_execute_anon_authenticated_funciones.sql","sha256":"35f6c813133d33cf257792944f89065c9b2264b801ed70c70ef9a56029a20ca7","added":"2026-09-17","by":"judegor99"}
   ]
 }

@@ -52,6 +52,7 @@ interface AccessEvent {
   denial_reason?: string;
   check_in_method: 'fingerprint' | 'card' | 'manual' | 'pin';
   zk_user_id?: number;
+  child_id?: string;
   occurred_at: string;
   user_name: string;
   turnstile_devices?: { device_name: string; direction: string };
@@ -73,9 +74,10 @@ interface TurnstileDevice {
 interface AssignableMember {
   user_id?: string;
   unregistered_athlete_id?: string;
+  child_id?: string;
   full_name: string;
   role: string | null;
-  type: 'registered' | 'unregistered';
+  type: 'registered' | 'unregistered' | 'child';
 }
 
 // Un evento "desconocido" todavía no tiene usuario mapeado (user_name = ZK#<pin>).
@@ -415,13 +417,14 @@ export default function AccessControlPage() {
 
   const handleAssign = async (member: AssignableMember) => {
     if (assignPin === null) return;
-    const key = member.user_id ?? member.unregistered_athlete_id!;
+    const key = member.user_id ?? member.unregistered_athlete_id ?? member.child_id!;
     setAssigningId(key);
     try {
       await bffClient.post('/api/v1/access/assign-user', {
         zk_pin:  assignPin,
         user_id: member.user_id,
         unregistered_athlete_id: member.unregistered_athlete_id,
+        child_id: member.child_id,
       });
       toast({
         title:       'Usuario asignado',
@@ -853,7 +856,7 @@ export default function AccessControlPage() {
             ) : (
               members.map((m) => (
                 <button
-                  key={m.user_id ?? m.unregistered_athlete_id}
+                  key={m.user_id ?? m.unregistered_athlete_id ?? m.child_id}
                   className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-muted/50 transition-colors disabled:opacity-50"
                   onClick={() => handleAssign(m)}
                   disabled={assigningId !== null}
@@ -861,13 +864,13 @@ export default function AccessControlPage() {
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate">{m.full_name}</p>
                     {m.role && <p className="text-xs text-muted-foreground">{m.role}</p>}
-                    {m.type === 'unregistered' && (
+                    {(m.type === 'unregistered' || m.type === 'child') && (
                       <span className="text-[10px] text-amber-600 bg-amber-500/10 px-1 py-0.5 rounded font-medium mt-0.5 inline-block">
                         Sin Login
                       </span>
                     )}
                   </div>
-                  {assigningId === (m.user_id ?? m.unregistered_athlete_id)
+                  {assigningId === (m.user_id ?? m.unregistered_athlete_id ?? m.child_id)
                     ? <RefreshCw className="h-4 w-4 animate-spin shrink-0" />
                     : <UserPlus className="h-4 w-4 text-muted-foreground shrink-0" />}
                 </button>
