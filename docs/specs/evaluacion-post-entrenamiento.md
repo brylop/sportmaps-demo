@@ -2,7 +2,7 @@
 
 **Producto:** SportMaps · **Versión:** v0.3 (revisión de diseño integrada: modelo de datos corregido contra el PDF fuente, disparo, concurrencia, UX completa, informe grupal)
 **Fecha:** 2026-09-08 · **Actualizado:** 2026-09-11 — F0 y F1 aplicados en la base
-**Estado:** 🟢 **F0-F4 completo, en `develop`.** Catálogo, captura, disparo, recordatorios, las 7 pantallas del padre, rating del coach, informe grupal (backend + vista de coach/admin + vista del padre), PDF exportable, cron de publicación automática, opt-out con interfaz, y tests unitarios de la agregación — todo aplicado y verificado. F-SEC no fue necesaria (ver nota abajo). Deuda que queda, genuinamente pendiente: la versión "compartir a imagen", y la decisión de producto de §7 abierta #1 (si el informe grupal se manda a las familias o queda solo para coach/admin).
+**Estado:** 🟢 **F0-F5 completo, en `develop`.** Catálogo, captura, disparo, recordatorios, las 7 pantallas del padre, rating del coach, informe grupal (backend + vista de coach/admin + vista del padre), PDF exportable, cron de publicación automática, opt-out con interfaz, tests unitarios de la agregación, y el resumen del día puntual (F5) — todo aplicado y verificado. F-SEC no fue necesaria (ver nota abajo). Deuda que queda, genuinamente pendiente: la versión "compartir a imagen".
 
 **F2 — aplicado y probado:** migraciones `20260911124834` (trigger `post_training_notify_on_finalize` sobre `attendance_sessions.finalized` false→true, columna `children.post_training_opt_out`, categoría `post_training` en `notifications`) y `20260911125148` (RPCs de sistema `post_training_send_parent_reminders_system` / `post_training_send_coach_reminders_system`, `service_role` únicamente) + `bff/src/jobs/post-training-reminders.job.ts` registrado en `maintenance.job.ts` a las 20:00 COT. Probado con una sesión real: cerrar dispara 1 notificación al padre correcto; reabrir+cerrar NO duplica. **Corrección sobre mi propia revisión anterior:** el botón "Finalizar sesión" de `CoachAttendancePage.tsx` **sí existe y sí escribe** `finalized=true` vía `PATCH /api/v1/attendance/session/:id/finalize` en el BFF — mi lectura previa (grep que no encontró la escritura) fue un falso negativo, confirmado ahora leyendo el archivo completo. El trigger de F2 se dispara con el flujo real, no uno hipotético.
 
@@ -335,9 +335,18 @@ Puntos, rankings entre deportistas, comparar a una niña con otra por nombre, mo
 | 5 | ¿Dónde vive la nota del profe? | `attendance_sessions.coach_notes` (por sesión) + `report_section_notes` (por bloque del informe). |
 | 6 | ¿El fix de seguridad va con este módulo? | **No.** PR independiente, prioritario (F-SEC), y ahora incluye también la policy de `attendance_sessions` (nota 3 de la cabecera). |
 
-**Abiertas (menores, no bloquean F0-F1):**
-1. ¿El informe grupal se envía a todas las familias del equipo por defecto o solo a coach/admin? Propuesta: solo coach/admin, toggle por escuela.
-2. El auto-cierre por horario de sesión queda **fuera de alcance** hasta que `start_time`/`end_time` de `attendance_sessions` se versionen (dependencia externa a este spec, ya documentada en `attendance-reports-module.md`). Mientras tanto, ¿el recordatorio "sesión sin cerrar" a +1 día es suficiente, o se necesita antes?
+**Abierta #1 — cerrada 2026-09-16 (F5):** ¿el informe grupal se envía a las familias, o queda solo para coach/admin? Ninguna de las dos: en vez de empujar el informe **mensual/grupal**, se agregó un aviso nuevo de **resumen del día puntual** — cuando para la misma sesión ya existen tanto la autoevaluación del padre como el rating del coach, se le avisa con el resultado de ESE día (fatiga BORG, comprensión, esfuerzo propio, satisfacción + el % del coach). El informe grupal/mensual **sigue sin push**: se consulta bajo demanda en `children/:id/post-entreno-informe` (queda como estaba). Ver F5 abajo.
+
+**Abierta (menor, no bloquea nada):**
+1. El auto-cierre por horario de sesión queda **fuera de alcance** hasta que `start_time`/`end_time` de `attendance_sessions` se versionen (dependencia externa a este spec, ya documentada en `attendance-reports-module.md`). Mientras tanto, ¿el recordatorio "sesión sin cerrar" a +1 día es suficiente, o se necesita antes?
+
+## F5. Resumen del día puntual (2026-09-16)
+
+Migración `20260916101630_post_entreno_resumen_dia.sql`, aplicada y verificada contra la base viva. Trigger `trg_post_training_daily_recap` sobre `performance_entries` (`AFTER INSERT OR UPDATE`, filtrado a `metric_key IN ('rpe_borg','coach_effort_rating')` y `context_type='session'`) — dispara sobre la tabla de datos, no sobre las RPCs de F1, porque el padre y el coach pueden responder en cualquier orden: cualquiera de las dos filas puede ser la que completa el par. Cuando ambas ya existen para la misma `(context_id, subject_type, subject_id)`, inserta una notificación (`category='post_training'`, `data->>'kind'='daily_recap'`) con deep-link a `/post-entreno/:sessionId/resultado?child_id=`. Idempotente por `data->>'kind'` + `session_id` + `subject_id` (reenviar/corregir una respuesta dentro de las 24h no duplica el aviso, mismo criterio que F2). Respeta `post_training_opt_out`. No notifica al coach — el resumen del día es solo para el padre.
+
+Pantalla nueva `frontend/src/pages/PostTrainingDayRecapPage.tsx`, re-visitable (a diferencia del paso 6 de `PostTrainingSelfEvalPage.tsx`, que solo se ve una vez al terminar de responder y no incluye el rating del coach porque normalmente todavía no existe en ese momento). Lee `performance_entries` + `attendance_sessions` + `sport_metric_definitions` directo por RLS (mismas policies de lectura que ya permiten al padre ver los datos de su hija — `performance_entries_select_own`), sin RPC ni ruta de BFF nueva.
+
+Probado contra la base viva: se insertó el rating del coach para una sesión que ya tenía la autoevaluación de la QA fixture (`Escuela Demo SportMaps` / `Thunder`) → la notificación se creó con el contenido correcto; una segunda actualización del mismo rating no duplicó la notificación (idempotencia confirmada); la pantalla renderiza los datos reales vía captura de Playwright.
 
 ---
 

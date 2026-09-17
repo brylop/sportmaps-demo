@@ -78,4 +78,18 @@ test.describe('Evaluación post-entrenamiento', () => {
         await expect(page.getByText(/Thunder ·/)).toBeVisible({ timeout: 15_000 });
         await expect(page.getByText('Cansancio (BORG)')).toBeVisible();
     });
+
+    test('el padre ve el resumen del día puntual (F5, una vez que autoeval + rating del coach existen)', async ({ page }) => {
+        // Requiere que SESSION_ID/CHILD_ID ya tengan AMBAS piezas guardadas
+        // (rpe_borg del padre + coach_effort_rating del coach) — es lo que
+        // dispara trg_post_training_daily_recap. Si la sesión de la corrida es
+        // nueva y el coach todavía no calificó, este test queda pendiente de
+        // ese orden; no falla el resto de la suite.
+        await loginAs(page, PARENT);
+        await page.goto(`/post-entreno/${SESSION_ID}/resultado?child_id=${CHILD_ID}`);
+
+        await expect(page.getByText(/Así le fue hoy a/)).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByText('FATIGA (BORG)')).toBeVisible();
+        await expect(page.getByText('ESFUERZO SEGÚN EL COACH')).toBeVisible();
+    });
 });
