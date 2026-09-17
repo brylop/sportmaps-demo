@@ -219,3 +219,54 @@ No existe tabla de permisos en la base (solo `roles` y `user_roles`); las matric
 que hay en el código son **código muerto**, porque el gate real es el BFF con
 `service_role`, que salta RLS. Un módulo de permisos tiene que enforcar en los dos
 planos o será decorativo como las actuales.
+
+---
+
+## Adenda 2026-09-17 — el fix de `identity-documents` de mayo nunca se aplicó
+
+Este documento decía (sección de arriba) que faltaba auditar qué buckets de
+Storage son públicos. Uno de ellos, `identity-documents`, **se creía cerrado**
+desde `20260511000006_lock_down_identity_documents_bucket.sql` — y no lo estaba.
+
+**Lo que se encontró**, mientras se depuraba por qué una migración nueva (fase 1
+de `alta-atleta-por-foto-hoja-matricula.md`) no podía aplicar sus propias
+policies de Storage:
+
+- La policy `identity_docs_public_read` (`FOR SELECT TO public USING (bucket_id
+  = 'identity-documents')`) **seguía viva**. `anon` tiene GRANT `SELECT` sobre
+  `storage.objects` (el default de Supabase), así que cualquiera sin
+  autenticar podía leer cédulas de menores, cédulas de acudientes y
+  certificados de EPS. Vigente desde el 2026-05-11 hasta el 2026-09-17: **más
+  de cuatro meses**.
+- La causa: `20260511000006` envolvía el `DROP` de esa policy y el `CREATE` de
+  sus dos reemplazos (`identity_docs_owner_read`, `identity_docs_staff_read`)
+  dentro de un `DO $$ ... SET LOCAL ROLE supabase_storage_admin ... $$`,
+  asumiendo que hacía falta esa membresía para tocar `storage.objects`. **No
+  hacía falta**: verificado el 2026-09-17 que `postgres` puede hacer
+  `DROP`/`CREATE POLICY` sobre `storage.objects` directamente en este
+  proyecto. Pero como *ningún* rol disponible tiene membresía en
+  `supabase_storage_admin` (`pg_has_role('postgres','supabase_storage_admin','MEMBER')`
+  = `false`), el `DO` se saltaba con un `RAISE WARNING` silencioso cada vez
+  que alguien corría esa migración, sin abortar nada — nadie lo notó porque el
+  `UPDATE storage.buckets SET public = false` de la misma migración (que no
+  vivía dentro del bloque bloqueado) sí se aplicó, y la URL pública corta dejó
+  de funcionar. Eso se leyó como "ya quedó privado" sin verificar la policy.
+- **Fix aplicado en caliente el 2026-09-17** (`DROP` de la abierta + `CREATE`
+  de las dos de reemplazo, contenido idéntico al que `20260511000006` nunca
+  logró aplicar) y formalizado en
+  `20260917131156_fix_identity_docs_public_read_nunca_aplicado.sql`, sin el
+  bloque de escalada — no hacía falta.
+
+**Lección para el resto del repo:** cualquier migración con un `DO $$ ... IF
+NOT pg_has_role(...) THEN RAISE WARNING ... RETURN; END IF; ...` que se haya
+aplicado alguna vez merece una verificación posterior de que el contenido del
+bloque **realmente** quedó en la base — un `RAISE WARNING` no falla el CI ni
+bloquea el merge, así que una migración "aplicada exitosamente" puede no haber
+hecho nada. `identity_docs_unregistered_admin_insert`/`_delete`
+(`20260827170031`) usan el patrón directo sin escalada y sí se verificaron
+vivas — es la prueba de que la escalada nunca hizo falta en este proyecto.
+
+**Pendiente:** el TODO que ya traía `identity_docs_staff_read` sigue igual —
+no restringe por escuela, cualquier staff de la plataforma puede leer
+documentos de cualquier niño. Bajado de "crítico" (lectura anónima) a "medio"
+(cross-tenant entre staff autenticado), pero sigue abierto.
