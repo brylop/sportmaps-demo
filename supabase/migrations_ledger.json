@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 561,
-  "head": "20260916174222",
+  "count": 563,
+  "head": "20260917123008",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -564,6 +564,8 @@
     {"v":"20260916103807","file":"20260916103807_fix_school_athletes_security_invoker_regression2.sql","sha256":"f07976bfa1ac069f678a28a91295ee06e859a6816acb067662c369ee14a52e60","added":"2026-09-16","by":"brylop"},
     {"v":"20260916112304","file":"20260916112304_post_entreno_roster_coach_rpc.sql","sha256":"6353701126b4ce4362bff3a2f57d809734c5ba636975affa39b063d2e8413678","added":"2026-09-16","by":"brylop"},
     {"v":"20260916163755","file":"20260916163755_whatsapp_identificar_por_telefono.sql","sha256":"92991f91bb2b039074b73e20cf798ea6727dc6ff256ed1ff8369b914add5d01b","added":"2026-09-16","by":"brylop"},
-    {"v":"20260916174222","file":"20260916174222_fix_wa_identify_by_phone_min_uuid.sql","sha256":"76bc6a5b21f65361bc641a984a048b9d77610df9ffbffbfc8c43784b33de65c4","added":"2026-09-16","by":"brylop"}
+    {"v":"20260916174222","file":"20260916174222_fix_wa_identify_by_phone_min_uuid.sql","sha256":"76bc6a5b21f65361bc641a984a048b9d77610df9ffbffbfc8c43784b33de65c4","added":"2026-09-16","by":"brylop"},
+    {"v":"20260917122529","file":"20260917122529_alta_atleta_enrollment_form_intake.sql","sha256":"c2360d19cb69bf0d780480251fac8f9d04dda1a67e3722d76e49f63d54a76efc","added":"2026-09-17","by":"brylop"},
+    {"v":"20260917123008","file":"20260917123008_enrollment_intake_storage_policies.sql","sha256":"89cc639f27c7bca9a4793e7965d9182c722fa7d15a7ff6f7b23127b6a5ce9acd","added":"2026-09-17","by":"brylop"}
   ]
 }
