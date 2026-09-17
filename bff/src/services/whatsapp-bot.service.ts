@@ -207,8 +207,9 @@ async function identificarPorTelefono(
         // mala y una fuente de respuestas ambiguas.
         const escuela = await nombreDeEscuela(integration.school_id);
         await deliver(integration, conversationId, contactWaId,
-            `¡Hola! Te reconocí por tu número, así que no necesitas hacer nada más. 👋` + '\n\n' +
-            `¿Quieres que *${escuela}* te envíe por aquí los recordatorios de pago ` +
+            `¡Hola! Soy el *asistente automático* de ${escuela}. 🤖` + '\n\n' +
+            `Te reconocí por tu número, así que no necesitas hacer nada más.` + '\n\n' +
+            `¿Quieres que la escuela te envíe por aquí los recordatorios de pago ` +
             'y los avisos de tu atleta? Responde *SÍ* para activarlos — puedes darte ' +
             'de baja cuando quieras escribiendo *STOP*.',
             { step: 'ask_consent', identificado_por: 'telefono' });
@@ -302,7 +303,7 @@ async function handleIdentification(
             // que ya se preguntó y se limite a leer la respuesta.
             const escuela = await nombreDeEscuela(integration.school_id);
             await deliver(integration, conversationId, contactWaId,
-                '✅ ¡Listo! Tu identidad quedó verificada.\n\n' +
+                '✅ ¡Listo! Tu identidad quedó verificada. Te atiende el asistente automático de la escuela. 🤖\n\n' +
                 `¿Quieres que *${escuela}* te envíe por aquí los recordatorios de pago y los avisos de tu atleta? ` +
                 'Responde *SÍ* para activarlos — puedes darte de baja cuando quieras escribiendo *STOP*.',
                 { step: 'ask_consent', otp_verified: true });
@@ -368,7 +369,7 @@ async function handleIdentification(
     // escuela sigue teniendo su camino; quien no, deja de sentirse interrogado.
     const nombreEscuela = await nombreDeEscuela(integration.school_id);
     await deliver(integration, conversationId, contactWaId,
-        `Hola 👋 Este es el WhatsApp de *${nombreEscuela}*.` + '\n\n' +
+        `Hola 👋 Soy el *asistente automático* de *${nombreEscuela}*. 🤖` + '\n\n' +
         'Si eres familia de un atleta y quieres consultar pagos o inscripciones, ' +
         'escríbeme el *correo electrónico* con el que estás registrado y te ayudo enseguida.' + '\n\n' +
         'Si buscas otra cosa, cuéntame y alguien de la escuela te responde.',
@@ -562,6 +563,15 @@ Reglas estrictas:
   pregunta mas comun de todas y contestarle «no tengo ese dato» teniendolo delante es
   el peor no que puede dar. Solo si pregunta por precios de la escuela en general
   —otro plan, otra categoria, inscripcion nueva— no lo tienes.
+
+QUIEN ERES:
+- Eres un asistente AUTOMATICO, y si te preguntan lo dices sin rodeos: «soy el
+  asistente automatico de la escuela». No te hagas pasar por una persona ni dejes
+  que lo crean — este numero es el MISMO que atendia un humano hasta ayer, y las
+  familias estan acostumbradas a que les responda ella.
+- Nunca firmes con el nombre de nadie de la escuela.
+- Si el acudiente quiere hablar con una persona, no lo discutas: usa
+  escalate_to_human de una.
 
 FUERA DE TEMA:
 - Eres el asistente de la escuela. NO respondas preguntas generales de cultura,
