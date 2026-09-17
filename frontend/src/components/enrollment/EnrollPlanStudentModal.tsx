@@ -271,7 +271,7 @@ export function EnrollPlanStudentModal({
 
     return (
         <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
             <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                     <UserPlus className="h-5 w-5 text-primary" />
@@ -293,8 +293,8 @@ export function EnrollPlanStudentModal({
                     </div>
                 </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4 py-2">
-                <div className="relative">
+            <div className="space-y-4 py-2 flex-1 min-h-0 flex flex-col">
+                <div className="relative shrink-0">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                         placeholder="Buscar por nombre o email..."
@@ -310,7 +310,7 @@ export function EnrollPlanStudentModal({
                     </p>
                 )}
  
-                <ScrollArea className="h-[400px] border rounded-md p-2">
+                <ScrollArea className="flex-1 min-h-0 border rounded-md p-2">
                     {loading ? (
                         <div className="flex flex-col items-center justify-center py-12">
                             <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
@@ -450,7 +450,7 @@ export function EnrollPlanStudentModal({
                 </ScrollArea>
             </div>
 
-            <DialogFooter>
+            <DialogFooter className="shrink-0">
                 <Button variant="outline" onClick={onClose}>
                     Cerrar
                 </Button>

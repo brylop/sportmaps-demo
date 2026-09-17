@@ -12,7 +12,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { studentsAPI, Student } from '@/lib/api/students';
@@ -225,12 +224,15 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
         .filter(s => !isEnrolled(s.id) && matchesSearch(s))
         .sort((a, b) => a.full_name.localeCompare(b.full_name));
     const filteredStudents = [...enrolledList, ...availableList];
-    const isFull = team ? enrolledStudentIds.length >= (team.max_students || 20) : false;
+    // Sin cupo declarado NO hay tope. El `|| 20` inventaba un techo de 20 y dejaba
+    // todos los botones "Inscribir" deshabilitados en cualquier categoria que lo
+    // pasara, sin manera de recuperarse desde la UI del entrenador.
+    const isFull = team?.max_students ? enrolledStudentIds.length >= team.max_students : false;
 
     return (
         <Dialog open={open} onOpenChange={onClose}>
             <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
-                <DialogHeader>
+                <DialogHeader className="shrink-0 max-h-[38vh] overflow-y-auto sm:max-h-none sm:overflow-visible">
                     <DialogTitle className="flex items-center gap-2">
                         <UserPlus className="h-5 w-5 text-primary" />
                         Inscribir Deportistas
@@ -244,7 +246,9 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                                     <Badge variant="outline">{team.sport}</Badge>
                                     <Badge className={isFull ? 'bg-red-500' : 'bg-green-500'}>
                                         <Users className="h-3 w-3 mr-1" />
-                                        {enrolledStudentIds.length}/{team.max_students || 20}
+                                        {team.max_students
+                                            ? `${enrolledStudentIds.length}/${team.max_students}`
+                                            : enrolledStudentIds.length}
                                     </Badge>
                                 </div>
                             )}
@@ -284,7 +288,11 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                         />
                     </div>
 
-                    <ScrollArea className="flex-1 min-h-0 pr-4">
+                    {/* Scroll propio, NO ScrollArea de Radix: su viewport interno se sale
+                        del contenedor acotado (medido en vivo: Root 669px, viewport 2932px)
+                        y lo que pasa del Root queda recortado por su overflow-hidden, sin
+                        forma de alcanzarlo. Era el "no deja bajar el listado" del coach. */}
+                    <div className="flex-1 min-h-0 overflow-y-auto pr-4">
                         {loading ? (
                             <div className="flex flex-col items-center justify-center py-12">
                                 <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
@@ -366,8 +374,8 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                                                                 ) : (
                                                                     <>
                                                                         <UserPlus className="h-4 w-4 mr-1" />
-                                                                        <span className="hidden xs:inline">Inscribir</span>
-                                                                        <span className="xs:hidden">+</span>
+                                                                        <span className="hidden sm:inline">Inscribir</span>
+                                                                        <span className="sm:hidden">+</span>
                                                                     </>
                                                                 )}
                                                             </Button>
@@ -380,7 +388,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                                 })}
                             </div>
                         )}
-                    </ScrollArea>
+                    </div>
                 </div>
 
                 <DialogFooter className="shrink-0">

@@ -746,11 +746,16 @@ router.put(
       // Becado / cuota negociada: solo se toca si el caller lo manda explícito
       // (fee_is_manual !== undefined). Así un PUT que no sabe de este campo
       // (otro caller futuro) no le resetea la marca a un atleta ya becado.
+      // discount_type (mig. 20260916101241) solo tiene sentido junto a
+      // fee_is_manual=true — es el tag de primos/referido para reportar y para
+      // que la UI bloquee marcar un segundo tipo. Se limpia solo si el caller
+      // desmarca fee_is_manual, igual que fee_reason.
       const feeManualPatch: Record<string, any> =
         enrollment && enrollment.fee_is_manual !== undefined
           ? {
               fee_is_manual: !!enrollment.fee_is_manual,
               fee_reason: enrollment.fee_reason || null,
+              discount_type: enrollment.fee_is_manual ? (enrollment.discount_type || null) : null,
               fee_set_by: req.user?.id ?? null,
               fee_set_at: new Date().toISOString(),
             }

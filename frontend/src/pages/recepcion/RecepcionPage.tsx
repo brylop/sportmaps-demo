@@ -110,12 +110,14 @@ export default function RecepcionPage() {
         (async () => {
             const { data } = await supabase
                 .from('payments')
-                .select('amount_paid, gross_amount, amount')
+                .select('amount_paid, gross_amount, amount, status')
                 .eq('school_id', schoolId)
-                .eq('status', 'paid')
+                .in('status', ['paid', 'partial'])
                 .gte('approved_at', startOfTodayISO());
             // Los pagos por pasarela guardan gross_amount con amount_paid en null;
             // los de comprobante guardan amount_paid. Coalesce para contarlos todos.
+            // Un abono ('partial') solo aporta lo abonado (amount_paid) — nunca cae
+            // al fallback de amount/gross_amount porque siempre trae amount_paid.
             if (data) {
                 targetRecaudo.current = data.reduce(
                     (s, p: any) => s + (p.amount_paid ?? p.gross_amount ?? p.amount ?? 0), 0,

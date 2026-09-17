@@ -101,6 +101,7 @@ const AttendancePage = lazy(() => import("./pages/AttendancePage"));
 const MyPaymentsPage = lazy(() => import("./pages/MyPaymentsPage"));
 const AccountStatementPage = lazy(() => import("./pages/AccountStatementPage"));
 const PostTrainingSelfEvalPage = lazy(() => import("./pages/PostTrainingSelfEvalPage"));
+const PostTrainingDayRecapPage = lazy(() => import("./pages/PostTrainingDayRecapPage"));
 
 // ─── Coach pages (lazy) ───────────────────────────────────────────────────────
 const CoachAttendancePage = lazy(() => import("./pages/CoachAttendancePage"));
@@ -362,6 +363,9 @@ const App = () => (
                     } />
                     <Route path="/post-entreno/:sessionId" element={
                       <ProtectedRoute><PostTrainingSelfEvalPage /></ProtectedRoute>
+                    } />
+                    <Route path="/post-entreno/:sessionId/resultado" element={
+                      <ProtectedRoute><PostTrainingDayRecapPage /></ProtectedRoute>
                     } />
                     <Route path="/payment-result" element={<PaymentResultPage />} />
                     <Route path="/pagos/confirmacion" element={<PaymentConfirmationPage />} />
