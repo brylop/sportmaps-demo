@@ -37,18 +37,25 @@ export function CoachPostTrainingRatingDialog({ sessionId, open, onOpenChange }:
     queryKey: ['post-training-coach-roster', sessionId],
     enabled: open && !!sessionId,
     queryFn: async () => {
-      const { data } = await supabase
-        .from('attendance_records')
-        .select('child_id, user_id, children(id, full_name, avatar_url), profiles(id, full_name, avatar_url)')
-        .eq('session_id', sessionId as string)
-        .in('status', ['present', 'late']);
+      // La consulta directa a attendance_records con RLS del caller no
+      // funciona acá: attendance_records.user_id referencia auth.users (no
+      // public.profiles, así que PostgREST no puede embeber profiles(...) —
+      // PGRST200) y la policy de SELECT "Coaches can view attendance for
+      // their teams" compara team_coaches.coach_id (que es school_staff.id)
+      // contra auth.uid(), así que nunca matchea para el modelo estándar
+      // multi-coach. RPC SECURITY DEFINER con la misma verificación de
+      // submit_post_training_coach_rating evita las dos capas rotas.
+      const { data, error } = await supabase.rpc('get_post_training_pending_roster' as any, {
+        p_session_id: sessionId as string,
+      });
+      if (error) throw error;
 
       return ((data ?? []) as any[]).map((r) => ({
         key: r.child_id ?? r.user_id,
         childId: r.child_id as string | null,
         userId: r.user_id as string | null,
-        name: r.children?.full_name ?? r.profiles?.full_name ?? 'Deportista',
-        avatarUrl: r.children?.avatar_url ?? r.profiles?.avatar_url ?? null,
+        name: r.full_name ?? 'Deportista',
+        avatarUrl: r.avatar_url ?? null,
       }));
     },
   });

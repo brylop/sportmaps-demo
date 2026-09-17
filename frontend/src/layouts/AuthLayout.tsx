@@ -40,7 +40,14 @@ export default function AuthLayout() {
   return (
     <SidebarProvider>
       <RealtimeNotificationsProvider />
-      <div className="min-h-screen flex w-full overflow-x-hidden">
+      {/* h-[100dvh] + overflow-hidden (no min-h-screen): el scroll SOLO debe
+          pasar dentro de <main>, que ya tiene su propio overflow-auto. Con
+          min-h-screen la ventana también podía crecer y scrollear, y en
+          WKWebView (iOS nativo) ese doble contenedor de scroll hacía que el
+          header sticky se "despegara" visualmente durante el rebote elástico
+          — el usuario lo veía como el título de la página tapado por la
+          barra de estado, sin ningún header encima. */}
+      <div className="h-[100dvh] flex w-full overflow-hidden">
         <AppSidebar />
 
         <div className="flex-1 flex flex-col w-full max-w-full overflow-x-hidden">

@@ -238,11 +238,79 @@ export function aFormatoWhatsApp(texto: string): string {
         .replace(/\*\*(.+?)\*\*/gs, '*$1*')
         .replace(/__(.+?)__/gs, '*$1*')
         // Encabezados de Markdown: WhatsApp no los tiene.
-        .replace(/^#{1,6}\s*(.+)$/gm, '*$1*')
+        //
+        // Se limpia el texto ANTES de envolverlo. Sin esto, `### **Titulo**`
+        // pasaba por la regla de negrita, quedaba `### *Titulo*`, y esta lo
+        // envolvia otra vez: `**Titulo**`. Y el doble asterisco en WhatsApp no
+        // es negrita — se ve literal, que es el bug que ya habiamos corregido
+        // una vez y volvio por el orden de las reglas.
+        .replace(/^#{1,6}\s*(.+)$/gm, (_m, t) => `*${String(t).replace(/^\*+|\*+$/g, '').trim()}*`)
+        // Separadores horizontales: el modelo los usa para dar estructura y
+        // WhatsApp los muestra tal cual, como tres guiones sueltos.
+        .replace(/^\s*([-*_]){2,}\s*$/gm, '')
         // [texto](url) -> texto (url), que es lo unico que WhatsApp puede mostrar
         .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '$1 ($2)')
         // Vinetas de Markdown a un caracter que WhatsApp no interpreta
         .replace(/^\s*[-*]\s+/gm, '• ');
+}
+
+// ─── Estados de entrega (y lo que Meta cobra) ────────────────────────────────
+
+/**
+ * Un evento `statuses` del webhook: lo que le paso a un mensaje que enviamos.
+ *
+ * Llega por el MISMO campo suscrito que los mensajes entrantes (`messages`), asi
+ * que no hay nada que configurar en Meta: ya estaba entrando y se descartaba.
+ */
+export interface ParsedStatus {
+    phoneNumberId: string;
+    /** El wa_message_id del SALIENTE al que se refiere. */
+    waMessageId: string;
+    /** sent | delivered | read | failed */
+    status: string;
+    recipientWaId: string | null;
+    timestamp: string;
+    /** Lo dice Meta, que es quien cobra. null si el evento no trae `pricing`. */
+    billable: boolean | null;
+    pricingCategory: string | null;
+    /** El bloque `pricing` crudo: su forma ya cambio una vez y volvera a cambiar. */
+    pricingRaw: any | null;
+    errorDetail: string | null;
+}
+
+export function parseStatuses(body: any): ParsedStatus[] {
+    const out: ParsedStatus[] = [];
+    const entries = Array.isArray(body?.entry) ? body.entry : [];
+    for (const entry of entries) {
+        const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+        for (const change of changes) {
+            const value = change?.value;
+            if (!value || change?.field !== 'messages') continue;
+            const phoneNumberId: string = value?.metadata?.phone_number_id || '';
+            const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
+            for (const st of statuses) {
+                const pricing = st?.pricing ?? null;
+                const epoch = Number(st?.timestamp || 0);
+                const errores = Array.isArray(st?.errors) ? st.errors : [];
+                out.push({
+                    phoneNumberId,
+                    waMessageId: st?.id || '',
+                    status: st?.status || 'unknown',
+                    recipientWaId: st?.recipient_id ?? null,
+                    timestamp: epoch ? new Date(epoch * 1000).toISOString() : new Date().toISOString(),
+                    // `billable` puede venir ausente; no se asume false, que
+                    // reportaria de menos lo que se le paga a Meta.
+                    billable: typeof pricing?.billable === 'boolean' ? pricing.billable : null,
+                    pricingCategory: pricing?.category ?? null,
+                    pricingRaw: pricing,
+                    errorDetail: errores.length
+                        ? String(errores[0]?.title ?? errores[0]?.message ?? errores[0]?.code ?? '').slice(0, 300)
+                        : null,
+                });
+            }
+        }
+    }
+    return out;
 }
 
 // ─── Bajada de archivos (comprobantes) ───────────────────────────────────────

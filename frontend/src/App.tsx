@@ -95,11 +95,13 @@ const ChildProgressPage = lazy(() => import("./pages/ChildProgressPage"));
 const ChildAttendancePage = lazy(() => import("./pages/ChildAttendancePage"));
 const ChildReportsPage = lazy(() => import("./pages/ChildReportsPage"));
 const ChildReportDetailPage = lazy(() => import("./pages/ChildReportDetailPage"));
+const ChildPostTrainingReportPage = lazy(() => import("./pages/ChildPostTrainingReportPage"));
 const AcademicProgressPage = lazy(() => import("./pages/AcademicProgressPage"));
 const AttendancePage = lazy(() => import("./pages/AttendancePage"));
 const MyPaymentsPage = lazy(() => import("./pages/MyPaymentsPage"));
 const AccountStatementPage = lazy(() => import("./pages/AccountStatementPage"));
 const PostTrainingSelfEvalPage = lazy(() => import("./pages/PostTrainingSelfEvalPage"));
+const PostTrainingDayRecapPage = lazy(() => import("./pages/PostTrainingDayRecapPage"));
 
 // ─── Coach pages (lazy) ───────────────────────────────────────────────────────
 const CoachAttendancePage = lazy(() => import("./pages/CoachAttendancePage"));
@@ -108,6 +110,7 @@ const CoachPlansPage = lazy(() => import("./pages/CoachPlansPage"));
 const ResultsPage = lazy(() => import("./pages/ResultsPage"));
 const TrainingPlansPage = lazy(() => import("./pages/TrainingPlansPage"));
 const CoachReportsPage = lazy(() => import("./pages/CoachReportsPage"));
+const CoachTeamPostTrainingReportPage = lazy(() => import("./pages/CoachTeamPostTrainingReportPage"));
 const CoachEvaluationsPage = lazy(() => import("./pages/CoachEvaluationsPage"));
 const AnnouncementsPage = lazy(() => import("./pages/AnnouncementsPage"));
 
@@ -130,6 +133,7 @@ const AccountingBudgetPage = lazy(() => import("./pages/AccountingBudgetPage"));
 const PaymentsAutomationPage = lazy(() => import("./pages/PaymentsAutomationPage"));
 const PaymentRemindersPage = lazy(() => import("./pages/PaymentRemindersPage"));
 const MessageTemplatesPage = lazy(() => import("./pages/MessageTemplatesPage"));
+const WhatsAppPage = lazy(() => import("./pages/WhatsAppPage"));
 const ReportsPage = lazy(() => import("./pages/ReportsPage"));
 const MonthlyReportsPage = lazy(() => import("./pages/MonthlyReportsPage"));
 const SchoolFacilitiesPage = lazy(() => import("./pages/SchoolFacilitiesPage"));
@@ -360,6 +364,9 @@ const App = () => (
                     <Route path="/post-entreno/:sessionId" element={
                       <ProtectedRoute><PostTrainingSelfEvalPage /></ProtectedRoute>
                     } />
+                    <Route path="/post-entreno/:sessionId/resultado" element={
+                      <ProtectedRoute><PostTrainingDayRecapPage /></ProtectedRoute>
+                    } />
                     <Route path="/payment-result" element={<PaymentResultPage />} />
                     <Route path="/pagos/confirmacion" element={<PaymentConfirmationPage />} />
                     <Route path="/unauthorized" element={<UnauthorizedPage />} />
@@ -503,6 +510,15 @@ const App = () => (
                           <ChildReportDetailPage />
                         </ProtectedRoute>
                       } />
+                      {/* Informe grupal de Evaluación Post-Entrenamiento, vista
+                          del padre — spec evaluacion-post-entrenamiento.md §5.3:
+                          el agregado del equipo con el dato de su hija resaltado
+                          encima, sin nombres de otras deportistas. */}
+                      <Route path="children/:id/post-entreno-informe" element={
+                        <ProtectedRoute allowedRoles={['parent']}>
+                          <ChildPostTrainingReportPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="academic-progress" element={
                         <ProtectedRoute allowedRoles={['parent']}>
                           <AcademicProgressPage />
@@ -525,6 +541,7 @@ const App = () => (
                         </ModuleGate>
                       } />
                       <Route path="coach-reports" element={<CoachReportsPage />} />
+                      <Route path="coach-reports/entreno-equipo" element={<CoachTeamPostTrainingReportPage />} />
                       <Route path="evaluations" element={<CoachEvaluationsPage />} />
                       <Route path="announcements" element={<AnnouncementsPage />} />
 
@@ -742,6 +759,13 @@ const App = () => (
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <ModuleGate moduleKey="documentos_recordatorios">
                             <PaymentRemindersPage />
+                          </ModuleGate>
+                        </ProtectedRoute>
+                      } />
+                      <Route path="whatsapp" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <ModuleGate moduleKey="comunicacion_whatsapp">
+                            <WhatsAppPage />
                           </ModuleGate>
                         </ProtectedRoute>
                       } />

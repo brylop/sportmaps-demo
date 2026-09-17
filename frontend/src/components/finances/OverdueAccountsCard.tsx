@@ -9,7 +9,7 @@ import { daysDiffFromToday } from '@/lib/dateUtils';
 import { FailedAttemptChip } from '@/components/payment/FailedAttemptChip';
 import { StatFilterBar } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
-import { isOverdueCharge, type ChargeState } from '@/lib/paymentCartera';
+import { isOverdueCharge, remainingBalance, type ChargeState } from '@/lib/paymentCartera';
 
 /** Una fila embebida de PostgREST llega como objeto o como array de un elemento. */
 const embedded = <T,>(v: unknown): T | null =>
@@ -33,6 +33,7 @@ type PayableRow = ChargeState & {
   id: string;
   concept: string;
   amount: number | string;
+  amount_paid?: number | string | null;
   last_failure_at?: string | null;
   last_failure_reason?: string | null;
   requires_review?: boolean | null;
@@ -93,6 +94,8 @@ interface OverdueAccount {
   student: string;
   concept: string;
   amount: number;
+  /** Ya tiene un abono registrado: `amount` es el SALDO, no el cobro completo. */
+  isPartial: boolean;
   dueDate: string;
   daysOverdue: number;
   status: 'overdue' | 'reminder_sent';
@@ -152,7 +155,8 @@ export function OverdueAccountsCard({ payments, schoolId, schoolName, onRefresh,
           parentPhone: payer.phone,
           student: resolveAthleteName(p) || 'Deportista',
           concept: p.concept,
-          amount: Number(p.amount),
+          amount: remainingBalance(p),
+          isPartial: p.status === 'partial',
           dueDate: p.due_date,
           daysOverdue: daysDiffFromToday(p.due_date),
           status: 'overdue' as const,
@@ -351,7 +355,14 @@ export function OverdueAccountsCard({ payments, schoolId, schoolName, onRefresh,
               <TableCell>{account.student}</TableCell>
               <TableCell>{account.concept}</TableCell>
               <TableCell className="text-red-500 font-bold">
-                ${account.amount.toLocaleString()}
+                <div className="flex items-center gap-1.5">
+                  <span>${account.amount.toLocaleString()}</span>
+                  {account.isPartial && (
+                    <Badge variant="outline" className="text-[10px] py-0 bg-blue-50 text-blue-700 border-blue-200">
+                      saldo de abono
+                    </Badge>
+                  )}
+                </div>
               </TableCell>
               <TableCell>
                 {getStatusBadge(account)}

@@ -23,7 +23,6 @@ import { FileUpload } from '@/components/common/FileUpload';
 import { StatFilterBar } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { emailClient } from '@/lib/email-client';
-import { ReviewInstallmentModal } from '@/components/payment/ReviewInstallmentModal';
 import { InstallmentsConfigCard } from '@/components/payment/InstallmentsConfigCard';
 import { todayColombia, formatDayCO, daysDiffFromToday } from '@/lib/dateUtils';
 import { SportMapsPaySettings } from '@/components/settings/SportMapsPaySettings';
@@ -87,6 +86,14 @@ interface BillingSettings {
   early_payment_discount_enabled: boolean;
   early_payment_discount_days: number;
   early_payment_discount_percentage: number;
+  /**
+   * Descuento por hermanos (mig. 20260916101241). Automático: open_month lo
+   * calcula solo desde el 2do hijo activo (mismo parent_id, misma escuela),
+   * sin que nadie lo marque atleta por atleta. Ver
+   * docs/specs/descuentos-hermanos-primos-referidos.md
+   */
+  sibling_discount_enabled: boolean;
+  sibling_discount_percentage: number;
   // Validación automática de comprobantes (Fase 5)
   auto_approve_enabled: boolean;
   auto_approve_max_amount: number;
@@ -133,6 +140,8 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   early_payment_discount_enabled: false,
   early_payment_discount_days: 5,
   early_payment_discount_percentage: 0,
+  sibling_discount_enabled: false,
+  sibling_discount_percentage: 0,
   auto_approve_enabled: false,
   auto_approve_max_amount: 0,
   auto_glosa_enabled: false,
@@ -588,6 +597,8 @@ export default function PaymentsAutomationPage() {
         early_payment_discount_enabled: billing.early_payment_discount_enabled,
         early_payment_discount_days: billing.early_payment_discount_days,
         early_payment_discount_percentage: billing.early_payment_discount_percentage,
+        sibling_discount_enabled: billing.sibling_discount_enabled,
+        sibling_discount_percentage: billing.sibling_discount_percentage,
         auto_approve_enabled: billing.auto_approve_enabled,
         auto_approve_max_amount: billing.auto_approve_max_amount,
         auto_glosa_enabled: billing.auto_glosa_enabled,
@@ -948,75 +959,32 @@ export default function PaymentsAutomationPage() {
   );
   if (!isAuthorized) return <Navigate to="/dashboard" replace />;
 
-  const handleManualAction = async (paymentId: string, action: 'approve' | 'reject') => {
+  // Solo rechazo: aprobar (completo o abono) SIEMPRE pasa por
+  // ApprovePaymentMethodSheet, que sí chequea abono/discrepancia y acumula
+  // amount_paid. Esta función tenía una rama 'approve' que marcaba 'paid'
+  // completo sin ese chequeo — muerta en runtime (ningún botón la llamaba con
+  // 'approve'), pero una trampa si alguien la reconectaba. Se retiró.
+  const handleManualAction = async (paymentId: string) => {
     setProcessingId(paymentId);
-    const newStatus = action === 'approve' ? 'paid' : 'rejected';
     const payment = payments.find(p => p.id === paymentId);
 
     try {
-      const updatePayload: any = { status: newStatus };
-      
-      if (action === 'approve' && profile && payment) {
-        updatePayload.approved_by = profile.id;
-        updatePayload.approved_at = new Date().toISOString();
-        updatePayload.amount_paid = payment.amount - (Number(payment.early_payment_discount_applied) || 0);
-        // Fase 5: todo aprobado (auto o manual) queda pendiente de conciliación bancaria.
-        updatePayload.reconciliation_status = 'pendiente';
-      }
-
-      const { error: updateError } = await supabase.from('payments').update(updatePayload).eq('id', paymentId);
+      const { error: updateError } = await supabase.from('payments').update({ status: 'rejected' }).eq('id', paymentId);
       if (updateError) throw updateError;
-      if (action === 'approve' && payment) {
-        // Activar enrollment asociado
-        let enrollQuery = (supabase.from('enrollments') as any)
-          .update({ status: 'active' })
-          .eq('school_id', schoolId)
-          .eq('status', 'pending');
 
-        if (payment.child_id)       enrollQuery = enrollQuery.eq('child_id', payment.child_id);
-        else if (payment.parent_id) enrollQuery = enrollQuery.eq('user_id', payment.parent_id);
-        if (payment.team_id)        enrollQuery = enrollQuery.eq('team_id', payment.team_id);
-
-        await enrollQuery;
-
-        if (payment.parent_id) {
-          if (payment.parent?.email) {
-            await emailClient.send({
-              type: 'payment_confirmation',
-              to: payment.parent.email,
-              data: {
-                userName: payment.parent.full_name || 'Usuario',
-                schoolName: 'Tu Escuela',
-                amount: formatCurrency(payment.amount),
-                concept: payment.concept,
-                reference: payment.id.slice(0, 8).toUpperCase(),
-              },
-            });
-          }
-          await supabase.rpc('notify_user', {
-            p_user_id: payment.parent_id, p_title: '✅ Pago Aprobado',
-            p_message: `Tu pago de ${formatCurrency(payment.amount)} ha sido validado.`,
-            p_type: 'success', p_link: '/my-payments',
-          });
-        }
-      }
-
-      if (action === 'reject') {
-        const payment = payments.find(p => p.id === paymentId);
-        if (payment?.parent_id) {
-          await supabase.rpc('notify_user', {
-            p_user_id: payment.parent_id,
-            p_title: '❌ Pago Rechazado',
-            p_message: `Tu comprobante de ${formatCurrency(payment.amount)} no pudo ser validado. Contáctanos para más información.`,
-            p_type: 'error',
-            p_link: '/my-payments',
-          });
-        }
+      if (payment?.parent_id) {
+        await supabase.rpc('notify_user', {
+          p_user_id: payment.parent_id,
+          p_title: '❌ Pago Rechazado',
+          p_message: `Tu comprobante de ${formatCurrency(payment.amount)} no pudo ser validado. Contáctanos para más información.`,
+          p_type: 'error',
+          p_link: '/my-payments',
+        });
       }
       toast({
-        title: action === 'approve' ? 'Pago Aprobado' : 'Pago Rechazado',
-        description: `La transacción ha sido ${action === 'approve' ? 'validada' : 'rechazada'} correctamente.`,
-        variant: action === 'approve' ? 'default' : 'destructive',
+        title: 'Pago Rechazado',
+        description: 'La transacción ha sido rechazada correctamente.',
+        variant: 'destructive',
       });
       await fetchPayments();
     } catch (error: unknown) {
@@ -1501,7 +1469,7 @@ export default function PaymentsAutomationPage() {
                             <CheckCircle2 className="h-3 w-3 mr-1" />
                             Aprobar
                           </Button>
-                          <Button size="sm" variant="outline" className="h-8 text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id, 'reject')}>
+                          <Button size="sm" variant="outline" className="h-8 text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id)}>
                             <XCircle className="h-3 w-3 mr-1" />
                             Rechazar
                           </Button>
@@ -1599,7 +1567,7 @@ export default function PaymentsAutomationPage() {
                                   <CheckCircle2 className="h-3 w-3 mr-1" />
                                   Aprobar
                                 </Button>
-                                <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id, 'reject')}>
+                                <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id)}>
                                   <XCircle className="h-3 w-3 mr-1" /> Rechazar
                                 </Button>
                                 <Button size="sm" variant="outline" className="text-orange-600 border-orange-200 hover:bg-orange-50" onClick={() => setCreatingGlosaPayment(payment)}>
@@ -2329,6 +2297,35 @@ export default function PaymentsAutomationPage() {
                       </div>
                       <p className="text-[11px] text-muted-foreground leading-snug">
                         No aplica si el deportista tiene otro cobro pendiente o vencido de un mes anterior en esta escuela.
+                      </p>
+                    </div>
+                  )}
+                  <Separator />
+                  <div className="flex items-center justify-between" data-testid="sibling-discount-toggle-row">
+                    <div>
+                      <Label className="font-medium">Descuento por hermanos</Label>
+                      <p className="text-xs text-muted-foreground">Se aplica solo, desde el 2do hijo activo de la misma familia</p>
+                    </div>
+                    <Switch
+                      checked={billing.sibling_discount_enabled}
+                      onCheckedChange={v => updateBilling('sibling_discount_enabled', v)}
+                    />
+                  </div>
+                  {billing.sibling_discount_enabled && (
+                    <div className="space-y-3 p-3 rounded-lg border bg-muted/30" data-testid="sibling-discount-percentage-block">
+                      <div className="space-y-2">
+                        <Label htmlFor="sib_pct">Porcentaje de descuento</Label>
+                        <div className="flex items-center gap-2">
+                          <NumberStepper
+                            min={1} max={50} className="w-28 h-9"
+                            value={billing.sibling_discount_percentage}
+                            onChange={v => updateBilling('sibling_discount_percentage', v === "" ? 0 : v)}
+                          />
+                          <span className="text-sm text-muted-foreground">% de descuento</span>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-snug">
+                        El primer hijo (la inscripción activa más antigua) paga completo; el resto de hermanos activos en esta escuela lleva el descuento. Se recalcula cada mes: si un hermano se retira, el descuento desaparece solo.
                       </p>
                     </div>
                   )}

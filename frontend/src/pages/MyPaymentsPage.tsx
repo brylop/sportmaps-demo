@@ -15,7 +15,6 @@ import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal'
 import { GlosaRespondModal } from '@/components/payment/GlosaRespondModal';
 import { FailedAttemptChip } from '@/components/payment/FailedAttemptChip';
 import { listMine as listMyGlosas, OPEN_GLOSA_STATUSES, REASON_LABELS, type Glosa } from '@/lib/api/glosas';
-import { InstallmentCheckoutModal } from '@/components/payment/InstallmentCheckoutModal';
 import { formatCurrency } from '@/lib/utils';
 import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { useToast } from '@/hooks/use-toast';
@@ -69,6 +68,10 @@ interface Transaction {
   period_month?: number | null;
   period_label?: string | null;
   late_fee_amount?: number | null;
+  /** Descuento por hermanos (mig. 20260916101241) ya neteado en `amount` al
+   *  generarse el cobro — a diferencia de discount_amount (pronto pago), este
+   *  no cambia si se paga antes o después. Solo informativo. */
+  sibling_discount_applied?: number | null;
   discount_amount?: number;
   discount_eligible?: boolean;
   discount_valid_until?: string | null;
@@ -156,17 +159,6 @@ export default function MyPaymentsPage() {
     amount: 0,
   });
 
-  const [showInstallment, setShowInstallment] = useState(false);
-  const [selectedInstallmentPayment, setSelectedInstallmentPayment] = useState<{
-    id: string;
-    schoolId: string;
-    balancePending: number;
-    concept: string;
-  } | null>(null);
-
-  const [installments, setInstallments] = useState<any[]>([]);
-  const [loadingInstallments, setLoadingInstallments] = useState(false);
-
   // Facturas electrónicas emitidas, mapeadas por payment_id (para mostrar el
   // botón "Factura" en los pagos que ya la tienen). La RLS deja al padre leer
   // la factura de su propio pago.
@@ -234,11 +226,11 @@ export default function MyPaymentsPage() {
       // se regenera incluyendo estos campos, esta query se vuelve redundante
       // pero no rompe nada (devuelve los mismos valores).
       const paymentIds = (payments || []).map((p: any) => p.id).filter(Boolean);
-      let periodMap: Record<string, { period_year: number | null; period_month: number | null; late_fee_amount?: number | null; created_at: string; early_payment_discount_applied?: number | null; child_id?: string | null; parent_id?: string | null; school_id: string; last_failure_reason?: string | null; last_failure_at?: string | null; requires_review?: boolean | null }> = {};
+      let periodMap: Record<string, { period_year: number | null; period_month: number | null; late_fee_amount?: number | null; created_at: string; early_payment_discount_applied?: number | null; sibling_discount_applied?: number | null; child_id?: string | null; parent_id?: string | null; school_id: string; last_failure_reason?: string | null; last_failure_at?: string | null; requires_review?: boolean | null }> = {};
       if (paymentIds.length > 0) {
         const { data: periodRows } = await supabase
           .from('payments')
-          .select('id, period_year, period_month, late_fee_amount, created_at, early_payment_discount_applied, child_id, parent_id, school_id, last_failure_reason, last_failure_at, requires_review')
+          .select('id, period_year, period_month, late_fee_amount, created_at, early_payment_discount_applied, sibling_discount_applied, child_id, parent_id, school_id, last_failure_reason, last_failure_at, requires_review')
           .in('id', paymentIds);
         periodMap = Object.fromEntries(
           (periodRows || []).map((r: any) => [r.id, {
@@ -247,6 +239,7 @@ export default function MyPaymentsPage() {
             late_fee_amount: r.late_fee_amount,
             created_at: r.created_at,
             early_payment_discount_applied: r.early_payment_discount_applied,
+            sibling_discount_applied: r.sibling_discount_applied,
             child_id: r.child_id,
             parent_id: r.parent_id,
             school_id: r.school_id,
@@ -331,6 +324,7 @@ export default function MyPaymentsPage() {
             periodMap[p.id]?.period_month ?? p.period_month,
           ),
           late_fee_amount: periodMap[p.id]?.late_fee_amount ?? p.late_fee_amount ?? null,
+          sibling_discount_applied: periodMap[p.id]?.sibling_discount_applied ?? p.sibling_discount_applied ?? null,
           discount_amount: discount.discountAmount,
           discount_eligible: discount.eligible,
           discount_valid_until: discount.validUntil,
@@ -852,22 +846,12 @@ export default function MyPaymentsPage() {
         onSuccess={fetchPaymentData}
       />
 
-      {/* Installment Checkout Modal */}
-      {selectedInstallmentPayment && (
-        <InstallmentCheckoutModal
-          open={showInstallment}
-          onOpenChange={setShowInstallment}
-          paymentId={selectedInstallmentPayment.id}
-          schoolId={selectedInstallmentPayment.schoolId}
-          parentId={user?.id || ''}
-          balancePending={selectedInstallmentPayment.balancePending}
-          onSuccess={fetchPaymentData}
-        />
-      )}
-
-      {/* Barra de acción flotante (estilo atleta) */}
+      {/* Barra de acción flotante (estilo atleta). Offset inferior mayor que
+          bottom-6 en móvil: MobileBottomNav (h-16 + safe-area, ver
+          components/navigation/MobileBottomNav.tsx) vive fijo en el mismo
+          borde y esta barra, con z-index mayor, quedaba encima tapándolo. */}
       {selectedPayment && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-2xl bg-zinc-900 dark:bg-zinc-950 border border-zinc-800 dark:border-zinc-800 text-white p-4 rounded-xl shadow-2xl flex items-center justify-between z-50 animate-in fade-in slide-in-from-bottom-5 duration-300">
+        <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom)+0.75rem)] md:bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-2xl bg-zinc-900 dark:bg-zinc-950 border border-zinc-800 dark:border-zinc-800 text-white p-4 rounded-xl shadow-2xl flex items-center justify-between z-50 animate-in fade-in slide-in-from-bottom-5 duration-300">
           <div className="flex flex-col min-w-0">
             <span className="text-zinc-500 dark:text-zinc-400 text-[10px] uppercase tracking-wider font-bold truncate">
               {selectedPayment.childName} — {selectedPayment.teamName}
@@ -1019,6 +1003,11 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice
                 {(txn.late_fee_amount ?? 0) > 0 && (
                   <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
                     Incluye recargo por mora: {formatCurrency(txn.late_fee_amount as number)}
+                  </p>
+                )}
+                {(txn.sibling_discount_applied ?? 0) > 0 && (
+                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                    Incluye descuento por hermanos: {formatCurrency(txn.sibling_discount_applied as number)}
                   </p>
                 )}
                 {txn.discount_eligible && (txn.discount_amount ?? 0) > 0 && PENDING_STATES.includes(txn.status) && (

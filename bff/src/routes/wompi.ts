@@ -442,6 +442,21 @@ async function handleSchoolPayment({
             req.log?.warn({ err: notifErr, paymentId: link.payment_id }, 'notify_school_payment_paid falló (no-bloqueante)');
         }
 
+        // 7.b Y al PADRE, que hasta ahora no se enteraba de nada.
+        //
+        //     `notify_school_payment_paid` avisa solo a la escuela — el nombre lo
+        //     dice. Medido el 2026-09-14: de 131 pagos por Wompi con acudiente,
+        //     5 recibieron notificacion. Los otros 126 pagaron y su unica forma
+        //     de saber que quedo registrado era entrar a mirar.
+        //
+        //     No-bloqueante por lo mismo que la de arriba: el pago ya quedo paid.
+        const { error: padreErr } = await supabase.rpc('notify_parent_payment_paid', {
+            p_payment_id: link.payment_id,
+        });
+        if (padreErr) {
+            req.log?.warn({ err: padreErr, paymentId: link.payment_id }, 'notify_parent_payment_paid falló (no-bloqueante)');
+        }
+
         req.log?.info({ paymentId: link.payment_id, txReference }, 'School payment confirmed');
         return { status: 200, body: { status: 'ok', kind: 'school_payment' } };
     }

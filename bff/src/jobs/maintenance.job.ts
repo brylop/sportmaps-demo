@@ -11,6 +11,7 @@ import { runGlosaNotifications } from './glosa-notifications.job';
 import { sendChargeCreatedEmails, sendOverdueNoticeEmails } from './payment-lifecycle-emails.job';
 import { runNotificationDispatch } from './notifications-dispatch.job';
 import { runAthleteReportsCycle } from './athlete-reports.job';
+import { runTeamReportsCycle } from './team-reports.job';
 import { runHourBankAutoclose } from './hour-bank-autoclose.job';
 import { runAccessAutoBlockCycle } from './access-auto-block.job';
 import { runSaasBillingCycle } from './saas-billing-cycle.job';
@@ -353,6 +354,28 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Ciclo de informes registrado para las 06:10 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Ciclo diario del Informe GRUPAL (de equipo) de Evaluación
+    // Post-Entrenamiento (F4 segunda mitad): genera borradores y publica los
+    // que ya cumplieron su día de envío (misma cadencia que el informe
+    // individual de arriba — report_team_schedule.send_day /
+    // reports_default_send_day). Sin paso de envío: el informe de equipo no
+    // se manda a familias (spec §7 abierta #1), solo lo ven coach/admin. Va
+    // justo después del ciclo individual para que salgan como "el mismo
+    // informe mensual". Mismo kill-switch de env mientras se prueba.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('12 6 * * *', async () => {
+        if (process.env.DISABLE_ATHLETE_REPORTS_CRON === 'true') return;
+        try {
+            await runTeamReportsCycle();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en ciclo de informes de equipo:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Ciclo de informes de equipo registrado para las 06:12 COT.');
 
     // ────────────────────────────────────────────────────────────────────────
     // Evaluación Post-Entrenamiento (F2) — recordatorios.

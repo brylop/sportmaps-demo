@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Bell, Mail, Smartphone, Info, Loader2, Save } from 'lucide-react';
+import { Bell, Mail, Smartphone, Info, Loader2, Save, Dumbbell } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 interface NotificationsSectionProps {
@@ -19,6 +19,7 @@ export function NotificationsSection({ data, saving, onSave }: NotificationsSect
     activity_alerts: data?.profile?.preferences?.activity_alerts ?? true,
     marketing_emails: data?.profile?.preferences?.marketing_emails ?? false,
     order_updates: data?.profile?.preferences?.order_updates ?? true,
+    post_training_opt_out: data?.profile?.preferences?.post_training_opt_out ?? false,
   });
 
   const handleToggle = (key: string, value: boolean) => {
@@ -109,9 +110,28 @@ export function NotificationsSection({ data, saving, onSave }: NotificationsSect
                 <Label>Promociones y novedades</Label>
                 <p className="text-sm text-muted-foreground">Descuentos exclusivos y nuevas funciones de la plataforma.</p>
               </div>
-              <Switch 
-                checked={prefs.marketing_emails} 
-                onCheckedChange={(val) => handleToggle('marketing_emails', val)} 
+              <Switch
+                checked={prefs.marketing_emails}
+                onCheckedChange={(val) => handleToggle('marketing_emails', val)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex gap-3">
+                <div className="mt-0.5 p-2 bg-primary/5 rounded-full text-primary">
+                  <Dumbbell className="h-4 w-4" />
+                </div>
+                <div className="space-y-0.5">
+                  <Label>Avisos de evaluación post-entrenamiento</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Te preguntamos cómo te fue después de cada entreno — podés desactivarlo aquí,
+                    seguís recibiendo el informe mensual igual.
+                  </p>
+                </div>
+              </div>
+              <Switch
+                checked={!prefs.post_training_opt_out}
+                onCheckedChange={(val) => handleToggle('post_training_opt_out', !val)}
               />
             </div>
           </div>

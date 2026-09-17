@@ -1,17 +1,18 @@
 {
-  "name": "pago_vence_hoy",
+  "name": "pago_recordatorio_previo_v2",
   "language": "es_CO",
   "category": "UTILITY",
   "components": [
     {
       "type": "BODY",
-      "text": "Hola {{1}}, hoy vence la mensualidad de {{2}} en {{3}} por {{4}}. Paga en un tap desde el botón.",
+      "text": "Hola {{1}}, la mensualidad de {{2}} en {{3}} vence el {{4}} por un valor de {{5}}. Puedes pagarla desde el botón.",
       "example": {
         "body_text": [
           [
             "Carolina",
             "Samuel",
             "Academia Tigres FC",
+            "5 de agosto",
             "$150.000"
           ]
         ]

@@ -412,21 +412,21 @@ export const helpArticles: HelpArticle[] = [
         items: [
           "Datos de la escuela: nombre, deporte principal, descripción",
           "Sede principal: ciudad, dirección, capacidad estimada",
-          "Plan inicial: empezás en Free Start (gratis hasta 20 alumnos)",
-          "Equipo: opcional, podés invitar coaches y staff después",
+          "Plan inicial: empiezas en Free Start (gratis hasta 20 alumnos)",
+          "Equipo: opcional, puedes invitar coaches y staff después",
         ],
       },
       {
         type: "callout",
         variant: "tip",
         content:
-          "No tenés que llenar todo perfecto en este momento — podés volver a editar cualquier campo desde Configuración después.",
+          "No tienes que llenar todo perfecto en este momento — puedes volver a editar cualquier campo desde Configuración después.",
       },
       { type: "h2", content: "Paso 4 — Primera acción recomendada" },
       {
         type: "p",
         content:
-          "Una vez completado el wizard, tu dashboard te muestra 3 botones grandes: 'Invitar primer alumno', 'Configurar Wompi para pagos' y 'Agregar tu primer equipo'. Empezá por el que tenga más urgencia para tu operación.",
+          "Una vez completado el wizard, tu dashboard te muestra 3 botones grandes: 'Invitar primer alumno', 'Configurar Wompi para pagos' y 'Agregar tu primer equipo'. Empieza por el que tenga más urgencia para tu operación.",
       },
       {
         type: "cta",
@@ -669,7 +669,7 @@ export const helpArticles: HelpArticle[] = [
         type: "callout",
         variant: "tip",
         content:
-          "Los coaches solo ven los equipos que les asignaste. Los administradores de sede ven todo lo de su sede. El admin general (vos) ve todo.",
+          "Los coaches solo ven los equipos que les asignaste. Los administradores de sede ven todo lo de su sede. El admin general (tú) ve todo.",
       },
     ],
     related: ["invitar-padres-vinculacion", "tomar-asistencia-coach"],
@@ -677,49 +677,94 @@ export const helpArticles: HelpArticle[] = [
   {
     slug: "tomar-asistencia-coach",
     categoryId: "operacion-diaria",
-    title: "Cómo tomar asistencia en cada sesión (para coaches)",
+    title: "Cómo tomar asistencia (lista manual, carnet QR y torniquete)",
     excerpt:
-      "Desde la app del coach: marca asistencia, registra atrasos y deja notas por estudiante en menos de 2 minutos.",
-    readTime: "3 min",
-    targetRole: ["coach"],
+      "Las tres formas reales en que SportMaps registra asistencia: lista manual por equipo/plan, escaneo del carnet digital, y check-in automático por torniquete.",
+    readTime: "4 min",
+    targetRole: ["coach", "school"],
     body: [
       {
         type: "p",
         content:
-          "La toma de asistencia es la acción más frecuente para un coach. SportMaps la diseñó para que sea rápida — menos de 2 minutos para un equipo de 20 alumnos.",
+          "SportMaps registra la asistencia de tres formas distintas — según cómo llegue el atleta. Esta guía cubre las tres, en el orden en que se usan normalmente.",
       },
-      { type: "h2", content: "Desde el celular" },
-      {
-        type: "ol",
-        items: [
-          "Abre la app SportMaps en tu celular (o app.sportmaps.co)",
-          "En el dashboard, verás tus sesiones del día. Haz clic en la que vas a iniciar",
-          "Se carga la lista de estudiantes del equipo",
-          "Por cada alumno: toca Presente / Tarde / Ausente",
-          "(Opcional) Toca el ícono de nota para dejar comentario corto del alumno",
-          "Cuando termines, toca 'Finalizar sesión'",
-        ],
-      },
-      { type: "h2", content: "Quién ve la asistencia" },
-      {
-        type: "ul",
-        items: [
-          "Los padres reciben notificación cuando su hijo se marca como Presente",
-          "El admin de la escuela ve un reporte semanal de asistencia por equipo",
-          "El supervisor puede auditar cualquier asistencia (corregir errores)",
-        ],
-      },
-      { type: "h2", content: "Si te equivocaste" },
+      { type: "h2", content: "1. Lista manual por equipo o plan (la más usada)" },
       {
         type: "p",
         content:
-          "Si marcaste un alumno como Ausente por error, abre la sesión nuevamente (queda editable por 24h después de finalizada) y corrige. Después de 24h, solo el admin puede modificar — pídeselo.",
+          "Desde Asistencias, eliges el equipo o plan (o SportMaps auto-selecciona la sesión del día si solo hay una). La lista carga con todos los atletas en Presente por defecto — solo tienes que destildar a quien no vino, en vez de tocar a cada uno.",
+      },
+      {
+        type: "ol",
+        items: [
+          "Abre Asistencias y elige el equipo o plan",
+          "La lista carga con todos en Presente",
+          "Toca el estado que corresponda a cada excepción: Ausente, Tarde o Excusado",
+          "Guarda asistencia",
+          "(Opcional) Finaliza la sesión cuando termines",
+        ],
+      },
+      {
+        type: "table",
+        headers: ["Estado", "Qué significa"],
+        rows: [
+          ["Presente", "Vino a la sesión. Es el estado por defecto."],
+          ["Ausente", "No vino. Si venía de Presente, se le devuelve el crédito."],
+          ["Tarde", "Vino, pero después de empezada la sesión."],
+          ["Excusado", "No vino, con una razón que la escuela acepta (no cuenta igual que un Ausente sin más para las alertas de riesgo)."],
+        ],
+      },
+      {
+        type: "callout",
+        variant: "info",
+        content:
+          "Marcar Presente (viniendo de otro estado) descuenta una clase del plan del atleta, o usa una reserva del mismo día si ya la tenía (ahí no se descuenta doble). Si el plan está vencido o sin clases disponibles, la asistencia se registra igual — nunca se bloquea la lista por eso — y el padre recibe el aviso.",
+      },
+      { type: "h3", content: "Corregir un día anterior" },
+      {
+        type: "p",
+        content:
+          "El campo 'Día de la lista' permite retroceder la fecha. Un coach puede retroceder hasta 7 días; un admin, owner o super_admin no tiene tope. Las fechas futuras siempre se rechazan.",
+      },
+      { type: "h3", content: "Finalizar y reabrir" },
+      {
+        type: "p",
+        content:
+          "Al finalizar una sesión, cualquier atleta con inscripción activa que no quedó con ningún registro se marca automáticamente como Ausente, y se notifica al padre (o al atleta si es adulto). Si un atleta acumula ausencias seguidas hasta cruzar un umbral (2 por defecto, configurable por la escuela), se avisa al dueño de la escuela. Si algo quedó mal marcado, 'Reabrir para corregir' desbloquea la sesión con la misma regla de 7 días / sin tope.",
+      },
+      {
+        type: "callout",
+        variant: "warning",
+        content:
+          "Corrección importante: antes decíamos que una sesión finalizada quedaba editable por 24 horas. Eso no es así — el límite real es 7 días para coach, y sin tope para admin, owner o super_admin.",
+      },
+      { type: "h2", content: "2. Escaneo del carnet digital (QR)" },
+      {
+        type: "p",
+        content:
+          "Es una capa rápida sobre la lista manual, no un reemplazo: sirve para marcar Presente en el momento en que el atleta llega, sin abrir la lista completa. Desde Asistencias, toca 'Escanear carnet' y apunta la cámara al QR del carnet digital de cada atleta — no hace falta elegir equipo antes, el carnet ya sabe a cuál pertenece.",
+      },
+      {
+        type: "ul",
+        items: [
+          "Solo marca Presente — nunca Ausente ni Tarde, y nunca toca una sesión ya finalizada",
+          "El carnet debe estar activo (no revocado ni vencido) y el atleta debe tener inscripción activa",
+          "Si el equipo tiene más de un bloque de sesión el mismo día, el sistema no adivina: rechaza el check-in en vez de elegir mal",
+          "Escanear el mismo carnet dos veces para la misma sesión es seguro — no descuenta el crédito dos veces",
+          "Es solo en vivo: no admite fechas retroactivas",
+        ],
+      },
+      { type: "h2", content: "3. Automático por torniquete de acceso (si tu escuela lo tiene)" },
+      {
+        type: "p",
+        content:
+          "Si tu escuela tiene instalado un torniquete biométrico de control de acceso, la asistencia se registra sola cuando el atleta entra: no hay pantalla ni botón, es 100% automático. Al pasar por el torniquete (evento de entrada), si el sistema resuelve al atleta con una inscripción activa, se marca Presente con la misma lógica que el escaneo de carnet.",
       },
       {
         type: "callout",
         variant: "tip",
         content:
-          "Truco: si tu equipo tiene 'presentes habituales' del 90%+, usá el botón 'Marcar todos como presentes' y luego solo cambiá los ausentes específicos. Ahorra 80% del tiempo.",
+          "Si un atleta aparece 'presente' sin que nadie de la escuela lo haya marcado, casi siempre es esto: entró por el torniquete y el sistema lo resolvió solo. No es un error. El acceso físico (si la puerta se abre o no) y el registro de asistencia son decisiones independientes — una nunca bloquea a la otra.",
       },
     ],
     related: ["calendario-reservas", "reportes-financieros-asistencia"],
@@ -766,7 +811,7 @@ export const helpArticles: HelpArticle[] = [
           "Quedas vinculado al hijo cuyo QR escaneaste",
         ],
       },
-      { type: "h2", content: "Qué podés hacer una vez vinculado" },
+      { type: "h2", content: "Qué puedes hacer una vez vinculado" },
       {
         type: "ul",
         items: [
@@ -781,7 +826,7 @@ export const helpArticles: HelpArticle[] = [
         type: "callout",
         variant: "tip",
         content:
-          "Si tenés más de un hijo en la misma escuela, cada uno te llega como invitación separada. Aceptás cada una y todos quedan en tu misma cuenta.",
+          "Si tienes más de un hijo en la misma escuela, cada uno te llega como invitación separada. Aceptas cada una y todos quedan en tu misma cuenta.",
       },
     ],
     related: ["invitar-padres-vinculacion"],
@@ -791,7 +836,7 @@ export const helpArticles: HelpArticle[] = [
     categoryId: "operacion-diaria",
     title: "Calendario, reservas y disponibilidad de canchas",
     excerpt:
-      "Configurá el calendario de tu academia, abrí reservas para padres y gestioná disponibilidad de canchas/instalaciones.",
+      "Configura el calendario de tu academia, abre reservas para padres y gestiona disponibilidad de canchas/instalaciones.",
     readTime: "5 min",
     targetRole: ["school", "coach"],
     body: [
@@ -832,7 +877,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Si activás reservas en un equipo, los padres pueden inscribir a su hijo a sesiones adicionales (clases extras, recuperación de sesiones perdidas). Configuralo desde Equipos → seleccionar equipo → 'Permitir reservas'.",
+          "Si activas reservas en un equipo, los padres pueden inscribir a su hijo a sesiones adicionales (clases extras, recuperación de sesiones perdidas). Configuralo desde Equipos → seleccionar equipo → 'Permitir reservas'.",
       },
       {
         type: "callout",
@@ -899,7 +944,7 @@ export const helpArticles: HelpArticle[] = [
       },
       {
         type: "cta",
-        title: "Evaluá el progreso de cada jugador",
+        title: "Evalúa el progreso de cada jugador",
         description: "Las evaluaciones cierran el ciclo de entrenamiento.",
         href: "/ayuda/evaluaciones-jugadores",
         label: "Ver guía de evaluaciones",
@@ -981,7 +1026,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Las certificaciones digitales reemplazan los típicos PDF que arma el administrativo a mano cada vez que un padre lo pide. Configurás la plantilla una vez, y desde ahí los emites con un clic o el padre las solicita y paga directamente.",
+          "Las certificaciones digitales reemplazan los típicos PDF que arma el administrativo a mano cada vez que un padre lo pide. Configuras la plantilla una vez, y desde ahí los emites con un clic o el padre las solicita y paga directamente.",
       },
       { type: "h2", content: "Tipos de certificado disponibles" },
       {
@@ -1032,13 +1077,13 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Si activás 'Requiere pago' en la plantilla, los padres pueden solicitar el certificado desde su app y el sistema les cobra automáticamente (vía Wompi). Útil para constancias administrativas que ya cobrás manualmente. Define monto y moneda.",
+          "Si activas 'Requiere pago' en la plantilla, los padres pueden solicitar el certificado desde su app y el sistema les cobra automáticamente (vía Wompi). Útil para constancias administrativas que ya cobras manualmente. Define monto y moneda.",
       },
       {
         type: "callout",
         variant: "tip",
         content:
-          "Activá 'Plantilla por defecto' en la más usada de cada tipo. Cuando emitís un certificado nuevo, esa aparece preseleccionada.",
+          "Activa 'Plantilla por defecto' en la más usada de cada tipo. Cuando emites un certificado nuevo, esa aparece preseleccionada.",
       },
       { type: "h2", content: "Verificación pública" },
       {
@@ -1101,7 +1146,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Si activás 'Reservas online' en el plan Wellness Pro, el paciente puede reservar desde la app sin que tengas que hacer nada. Configurá disponibilidad por profesional desde Menú: Wellness → Configuración → Horarios.",
+          "Si activas 'Reservas online' en el plan Wellness Pro, el paciente puede reservar desde la app sin que tengas que hacer nada. Configura disponibilidad por profesional desde Menú: Wellness → Configuración → Horarios.",
       },
       {
         type: "callout",
@@ -1117,7 +1162,7 @@ export const helpArticles: HelpArticle[] = [
     categoryId: "gestion-alumnos",
     title: "Tienda: gestión de productos e inventario",
     excerpt:
-      "Si vendés uniformes, accesorios o merchandising, controla stock, productos y alertas de bajo inventario desde un solo panel.",
+      "Si vendes uniformes, accesorios o merchandising, controla stock, productos y alertas de bajo inventario desde un solo panel.",
     readTime: "4 min",
     targetRole: ["school"],
     body: [
@@ -1176,7 +1221,7 @@ export const helpArticles: HelpArticle[] = [
         type: "callout",
         variant: "tip",
         content:
-          "Si las tallas son críticas (uniformes para temporada), agregá la talla como variante separada. Si el padre selecciona M y no hay stock, no puede completar la compra — evita errores de despacho.",
+          "Si las tallas son críticas (uniformes para temporada), agrega la talla como variante separada. Si el padre selecciona M y no hay stock, no puede completar la compra — evita errores de despacho.",
       },
     ],
     related: ["configurar-wompi-pagos-online"],
@@ -1248,7 +1293,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Las encuestas reemplazan los típicos '¿quién va al partido del sábado?' por WhatsApp donde 30 padres responden desordenado. Generás un link único, lo compartís por WhatsApp, los padres confirman con un clic, y ves los confirmados en vivo.",
+          "Las encuestas reemplazan los típicos '¿quién va al partido del sábado?' por WhatsApp donde 30 padres responden desordenado. Generas un link único, lo compartes por WhatsApp, los padres confirman con un clic, y ves los confirmados en vivo.",
       },
       { type: "h2", content: "Crear una encuesta" },
       {
@@ -1294,7 +1339,7 @@ export const helpArticles: HelpArticle[] = [
         type: "ul",
         items: [
           "'Cerrar encuesta' — bloquea más confirmaciones",
-          "'Agregar manualmente' — útil si un padre confirma por WhatsApp directo y querés que aparezca en la lista",
+          "'Agregar manualmente' — útil si un padre confirma por WhatsApp directo y quieres que aparezca en la lista",
           "'Eliminar confirmación' — si un padre canceló después",
         ],
       },
@@ -1302,7 +1347,7 @@ export const helpArticles: HelpArticle[] = [
         type: "callout",
         variant: "tip",
         content:
-          "Para eventos grandes (torneos, festivales), creá la encuesta 1-2 semanas antes con fecha de cierre 48h antes del evento. Te da tiempo a planificar logística (canchas, transporte, refrigerios) con la lista confirmada.",
+          "Para eventos grandes (torneos, festivales), crea la encuesta 1-2 semanas antes con fecha de cierre 48h antes del evento. Te da tiempo a planificar logística (canchas, transporte, refrigerios) con la lista confirmada.",
       },
     ],
     related: ["calendario-reservas", "tomar-asistencia-coach"],
@@ -1319,7 +1364,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "SportMaps incluye reportes pre-armados que cubren el 95% de lo que necesitás. Acá los 5 más usados y cómo leerlos.",
+          "SportMaps incluye reportes pre-armados que cubren el 95% de lo que necesitas. Acá los 5 más usados y cómo leerlos.",
       },
       { type: "h2", content: "1. Reporte de ingresos mensuales" },
       {
@@ -1336,7 +1381,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Lista todos los pagos con +X días de atraso (vos definís X). Indica el monto perdido si no se cobra, el padre asociado y los últimos contactos hechos.",
+          "Lista todos los pagos con +X días de atraso (tú defines X). Indica el monto perdido si no se cobra, el padre asociado y los últimos contactos hechos.",
       },
       { type: "h2", content: "3. Asistencia por equipo" },
       {
@@ -1365,7 +1410,7 @@ export const helpArticles: HelpArticle[] = [
         type: "callout",
         variant: "tip",
         content:
-          "Configurá alertas para que el sistema te avise por email cuando alguna métrica salga del rango aceptable. Menú: Reportes → Alertas.",
+          "Configura alertas para que el sistema te avise por email cuando alguna métrica salga del rango aceptable. Menú: Reportes → Alertas.",
       },
     ],
     related: ["tomar-asistencia-coach", "plantillas-recordatorios"],
@@ -1385,18 +1430,18 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "El onboarding de Entrenador Personal toma ~10 minutos y al final te queda tu perfil público listo para captar clientes. Son 6 pasos que podés guardar y retomar.",
+          "El onboarding de Entrenador Personal toma ~10 minutos y al final te queda tu perfil público listo para captar clientes. Son 6 pasos que puedes guardar y retomar.",
       },
       { type: "h2", content: "Los 6 pasos" },
       {
         type: "table",
-        headers: ["#", "Paso", "Qué configurás"],
+        headers: ["#", "Paso", "Qué configuras"],
         rows: [
           ["1", "Tu Deporte", "Especialidades, años de experiencia, certificaciones"],
-          ["2", "Modalidad", "Presencial / Virtual / Grupal y zonas donde entrenás"],
+          ["2", "Modalidad", "Presencial / Virtual / Grupal y zonas donde entrenas"],
           ["3", "Disponibilidad", "Días y horarios disponibles cada semana"],
           ["4", "Tarifas", "Precio por sesión individual y por bonos de varias sesiones"],
-          ["5", "Pagos", "Wompi, transferencia, efectivo — qué métodos aceptás"],
+          ["5", "Pagos", "Wompi, transferencia, efectivo — qué métodos aceptas"],
           ["6", "Perfil", "Foto, presentación y video opcional"],
         ],
       },
@@ -1404,11 +1449,11 @@ export const helpArticles: HelpArticle[] = [
         type: "callout",
         variant: "tip",
         content:
-          "Los primeros 3 pasos podés saltarlos y volver, pero Tarifas + Perfil son los que más impactan tu conversión cuando un cliente potencial te encuentra.",
+          "Los primeros 3 pasos puedes saltarlos y volver, pero Tarifas + Perfil son los que más impactan tu conversión cuando un cliente potencial te encuentra.",
       },
       {
         type: "cta",
-        title: "Editá tu perfil cuando quieras",
+        title: "Edita tu perfil cuando quieras",
         description: "Cualquier cambio se refleja en tu link público.",
         href: "/ayuda/trainer-perfil-publico",
         label: "Guía de perfil público",
@@ -1419,9 +1464,9 @@ export const helpArticles: HelpArticle[] = [
   {
     slug: "trainer-perfil-publico",
     categoryId: "entrenadores-personales",
-    title: "Configurá tu perfil público (tu link de captación)",
+    title: "Configura tu perfil público (tu link de captación)",
     excerpt:
-      "Tu link público es lo que compartís en redes y WhatsApp para que potenciales clientes te encuentren y te contraten.",
+      "Tu link público es lo que compartes en redes y WhatsApp para que potenciales clientes te encuentren y te contraten.",
     readTime: "3 min",
     targetRole: ["coach"],
     body: [
@@ -1443,7 +1488,7 @@ export const helpArticles: HelpArticle[] = [
           "Foto profesional (no selfie de gimnasio sin contexto)",
           "Modalidades y zonas — sé específico (ej: 'Funcional outdoor en Salitre' > 'Funcional en Bogotá')",
           "Tarifas visibles o 'A consultar' (la transparencia convierte mejor)",
-          "Instagram y otros sociales si los tenés",
+          "Instagram y otros sociales si los tienes",
           "Guardar — el link público se actualiza en tiempo real",
         ],
       },
@@ -1493,7 +1538,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Al hacer clic en un cliente ves 4 pestañas: Entrenamiento (rutinas asignadas), Progreso (mejoras en habilidades), Stats (asistencia y consistencia) y Objetivos (metas que el cliente puso o vos definiste).",
+          "Al hacer clic en un cliente ves 4 pestañas: Entrenamiento (rutinas asignadas), Progreso (mejoras en habilidades), Stats (asistencia y consistencia) y Objetivos (metas que el cliente puso o tú definiste).",
       },
     ],
     related: ["trainer-rutinas", "trainer-perfil-publico"],
@@ -1503,14 +1548,14 @@ export const helpArticles: HelpArticle[] = [
     categoryId: "entrenadores-personales",
     title: "Crear rutinas y asignarlas a tus clientes",
     excerpt:
-      "Diseñá rutinas reutilizables, asignalas a uno o varios clientes y monitorea cumplimiento.",
+      "Diseña rutinas reutilizables, asignalas a uno o varios clientes y monitorea cumplimiento.",
     readTime: "4 min",
     targetRole: ["coach"],
     body: [
       {
         type: "p",
         content:
-          "Las rutinas en SportMaps son plantillas reutilizables. Creás una vez 'Full Body 45 min - Intermedio' y la asignás a 10 clientes diferentes. Cada uno la ve en su app.",
+          "Las rutinas en SportMaps son plantillas reutilizables. Creas una vez 'Full Body 45 min - Intermedio' y la asignas a 10 clientes diferentes. Cada uno la ve en su app.",
       },
       { type: "h2", content: "Crear una rutina" },
       {
@@ -1532,13 +1577,13 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Desde el perfil del cliente → pestaña Entrenamiento → 'Asignar rutina' → seleccioná de tu biblioteca. El cliente la ve en su app y podés ver cuándo la completó.",
+          "Desde el perfil del cliente → pestaña Entrenamiento → 'Asignar rutina' → selecciona de tu biblioteca. El cliente la ve en su app y puedes ver cuándo la completó.",
       },
       {
         type: "callout",
         variant: "tip",
         content:
-          "Usá búsqueda y filtros en Mis Rutinas para encontrar rápido. Si tenés 50+ rutinas, organizá por etiquetas (cardio/fuerza/movilidad).",
+          "Usa búsqueda y filtros en Mis Rutinas para encontrar rápido. Si tienes 50+ rutinas, organiza por etiquetas (cardio/fuerza/movilidad).",
       },
     ],
     related: ["trainer-clientes"],
@@ -1548,7 +1593,7 @@ export const helpArticles: HelpArticle[] = [
     categoryId: "entrenadores-personales",
     title: "Configurar disponibilidad y tarifas",
     excerpt:
-      "Definí qué días y horas atendés, y cuánto cobrás por sesión o por paquete de sesiones.",
+      "Define qué días y horas atiendes, y cuánto cobras por sesión o por paquete de sesiones.",
     readTime: "3 min",
     targetRole: ["coach"],
     body: [
@@ -1561,21 +1606,21 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Configurás qué días de la semana atendés y los rangos horarios de cada día. Ej: 'Lunes a Viernes 6am-10am y 5pm-9pm'. El cliente solo puede reservar dentro de esos rangos.",
+          "Configuras qué días de la semana atiendes y los rangos horarios de cada día. Ej: 'Lunes a Viernes 6am-10am y 5pm-9pm'. El cliente solo puede reservar dentro de esos rangos.",
       },
       {
         type: "ul",
         items: [
-          "Podés bloquear fechas específicas (vacaciones, eventos)",
-          "Podés diferenciar por modalidad: presencial L-V, virtual sábados",
-          "El cliente ve solo los slots que YA tenés libres (no los reservados)",
+          "Puedes bloquear fechas específicas (vacaciones, eventos)",
+          "Puedes diferenciar por modalidad: presencial L-V, virtual sábados",
+          "El cliente ve solo los slots que YA tienes libres (no los reservados)",
         ],
       },
       { type: "h2", content: "Tarifas" },
       {
         type: "p",
         content:
-          "Configurás precio por sesión individual y bonos de N sesiones con descuento. Ej: 1 sesión = $80.000, bono de 8 sesiones = $560.000 (= $70k c/u, 13% off).",
+          "Configuras precio por sesión individual y bonos de N sesiones con descuento. Ej: 1 sesión = $80.000, bono de 8 sesiones = $560.000 (= $70k c/u, 13% off).",
       },
       {
         type: "callout",
@@ -1598,16 +1643,16 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Cuando un cliente reserva una sesión o paquete, paga directamente desde la app (Wompi) o registrás manualmente lo que recibiste en efectivo/transferencia.",
+          "Cuando un cliente reserva una sesión o paquete, paga directamente desde la app (Wompi) o registras manualmente lo que recibiste en efectivo/transferencia.",
       },
       { type: "h2", content: "Métodos disponibles" },
       {
         type: "table",
         headers: ["Método", "Cuándo usar"],
         rows: [
-          ["Wompi (tarjeta/PSE)", "Cliente paga online desde la app, recibís el pago en tu cuenta Wompi"],
-          ["Transferencia bancaria", "Cliente transfiere a tu cuenta, vos registrás el pago manual"],
-          ["Efectivo", "Cliente paga al final de la sesión, vos registrás manual"],
+          ["Wompi (tarjeta/PSE)", "Cliente paga online desde la app, recibes el pago en tu cuenta Wompi"],
+          ["Transferencia bancaria", "Cliente transfiere a tu cuenta, tú registras el pago manual"],
+          ["Efectivo", "Cliente paga al final de la sesión, tú registras manual"],
         ],
       },
       { type: "h2", content: "Ver tus cobros" },
@@ -1625,7 +1670,7 @@ export const helpArticles: HelpArticle[] = [
         type: "callout",
         variant: "tip",
         content:
-          "Wompi te paga a tu cuenta bancaria automáticamente cada 24-48h. Configurá tu cuenta de payout en comercio.wompi.co.",
+          "Wompi te paga a tu cuenta bancaria automáticamente cada 24-48h. Configura tu cuenta de payout en comercio.wompi.co.",
       },
     ],
     related: ["trainer-disponibilidad-tarifas", "configurar-wompi-pagos-online"],
@@ -1645,7 +1690,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "El onboarding de Organizador toma 5-10 minutos. Al final tenés capacidad de crear eventos públicos con inscripciones, pagos y boletería.",
+          "El onboarding de Organizador toma 5-10 minutos. Al final tienes capacidad de crear eventos públicos con inscripciones, pagos y boletería.",
       },
       { type: "h2", content: "Pasos del onboarding" },
       {
@@ -1703,7 +1748,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Divisiones del evento (ej: Infantil sub-10, Juvenil sub-14, Élite, Veteranos). Definís edades, género y nivel para cada una. Esto permite que un mismo evento tenga inscripciones segmentadas.",
+          "Divisiones del evento (ej: Infantil sub-10, Juvenil sub-14, Élite, Veteranos). Defines edades, género y nivel para cada una. Esto permite que un mismo evento tenga inscripciones segmentadas.",
       },
       { type: "h2", content: "Paso 3 — Paquetes" },
       {
@@ -1726,7 +1771,7 @@ export const helpArticles: HelpArticle[] = [
         type: "callout",
         variant: "tip",
         content:
-          "Podés guardar el evento en borrador en cualquier paso. Hasta que lo publiques, no aparece al público.",
+          "Puedes guardar el evento en borrador en cualquier paso. Hasta que lo publiques, no aparece al público.",
       },
     ],
     related: ["organizer-gestionar-evento", "organizer-finanzas-payouts"],
@@ -1755,7 +1800,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Si exigís documentos (cédula, EPS), las inscripciones quedan 'Pendientes de validación' hasta que aprobás. El atleta recibe notificación cuando lo aprobás.",
+          "Si exiges documentos (cédula, EPS), las inscripciones quedan 'Pendientes de validación' hasta que apruebas. El atleta recibe notificación cuando lo apruebas.",
       },
       { type: "h2", content: "Comunicación masiva" },
       {
@@ -1763,7 +1808,7 @@ export const helpArticles: HelpArticle[] = [
         items: [
           "Mandar email a todos los inscritos de una categoría",
           "Notificación in-app",
-          "WhatsApp masivo si tenés módulo activado",
+          "WhatsApp masivo si tienes módulo activado",
         ],
       },
       { type: "h2", content: "Día del evento" },
@@ -1794,7 +1839,7 @@ export const helpArticles: HelpArticle[] = [
         type: "ul",
         items: [
           "Wompi: tarjeta de crédito/débito + PSE + Nequi (automático)",
-          "Transferencia bancaria: el atleta transfiere y sube comprobante (max 5MB), vos validas",
+          "Transferencia bancaria: el atleta transfiere y sube comprobante (max 5MB), tú validas",
           "Efectivo: el atleta paga en persona el día del evento (lo marcas manualmente)",
         ],
       },
@@ -1813,7 +1858,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Configurás cuenta bancaria en Settings → Datos bancarios. SportMaps transfiere según frecuencia pactada (semanal típicamente). La comisión se descuenta antes del payout.",
+          "Configuras cuenta bancaria en Settings → Datos bancarios. SportMaps transfiere según frecuencia pactada (semanal típicamente). La comisión se descuenta antes del payout.",
       },
     ],
     related: ["organizer-gestionar-evento", "configurar-wompi-pagos-online"],
@@ -1830,7 +1875,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Después del evento, SportMaps consolida automáticamente los reportes que necesitás para decidir qué cambiar en el próximo.",
+          "Después del evento, SportMaps consolida automáticamente los reportes que necesitas para decidir qué cambiar en el próximo.",
       },
       { type: "h2", content: "Reportes disponibles" },
       {
@@ -1861,14 +1906,14 @@ export const helpArticles: HelpArticle[] = [
     categoryId: "tiendas-proveedores",
     title: "Setup inicial de tu tienda",
     excerpt:
-      "Crea tu cuenta de vendor: nombre, ciudad, deportes que cubrís, datos bancarios para recibir pagos.",
+      "Crea tu cuenta de vendor: nombre, ciudad, deportes que cubres, datos bancarios para recibir pagos.",
     readTime: "3 min",
     targetRole: ["all"],
     body: [
       {
         type: "p",
         content:
-          "El onboarding de Tienda es corto (5 min). Al final tenés tu perfil público de tienda visible en el mapa SportMaps y podés cargar productos.",
+          "El onboarding de Tienda es corto (5 min). Al final tienes tu perfil público de tienda visible en el mapa SportMaps y puedes cargar productos.",
       },
       { type: "h2", content: "Datos requeridos" },
       {
@@ -1876,7 +1921,7 @@ export const helpArticles: HelpArticle[] = [
         items: [
           "Nombre comercial de la tienda (obligatorio)",
           "Ciudad principal de operación (obligatorio)",
-          "Deportes que cubrís (selección múltiple)",
+          "Deportes que cubres (selección múltiple)",
           "Descripción corta",
           "Logo / imagen de portada",
           "Datos bancarios para payouts",
@@ -1896,7 +1941,7 @@ export const helpArticles: HelpArticle[] = [
     categoryId: "tiendas-proveedores",
     title: "Catálogo de productos: agregar, editar, archivar",
     excerpt:
-      "Carga productos con fotos, variantes, stock y precios. Archivá los que ya no vendés sin perder histórico.",
+      "Carga productos con fotos, variantes, stock y precios. Archiva los que ya no vendes sin perder histórico.",
     readTime: "4 min",
     targetRole: ["all"],
     body: [
@@ -1913,7 +1958,7 @@ export const helpArticles: HelpArticle[] = [
           "Fotos (mínimo 1, recomendado 3 — frontal, detalle, contexto)",
           "Variantes si aplica (talla, color, modelo)",
           "Precio y stock por variante",
-          "Marca si distribuís productos de marcas específicas",
+          "Marca si distribuyes productos de marcas específicas",
           "Publicar (visible) o guardar como borrador",
         ],
       },
@@ -1921,13 +1966,13 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Si dejás de vender un producto, no lo elimines — archivalo. Así mantenés el histórico de pedidos pasados. Botón 'Archivar' en el menú del producto.",
+          "Si dejas de vender un producto, no lo elimines — archivalo. Así mantienes el histórico de pedidos pasados. Botón 'Archivar' en el menú del producto.",
       },
       {
         type: "callout",
         variant: "tip",
         content:
-          "Marcas oficiales con precios mayoristas convierten 2x más que productos sin marca. Si revendés Adidas/Nike/Wilson, ponelo en el nombre del producto.",
+          "Marcas oficiales con precios mayoristas convierten 2x más que productos sin marca. Si revendes Adidas/Nike/Wilson, ponelo en el nombre del producto.",
       },
     ],
     related: ["vendor-payouts-shipping", "vendor-promociones"],
@@ -1937,7 +1982,7 @@ export const helpArticles: HelpArticle[] = [
     categoryId: "tiendas-proveedores",
     title: "Vender servicios (no solo productos): citas y agenda",
     excerpt:
-      "Si vendés instalación, mantenimiento o servicio técnico, gestiona citas con agenda integrada.",
+      "Si vendes instalación, mantenimiento o servicio técnico, gestiona citas con agenda integrada.",
     readTime: "3 min",
     targetRole: ["all"],
     body: [
@@ -2011,7 +2056,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "ul",
         items: [
-          "Zonas que cubrís (tu ciudad, área metropolitana, nacional)",
+          "Zonas que cubres (tu ciudad, área metropolitana, nacional)",
           "Tarifas por zona o gratis sobre cierto monto",
           "Tiempos de entrega estimados",
           "Métodos: domicilio propio, integración Servientrega/Coordinadora, retiro en local",
@@ -2081,18 +2126,18 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Inscribirse a un evento en SportMaps toma 3-5 minutos si tenés cuenta creada. Si es la primera vez, te toma 8-10 minutos (creás cuenta + inscribís).",
+          "Inscribirse a un evento en SportMaps toma 3-5 minutos si tienes cuenta creada. Si es la primera vez, te toma 8-10 minutos (creas cuenta + inscribes).",
       },
       { type: "h2", content: "Pasos" },
       {
         type: "ol",
         items: [
-          "Encontrá el evento en /eventos o en el mapa",
-          "Click en 'Inscribirme' y elegí tu categoría (sub-12, juvenil, élite, etc.)",
+          "Encuentra el evento en /eventos o en el mapa",
+          "Click en 'Inscribirme' y elige tu categoría (sub-12, juvenil, élite, etc.)",
           "Llenamos datos del atleta (los traemos del perfil si ya estás logueado)",
           "Subí documentos requeridos: cédula/TI, EPS, autorización si es menor",
-          "Elegí método de pago: tarjeta (Wompi), PSE, Nequi o transferencia",
-          "Si elegís transferencia: hacés la transferencia y subís el comprobante (max 5MB)",
+          "Elige método de pago: tarjeta (Wompi), PSE, Nequi o transferencia",
+          "Si eliges transferencia: haces la transferencia y subes el comprobante (max 5MB)",
         ],
       },
       { type: "h2", content: "Después de inscribirte" },
@@ -2102,7 +2147,7 @@ export const helpArticles: HelpArticle[] = [
           "Email confirmación inmediata si pagaste online",
           "QR único de boletería en tu perfil",
           "Notificaciones cuando se acerca el evento",
-          "Si pagaste por transferencia, esperás validación del organizador (24-48h típicamente)",
+          "Si pagaste por transferencia, esperas validación del organizador (24-48h típicamente)",
         ],
       },
     ],
@@ -2132,7 +2177,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "ul",
         items: [
-          "Descargar tu QR de boletería (también lo tenés en email)",
+          "Descargar tu QR de boletería (también lo tienes en email)",
           "Ver resultados si el evento ya pasó (tiempos, posición)",
           "Descargar certificado de participación",
           "Pedir reembolso (sujeto a política del organizador)",
@@ -2146,7 +2191,7 @@ export const helpArticles: HelpArticle[] = [
     categoryId: "para-padres-atletas",
     title: "Ver mis citas con profesionales de bienestar",
     excerpt:
-      "Si reservás citas con fisio, nutricionista o psicólogo deportivo, las gestionás desde una sola vista.",
+      "Si reservas citas con fisio, nutricionista o psicólogo deportivo, las gestionas desde una sola vista.",
     readTime: "2 min",
     targetRole: ["athlete", "parent"],
     body: [
@@ -2165,13 +2210,13 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Buscá el profesional en /bienestar, elegí horario disponible, confirmá. Si el profesional usa WhatsApp AI, recibís confirmación automática 24h antes.",
+          "Busca el profesional en /bienestar, elige horario disponible, confirma. Si el profesional usa WhatsApp AI, recibes confirmación automática 24h antes.",
       },
       { type: "h2", content: "Cancelar / reprogramar" },
       {
         type: "p",
         content:
-          "Hasta 12h antes podés cancelar sin penalización. Para reprogramar, cancelás y reservás de nuevo en otro horario disponible.",
+          "Hasta 12h antes puedes cancelar sin penalización. Para reprogramar, cancelas y reservas de nuevo en otro horario disponible.",
       },
     ],
     related: [],
@@ -2191,7 +2236,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Pickup Monitor evita el caos de la salida: padres en doble fila, alumnos esperando en la calle, llamadas frenéticas. Cada padre activa la alerta cuando va llegando y vos sabés a qué auto sale qué niño.",
+          "Pickup Monitor evita el caos de la salida: padres en doble fila, alumnos esperando en la calle, llamadas frenéticas. Cada padre activa la alerta cuando va llegando y tú sabes a qué auto sale qué niño.",
       },
       { type: "h2", content: "Cómo funciona" },
       {
@@ -2202,7 +2247,7 @@ export const helpArticles: HelpArticle[] = [
           "Tu pantalla de Pickup Monitor muestra: nombre del alumno, placa del auto, ETA estimado",
           "Cuando el padre está a <5 min, alerta de proximidad",
           "Cuando llega a zona de recogida, alerta 'Padre en puerta'",
-          "Marcás 'Entregado' una vez que el alumno sale al auto",
+          "Marcas 'Entregado' una vez que el alumno sale al auto",
         ],
       },
       { type: "h2", content: "Beneficios operativos" },
@@ -2219,7 +2264,7 @@ export const helpArticles: HelpArticle[] = [
         type: "callout",
         variant: "tip",
         content:
-          "Activá Pickup Monitor 15 min antes del fin de la jornada para que los padres vean los slots disponibles y planifiquen mejor su llegada.",
+          "Activa Pickup Monitor 15 min antes del fin de la jornada para que los padres vean los slots disponibles y planifiquen mejor su llegada.",
       },
     ],
     related: ["calendario-reservas"],
@@ -2269,7 +2314,7 @@ export const helpArticles: HelpArticle[] = [
         type: "callout",
         variant: "tip",
         content:
-          "Si vas al mismo torneo cada año, duplicá la delegación pasada y solo actualizá la lista de viajeros. Ahorra 30 min.",
+          "Si vas al mismo torneo cada año, duplica la delegación pasada y solo actualiza la lista de viajeros. Ahorra 30 min.",
       },
     ],
     related: ["organizer-crear-evento", "configurar-sedes-equipos"],
@@ -2437,7 +2482,7 @@ export const helpFAQs: HelpFAQ[] = [
   {
     question: "¿SportMaps funciona en celular?",
     answer:
-      "Sí. SportMaps es una PWA (Progressive Web App): funciona en el navegador del celular y podés instalarla como app desde Chrome/Safari ('Agregar a pantalla de inicio'). No hay app nativa separada todavía.",
+      "Sí. SportMaps es una PWA (Progressive Web App): funciona en el navegador del celular y puedes instalarla como app desde Chrome/Safari ('Agregar a pantalla de inicio'). No hay app nativa separada todavía.",
   },
   {
     question: "¿Qué métodos de pago acepta SportMaps?",
@@ -2457,17 +2502,17 @@ export const helpFAQs: HelpFAQ[] = [
   {
     question: "¿Cuál es la diferencia entre registro manual y Wompi?",
     answer:
-      "Registro manual: vos registras un pago que ya recibiste en efectivo o transferencia (queda pagado al instante). Wompi: el padre paga online desde su celular (queda pendiente hasta que el gateway confirma, normalmente <1 minuto).",
+      "Registro manual: tú registras un pago que ya recibiste en efectivo o transferencia (queda pagado al instante). Wompi: el padre paga online desde su celular (queda pendiente hasta que el gateway confirma, normalmente <1 minuto).",
   },
   {
     question: "¿Puedo gestionar varias sedes desde una sola cuenta?",
     answer:
-      "Sí. En plan Pro y superiores, podés crear múltiples sedes con sus propios equipos, coaches y reportes. Cada coach solo ve los equipos asignados; vos (admin) ves todo consolidado.",
+      "Sí. En plan Pro y superiores, puedes crear múltiples sedes con sus propios equipos, coaches y reportes. Cada coach solo ve los equipos asignados; tú (admin) ves todo consolidado.",
   },
   {
     question: "¿Cómo invito a un padre que no tiene email?",
     answer:
-      "Usá 'Link de un solo uso' (Invitaciones → Generar link) y envialo por WhatsApp. O genera un QR (Estudiantes → seleccionar alumno → 'QR de vinculación') que el padre escanea en persona.",
+      "Usa 'Link de un solo uso' (Invitaciones → Generar link) y envialo por WhatsApp. O genera un QR (Estudiantes → seleccionar alumno → 'QR de vinculación') que el padre escanea en persona.",
   },
   {
     question: "¿Cómo doy de baja un alumno?",
@@ -2482,7 +2527,7 @@ export const helpFAQs: HelpFAQ[] = [
   {
     question: "¿Qué pasa con mis datos si me doy de baja de SportMaps?",
     answer:
-      "Te exportamos todo en CSV/Excel (alumnos, pagos, asistencia, equipos) sin costo. Conservamos tu información encriptada por 90 días por si querés volver — después se elimina permanentemente.",
+      "Te exportamos todo en CSV/Excel (alumnos, pagos, asistencia, equipos) sin costo. Conservamos tu información encriptada por 90 días por si quieres volver — después se elimina permanentemente.",
   },
   {
     question: "¿Cómo contacto soporte técnico?",

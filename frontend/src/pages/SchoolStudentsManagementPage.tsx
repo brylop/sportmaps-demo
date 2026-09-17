@@ -82,6 +82,9 @@ const studentSchema = z.object({
     z.number().min(0).optional()),
   fee_is_manual:    z.boolean().optional(),
   fee_reason:       z.string().max(200).optional(),
+  discount_type:    z.preprocess(
+    v => (v === '' || v === null || v === undefined) ? undefined : v,
+    z.enum(['extended_family', 'referral']).optional()),
   medical_info:     z.string().max(1000).optional(),
   notes:            z.string().max(500).optional(),
   tshirt_size:      z.string().optional(),
@@ -118,6 +121,22 @@ const PAYMENT_STATE_LABELS: Record<PaymentState, string> = {
 // botón de la Fase 1 ya está aplicado sobre este atleta.
 const MILITARY_DISCOUNT_REASON = 'Descuento Fuerza Militar 10%';
 const MILITARY_DISCOUNT_RATE = 0.10;
+
+// Descuentos manuales (mig. 20260916101241 + 102444): uno solo por atleta,
+// van de la mano de fee_is_manual (el monto ya se pone a mano). discount_type
+// es el tag estructurado; estas etiquetas son solo para mostrar/elegir en la
+// UI. Hermanos NO vive acá — se calcula solo en open_month.
+const DISCOUNT_TYPE_LABELS: Record<'extended_family' | 'referral', { icon: string; label: string; badge: string }> = {
+  extended_family: { icon: '👨‍👩‍👧', label: 'Primos / familia extendida', badge: 'Primos' },
+  referral:        { icon: '🤝',    label: 'Referido',                    badge: 'Referido' },
+};
+
+/** Texto del badge cuando fee_is_manual=true: "Becado" por defecto, o el tipo
+ *  manual (primos/referido) si discount_type lo especifica. */
+function manualFeeBadge(student: any): string {
+  const type = student?.discount_type as 'extended_family' | 'referral' | null | undefined;
+  return type && DISCOUNT_TYPE_LABELS[type] ? `${DISCOUNT_TYPE_LABELS[type].icon} ${DISCOUNT_TYPE_LABELS[type].badge}` : '🎓 Becado';
+}
 
 const PAYMENT_STATE_TONES: Record<PaymentState, StatFilterTone> = {
   paid:    'emerald',
@@ -737,6 +756,7 @@ export default function SchoolStudentsManagementPage() {
           // plan/equipo el mes siguiente (ver migración fee_is_manual).
           fee_is_manual:    !!data.fee_is_manual,
           fee_reason:       data.fee_reason || null,
+          discount_type:    data.discount_type || null,
         },
       });
     },
@@ -815,6 +835,7 @@ export default function SchoolStudentsManagementPage() {
       plan_monthly_fee: planFee,
       fee_is_manual:    !!(student as any).fee_is_manual,
       fee_reason:       (student as any).fee_reason || '',
+      discount_type:    (student as any).discount_type || undefined,
       medical_info:     student.medical_info     || '',
       notes:            student.notes            || '',
       tshirt_size:      extraFields.tshirt_size,
@@ -1154,7 +1175,7 @@ export default function SchoolStudentsManagementPage() {
   const StudentActions = ({ student }: { student: any }) => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={`Más acciones para ${student.full_name}`}>
           <MoreVertical className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
@@ -1418,7 +1439,7 @@ export default function SchoolStudentsManagementPage() {
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
                           {(student as any).fee_is_manual ? (
                             <Badge variant="outline" className="text-[10px] bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/40 py-0 h-5">
-                              🎓 Becado
+                              {manualFeeBadge(student)}
                             </Badge>
                           ) : (
                             <>
@@ -1501,7 +1522,7 @@ export default function SchoolStudentsManagementPage() {
                             <TableCell className="font-semibold text-primary">
                               {(student as any).fee_is_manual ? (
                                 <Badge variant="outline" className="text-xs bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/40 w-fit">
-                                  🎓 Becado
+                                  {manualFeeBadge(student)}
                                 </Badge>
                               ) : (
                                 <div className="flex items-center gap-1">
@@ -1937,6 +1958,7 @@ export default function SchoolStudentsManagementPage() {
                         form.setValue('plan_monthly_fee' as any, 0);
                       } else {
                         form.setValue('fee_reason' as any, '');
+                        form.setValue('discount_type' as any, undefined);
                         const t = teams.find(t => t.id === form.getValues('team_id'));
                         const p = offeringPlans.find(p => p.id === form.getValues('offering_plan_id'));
                         form.setValue('team_monthly_fee' as any, form.getValues('offering_plan_id') ? 0 : (t?.monthly_fee ?? 0));
@@ -1949,13 +1971,39 @@ export default function SchoolStudentsManagementPage() {
                   </Label>
                 </div>
                 {form.watch('fee_is_manual') && (
-                  <div className="space-y-1 pl-6">
-                    <Label htmlFor="fee_reason" className="text-xs text-muted-foreground">Motivo (opcional)</Label>
-                    <Input id="fee_reason" placeholder="Ej. Beca deportiva, convenio, hermano"
-                      {...form.register('fee_reason')} />
-                    <p className="text-[11px] text-muted-foreground">
-                      Este atleta no generará cobros mensuales aunque el plan o el equipo tengan precio.
-                    </p>
+                  <div className="space-y-3 pl-6">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Tipo (opcional — uno solo por atleta)</Label>
+                      <div className="flex gap-2 flex-wrap">
+                        {(Object.keys(DISCOUNT_TYPE_LABELS) as Array<keyof typeof DISCOUNT_TYPE_LABELS>).map(key => {
+                          const meta = DISCOUNT_TYPE_LABELS[key];
+                          const active = form.watch('discount_type') === key;
+                          return (
+                            <Button
+                              key={key}
+                              type="button"
+                              size="sm"
+                              variant={active ? 'secondary' : 'outline'}
+                              disabled={editingIsInactive}
+                              onClick={() => form.setValue('discount_type' as any, active ? undefined : key)}
+                            >
+                              {meta.icon} {active ? `Quitar ${meta.badge}` : meta.label}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Deja sin marcar si es una beca sin categoría particular. El descuento de hermanos NO se marca acá — se aplica solo si está prendido en Ajustes de pagos.
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="fee_reason" className="text-xs text-muted-foreground">Motivo (opcional)</Label>
+                      <Input id="fee_reason" placeholder="Ej. Beca deportiva, convenio, primos"
+                        {...form.register('fee_reason')} />
+                      <p className="text-[11px] text-muted-foreground">
+                        Este atleta no generará cobros mensuales aunque el plan o el equipo tengan precio.
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
@@ -2195,9 +2243,10 @@ export default function SchoolStudentsManagementPage() {
                   </section>
 
                   {/* ── Sección: Banco de horas (docs/specs/dreamers-banco-de-horas-torniquete.md) ──
-                      No renderiza nada si esta inscripción no tiene un plan de horas —
-                      HourBankBalanceCard ya hace ese chequeo por su cuenta. */}
-                  {s.enrollment_id && (
+                      Gateada por hourBankByEnrollment (piloto Dreamers): antes solo
+                      HourBankBalanceCard se ocultaba sin plan, pero el título y el
+                      botón "Ver reporte" quedaban visibles igual en cualquier escuela. */}
+                  {s.enrollment_id && hourBankByEnrollment.has(s.enrollment_id) && (
                     <section>
                       <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
                         <Clock className="w-4 h-4 text-primary" /> Banco de horas

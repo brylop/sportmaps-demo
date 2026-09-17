@@ -35,6 +35,10 @@ import { emailClient } from '../utils/emailClient';
 import { chatWithTools, type LlmTool, type LlmMessage } from './llm.service';
 import { sendTextMessage, aFormatoWhatsApp, type WhatsAppIntegration } from './whatsapp.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
+import { estadoDeHorario, mensajeDeEscalamiento } from './whatsapp-horario.service';
+import { sendToUser } from './push.service';
+import { mediosDePago } from './whatsapp-medios-de-pago.service';
+import { resolverRespuestaDeCobro } from './whatsapp-respuesta-de-cobro.service';
 
 const OTP_TTL_MIN = 10;
 
@@ -75,17 +79,196 @@ export async function runBotTurn(
         return;
     }
 
+    // 1b. Ya identificada: verificar que el vinculo siga siendo el correcto.
+    //
+    //     Una identificacion vieja NO caduca. Encontrado el 2026-09-16 en la
+    //     prueba: la conversacion seguia vinculada a la persona que verifico
+    //     por correo el 12 de septiembre, aunque el numero hoy sea de otra.
+    //     Quien escribiera desde ese telefono veria los pagos de la primera.
+    //
+    //     Es el caso del numero que cambia de dueno —linea reciclada, celular
+    //     que pasa de un papa a otro, el telefono familiar que queda con el
+    //     hijo mayor— y no es raro: las companias reasignan numeros a los
+    //     pocos meses.
+    //
+    //     El numero manda sobre el vinculo guardado: el `from` de WhatsApp lo
+    //     autentica Meta en CADA mensaje, mientras que el vinculo viejo es una
+    //     afirmacion de hace semanas que nadie volvio a comprobar.
+    const revision = await revisarVinculoPorTelefono(
+        integration, conversationId, contactWaId, conv.parent_id);
+    if (revision === 'corto') return;
+    if (revision !== 'sin_cambio') conv.parent_id = revision;
+
     // 2. Consentimiento: se pide UNA vez, después de identificarse.
     //    Si este turno lo resolvió (preguntó, o registró el sí/no), termina acá.
     if (await handleConsent(integration, conversationId, contactWaId, conv.parent_id, text, waMessageId)) {
         return;
     }
 
+    // 2.5. ¿Hay una pregunta de comprobante abierta? Va ANTES del LLM.
+    //
+    //      «2», «los dos», «el de Sharik» o «al pendiente» solo significan algo
+    //      contra las opciones que se le ofrecieron; para el modelo son ruido y
+    //      terminaba contestando cualquier cosa mientras el comprobante seguia
+    //      colgado en 'waiting_user'.
+    const respondio = await resolverRespuestaDeCobro(
+        integration, contactWaId, text,
+        (texto, paso) => deliver(integration, conversationId, contactWaId, texto, { step: paso }),
+    );
+    if (respondio) return;
+
     // 3. Identificado → intents con LLM.
     await handleIntent(integration, conversationId, contactWaId, conv.parent_id, text);
 }
 
 // ─── 1. Identificación (OTP por email) ────────────────────────────────────────
+
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
+
+/**
+ * Identificacion por el NUMERO desde el que escribe. Va antes que el correo.
+ *
+ * Medido en Dynasty el 2026-09-16: de 502 atletas activos, 156 no tienen
+ * ninguna cuenta de acudiente. Para esas familias el camino del correo NO
+ * EXISTE — escriben un correo que no esta en la base, el codigo nunca sale, y
+ * el bot igual contesta «te envie un codigo» (a proposito, para no revelar
+ * quien esta registrado). La conversacion se muere ahi.
+ *
+ * Por telefono el 100% es alcanzable: 346 entran directo y 156 quedan
+ * reconocidos como familia y se les pide crear la cuenta. Quien no la tenga
+ * NO recibe informacion de ningun tipo — ni el nombre del atleta, que seria
+ * decirle a quien hoy tenga ese numero de quien es familia.
+ *
+ * Devuelve true si resolvio el turno.
+ */
+/**
+ * ¿El telefono sigue apuntando al mismo acudiente al que quedo vinculada la
+ * conversacion?
+ *
+ * Devuelve el parent_id vigente, 'sin_cambio' si no hay nada que hacer, o
+ * 'corto' si el turno ya quedo resuelto y quien llama debe parar.
+ *
+ * Solo actua cuando el telefono dice algo DISTINTO y confiable. Si el numero
+ * no resuelve a nadie —un acudiente que se identifico por correo desde el
+ * celular de un vecino, o cuyo telefono nunca se cargo en la ficha— NO se le
+ * quita el acceso: seria romperle el canal a quien lo tenia bien.
+ */
+async function revisarVinculoPorTelefono(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    parentActual: string | null,
+): Promise<string | 'sin_cambio' | 'corto'> {
+    const { data, error } = await supabase.rpc('wa_identify_by_phone', {
+        p_integration_id: integration.id,
+        p_contact_wa_id: contactWaId,
+    });
+    if (error) return 'sin_cambio';
+
+    const estado = (data as any)?.estado;
+    const porTelefono = (data as any)?.parent_id as string | undefined;
+
+    // El telefono confirma lo que ya teniamos, o no sabe: nada que hacer.
+    if (estado !== 'identificado' || !porTelefono) return 'sin_cambio';
+    if (porTelefono === parentActual) return 'sin_cambio';
+
+    // Dice otra cosa. La RPC ya reescribio el vinculo; solo queda avisar, para
+    // que el nuevo dueno del numero entienda por que el bot le habla distinto.
+    console.warn('[whatsapp-bot] el telefono apunta a otro acudiente; se revinculo',
+        { conversationId, antes: parentActual, ahora: porTelefono });
+
+    await deliver(integration, conversationId, contactWaId,
+        'Actualicé tus datos: este número quedó asociado a tu cuenta. 👍',
+        { step: 'revinculado_por_telefono' });
+
+    return porTelefono;
+}
+
+async function identificarPorTelefono(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+): Promise<boolean> {
+    const { data, error } = await supabase.rpc('wa_identify_by_phone', {
+        p_integration_id: integration.id,
+        p_contact_wa_id: contactWaId,
+    });
+    if (error) {
+        console.warn('[whatsapp-bot] wa_identify_by_phone fallo', { err: error.message });
+        return false;   // se cae al camino del correo, que sigue existiendo
+    }
+
+    const estado = (data as any)?.estado;
+
+    if (estado === 'identificado') {
+        // La RPC ya dejo la conversacion vinculada. Se saluda y se pide el
+        // consentimiento en el MISMO mensaje, igual que al verificar por OTP:
+        // dos «responde SI» seguidos por motivos distintos es una experiencia
+        // mala y una fuente de respuestas ambiguas.
+        const escuela = await nombreDeEscuela(integration.school_id);
+        await deliver(integration, conversationId, contactWaId,
+            `¡Hola! Soy el *asistente automático* de ${escuela}. 🤖` + '\n\n' +
+            `Te reconocí por tu número, así que no necesitas hacer nada más.` + '\n\n' +
+            `¿Quieres que la escuela te envíe por aquí los recordatorios de pago ` +
+            'y los avisos de tu atleta? Responde *SÍ* para activarlos — puedes darte ' +
+            'de baja cuando quieras escribiendo *STOP*.',
+            { step: 'ask_consent', identificado_por: 'telefono' });
+        return true;
+    }
+
+    if (estado === 'debe_registrarse') {
+        // UNA VEZ POR DIA, no en cada mensaje.
+        //
+        // Esto corre mientras la conversacion siga sin identificar, que para
+        // estas 156 familias es SIEMPRE: sin el freno, cada mensaje que
+        // escriban recibe el mismo «crea tu cuenta». Desde el lado del papa
+        // eso es spam, y en un canal donde Meta mide la calidad del numero
+        // repetir lo mismo es justo lo que penaliza — ya lo vimos el
+        // 2026-09-11 con 7 respuestas identicas seguidas.
+        //
+        // Se devuelve true igual cuando se calla: el turno SI esta resuelto.
+        // Caer al camino del correo seria pedirle credenciales a alguien que
+        // acabamos de decirle que no tiene cuenta.
+        const desde = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { count: yaAvisado } = await supabase
+            .from('whatsapp_messages')
+            .select('id', { count: 'exact', head: true })
+            .eq('conversation_id', conversationId)
+            .eq('direction', 'outbound')
+            .eq('payload->>step', 'debe_registrarse')
+            .gte('created_at', desde);
+        if ((yaAvisado ?? 0) > 0) return true;
+
+        // Reconocido como familia, sin cuenta. NO se le da ningun dato.
+        await deliver(integration, conversationId, contactWaId,
+            'Tu número está registrado en la escuela, pero todavía no tienes tu cuenta creada. 🙌' + '\n\n' +
+            `Créala aquí con *este mismo número*: ${FRONTEND_URL}/register` + '\n\n' +
+            'Cuando la tengas, escríbeme por acá y podrás consultar tus pagos, mandar ' +
+            'comprobantes y recibir los avisos de tu atleta.',
+            { step: 'debe_registrarse' });
+
+        // Que quede en el buzon: son 156 familias en Dynasty que hay que
+        // empujar a registrarse, y eso lo trabaja la escuela, no el bot.
+        await supabase.from('whatsapp_conversations')
+            .update({ status: 'open', updated_at: new Date().toISOString() })
+            .eq('id', conversationId);
+        return true;
+    }
+
+    if (estado === 'ambiguo') {
+        // Dos cuentas con el mismo numero. Elegir mal es mostrarle a alguien
+        // los pagos de otra familia: lo resuelve un humano, no el bot.
+        await deliver(integration, conversationId, contactWaId,
+            'Encontré tu número en más de una cuenta y no quiero mostrarte información ' +
+            'que no sea tuya. Ya le avisé a la escuela para que lo revisen contigo. 🙏',
+            { step: 'identificacion_ambigua' });
+        await escalate(integration, conversationId, contactWaId,
+            'Dos cuentas comparten el mismo número de WhatsApp');
+        return true;
+    }
+
+    return false;
+}
 
 const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
 const CODE_RE = /\b(\d{6})\b/;
@@ -96,6 +279,10 @@ async function handleIdentification(
     contactWaId: string,
     text: string,
 ): Promise<void> {
+    // El numero manda. Solo si no resuelve nada se cae al correo, que sigue
+    // sirviendo para el acudiente que escribe desde OTRO telefono.
+    if (await identificarPorTelefono(integration, conversationId, contactWaId)) return;
+
     const emailMatch = text.match(EMAIL_RE);
     const codeMatch = text.match(CODE_RE);
 
@@ -116,7 +303,7 @@ async function handleIdentification(
             // que ya se preguntó y se limite a leer la respuesta.
             const escuela = await nombreDeEscuela(integration.school_id);
             await deliver(integration, conversationId, contactWaId,
-                '✅ ¡Listo! Tu identidad quedó verificada.\n\n' +
+                '✅ ¡Listo! Tu identidad quedó verificada. Te atiende el asistente automático de la escuela. 🤖\n\n' +
                 `¿Quieres que *${escuela}* te envíe por aquí los recordatorios de pago y los avisos de tu atleta? ` +
                 'Responde *SÍ* para activarlos — puedes darte de baja cuando quieras escribiendo *STOP*.',
                 { step: 'ask_consent', otp_verified: true });
@@ -168,11 +355,37 @@ async function handleIdentification(
         return;
     }
 
-    // (c) Ni email ni código → pedir el email.
+    // (c) Ni email ni código.
+    //
+    // Antes esto exigia el correo de entrada: «Escríbeme el correo electrónico
+    // con el que estás registrado en la escuela». Para un padre que escribe
+    // desde otro telefono esta bien. Para quien NO es de la escuela —la mama de
+    // la duenia, un proveedor, un numero equivocado— es una maquina pidiendole
+    // credenciales, y el numero de la escuela suele ser tambien el personal de
+    // quien la dirige.
+    //
+    // Ahora se presenta y ofrece las dos salidas sin exigir ninguna, y la
+    // conversacion escala al buzon para que un humano la vea. Quien sea de la
+    // escuela sigue teniendo su camino; quien no, deja de sentirse interrogado.
+    const nombreEscuela = await nombreDeEscuela(integration.school_id);
     await deliver(integration, conversationId, contactWaId,
-        'Hola 👋 Para ayudarte con información de tu atleta necesito verificar tu identidad. ' +
-        'Escríbeme el *correo electrónico* con el que estás registrado en la escuela.',
+        `Hola 👋 Soy el *asistente automático* de *${nombreEscuela}*. 🤖` + '\n\n' +
+        'Si eres familia de un atleta y quieres consultar pagos o inscripciones, ' +
+        'escríbeme el *correo electrónico* con el que estás registrado y te ayudo enseguida.' + '\n\n' +
+        'Si buscas otra cosa, cuéntame y alguien de la escuela te responde.',
         { step: 'ask_email' });
+
+    // Escala, pero SIN el mensaje de escalamiento: `escalate` manda su propio
+    // «en breve te contactan» y quedarian dos mensajes seguidos diciendo casi lo
+    // mismo. Acá solo se marca para que aparezca en el buzón.
+    const { data: previa } = await supabase.from('whatsapp_conversations')
+        .select('status, contact_name').eq('id', conversationId).maybeSingle();
+    if ((previa as any)?.status !== 'open') {
+        await supabase.from('whatsapp_conversations')
+            .update({ status: 'open', updated_at: new Date().toISOString() })
+            .eq('id', conversationId);
+        await avisarQueEsperan(integration, conversationId, (previa as any)?.contact_name ?? null);
+    }
 }
 
 // ─── 2. Consentimiento explícito (opt-in) ─────────────────────────────────────
@@ -322,7 +535,7 @@ async function nombreDeEscuela(schoolId: string): Promise<string> {
 
 // ─── 3. Intents (LLM + tools) ──────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `Eres el asistente de una escuela deportiva en WhatsApp, hablando con el padre/acudiente (ya verificado).
+export const SYSTEM_PROMPT = `Eres el asistente de una escuela deportiva en WhatsApp, hablando con el padre/acudiente (ya verificado).
 Reglas estrictas:
 - Responde SIEMPRE en español, cordial y breve (es WhatsApp).
 - NUNCA inventes datos. Si necesitas información de pagos, USA la herramienta get_payment_status.
@@ -331,13 +544,63 @@ Reglas estrictas:
 - Formatea montos en pesos colombianos y fechas en formato legible.
 - Formato de WhatsApp, NO Markdown: negrita con UN asterisco (*asi*), cursiva con _asi_.
   Nunca uses ** ni ## ni tablas ni enlaces [texto](url): WhatsApp los muestra literales.
-- No ofrezcas nada que no puedas hacer. Solo sabes consultar pagos y pasar a un humano;
-  no ofrezcas "medios de pago", agendar, ni enviar documentos.`;
+- No ofrezcas nada que no puedas hacer. Sabes tres cosas: consultar los pagos del
+  acudiente, decirle como pagar, y pasar la conversacion a un humano. No ofrezcas
+  agendar, inscribir, enviar documentos ni cambiar nada en el sistema.
+- Lo que NO sabes y te van a preguntar igual: horarios de entrenamiento, categorias
+  por edad, precios de mensualidad o uniforme, sedes, entrenadores, competencias,
+  asistencia y rendimiento. No tienes esos datos. Dilo derecho —«eso no lo tengo a
+  la mano»— y ofrece pasarlo con la escuela. NUNCA los deduzcas ni los inventes:
+  suenan faciles de contestar y es justo ahi donde un asistente se inventa un horario
+  o un precio que la familia despues reclama.
+- Al listar pagos, mira SIEMPRE el campo debe_pagarse. Los que vienen en false YA
+  ESTAN RESUELTOS: no los pongas bajo "pagos pendientes" ni menciones su saldo en $0.
+  Si el acudiente pregunta por uno de esos, responde con su estado_legible
+  ("ya esta pagado y confirmado por la escuela").
+- Si NINGUNO tiene debe_pagarse en true, di que esta al dia; no inventes una lista.
+- «Cuanto cuesta la mensualidad?» de alguien YA inscrito es una pregunta sobre SU
+  cobro, no sobre la lista de precios: usa get_payment_status y dile su monto. Es la
+  pregunta mas comun de todas y contestarle «no tengo ese dato» teniendolo delante es
+  el peor no que puede dar. Solo si pregunta por precios de la escuela en general
+  —otro plan, otra categoria, inscripcion nueva— no lo tienes.
 
-const TOOLS: LlmTool[] = [
+QUIEN ERES:
+- Eres un asistente AUTOMATICO, y si te preguntan lo dices sin rodeos: «soy el
+  asistente automatico de la escuela». No te hagas pasar por una persona ni dejes
+  que lo crean — este numero es el MISMO que atendia un humano hasta ayer, y las
+  familias estan acostumbradas a que les responda ella.
+- Nunca firmes con el nombre de nadie de la escuela.
+- Si el acudiente quiere hablar con una persona, no lo discutas: usa
+  escalate_to_human de una.
+
+FUERA DE TEMA:
+- Eres el asistente de la escuela. NO respondas preguntas generales de cultura,
+  tecnologia ni nada ajeno a la escuela y sus pagos, aunque sepas la respuesta.
+  En el chat de prueba explicaste que es Claude y que es un JSON: eso convierte el
+  WhatsApp de la escuela en un chatbot de uso general.
+- NUNCA digas que modelo o que proveedor de IA eres. Si preguntan, di que eres el
+  asistente de la escuela y ofrece ayudar con pagos o comunicar con el equipo.
+- Ante algo fuera de tema, responde corto y amable, y vuelve a lo tuyo. No lo
+  escales: escalar cada pregunta suelta le llena la bandeja a la escuela.
+
+COMO PAGAR:
+- Para «medios de pago», «como pago», «a que cuenta», «acepta Nequi» o «donde mando el
+  soporte» usa get_payment_methods. Esas preguntas NO se escalan.
+- Ofrece SIEMPRE las tres opciones que devuelva la herramienta, y menciona que puede
+  mandar la foto del comprobante por este mismo chat: es la que nadie descubre solo.
+- Da los numeros de cuenta COMPLETOS, tal como vienen. No los recortes.
+- Si la escuela no tiene cuentas cargadas, no te las inventes: ofrece el enlace para
+  pagar en linea y el envio del comprobante por aqui.`;
+
+export const TOOLS: LlmTool[] = [
     {
         name: 'get_payment_status',
         description: 'Estado de los pagos del acudiente en esta escuela: lo que debe Y lo resuelto en los ultimos 60 dias. Cada pago trae `estado_legible` (pagado y confirmado, comprobante en revision, rechazado, pendiente) y `debe_pagarse`. Usala SIEMPRE que pregunte por pagos, mensualidades, inscripciones, saldos, vencimientos, o si un pago suyo ya quedo aprobado. Si un concepto no aparece en el resultado, di que no lo encuentras — NUNCA afirmes que un cobro no existe.',
+        parameters: { type: 'object', properties: {}, required: [] },
+    },
+    {
+        name: 'get_payment_methods',
+        description: 'Como puede pagar el acudiente: las cuentas de la escuela para transferir, el enlace para pagar en linea, y que puede mandar el comprobante por este mismo chat. Usala cuando pregunte como pagar, medios de pago, a que cuenta consignar, si acepta Nequi o transferencia, o donde manda el soporte. NO escales estas preguntas: se responden con esta herramienta.',
         parameters: { type: 'object', properties: {}, required: [] },
     },
     {
@@ -386,6 +649,36 @@ async function handleIntent(
         return;
     }
 
+    if (call.name === 'get_payment_methods') {
+        const medios = await mediosDePago(integration.school_id);
+
+        messages.push({ role: 'assistant', content: `Llamando get_payment_methods` });
+        messages.push({ role: 'tool', toolName: 'get_payment_methods', content: JSON.stringify(medios) });
+        let final;
+        try {
+            // SIN herramientas, a proposito. Este turno solo REDACTA con datos que
+            // ya llegaron; ofrecerle TOOLS lo invita a llamar otra, y cuando lo
+            // hace `text` vuelve vacio y caemos al texto plano.
+            final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: [] });
+        } catch {
+            await deliver(integration, conversationId, contactWaId,
+                fallbackMediosDePago(medios), { step: 'medios_fallback' });
+            return;
+        }
+        // Un degradado al texto plano NO puede ser silencioso. El 2026-09-14
+        // ocurrio cuatro veces sin dejar rastro en ningun lado, y buscar la
+        // causa costo descartar saturacion, proveedor, configuracion de dev y
+        // recursos de Render, uno por uno. La proxima vez lo dira.
+        if (!final.text) {
+            console.warn('[whatsapp-bot] medios_de_pago: el modelo no devolvio texto',
+                { proveedor: final.provider, toolCalls: (final as any).toolCalls?.length ?? 0 });
+        }
+        await deliver(integration, conversationId, contactWaId,
+            final.text || fallbackMediosDePago(medios),
+            { step: 'get_payment_methods', provider: final.provider });
+        return;
+    }
+
     if (call.name === 'get_payment_status') {
         const { data: payments, error } = await supabase.rpc('wa_get_payment_status', {
             p_parent_id: parentId,
@@ -405,7 +698,10 @@ async function handleIntent(
 
         let final;
         try {
-            final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: TOOLS });
+            // SIN herramientas, a proposito. Este turno solo REDACTA con datos que
+            // ya llegaron; ofrecerle TOOLS lo invita a llamar otra, y cuando lo
+            // hace `text` vuelve vacio y caemos al texto plano.
+            final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: [] });
         } catch {
             // Si la 2a llamada falla, redactar un fallback determinista con los datos.
             await deliver(integration, conversationId, contactWaId,
@@ -413,6 +709,14 @@ async function handleIntent(
             return;
         }
 
+        // Un degradado al texto plano NO puede ser silencioso. El 2026-09-14
+        // ocurrio cuatro veces sin dejar rastro en ningun lado, y buscar la
+        // causa costo descartar saturacion, proveedor, configuracion de dev y
+        // recursos de Render, uno por uno. La proxima vez lo dira.
+        if (!final.text) {
+            console.warn('[whatsapp-bot] estado_de_pagos: el modelo no devolvio texto',
+                { proveedor: final.provider, toolCalls: (final as any).toolCalls?.length ?? 0 });
+        }
         await deliver(integration, conversationId, contactWaId,
             final.text || fallbackPaymentText(payments),
             { step: 'get_payment_status', provider: final.provider, tool_result: payments });
@@ -421,6 +725,27 @@ async function handleIntent(
 
     // Tool desconocida → escalar.
     await escalate(integration, conversationId, contactWaId, 'unknown_tool');
+}
+
+/**
+ * Texto de medios de pago sin pasar por el modelo.
+ *
+ * Si la segunda llamada al LLM falla, el acudiente igual se queda con las
+ * cuentas y el enlace. Dejarlo sin respuesta seria peor que un texto plano.
+ */
+function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>>): string {
+    const lineas: string[] = ['Puedes pagar de estas formas:', ''];
+    if (m.cuentas.length) {
+        lineas.push('*Transferencia*');
+        for (const c of m.cuentas) {
+            lineas.push(`• ${c.tipo}: ${c.numero}${c.titular ? ` (${c.titular})` : ''}`);
+        }
+        lineas.push('');
+    }
+    lineas.push(`*En línea:* ${m.enlace_para_pagar}`);
+    lineas.push('');
+    lineas.push('*Y si ya pagaste*, mándame la foto del comprobante por acá mismo y yo lo registro. 📄');
+    return lineas.join('\n');
 }
 
 // ─── Entrega: modo asistido (draft) vs auto (envío) ────────────────────────────
@@ -497,19 +822,77 @@ export async function deliver(
     });
 }
 
+/**
+ * Avisa a quien administra la escuela que hay alguien esperando.
+ *
+ * Sin esto el buzon existe pero no se usa: la escuela tendria que acordarse de
+ * entrar a revisar, y en dos dias deja de hacerlo. El push ya existia para
+ * otras cosas; aca solo se engancha a la escalacion.
+ *
+ * Nunca revienta el flujo del bot: si el aviso falla, el padre igual recibio su
+ * respuesta y la conversacion igual quedo marcada como abierta. Un push caido
+ * no puede dejar a la familia sin atencion.
+ */
+async function avisarQueEsperan(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    nombreContacto: string | null,
+): Promise<void> {
+    try {
+        const [{ data: escuela }, { data: miembros }] = await Promise.all([
+            supabase.from('schools').select('name, owner_id').eq('id', integration.school_id).maybeSingle(),
+            supabase.from('school_members').select('profile_id')
+                .eq('school_id', integration.school_id).eq('status', 'active')
+                .in('role', ['owner', 'admin', 'school_admin']),
+        ]);
+
+        // El dueno puede no tener fila en school_members: se suma aparte y se
+        // deduplica, o recibiria dos avisos por el mismo mensaje.
+        const destinos = new Set<string>();
+        for (const m of (miembros ?? []) as any[]) if (m.profile_id) destinos.add(m.profile_id);
+        if ((escuela as any)?.owner_id) destinos.add((escuela as any).owner_id);
+        if (!destinos.size) return;
+
+        const quien = nombreContacto?.trim() || 'Una familia';
+        await Promise.allSettled([...destinos].map((uid) => sendToUser(uid, {
+            title: `${quien} espera respuesta`,
+            body: 'El asistente no pudo resolverlo. Abre WhatsApp en SportMaps para responder.',
+            data: { tipo: 'whatsapp_escalado', conversation_id: conversationId,
+                    school_id: integration.school_id },
+        })));
+    } catch {
+        // A proposito en silencio. Ver el comentario de arriba.
+    }
+}
+
 async function escalate(
     integration: WhatsAppIntegration,
     conversationId: string,
     contactWaId: string,
     reason: string,
 ): Promise<void> {
+    // Solo se avisa en la TRANSICION a abierta. `escalate` puede correr varias
+    // veces sobre la misma conversacion —el bot se atasca dos veces seguidas— y
+    // sin esto la escuela recibiria un push por cada intento.
+    const { data: previa } = await supabase.from('whatsapp_conversations')
+        .select('status, contact_name').eq('id', conversationId).maybeSingle();
+
     await supabase.from('whatsapp_conversations')
         .update({ status: 'open', assigned_to: null, updated_at: new Date().toISOString() })
         .eq('id', conversationId);
 
+    if ((previa as any)?.status !== 'open') {
+        await avisarQueEsperan(integration, conversationId, (previa as any)?.contact_name ?? null);
+    }
+
+    // El bot responde 24/7 — eso no cambia. Lo que cambia fuera de horario es lo
+    // que PROMETE: decir "en breve te contactan" a las 11 de la noche, cuando en
+    // la escuela no hay nadie hasta el otro dia, es prometer algo que no se
+    // puede cumplir.
+    const horario = await estadoDeHorario(integration.id);
     await deliver(integration, conversationId, contactWaId,
-        'Voy a pasar tu caso con una persona del equipo de la escuela para ayudarte mejor. En breve te contactan. 🙌',
-        { step: 'escalated', reason });
+        mensajeDeEscalamiento(horario),
+        { step: 'escalated', reason, fuera_de_horario: horario.fueraDeHorario });
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -525,10 +908,31 @@ function maskEmail(email: string): string {
     return `${shown}${'*'.repeat(Math.max(1, user.length - 2))}@${domain}`;
 }
 
+/**
+ * El estado de pagos sin pasar por el modelo.
+ *
+ * FILTRA POR `debe_pagarse`. La consulta `wa_get_payment_status` se amplio para
+ * devolver tambien lo RESUELTO de los ultimos 60 dias —para poder responder «ya
+ * lo aprobaron?»— y este camino seguia listandolo todo bajo «pagos pendientes».
+ * Resultado visible en el chat de prueba del 2026-09-14:
+ *
+ *     • Mensualidad Septiembre 2026: $0 — vence 2026-09-10
+ *
+ * Un pago confirmado, cobrado de nuevo, en $0. El mismo bug que ya se habia
+ * corregido en el prompt del modelo, escondido en el respaldo que nadie volvio
+ * a mirar cuando se amplio la consulta.
+ */
 function fallbackPaymentText(payments: any): string {
     const list = Array.isArray(payments) ? payments : [];
-    if (!list.length) return 'No tienes pagos pendientes en este momento. ¡Estás al día! ✅';
-    const lines = list.slice(0, 5).map((p: any) => {
+    const pendientes = list.filter((p: any) => p?.debe_pagarse === true);
+
+    if (!pendientes.length) {
+        return list.length
+            ? 'No tienes pagos pendientes en este momento. ¡Estás al día! ✅'
+            : 'No encuentro pagos a tu nombre en esta escuela.';
+    }
+
+    const lines = pendientes.slice(0, 5).map((p: any) => {
         const monto = Number(p.saldo || 0).toLocaleString('es-CO');
         const venc = p.vencido ? ' (vencida)' : '';
         return `• ${p.concept}: $${monto} — vence ${p.due_date}${venc}`;

@@ -1,21 +1,26 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useToast } from '@/hooks/use-toast';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { ArrowLeft, Trophy, TrendingUp, Star, Calendar, Dumbbell, CheckCircle2, Clock } from 'lucide-react';
+import { ArrowLeft, Trophy, TrendingUp, Star, Calendar, Dumbbell, CheckCircle2, Clock, Bell, Loader2 } from 'lucide-react';
 import { AthleteVisibleRoutines } from '@/components/athlete/AthleteVisibleRoutines';
 
 export default function ChildProgressPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   // ── Datos del hijo ──────────────────────────────────────────
   const { data: child, isLoading: loadingChild } = useQuery({
@@ -32,6 +37,49 @@ export default function ChildProgressPage() {
     },
     enabled: !!id && !!user?.id,
   });
+
+  // ── Aviso post-entrenamiento: opt-out ────────────────────────
+  const [postTrainingOptOut, setPostTrainingOptOut] = useState(false);
+  const [savingPostTraining, setSavingPostTraining] = useState(false);
+
+  useEffect(() => {
+    setPostTrainingOptOut(Boolean((child as any)?.post_training_opt_out));
+  }, [(child as any)?.post_training_opt_out]);
+
+  const handleTogglePostTraining = async (checked: boolean) => {
+    // checked = "quiero recibir el aviso", se guarda invertido en opt_out
+    const nextOptOut = !checked;
+    setSavingPostTraining(true);
+    const previous = postTrainingOptOut;
+    setPostTrainingOptOut(nextOptOut);
+    try {
+      const { error } = await supabase
+        .from('children')
+        .update({ post_training_opt_out: nextOptOut })
+        .eq('id', id)
+        .eq('parent_id', user?.id);
+      if (error) throw error;
+
+      queryClient.setQueryData(['child', id], (prev: any) =>
+        prev ? { ...prev, post_training_opt_out: nextOptOut } : prev
+      );
+      toast({
+        title: 'Preferencia guardada',
+        description: nextOptOut
+          ? 'Ya no le llegará el aviso de evaluación post-entrenamiento.'
+          : 'Volverá a recibir el aviso de evaluación post-entrenamiento.',
+      });
+    } catch (error: any) {
+      setPostTrainingOptOut(previous);
+      toast({
+        title: 'Error al guardar',
+        description: error?.message ?? 'No se pudo actualizar la preferencia.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingPostTraining(false);
+    }
+  };
 
   // ── Progreso académico (escuela) ────────────────────────────
   const { data: progress, isLoading: loadingProgress } = useQuery({
@@ -341,6 +389,41 @@ export default function ChildProgressPage() {
           </TabsContent>
         )}
       </Tabs>
+
+      {/* ── Notificaciones ───────────────────────────────────────── */}
+      <Card className="border-border/50">
+        <CardHeader className="bg-muted/30 border-b border-border/40">
+          <CardTitle className="text-lg font-bold flex items-center gap-2">
+            <Bell className="h-5 w-5 text-primary" />
+            Notificaciones
+          </CardTitle>
+          <CardDescription>Avisos automáticos relacionados con el entrenamiento de {child?.full_name}.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex gap-3">
+              <div className="mt-0.5 p-2 bg-primary/5 rounded-full text-primary">
+                <Dumbbell className="h-4 w-4" />
+              </div>
+              <div className="space-y-0.5">
+                <Label className="text-base">Avisos de evaluación post-entrenamiento</Label>
+                <p className="text-sm text-muted-foreground">
+                  Te preguntamos cómo le fue después de cada entreno — podés desactivarlo aquí,
+                  sigue llegando el informe mensual igual.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {savingPostTraining && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+              <Switch
+                checked={!postTrainingOptOut}
+                disabled={savingPostTraining}
+                onCheckedChange={handleTogglePostTraining}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* ── Biblioteca de Rutinas Visibles para el Hijo (Padre visualiza) ── */}
       <div className="mt-8">

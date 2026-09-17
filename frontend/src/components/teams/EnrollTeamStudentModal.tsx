@@ -224,7 +224,10 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
         .filter(s => !isEnrolled(s.id) && matchesSearch(s))
         .sort((a, b) => a.full_name.localeCompare(b.full_name));
     const filteredStudents = [...enrolledList, ...availableList];
-    const isFull = team ? enrolledStudentIds.length >= (team.max_students || 20) : false;
+    // Sin cupo declarado NO hay tope. El `|| 20` inventaba un techo de 20 y dejaba
+    // todos los botones "Inscribir" deshabilitados en cualquier categoria que lo
+    // pasara, sin manera de recuperarse desde la UI del entrenador.
+    const isFull = team?.max_students ? enrolledStudentIds.length >= team.max_students : false;
 
     return (
         <Dialog open={open} onOpenChange={onClose}>
@@ -249,7 +252,9 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                                     <Badge variant="outline">{team.sport}</Badge>
                                     <Badge className={isFull ? 'bg-red-500' : 'bg-green-500'}>
                                         <Users className="h-3 w-3 mr-1" />
-                                        {enrolledStudentIds.length}/{team.max_students || 20}
+                                        {team.max_students
+                                            ? `${enrolledStudentIds.length}/${team.max_students}`
+                                            : enrolledStudentIds.length}
                                     </Badge>
                                 </div>
                             )}
@@ -371,8 +376,8 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                                                                 ) : (
                                                                     <>
                                                                         <UserPlus className="h-4 w-4 mr-1" />
-                                                                        <span className="hidden xs:inline">Inscribir</span>
-                                                                        <span className="xs:hidden">+</span>
+                                                                        <span className="hidden sm:inline">Inscribir</span>
+                                                                        <span className="sm:hidden">+</span>
                                                                     </>
                                                                 )}
                                                             </Button>

@@ -309,7 +309,7 @@ export default function PostTrainingSelfEvalPage() {
               </button>
             ))}
           </div>
-          <Button disabled={!canGoNext} className="w-full mt-auto mb-8 h-12 rounded-full bg-orange hover:bg-orange-dark" onClick={() => setStep(2)}>
+          <Button disabled={!canGoNext} className="w-full mt-8 mb-8 h-12 rounded-full bg-orange hover:bg-orange-dark" onClick={() => setStep(2)}>
             Siguiente
           </Button>
         </div>
@@ -361,7 +361,7 @@ export default function PostTrainingSelfEvalPage() {
           <div className="w-full flex justify-center gap-2 text-[10px] font-bold text-muted-foreground">
             {EFFORT_STEPS.map((v) => <span key={v} className="w-9 text-center">{v}</span>)}
           </div>
-          <Button disabled={!canGoNext} className="w-full mt-auto mb-8 h-12 rounded-full bg-orange hover:bg-orange-dark" onClick={() => setStep(4)}>
+          <Button disabled={!canGoNext} className="w-full mt-8 mb-8 h-12 rounded-full bg-orange hover:bg-orange-dark" onClick={() => setStep(4)}>
             Siguiente
           </Button>
         </div>

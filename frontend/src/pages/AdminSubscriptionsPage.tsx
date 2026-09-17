@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { Search, Loader2, Building2, Check, ShieldOff, CalendarClock, DollarSign, Receipt, Send, FileText, LayoutGrid, ShoppingBag, Plus, Pencil, X } from 'lucide-react';
+import { Search, Loader2, Building2, Check, ShieldOff, CalendarClock, DollarSign, Receipt, Send, FileText, LayoutGrid, ShoppingBag, Plus, Pencil, X, Clock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { bffClient } from '@/lib/api/bffClient';
 import { toWaPhone } from '@/lib/api/payment-reminders';
@@ -152,6 +152,12 @@ export default function AdminSubscriptionsPage() {
   const [merchPrice, setMerchPrice] = useState('');
   const [merchSizes, setMerchSizes] = useState('');
   const [merchImageUrl, setMerchImageUrl] = useState('');
+  // ── Banco de horas (docs/specs/dreamers-banco-de-horas-torniquete.md) —
+  // solo Dreamers hoy. Mismo patrón que merchEnabled: school_settings no
+  // tiene policy de SELECT para is_super_admin(), hace falta RPC de lectura.
+  const [hoursPlanEnabled, setHoursPlanEnabled] = useState(false);
+  const [loadingHoursPlan, setLoadingHoursPlan] = useState(false);
+  const [savingHoursPlan, setSavingHoursPlan] = useState(false);
   // ── Catálogo de torneos — mismo patrón que artículos (20260908152538): el
   // toggle de activación sigue siendo control exclusivo de este panel; el
   // CONTENIDO del catálogo (estos ítems) ya lo administra también la propia
@@ -251,6 +257,27 @@ export default function AdminSubscriptionsPage() {
     if (error) { toast({ title: 'No se pudo aplicar', description: error.message, variant: 'destructive' }); return; }
     setMerchEnabled(next);
     toast({ title: next ? 'Catálogo activado' : 'Catálogo desactivado', description: selected.name });
+  }
+
+  async function loadHoursPlan(schoolId: string) {
+    setLoadingHoursPlan(true);
+    const { data, error } = await supabase.rpc('admin_get_hours_plan_enabled' as any, { p_school_id: schoolId });
+    if (error) toast({ title: 'Error cargando banco de horas', description: error.message, variant: 'destructive' });
+    setHoursPlanEnabled(!!data);
+    setLoadingHoursPlan(false);
+  }
+
+  async function toggleHoursPlanEnabled() {
+    if (!selected) return;
+    const next = !hoursPlanEnabled;
+    setSavingHoursPlan(true);
+    const { error } = await supabase.rpc('admin_set_hours_plan_enabled' as any, {
+      p_school_id: selected.id, p_enabled: next,
+    });
+    setSavingHoursPlan(false);
+    if (error) { toast({ title: 'No se pudo aplicar', description: error.message, variant: 'destructive' }); return; }
+    setHoursPlanEnabled(next);
+    toast({ title: next ? 'Banco de horas activado' : 'Banco de horas desactivado', description: selected.name });
   }
 
   function startEditMerchItem(item: MerchItem) {
@@ -430,6 +457,7 @@ export default function AdminSubscriptionsPage() {
     void loadSaasInvoicing(s.id);
     void loadMerch(s.id);
     void loadTourn(s.id);
+    void loadHoursPlan(s.id);
   }
 
   /** Manda (o reenvía) email + push de una factura, y deja lista la ventana de WhatsApp. */
@@ -1302,6 +1330,45 @@ export default function AdminSubscriptionsPage() {
                         </Button>
                       </div>
                     </div>
+                  )}
+                </div>
+
+                {/* Banco de horas (docs/specs/dreamers-banco-de-horas-torniquete.md) —
+                    solo Dreamers hoy. get_or_open_hour_bank_period() (mig 20260915101557)
+                    usa este flag como gate real: un plan con included_minutes_per_period
+                    ya no alcanza solo para activarlo, hace falta prenderlo acá. */}
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Clock className="h-4 w-4 text-primary" />
+                    <p className="text-sm font-semibold">Banco de horas</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Saldo por minutos vía torniquete, en vez de mensualidad fija. Piloto
+                    Dreamers — no prender en otra escuela sin confirmar antes el flujo con ella.
+                  </p>
+
+                  {loadingHoursPlan ? (
+                    <div className="py-4 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+                  ) : (
+                    <button
+                      onClick={toggleHoursPlanEnabled}
+                      disabled={savingHoursPlan}
+                      className={`w-full flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${hoursPlanEnabled ? 'border-primary bg-primary/5' : 'hover:border-muted-foreground/30'}`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm">Activar banco de horas</div>
+                        <div className="text-[11px] text-muted-foreground">Si está apagado, un plan por horas no hace nada aunque exista.</div>
+                      </div>
+                      <span className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${hoursPlanEnabled ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
+                        {savingHoursPlan ? (
+                          <Loader2 className="h-3 w-3 animate-spin text-white mx-auto" />
+                        ) : (
+                          <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${hoursPlanEnabled ? 'translate-x-5' : 'translate-x-0.5'}`}>
+                            {hoursPlanEnabled && <Check className="h-3 w-3 text-primary mx-auto mt-1" />}
+                          </span>
+                        )}
+                      </span>
+                    </button>
                   )}
                 </div>
 

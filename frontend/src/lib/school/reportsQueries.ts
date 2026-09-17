@@ -124,6 +124,32 @@ export async function downloadAthleteReportPdf(id: string): Promise<void> {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
+/**
+ * Descarga el PDF del informe GRUPAL (de equipo) — spec
+ * evaluacion-post-entrenamiento.md §5.3, "el PDF se genera igual, Besser lo
+ * necesita para el club". Mismo patrón que `downloadAthleteReportPdf`, pero
+ * esta ruta SÍ exige `x-school-id` (vive bajo `requireRole` de
+ * `school/reports.ts`, no se autoriza solo por el id del recurso).
+ */
+export async function downloadTeamReportPdf(schoolId: string, teamId: string, year: number, month: number): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('No hay sesión activa.');
+
+  const bffUrl = (import.meta as any).env?.VITE_BFF_URL
+    || (window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://sportmaps-bff.onrender.com');
+
+  const response = await fetch(
+    `${bffUrl}/api/v1/school/reports/team/${teamId}/pdf?year=${year}&month=${month}`,
+    { headers: { Authorization: `Bearer ${session.access_token}`, 'x-school-id': schoolId } },
+  );
+  if (!response.ok) throw new Error('No se pudo generar el PDF del informe de equipo.');
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 export async function markReportViewed(id: string): Promise<void> {
   // 'as never': mark_report_viewed tampoco está en el types.ts generado
   // todavía (mismo escape hatch que useEquipment.ts ya usa para RPCs nuevas).
