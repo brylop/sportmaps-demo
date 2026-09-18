@@ -589,6 +589,21 @@ export default function MyPaymentsPage() {
           });
           setShowCheckout(true);
         }}
+        onPay={(p) => {
+          // Botón "Pagar" directo: selecciona y abre el modal en un solo
+          // click, sin pasar por la barra flotante (antes eran 2 clicks).
+          setSelectedPayment({
+            childId: p.child_id || '',
+            childName: p.child_name || 'Deportista',
+            teamName: p.concept || 'Mensualidad',
+            amount: p.balance_pending || p.amount,
+            schoolId: p.school_id || '',
+            paymentId: p.id,
+            discount_eligible: p.discount_eligible,
+            discount_amount: p.discount_amount
+          });
+          setShowCheckout(true);
+        }}
       />
     ));
   };
@@ -932,12 +947,13 @@ export default function MyPaymentsPage() {
   );
 }
 
-function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice, openGlosa, onRespondGlosa }: {
+function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, onPay, invoice, openGlosa, onRespondGlosa }: {
   txn: Transaction;
   onSelect: (p: Transaction) => void;
   isSelected: boolean;
   onShowProof: (url: string, concept: string, amount: number) => void;
   onAbonar: (p: Transaction) => void;
+  onPay: (p: Transaction) => void;
   invoice?: { number: string | null; public_url: string | null };
   openGlosa?: Glosa | null;
   onRespondGlosa?: (g: Glosa) => void;
@@ -945,6 +961,9 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice
   const config = statusConfig[txn.status] || statusConfig.pending;
   const StatusIcon = config.icon;
   const nonInteractive = txn.status === 'approved' || txn.status === 'glosado';
+  // Estados que necesitan un pago nuevo (no un abono ni una aclaración):
+  // el botón "Pagar" les ahorra el paso de seleccionar + usar la barra flotante.
+  const payableDirectly = ['pending', 'overdue', 'rejected', 'failed'].includes(txn.status);
 
   return (
     <Card
@@ -1105,6 +1124,19 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice
                   >
                     <Plus className="h-3.5 w-3.5 mr-1" />
                     ABONAR
+                  </Button>
+                )}
+                {payableDirectly && (
+                  <Button
+                    size="sm"
+                    className="h-8 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPay(txn);
+                    }}
+                  >
+                    <CreditCard className="h-3.5 w-3.5 mr-1" />
+                    PAGAR
                   </Button>
                 )}
                 {txn.status === 'glosado' && openGlosa && onRespondGlosa && (
