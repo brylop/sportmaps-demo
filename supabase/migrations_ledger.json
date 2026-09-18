@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 582,
-  "head": "20260918131232",
+  "count": 583,
+  "head": "20260918140634",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -585,6 +585,7 @@
     {"v":"20260918124721","file":"20260918124721_mesociclo_transaccional_y_fix_sesiones_huerfanas.sql","sha256":"3007ddc18ca7041a0393f04ed78ceb297bfb1ba5de16c00e0344b3a7641578e1","added":"2026-09-18","by":"brylop"},
     {"v":"20260918130622","file":"20260918130622_qr_signup_team_fallback_preloaded.sql","sha256":"9c61858ee39fec5a0a189a1fe7754aab24c17fed472b73579057ceafa486157f","added":"2026-09-18","by":"brylop"},
     {"v":"20260918130753","file":"20260918130753_post_entreno_roster_incluye_no_registrados.sql","sha256":"5ec230f4fbccc3d5d6bc5c0ffca127cf31bd19782033f9d4e8c52e635074e633","added":"2026-09-18","by":"brylop"},
-    {"v":"20260918131232","file":"20260918131232_training_sessions_select_solo_staff.sql","sha256":"ef4a57efb793cfcf764827986bd5be98df72210067be773e4b3944d9260900e9","added":"2026-09-18","by":"brylop"}
+    {"v":"20260918131232","file":"20260918131232_training_sessions_select_solo_staff.sql","sha256":"ef4a57efb793cfcf764827986bd5be98df72210067be773e4b3944d9260900e9","added":"2026-09-18","by":"brylop"},
+    {"v":"20260918140634","file":"20260918140634_buscar_menor_incluye_unregistered_athletes.sql","sha256":"fd3185d5b6fc9f2339d40371446dc88f20fceff280415399063f3f3dd8e15207","added":"2026-09-18","by":"brylop"}
   ]
 }

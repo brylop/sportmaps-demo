@@ -60,6 +60,15 @@ type AthleteMatch = {
   parent_name_temp?: string | null;
   parent_email_temp?: string | null;
   parent_phone_temp?: string | null;
+  /**
+   * De dónde salió la ficha: 'children' (el flujo de siempre) o
+   * 'unregistered_athlete' (import masivo — Besser y cualquier escuela con
+   * carga de matrícula previa). Decide cuál parámetro manda submit_qr_signup:
+   * `child_id` real para 'children', o `p_unregistered_athlete_id` para
+   * adoptar sin perder pagos/inscripciones/asistencia que ya cuelgan de esa
+   * ficha (ver migración 20260918140634).
+   */
+  source?: 'children' | 'unregistered_athlete';
 };
 
 type PayChild = {
@@ -368,6 +377,13 @@ export default function JoinSchoolPublicPage() {
     // plan tecleados a ciegas — solo se rellenarían huecos que esa ficha no
     // tiene, y lo normal es que ya los tenga todos.
     const isPreloadedMatch = !useExisting && !!preloadedMatch;
+    // Ficha de import masivo (Besser y cualquier escuela con carga previa):
+    // NO es un child_id real todavía — es unregistered_athletes.id. Ese
+    // camino lo resuelve por completo submit_qr_signup reutilizando
+    // migrate_unregistered_athlete_to_profile (no perder pagos/inscripciones/
+    // asistencia que ya cuelgan de esa ficha), así que no manda ningún otro
+    // dato del menor ni de equipo/plan — se ignorarían de todos modos.
+    const isUnregisteredMatch = isPreloadedMatch && preloadedMatch?.source === 'unregistered_athlete';
     if (!useExisting && !isPreloadedMatch && (!childName || !childDob)) {
       return toast({ title: 'Completa el nombre y la fecha de nacimiento del menor', variant: 'destructive' });
     }
@@ -380,12 +396,13 @@ export default function JoinSchoolPublicPage() {
       p_child_full_name: (useExisting || isPreloadedMatch) ? null : childName,
       p_child_dob:      (useExisting || isPreloadedMatch) ? null : childDob,
       p_child_doc_type: (useExisting || isPreloadedMatch) ? null : childDocType,
-      p_child_doc_number: useExisting ? null : (childDocNumber || null),
+      p_child_doc_number: (useExisting || isUnregisteredMatch) ? null : (childDocNumber || null),
       p_child_gender:   (useExisting || isPreloadedMatch) ? null : (childGender || null),
       p_phone:          parentPhone || null,
       p_monthly_fee:    Number(monthlyFee) || 0,
       p_existing_child_id: useExisting ? selectedChildId : null,
       p_plan_id:        isPreloadedMatch ? null : (chosenPlanId || null),
+      p_unregistered_athlete_id: isUnregisteredMatch ? preloadedMatch!.child_id : null,
     });
     setSubmitting(false);
     if (error) {
