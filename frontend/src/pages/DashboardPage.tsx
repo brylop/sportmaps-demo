@@ -528,7 +528,7 @@ export default function DashboardPage() {
           Mis Pagos → seleccionar la tarjeta → Pagar Ahora (3 clicks solo
           para abrir el modal). Este botón lleva directo a Mis Pagos con
           un solo click; ahí cada cobro ya tiene su propio botón "Pagar". */}
-      {profile.role === 'parent' && (realStats.upcoming_payments || 0) > 0 && (
+      {profile.role === 'parent' && (realStats?.upcoming_payments || 0) > 0 && (
         <button
           type="button"
           onClick={() => navigate('/my-payments')}
