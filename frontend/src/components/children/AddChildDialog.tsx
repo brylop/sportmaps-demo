@@ -61,7 +61,7 @@ const childSchema = z.object({
   tshirt_size: z.string().optional(),
   blood_type: z.string().optional(),
   eps_name: z.string().optional(),
-  has_allergies: z.boolean({ invalid_type_error: 'Selecciona una opción' }),
+  has_allergies: z.boolean({ message: 'Selecciona una opción' }),
   allergy_type: z.string().optional(),
   allergy_severity: z.string().optional(),
   allergy_treatment: z.string().optional(),

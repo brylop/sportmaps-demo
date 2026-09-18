@@ -239,7 +239,7 @@ class SchoolsAPI {
             banner_url: school.cover_image_url || DEFAULT_BANNER,
             logo_url: school.logo_url || undefined,
             show_facilities: settings?.show_facilities !== false,
-            business_hours: formatBusinessHours(settings?.business_hours as BusinessHourRow[] | null | undefined),
+            business_hours: formatBusinessHours(settings?.business_hours as unknown as BusinessHourRow[] | null | undefined),
             branding: {
                 primaryColor: brand.primary_color || '#248223',
                 secondaryColor: brand.secondary_color || '#64748b',

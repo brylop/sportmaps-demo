@@ -30,7 +30,7 @@ router.get('/events', requireAuth, requireRole('owner', 'admin', 'school_admin')
       .from('access_events')
       .select(`
         id, direction, access_granted, denial_reason,
-        check_in_method, zk_user_id, occurred_at, user_id, unregistered_athlete_id,
+        check_in_method, zk_user_id, occurred_at, user_id, unregistered_athlete_id, child_id,
         turnstile_devices!access_events_device_id_fkey(device_name, direction)
       `)
       .eq('school_id', schoolId)
@@ -56,16 +56,23 @@ router.get('/events', requireAuth, requireRole('owner', 'admin', 'school_admin')
       (events || []).map((e: any) => e.unregistered_athlete_id).filter(Boolean)
     )];
 
-    // PINs de eventos "huérfanos" (sin user_id ni unregistered_athlete_id guardados)
-    // que puedan tener un mapeo posterior — resuelve el caso del caché/asignación tardía.
+    // IDs de alumnos (children)
+    const childIds = [...new Set(
+      (events || []).map((e: any) => e.child_id).filter(Boolean)
+    )];
+
+    // PINs de eventos "huérfanos" (sin user_id, unregistered_athlete_id ni
+    // child_id guardados) que puedan tener un mapeo posterior — resuelve el
+    // caso del caché/asignación tardía.
     const orphanPins = [...new Set(
       (events || [])
-        .filter((e: any) => !e.user_id && !e.unregistered_athlete_id && e.zk_user_id)
+        .filter((e: any) => !e.user_id && !e.unregistered_athlete_id && !e.child_id && e.zk_user_id)
         .map((e: any) => e.zk_user_id)
     )];
 
     const profileMap: Record<string, string> = {};
     const uaMap: Record<string, string> = {};
+    const childMap: Record<string, string> = {};
 
     if (userIds.length) {
       const { data: profiles } = await supabase
@@ -83,17 +90,26 @@ router.get('/events', requireAuth, requireRole('owner', 'admin', 'school_admin')
       (uas || []).forEach((ua: any) => { uaMap[ua.id] = ua.full_name; });
     }
 
+    if (childIds.length) {
+      const { data: kids } = await supabase
+        .from('children')
+        .select('id, full_name')
+        .in('id', childIds);
+      (kids || []).forEach((c: any) => { childMap[c.id] = c.full_name; });
+    }
+
     // Resuelve PINs huérfanos contra el mapeo actual
     const pinNameMap: Record<number, string> = {};
     if (orphanPins.length) {
       const { data: mappings } = await supabase
         .from('zk_user_mappings')
-        .select('zk_pin, user_id, unregistered_athlete_id')
+        .select('zk_pin, user_id, unregistered_athlete_id, child_id')
         .eq('school_id', schoolId)
         .in('zk_pin', orphanPins);
 
-      const mappedUserIds = [...new Set((mappings || []).map((m: any) => m.user_id).filter(Boolean))];
-      const mappedUaIds   = [...new Set((mappings || []).map((m: any) => m.unregistered_athlete_id).filter(Boolean))];
+      const mappedUserIds  = [...new Set((mappings || []).map((m: any) => m.user_id).filter(Boolean))];
+      const mappedUaIds    = [...new Set((mappings || []).map((m: any) => m.unregistered_athlete_id).filter(Boolean))];
+      const mappedChildIds = [...new Set((mappings || []).map((m: any) => m.child_id).filter(Boolean))];
 
       const extraProfileMap: Record<string, string> = {};
       if (mappedUserIds.length) {
@@ -105,9 +121,18 @@ router.get('/events', requireAuth, requireRole('owner', 'admin', 'school_admin')
         const { data: uas } = await supabase.from('unregistered_athletes').select('id, full_name').in('id', mappedUaIds);
         (uas || []).forEach((u: any) => { extraUaMap[u.id] = u.full_name; });
       }
+      const extraChildMap: Record<string, string> = {};
+      if (mappedChildIds.length) {
+        const { data: kids } = await supabase.from('children').select('id, full_name').in('id', mappedChildIds);
+        (kids || []).forEach((c: any) => { extraChildMap[c.id] = c.full_name; });
+      }
 
       (mappings || []).forEach((m: any) => {
-        const name = m.user_id ? extraProfileMap[m.user_id] : extraUaMap[m.unregistered_athlete_id];
+        const name = m.user_id
+          ? extraProfileMap[m.user_id]
+          : m.child_id
+            ? extraChildMap[m.child_id]
+            : extraUaMap[m.unregistered_athlete_id];
         if (name) pinNameMap[m.zk_pin] = name;
       });
     }
@@ -117,9 +142,11 @@ router.get('/events', requireAuth, requireRole('owner', 'admin', 'school_admin')
       user_name:
         (e.user_id && profileMap[e.user_id])
           ? profileMap[e.user_id]
-          : (e.unregistered_athlete_id && uaMap[e.unregistered_athlete_id])
-            ? uaMap[e.unregistered_athlete_id]
-            : (pinNameMap[e.zk_user_id] ?? `ZK#${e.zk_user_id}`),
+          : (e.child_id && childMap[e.child_id])
+            ? childMap[e.child_id]
+            : (e.unregistered_athlete_id && uaMap[e.unregistered_athlete_id])
+              ? uaMap[e.unregistered_athlete_id]
+              : (pinNameMap[e.zk_user_id] ?? `ZK#${e.zk_user_id}`),
     }));
 
     return res.json({ events: enriched });
@@ -175,7 +202,7 @@ router.get('/occupancy', requireAuth, requireRole('owner', 'admin', 'school_admi
 
     const { data: events, error } = await supabase
       .from('access_events')
-      .select('direction, user_id, unregistered_athlete_id, zk_user_id, occurred_at')
+      .select('direction, user_id, unregistered_athlete_id, child_id, zk_user_id, occurred_at')
       .eq('school_id', schoolId)
       .eq('access_granted', true)
       .gte('occurred_at', startUTC)
@@ -187,14 +214,19 @@ router.get('/occupancy', requireAuth, requireRole('owner', 'admin', 'school_admi
     // Por identidad, se queda el último evento cronológico (el Map sobreescribe).
     const lastByIdentity = new Map<string, any>();
     for (const e of events || []) {
-      const key = e.user_id ? `u:${e.user_id}` : e.unregistered_athlete_id ? `a:${e.unregistered_athlete_id}` : `z:${e.zk_user_id}`;
+      const key = e.user_id
+        ? `u:${e.user_id}`
+        : e.child_id
+          ? `c:${e.child_id}`
+          : e.unregistered_athlete_id ? `a:${e.unregistered_athlete_id}` : `z:${e.zk_user_id}`;
       lastByIdentity.set(key, e);
     }
 
     const inside = [...lastByIdentity.values()].filter((e) => e.direction === 'entry');
 
-    const userIds = [...new Set(inside.map((e) => e.user_id).filter(Boolean))];
-    const uaIds   = [...new Set(inside.map((e) => e.unregistered_athlete_id).filter(Boolean))];
+    const userIds  = [...new Set(inside.map((e) => e.user_id).filter(Boolean))];
+    const uaIds    = [...new Set(inside.map((e) => e.unregistered_athlete_id).filter(Boolean))];
+    const childIds = [...new Set(inside.map((e) => e.child_id).filter(Boolean))];
 
     const profileMap: Record<string, string> = {};
     if (userIds.length) {
@@ -206,15 +238,22 @@ router.get('/occupancy', requireAuth, requireRole('owner', 'admin', 'school_admi
       const { data: uas } = await supabase.from('unregistered_athletes').select('id, full_name').in('id', uaIds);
       (uas || []).forEach((u: any) => { uaMap[u.id] = u.full_name; });
     }
+    const childMap: Record<string, string> = {};
+    if (childIds.length) {
+      const { data: kids } = await supabase.from('children').select('id, full_name').in('id', childIds);
+      (kids || []).forEach((c: any) => { childMap[c.id] = c.full_name; });
+    }
 
     const now = Date.now();
     const occupancy = inside
       .map((e) => ({
         name: e.user_id
           ? (profileMap[e.user_id] ?? 'Usuario')
-          : e.unregistered_athlete_id
-            ? (uaMap[e.unregistered_athlete_id] ?? 'Atleta')
-            : `ZK#${e.zk_user_id}`,
+          : e.child_id
+            ? (childMap[e.child_id] ?? 'Alumno')
+            : e.unregistered_athlete_id
+              ? (uaMap[e.unregistered_athlete_id] ?? 'Atleta')
+              : `ZK#${e.zk_user_id}`,
         entered_at: e.occurred_at,
         minutes_inside: Math.max(0, Math.round((now - new Date(e.occurred_at).getTime()) / 60000)),
       }))
@@ -396,10 +435,11 @@ router.get('/members', requireAuth, requireRole('owner', 'admin', 'school_admin'
     // PINs ya asignados — se excluyen para evitar duplicidad
     const { data: mappings } = await supabase
       .from('zk_user_mappings')
-      .select('user_id, unregistered_athlete_id')
+      .select('user_id, unregistered_athlete_id, child_id')
       .eq('school_id', schoolId);
-    const mappedUserIds = new Set((mappings || []).map((m: any) => m.user_id).filter(Boolean));
-    const mappedUaIds   = new Set((mappings || []).map((m: any) => m.unregistered_athlete_id).filter(Boolean));
+    const mappedUserIds  = new Set((mappings || []).map((m: any) => m.user_id).filter(Boolean));
+    const mappedUaIds    = new Set((mappings || []).map((m: any) => m.unregistered_athlete_id).filter(Boolean));
+    const mappedChildIds = new Set((mappings || []).map((m: any) => m.child_id).filter(Boolean));
 
     // Miembros con login
     const { data: members } = await supabase
@@ -433,24 +473,39 @@ router.get('/members', requireAuth, requireRole('owner', 'admin', 'school_admin'
     const unregistered = (uas || [])
       .map((u: any) => ({ unregistered_athlete_id: u.id, full_name: u.full_name, role: null, type: 'unregistered' }));
 
-    return res.json({ members: [...registered, ...unregistered] });
+    // Alumnos enrolados por el flujo normal de la escuela (sin login propio,
+    // asociados a un parent_id) — hasta 2026-09-15 esta tabla nunca se
+    // consultaba acá, así que ningún children podía vincularse a un PIN.
+    let cq = supabase.from('children').select('id, full_name').eq('school_id', schoolId).eq('is_active', true);
+    if (mappedChildIds.size > 0) {
+      cq = cq.not('id', 'in', `(${Array.from(mappedChildIds).join(',')})`);
+    }
+    if (q) cq = cq.ilike('full_name', `%${q}%`);
+    const { data: kids } = await cq.limit(50);
+    const children = (kids || [])
+      .map((c: any) => ({ child_id: c.id, full_name: c.full_name, role: null, type: 'child' }));
+
+    return res.json({ members: [...registered, ...unregistered, ...children] });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error al listar miembros' });
   }
 });
 
 // ─── POST /api/v1/access/assign-user ─────────────────────────────────────────
-// Mapea un PIN ya existente en el lector (ZK#<pin>) a un usuario registrado o a
-// un atleta no registrado. No envía comando al dispositivo (el PIN ya existe).
+// Mapea un PIN ya existente en el lector (ZK#<pin>) a un usuario registrado, a
+// un atleta no registrado, o a un alumno (children). No envía comando al
+// dispositivo (el PIN ya existe). chk_zk_mapping_subject_exclusivity en la
+// base exige exactamente una de las tres columnas -- por eso las otras dos
+// siempre van explícitas en null, nunca se dejan "como estaban" en el upsert.
 router.post('/assign-user', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { schoolId } = req;
-    const { zk_pin, user_id, unregistered_athlete_id } = req.body as {
-      zk_pin: number; user_id?: string; unregistered_athlete_id?: string;
+    const { zk_pin, user_id, unregistered_athlete_id, child_id } = req.body as {
+      zk_pin: number; user_id?: string; unregistered_athlete_id?: string; child_id?: string;
     };
 
-    if (!zk_pin || (!user_id && !unregistered_athlete_id)) {
-      return res.status(400).json({ error: 'zk_pin y (user_id o unregistered_athlete_id) son requeridos' });
+    if (!zk_pin || (!user_id && !unregistered_athlete_id && !child_id)) {
+      return res.status(400).json({ error: 'zk_pin y (user_id, unregistered_athlete_id o child_id) son requeridos' });
     }
 
     const { error } = await supabase.from('zk_user_mappings').upsert(
@@ -459,6 +514,7 @@ router.post('/assign-user', requireAuth, requireRole('owner', 'admin', 'school_a
         zk_pin,
         user_id:                 user_id ?? null,
         unregistered_athlete_id: user_id ? null : (unregistered_athlete_id ?? null),
+        child_id:                (user_id || unregistered_athlete_id) ? null : (child_id ?? null),
       },
       { onConflict: 'school_id,zk_pin' },
     );

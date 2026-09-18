@@ -185,7 +185,7 @@ async function getLastStamp(deviceId: string): Promise<number> {
 // ─── Cache de mapeo PIN → identidad (perf #6) ────────────────────────────────
 // Solo se cachea la resolución PIN→user/atleta (estable). La validación de
 // enrollment/pago SIEMPRE se consulta fresca más abajo.
-type Mapping = { userId: string | null; unregisteredAthleteId: string | null };
+type Mapping = { userId: string | null; unregisteredAthleteId: string | null; childId: string | null };
 const MAPPING_TTL_MS = 5 * 60 * 1000;
 const mappingCache = new Map<string, { value: Mapping | null; at: number }>();
 
@@ -200,14 +200,18 @@ async function resolveMapping(schoolId: string, pin: number): Promise<Mapping | 
 
   const { data } = await supabase
     .from('zk_user_mappings')
-    .select('user_id, unregistered_athlete_id')
+    .select('user_id, unregistered_athlete_id, child_id')
     .eq('school_id', schoolId)
     .eq('zk_pin', pin)
     .maybeSingle();
 
   const value: Mapping | null =
-    data && (data.user_id || data.unregistered_athlete_id)
-      ? { userId: data.user_id ?? null, unregisteredAthleteId: data.unregistered_athlete_id ?? null }
+    data && (data.user_id || data.unregistered_athlete_id || data.child_id)
+      ? {
+          userId: data.user_id ?? null,
+          unregisteredAthleteId: data.unregistered_athlete_id ?? null,
+          childId: data.child_id ?? null,
+        }
       : null;
 
   mappingCache.set(key, { value, at: Date.now() });
@@ -248,12 +252,13 @@ async function validateAccess(schoolId: string, zkPin: string, direction: 'entry
   reason?: string;
   userId?: string;
   unregisteredAthleteId?: string;
+  childId?: string;
   userName?: string;
   enrollmentId?: string;
 }> {
   const pin = parseInt(zkPin) || 0;
 
-  // 1. Resolver mapeo PIN → user/atleta (con cache)
+  // 1. Resolver mapeo PIN → user/atleta/alumno (con cache)
   const mapping = await resolveMapping(schoolId, pin);
 
   if (!mapping) {
@@ -262,6 +267,13 @@ async function validateAccess(schoolId: string, zkPin: string, direction: 'entry
 
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
   const isRegistered = !!mapping.userId;
+  const isChild = !isRegistered && !!mapping.childId;
+  // Columna + valor para filtrar enrollments/payments por la identidad que
+  // corresponda — las tres tablas (enrollments, payments, acá) comparten el
+  // mismo patrón de 3 vías (chk_enrollment_subject_exclusivity ya lo valida
+  // en enrollments).
+  const subjectColumn = isRegistered ? 'user_id' : isChild ? 'child_id' : 'unregistered_athlete_id';
+  const subjectValue  = isRegistered ? mapping.userId : isChild ? mapping.childId : mapping.unregisteredAthleteId;
 
   // 1.b STAFF (owner/admin/coach): concede sin enrollment ni pago.
   if (isRegistered && await isStaff(schoolId, mapping.userId!)) {
@@ -274,19 +286,16 @@ async function validateAccess(schoolId: string, zkPin: string, direction: 'entry
     };
   }
 
-  // 2. Verificar enrollment activo — filtra por user_id o unregistered_athlete_id
-  const enrollQuery = supabase
+  // 2. Verificar enrollment activo — filtra por user_id, child_id o unregistered_athlete_id
+  const { data: enrollment } = await supabase
     .from('enrollments')
     .select('id, status, expires_at')
     .eq('school_id', schoolId)
-    .eq('status', 'active');
+    .eq('status', 'active')
+    .eq(subjectColumn, subjectValue as string)
+    .maybeSingle();
 
-  const { data: enrollment } = await (isRegistered
-    ? enrollQuery.eq('user_id', mapping.userId).maybeSingle()
-    : enrollQuery.eq('unregistered_athlete_id', mapping.unregisteredAthleteId).maybeSingle()
-  );
-
-  // 4. Obtener nombre del atleta para el log (se necesita también en la salida)
+  // 4. Obtener nombre para el log (se necesita también en la salida)
   let userName = 'Usuario';
 
   if (isRegistered) {
@@ -296,6 +305,13 @@ async function validateAccess(schoolId: string, zkPin: string, direction: 'entry
       .eq('id', mapping.userId)
       .maybeSingle();
     userName = profile?.full_name ?? 'Usuario';
+  } else if (isChild) {
+    const { data: child } = await supabase
+      .from('children')
+      .select('full_name')
+      .eq('id', mapping.childId)
+      .maybeSingle();
+    userName = child?.full_name ?? 'Alumno';
   } else {
     const { data: ua } = await supabase
       .from('unregistered_athletes')
@@ -317,6 +333,7 @@ async function validateAccess(schoolId: string, zkPin: string, direction: 'entry
       granted: true,
       userId: mapping.userId ?? undefined,
       unregisteredAthleteId: mapping.unregisteredAthleteId ?? undefined,
+      childId: mapping.childId ?? undefined,
       userName,
       enrollmentId: enrollment?.id,
     };
@@ -328,6 +345,7 @@ async function validateAccess(schoolId: string, zkPin: string, direction: 'entry
       reason: 'no_enrollment',
       userId: mapping.userId ?? undefined,
       unregisteredAthleteId: mapping.unregisteredAthleteId ?? undefined,
+      childId: mapping.childId ?? undefined,
     };
   }
 
@@ -337,22 +355,20 @@ async function validateAccess(schoolId: string, zkPin: string, direction: 'entry
       reason: 'enrollment_expired',
       userId: mapping.userId ?? undefined,
       unregisteredAthleteId: mapping.unregisteredAthleteId ?? undefined,
+      childId: mapping.childId ?? undefined,
       enrollmentId: enrollment.id,
     };
   }
 
   // 3. Verificar pago al día
-  const payQuery = supabase
+  const { data: payment } = await supabase
     .from('payments')
     .select('status')
     .eq('school_id', schoolId)
+    .eq(subjectColumn, subjectValue as string)
     .order('created_at', { ascending: false })
-    .limit(1);
-
-  const { data: payment } = await (isRegistered
-    ? payQuery.eq('user_id', mapping.userId).maybeSingle()
-    : payQuery.eq('unregistered_athlete_id', mapping.unregisteredAthleteId).maybeSingle()
-  );
+    .limit(1)
+    .maybeSingle();
 
   if (payment?.status === 'overdue') {
     return {
@@ -360,6 +376,7 @@ async function validateAccess(schoolId: string, zkPin: string, direction: 'entry
       reason: 'payment_overdue',
       userId: mapping.userId ?? undefined,
       unregisteredAthleteId: mapping.unregisteredAthleteId ?? undefined,
+      childId: mapping.childId ?? undefined,
       enrollmentId: enrollment.id,
     };
   }
@@ -368,6 +385,7 @@ async function validateAccess(schoolId: string, zkPin: string, direction: 'entry
     granted: true,
     userId: mapping.userId ?? undefined,
     unregisteredAthleteId: mapping.unregisteredAthleteId ?? undefined,
+    childId: mapping.childId ?? undefined,
     userName,
     enrollmentId: enrollment.id,
   };
@@ -747,6 +765,7 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
           device_id:               deviceId,
           user_id:                 validation.userId || null,
           unregistered_athlete_id: validation.unregisteredAthleteId || null,
+          child_id:                validation.childId || null,
           direction:               eventDirection,
           access_granted:          validation.granted,
           denial_reason:           validation.granted ? null : validation.reason,
@@ -806,7 +825,7 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
         try {
           const outcome = await checkInPresenceFromEvent({
             schoolId,
-            athlete: { userId: validation.userId, unregisteredId: validation.unregisteredAthleteId },
+            athlete: { userId: validation.userId, unregisteredId: validation.unregisteredAthleteId, childId: validation.childId },
             enrollmentId: validation.enrollmentId,
             occurredAt,
             checkInMethod: 'turnstile',

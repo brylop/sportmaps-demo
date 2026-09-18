@@ -45,7 +45,7 @@ export function CoachPostTrainingRatingDialog({ sessionId, open, onOpenChange }:
       // contra auth.uid(), así que nunca matchea para el modelo estándar
       // multi-coach. RPC SECURITY DEFINER con la misma verificación de
       // submit_post_training_coach_rating evita las dos capas rotas.
-      const { data, error } = await supabase.rpc('get_post_training_pending_roster', {
+      const { data, error } = await supabase.rpc('get_post_training_pending_roster' as any, {
         p_session_id: sessionId as string,
       });
       if (error) throw error;

@@ -231,8 +231,14 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
 
     return (
         <Dialog open={open} onOpenChange={onClose}>
-            <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
-                <DialogHeader className="shrink-0 max-h-[38vh] overflow-y-auto sm:max-h-none sm:overflow-visible">
+            {/* Un solo scroll: TODO el diálogo, igual que EnrollPlanStudentModal.
+                El intento anterior (flex-col + ScrollArea interno solo para la
+                lista, buscador fijo arriba) dejaba DOS regiones de scroll
+                compitiendo — a veces ninguna ganaba y la lista quedaba
+                cortada sin ninguna barra visible. Este patrón simple ya está
+                probado en el resto de la app. */}
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <UserPlus className="h-5 w-5 text-primary" />
                         Inscribir Deportistas
@@ -277,8 +283,8 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-4 flex-1 min-h-0 flex flex-col">
-                    <div className="relative shrink-0">
+                <div className="space-y-4">
+                    <div className="relative">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
                             placeholder="Buscar deportista por nombre, email o grado..."
@@ -288,11 +294,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                         />
                     </div>
 
-                    {/* Scroll propio, NO ScrollArea de Radix: su viewport interno se sale
-                        del contenedor acotado (medido en vivo: Root 669px, viewport 2932px)
-                        y lo que pasa del Root queda recortado por su overflow-hidden, sin
-                        forma de alcanzarlo. Era el "no deja bajar el listado" del coach. */}
-                    <div className="flex-1 min-h-0 overflow-y-auto pr-4">
+                    <div>
                         {loading ? (
                             <div className="flex flex-col items-center justify-center py-12">
                                 <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
@@ -391,7 +393,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                     </div>
                 </div>
 
-                <DialogFooter className="shrink-0">
+                <DialogFooter>
                     <div className="flex w-full justify-between items-center">
                         <p className="text-sm text-muted-foreground">
                             {enrolledStudentIds.length} inscrito{enrolledStudentIds.length !== 1 ? 's' : ''} en este grupo
