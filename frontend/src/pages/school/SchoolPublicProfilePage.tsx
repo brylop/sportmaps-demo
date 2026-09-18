@@ -166,8 +166,8 @@ export default function SchoolPublicProfilePage() {
         }));
       }
       if (st) {
-        setSettings(st as SchoolSettingsRow);
-        const savedHours = (st as SchoolSettingsRow).business_hours;
+        setSettings(st as unknown as SchoolSettingsRow);
+        const savedHours = (st as unknown as SchoolSettingsRow).business_hours;
         setForm(prev => ({
           ...prev,
           show_plans: st.show_plans ?? true,
@@ -244,7 +244,7 @@ export default function SchoolPublicProfilePage() {
           ?? 'No se pudo guardar el perfil');
       }
 
-      const { error: te } = await supabase.from('school_settings').upsert({
+      const { error: te } = await (supabase.from('school_settings') as any).upsert({
         school_id: schoolId,
         show_plans: form.show_plans,
         show_programs: form.show_programs,
@@ -276,6 +276,7 @@ export default function SchoolPublicProfilePage() {
       setSettings(prev => prev ? { ...prev, public_profile_enabled: next } : {
         school_id: schoolId, public_profile_enabled: next,
         show_plans: form.show_plans, show_programs: form.show_programs, show_facilities: form.show_facilities,
+        business_hours: form.business_hours_enabled ? form.business_hours : null,
       });
       if (next) setSuccessOpen(true);
       else toast.success('Perfil despublicado');

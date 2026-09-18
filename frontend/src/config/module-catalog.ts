@@ -42,7 +42,7 @@ export type ModuleKey =
 export interface ModuleDefinition {
   key: ModuleKey;
   label: string;
-  group: 'Gestión Deportiva' | 'Finanzas' | 'Reportes' | 'Documentos e Identidad' | 'Sedes e Instalaciones' | 'Cuenta';
+  group: 'Gestión Deportiva' | 'Finanzas' | 'Reportes' | 'Documentos e Identidad' | 'Comunicación' | 'Sedes e Instalaciones' | 'Cuenta';
   /**
    * Si está definido, la visibilidad efectiva del ítem sigue siendo
    * `hasAddon(addon) AND isModuleEnabled(key)` — el override de este catálogo

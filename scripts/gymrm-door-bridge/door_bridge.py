@@ -95,16 +95,22 @@ BRIDGE_API_KEY = os.environ.get("SPORTMAPS_BRIDGE_API_KEY", "CAMBIAR_ESTA_LLAVE"
 # tenía el mapeo al revés -- ese doc quedó desactualizado, no este script.
 # Las IPs locales de estos lectores sí cambiaron una vez sin dejar rastro
 # (ver README, "Si algo cambia en la red") -- si vuelve a pasar, reverificar.
+#
+# IP actualizada 2026-09-16 (segundo cambio de red, de .6/.7 a estas): el
+# nombre local en el software ZKTeco del gimnasio ("SALIDA3" para el serial
+# ...899) está mal puesto en el gimnasio -- NO es la dirección real. El
+# serial sigue siendo la fuente de verdad, confirmado con el usuario:
+# ...899 sigue siendo ENTRADA pese al nombre local.
 DEVICES = [
     {
         "name": "LECTOR ENTRADA",
-        "ip": "192.168.1.6",
+        "ip": "192.168.1.4",
         "port": 4370,
         "serial_number": "JJA1254900899",
     },
     {
         "name": "LECTOR SALIDA",
-        "ip": "192.168.1.7",
+        "ip": "192.168.1.11",
         "port": 4370,
         "serial_number": "JJA1254900898",
     },

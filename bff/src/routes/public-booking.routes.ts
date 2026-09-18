@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
 import { BrandedEmailTemplates } from '../utils/emailTemplates';
+import { listAvailableSessions, bookSession, cancelSessionBooking } from './session-bookings';
 
 const router = Router();
 
@@ -367,6 +368,254 @@ async function resolveByToken(token: string) {
   }
   return { verif };
 }
+
+// ── POST /register-unregistered ─────────────────────────────────────────────
+// El escenario "enrolled_unregistered" (la escuela lo tiene en
+// unregistered_athletes, con o sin un enrollment real detrás, pero nunca
+// creó una cuenta) hoy siempre termina en el flujo de clase de prueba — sin
+// esto, alguien con un plan real pagado que solo le faltaba "crear su
+// cuenta" no tenía forma de llegar a "Mis clases disponibles" desde este
+// mismo link. Reusa el booking_token que ya probó el correo por OTP — no
+// hace falta pedirlo de nuevo. Mismo camino de migración que ya usa
+// accept_invitation_pro (migrate_unregistered_athlete_to_profile), solo que
+// sin invitación: acá el gancho es el booking_token, no un invite_id.
+router.post('/register-unregistered', async (req: Request, res: Response) => {
+  try {
+    const { booking_token } = req.body as { booking_token: string };
+    if (!booking_token) return res.status(400).json({ error: 'booking_token es requerido.' });
+
+    const resolved = await resolveByToken(booking_token);
+    if ('error' in resolved) return res.status(resolved.status!).json({ error: resolved.error });
+    const { verif } = resolved;
+
+    if (verif.resolved_kind !== 'enrolled_unregistered' || !verif.resolved_unregistered_id) {
+      return res.status(400).json({ error: 'Este link no corresponde a una ficha ya inscrita en la escuela.' });
+    }
+
+    const { data: unreg } = await supabase
+      .from('unregistered_athletes')
+      .select('id, full_name, email, linked_profile_id')
+      .eq('id', verif.resolved_unregistered_id)
+      .maybeSingle();
+
+    if (!unreg) return res.status(404).json({ error: 'No encontramos tu ficha en la escuela.' });
+    if (unreg.linked_profile_id) {
+      return res.status(400).json({
+        error: 'Ya tienes una cuenta creada — inicia sesión con tu correo y contraseña.',
+        reason: 'already_linked',
+      });
+    }
+
+    // El correo ya quedó probado con el código OTP que llegó a esta bandeja
+    // — email_confirm:true, no hace falta un segundo correo de confirmación
+    // además del magic link de más abajo.
+    const { data: created, error: createErr } = await supabase.auth.admin.createUser({
+      email: verif.resolved_email!,
+      email_confirm: true,
+      // role acá es lo que hace que handle_new_user() ponga
+      // needs_role_selection=false al insertar el profile — sin esto (como
+      // en el signup de Google sin rol) ProtectedRoute lo manda siempre a
+      // /onboarding/role, pisando el redirectTo del magic link de abajo.
+      user_metadata: { full_name: unreg.full_name, role: 'athlete' },
+    });
+    if (createErr || !created?.user) {
+      req.log?.error({ err: createErr }, 'register-unregistered: fallo creando el usuario');
+      return res.status(500).json({ error: 'No se pudo crear la cuenta.' });
+    }
+
+    // Defensa adicional por si el trigger cambia de comportamiento: no
+    // depender solo del metadata de arriba para que el usuario no quede
+    // atrapado en la selección de rol.
+    await supabase.from('profiles').update({ role: 'athlete', needs_role_selection: false }).eq('id', created.user.id);
+
+    // Migra TODO lo que colgaba de la ficha — enrollments (con su plan real,
+    // banco de horas incluido), asistencia, pagos, reservas, torniquete —
+    // conservando el historial en vez de arrancar de cero. Ver comentario de
+    // 20260909071118_accept_invitation_pro_migrar_ficha_antes_de_inscribir.sql.
+    const { error: migrateErr } = await supabase.rpc('migrate_unregistered_athlete_to_profile', {
+      p_unregistered_id: unreg.id,
+      p_new_user_id: created.user.id,
+      p_new_child_id: null,
+    });
+    if (migrateErr) {
+      // La cuenta ya quedó creada — no la dejamos a medias devolviendo un
+      // error genérico: el atleta puede entrar igual, solo que alguien va a
+      // tener que migrar la ficha a mano después. Se loguea para que quede
+      // rastro de auditoría, no se corta el flujo.
+      req.log?.error({ err: migrateErr, unregisteredId: unreg.id, userId: created.user.id },
+        'register-unregistered: fallo migrando la ficha — cuenta creada igual');
+    }
+
+    const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
+      type: 'magiclink',
+      email: verif.resolved_email!,
+      options: { redirectTo: `${process.env.FRONTEND_URL || 'https://app.sportmaps.co'}/enrollments` },
+    });
+    if (linkErr || !linkData) {
+      req.log?.error({ linkErr }, 'register-unregistered: fallo generando el magic link');
+      return res.status(500).json({
+        error: 'Tu cuenta se creó, pero no pudimos darte acceso directo. Inicia sesión con "olvidé mi contraseña" usando tu correo.',
+      });
+    }
+
+    await supabase.from('public_booking_verifications')
+      .update({ booking_token_used_at: new Date().toISOString() })
+      .eq('id', verif.id);
+
+    return res.json({ success: true, magic_link: linkData.properties?.action_link });
+  } catch (err: any) {
+    req.log?.error({ err }, 'public-booking register-unregistered error');
+    return res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ── Agendar el plan REAL sin crear cuenta ───────────────────────────────────
+// Para quien elige "Agendar clase de prueba" en vez de "Crear mi cuenta" en
+// el paso enrolled_choice (ver PublicTrialClassBookingPage.tsx): hoy esa
+// opción solo ofrecía clases de prueba (trial_class_public_create), aunque
+// la ficha ya tenga un plan/banco de horas real detrás — no había forma de
+// agendar ESE plan sin registrarse. Reusa tal cual listAvailableSessions y
+// bookSession de session-bookings.ts (misma lógica que /athlete/available y
+// /athlete/book-session, incluida la extensión de bloques y el banco de
+// horas), solo que la identidad viene del booking_token en vez de un JWT.
+async function resolveUnregisteredIdentity(token: string): Promise<
+  | { ok: true; unregisteredAthleteId: string; email: string; fullName: string | null }
+  | { ok: false; status: number; error: string }
+> {
+  const resolved = await resolveByToken(token);
+  if ('error' in resolved) return { ok: false, status: resolved.status!, error: resolved.error! };
+  const { verif } = resolved;
+  if (verif.resolved_kind !== 'enrolled_unregistered' || !verif.resolved_unregistered_id) {
+    return { ok: false, status: 400, error: 'Este link no corresponde a una ficha ya inscrita en la escuela.' };
+  }
+  return {
+    ok: true,
+    unregisteredAthleteId: verif.resolved_unregistered_id,
+    email: verif.resolved_email,
+    fullName: verif.full_name ?? null,
+  };
+}
+
+// ── GET /available-for-enrollment?token= ────────────────────────────────────
+router.get('/available-for-enrollment', async (req: Request, res: Response) => {
+  try {
+    const { token } = req.query as { token?: string };
+    if (!token) return res.status(400).json({ error: 'token es requerido.' });
+
+    const resolved = await resolveUnregisteredIdentity(token);
+    if (!resolved.ok) return res.status(resolved.status).json({ error: resolved.error });
+
+    const result = await listAvailableSessions({ unregisteredAthleteId: resolved.unregisteredAthleteId });
+    return res.json(result);
+  } catch (err: any) {
+    req.log?.error({ err }, 'public-booking available-for-enrollment error');
+    return res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ── POST /book-for-enrollment ────────────────────────────────────────────────
+router.post('/book-for-enrollment', async (req: Request, res: Response) => {
+  try {
+    const { booking_token, session_id, enrollment_id, duration_minutes } = req.body as {
+      booking_token: string; session_id: string; enrollment_id: string; duration_minutes?: number;
+    };
+    if (!booking_token || !session_id || !enrollment_id) {
+      return res.status(400).json({ error: 'booking_token, session_id y enrollment_id son requeridos.' });
+    }
+
+    const resolved = await resolveUnregisteredIdentity(booking_token);
+    if (!resolved.ok) return res.status(resolved.status).json({ error: resolved.error });
+
+    await bookSession(
+      req, res,
+      { unregisteredAthleteId: resolved.unregisteredAthleteId },
+      { session_id, enrollment_id, is_secondary: false, duration_minutes },
+      undefined, // sin cuenta: nada que notificar in-app
+      async (booking: any) => {
+        // Correo de confirmación — mismo criterio que /confirm y /trial-confirm
+        // para quien agenda sin cuenta. Best-effort: la reserva ya quedó creada.
+        try {
+          const { data: sess } = await supabase
+            .from('attendance_sessions')
+            .select('session_date, start_time')
+            .eq('id', booking.session_id)
+            .maybeSingle();
+          if (!sess) return;
+          const dateLabel = new Date(`${sess.session_date}T00:00:00`).toLocaleDateString('es-CO', {
+            day: '2-digit', month: 'long', year: 'numeric',
+          });
+          const timeLabel = sess.start_time.slice(0, 5);
+          const sendResult = await emailClient.send({
+            to: resolved.email,
+            subject: 'Tu clase quedó agendada',
+            html: `<p>Hola ${resolved.fullName ?? ''},</p><p>Tu clase quedó agendada para el <strong>${dateLabel}</strong> a las <strong>${timeLabel}</strong>.</p>`,
+            text: `Tu clase quedó agendada para el ${dateLabel} a las ${timeLabel}.`,
+          });
+          return { email_sent: !!sendResult.success };
+        } catch (emailErr) {
+          req.log?.error({ err: emailErr }, 'book-for-enrollment: fallo enviando correo de confirmación');
+        }
+      },
+    );
+  } catch (err: any) {
+    req.log?.error({ err }, 'public-booking book-for-enrollment error');
+    return res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ── GET /my-bookings-for-enrollment?token= ──────────────────────────────────
+// Solo lo que hace falta para la lista de "Cancelar una clase" sin cuenta —
+// a diferencia de GET /athlete/my-bookings no enriquece con plan/equipo (esa
+// lista no los muestra) ni mira trainer_session_plans (un no-registrado no
+// tiene PT en este piloto).
+router.get('/my-bookings-for-enrollment', async (req: Request, res: Response) => {
+  try {
+    const { token } = req.query as { token?: string };
+    if (!token) return res.status(400).json({ error: 'token es requerido.' });
+
+    const resolved = await resolveUnregisteredIdentity(token);
+    if (!resolved.ok) return res.status(resolved.status).json({ error: resolved.error });
+
+    const today = todayStr();
+    const { data, error } = await supabase
+      .from('session_bookings')
+      .select('id, status, booked_at, attendance_sessions ( id, session_date, start_time, end_time )')
+      .eq('unregistered_athlete_id', resolved.unregisteredAthleteId)
+      .eq('status', 'confirmed')
+      .order('booked_at', { ascending: false });
+
+    if (error) throw error;
+
+    const upcoming = (data ?? []).filter((b: any) => {
+      const s = Array.isArray(b.attendance_sessions) ? b.attendance_sessions[0] : b.attendance_sessions;
+      return (s?.session_date ?? '') >= today;
+    });
+
+    return res.json(upcoming);
+  } catch (err: any) {
+    req.log?.error({ err }, 'public-booking my-bookings-for-enrollment error');
+    return res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ── POST /cancel-for-enrollment ─────────────────────────────────────────────
+router.post('/cancel-for-enrollment', async (req: Request, res: Response) => {
+  try {
+    const { booking_token, booking_id } = req.body as { booking_token: string; booking_id: string };
+    if (!booking_token || !booking_id) {
+      return res.status(400).json({ error: 'booking_token y booking_id son requeridos.' });
+    }
+
+    const resolved = await resolveUnregisteredIdentity(booking_token);
+    if (!resolved.ok) return res.status(resolved.status).json({ error: resolved.error });
+
+    const handled = await cancelSessionBooking(req, res, { unregisteredAthleteId: resolved.unregisteredAthleteId }, booking_id);
+    if (!handled) return res.status(404).json({ error: 'Reserva no encontrada' });
+  } catch (err: any) {
+    req.log?.error({ err }, 'public-booking cancel-for-enrollment error');
+    return res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
 
 // ── GET /slots — reusa la generación de disponibilidad de instalación ──────
 router.get('/slots', async (req: Request, res: Response) => {

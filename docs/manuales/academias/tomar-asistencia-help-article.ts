@@ -32,16 +32,16 @@ export const tomarAsistenciaCoachBody: ContentBlock[] = [
   {
     type: "p",
     content:
-      "Desde Asistencias, elegís el equipo o plan (o SportMaps auto-selecciona la sesión del día si solo hay una). La lista carga con todos los atletas en Presente por defecto — solo tenés que destildar a quien no vino, en vez de tocar a cada uno.",
+      "Desde Asistencias, eliges el equipo o plan (o SportMaps auto-selecciona la sesión del día si solo hay una). La lista carga con todos los atletas en Presente por defecto — solo tienes que destildar a quien no vino, en vez de tocar a cada uno.",
   },
   {
     type: "ol",
     items: [
-      "Abrí Asistencias y elegí el equipo o plan",
+      "Abre Asistencias y elige el equipo o plan",
       "La lista carga con todos en Presente",
-      "Tocá el estado que corresponda a cada excepción: Ausente, Tarde o Excusado",
-      "Guardá asistencia",
-      "(Opcional) Finalizá la sesión cuando termines",
+      "Toca el estado que corresponda a cada excepción: Ausente, Tarde o Excusado",
+      "Guarda asistencia",
+      "(Opcional) Finaliza la sesión cuando termines",
     ],
   },
   {
@@ -82,7 +82,7 @@ export const tomarAsistenciaCoachBody: ContentBlock[] = [
   {
     type: "p",
     content:
-      "Es una capa rápida sobre la lista manual, no un reemplazo: sirve para marcar Presente en el momento en que el atleta llega, sin abrir la lista completa. Desde Asistencias, tocá 'Escanear carnet' y apuntá la cámara al QR del carnet digital de cada atleta — no hace falta elegir equipo antes, el carnet ya sabe a cuál pertenece.",
+      "Es una capa rápida sobre la lista manual, no un reemplazo: sirve para marcar Presente en el momento en que el atleta llega, sin abrir la lista completa. Desde Asistencias, toca 'Escanear carnet' y apunta la cámara al QR del carnet digital de cada atleta — no hace falta elegir equipo antes, el carnet ya sabe a cuál pertenece.",
   },
   {
     type: "ul",

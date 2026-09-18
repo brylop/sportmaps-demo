@@ -11,10 +11,11 @@ valor en decimas directo, sin pasar por ese truncado.
 Uso:
     py test_pulse.py <ip> <decimas_de_segundo>
 
-Ejemplos:
-    py test_pulse.py 192.168.1.7 3      # 0.3 segundos
-    py test_pulse.py 192.168.1.7 5      # 0.5 segundos
-    py test_pulse.py 192.168.1.7 10     # 1.0 segundos (deberia ser igual a unlock(1))
+Ejemplos (IP de salida actualizada 2026-09-16, ver README "Si algo cambia
+en la red de GYM RM" si volvió a cambiar):
+    py test_pulse.py 192.168.1.11 3      # 0.3 segundos
+    py test_pulse.py 192.168.1.11 5      # 0.5 segundos
+    py test_pulse.py 192.168.1.11 10     # 1.0 segundos (deberia ser igual a unlock(1))
 
 Probar de menor a mayor (2, 3, 5, 7...) hasta encontrar el minimo que
 deja pasar a una persona sin que el torniquete se rearme para una segunda.
