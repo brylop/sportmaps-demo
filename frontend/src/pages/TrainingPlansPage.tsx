@@ -284,7 +284,15 @@ export default function TrainingPlansPage() {
             Planifica y gestiona tus sesiones y evaluaciones de rendimiento
           </p>
         </div>
-        {filterType === 'teams' && selectedTeamId && (
+        {/* Con mesociclo activo la sesión se crea SIEMPRE desde un día
+            (MesocycleSection → "Crear sesión" por día) para que quede
+            enganchada (training_microcycle_days.session_id). Este botón
+            insertaba en training_sessions sin ligar nada: con mesociclo
+            activo la lista plana está oculta y MesocycleSection solo
+            muestra sesiones enganchadas, así que lo creado acá quedaba
+            guardado pero invisible en toda la UI (bug real, ver migración
+            20260918124721). */}
+        {filterType === 'teams' && selectedTeamId && !currentMesocycle && (
           <Button className="gap-2" onClick={() => { setEditingSession(null); setDialogOpen(true); }}>
             <Plus className="w-4 h-4" />
             Crear Sesión

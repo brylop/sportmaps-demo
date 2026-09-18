@@ -28,36 +28,6 @@ const DAY_TYPE_OPTIONS = [
   { value: 'activacion', label: 'Activación' },
 ] as const;
 
-/** Divide el rango del mesociclo en EXACTAMENTE 4 semanas — como el Excel
- *  ("Semana 1..4"), no en bloques de 7 días sueltos. Un mes de 30/31 días no
- *  es múltiplo de 7: repartir el resto entre las primeras semanas evita una
- *  5ª semana "suelta" de 1-3 días que el Excel no contempla. Si el rango es
- *  más corto que 4 días, genera menos de 4 semanas en vez de semanas vacías. */
-function buildWeeklyMicrocycles(startsOn: string, endsOn: string) {
-  const start = new Date(startsOn + 'T00:00:00');
-  const end = new Date(endsOn + 'T00:00:00');
-  const totalDays = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
-  const baseLen = Math.floor(totalDays / 4);
-  const remainder = totalDays % 4;
-
-  const weeks: { number: number; starts_on: string; ends_on: string }[] = [];
-  let cursor = new Date(start);
-  for (let i = 0; i < 4; i++) {
-    const len = baseLen + (i < remainder ? 1 : 0);
-    if (len <= 0) break;
-    const weekEnd = new Date(cursor);
-    weekEnd.setDate(weekEnd.getDate() + len - 1);
-    weeks.push({
-      number: i + 1,
-      starts_on: cursor.toISOString().slice(0, 10),
-      ends_on: weekEnd.toISOString().slice(0, 10),
-    });
-    cursor = new Date(weekEnd);
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return weeks;
-}
-
 const DAY_TYPE_LABEL: Record<string, string> = {
   descanso: 'Descanso',
   entrenamiento: 'Entrenamiento',
@@ -173,28 +143,23 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
 
   const createMesocycle = useMutation({
     mutationFn: async (input: MesocycleFormSubmit) => {
-      const { data: newMesocycle, error } = await (supabase as any)
-        .from('training_mesocycles')
-        .insert({ ...input, school_id: schoolId, created_by: user?.id })
-        .select()
-        .single();
+      // RPC transaccional (mesociclo + sus 4 semanas en la MISMA transacción
+      // de la función) — antes eran dos inserts sueltos desde el cliente: si
+      // el segundo (las semanas) chocaba con UNIQUE(team_id, starts_on) por
+      // reintentar sobre el mismo equipo/fechas, el mesociclo quedaba
+      // igual commiteado, sin semanas y sin forma de agregar sesiones.
+      const { data: newMesocycle, error } = await (supabase as any).rpc('create_mesocycle_with_weeks', {
+        p_school_id: schoolId,
+        p_team_id: teamId,
+        p_starts_on: input.starts_on,
+        p_ends_on: input.ends_on,
+        p_general_objective: input.general_objective ?? null,
+        p_game_model: input.game_model ?? null,
+        p_n_sessions_planned: input.n_sessions_planned ?? null,
+        p_session_duration_minutes: input.session_duration_minutes ?? null,
+        p_evaluation_mode: input.evaluation_mode ?? 'team',
+      });
       if (error) throw error;
-
-      // Auto-crea las semanas del mesociclo (D9/D10) — sin esto el coach
-      // crea el contenedor y no tiene dónde cargar ninguna sesión.
-      const weeks = buildWeeklyMicrocycles(input.starts_on, input.ends_on);
-      const { error: weeksError } = await (supabase as any).from('training_microcycles').insert(
-        weeks.map((w) => ({
-          school_id: schoolId,
-          team_id: teamId,
-          mesocycle_id: newMesocycle.id,
-          number: w.number,
-          starts_on: w.starts_on,
-          ends_on: w.ends_on,
-          created_by: user?.id,
-        })),
-      );
-      if (weeksError) throw weeksError;
 
       return newMesocycle;
     },

@@ -585,6 +585,6 @@
     {"v":"20260918124721","file":"20260918124721_mesociclo_transaccional_y_fix_sesiones_huerfanas.sql","sha256":"3007ddc18ca7041a0393f04ed78ceb297bfb1ba5de16c00e0344b3a7641578e1","added":"2026-09-18","by":"brylop"},
     {"v":"20260918130622","file":"20260918130622_qr_signup_team_fallback_preloaded.sql","sha256":"9c61858ee39fec5a0a189a1fe7754aab24c17fed472b73579057ceafa486157f","added":"2026-09-18","by":"brylop"},
     {"v":"20260918130753","file":"20260918130753_post_entreno_roster_incluye_no_registrados.sql","sha256":"5ec230f4fbccc3d5d6bc5c0ffca127cf31bd19782033f9d4e8c52e635074e633","added":"2026-09-18","by":"brylop"},
-    {"v":"20260918131232","file":"20260918131232_training_sessions_select_solo_staff.sql","sha256":"c40c64c5ee9b72b3f550be712a4d606666a651e93be495c7ba30304fbfacb19f","added":"2026-09-18","by":"brylop"}
+    {"v":"20260918131232","file":"20260918131232_training_sessions_select_solo_staff.sql","sha256":"ef4a57efb793cfcf764827986bd5be98df72210067be773e4b3944d9260900e9","added":"2026-09-18","by":"brylop"}
   ]
 }
