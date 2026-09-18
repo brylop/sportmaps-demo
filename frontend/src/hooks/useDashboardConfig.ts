@@ -172,7 +172,8 @@ export function useDashboardConfig(
               title: 'Pagos Pendientes',
               value: stats.pendingPayments,
               description: stats.pendingPayments === 0 ? 'Al día' : 'Mensualidades',
-              icon: TrendingUp
+              icon: TrendingUp,
+              href: '/my-payments'
             },
             {
               title: 'Notificaciones',
@@ -183,9 +184,9 @@ export function useDashboardConfig(
           ],
           activities: [],
           quickActions: [
-            { label: 'Agregar Hijo', icon: Users, href: '/children', variant: 'default' },
-            { label: 'Ver Equipos', icon: Activity, href: '/explore', variant: 'outline' },
-            { label: 'Mis Pagos', icon: TrendingUp, href: '/my-payments', variant: 'outline' }
+            { label: 'Mis Pagos', icon: TrendingUp, href: '/my-payments', variant: 'default' },
+            { label: 'Agregar Hijo', icon: Users, href: '/children', variant: 'outline' },
+            { label: 'Ver Equipos', icon: Activity, href: '/explore', variant: 'outline' }
           ],
           onboardingSteps: onboardingConfigs.parent
         };
