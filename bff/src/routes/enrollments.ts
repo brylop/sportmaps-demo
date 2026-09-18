@@ -743,12 +743,30 @@ router.patch('/:id', requireAuth, requireRole('owner', 'admin', 'school_admin'),
     try {
         const { id } = req.params;
         const { schoolId } = req;
-        const { status, end_date, offering_plan_id } = req.body;
+        const { status, end_date, offering_plan_id, scheduling_team_id } = req.body;
 
         const updateData: any = {};
         if (status) updateData.status = status;
         if (end_date) updateData.end_date = end_date;
         if (offering_plan_id) updateData.offering_plan_id = offering_plan_id;
+
+        // scheduling_team_id: piloto "agendar por equipo" (Dreamers / Academia
+        // Superior Bogotá) — a diferencia de los campos de arriba, sí acepta
+        // null explícito para poder QUITAR la asignación, no solo ponerla.
+        if (scheduling_team_id !== undefined) {
+            if (scheduling_team_id !== null) {
+                const { data: team } = await supabase
+                    .from('teams')
+                    .select('id')
+                    .eq('id', scheduling_team_id)
+                    .eq('school_id', schoolId)
+                    .maybeSingle();
+                if (!team) {
+                    return res.status(400).json({ error: 'El equipo no pertenece a esta escuela.' });
+                }
+            }
+            updateData.scheduling_team_id = scheduling_team_id;
+        }
 
         const { data, error } = await supabase
             .from('enrollments')

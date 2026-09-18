@@ -48,10 +48,13 @@ import {
   useBookPTSession,
   useCancelPTSession,
   PTAvailabilitySlot,
+  collapseOverlappingBlocks,
 } from '@/hooks/useAthleteSessionBookings';
 import { useTrialClassesSelf } from '@/hooks/useTrialClassesSelf';
 import { TrialClassSelfModal } from '@/components/school/TrialClassSelfModal';
 import { HourBankBalanceCard } from '@/components/access/HourBankBalanceCard';
+import { CompactSessionSlot } from '@/components/booking/CompactSessionSlot';
+import { HourGridPicker } from '@/components/booking/HourGridPicker';
 
 // ─── Tipos de instalación ─────────────────────────────────────────────────────
 
@@ -838,6 +841,26 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
   const { mutate: book, isPending } = useBookSession(childId);
   const { toast } = useToast();
   const [confirming, setConfirming] = useState<BookableSession | null>(null);
+  // Piloto "agendamiento flexible de banco de horas" — sesión personalizada:
+  // el diálogo siempre arranca en "Por bloque" (el mínimo del plan,
+  // default_minutes). "Personalizada" es una elección explícita, no algo
+  // que aparece o desaparece solo — así no se confunde con "la opción no
+  // está" cuando en realidad solo no se había tocado el toggle.
+  const [durationMinutes, setDurationMinutes] = useState<number | null>(null);
+  const [bookingMode, setBookingMode] = useState<'block' | 'custom'>('block');
+  // Piloto "agendamiento flexible": la elección Por bloque / Personalizada
+  // es un paso PREVIO al calendario, no algo escondido dentro del diálogo
+  // de confirmación de cada horario — se pregunta una vez al abrir, y de
+  // ahí en más cada tarjeta ya arranca en el modo elegido (se puede seguir
+  // ajustando por sesión desde el diálogo, eso no cambia).
+  const [bookingModeChoice, setBookingModeChoice] = useState<'block' | 'custom' | null>(null);
+  useEffect(() => {
+    setDurationMinutes(confirming?.default_minutes ?? null);
+    setBookingMode(bookingModeChoice ?? 'block');
+  }, [confirming, bookingModeChoice]);
+  useEffect(() => {
+    setBookingModeChoice(null);
+  }, [enrollment.id]);
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [classTypeFilter, setClassTypeFilter] = useState<'all' | 'personal' | 'group'>('all');
@@ -918,26 +941,89 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
         if (classTypeFilter === 'personal') return (s as any).available_for_personal_classes === true;
         if (classTypeFilter === 'group') return (s as any).available_for_group_classes === true && s.max_capacity > 1;
         return true;
-      })
-      .sort((a, b) => a.start_time.localeCompare(b.start_time));
+      });
   }, [allSessions, selectedDate, classTypeFilter]);
+
+  // "Por bloque" muestra solo los inicios fijos sin solapar; "Personalizada"
+  // necesita ver TODAS las horas de inicio para poder arrancar en cualquiera
+  // y extender la duración desde ahí.
+  const sessionsForDayDisplay = useMemo(() => {
+    const base = bookingModeChoice === 'block' ? collapseOverlappingBlocks(sessionsForDay) : sessionsForDay;
+    return [...base].sort((a, b) => a.start_time.localeCompare(b.start_time));
+  }, [sessionsForDay, bookingModeChoice]);
 
   const groupedSessions = useMemo(() => {
     const groups: Record<string, BookableSession[]> = {};
-    sessionsForDay.forEach(s => {
-      // Unificamos por hora para evitar duplicados visuales en la lista
-      const key = `${s.start_time}-${s.end_time}`;
+    sessionsForDayDisplay.forEach(s => {
+      // Unificamos por hora Y tipo — Personal y Grupal ahora pueden compartir
+      // el mismo horario (ambos se bundlean a 2h+ en el piloto flexible), así
+      // que agrupar solo por hora los mezclaba en una sola tarjeta.
+      const key = `${s.start_time}-${s.end_time}-${s.available_for_personal_classes ? 'p' : 'g'}`;
       if (!groups[key]) groups[key] = [];
       groups[key].push(s);
     });
     return Object.values(groups);
-  }, [sessionsForDay]);
+  }, [sessionsForDayDisplay]);
+
+  // "Personalizada" no elige entre bloques ya armados — arma su propio
+  // bloque tocando horas sueltas, con la grilla atómica real del coach.
+  const flexibleHourGridForDay = useMemo(() => {
+    if (!selectedDate) return [];
+    return (data?.flexible_hour_grid ?? []).filter(g =>
+      g.enrollment_id === enrollment.id &&
+      g.session_date === selectedDate &&
+      (classTypeFilter === 'all' || g.kind === classTypeFilter)
+    );
+  }, [data, enrollment.id, selectedDate, classTypeFilter]);
 
   if (isLoading) return <SkeletonList />;
 
   const noCredits = !isUnlimited && (creditsLeft ?? 0) <= 0;
   if (noCredits) return <EmptyCenter icon={Zap} title="Sin créditos disponibles" desc={`Tu plan ${planName} no tiene más clases este período`} color="amber" />;
   if (allSessions.length === 0) return <EmptyCenter icon={CalendarCheck} title="Sin clases disponibles" desc="No hay horarios programados. Consulta con tu academia." />;
+
+  // Piloto "agendamiento flexible de banco de horas": si ALGUNA sesión trae
+  // default_minutes, este plan es de banco de horas con el piloto activo en
+  // la escuela — ahí sí se pregunta bloque vs personalizada antes de mostrar
+  // el calendario. Un plan normal (sin banco de horas) nunca ve este paso.
+  const flexibleSession = allSessions.find(s => s.default_minutes != null);
+  const isFlexibleEligible = !!flexibleSession;
+
+  if (isFlexibleEligible && bookingModeChoice === null) {
+    const blockMins = flexibleSession!.default_minutes as number;
+    const blockLabel = blockMins % 60 === 0 ? `${blockMins / 60}h` : `${blockMins} min`;
+    return (
+      <div className="space-y-3 py-2">
+        <p className="text-center text-xs text-muted-foreground font-semibold px-4">
+          ¿Cómo quieres agendar tu clase de {planName}?
+        </p>
+        <button
+          onClick={() => setBookingModeChoice('block')}
+          className="w-full rounded-xl border border-border/40 hover:border-primary/50 hover:bg-primary/5 transition-all p-4 flex items-center gap-3 text-left"
+        >
+          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+            <Zap className="h-5 w-5 text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-black uppercase tracking-tight">Por bloque ({blockLabel})</p>
+            <p className="text-xs text-muted-foreground">La duración estándar de tu plan, directo.</p>
+          </div>
+        </button>
+        <button
+          onClick={() => setBookingModeChoice('custom')}
+          className="w-full rounded-xl border border-border/40 hover:border-primary/50 hover:bg-primary/5 transition-all p-4 flex items-center gap-3 text-left"
+        >
+          <div className="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center shrink-0">
+            <Clock className="h-5 w-5 text-indigo-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-black uppercase tracking-tight">Sesión personalizada</p>
+            <p className="text-xs text-muted-foreground">Elige cuántas horas agendar — útil si tienes horas acumuladas por vencer.</p>
+          </div>
+        </button>
+      </div>
+    );
+  }
 
   const monthStart = startOfMonth(calendarDate);
   const monthEnd = endOfMonth(calendarDate);
@@ -948,6 +1034,16 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
   return (
     <>
       <div className="space-y-4">
+        {isFlexibleEligible && (
+          <div className="flex items-center justify-between px-1">
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+              {bookingModeChoice === 'custom' ? '⏱️ Sesión personalizada' : `⚡ Por bloque (${flexibleSession!.default_minutes! % 60 === 0 ? `${flexibleSession!.default_minutes! / 60}h` : `${flexibleSession!.default_minutes} min`})`}
+            </p>
+            <button onClick={() => setBookingModeChoice(null)} className="text-[10px] font-bold text-primary hover:underline">
+              Cambiar
+            </button>
+          </div>
+        )}
         <div className="rounded-xl border border-border/40 overflow-hidden bg-muted/10">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
             <button onClick={() => setCalendarDate(d => new Date(d.getFullYear(), d.getMonth() - 1))} className="p-1 rounded-md hover:bg-muted/60 transition-colors">
@@ -1029,7 +1125,9 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
               {' · '}{allSessions.filter(s => s.session_date === selectedDate).length} clases
             </p>
             
-            {(() => {
+            {bookingModeChoice === 'custom' ? (
+              <HourGridPicker groups={flexibleHourGridForDay} noCredits={noCredits} isBooking={isPending} onBook={setConfirming} />
+            ) : (() => {
               const morning = groupedSessions.filter(g => parseInt(g[0].start_time.split(':')[0]) < 12);
               const afternoon = groupedSessions.filter(g => {
                 const h = parseInt(g[0].start_time.split(':')[0]);
@@ -1111,12 +1209,70 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
                     <p className="text-muted-foreground text-xs">Instalación: {(confirming as any).facility.name}</p>
                   ) : null}
                 </div>
-                <div className={`rounded-lg px-3 py-2 text-xs font-medium border ${isUnlimited ? 'bg-green-500/10 text-green-700 border-green-200' : 'bg-amber-500/10 text-amber-700 border-amber-200'
-                  }`}>
-                  {isUnlimited
-                    ? 'Plan ilimitado — no se descuenta crédito'
-                    : `Se usará 1 clase (quedarán ${(creditsLeft ?? 1) - 1})`}
-                </div>
+                {/* Piloto "agendamiento flexible de banco de horas": el toggle
+                    Por bloque / Personalizada siempre se muestra para estas
+                    sesiones — antes la opción personalizada aparecía o no
+                    según los datos, y eso se leía como "no existe". */}
+                {confirming?.default_minutes != null && confirming?.max_bookable_minutes != null && (
+                  <div className="rounded-lg border p-3 space-y-2 bg-primary/5 border-primary/20">
+                    <div className="flex items-center gap-1 p-1 bg-muted/40 rounded-lg border border-border/30 w-fit">
+                      {([
+                        { key: 'block', label: `Por bloque (${confirming.default_minutes % 60 === 0 ? `${confirming.default_minutes / 60}h` : `${Math.floor(confirming.default_minutes / 60)}h ${confirming.default_minutes % 60}m`})` },
+                        { key: 'custom', label: 'Personalizada' },
+                      ] as const).map(({ key, label }) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => {
+                            setBookingMode(key);
+                            setDurationMinutes(confirming.default_minutes as number);
+                          }}
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${
+                            bookingMode === key
+                              ? 'bg-background text-foreground shadow-sm border border-border/40'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {bookingMode === 'custom' && (
+                      confirming.max_bookable_minutes > confirming.default_minutes ? (
+                        <>
+                          <p className="text-xs font-semibold text-foreground">¿Cuántas horas quieres agendar?</p>
+                          <div className="flex flex-wrap gap-2">
+                            {Array.from(
+                              { length: Math.floor((confirming.max_bookable_minutes - confirming.default_minutes) / 60) + 1 },
+                              (_, i) => (confirming.default_minutes as number) + i * 60,
+                            ).map((mins) => (
+                              <button
+                                key={mins}
+                                type="button"
+                                onClick={() => setDurationMinutes(mins)}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                                  durationMinutes === mins
+                                    ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                                    : 'border-border/50 text-muted-foreground hover:border-primary/40'
+                                }`}
+                              >
+                                {mins % 60 === 0 ? `${mins / 60}h` : `${Math.floor(mins / 60)}h ${mins % 60}m`}
+                              </button>
+                            ))}
+                          </div>
+                          <p className="text-[10px] text-muted-foreground">
+                            Sesión personalizada — útil si tienes horas acumuladas por vencer.
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-[11px] text-muted-foreground">
+                          No hay más horas seguidas disponibles con este entrenador a partir de este horario — se agendará el bloque de {confirming.default_minutes % 60 === 0 ? `${confirming.default_minutes / 60}h` : `${confirming.default_minutes} min`}.
+                        </p>
+                      )
+                    )}
+                  </div>
+                )}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1124,7 +1280,7 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction disabled={isPending} onClick={() => {
               if (!confirming) return;
-              book({ session_id: confirming.id, enrollment_id: confirming.enrollment_id }, {
+              book({ session_id: confirming.id, enrollment_id: confirming.enrollment_id, duration_minutes: durationMinutes ?? undefined }, {
                 onSuccess: () => {
                   toast({ title: '✅ Clase agendada', description: `${format(parseISO(confirming.session_date), "EEE d MMM", { locale: es })} · ${fmtTime(confirming.start_time)}` });
                   setConfirming(null);
@@ -1947,132 +2103,6 @@ function FacilityReserveModal({ facility, enrollment, childId, onClose }: {
         </div>
       </DialogContent>
     </Dialog>
-  );
-}
-
-// ─── Compact Session Slot ─────────────────────────────────────────────────────
-
-function calcDuration(start: string, end: string): string {
-  if (!start || !end) return '';
-  const [sh, sm] = start.split(':').map(Number);
-  const [eh, em] = end.split(':').map(Number);
-  const totalMin = (eh * 60 + em) - (sh * 60 + sm);
-  if (totalMin <= 0) return '';
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  if (h === 0) return `${m}min`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}min`;
-}
-
-function CompactSessionSlot({ sessions, noCredits, isBooking, onBook }: {
-  sessions: BookableSession[]; noCredits: boolean; isBooking: boolean; onBook: (s: BookableSession) => void;
-}) {
-  const [selectedSessionId, setSelectedSessionId] = useState(sessions[0]?.id);
-  const selectedSession = sessions.find(s => s.id === selectedSessionId) || sessions[0];
-
-  const isFull = selectedSession.booking_status === 'full';
-  const isBooked = selectedSession.already_booked;
-  const isDisabled = noCredits || isFull || isBooked || isBooking;
-
-  const alreadyBookedSession = sessions.find(s => s.already_booked);
-  useEffect(() => {
-    if (alreadyBookedSession && selectedSessionId !== alreadyBookedSession.id) {
-      setSelectedSessionId(alreadyBookedSession.id);
-    }
-  }, [alreadyBookedSession?.id, selectedSessionId]);
-
-  return (
-    <Card className={`overflow-hidden border-border/40 transition-all ${isBooked ? 'bg-primary/5 border-primary/20 shadow-none' :
-        isFull ? 'opacity-40 grayscale bg-muted/20' :
-          noCredits ? 'opacity-60' :
-            'hover:border-primary/40 hover:bg-muted/5'
-      }`}>
-      <CardContent className="p-0">
-        <div className="flex items-center gap-4 px-4 py-2.5">
-          <div className={`flex flex-col items-center justify-center shrink-0 w-16 h-10 rounded-lg border 
-            ${isBooked ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/30 border-border/30 text-foreground'}`}>
-            <p className="text-sm font-black italic leading-none">{fmtTime(selectedSession.start_time).split(' ')[0]}</p>
-            <p className="text-[8px] font-black uppercase opacity-70">{fmtTime(selectedSession.start_time).split(' ')[1]}</p>
-          </div>
-
-          <div className="flex-1 min-w-0">
-            {sessions.length > 1 ? (
-              <div className="flex flex-col">
-                <div className="flex flex-wrap gap-1.5 items-center">
-                  {sessions.map(s => {
-                    const isP = (s as any).available_for_personal_classes === true;
-                    const isG = (s as any).available_for_group_classes === true;
-                    const label = isP ? '👤 Personal' : isG ? '👥 Grupal' : (s.coach?.full_name?.split(' ')[0] || 'Clase');
-
-                    return (
-                      <button key={s.id} onClick={() => setSelectedSessionId(s.id)} disabled={isBooked && !s.already_booked}
-                        className={`px-2 py-1 rounded-md text-[9px] font-black uppercase border transition-all ${selectedSessionId === s.id
-                          ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                          : 'bg-background text-muted-foreground border-border hover:border-primary/40'
-                          } ${s.already_booked ? 'ring-1 ring-primary ring-offset-1' : ''}`}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-                {sessions[0]?.coach?.full_name && (
-                  <p className="text-[9px] text-muted-foreground mt-1 font-bold">
-                    {sessions[0].coach.full_name}
-                  </p>
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-col">
-                <div className="flex items-center gap-2">
-                  <p className="text-[11px] font-black uppercase tracking-tight truncate">
-                    {(selectedSession as any).session_type === 'facility' || (selectedSession as any).facility
-                      ? ((selectedSession as any).facility?.name || 'Instalación')
-                      : (selectedSession.coach?.full_name || 'Entrenador')
-                    }
-                  </p>
-                  {(selectedSession as any).available_for_personal_classes === true &&
-                    !(selectedSession as any).available_for_group_classes && (
-                      <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-indigo-400 text-indigo-500 bg-indigo-500/5">
-                        👤 Personal
-                      </Badge>
-                    )}
-                  {(selectedSession as any).available_for_group_classes === true &&
-                    !(selectedSession as any).available_for_personal_classes && (
-                      <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-green-400 text-green-600 bg-green-500/5">
-                        👥 Grupal · {selectedSession.max_capacity} cupos
-                      </Badge>
-                    )}
-                </div>
-                <div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
-                  <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />{calcDuration(selectedSession.start_time, selectedSession.end_time)}</span>
-                  {selectedSession.max_capacity && (
-                    <span className={`flex items-center gap-0.5 ${isFull ? 'text-destructive' : ''}`}>
-                      <Users className="h-2.5 w-2.5" />
-                      {selectedSession.max_capacity - (selectedSession.current_bookings ?? 0)} libres
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {isBooked ? (
-            <div className="flex items-center gap-1 text-primary animate-in fade-in zoom-in duration-300">
-               <CheckCircle2 className="h-4 w-4 stroke-[3]" />
-               <span className="text-[9px] font-black uppercase">Listo</span>
-            </div>
-          ) : (
-            <Button size="sm" onClick={() => onBook(selectedSession)} disabled={isDisabled} 
-              className={`h-8 px-4 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all
-                ${isFull ? 'bg-muted text-muted-foreground' : 'bg-primary shadow-lg shadow-primary/20 hover:shadow-primary/30'}`}>
-              Agendar
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 

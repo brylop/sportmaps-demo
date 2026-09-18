@@ -412,6 +412,17 @@ mejor completar el registro existente que rechazar la foto sin más.
   `monthly_fee` sigue el flujo normal de matrícula (`inscripcion-vs-periodo-de-plan.md`),
   no se deriva de la foto.
 
+**Nota para una fase futura, no de este plan:** en vez de que la escuela llene
+la hoja a mano y el OCR la lea, se podría generar el PDF YA LLENO desde
+`children` + acudiente (mismo motor HTML→PDF que ya existe para facturación),
+con el formato propio de cada escuela (logo, NIT, resolución IDRD, bloques y
+autorizaciones tal como los tiene Dynasty). El admin lo imprime, el padre lo
+firma, y la foto firmada vuelve por WhatsApp solo para archivar contra el
+atleta — ahí no hace falta que el OCR extraiga nada, solo emparejar contra el
+`child_id` que ya generó el PDF. Esto resolvería de raíz el problema de la
+letra manuscrita (§8, fase 5) porque ya no habría nada que transcribir, y
+conservaría la firma. Se deja anotado, no se implementa en este plan.
+
 ## 8. Fases propuestas (una rama por fase, revisión entre cada una)
 
 1. **Migración**: `enrollment_form_intake` + RLS + permisos (§3). Se verifica

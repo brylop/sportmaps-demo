@@ -12,6 +12,189 @@ function todayInBogota(): string {
     .toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 }
 
+// "HH:MM" en hora de Bogotá — nunca la del navegador del cliente (podría
+// estar en otro huso) ni la del server (Render corre en UTC). Con esto se
+// filtran horas ya pasadas de HOY tanto al listar (GET /athlete/available)
+// como al revalidar en servidor (POST /athlete/book-session) — 15 min de
+// gracia, mismo criterio que ya usaba el front para no ocultar una clase
+// que recién empezó.
+function nowHHMMInBogota(): string {
+  return new Date().toLocaleTimeString('en-GB', { timeZone: 'America/Bogota', hour12: false }).substring(0, 5);
+}
+
+const PAST_HOUR_GRACE_MINUTES = 15;
+
+function isPastInBogota(dateStr: string, startTimeHHMM: string): boolean {
+  if (dateStr !== todayInBogota()) return dateStr < todayInBogota();
+  return toMinutesHHMM(startTimeHHMM) < toMinutesHHMM(nowHHMMInBogota()) - PAST_HOUR_GRACE_MINUTES;
+}
+
+// Insertar en `notifications` (NO llamar a la RPC notify_user: exige
+// auth.uid(), y acá corremos con el service_role del BFF) alcanza para que
+// se dispare todo el pipeline unificado — el trigger
+// trg_enqueue_notification_delivery encola el outbox y despacha push/web
+// solo. Best-effort: un fallo acá nunca debe tumbar una reserva que ya se
+// confirmó, por eso el caller la envuelve en try/catch y no espera nada.
+async function notifyBookingConfirmed(userId: string, dateStr: string, startTimeHHMM: string) {
+  const dateLabel = new Date(`${dateStr}T00:00:00`).toLocaleDateString('es-CO', {
+    weekday: 'long', day: '2-digit', month: 'long',
+  });
+  const timeLabel = startTimeHHMM.substring(0, 5);
+  await supabase.from('notifications').insert({
+    user_id: userId,
+    title: 'Clase agendada',
+    message: `Quedó agendada para el ${dateLabel} a las ${timeLabel}.`,
+    type: 'booking_confirmed',
+    link: '/enrollments',
+  });
+}
+
+// ── Piloto "agendamiento flexible de banco de horas" ─────────────────────────
+// Un plan de horas puede exigir un mínimo por sesión (ej. 120 min) mientras
+// coach_availability sigue chocheada en bloques atómicos de 1h — estos
+// helpers agrupan bloques CONSECUTIVOS del mismo coach (mismo día, sin huecos,
+// sin sesión manual encima) para satisfacer ese mínimo, y exponen hasta dónde
+// se podría extender (sesión personalizada) sin inventar disponibilidad que
+// no existe. Se usan tanto al listar (GET /athlete/available) como al
+// reservar (POST /athlete/book-session, donde se revalida todo en servidor —
+// la lista que ve el cliente nunca es la fuente de verdad).
+const MAX_BOOKABLE_MINUTES_CAP = 8 * 60; // tope de sensatez, nadie agenda 8h+ seguidas en un intento
+
+function toMinutesHHMM(hhmm: string): number {
+  const [h, m] = hhmm.substring(0, 5).split(':').map(Number);
+  return h * 60 + m;
+}
+
+/**
+ * Desde sortedSlots[startIndex] (ya ordenados por start_time, del MISMO
+ * coach/día), camina mientras cada siguiente bloque empiece exactamente
+ * donde termina el anterior y ninguno esté bloqueado por una sesión manual.
+ * Devuelve el índice final alcanzado y los minutos totales acumulados
+ * (capados en MAX_BOOKABLE_MINUTES_CAP).
+ */
+function walkConsecutiveRun(
+  sortedSlots: any[], startIndex: number, coachId: string, dateStr: string, busySet: Set<string>,
+): { endIndex: number; totalMinutes: number } {
+  const startSlot = sortedSlots[startIndex];
+  let endIndex = startIndex;
+  let cursorEnd = toMinutesHHMM(startSlot.end_time);
+  let totalMinutes = cursorEnd - toMinutesHHMM(startSlot.start_time);
+
+  while (totalMinutes < MAX_BOOKABLE_MINUTES_CAP && endIndex + 1 < sortedSlots.length) {
+    const next = sortedSlots[endIndex + 1];
+    if (toMinutesHHMM(next.start_time) !== cursorEnd) break; // hueco — no es contiguo
+    const nextBusyKey = `${coachId}_${dateStr}_${next.start_time.substring(0, 5)}`;
+    if (busySet.has(nextBusyKey)) break;
+    endIndex += 1;
+    cursorEnd = toMinutesHHMM(next.end_time);
+    totalMinutes = cursorEnd - toMinutesHHMM(startSlot.start_time);
+  }
+
+  return { endIndex, totalMinutes };
+}
+
+function buildBundledSessionsForDay(params: {
+  slotsForDay: any[];
+  dateStr: string;
+  requiredBlockMinutes: number;
+  busySet: Set<string>;
+  sessionCapacityMap: Record<string, { current: number; max: number | null }>;
+  offeringIdForEnrollment: string | null;
+  enrollment: any;
+  // Personal y grupal son el TIPO de disponibilidad (quién puede reservar
+  // ese bloque — exclusivo vs compartido), independiente de la duración.
+  // El bloque fijo del plan y la sesión personalizada aplican IGUAL a los
+  // dos — por eso esta función corre una vez por cada kind, nunca solo para
+  // personal.
+  kind: 'personal' | 'group';
+}): any[] {
+  const { slotsForDay, dateStr, requiredBlockMinutes, busySet, sessionCapacityMap, offeringIdForEnrollment, enrollment, kind } = params;
+  const results: any[] = [];
+
+  const kindSlots = slotsForDay.filter((a) =>
+    kind === 'personal' ? a.available_for_personal_classes : a.available_for_group_classes
+  );
+
+  // La ventana solo tiene sentido dentro del mismo coach.
+  const byCoach = new Map<string, any[]>();
+  for (const a of kindSlots) {
+    if (!byCoach.has(a.coach_id)) byCoach.set(a.coach_id, []);
+    byCoach.get(a.coach_id)!.push(a);
+  }
+
+  for (const [coachId, slots] of byCoach) {
+    const sorted = [...slots].sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+    // Un candidato por cada hora de inicio posible (no solo cada
+    // requiredBlockMinutes) — "sesión personalizada" necesita poder
+    // arrancar en CUALQUIER hora y extenderse lo que dé la disponibilidad
+    // real, no solo desde los inicios fijos del modo "bloque". El frontend
+    // colapsa esta misma lista a bloques sin solapar cuando el usuario
+    // eligió "Por bloque" — acá se genera el superset completo.
+    for (let start = 0; start < sorted.length; start++) {
+      const startSlot = sorted[start];
+      const slotStart = startSlot.start_time.substring(0, 5);
+
+      const busyKey = `${coachId}_${dateStr}_${slotStart}`;
+      if (busySet.has(busyKey)) continue;
+
+      const { endIndex, totalMinutes: maxBookableMinutes } = walkConsecutiveRun(sorted, start, coachId, dateStr, busySet);
+      if (maxBookableMinutes < requiredBlockMinutes) continue; // no alcanza el mínimo desde este inicio
+
+      // La tarjeta que se ve por defecto dura el MÍNIMO del plan — "más
+      // horas" es la opción de sesión personalizada, no lo que se muestra
+      // de entrada. Se busca el primer bloque cuya duración acumulada ya
+      // cumpla el mínimo.
+      let defaultEndIndex = start;
+      let acc = toMinutesHHMM(sorted[start].end_time) - toMinutesHHMM(sorted[start].start_time);
+      while (acc < requiredBlockMinutes && defaultEndIndex < endIndex) {
+        defaultEndIndex += 1;
+        acc = toMinutesHHMM(sorted[defaultEndIndex].end_time) - toMinutesHHMM(sorted[start].start_time);
+      }
+      const endSlot = sorted[defaultEndIndex];
+      const endTimeStr = endSlot.end_time.length === 5 ? `${endSlot.end_time}:00` : endSlot.end_time;
+
+      // Capacidad: personal siempre ancla a 1 (bloque individual/exclusivo);
+      // grupal usa la capacidad real del slot (varios atletas pueden
+      // compartir el mismo bloque de 2-3h, igual que hoy comparten la hora
+      // suelta).
+      const capacityKey = `${startSlot.id}_${dateStr}`;
+      const existing = sessionCapacityMap[capacityKey];
+      const currentBookings = existing?.current ?? 0;
+      const maxCapacity = kind === 'personal' ? 1 : (existing?.max ?? startSlot.max_group_capacity ?? 10);
+      const isFull = currentBookings >= maxCapacity;
+
+      results.push({
+        id: `avail_${kind === 'personal' ? 'p' : 'g'}_${startSlot.id}_${dateStr}`,
+        session_type: 'offering',
+        session_date: dateStr,
+        start_time: startSlot.start_time.length === 5 ? `${startSlot.start_time}:00` : startSlot.start_time,
+        end_time: endTimeStr,
+        max_capacity: maxCapacity,
+        current_bookings: currentBookings,
+        available_spots: Math.max(0, maxCapacity - currentBookings),
+        already_booked: false,
+        team: null,
+        team_id: null,
+        offering_id: offeringIdForEnrollment,
+        coach: startSlot.coach,
+        sessions_left: null,
+        enrollment_id: enrollment.id,
+        booking_status: isFull ? 'full' : 'open',
+        is_pseudo: true,
+        available_for_personal_classes: kind === 'personal',
+        available_for_group_classes: kind === 'group',
+        // Piloto "agendamiento flexible": el front usa esto para ofrecer
+        // "sesión personalizada" — de default_minutes hasta max_bookable_minutes.
+        default_minutes: requiredBlockMinutes,
+        max_bookable_minutes: maxBookableMinutes,
+      });
+    }
+  }
+
+  return results;
+}
+
 async function validateChildAccess(childId: string, parentId: string): Promise<boolean> {
   const { data, error } = await supabase
     .from('children')
@@ -22,19 +205,36 @@ async function validateChildAccess(childId: string, parentId: string): Promise<b
   return !error && !!data;
 }
 
+// Identidad del atleta que agenda: exactamente UNO de los tres. `userId` es
+// el atleta adulto autenticado; `childId`, un hijo (ya validado contra su
+// padre); `unregisteredAthleteId`, alguien con ficha en la escuela pero sin
+// cuenta (agenda vía booking_token en el link público, sin loguearse — ver
+// public-booking.routes.ts /available-for-enrollment y /book-for-enrollment).
+export type AthleteIdentity = { userId?: string; childId?: string; unregisteredAthleteId?: string };
+
+function identityColumn(identity: AthleteIdentity): 'user_id' | 'child_id' | 'unregistered_athlete_id' {
+  if (identity.childId) return 'child_id';
+  if (identity.unregisteredAthleteId) return 'unregistered_athlete_id';
+  return 'user_id';
+}
+
+function identityValue(identity: AthleteIdentity): string {
+  return (identity.childId ?? identity.unregisteredAthleteId ?? identity.userId)!;
+}
+
 /**
- * Verifica que un enrollment pertenece al atleta autenticado.
+ * Verifica que un enrollment pertenece a la identidad que agenda.
  * Para adulto: enrollment.user_id === userId
  * Para hijo:   enrollment.child_id === childId (y childId ya fue validado contra parent)
+ * Para ficha sin cuenta: enrollment.unregistered_athlete_id === unregisteredAthleteId
  */
 async function validateEnrollmentOwnership(
   enrollmentId: string,
-  userId: string,
-  childId?: string
+  identity: AthleteIdentity
 ): Promise<{ valid: boolean; schoolId?: string }> {
   const { data: enrollment, error } = await supabase
     .from('enrollments')
-    .select('id, user_id, child_id, school_id, status')
+    .select('id, user_id, child_id, unregistered_athlete_id, school_id, status')
     .eq('id', enrollmentId)
     .maybeSingle();
 
@@ -42,9 +242,7 @@ async function validateEnrollmentOwnership(
     return { valid: false };
   }
 
-  const belongs = childId
-    ? enrollment.child_id === childId
-    : enrollment.user_id === userId;
+  const belongs = (enrollment as any)[identityColumn(identity)] === identityValue(identity);
 
   return { valid: belongs, schoolId: enrollment.school_id };
 }
@@ -67,6 +265,11 @@ const AthleteBookSchema = z.object({
   enrollment_id: z.string().uuid(),
   is_secondary: z.boolean().optional().default(false),
   child_id: z.string().uuid().optional(),
+  // Piloto "agendamiento flexible de banco de horas" — sesión personalizada:
+  // minutos totales que el atleta quiere agendar, cuando quiere más que el
+  // mínimo del plan. Se revalida siempre en servidor contra la disponibilidad
+  // consecutiva real — nunca se confía en este número tal cual.
+  duration_minutes: z.number().int().positive().optional(),
 });
 
 const BookSecondarySchema = z.object({
@@ -295,25 +498,42 @@ router.get('/my-bookings', requireAuth, async (req: Request, res: Response) => {
 
 // ── ATHLETE / PARENT ROUTES ──────────────────────────────────────────────────
 
-router.get('/athlete/available', requireAuth, async (req: Request, res: Response) => {
-  try {
-    const userId = req.user?.id;
-    const { child_id } = req.query;
-    if (child_id && !(await validateChildAccess(child_id as string, userId)))
-      return res.status(403).json({ error: 'No autorizado' });
-
+// Núcleo de GET /athlete/available, parametrizado por identidad — nada de lo
+// que sigue después de resolver `enrs` distingue quién agenda, así que se
+// comparte tal cual entre el atleta autenticado (ruta de abajo) y quien
+// agenda por booking_token sin cuenta (public-booking.routes.ts).
+export async function listAvailableSessions(identity: AthleteIdentity) {
+  {
     // ── Fetch enrollments separados por tipo ──────────────────────────────
     let q = supabase.from('enrollments').select(`
-      id, school_id, team_id, offering_plan_id, offering_id, sessions_used,
-      offering_plans!enrollments_offering_plan_id_fkey(max_sessions, offering_id)
-    `).eq('status', 'active');
-    if (child_id) q = q.eq('child_id', child_id);
-    else q = q.eq('user_id', userId);
+      id, school_id, team_id, offering_plan_id, offering_id, sessions_used, scheduling_team_id,
+      offering_plans!enrollments_offering_plan_id_fkey(max_sessions, offering_id, included_minutes_per_period, session_block_minutes)
+    `).eq('status', 'active').eq(identityColumn(identity), identityValue(identity));
 
     const { data: enrs, error: eErr } = await q;
-    if (eErr || !enrs?.length) return res.json({ sessions: [] });
+    if (eErr || !enrs?.length) return { sessions: [] };
 
     const allSchoolIds = [...new Set(enrs.map((e: any) => e.school_id))];
+
+    // Piloto "agendar por equipo": gateado por escuela (team_scheduling_enabled).
+    // Sin esto, CUALQUIER escuela donde "Inscribir Deportistas" deje una
+    // inscripción con team_id + offering_plan_id a la vez (patrón que ya
+    // existe hoy fuera del piloto) empezaría a restringir su agendamiento a
+    // los coaches de ese equipo sin haberlo pedido.
+    const { data: schoolSettingsRows } = await supabase
+      .from('school_settings')
+      .select('school_id, team_scheduling_enabled, hour_bank_flexible_booking_enabled, hours_session_block_minutes')
+      .in('school_id', allSchoolIds);
+    const teamSchedulingEnabledMap: Record<string, boolean> = {};
+    // Piloto "agendamiento flexible de banco de horas": agrupa bloques
+    // atómicos de coach_availability consecutivos hasta el mínimo del plan.
+    const flexibleBookingEnabledMap: Record<string, boolean> = {};
+    const schoolDefaultBlockMinutesMap: Record<string, number> = {};
+    (schoolSettingsRows || []).forEach((s: any) => {
+      teamSchedulingEnabledMap[s.school_id] = !!s.team_scheduling_enabled;
+      flexibleBookingEnabledMap[s.school_id] = !!s.hour_bank_flexible_booking_enabled;
+      schoolDefaultBlockMinutesMap[s.school_id] = s.hours_session_block_minutes ?? 120;
+    });
 
     // Enrollments de EQUIPO: tienen team_id y NO tienen offering_plan_id
     const teamEnrollments = enrs.filter(e => e.team_id && !e.offering_plan_id);
@@ -331,6 +551,27 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
     };
 
     const oIds = planEnrollments.map(getOfferingId).filter(Boolean);
+
+    // Piloto "agendar por equipo": la señal es simplemente "el atleta está EN
+    // el equipo" (enrollments.team_id) — lo que ya deja "Inscribir
+    // Deportistas" al agregar a alguien que ya tiene plan a un equipo, sin
+    // pasos aparte. scheduling_team_id existe solo como override manual para
+    // casos donde se necesite forzar un equipo distinto al de team_id.
+    // Ambos caminos quedan detrás del flag por escuela.
+    const getSchedulingTeamId = (e: any) =>
+      teamSchedulingEnabledMap[e.school_id] ? (e.scheduling_team_id ?? e.team_id ?? null) : null;
+
+    // Piloto "agendamiento flexible de banco de horas": para una inscripción
+    // de plan de horas en una escuela con el flag, el mínimo agendable son
+    // los minutos del plan (o el default de la escuela) — no un bloque
+    // atómico suelto. Devuelve null si no aplica (no es plan de horas, o el
+    // flag está apagado), en cuyo caso el comportamiento es el de siempre.
+    const getRequiredBlockMinutes = (e: any): number | null => {
+      if (!flexibleBookingEnabledMap[e.school_id]) return null;
+      const plan = Array.isArray(e.offering_plans) ? e.offering_plans[0] : e.offering_plans;
+      if (!plan || plan.included_minutes_per_period == null) return null; // no es plan de horas
+      return plan.session_block_minutes ?? schoolDefaultBlockMinutesMap[e.school_id] ?? 120;
+    };
 
     const today = todayInBogota();
 
@@ -367,11 +608,26 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
       });
     }
 
-    // Recopilar todos los coaches asignados de todos los planes activos
-    const assignedCoachIds = [...new Set(
-      planEnrollments.flatMap(e => offeringCoachMap[getOfferingId(e)] ?? [])
-    )];
-    const hasAssignedCoaches = assignedCoachIds.length > 0;
+    // ── Coaches del equipo, para inscripciones con scheduling_team_id ────────
+    // Piloto "agendar por equipo": el horario sigue siendo el de CADA coach
+    // (coach_availability) — el equipo (team_coaches) solo dice cuáles cuentan
+    // para ese grupo. Si un coach sale del equipo, sus horarios dejan de
+    // contar automáticamente, sin tocar ninguna configuración de horario.
+    const schedulingTeamIds = [...new Set(
+      planEnrollments.map(getSchedulingTeamId).filter(Boolean)
+    )] as string[];
+    const teamCoachMap: Record<string, string[]> = {};
+    if (schedulingTeamIds.length) {
+      const { data: teamCoaches } = await supabase
+        .from('team_coaches')
+        .select('team_id, coach_id')
+        .in('team_id', schedulingTeamIds);
+
+      (teamCoaches || []).forEach((tc: any) => {
+        if (!teamCoachMap[tc.team_id]) teamCoachMap[tc.team_id] = [];
+        teamCoachMap[tc.team_id].push(tc.coach_id);
+      });
+    }
 
     const [tRes, oRes] = await Promise.all([
       tIds.length
@@ -389,10 +645,9 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
           .gte('session_date', today)
         : Promise.resolve({ data: [] }),
       oIds.length
-        ? (() => {
-          let q = supabase.from('attendance_sessions')
+        ? supabase.from('attendance_sessions')
             .select(`
-                id, offering_id, session_date, start_time, end_time,
+                id, offering_id, team_id, session_date, start_time, end_time,
                 max_capacity, current_bookings, coach_availability_id,
                 coach:school_staff!attendance_sessions_coach_id_fkey(id, full_name, specialty)
               `)
@@ -400,15 +655,7 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
             .in('offering_id', oIds)
             .eq('is_bookable', true)
             .eq('finalized', false)
-            .gte('session_date', today);
-
-          // ✅ Solo filtrar por coach si hay coaches asignados
-          if (hasAssignedCoaches) {
-            q = q.in('coach_id', assignedCoachIds);
-          }
-
-          return q;
-        })()
+            .gte('session_date', today)
         : Promise.resolve({ data: [] }),
     ]);
 
@@ -448,107 +695,196 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
       };
     });
 
-    // We bind the generated slots to the first offering plan they have.
-    const defaultPlanEnrollment = planEnrollments.find(
-      (e: any) => allSchoolIds.includes(e.school_id)
-    ) ?? planEnrollments[0];
+    // Genera pseudo-sesiones de coach_availability POR CADA plan activo por
+    // separado — nunca "un solo enrollment ganador por escuela, o una sola
+    // lista de coaches restringidos para todos los planes". Un atleta puede
+    // tener un plan con coach específico en la Escuela B y un plan general
+    // (sin restricción) en la Escuela A: antes, el coach de B "contaminaba"
+    // el filtro de A y A se quedaba sin ningún horario — el bug real detrás
+    // de "el plan tiene disponibilidad activa pero no aparecen horas".
     const generatedSessions: any[] = [];
+    // Piloto "agendamiento flexible": grilla de horas ATÓMICAS reales (no los
+    // candidatos de 2h+ de buildBundledSessionsForDay) — el front la usa para
+    // que el usuario arme su propio bloque tocando horas sueltas consecutivas
+    // (ej. toca 05, 06, 07 y arma 3h), en vez de escoger entre bloques ya
+    // armados. Incluye la última hora del día aunque sola no alcance el
+    // mínimo del plan (ej. 16:00-17:00) — esa hora nunca aparece como
+    // candidato propio en buildBundledSessionsForDay, pero sí hace falta
+    // para poder seleccionarla como parte de un rango que empieza antes.
+    const flexibleHourGrid: any[] = [];
 
-    if (defaultPlanEnrollment && availData) {
-      const defaultOfferingId = (defaultPlanEnrollment.offering_plans as any)?.offering_id;
+    if (availData?.length) {
       const [year, month, day] = today.split('-').map(Number);
       const DAYS_AHEAD = 14;
 
-      // Si hay coaches asignados al plan, usar solo esos; si no, todos
-      const filteredAvailData = assignedCoachIds.length > 0
-        ? availData.filter((a: any) => assignedCoachIds.includes(a.coach_id))
-        : availData;
+      for (const enrollment of planEnrollments) {
+        const offeringIdForEnrollment = getOfferingId(enrollment);
+        const schedulingTeamId = getSchedulingTeamId(enrollment) as string | null;
 
-      for (let i = 0; i < DAYS_AHEAD; i++) {
-        const d = new Date(Date.UTC(year, month - 1, day + i));
-        const dateStr = d.toISOString().split('T')[0];
-        const dbDay = d.getUTCDay();
+        let coachIdsForRestriction: string[];
+        if (schedulingTeamId) {
+          // Piloto "agendar por equipo": el horario sigue saliendo de
+          // coach_availability — solo cambia la fuente de la restricción,
+          // de offering_coaches a los coaches ACTUALES del equipo. Si el
+          // equipo todavía no tiene coach asignado, no hay nada que mostrar
+          // (a diferencia de "sin restricción" cuando la lista viene vacía
+          // por otros motivos).
+          coachIdsForRestriction = teamCoachMap[schedulingTeamId] ?? [];
+          if (coachIdsForRestriction.length === 0) continue;
+        } else {
+          // El plan puede tener booking_mode='facility' (sin superficie de coach).
+          if (!modeAllowsCoach(offeringIdForEnrollment)) continue;
 
-        if (dateStr < today) continue;
+          // Restricción de coach SOLO de este offering — nunca la unión de
+          // todos los planes del atleta.
+          coachIdsForRestriction = offeringCoachMap[offeringIdForEnrollment] ?? [];
+        }
 
-        const slotsForDay = (filteredAvailData || []).filter(
-          (a: any) => a.day_of_week === dbDay
-        );
+        const availForSchool = availData.filter((a: any) => a.school_id === enrollment.school_id);
+        const filteredAvailData = coachIdsForRestriction.length > 0
+          ? availForSchool.filter((a: any) => coachIdsForRestriction.includes(a.coach_id))
+          : availForSchool;
 
-        for (const avail of slotsForDay) {
-          const slotStart = avail.start_time.substring(0, 5); // "HH:MM"
-          const slotMaxCapacity = (avail as any).max_group_capacity ?? (avail.available_for_personal_classes ? 1 : 10);
-          
-          // Buscar el enrollment que corresponde a la escuela de este slot de disponibilidad
-          const matchingEnrollment = planEnrollments.find(e => e.school_id === (avail as any).school_id) || defaultPlanEnrollment;
-          const offeringIdForSlot = getOfferingId(matchingEnrollment);
+        // Piloto "agendamiento flexible de banco de horas": si el plan exige
+        // un mínimo de minutos por sesión, el bloque atómico de
+        // coach_availability deja de ser la unidad reservable — se agrupan
+        // bloques CONSECUTIVOS del mismo coach hasta completar ese mínimo.
+        const requiredBlockMinutes = getRequiredBlockMinutes(enrollment);
 
-          // El plan de este slot puede tener booking_mode='facility' (sin superficie
-          // de coach) — en ese caso este slot de coach_availability no le sirve.
-          if (!modeAllowsCoach(offeringIdForSlot)) continue;
+        for (let i = 0; i < DAYS_AHEAD; i++) {
+          const d = new Date(Date.UTC(year, month - 1, day + i));
+          const dateStr = d.toISOString().split('T')[0];
+          const dbDay = d.getUTCDay();
 
-          // Bloquear si el coach tiene una sesión manual (sin coach_availability_id) a esa hora
-          const busyKey = `${avail.coach_id}_${dateStr}_${slotStart}`;
-          if (busySet.has(busyKey)) continue;
+          if (dateStr < today) continue;
 
-          // Capacidad por fecha específica (de la sesión ya creada para esa fecha)
-          const capacityKey = `${avail.id}_${dateStr}`;
-          const existing = sessionCapacityMap[capacityKey];
-          const currentBookings = existing?.current ?? 0;
-          const maxCapacity = existing?.max ?? slotMaxCapacity;
-          const isFull = currentBookings >= maxCapacity;
+          // Hora colombiana, nunca la del navegador del cliente — si HOY ya
+          // pasó de las 05:00, ese bloque no debe salir para agendar (ni el
+          // "por bloque" ni la grilla de "personalizada"), 15 min de gracia
+          // para no ocultar la clase que recién empezó.
+          const slotsForDay = filteredAvailData
+            .filter((a: any) => a.day_of_week === dbDay)
+            .filter((a: any) => !isPastInBogota(dateStr, a.start_time));
 
-          // Generar una entrada por cada tipo disponible (Personal / Grupal)
-          if (avail.available_for_personal_classes) {
-            generatedSessions.push({
-              id: `avail_p_${avail.id}_${dateStr}`, // Prefijo p_ para personal
-              session_type: 'offering',
-              session_date: dateStr,
-              start_time: `${slotStart}:00`,
-              end_time: avail.end_time.length === 5 ? `${avail.end_time}:00` : avail.end_time,
-              max_capacity: 1,
-              current_bookings: currentBookings,
-              available_spots: Math.max(0, 1 - currentBookings),
-              already_booked: false,
-              team: null,
-              team_id: null,
-              offering_id: offeringIdForSlot,
-              coach: avail.coach,
-              sessions_left: null,
-              enrollment_id: matchingEnrollment.id,
-              booking_status: currentBookings >= 1 ? 'full' : 'open',
-              is_pseudo: true,
-              available_for_personal_classes: true,
-              available_for_group_classes: false,
+          if (requiredBlockMinutes) {
+            // Personal y grupal son el TIPO de disponibilidad, no la
+            // duración — el bloque fijo del plan y la sesión personalizada
+            // aplican IGUAL a los dos, por eso se corre una vez por kind.
+            generatedSessions.push(...buildBundledSessionsForDay({
+              slotsForDay, dateStr, requiredBlockMinutes,
+              busySet, sessionCapacityMap, offeringIdForEnrollment, enrollment,
+              kind: 'personal',
+            }));
+            generatedSessions.push(...buildBundledSessionsForDay({
+              slotsForDay, dateStr, requiredBlockMinutes,
+              busySet, sessionCapacityMap, offeringIdForEnrollment, enrollment,
+              kind: 'group',
+            }));
+
+            (['personal', 'group'] as const).forEach((kind) => {
+              const kindSlots = slotsForDay.filter((a: any) =>
+                kind === 'personal' ? a.available_for_personal_classes : a.available_for_group_classes
+              );
+              const byCoach = new Map<string, any[]>();
+              kindSlots.forEach((a: any) => {
+                if (!byCoach.has(a.coach_id)) byCoach.set(a.coach_id, []);
+                byCoach.get(a.coach_id)!.push(a);
+              });
+              byCoach.forEach((slots, coachId) => {
+                const sorted = [...slots].sort((a, b) => a.start_time.localeCompare(b.start_time));
+                flexibleHourGrid.push({
+                  enrollment_id: enrollment.id,
+                  school_id: enrollment.school_id,
+                  coach_id: coachId,
+                  coach: sorted[0].coach ?? null,
+                  session_date: dateStr,
+                  kind,
+                  default_minutes: requiredBlockMinutes,
+                  hours: sorted.map((a: any) => ({
+                    avail_id: a.id,
+                    start_time: a.start_time.length === 5 ? `${a.start_time}:00` : a.start_time,
+                    end_time: a.end_time.length === 5 ? `${a.end_time}:00` : a.end_time,
+                    busy: busySet.has(`${coachId}_${dateStr}_${a.start_time.substring(0, 5)}`),
+                  })),
+                });
+              });
             });
           }
 
-          if (avail.available_for_group_classes) {
-            generatedSessions.push({
-              id: `avail_g_${avail.id}_${dateStr}`, // Prefijo g_ para grupal
-              session_type: 'offering',
-              session_date: dateStr,
-              start_time: `${slotStart}:00`,
-              end_time: avail.end_time.length === 5 ? `${avail.end_time}:00` : avail.end_time,
-              max_capacity: maxCapacity,
-              current_bookings: currentBookings,
-              available_spots: Math.max(0, maxCapacity - currentBookings),
-              already_booked: false,
-              team: null,
-              team_id: null,
-              offering_id: offeringIdForSlot,
-              coach: avail.coach,
-              sessions_left: null,
-              enrollment_id: matchingEnrollment.id,
-              booking_status: isFull ? 'full' : 'open',
-              is_pseudo: true,
-              available_for_personal_classes: false,
-              available_for_group_classes: true,
-            });
+          // El camino atómico (1 tarjeta por hora suelta) es el fallback
+          // para escuelas SIN el piloto de banco de horas flexible — con
+          // requiredBlockMinutes ya se generaron los bloques arriba para
+          // los dos tipos, así que acá no se duplica ninguno.
+          for (const avail of slotsForDay) {
+            const slotStart = avail.start_time.substring(0, 5); // "HH:MM"
+            const slotMaxCapacity = (avail as any).max_group_capacity ?? (avail.available_for_personal_classes ? 1 : 10);
+
+            // Bloquear si el coach tiene una sesión manual (sin coach_availability_id) a esa hora
+            const busyKey = `${avail.coach_id}_${dateStr}_${slotStart}`;
+            if (busySet.has(busyKey)) continue;
+
+            // Capacidad por fecha específica (de la sesión ya creada para esa fecha)
+            const capacityKey = `${avail.id}_${dateStr}`;
+            const existing = sessionCapacityMap[capacityKey];
+            const currentBookings = existing?.current ?? 0;
+            const maxCapacity = existing?.max ?? slotMaxCapacity;
+            const isFull = currentBookings >= maxCapacity;
+
+            // Generar una entrada por cada tipo disponible (Personal / Grupal).
+            // La personal atómica de 1h se omite cuando ya se generó como
+            // bloque combinado arriba (requiredBlockMinutes) — si no, un
+            // mismo horario saldría duplicado (1h suelta + bloque de 2h+).
+            if (avail.available_for_personal_classes && !requiredBlockMinutes) {
+              generatedSessions.push({
+                id: `avail_p_${avail.id}_${dateStr}`, // Prefijo p_ para personal
+                session_type: 'offering',
+                session_date: dateStr,
+                start_time: `${slotStart}:00`,
+                end_time: avail.end_time.length === 5 ? `${avail.end_time}:00` : avail.end_time,
+                max_capacity: 1,
+                current_bookings: currentBookings,
+                available_spots: Math.max(0, 1 - currentBookings),
+                already_booked: false,
+                team: null,
+                team_id: null,
+                offering_id: offeringIdForEnrollment,
+                coach: avail.coach,
+                sessions_left: null,
+                enrollment_id: enrollment.id,
+                booking_status: currentBookings >= 1 ? 'full' : 'open',
+                is_pseudo: true,
+                available_for_personal_classes: true,
+                available_for_group_classes: false,
+              });
+            }
+
+            if (avail.available_for_group_classes && !requiredBlockMinutes) {
+              generatedSessions.push({
+                id: `avail_g_${avail.id}_${dateStr}`, // Prefijo g_ para grupal
+                session_type: 'offering',
+                session_date: dateStr,
+                start_time: `${slotStart}:00`,
+                end_time: avail.end_time.length === 5 ? `${avail.end_time}:00` : avail.end_time,
+                max_capacity: maxCapacity,
+                current_bookings: currentBookings,
+                available_spots: Math.max(0, maxCapacity - currentBookings),
+                already_booked: false,
+                team: null,
+                team_id: null,
+                offering_id: offeringIdForEnrollment,
+                coach: avail.coach,
+                sessions_left: null,
+                enrollment_id: enrollment.id,
+                booking_status: isFull ? 'full' : 'open',
+                is_pseudo: true,
+                available_for_personal_classes: false,
+                available_for_group_classes: true,
+              });
+            }
           }
+        }
       }
     }
-  }
 
     // ── Generación de pseudo-sesiones de INSTALACIÓN, por offering ────────────
     // A diferencia del intento anterior (revertido): esto SOLO corre para el
@@ -653,19 +989,37 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
     };
 
     const teamSessions = (tRes.data || []).map((s: any) => enrichRealSession({ ...s, session_type: 'team' as const }));
-    const offeringSessions = (oRes.data || []).map((s: any) => enrichRealSession({ ...s, session_type: 'offering' as const }));
+    // La restricción de coaches es POR OFFERING (offeringCoachMap), nunca una unión global:
+    // un atleta con un plan restringido en la Escuela B no puede perder visibilidad de los
+    // coaches sin restricción de su plan en la Escuela A. Antes se armaba una única lista
+    // "assignedCoachIds" con los coaches de TODOS los planes del atleta y se aplicaba a todos
+    // por igual — un plan de otra escuela con un coach específico volvía invisibles los
+    // coaches de un plan general en una escuela completamente distinta.
+    const offeringSessions = (oRes.data || [])
+      .filter((s: any) => {
+        const restricted = offeringCoachMap[s.offering_id] ?? [];
+        return restricted.length === 0 || restricted.includes(s.coach?.id);
+      })
+      .map((s: any) => enrichRealSession({ ...s, session_type: 'offering' as const }));
 
     // Deduplicar: las sesiones REALES tienen prioridad sobre las pseudo-sesiones.
-    // Si un coach (o una instalación) ya aparece en teamSessions/offeringSessions a
-    // la misma hora+fecha, la pseudo-sesión correspondiente se descarta.
-    const resourceKey = (s: any) => s.coach?.id ?? s.coach_id ?? (s.facility_id ? `f_${s.facility_id}` : '');
+    // Si un coach, una instalación o un equipo ya aparece en teamSessions/
+    // offeringSessions a la misma hora+fecha, la pseudo-sesión correspondiente
+    // se descarta. team_id va primero: una sesión de equipo (piloto "agendar
+    // por equipo", o una inscripción de equipo normal) se identifica por el
+    // equipo, nunca por el coach que le haya quedado asignado a esa fila.
+    const resourceKey = (s: any) => {
+      if (s.team_id) return `t_${s.team_id}`;
+      if (s.facility_id) return `f_${s.facility_id}`;
+      return s.coach?.id ?? s.coach_id ?? '';
+    };
 
     const realSlotKeys = new Set<string>();
     [...teamSessions, ...offeringSessions].forEach((s: any) => {
       realSlotKeys.add(`${resourceKey(s)}_${s.session_date}_${s.start_time.substring(0, 5)}`);
     });
 
-    // También deduplicar entre pseudo-sesiones por coach/instalación+fecha+hora+tipo
+    // También deduplicar entre pseudo-sesiones por coach/instalación/equipo+fecha+hora+tipo
     // (quedar con la de mayor cupo para el mismo tipo)
     const allGeneratedSessions = [...generatedSessions, ...facilityGeneratedSessions];
     const dedupedGenerated: any[] = [];
@@ -721,7 +1075,7 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
       return a.start_time.localeCompare(b.start_time);
     });
 
-    if (!allSessions.length) return res.json({ sessions: [] });
+    if (!allSessions.length) return { sessions: [] };
 
     // ── Bookings del atleta para marcar already_booked ────────────────────
     // IMPORTANTE: limpiar IDs de desdoblamiento (_p, _g) para consultar DB
@@ -732,9 +1086,8 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
     let bQ = supabase.from('session_bookings')
       .select('session_id')
       .in('session_id', sIds.length ? sIds : ['00000000-0000-0000-0000-000000000000'])
-      .neq('status', 'cancelled');
-    if (child_id) bQ = bQ.eq('child_id', child_id);
-    else bQ = bQ.eq('user_id', userId);
+      .neq('status', 'cancelled')
+      .eq(identityColumn(identity), identityValue(identity));
 
     const { data: booked } = await bQ;
     const bookedSet = new Set((booked || []).map(b => b.session_id));
@@ -767,6 +1120,7 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
           // Créditos: equipos no tienen límite de sesiones
           sessions_left: null,
           enrollment_id: enrollment?.id ?? null,
+          school_id: enrollment?.school_id ?? null,
           booking_status: alreadyBooked ? 'already_booked' : isFull ? 'full' : 'open',
         };
       }
@@ -799,36 +1153,64 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
         // Créditos del plan
         sessions_left: sessLeft,
         enrollment_id: enrollment?.id ?? null,
+        school_id: enrollment?.school_id ?? null,
         booking_status: alreadyBooked ? 'already_booked'
           : isFull ? 'full'
             : noCredits ? 'no_credits'
               : 'open',
         available_for_personal_classes: (s as any).available_for_personal_classes ?? null,
         available_for_group_classes: (s as any).available_for_group_classes ?? null,
+        // Piloto "agendamiento flexible de banco de horas": buildBundledSessionsForDay
+        // los pone en la pseudo-sesión generada — sin esto el front nunca ve el
+        // mínimo del plan ni el margen para personalizar, así la sesión venga
+        // agrupada por dentro.
+        default_minutes: (s as any).default_minutes ?? undefined,
+        max_bookable_minutes: (s as any).max_bookable_minutes ?? undefined,
       };
     });
 
-    res.json({ sessions });
+    return { sessions, flexible_hour_grid: flexibleHourGrid };
+  }
+}
+
+router.get('/athlete/available', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { child_id } = req.query;
+    if (child_id && !(await validateChildAccess(child_id as string, userId)))
+      return res.status(403).json({ error: 'No autorizado' });
+
+    const result = await listAvailableSessions(child_id ? { childId: child_id as string } : { userId });
+    res.json(result);
   } catch (err: any) {
     req.log?.error({ err }, 'session-bookings unhandled error');
     res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
-router.post('/athlete/book-session', requireAuth, async (req: Request, res: Response) => {
-  try {
-    const userId = req.user?.id;
-    const parsed = AthleteBookSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'invalid' });
-    const { session_id, enrollment_id, child_id, is_secondary } = parsed.data;
-
-    // ── 1. Validar ownership del child_id ─────────────────────────────────
-    if (child_id && !(await validateChildAccess(child_id, userId)))
-      return res.status(403).json({ error: 'unauthorized' });
+// Núcleo de POST /athlete/book-session, parametrizado por identidad — mismo
+// criterio que listAvailableSessions: todo lo que sigue después de resolver
+// el enrollment es agnóstico de QUIÉN agenda. `req`/`res` se pasan tal cual
+// para no tocar ninguna de las respuestas ya afinadas en esta función.
+export async function bookSession(
+  req: Request, res: Response, identity: AthleteIdentity,
+  bookParams: { session_id: string; enrollment_id: string; is_secondary?: boolean; duration_minutes?: number },
+  // Quién creó la reserva para auditoría/notificación — el padre cuando
+  // agenda para un hijo (identity sería childId, no userId). undefined para
+  // quien agenda sin cuenta (identity.unregisteredAthleteId): no hay perfil
+  // al que notificar in-app, ese caso manda su propio correo de confirmación.
+  actingUserId?: string,
+  // Hook opcional post-éxito (ej. correo de confirmación para quien agenda
+  // sin cuenta) — corre ANTES de responder, y lo que devuelva se mezcla en
+  // el body de la respuesta (ej. { email_sent: true }).
+  postSuccess?: (booking: any) => Promise<Record<string, any> | void>
+) {
+  {
+    const { session_id, enrollment_id, is_secondary, duration_minutes } = bookParams;
 
     // ── 2. Validar que el enrollment pertenece al atleta ──────────────────
     const { valid: enrollmentValid, schoolId: enrollmentSchoolId } =
-      await validateEnrollmentOwnership(enrollment_id, userId, child_id);
+      await validateEnrollmentOwnership(enrollment_id, identity);
     if (!enrollmentValid)
       return res.status(403).json({ error: 'enrollment_unauthorized' });
 
@@ -851,58 +1233,229 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
       // Obtener detalles del slot de disponibilidad
       const { data: avail } = await supabase
         .from('coach_availability')
-        .select('coach_id, start_time, end_time, available_for_group_classes, available_for_personal_classes, max_group_capacity')
+        .select('coach_id, school_id, day_of_week, start_time, end_time, available_for_group_classes, available_for_personal_classes, max_group_capacity')
         .eq('id', availId)
         .single();
 
       if (!avail) return res.status(404).json({ error: 'avail_not_found' });
 
+      // Hora colombiana en servidor — el GET ya filtra esto para lo que
+      // lista, pero nunca es autoritativo: sin este chequeo, cualquiera
+      // podía mandar un avail_ de una hora que ya pasó hoy directo a este
+      // endpoint y la sesión se creaba igual.
+      if (isPastInBogota(dateStr, avail.start_time)) {
+        return res.status(409).json({ error: 'Ese horario ya pasó.', reason: 'slot_in_the_past' });
+      }
+
       const coach_id = avail.coach_id;
-      const start_time = avail.start_time.length === 5 ? `${avail.start_time}:00` : avail.start_time;
-      const end_time = avail.end_time.length === 5 ? `${avail.end_time}:00` : avail.end_time;
+      let start_time = avail.start_time.length === 5 ? `${avail.start_time}:00` : avail.start_time;
+      let end_time = avail.end_time.length === 5 ? `${avail.end_time}:00` : avail.end_time;
       const maxCap = isPersonal ? 1 : (avail.max_group_capacity ?? 10);
 
       // Buscar si ya existe una attendance_session para esta fecha exacta vinculada a este slot
       const { data: existS } = await supabase
         .from('attendance_sessions')
-        .select('id, school_id, max_capacity, current_bookings')
+        .select('id, school_id, max_capacity, current_bookings, start_time, end_time')
         .eq('coach_availability_id', availId)
         .eq('session_date', dateStr)
         .maybeSingle();
 
+      // Si el atleta ya tiene una reserva activa sobre este mismo bloque
+      // atómico, cortar ACÁ — antes de intentar estirarlo a un rango más
+      // ancho. Sin esto, pedir "personalizada" empezando en una hora que ya
+      // tenías reservada primero ensanchaba attendance_sessions (y ocultaba
+      // las horas intermedias) y RECIÉN DESPUÉS el chequeo de cupo (más
+      // abajo, compartido con las otras vías) lo rechazaba — la mutación ya
+      // había pasado, sin revertir.
       if (existS) {
-        s = existS;
-        actualSessionId = s.id;
-      } else {
-        const { data: eData } = await supabase.from('enrollments')
-          .select('offering_plans(offering_id)')
-          .eq('id', enrollment_id)
-          .single();
+        let dupCheck = supabase
+          .from('session_bookings')
+          .select('id')
+          .eq('session_id', existS.id)
+          .neq('status', 'cancelled');
+        dupCheck = dupCheck.eq(identityColumn(identity), identityValue(identity));
+        const { data: existingOwnBooking } = await dupCheck.maybeSingle();
+        if (existingOwnBooking) {
+          return res.status(409).json({
+            error: 'Ya tienes una reserva activa para esta clase.',
+            reason: 'already_booked',
+            booking_id: existingOwnBooking.id,
+          });
+        }
+      }
 
-        const offering_id = eData?.offering_plans
-          ? (eData.offering_plans as any).offering_id
-          : null;
+      // Estos datos hacían falta SOLO en la rama "sin existS" — pero el
+      // horario se pre-materializa con antelación (una attendance_sessions
+      // de 1h por cada bloque atómico de coach_availability), así que existS
+      // casi SIEMPRE aparece. Antes eso hacía que la reautorización de coach
+      // y, sobre todo, la extensión de duración (sesión personalizada, y
+      // hasta el bloque por defecto de 2h) nunca corrieran — se reusaba el
+      // bloque atómico de 1h tal cual, sin importar qué pidió el atleta.
+      const { data: eData } = await supabase.from('enrollments')
+        .select('offering_plans(offering_id, included_minutes_per_period, session_block_minutes), scheduling_team_id, team_id')
+        .eq('id', enrollment_id)
+        .single();
 
-        // Revalidar en servidor la restricción de coaches del plan — el GET
-        // /athlete/available ya filtra la lista que ve el cliente, pero eso
-        // no es autoritativo: sin este chequeo, cualquiera podía llamar este
-        // endpoint directo con el avail_ de un coach NO autorizado para el
-        // plan y la sesión se creaba igual con ese coach.
-        if (offering_id) {
-          const { data: allowedCoaches } = await supabase
-            .from('offering_coaches')
-            .select('coach_id')
-            .eq('offering_id', offering_id);
+      const offering_id = eData?.offering_plans
+        ? (eData.offering_plans as any).offering_id
+        : null;
 
-          if (allowedCoaches && allowedCoaches.length > 0 &&
-              !allowedCoaches.some(ac => ac.coach_id === coach_id)) {
-            return res.status(403).json({
-              error: 'Este entrenador no está autorizado para dictar este plan.',
-              reason: 'coach_not_authorized',
-            });
-          }
+      // Piloto "agendar por equipo": basta con estar EN el equipo
+      // (enrollments.team_id, lo que ya deja "Inscribir Deportistas") —
+      // scheduling_team_id es solo un override manual si hiciera falta.
+      // Gateado por escuela: sin esto, cualquier inscripción con team_id +
+      // offering_plan_id a la vez (patrón que ya existe fuera del piloto)
+      // quedaría restringida a los coaches de ese equipo sin haberlo pedido.
+      const { data: schoolSettingsRow } = await supabase
+        .from('school_settings')
+        .select('team_scheduling_enabled, hour_bank_flexible_booking_enabled, hours_session_block_minutes')
+        .eq('school_id', enrollmentSchoolId)
+        .maybeSingle();
+
+      const schedulingTeamId = schoolSettingsRow?.team_scheduling_enabled
+        ? (((eData as any)?.scheduling_team_id ?? (eData as any)?.team_id ?? null) as string | null)
+        : null;
+
+      // Revalidar en servidor la restricción de coaches — el GET
+      // /athlete/available ya filtra la lista que ve el cliente, pero eso
+      // no es autoritativo: sin este chequeo, cualquiera podía llamar este
+      // endpoint directo con el avail_ de un coach NO autorizado y la
+      // sesión se creaba igual con ese coach. Piloto "agendar por equipo":
+      // si la inscripción está en un equipo, la fuente de verdad es
+      // team_coaches (quién dicta HOY por ese equipo), no offering_coaches.
+      if (schedulingTeamId) {
+        const { data: teamCoaches } = await supabase
+          .from('team_coaches')
+          .select('coach_id')
+          .eq('team_id', schedulingTeamId);
+
+        if (!teamCoaches?.some(tc => tc.coach_id === coach_id)) {
+          return res.status(403).json({
+            error: 'Este entrenador ya no pertenece al equipo asignado.',
+            reason: 'coach_not_in_team',
+          });
+        }
+      } else if (offering_id) {
+        const { data: allowedCoaches } = await supabase
+          .from('offering_coaches')
+          .select('coach_id')
+          .eq('offering_id', offering_id);
+
+        if (allowedCoaches && allowedCoaches.length > 0 &&
+            !allowedCoaches.some(ac => ac.coach_id === coach_id)) {
+          return res.status(403).json({
+            error: 'Este entrenador no está autorizado para dictar este plan.',
+            reason: 'coach_not_authorized',
+          });
+        }
+      }
+
+      // Piloto "agendamiento flexible de banco de horas": sesión
+      // personalizada (o el bloque de 2h+ por defecto) — si pidió más
+      // minutos que este único bloque atómico, extender el rango caminando
+      // bloques CONSECUTIVOS reales del mismo coach. Nunca se confía en
+      // duration_minutes tal cual: se revalida contra disponibilidad real,
+      // igual que hace el GET. swallowedAvailIds guarda los ids de los
+      // bloques atómicos intermedios que este rango más ancho se traga —
+      // sus attendance_sessions pre-generadas (si existen) quedan ocultas
+      // más abajo, para no dejarlas sueltas como si fueran agendables aparte.
+      const plan = (eData?.offering_plans as any) ?? null;
+      const isFlexibleEligible =
+        !!schoolSettingsRow?.hour_bank_flexible_booking_enabled && plan?.included_minutes_per_period != null;
+      const singleSlotMinutes = toMinutesHHMM(end_time) - toMinutesHHMM(start_time);
+      const needsExtension = isFlexibleEligible && !!duration_minutes && duration_minutes > singleSlotMinutes;
+      let swallowedAvailIds: string[] = [];
+
+      if (needsExtension) {
+        const [{ data: siblingSlots }, { data: manualSessions }] = await Promise.all([
+          supabase
+            .from('coach_availability')
+            .select('id, start_time, end_time')
+            .eq('coach_id', coach_id)
+            .eq('school_id', avail.school_id)
+            .eq('day_of_week', avail.day_of_week)
+            .eq(isPersonal ? 'available_for_personal_classes' : 'available_for_group_classes', true),
+          supabase
+            .from('attendance_sessions')
+            .select('start_time')
+            .eq('coach_id', coach_id)
+            .eq('session_date', dateStr)
+            .is('coach_availability_id', null),
+        ]);
+
+        const busySetForCoach = new Set(
+          (manualSessions || []).map((m: any) => `${coach_id}_${dateStr}_${m.start_time.substring(0, 5)}`)
+        );
+        const sorted = [...(siblingSlots || [])].sort((a: any, b: any) => a.start_time.localeCompare(b.start_time));
+        const startIdx = sorted.findIndex((sl: any) => sl.id === availId);
+
+        if (startIdx === -1) {
+          return res.status(404).json({ error: 'avail_not_found' });
         }
 
+        const { endIndex, totalMinutes: maxAvailableMinutes } =
+          walkConsecutiveRun(sorted, startIdx, coach_id, dateStr, busySetForCoach);
+
+        if (duration_minutes! > maxAvailableMinutes) {
+          return res.status(409).json({
+            error: 'No hay suficiente disponibilidad consecutiva de ese entrenador para esa duración.',
+            reason: 'insufficient_consecutive_availability',
+            max_bookable_minutes: maxAvailableMinutes,
+          });
+        }
+
+        // Caminar hasta acumular exactamente duration_minutes (o el bloque
+        // que primero lo cubra) — mismo criterio que buildBundledSessionsForDay.
+        let acc = 0;
+        let chosenEndIdx = startIdx;
+        for (let k = startIdx; k <= endIndex; k++) {
+          acc = toMinutesHHMM(sorted[k].end_time) - toMinutesHHMM(sorted[startIdx].start_time);
+          chosenEndIdx = k;
+          if (acc >= duration_minutes!) break;
+        }
+        const chosenEndSlot = sorted[chosenEndIdx];
+        end_time = chosenEndSlot.end_time.length === 5 ? `${chosenEndSlot.end_time}:00` : chosenEndSlot.end_time;
+        swallowedAvailIds = sorted.slice(startIdx + 1, chosenEndIdx + 1).map((sl: any) => sl.id);
+      }
+
+      // Los bloques atómicos que el rango más ancho absorbe pueden YA tener
+      // su propia attendance_sessions pre-generada (el caso normal). Si
+      // alguna ya tiene reservas propias, no se puede extender por ahí —
+      // busySet/max_bookable_minutes en el GET ya debería haberlo evitado,
+      // pero nunca se confía en lo que mandó el cliente para algo que mueve
+      // banco de horas real.
+      let swallowedSessionIds: string[] = [];
+      if (swallowedAvailIds.length > 0) {
+        const { data: swallowedSessions } = await supabase
+          .from('attendance_sessions')
+          .select('id, current_bookings')
+          .in('coach_availability_id', swallowedAvailIds)
+          .eq('session_date', dateStr);
+
+        const alreadyBooked = (swallowedSessions ?? []).find((row: any) => (row.current_bookings ?? 0) > 0);
+        if (alreadyBooked) {
+          return res.status(409).json({
+            error: 'Uno de los bloques de esa hora ya tiene una reserva — elige otro horario.',
+            reason: 'partial_slot_already_booked',
+          });
+        }
+        swallowedSessionIds = (swallowedSessions ?? []).map((row: any) => row.id);
+      }
+
+      if (existS) {
+        if (needsExtension) {
+          const { data: updatedS, error: updErr } = await supabase
+            .from('attendance_sessions')
+            .update({ end_time })
+            .eq('id', existS.id)
+            .select('id, school_id, max_capacity, current_bookings, start_time, end_time')
+            .single();
+          if (updErr || !updatedS) return res.status(500).json({ error: 'No se pudo extender el bloque.' });
+          s = updatedS;
+        } else {
+          s = existS;
+        }
+      } else {
         const { data: newS, error: newErr } = await supabase.from('attendance_sessions')
           .insert({
             school_id: enrollmentSchoolId,
@@ -916,12 +1469,12 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
             is_bookable: true,
             finalized: false,
             coach_availability_id: availId,   // ← vínculo clave para conteo por fecha
-          }).select('id, school_id, max_capacity, current_bookings').single();
+          }).select('id, school_id, max_capacity, current_bookings, start_time, end_time').single();
 
         if (newErr && newErr.code === '23505') {
           const { data: retryS, error: retryErr } = await supabase
             .from('attendance_sessions')
-            .select('id, school_id, max_capacity, current_bookings')
+            .select('id, school_id, max_capacity, current_bookings, start_time, end_time')
             .eq('coach_availability_id', availId)
             .eq('session_date', dateStr)
             .single();
@@ -932,7 +1485,16 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
         } else {
           s = newS;
         }
-        actualSessionId = s.id;
+      }
+      actualSessionId = s.id;
+
+      // Ocultar (nunca borrar) las attendance_sessions atómicas que este
+      // bloque más ancho absorbió — dejan de ser agendables por su cuenta.
+      if (swallowedSessionIds.length > 0) {
+        await supabase
+          .from('attendance_sessions')
+          .update({ is_bookable: false })
+          .in('id', swallowedSessionIds);
       }
     } else if (session_id.startsWith('favail_')) {
       // Formato: favail_{availId}_{YYYY-MM-DD} — booking_mode='facility'/'both' en el offering
@@ -1086,8 +1648,7 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
         .select('id, status')
         .eq('session_id', actualSessionId)
         .neq('status', 'cancelled');
-      if (child_id) dupQ = dupQ.eq('child_id', child_id);
-      else dupQ = dupQ.eq('user_id', userId);
+      dupQ = dupQ.eq(identityColumn(identity), identityValue(identity));
 
       const { data: existingBooking } = await dupQ.maybeSingle();
       if (existingBooking) {
@@ -1119,8 +1680,27 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
       const reservationDate = sessDate?.session_date
         || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 
+      // Piloto "agendamiento flexible de banco de horas": si la escuela tiene
+      // el flag Y la sesión (s) trae start_time/end_time reales (flujo
+      // avail_, posiblemente varios bloques combinados), el descuento son
+      // los minutos REALES agendados — no el bloque fijo del plan. Fuera del
+      // piloto, o sin esas horas, el comportamiento es idéntico al de
+      // siempre (el RPC self-computa el bloque fijo).
+      let minutesOverride: number | undefined;
+      if (s?.start_time && s?.end_time) {
+        const { data: flexSchool } = await supabase
+          .from('school_settings')
+          .select('hour_bank_flexible_booking_enabled')
+          .eq('school_id', enrollmentSchoolId)
+          .maybeSingle();
+        if (flexSchool?.hour_bank_flexible_booking_enabled) {
+          minutesOverride = toMinutesHHMM(s.end_time) - toMinutesHHMM(s.start_time);
+        }
+      }
+
       const { data: reserveResult } = await supabase.rpc('reserve_hour_bank', {
-        p_enrollment_id: enrollment_id, p_reservation_date: reservationDate, p_created_by: userId,
+        p_enrollment_id: enrollment_id, p_reservation_date: reservationDate, p_created_by: actingUserId,
+        ...(minutesOverride !== undefined ? { p_minutes_override: minutesOverride } : {}),
       });
       const r = reserveResult as any;
       if (!r?.reserved) {
@@ -1130,13 +1710,19 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
     }
 
     // ── 4. Insertar booking ───────────────────────────────────────────────
+    // CHECK chk_booking_identity en session_bookings: si unregistered_athlete_id
+    // va seteado, enrollment_id/user_id/child_id deben ser NULL — son modos
+    // mutuamente excluyentes (mismo criterio que ya documentaba trial_class_public_create
+    // en 20260827184021_clases_de_prueba_agenda.sql). El enrollment sigue
+    // resuelto arriba para validar ownership/banco de horas — solo se omite acá.
     const { data: b, error } = await supabase.from('session_bookings').insert({
       school_id: s.school_id,
       session_id: actualSessionId,
-      enrollment_id,
+      enrollment_id: identity.unregisteredAthleteId ? null : enrollment_id,
       is_secondary: !!is_secondary,
-      user_id: child_id ? null : userId,
-      child_id: child_id || null,
+      user_id: identity.userId ?? null,
+      child_id: identity.childId ?? null,
+      unregistered_athlete_id: identity.unregisteredAthleteId ?? null,
       status: 'confirmed',
       hour_bank_reservation_id: hourBankReservationId,
     }).select().single();
@@ -1156,7 +1742,49 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
       });
     }
 
-    res.status(201).json({ booking: b });
+    if (actingUserId) {
+      try {
+        const { data: sessInfo } = await supabase
+          .from('attendance_sessions')
+          .select('session_date, start_time')
+          .eq('id', actualSessionId)
+          .maybeSingle();
+        if (sessInfo) await notifyBookingConfirmed(actingUserId, sessInfo.session_date, sessInfo.start_time);
+      } catch (notifErr) {
+        req.log?.error({ err: notifErr }, 'book-session: fallo notificando (no bloquea la reserva)');
+      }
+    }
+
+    let extra: Record<string, any> = {};
+    if (postSuccess) {
+      try {
+        extra = (await postSuccess(b)) || {};
+      } catch (postErr) {
+        req.log?.error({ err: postErr }, 'bookSession: postSuccess falló (no bloquea la reserva)');
+      }
+    }
+
+    res.status(201).json({ booking: b, ...extra });
+  }
+}
+
+router.post('/athlete/book-session', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const parsed = AthleteBookSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'invalid' });
+    const { session_id, enrollment_id, child_id, is_secondary, duration_minutes } = parsed.data;
+
+    // ── 1. Validar ownership del child_id ─────────────────────────────────
+    if (child_id && !(await validateChildAccess(child_id, userId)))
+      return res.status(403).json({ error: 'unauthorized' });
+
+    await bookSession(
+      req, res,
+      child_id ? { childId: child_id } : { userId },
+      { session_id, enrollment_id, is_secondary, duration_minutes },
+      userId,
+    );
   } catch (err: any) {
     req.log?.error({ err }, 'session-bookings unhandled error');
     res.status(500).json({ error: 'Error interno del servidor.' });
@@ -1267,6 +1895,7 @@ router.get('/athlete/my-bookings', requireAuth, async (req: Request, res: Respon
         is_secondary: b.is_secondary,
         booking_type: isTeamBooking ? 'team' : 'offering',
         enrollment_id: b.enrollment_id,
+        school_id: enrollment?.school_id ?? null,
         attendance_sessions: b.attendance_sessions,
         school_type: enrollment?.school_id ? (schoolMap[enrollment.school_id]?.school_type || 'academy') : 'academy',
         enrollments: isTeamBooking
@@ -1294,6 +1923,7 @@ router.get('/athlete/my-bookings', requireAuth, async (req: Request, res: Respon
           finalized: s.status === 'completed',
           coach: trainer ? { id: trainer.id, full_name: trainer.full_name } : null
         },
+        school_id: enrollment?.school_id ?? null,
         school_type: enrollment?.school_id ? (schoolMap[enrollment.school_id]?.school_type || 'academy') : 'academy',
         enrollments: {
           teams: null,
@@ -1314,30 +1944,34 @@ router.get('/athlete/my-bookings', requireAuth, async (req: Request, res: Respon
 });
 
 
-// ── Static route BEFORE dynamic /athlete/:id/cancel ─────────────────────────
-router.delete('/athlete/cancel-booking', requireAuth, async (req: Request, res: Response) => {
-  try {
-    const { booking_id, child_id } = req.query as { booking_id: string; child_id?: string };
-
+// Núcleo de la cancelación de session_bookings (Regular/Grupales), parametrizado
+// por identidad — reusado por la ruta autenticada y por /cancel-for-enrollment
+// (agendar sin cuenta). Devuelve false si la reserva no existe en esta tabla
+// (para que el caller siga probando en trainer_session_plans) — en cualquier
+// otro caso ya escribió la respuesta y devuelve true.
+export async function cancelSessionBooking(
+  req: Request, res: Response, identity: AthleteIdentity, bookingId: string,
+): Promise<boolean> {
+  {
     // ── 1. Intentar en session_bookings (Regular/Grupales) ────────────────
     const { data: booking } = await supabase
       .from('session_bookings')
-      .select(`id, status, user_id, child_id, enrollment_id, is_secondary, hour_bank_reservation_id,
-        attendance_sessions ( session_date, start_time, facility_id, facilities ( min_cancellation_hours ) )`)
-      .eq('id', booking_id)
+      .select(`id, status, user_id, child_id, unregistered_athlete_id, enrollment_id, is_secondary, hour_bank_reservation_id, session_id,
+        attendance_sessions ( id, coach_id, session_date, start_time, end_time, coach_availability_id, facility_id, facilities ( min_cancellation_hours ) )`)
+      .eq('id', bookingId)
       .maybeSingle();
 
     if (booking) {
-      const isOwner = booking.user_id === req.user?.id;
-      const isChild = child_id && booking.child_id === child_id;
+      const belongs = (booking as any)[identityColumn(identity)] === identityValue(identity);
 
-      if (!isOwner && !isChild) return res.status(403).json({ error: 'unauthorized' });
-      if (booking.status === 'cancelled') return res.status(400).json({ error: 'Ya cancelada' });
+      if (!belongs) { res.status(403).json({ error: 'unauthorized' }); return true; }
+      if (booking.status === 'cancelled') { res.status(400).json({ error: 'Ya cancelada' }); return true; }
       if (booking.status !== 'confirmed') {
-        return res.status(400).json({
+        res.status(400).json({
           error: 'Esta clase ya fue registrada y no se puede cancelar.',
           reason: 'not_cancellable',
         });
+        return true;
       }
 
       const sessInfo: any = Array.isArray((booking as any).attendance_sessions)
@@ -1350,10 +1984,11 @@ router.delete('/athlete/cancel-booking', requireAuth, async (req: Request, res: 
           const sessionUTC = new Date(sessionCO.getTime() + 5 * 60 * 60 * 1000);
           const hoursUntil = (sessionUTC.getTime() - Date.now()) / 3_600_000;
           if (hoursUntil < cancelHours) {
-            return res.status(400).json({
+            res.status(400).json({
               error: `Faltan menos de ${cancelHours}h para tu reserva. No se puede cancelar.`,
               reason: 'outside_cancellation_window',
             });
+            return true;
           }
         }
       }
@@ -1361,7 +1996,7 @@ router.delete('/athlete/cancel-booking', requireAuth, async (req: Request, res: 
       const { error: updateError } = await supabase
         .from('session_bookings')
         .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancelled_reason: 'Cancelado por el atleta' })
-        .eq('id', booking_id);
+        .eq('id', bookingId);
 
       if (updateError) throw updateError;
 
@@ -1375,8 +2010,69 @@ router.delete('/athlete/cancel-booking', requireAuth, async (req: Request, res: 
         });
       }
 
-      return res.json({ success: true });
+      // Piloto "agendamiento flexible de banco de horas": si esta sesión se
+      // había ESTIRADO más allá de su hora atómica (bloque de 2h+ o
+      // personalizada), cancelar la reserva sin revertir esto dejaba esas
+      // horas perdidas para siempre — is_bookable seguía en false y el
+      // rango seguía ancho, aunque el atleta ya no tuviera nada agendado
+      // ahí. Solo aplica si nadie más quedó con reservas en ese mismo
+      // bloque (current_bookings en 0 tras cancelar este).
+      if (sessInfo?.id && sessInfo?.coach_availability_id) {
+        const { data: freshSess } = await supabase
+          .from('attendance_sessions')
+          .select('current_bookings')
+          .eq('id', sessInfo.id)
+          .maybeSingle();
+
+        if ((freshSess?.current_bookings ?? 0) === 0) {
+          const { data: origAvail } = await supabase
+            .from('coach_availability')
+            .select('end_time')
+            .eq('id', sessInfo.coach_availability_id)
+            .maybeSingle();
+
+          if (origAvail && origAvail.end_time < sessInfo.end_time) {
+            const { data: swallowed } = await supabase
+              .from('attendance_sessions')
+              .select('id')
+              .eq('coach_id', sessInfo.coach_id)
+              .eq('session_date', sessInfo.session_date)
+              .eq('is_bookable', false)
+              .gte('start_time', sessInfo.start_time)
+              .lte('end_time', sessInfo.end_time)
+              .neq('id', sessInfo.id);
+
+            if (swallowed?.length) {
+              await supabase
+                .from('attendance_sessions')
+                .update({ is_bookable: true })
+                .in('id', swallowed.map((row: any) => row.id));
+            }
+
+            await supabase
+              .from('attendance_sessions')
+              .update({ end_time: origAvail.end_time })
+              .eq('id', sessInfo.id);
+          }
+        }
+      }
+
+      res.json({ success: true });
+      return true;
     }
+
+    return false;
+  }
+}
+
+// ── Static route BEFORE dynamic /athlete/:id/cancel ─────────────────────────
+router.delete('/athlete/cancel-booking', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { booking_id, child_id } = req.query as { booking_id: string; child_id?: string };
+    const userId = req.user?.id;
+
+    const handled = await cancelSessionBooking(req, res, child_id ? { childId: child_id } : { userId }, booking_id);
+    if (handled) return;
 
     // ── 2. Intentar en trainer_session_plans (PT) ─────────────────────────
     const { data: ptBooking } = await supabase
@@ -1410,8 +2106,6 @@ router.delete('/athlete/cancel-booking', requireAuth, async (req: Request, res: 
     }
 
     return res.status(404).json({ error: 'Reserva no encontrada' });
-
-    res.json({ success: true });
   } catch (err) {
     console.error('Error cancelling booking:', err);
     res.status(500).json({ error: 'Error al cancelar la reserva' });
@@ -1613,7 +2307,7 @@ router.post('/athlete/book-secondary', requireAuth, async (req: Request, res: Re
 
     // ── 2. Validar que el enrollment pertenece al atleta ──────────────────
     const { valid: enrollmentValid } =
-      await validateEnrollmentOwnership(enrollment_id, userId, child_id);
+      await validateEnrollmentOwnership(enrollment_id, child_id ? { childId: child_id } : { userId });
     if (!enrollmentValid)
       return res.status(403).json({ error: 'enrollment_unauthorized' });
 
@@ -1674,6 +2368,12 @@ router.post('/athlete/book-secondary', requireAuth, async (req: Request, res: Re
       await supabase.rpc('move_session_credit', {
         p_enrollment_id: enrollment_id, p_delta: 1, p_is_secondary: true,
       });
+    }
+
+    try {
+      await notifyBookingConfirmed(userId, reservation_date, slots[0].start_time);
+    } catch (notifErr) {
+      req.log?.error({ err: notifErr }, 'book-secondary: fallo notificando (no bloquea la reserva)');
     }
 
     res.status(201).json({ reservation: b });
