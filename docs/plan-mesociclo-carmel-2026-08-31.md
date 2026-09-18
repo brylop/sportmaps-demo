@@ -77,6 +77,18 @@ CREATE TABLE public.training_microcycle_days (
 `tournament_matches.scheduled_at` (D2, camino "reusar"). Si no, se tipea a mano (D2, camino
 "marcar el día" — el caso común, partidos externos como los del artefacto de Santa Fe).*
 
+> ⚠️ **Revisión 2026-09-18 — el FK `session_id` quedó en la tabla equivocada.**
+> El spec (`specs/periodizacion-microciclos-y-carga.md` §3.2) decía que la
+> sesión apunta al día (`microcycle_day_id` en `training_sessions`), no al
+> revés. Este plan lo invirtió: `session_id` acá, con
+> `UNIQUE(microcycle_id, day_date)` de por medio → un día admite **una sola**
+> sesión, y crear+enganchar son dos escrituras separadas sin transacción. Fue
+> la causa raíz del bug de sesiones huérfanas del 18-sep (mitigado, no
+> corregido de raíz — ver spec §8.2). Además impide modelar dos sesiones el
+> mismo día (gimnasio AM + cancha PM), un caso normal en un club juvenil.
+> Pendiente: mover el FK a `training_sessions.microcycle_day_id` (nullable)
+> como decía el spec desde el principio.
+
 ### 1.3 `training_mesocycles` (D9)
 
 ```sql
@@ -206,6 +218,20 @@ directo, no por BFF). Es una desviación consciente del patrón idealizado de `C
 ("frontend escribe vía BFF"), pero es el patrón *real* que `CAR-8` ya usa para esta misma familia de
 datos — mantenerlo consistente pesa más que corregirlo acá.
 
+> ⚠️ **Ya no es cierto — revisión 2026-09-18.** "Sin RPCs nuevas" fue la causa
+> directa del bug de mesociclos fantasma: crear el mesociclo era un
+> `INSERT` a `training_mesocycles` seguido de un `INSERT` bulk a
+> `training_microcycles`, sin transacción — si el segundo chocaba contra
+> `UNIQUE(team_id, starts_on)` (típico al reintentar sobre el mismo
+> equipo/fechas, porque tampoco hay botón para borrar un mesociclo), el
+> primero quedaba commiteado igual, sin semanas y sin forma de agregar
+> sesiones. Se agregó `create_mesocycle_with_weeks` (RPC `SECURITY DEFINER`
+> transaccional, migración `20260918124721`) y **se subió a `CLAUDE.md` como
+> regla de repo**: toda creación que escribe más de una fila relacionada va
+> por RPC transaccional, no por inserts sueltos desde el cliente. El resto de
+> este plan (una fila por operación en las 4 tablas nuevas) sigue tal cual —
+> la regla nueva aplica a creaciones **multi-fila**, no a todo el CRUD.
+
 ---
 
 ## 3. Frontend — sobre `TrainingPlansPage.tsx`, sin tocar `SessionFormDialog.tsx`
@@ -252,6 +278,35 @@ el working tree:
 `ON CONFLICT DO NOTHING` — no puede pisar ninguna de las 498 filas ni las definiciones existentes) y
 `training_sessions.evaluation` (una clave más en un jsonb, no una migración de columna). Nada de esto
 toca RLS de tablas existentes ni revoca ningún grant ya dado.
+
+## 6a. Endurecimiento de DDL pendiente — revisión de QA, 2026-09-18
+
+Verificado contra `pg_constraint` en la base viva, no supuesto:
+
+- ✅ **`CHECK(ends_on >= starts_on)` ya está** en `training_mesocycles` y
+  `training_microcycles` — se verificó puntualmente porque una revisión lo dio
+  por ausente; queda constancia acá para no repetir la duda.
+- ⚠️ **`school_id` denormalizado en `training_microcycle_days` y
+  `training_mesocycle_evaluations` sin garantía de que coincida con el de su
+  padre** (`microcycle_id` / `mesocycle_id`). El FK actual solo valida contra
+  `schools(id)`, no contra el `school_id` real del padre — un staff de la
+  escuela A podría insertar un día con `school_id=A` apuntando a un
+  microciclo de la escuela B, y RLS no lo vería porque solo mira la columna de
+  la fila. Fix: FK compuesto `(microcycle_id, school_id)` contra una `UNIQUE`
+  equivalente en `training_microcycles`, mismo patrón para `team_id`.
+- ⚠️ **Sin `EXCLUDE USING gist` para solapamiento de microciclos por equipo**,
+  y nada impide que un `day_date` caiga fuera del rango `[starts_on, ends_on]`
+  de su propio microciclo.
+- ⚠️ **`training_microcycles.number` es nullable y sin `UNIQUE`** dentro del
+  mismo mesociclo, pese a que D1 del spec dice que ese número es el lenguaje
+  del cuerpo técnico.
+- ⚠️ **Falta cobertura de RLS negativa en `seguridad:invariantes`** para estas
+  4 tablas — pruebas que afirmen «padre/atleta → 0 filas». La grieta de
+  `training_sessions` (SELECT sin filtro de rol, arreglada el 18-sep) se
+  habría encontrado sola con eso en CI.
+
+Ninguno de estos cuatro bloquea lo ya aplicado — son deuda a bajar en una
+migración posterior, no una regresión de lo que está en producción.
 
 ## 6. Riesgos que ya se conocen (heredados de la conversación)
 

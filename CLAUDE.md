@@ -16,6 +16,7 @@ Roles: athlete, parent, coach, school (owner/admin), wellness_professional, stor
 - **Estados/enums en tablas nuevas:** usar `text + CHECK`, **no** `CREATE TYPE`. (Historia: `payments.status` es `TEXT` por el dolor de castear a `pay_status`.)
 - **FKs de negocio** apuntan a `public.profiles(id)`, no a `auth.users` directo.
 - **Stock/contadores:** mutar solo dentro de RPCs `SECURITY DEFINER` con `SELECT … FOR UPDATE`. Nunca `UPDATE` de stock desde el cliente.
+- **Creación multi-fila = RPC transaccional, nunca N inserts sueltos desde el cliente.** Si crear una entidad implica escribir en más de una tabla relacionada (padre + hijos), va en una RPC `SECURITY DEFINER` que haga todo en la misma transacción. Dos+ inserts sueltos desde el frontend dejan al padre commiteado aunque el segundo falle — sin transacción no hay rollback. Costó un bug real: `create_mesocycle_with_weeks` (`20260918124721`) reemplazó 2 inserts sueltos que dejaban mesociclos sin sus semanas cuando el segundo chocaba contra un `UNIQUE`.
 
 ## Seguridad — OBLIGATORIO antes de dar por cerrado cualquier cambio de RLS, policies o permisos
 
