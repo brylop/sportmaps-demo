@@ -1435,7 +1435,7 @@ export default function PaymentsAutomationPage() {
                                   {(payment as any).period_label}
                                 </Badge>
                               )}
-                              {!payment.team?.name && !(payment as any).plan?.name && !(payment as any).period_label && (
+                              {!payment.team?.name && !(payment as any).plan?.name && (
                                 <span className="text-xs text-muted-foreground truncate">{payment.concept}</span>
                               )}
                             </div>
@@ -1518,7 +1518,7 @@ export default function PaymentsAutomationPage() {
                                       {(payment as any).period_label}
                                     </Badge>
                                   )}
-                                  {!payment.team?.name && !(payment as any).plan?.name && !(payment as any).period_label && (
+                                  {!payment.team?.name && !(payment as any).plan?.name && (
                                     <span className="text-xs text-muted-foreground">{payment.concept}</span>
                                   )}
                                 </div>
