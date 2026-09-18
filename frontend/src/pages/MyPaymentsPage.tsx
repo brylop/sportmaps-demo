@@ -995,9 +995,13 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, onPay, 
 
             <div className="flex items-center justify-between gap-2">
               <h3 className="font-bold text-sm sm:text-base text-foreground truncate">
-                {txn.period_label
-                  ? `Mensualidad ${txn.period_label}`
-                  : (txn.concept || 'Mensualidad')}
+                {/* El trigger fn_payments_fill_period rellena period_year/period_month
+                    en CUALQUIER pago (torneos, tienda, mensualidad — no solo mensualidad),
+                    así que su sola presencia no indica que el pago sea una mensualidad.
+                    concept siempre viene poblado (0 nulos verificado en producción) y ya
+                    incluye "Mensualidad {mes}" cuando corresponde — mostrarlo directo evita
+                    que un pago de torneo/tienda aparezca disfrazado de mensualidad. */}
+                {txn.concept || (txn.period_label ? `Mensualidad ${txn.period_label}` : 'Mensualidad')}
               </h3>
               <div className="text-right shrink-0">
                 {txn.discount_eligible && (txn.discount_amount ?? 0) > 0 && PENDING_STATES.includes(txn.status) ? (
