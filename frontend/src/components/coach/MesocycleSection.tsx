@@ -147,9 +147,17 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
     enabled: !!days && days.length > 0,
   });
 
-  const sessionsById = useMemo(() => {
-    const m = new Map<string, any>();
-    sessions.forEach((s) => m.set(s.id, s));
+  // Por día, no por id de sesión (§8.2 corregido: un día admite cualquier
+  // cantidad de sesiones — gimnasio AM + cancha PM es un caso normal — así
+  // que el enganche vive en training_sessions.microcycle_day_id, no al revés).
+  const sessionsByDayId = useMemo(() => {
+    const m = new Map<string, any[]>();
+    sessions.forEach((s) => {
+      if (!s.microcycle_day_id) return;
+      const list = m.get(s.microcycle_day_id) || [];
+      list.push(s);
+      m.set(s.microcycle_day_id, list);
+    });
     return m;
   }, [sessions]);
 
@@ -244,21 +252,18 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
   });
 
   // Crea la sesión de contenido (objetivos/bloques/principios de juego, CAR-8)
-  // para un día ya cargado, y liga session_id de vuelta al día. Reusa
-  // SessionFormDialog tal cual está, sin modificarlo.
+  // ya enganchada al día — un solo INSERT, sin el segundo UPDATE que antes
+  // enganchaba de vuelta desde training_microcycle_days.session_id (§8.2:
+  // esa segunda escritura sin transacción era la causa raíz de las sesiones
+  // huérfanas del 18-sep). Reusa SessionFormDialog tal cual, sin modificarlo.
   const createSessionForDay = useMutation({
     mutationFn: async (data: any) => {
       const { data: session, error } = await (supabase as any)
         .from('training_sessions')
-        .insert(data)
+        .insert({ ...data, microcycle_day_id: sessionDialogDay.id })
         .select()
         .single();
       if (error) throw error;
-      const { error: linkError } = await (supabase as any)
-        .from('training_microcycle_days')
-        .update({ session_id: session.id })
-        .eq('id', sessionDialogDay.id);
-      if (linkError) throw linkError;
       return session;
     },
     onSuccess: () => {
@@ -385,46 +390,56 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                 <AccordionContent className="space-y-3">
                   <div className="space-y-1.5">
                     {mcDays.map((day: any) => {
-                      const session = day.session_id ? sessionsById.get(day.session_id) : null;
+                      // Un día admite cualquier cantidad de sesiones (§8.2 —
+                      // ej. gimnasio AM + cancha PM), no una sola.
+                      const daySessions = sessionsByDayId.get(day.id) || [];
                       const mdLabels = mdLabelsByDate?.[day.day_date] || [];
                       return (
-                        <div
-                          key={day.id}
-                          className={`flex items-center justify-between gap-2 p-2 rounded-md border text-sm ${session ? 'cursor-pointer hover:bg-accent/40' : ''}`}
-                          onClick={() => session && onEditSession(session)}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-xs text-muted-foreground w-16 shrink-0">
-                              {new Date(day.day_date).toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric' })}
-                            </span>
-                            <Badge variant="outline" className={`text-[10px] h-5 shrink-0 ${DAY_TYPE_BADGE[day.day_type] || ''}`}>
-                              {DAY_TYPE_LABEL[day.day_type] || day.day_type}
-                            </Badge>
-                            {mdLabels.map((l) => (
-                              <Badge key={l} variant="outline" className="text-[10px] h-5 shrink-0">
-                                {l}
+                        <div key={day.id} className="rounded-md border overflow-hidden">
+                          <div className="flex items-center justify-between gap-2 p-2 text-sm">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-xs text-muted-foreground w-16 shrink-0">
+                                {new Date(day.day_date).toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric' })}
+                              </span>
+                              <Badge variant="outline" className={`text-[10px] h-5 shrink-0 ${DAY_TYPE_BADGE[day.day_type] || ''}`}>
+                                {DAY_TYPE_LABEL[day.day_type] || day.day_type}
                               </Badge>
-                            ))}
-                            <span className="truncate text-muted-foreground">
-                              {session?.objectives || day.focus || ''}
-                            </span>
+                              {mdLabels.map((l) => (
+                                <Badge key={l} variant="outline" className="text-[10px] h-5 shrink-0">
+                                  {l}
+                                </Badge>
+                              ))}
+                              {daySessions.length === 0 && (
+                                <span className="truncate text-muted-foreground">{day.focus || ''}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {day.planned_rpe != null && (
+                                <span className="text-xs text-muted-foreground">RPE {day.planned_rpe}</span>
+                              )}
+                              {day.day_type !== 'descanso' && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-[11px] gap-1"
+                                  onClick={() => setSessionDialogDay(day)}
+                                >
+                                  <ClipboardList className="w-3 h-3" />
+                                  {daySessions.length === 0 ? 'Crear sesión' : 'Agregar otra'}
+                                </Button>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            {day.planned_rpe != null && (
-                              <span className="text-xs text-muted-foreground">RPE {day.planned_rpe}</span>
-                            )}
-                            {!session && day.day_type !== 'descanso' && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 px-2 text-[11px] gap-1"
-                                onClick={(e) => { e.stopPropagation(); setSessionDialogDay(day); }}
-                              >
-                                <ClipboardList className="w-3 h-3" />
-                                Crear sesión
-                              </Button>
-                            )}
-                          </div>
+                          {daySessions.map((session: any) => (
+                            <div
+                              key={session.id}
+                              className="flex items-center gap-2 px-2 py-1.5 text-xs border-t bg-muted/20 cursor-pointer hover:bg-accent/40"
+                              onClick={() => onEditSession(session)}
+                            >
+                              <ClipboardList className="w-3 h-3 text-muted-foreground shrink-0" />
+                              <span className="truncate text-muted-foreground">{session.objectives}</span>
+                            </div>
+                          ))}
                         </div>
                       );
                     })}

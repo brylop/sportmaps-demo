@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 590,
-  "head": "20260921120707",
+  "count": 592,
+  "head": "20260921131039",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -593,6 +593,8 @@
     {"v":"20260919194528","file":"20260919194528_hotfix_trainer_plans_service_role_broke.sql","sha256":"5b9990d836bf3dc6f16bd1ae44c3485fde3c3e4debce32b3a388f0668bce2cc6","added":"2026-09-20","by":"brylop"},
     {"v":"20260921115743","file":"20260921115743_mesociclo_md_cross_microciclo_y_ddl_hardening.sql","sha256":"a2190d5da30343e0e252352a4422653c73ffcadd629985eb4a4f228fcfb007aa","added":"2026-09-21","by":"brylop"},
     {"v":"20260921120611","file":"20260921120611_mesociclo_delete_cascade_rpc.sql","sha256":"24062f7421d41fe850dbfe14ef7eb1c71d57535b7b8761cae792c5368d38ff08","added":"2026-09-21","by":"brylop"},
-    {"v":"20260921120707","file":"20260921120707_fix_org_enumeration_functions.sql","sha256":"3db536ed462115e8c2f4adc4573cd548e2aeb436f2904ea1bb925c90bf3e453e","added":"2026-09-21","by":"brylop"}
+    {"v":"20260921120707","file":"20260921120707_fix_org_enumeration_functions.sql","sha256":"3db536ed462115e8c2f4adc4573cd548e2aeb436f2904ea1bb925c90bf3e453e","added":"2026-09-21","by":"brylop"},
+    {"v":"20260921130849","file":"20260921130849_mesociclo_fk_dia_sesion_invertido.sql","sha256":"c59e39d853b32c8afa2c144077a2f148809f9d41e9663740014e30b8422ca73e","added":"2026-09-21","by":"brylop"},
+    {"v":"20260921131039","file":"20260921131039_fix_more_identity_spoofing_and_execute_grants.sql","sha256":"f1aa610ab017c548485ec901f9e50a048ec94a669cd963a594af4dc357ef0fd0","added":"2026-09-21","by":"brylop"}
   ]
 }

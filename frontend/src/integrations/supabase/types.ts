@@ -11575,6 +11575,7 @@ export type Database = {
       }
       match_lineups: {
         Row: {
+          arrows: Json
           created_at: string
           created_by: string
           formation: string | null
@@ -11586,6 +11587,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          arrows?: Json
           created_at?: string
           created_by: string
           formation?: string | null
@@ -11597,6 +11599,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          arrows?: Json
           created_at?: string
           created_by?: string
           formation?: string | null
@@ -22901,6 +22904,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "training_mesocycle_evaluations_mesocycle_school_fkey"
+            columns: ["mesocycle_id", "school_id"]
+            isOneToOne: false
+            referencedRelation: "training_mesocycles"
+            referencedColumns: ["id", "school_id"]
+          },
+          {
             foreignKeyName: "training_mesocycle_evaluations_school_id_fkey"
             columns: ["school_id"]
             isOneToOne: false
@@ -23091,7 +23101,6 @@ export type Database = {
           planned_minutes: number | null
           planned_rpe: number | null
           school_id: string
-          session_id: string | null
           tournament_match_id: string | null
         }
         Insert: {
@@ -23104,7 +23113,6 @@ export type Database = {
           planned_minutes?: number | null
           planned_rpe?: number | null
           school_id: string
-          session_id?: string | null
           tournament_match_id?: string | null
         }
         Update: {
@@ -23117,7 +23125,6 @@ export type Database = {
           planned_minutes?: number | null
           planned_rpe?: number | null
           school_id?: string
-          session_id?: string | null
           tournament_match_id?: string | null
         }
         Relationships: [
@@ -23127,6 +23134,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "training_microcycles"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_microcycle_days_microcycle_school_fkey"
+            columns: ["microcycle_id", "school_id"]
+            isOneToOne: false
+            referencedRelation: "training_microcycles"
+            referencedColumns: ["id", "school_id"]
           },
           {
             foreignKeyName: "training_microcycle_days_school_id_fkey"
@@ -23169,27 +23183,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_school_entitlements"
             referencedColumns: ["school_id"]
-          },
-          {
-            foreignKeyName: "training_microcycle_days_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "training_sessions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "training_microcycle_days_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "v_coach_team_plans"
-            referencedColumns: ["plan_id"]
-          },
-          {
-            foreignKeyName: "training_microcycle_days_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "v_session_load"
-            referencedColumns: ["session_id"]
           },
           {
             foreignKeyName: "training_microcycle_days_tournament_match_id_fkey"
@@ -23272,6 +23265,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "training_microcycles_mesocycle_school_fkey"
+            columns: ["mesocycle_id", "school_id"]
+            isOneToOne: false
+            referencedRelation: "training_mesocycles"
+            referencedColumns: ["id", "school_id"]
+          },
+          {
             foreignKeyName: "training_microcycles_school_id_fkey"
             columns: ["school_id"]
             isOneToOne: false
@@ -23351,6 +23351,7 @@ export type Database = {
           game_principles: string | null
           id: string
           materials: string | null
+          microcycle_day_id: string | null
           notes: string | null
           objectives: string
           session_blocks: Json | null
@@ -23366,6 +23367,7 @@ export type Database = {
           game_principles?: string | null
           id?: string
           materials?: string | null
+          microcycle_day_id?: string | null
           notes?: string | null
           objectives: string
           session_blocks?: Json | null
@@ -23381,6 +23383,7 @@ export type Database = {
           game_principles?: string | null
           id?: string
           materials?: string | null
+          microcycle_day_id?: string | null
           notes?: string | null
           objectives?: string
           session_blocks?: Json | null
@@ -23417,6 +23420,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "teams_full_view"
             referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "training_sessions_microcycle_day_id_fkey"
+            columns: ["microcycle_day_id"]
+            isOneToOne: false
+            referencedRelation: "training_microcycle_days"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -28165,8 +28175,12 @@ export type Database = {
           branch_name: string
           child_id: string
           nombre: string
+          parent_email_temp: string
+          parent_name_temp: string
+          parent_phone_temp: string
           school_id: string
           school_name: string
+          source: string
           team_name: string
         }[]
       }
@@ -28450,6 +28464,41 @@ export type Database = {
         }
         Returns: string
       }
+      create_mesocycle_with_weeks: {
+        Args: {
+          p_ends_on: string
+          p_evaluation_mode?: string
+          p_game_model?: string
+          p_general_objective?: string
+          p_n_sessions_planned?: number
+          p_school_id: string
+          p_session_duration_minutes?: number
+          p_starts_on: string
+          p_team_id: string
+        }
+        Returns: {
+          closing_review: Json | null
+          created_at: string
+          created_by: string
+          ends_on: string
+          evaluation_mode: string
+          game_model: string | null
+          general_objective: string | null
+          id: string
+          n_sessions_planned: number | null
+          school_id: string
+          session_duration_minutes: number | null
+          starts_on: string
+          team_id: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "training_mesocycles"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       create_recurring_subscription: {
         Args: {
           p_amount: number
@@ -28505,6 +28554,10 @@ export type Database = {
       current_staff_team_ids: { Args: never; Returns: string[] }
       decrement_session_bookings: {
         Args: { p_session_id: string }
+        Returns: undefined
+      }
+      delete_mesocycle_cascade: {
+        Args: { p_mesocycle_id: string }
         Returns: undefined
       }
       detect_enrollment_integrity_issues: { Args: never; Returns: Json }
@@ -30295,23 +30348,42 @@ export type Database = {
         }
         Returns: Json
       }
-      submit_qr_signup: {
-        Args: {
-          p_branch_id?: string
-          p_child_dob?: string
-          p_child_doc_number?: string
-          p_child_doc_type?: string
-          p_child_full_name?: string
-          p_child_gender?: string
-          p_existing_child_id?: string
-          p_monthly_fee?: number
-          p_phone?: string
-          p_plan_id?: string
-          p_slug: string
-          p_team_id?: string
-        }
-        Returns: Json
-      }
+      submit_qr_signup:
+        | {
+            Args: {
+              p_branch_id?: string
+              p_child_dob?: string
+              p_child_doc_number?: string
+              p_child_doc_type?: string
+              p_child_full_name?: string
+              p_child_gender?: string
+              p_existing_child_id?: string
+              p_monthly_fee?: number
+              p_phone?: string
+              p_plan_id?: string
+              p_slug: string
+              p_team_id?: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_branch_id?: string
+              p_child_dob?: string
+              p_child_doc_number?: string
+              p_child_doc_type?: string
+              p_child_full_name?: string
+              p_child_gender?: string
+              p_existing_child_id?: string
+              p_monthly_fee?: number
+              p_phone?: string
+              p_plan_id?: string
+              p_slug: string
+              p_team_id?: string
+              p_unregistered_athlete_id?: string
+            }
+            Returns: Json
+          }
       submit_qr_signup__interno: {
         Args: {
           p_branch_id?: string
@@ -30355,6 +30427,13 @@ export type Database = {
         Returns: string
       }
       toggle_favorite: { Args: { p_school_id: string }; Returns: Json }
+      training_days_md_labels: {
+        Args: { p_day_dates: string[]; p_team_id: string }
+        Returns: {
+          day_date: string
+          md_labels: string[]
+        }[]
+      }
       trial_class_category_set_active: {
         Args: { p_id: string; p_is_active: boolean; p_school_id: string }
         Returns: undefined
