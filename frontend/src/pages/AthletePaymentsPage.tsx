@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -323,6 +324,13 @@ export default function AthletePaymentsPage() {
           <p className="text-muted-foreground">Gestiona tus pagos y consulta tu historial.</p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          {user?.id && (
+            <Button asChild variant="outline">
+              <Link to={`/estado-cuenta?user_id=${user.id}`}>
+                <FileText className="h-4 w-4 mr-2" /> Mi estado de cuenta
+              </Link>
+            </Button>
+          )}
           <Button variant="outline" onClick={handleExport}>
             <Download className="h-4 w-4 mr-2" /> Exportar
           </Button>

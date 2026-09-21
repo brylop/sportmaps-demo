@@ -5,13 +5,15 @@ import { usePushSubscription } from '@/hooks/usePushSubscription';
 import { usePushPermissionStatus } from '@/hooks/usePushPermissionStatus';
 import { isNativePlatform } from '@/lib/openExternalUrl';
 
-const DISMISSED_KEY = 'sportmaps_push_banner_dismissed';
+const DISMISSED_KEY = 'sm_push_banner_dismissed';
 const DELAY_MS      = 3000; // Esperar 3s antes de mostrar
 
 /**
  * Banner que solicita permiso de notificaciones push.
  * - Aparece 3 segundos después del login si el permiso está en 'default'
- * - Si el usuario lo cierra sin decidir, no vuelve a aparecer en la sesión
+ * - Si el usuario lo cierra sin decidir, no vuelve a aparecer (localStorage,
+ *   igual que InstallBanner — antes era sessionStorage y reaparecía en cada
+ *   pestaña/reapertura del navegador, que es justo lo que se quería evitar)
  * - Si el permiso ya fue concedido o denegado, nunca se muestra
  * - En navegadores no soportados (Safari sin PWA), no se muestra
  *
@@ -20,6 +22,10 @@ const DELAY_MS      = 3000; // Esperar 3s antes de mostrar
  * `useDeviceContext` ya pidió el permiso al entrar y el estado queda en
  * 'granted' o 'denied'; solo sale si el prompt del SO quedó sin responder.
  */
+function yaFueCerrado() {
+  try { return localStorage.getItem(DISMISSED_KEY) === '1'; } catch { return false; }
+}
+
 export function PushPermissionBanner() {
   const permissionState         = usePushPermissionStatus();
   const { subscribe, status }   = usePushSubscription();
@@ -29,8 +35,9 @@ export function PushPermissionBanner() {
   useEffect(() => {
     if (permissionState !== 'prompt') return;
 
-    // No mostrar si ya lo descartó esta sesión
-    if (sessionStorage.getItem(DISMISSED_KEY)) return;
+    // No mostrar si ya lo descartó antes (localStorage: sobrevive a cerrar
+    // la pestaña/el navegador, a diferencia de sessionStorage)
+    if (yaFueCerrado()) return;
 
     const timer = setTimeout(() => setVisible(true), DELAY_MS);
     return () => clearTimeout(timer);
@@ -40,7 +47,7 @@ export function PushPermissionBanner() {
 
   const dismiss = () => {
     setExiting(true);
-    sessionStorage.setItem(DISMISSED_KEY, '1');
+    try { localStorage.setItem(DISMISSED_KEY, '1'); } catch { /* modo privado: no persiste, pero cierra igual */ }
     setTimeout(() => setVisible(false), 300);
   };
 

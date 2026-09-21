@@ -634,9 +634,11 @@ export default function MyPaymentsPage() {
 
       {/* Estado de Cuenta por hijo — misma pantalla que usa la escuela
           (get_athlete_account_statement), acotada a lo suyo por el gate de la
-          RPC (children.parent_id = auth.uid()). El atleta adulto (rol
-          `athlete`) ve el suyo con user_id = su propio id. */}
-      {(enrollments.some(e => e.child_id) || profile?.role === 'athlete') && (
+          RPC (children.parent_id = auth.uid()). Esta página es solo de
+          `parent` (el useEffect de arriba redirige a cualquier otro rol antes
+          de llegar acá), así que el bloque "Mi estado de cuenta" del atleta
+          adulto nunca podía renderizar — vive ahora en AthletePaymentsPage. */}
+      {enrollments.some(e => e.child_id) && (
         <div className="flex flex-wrap gap-2">
           {[...new Map(enrollments.filter(e => e.child_id).map(e => [e.child_id, e])).values()].map((e) => (
             <Button key={e.child_id} asChild variant="outline" size="sm">
@@ -646,14 +648,6 @@ export default function MyPaymentsPage() {
               </Link>
             </Button>
           ))}
-          {profile?.role === 'athlete' && user?.id && (
-            <Button asChild variant="outline" size="sm">
-              <Link to={`/estado-cuenta?user_id=${user.id}`}>
-                <FileText className="h-3.5 w-3.5 mr-2" />
-                Mi estado de cuenta
-              </Link>
-            </Button>
-          )}
         </div>
       )}
 

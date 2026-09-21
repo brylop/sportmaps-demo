@@ -3,7 +3,7 @@
 **Estado:** propuesta, sin código — tenant y pagos cerrados (bloqueaban el resto del schema); modelo de datos completo del módulo base + diseño completo del Agente 1 (Ventas)
 **Origen:** discusión 2026-09-15/16 sobre el marketplace de profesionales y cómo extender el patrón de agente-por-WhatsApp que ya existe para escuelas
 **Roles cubiertos:** `fisio`, `entrenador`, `psicologo` (dentro de los roles ya existentes `wellness_professional` / `coach` — no es una dimensión nueva de permisos)
-**Relacionado:** [[project_whatsapp_wa1_wa2_built]], [[project_whatsapp_ai_channel]], [[project_meta_app_review_enviado]], [[project_notifications_unified]] (envío), [[project_reservations_module]] (disponibilidad), [[project_payment_creation_paths_census]] (por qué pagos no es un tool suelto), [[project_payment_accounts_list]], `docs/specs/outbound-ai-sales-calls.md`
+**Relacionado:** [`administrador-academia-agentes-ia.md`](administrador-academia-agentes-ia.md) (spec hermano de academias — su §13 tiene el mapa construir/reutilizar verificado contra el repo, que este documento hereda), [[project_whatsapp_wa1_wa2_built]], [[project_whatsapp_ai_channel]], [[project_meta_app_review_enviado]], [[project_notifications_unified]] (**solo push in-app**, no WhatsApp — ver ronda 3), [[project_reservations_module]] (disponibilidad), [[project_payment_creation_paths_census]] (por qué pagos no es un tool suelto), [[project_payment_accounts_list]], `docs/specs/outbound-ai-sales-calls.md`
 
 ---
 
@@ -13,7 +13,7 @@
 |---|---|---|---|
 | 1 | **Tenant** | `schools.school_type = 'professional'` (no `professional_id` nuevo, no tabla de tenant propia) | `school_type` ya es `text` libre en `schools` (no enum) — agregar el valor no es migración de schema. Reutiliza `user_school_ids()` / `user_staff_school_ids()` / `user_admin_school_ids()`, el motor de mora, los créditos de sesión y las tres agregaciones de ingreso sin duplicar helpers de RLS — que es justo el patrón que la auditoría de seguridad ya marcó como riesgo cuando se duplica. |
 | 2 | **Cobro** | No hay tool `create_payment_link`. Existen dos RPCs `SECURITY DEFINER` atómicas — ver ronda 2, punto 1 y 3 — que **transicionan una sesión ya agendada** a `confirmada` y crean el pago en la misma transacción. | Hay 13 caminos hoy que crean `payments` y solo 4 estampan `payment_category` bien. Un tool de pago suelto sería el 14º camino sin censar — mismo incidente que ya pasó con Dynasty. |
-| 3 | **Envío de WhatsApp** | El agente nunca llama a la API de Meta directo — ver ronda 2, punto 5 para cómo queda exactamente el envío. | Ya está construido y validado en dev para los otros agentes de WhatsApp; un sender nuevo por módulo duplica infraestructura que ya resuelve reintentos, plantillas y logging. |
+| 3 | **Envío de WhatsApp** | El agente nunca llama a la API de Meta directo. **Corregido en ronda 3:** sale por el camino de WhatsApp que ya existe (`whatsapp-bot.service.ts` → gate `wa_can_send_template` / `wa_window_is_open` sobre `whatsapp_optins`), **no** por el Despachador Unificado, que es solo push. | El canal WA ya resuelve firma del webhook, idempotencia por mensaje, identificación del padre, opt-in, ventana de 24 h, modo asistido con borradores y kill-switch por número. Un sender nuevo por módulo duplicaría todo eso. |
 | 4 | **Disponibilidad** | No hay `availability_rules` ni `availability_blocks` nuevas. `get_available_slots` delega en el Módulo de Reservas (F0-F7) ya existente. | El motor de "slots libres = reglas − bloqueos − reservas" ya está resuelto ahí; construirlo de nuevo para este módulo es el mismo problema dos veces. |
 | 5 | **Consentimiento clínico** | `clients.consent_at` — sin valor, el Agente 2 no envía `clinical_doc` aunque esté confirmado. | Dato de salud (fisio y psicólogo). Mismo patrón que ya se exigió para informes de coach en Club Carmel: consentimiento previo, nunca retroactivo. |
 
@@ -29,7 +29,7 @@ La ronda 1 cerró tenant y pagos a nivel de principio. Revisando como QA apareci
 | 2 | **Valor concreto de `payment_category`** | `'professional_session'`, agregado a la misma columna `payments.payment_category` (hoy `mensualidad / inscripcion / articulos / otro / torneo`) con una migración `DROP CONSTRAINT` + `ADD CONSTRAINT`, igual que se hizo para agregar `'torneo'` (`20260908152538_catalogo_torneos_y_articulos_self_service.sql`). `cash_ledger` lo expone automático (pasa `payment_category` sin lista cerrada). Si `school_payment_kpis()` o el desglose de `useDashboardStatsReal` tienen un `SUM(CASE WHEN payment_category = …)` por categoría (como ya lo tienen para `'articulos'`), necesitan la rama nueva explícita — verificar al implementar, no es blocker de schema pero sí de no repetir el patrón "9 de 13 caminos no estampan". |
 | 3 | **Confirmación manual (efectivo / transferencia sin link) — el camino que faltaba** | Segunda RPC, `confirm_professional_session_manual(session_id, payment_method, payment_ref)`, mismo patrón atómico, mismo `payment_category = 'professional_session'`, la llama el profesional (comando de WhatsApp o panel), no el agente. Ambas RPCs delegan en un helper interno compartido, `_confirm_professional_session(session_id, payment_id)`, para no duplicar la lógica de transición + estampado — si no, es el mismo bug en dos lugares el día que alguien la toque. |
 | 4 | **`confirmada → atendida` no depende del Agente 3** | Es un cron del módulo base (`pg_cron`, cada 15 min) que mueve `confirmada → atendida` cuando `now() > scheduled_at + duration_min`. Vive desde la primera migración, no se pospone a cuando exista Seguimiento — si no, con el MVP de solo Ventas las sesiones quedan en `confirmada` para siempre y el Agente 4 nunca las suma al resumen. |
-| 5 | **`agent_events` no es un segundo outbox** | Queda como **solo auditoría** (qué tool llamó el agente, qué decidió). El envío real (`message_out`) se inserta directo en la tabla outbox que el Despachador Unificado ya consume — sin tabla intermedia propia, sin dueño doble de "marcar enviado". Nombre exacto de esa tabla a confirmar al implementar. |
+| 5 | **`agent_events` no es un segundo outbox** | Queda como **solo auditoría** (qué tool llamó el agente, qué decidió). El envío real (`message_out`) va por el camino de WhatsApp existente (ver ronda 3) — sin tabla intermedia propia, sin dueño doble de "marcar enviado". `whatsapp_messages` ya registra cada mensaje enviado y recibido; `agent_events` guarda la decisión del agente, no el mensaje. |
 | 6 | **`school_type = 'professional'` va a filtrar listados existentes** | Antes de la migración: censar todo `select … from schools` (y vistas que la envuelven) que alimenta marketplace de escuelas, dashboard de super admin, planes/facturación y reportes consolidados, y decidir el filtro explícito (`school_type = 'academy'` o `<> 'professional'`) en cada uno. Mismo tipo de trabajo que el censo de `payment_category` del punto 2 — se hace antes de migrar, no después. |
 
 Y quedan cerrados los tres puntos que estaban abiertos en §3 de la ronda 1:
@@ -41,6 +41,20 @@ Y quedan cerrados los tres puntos que estaban abiertos en §3 de la ronda 1:
 | Política de no-show / cancelación tardía | Reusa el motor de mora y los créditos de sesión ya existentes para escuelas. Definir uno propio para este módulo es exactamente el tipo de duplicación que las otras decisiones de este documento evitaron. |
 
 Lo que sigue en §1–§2 ya refleja también la ronda 2. Lo que queda abierto está en §3.
+
+---
+
+## 0 ter. Correcciones heredadas — ronda 3 (verificación del repo hecha para el spec de academias, 2026-09-17)
+
+El spec hermano de academias cruzó ~45 componentes contra el repo (su §13). Tres hallazgos invalidan cosas que este documento daba por sentadas:
+
+| # | Lo que este spec asumía | Lo que el repo tiene | Cómo queda acá |
+|---|---|---|---|
+| 1 | El Despachador Unificado manda WhatsApp con plantillas, reintentos y logging (decisión 3, ronda 1 y punto 5, ronda 2) | El outbox `notification_deliveries` (`20260722000002`) es **solo Web Push + FCM** — sin canal, sin plantilla, sin rate limit. El WhatsApp saliente ya tiene camino propio: `whatsapp-bot.service.ts` + `llm.service.ts`, gate `wa_can_send_template` / `wa_window_is_open` sobre `whatsapp_optins` (`20260909215933`), cola `whatsapp-queue.service.ts`, multi-tenant por `phone_number_id` en `school_whatsapp_integrations` | Todo mensaje saliente del agente sale por ese camino. Los tools nuevos se agregan a `TOOLS` / `handleIntent` del bot existente, no se levanta un bot aparte. `notification_deliveries` queda para push in-app. |
+| 2 | `professional_settings.agent_enabled` + `agent_enabled_by/at` como interruptor propio, y `whatsapp_number` propio | Ya existen las tres llaves: módulo por escuela (`school_module_overrides` + RPC `admin_set_school_module`, clave en `frontend/src/config/module-catalog.ts`, auditable desde super admin) y `whatsapp_settings.ai_enabled` + `mode = 'auto' \| 'assisted'`. El número conectado ya vive en `school_whatsapp_integrations` | Se **quitan** `agent_enabled*` y `whatsapp_number` de `professional_settings` (§1.2). Prender el agente = clave de módulo nueva (en `module-catalog.ts` **y** en el `CHECK` de `school_module_overrides`, mismo commit) + `ai_enabled = true` + `mode = 'auto'`. Misma decisión que la pregunta 6 del spec hermano. |
+| 3 | "Confirmar que el webhook de pago es idempotente" (pendiente en §3) | `webhook_events` con `UNIQUE (provider, event_id)` (`20260701000003`); Wompi y MP ya lo usan (`wompi.ts:192-203`, `mercadopago.ts:197-207`). ePayco solo tiene SQL legado, sin handler | Cerrado para Wompi/MP. `process_professional_session_checkout` se dispara desde esos handlers ya idempotentes; si entra otro proveedor, se registra en `webhook_events`. |
+
+Además, la mecánica de escalada ya existe (`escalate_to_human` en `whatsapp-bot.service.ts:868`, `whatsapp_blocked_numbers` + `wa_is_blocked`, borradores en `whatsapp_message_drafts`): `escalation_rules` sigue siendo tabla nueva, pero `pausa_y_notifica` y `/retomar` se implementan sobre eso.
 
 ---
 
@@ -56,16 +70,15 @@ RLS: ninguna tabla de este módulo define política propia de tenancy. Todas lle
 
 ```sql
 -- Config del agente para una escuela de tipo 'professional'.
--- Nombre, teléfono, logo, etc. ya viven en `schools`; acá solo lo que es específico del agente.
+-- Nombre, teléfono, logo, etc. ya viven en `schools`; el número de WhatsApp conectado
+-- vive en `school_whatsapp_integrations`; el interruptor del agente son las llaves
+-- existentes (módulo por escuela + whatsapp_settings.ai_enabled/mode) — ver ronda 3.
+-- Acá solo lo que es específico de este módulo.
 create table professional_settings (
   school_id         uuid primary key references public.schools(id) on delete cascade,
   role              text not null check (role in ('fisio','entrenador','psicologo')),
-  whatsapp_number   text not null,                    -- número conectado vía Cloud API (puede diferir del `schools.phone`)
   timezone          text not null default 'America/Bogota',
   tone              text not null default 'amigable' check (tone in ('formal','amigable','cercano')),
-  agent_enabled     boolean not null default false,
-  agent_enabled_by  uuid references public.profiles(id),   -- quién lo prendió — auditable, igual que el flag de banco de horas
-  agent_enabled_at  timestamptz,
   summary_time      time not null default '20:00',         -- hora del resumen diario (Agente 4)
   created_at        timestamptz not null default now()
 );
@@ -161,8 +174,9 @@ create table client_progress (
 );
 
 -- Solo auditoría: qué tool llamó el agente, qué decidió. NO es outbox.
--- El envío real (message_out) va directo a la tabla outbox del Despachador
--- Unificado ya existente — esta tabla no reenvía ni marca "enviado".
+-- El envío real (message_out) va por el camino de WhatsApp existente
+-- (whatsapp-bot.service.ts, gate wa_can_send_template) y queda registrado en
+-- whatsapp_messages — esta tabla no reenvía ni marca "enviado".
 create table agent_events (
   id                uuid primary key default gen_random_uuid(),
   school_id         uuid not null references public.schools(id),
@@ -271,8 +285,8 @@ Fuera del alcance del agente: si el profesional confirma manual (efectivo/transf
 6. HORARIO        get_available_slots → ofrece 3 opciones concretas ("mar 5:00 pm, mié 7:00 am, jue 5:00 pm")
 7. AGENDAR        create_session → status = agendada. Confirma fecha, lugar, precio
 8. COBRAR         request_session_payment (la sesión ya está agendada) → "para dejar el cupo reservado, paga aquí: <link>"
-9. CONFIRMAR      webhook de pago (idempotente, ver §3) → process_professional_session_checkout transiciona agendada→confirmada + crea el pago → evento message_out al outbox del Despachador (cliente y profesional)
-10. SI NO PAGA    recordatorio a las 12 h (evento al outbox del Despachador); a las 24 h el link expira, la reserva se libera, status = abandonada
+9. CONFIRMAR      webhook de pago (ya idempotente vía webhook_events) → process_professional_session_checkout transiciona agendada→confirmada + crea el pago → mensaje al cliente y al profesional por el camino WA existente (gate wa_can_send_template)
+10. SI NO PAGA    recordatorio a las 12 h (plantilla por el camino WA, sujeta al mismo gate); a las 24 h el link expira, la reserva se libera, status = abandonada
 ```
 
 ### 2.4 Mensajes tipo (rol fisio, tono amigable)
@@ -301,7 +315,7 @@ Fuera del alcance del agente: si el profesional confirma manual (efectivo/transf
 
 - Nunca inventa precios, horarios ni servicios: solo lo que devuelve `get_school_context` y `get_available_slots`.
 - Nunca da consejo clínico, diagnóstico ni recomendaciones de ejercicio. Eso es trigger de escalada.
-- Nunca llama a la API de WhatsApp directo — todo mensaje saliente se inserta en el outbox del Despachador Unificado, no en `agent_events` (que es solo auditoría).
+- Nunca llama a la API de WhatsApp directo — todo mensaje saliente pasa por el camino WA existente y su gate `wa_can_send_template`; `agent_events` es solo auditoría y no dispara envíos.
 - Máximo 3 opciones de horario por mensaje.
 - Confirma siempre fecha + hora + lugar + precio antes de cobrar.
 - Si el cliente escribe fuera del horario de atención, responde igual (es 24/7) pero aclara cuándo responde el profesional si escala.
@@ -346,11 +360,11 @@ REGLAS:
 ## 3. Decisiones y riesgos pendientes (no bloquean el schema, sí bloquean partes de la implementación)
 
 **Antes de prometerle nada al segundo profesional piloto:**
-- **Modelo de número de WhatsApp.** Cada número bajo el Tech Provider de Meta necesita registro, display name aprobado y verificación propia — con 3 profesionales piloto se maneja a mano, con 30 es un cuello de botella de Meta, no técnico. Falta decidir entre: **(a)** número propio por profesional (identidad clara — "te escribe Laura" — pero escala al ritmo de la verificación de Meta) o **(b)** número compartido de SportMaps con routing interno por `school_id` (escala rápido, pero el cliente le escribe "a SportMaps", no a su profesional). No es una decisión técnica, es de producto — no bloquea el MVP de un solo piloto, sí bloquea decirle que sí al segundo.
+- **Modelo de número de WhatsApp.** Cada número bajo el Tech Provider de Meta necesita registro, display name aprobado y verificación propia — con 3 profesionales piloto se maneja a mano, con 30 es un cuello de botella de Meta, no técnico. Falta decidir entre: **(a)** número propio por profesional (identidad clara — "te escribe Laura" — pero escala al ritmo de la verificación de Meta) o **(b)** número compartido de SportMaps con routing interno por `school_id` (escala rápido, pero el cliente le escribe "a SportMaps", no a su profesional). No es una decisión técnica, es de producto — no bloquea el MVP de un solo piloto, sí bloquea decirle que sí al segundo. **Dato del repo:** lo construido hoy es (a) — `school_whatsapp_integrations` es multi-tenant por `phone_number_id`, un número por escuela; (b) exigiría routing nuevo.
 
 **Antes de ir a producción con cobros:**
-- Confirmar que el webhook de pago existente (Wompi/MP/epayco, el que ya usa `payment_accounts`) es idempotente por referencia — si no, `process_professional_session_checkout` necesita su propio chequeo antes de marcar `confirmada` dos veces.
-- Verificar si `school_payment_kpis()` / `useDashboardStatsReal` necesitan una rama explícita para `payment_category = 'professional_session'` (ver §0 bis, punto 2) o si el desglose genérico alcanza.
+- ~~Confirmar que el webhook de pago es idempotente~~ **Cerrado (ronda 3):** `webhook_events UNIQUE (provider, event_id)` ya lo garantiza para Wompi y MP. `process_professional_session_checkout` debe ser además idempotente por `session_id` (solo transiciona si sigue en `agendada`), como doble cerrojo.
+- `school_payment_kpis()` **sí** desglosa con lista fija (`CASE WHEN payment_category = 'articulos' … = 'torneo'` → `revenue_articulos`, `revenue_torneo`; verificado 2026-09-17). Si se quiere `revenue_professional_session` separado, hay que agregar la rama en la misma migración que amplía el `CHECK`. `cash_ledger` no necesita cambio. `useDashboardStatsReal` no tiene RPC (12 queries directas desde el browser) — no toca `payment_category`.
 
 **Antes de escribir el prompt real:**
 - Definir el formato de **golden transcripts** (conversaciones doradas) como suite de regresión del prompt — Playwright no valida esto. Es una convención de módulo, no una migración; buen entregable para fijar como parte del QA de este proyecto antes de que exista el primer prompt.
@@ -378,7 +392,7 @@ REGLAS:
 4. Cron `pg_cron` para `confirmada → atendida` (§0 bis, punto 4) — parte del módulo base, no espera al Agente 3.
 5. Integración de `get_available_slots` / `create_session` contra el Módulo de Reservas (Google Calendar como espejo de solo lectura, ya cerrado).
 6. Onboarding mínimo en el panel: `school_type='professional'`, `professional_settings`, catálogo, disponibilidad (reusa las pantallas del Módulo de Reservas).
-7. Tools de 2.2 como Edge Functions; el envío de mensajes va directo al outbox del Despachador Unificado, `agent_events` queda aparte como auditoría.
+7. Tools de 2.2 agregados a `TOOLS` / `handleIntent` de `whatsapp-bot.service.ts` (no un bot aparte); el envío sale por el camino WA existente con su gate `wa_can_send_template`; `agent_events` queda aparte como auditoría. Prender el agente para un profesional = clave de módulo en `module-catalog.ts` + `school_module_overrides` + `whatsapp_settings.ai_enabled/mode` (ronda 3).
 8. Decidir el modelo de número de WhatsApp (§3) antes de sumar al segundo profesional piloto.
 9. Agente de Ventas con un solo profesional piloto — antes de prender `agent_enabled`, tener los golden transcripts de §3 como gate de calidad.
 10. Recién ahí: Agente 2 (Clínico), reutilizando `sessions` y `agent_events`, con el gate de `consent_at` desde el día uno.
