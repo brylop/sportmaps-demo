@@ -86,8 +86,10 @@ CREATE TABLE public.training_microcycle_days (
 > la causa raíz del bug de sesiones huérfanas del 18-sep (mitigado, no
 > corregido de raíz — ver spec §8.2). Además impide modelar dos sesiones el
 > mismo día (gimnasio AM + cancha PM), un caso normal en un club juvenil.
-> Pendiente: mover el FK a `training_sessions.microcycle_day_id` (nullable)
-> como decía el spec desde el principio.
+> ✅ **Corregido 2026-09-21** (`20260921130849`): el FK se movió a
+> `training_sessions.microcycle_day_id` (nullable), con backfill 1:1 de los
+> 11 enganches reales y `training_microcycle_days.session_id` borrada en la
+> misma migración. Ver spec §8.2.
 
 ### 1.3 `training_mesocycles` (D9)
 

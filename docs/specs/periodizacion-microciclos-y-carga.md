@@ -368,13 +368,14 @@ retirado de `MesocycleSection.tsx`.
 
 ### 8.2 Dirección del FK día↔sesión, invertida respecto a este spec — ver nota en §3.2
 
-El plan de ejecución puso `session_id` en el día en vez de `microcycle_day_id`
-en la sesión (que es lo que dice §3.2 arriba). Consecuencia medida en
-producción: `UNIQUE(microcycle_id, day_date)` fuerza una sesión por día, y la
-creación en dos escrituras no transaccionales fue la causa raíz de sesiones
-huérfanas reales (ya arregladas a mano). El fix aplicado el 18-sep es
-paliativo (ocultar el botón que creaba huérfanas); la causa de fondo —el
-sentido del FK— sigue sin corregirse.
+✅ **Corregido 2026-09-21** (`20260921130849`). `training_sessions.microcycle_day_id`
+reemplazó a `training_microcycle_days.session_id` — nullable, sin `UNIQUE`,
+tal como siempre dijo §3.2. Backfill 1:1 de los 11 enganches reales,
+verificado sin colisiones antes de escribir el `UPDATE`. Crear una sesión
+para un día pasó de ser INSERT+UPDATE (la causa raíz de las huérfanas del
+18-sep) a un solo INSERT. Probado en vivo: dos sesiones el mismo día
+(gimnasio AM + cancha PM) conviven sin chocar; borrar un mesociclo
+desengancha sus sesiones sin borrarlas.
 
 ### 8.3 Carga por atleta — ver D13 nuevo en §3.3
 
