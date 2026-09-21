@@ -12,8 +12,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarPicker } from '@/components/ui/calendar';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Calendar, CalendarRange, ClipboardList, Pencil, Plus, Star, Target } from 'lucide-react';
+import { Calendar, CalendarRange, ClipboardList, Pencil, Plus, Star, Target, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { MesocycleFormDialog, type MesocycleFormSubmit } from './MesocycleFormDialog';
@@ -44,27 +54,6 @@ const DAY_TYPE_BADGE: Record<string, string> = {
   activacion: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25',
 };
 
-/** Índice MD: distancia en días al partido anterior/siguiente dentro de la
- *  MISMA semana. No persiste (D3) — se calcula acá, sobre los días ya
- *  cargados. Un día entre dos partidos devuelve ambas etiquetas. */
-function mdLabelsForDay(dayDate: string, allDays: { day_date: string; day_type: string }[]): string[] {
-  const matchDates = allDays.filter((d) => d.day_type === 'partido').map((d) => d.day_date);
-  if (matchDates.length === 0) return [];
-  const target = new Date(dayDate).getTime();
-  const labels: string[] = [];
-  let closestBefore: number | null = null;
-  let closestAfter: number | null = null;
-  for (const m of matchDates) {
-    const diffDays = Math.round((target - new Date(m).getTime()) / 86400000);
-    if (diffDays === 0) return ['MD'];
-    if (diffDays > 0 && (closestBefore === null || diffDays < closestBefore)) closestBefore = diffDays;
-    if (diffDays < 0 && (closestAfter === null || -diffDays < closestAfter)) closestAfter = -diffDays;
-  }
-  if (closestBefore !== null) labels.push(`MD+${closestBefore}`);
-  if (closestAfter !== null) labels.push(`MD-${closestAfter}`);
-  return labels;
-}
-
 interface MesocycleSectionProps {
   teamId: string;
   schoolId: string;
@@ -84,6 +73,7 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
   const [newDay, setNewDay] = useState({ day_date: '', day_type: 'entrenamiento', planned_rpe: '', planned_minutes: '', focus: '' });
   // Día para el que se está creando la sesión de contenido (SessionFormDialog, sin tocar el componente).
   const [sessionDialogDay, setSessionDialogDay] = useState<any | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const { data: mesocycle, isLoading: loadingMesocycle } = useQuery({
     queryKey: ['mesocycle-current', teamId],
@@ -133,6 +123,28 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
       return data;
     },
     enabled: !!microcycles && microcycles.length > 0,
+  });
+
+  // Índice MD: distancia en días al partido anterior/siguiente del EQUIPO,
+  // sin importar en qué microciclo esté cargado ese partido (H1 — antes se
+  // calculaba solo contra los partidos de la misma semana, y un lunes no
+  // veía el partido del domingo si vivía en el microciclo anterior).
+  // training_days_md_labels() lo resuelve en la base contra todo el
+  // historial del equipo, RPC 20260921115743.
+  const { data: mdLabelsByDate } = useQuery({
+    queryKey: ['md-labels', teamId, (days || []).map((d: any) => d.day_date).join(',')],
+    queryFn: async () => {
+      const dayDates = (days || []).map((d: any) => d.day_date);
+      const { data, error } = await (supabase as any).rpc('training_days_md_labels', {
+        p_team_id: teamId,
+        p_day_dates: dayDates,
+      });
+      if (error) throw error;
+      const map: Record<string, string[]> = {};
+      (data || []).forEach((r: any) => { map[r.day_date] = r.md_labels || []; });
+      return map;
+    },
+    enabled: !!days && days.length > 0,
   });
 
   const sessionsById = useMemo(() => {
@@ -185,6 +197,29 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
       setFormOpen(false);
     },
     onError: (error: any) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
+  });
+
+  // Antes no existía forma de borrar un mesociclo mal creado desde la UI —
+  // el único recurso del coach era crear uno nuevo, y eso fue lo que disparó
+  // el bug de mesociclos fantasma sin semanas (20260918124721). RPC en vez
+  // de un DELETE directo: training_microcycles.mesocycle_id es
+  // ON DELETE SET NULL (D10, a propósito), así que un DELETE simple sobre
+  // training_mesocycles deja las semanas huérfanas SIN borrar, todavía
+  // ocupando UNIQUE(team_id, starts_on) — no resolvía el problema que lo
+  // motivó. delete_mesocycle_cascade() (20260921120611) borra semanas y
+  // mesociclo en la misma transacción. Las sesiones de contenido
+  // (training_sessions) NO se borran, solo pierden el enganche al día.
+  const deleteMesocycle = useMutation({
+    mutationFn: async () => {
+      const { error } = await (supabase as any).rpc('delete_mesocycle_cascade', { p_mesocycle_id: mesocycle.id });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mesocycle-current', teamId] });
+      toast({ title: 'Mesociclo eliminado' });
+      setConfirmDelete(false);
+    },
+    onError: (error: any) => toast({ title: 'Error al eliminar', description: error.message, variant: 'destructive' }),
   });
 
   const createDay = useMutation({
@@ -306,10 +341,21 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                 </CardDescription>
               )}
             </div>
-            <Button variant="outline" size="sm" className="gap-1.5 shrink-0" onClick={() => setFormOpen(true)}>
-              <Pencil className="w-3.5 h-3.5" />
-              Editar
-            </Button>
+            <div className="flex gap-1.5 shrink-0">
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setFormOpen(true)}>
+                <Pencil className="w-3.5 h-3.5" />
+                Editar
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-destructive hover:text-destructive"
+                onClick={() => setConfirmDelete(true)}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Eliminar
+              </Button>
+            </div>
           </div>
         </CardHeader>
         {mesocycle.game_model && (
@@ -340,7 +386,7 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                   <div className="space-y-1.5">
                     {mcDays.map((day: any) => {
                       const session = day.session_id ? sessionsById.get(day.session_id) : null;
-                      const mdLabels = mdLabelsForDay(day.day_date, mcDays);
+                      const mdLabels = mdLabelsByDate?.[day.day_date] || [];
                       return (
                         <div
                           key={day.id}
@@ -408,6 +454,8 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                                 onSelect={(date) => date && setNewDay({ ...newDay, day_date: format(date, 'yyyy-MM-dd') })}
                                 locale={es}
                                 initialFocus
+                                fromDate={new Date(mc.starts_on + 'T00:00:00')}
+                                toDate={new Date(mc.ends_on + 'T00:00:00')}
                               />
                             </PopoverContent>
                           </Popover>
@@ -552,6 +600,28 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
         isLoading={createMesocycle.isPending || updateMesocycle.isPending}
         mesocycle={mesocycle}
       />
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar este mesociclo?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se borran sus semanas, días y la rúbrica de evaluación. Las sesiones de contenido ya
+              creadas NO se eliminan, solo pierden el enganche al día. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteMesocycle.isPending}
+              onClick={() => deleteMesocycle.mutate()}
+            >
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {sessionDialogDay && (
         <SessionFormDialog
