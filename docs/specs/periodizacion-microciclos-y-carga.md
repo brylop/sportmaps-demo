@@ -360,9 +360,11 @@ fixes, para que no se pierda entre el código y el chat.
 
 ### 8.1 Índice MD no cruza microciclos — ver nota en §3.4
 
-Bug de correctitud, no solo de cobertura: reproduce H1 dentro del producto.
-Pendiente antes de `PER-5` (si no, el exportable imprime el mismo error que el
-Canva de Santa Fe).
+✅ **Corregido 2026-09-21** (`20260921115743`). RPC `training_days_md_labels()`
+mira todos los partidos del equipo, sin importar el microciclo. Probado contra
+un mesociclo con partidos en semanas distintas: el día siguiente a un partido
+de la semana anterior ahora sí muestra `MD+1`. `mdLabelsForDay()` en cliente,
+retirado de `MesocycleSection.tsx`.
 
 ### 8.2 Dirección del FK día↔sesión, invertida respecto a este spec — ver nota en §3.2
 
@@ -391,10 +393,23 @@ El `INSERT` a `performance_entries` de §1.5 (ver
 `plan-mesociclo-carmel-2026-08-31.md`) no tiene dónde guardar el corte
 (`inicial`/`semana_2`/`semana_3`/`semana_4`/`final`) — se pierde exactamente el
 eje que distingue una rúbrica de una sola nota. Camino nunca ejercido en
-producción (§3.6 ya lo advertía). Recomendación: lanzar solo modo `team`,
-`individual` detrás de un flag hasta corregir el corte.
+producción (§3.6 ya lo advertía). ⚠️ **Mitigado, no corregido, 2026-09-21:**
+la opción "Por atleta" queda deshabilitada (grisada, con nota) en
+`MesocycleFormDialog.tsx` — sigue eligible el que ya la tuviera guardada de
+antes (no había ninguno en producción), pero nadie nuevo puede elegirla hasta
+que el corte se guarde de verdad. La causa de fondo sigue sin tocarse.
 
 ### 8.6 Endurecer el DDL — hallazgos de QA sobre el esquema aplicado
+
+✅ **Los 4 puntos de abajo corregidos y probados 2026-09-21** (`20260921115743`)
+— FK compuesto, exclusión de solapamiento, `UNIQUE(mesocycle_id, number)` y el
+trigger de rango, los cuatro con un caso negativo real que confirma que
+rechazan. Al verificar el día-en-rango antes de crear el trigger se encontró
+1 fila real fuera de rango (team 1375b77e, corregida) y 2 filas del mesociclo
+de prueba "PRUEBA" que quedaron sin tocar (sin semana válida a la que
+reasignarse / duplicado de una fila ya correcta). Sigue pendiente la quinta
+viñeta (pruebas negativas de RLS en `seguridad:invariantes`) — no se tocó esa
+RPC genérica en esta pasada.
 
 Verificado contra `pg_constraint` en la base viva el 18-sep (no son
 hipótesis):
@@ -443,3 +458,21 @@ renderiza el accordion por semana cuando hay un `mesocycle` cargado — un
 equipo con microciclos sueltos (sin mesociclo) hoy no tiene ninguna vista que
 los agrupe; cae a la lista plana de sesiones de siempre, sin días, sin tipo,
 sin índice MD. La opción que D10 dijo que quedaba disponible no tiene UI.
+Sigue sin construirse.
+
+### 8.9 Cerrado en la misma pasada del 21-sep, no encontrado en la revisión original
+
+Dos cosas más, ✅ cerradas junto con §8.1/§8.5/§8.6:
+
+- **Botón "Eliminar mesociclo".** No existía forma de recuperarse de un
+  mesociclo mal creado desde la UI — exactamente lo que disparó el bug de
+  mesociclos fantasma del 18-sep. Al construirlo se encontró un segundo
+  defecto: `training_microcycles.mesocycle_id` es `ON DELETE SET NULL` (D10),
+  así que un `DELETE` directo sobre `training_mesocycles` no borraba las
+  semanas — quedaban huérfanas y seguían ocupando `UNIQUE(team_id,
+  starts_on)`, sin resolver nada. RPC `delete_mesocycle_cascade()`
+  (`20260921120611`) borra semanas y mesociclo en una transacción; probado el
+  ciclo completo crear→borrar→recrear con las mismas fechas.
+- **`component`** (técnico/táctico/físico/mixto) agregado a cada bloque de
+  `session_blocks` en `SessionFormDialog.tsx` — lo único que la grilla del
+  Excel de Carmel (§3.5) pedía y `CAR-8` no había sumado.

@@ -1224,6 +1224,19 @@ probarse el flujo end-to-end con un coach real** (sin credenciales de login en e
 > hipotético: se verificó contra `pg_policies`/`pg_constraint` de la base viva,
 > no contra el `.sql`.
 
+> **Seguimiento — 2026-09-21.** Cerrada la parte de la revisión que no tocaba
+> la dirección del FK día↔sesión: índice MD cruzando microciclos (RPC
+> `training_days_md_labels`, `20260921115743`), las 4 piezas de DDL
+> endurecido con caso negativo probado, botón "Eliminar mesociclo" (RPC
+> `delete_mesocycle_cascade`, `20260921120611` — se necesitó una segunda
+> migración porque la primera versión del botón no borraba las semanas, ver
+> spec §8.9), modo `individual` de la rúbrica deshabilitado en el formulario
+> hasta corregir su defecto, y `component` en `session_blocks`. Sigue
+> abierto: FK día↔sesión invertido (§8.2), D13/carga por atleta (§8.3),
+> vista agrupada para microciclos sin mesociclo (§8.8), pruebas negativas de
+> RLS en `seguridad:invariantes`, y las fases `PER-0(c)/2/3/4/5/6` sin
+> empezar.
+
 > **Dos cosas que este track NO hace, y conviene que queden escritas.** **(1)** No mide con GPS ni
 > wearables: `D-CARGA` elige sRPE justamente porque no necesita hardware ni presupuesto, y funciona
 > con un dato que el coach ya tiene en la cabeza al terminar. **(2)** No registra lesiones. En el

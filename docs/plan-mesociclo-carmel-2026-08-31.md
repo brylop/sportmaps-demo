@@ -281,6 +281,12 @@ toca RLS de tablas existentes ni revoca ningún grant ya dado.
 
 ## 6a. Endurecimiento de DDL pendiente — revisión de QA, 2026-09-18
 
+✅ **Los 4 puntos de abajo aplicados y probados el 2026-09-21**
+(`20260921115743`), con caso negativo real para cada uno. Detalle en
+`specs/periodizacion-microciclos-y-carga.md` §8.6. El único ítem de esa
+sección que sigue sin tocar es la cobertura de RLS negativa en
+`seguridad:invariantes`.
+
 Verificado contra `pg_constraint` en la base viva, no supuesto:
 
 - ✅ **`CHECK(ends_on >= starts_on)` ya está** en `training_mesocycles` y
