@@ -1,15 +1,33 @@
 import { useState, useEffect } from 'react'
 
+// `register.ts` vuelve a chequear la versión en cada `focus`/`visibilitychange`
+// (throttle 60s) y puede volver a disparar `pwa:update-available` para la
+// MISMA actualización ya detectada, mientras la pestaña sigue abierta. Sin
+// este guard, cerrar el banner con la X no servía de nada: reaparecía solo
+// con volver a la pestaña. sessionStorage (no localStorage): se resetea en
+// una recarga real de página, que es justo cuando conviene volver a avisar
+// si sigue habiendo una versión más nueva.
+const DISMISSED_KEY = 'sm_update_dismissed'
+
+function yaFueCerrado() {
+  try { return sessionStorage.getItem(DISMISSED_KEY) === '1' } catch { return false }
+}
+
 export function UpdateBanner() {
   const [show, setShow] = useState(false)
 
   useEffect(() => {
-    const handler = () => setShow(true)
+    const handler = () => { if (!yaFueCerrado()) setShow(true) }
     window.addEventListener('pwa:update-available', handler)
     return () => window.removeEventListener('pwa:update-available', handler)
   }, [])
 
   if (!show) return null
+
+  const dismiss = () => {
+    try { sessionStorage.setItem(DISMISSED_KEY, '1') } catch { /* modo privado: no persiste, pero cierra igual */ }
+    setShow(false)
+  }
 
   return (
     <div className="fixed top-0 left-0 right-0 bg-sky-500 text-white text-sm text-center py-2.5 z-[100] flex justify-center items-center gap-4 shadow-sm animate-in slide-in-from-top duration-300">
@@ -20,7 +38,7 @@ export function UpdateBanner() {
       >
         Actualizar ahora
       </button>
-      <button onClick={() => setShow(false)} className="bg-white/20 hover:bg-white/30 rounded-full p-1 transition-colors">
+      <button onClick={dismiss} className="bg-white/20 hover:bg-white/30 rounded-full p-1 transition-colors">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
       </button>
     </div>

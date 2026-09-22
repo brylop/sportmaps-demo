@@ -13,6 +13,7 @@ dotenv.config();
 
 import studentsRouter from './routes/students';
 import createOneRouter from './routes/students-create-one.route';
+import enrollmentIntakeRouter from './routes/enrollment-intake.routes';
 import enrollmentsRouter from './routes/enrollments';
 import invitationsRouter from './routes/invitations.routes';
 import reportsRouter from './routes/reports';
@@ -291,6 +292,7 @@ app.use('/api/v1', requireOperationalSchool);
 
 app.use('/api/v1/students', generalLimiter, studentsRouter);
 app.use('/api/v1/students', generalLimiter, createOneRouter);
+app.use('/api/v1/enrollment-intake', generalLimiter, enrollmentIntakeRouter);
 app.use('/api/v1/enrollments', generalLimiter, enrollmentsRouter);
 app.use('/api/v1/invitations', generalLimiter, invitationsRouter);
 app.use('/api/v1/reports', generalLimiter, reportsRouter);

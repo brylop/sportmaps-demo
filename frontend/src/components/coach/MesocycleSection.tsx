@@ -12,8 +12,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarPicker } from '@/components/ui/calendar';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Calendar, CalendarRange, ClipboardList, Pencil, Plus, Star, Target } from 'lucide-react';
+import { Calendar, CalendarRange, ClipboardList, Pencil, Plus, Star, Target, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { MesocycleFormDialog, type MesocycleFormSubmit } from './MesocycleFormDialog';
@@ -27,36 +37,6 @@ const DAY_TYPE_OPTIONS = [
   { value: 'regenerativo', label: 'Regenerativo' },
   { value: 'activacion', label: 'Activación' },
 ] as const;
-
-/** Divide el rango del mesociclo en EXACTAMENTE 4 semanas — como el Excel
- *  ("Semana 1..4"), no en bloques de 7 días sueltos. Un mes de 30/31 días no
- *  es múltiplo de 7: repartir el resto entre las primeras semanas evita una
- *  5ª semana "suelta" de 1-3 días que el Excel no contempla. Si el rango es
- *  más corto que 4 días, genera menos de 4 semanas en vez de semanas vacías. */
-function buildWeeklyMicrocycles(startsOn: string, endsOn: string) {
-  const start = new Date(startsOn + 'T00:00:00');
-  const end = new Date(endsOn + 'T00:00:00');
-  const totalDays = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
-  const baseLen = Math.floor(totalDays / 4);
-  const remainder = totalDays % 4;
-
-  const weeks: { number: number; starts_on: string; ends_on: string }[] = [];
-  let cursor = new Date(start);
-  for (let i = 0; i < 4; i++) {
-    const len = baseLen + (i < remainder ? 1 : 0);
-    if (len <= 0) break;
-    const weekEnd = new Date(cursor);
-    weekEnd.setDate(weekEnd.getDate() + len - 1);
-    weeks.push({
-      number: i + 1,
-      starts_on: cursor.toISOString().slice(0, 10),
-      ends_on: weekEnd.toISOString().slice(0, 10),
-    });
-    cursor = new Date(weekEnd);
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return weeks;
-}
 
 const DAY_TYPE_LABEL: Record<string, string> = {
   descanso: 'Descanso',
@@ -73,27 +53,6 @@ const DAY_TYPE_BADGE: Record<string, string> = {
   regenerativo: 'bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/25',
   activacion: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25',
 };
-
-/** Índice MD: distancia en días al partido anterior/siguiente dentro de la
- *  MISMA semana. No persiste (D3) — se calcula acá, sobre los días ya
- *  cargados. Un día entre dos partidos devuelve ambas etiquetas. */
-function mdLabelsForDay(dayDate: string, allDays: { day_date: string; day_type: string }[]): string[] {
-  const matchDates = allDays.filter((d) => d.day_type === 'partido').map((d) => d.day_date);
-  if (matchDates.length === 0) return [];
-  const target = new Date(dayDate).getTime();
-  const labels: string[] = [];
-  let closestBefore: number | null = null;
-  let closestAfter: number | null = null;
-  for (const m of matchDates) {
-    const diffDays = Math.round((target - new Date(m).getTime()) / 86400000);
-    if (diffDays === 0) return ['MD'];
-    if (diffDays > 0 && (closestBefore === null || diffDays < closestBefore)) closestBefore = diffDays;
-    if (diffDays < 0 && (closestAfter === null || -diffDays < closestAfter)) closestAfter = -diffDays;
-  }
-  if (closestBefore !== null) labels.push(`MD+${closestBefore}`);
-  if (closestAfter !== null) labels.push(`MD-${closestAfter}`);
-  return labels;
-}
 
 interface MesocycleSectionProps {
   teamId: string;
@@ -116,6 +75,7 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
   const [newDay, setNewDay] = useState({ day_date: '', day_type: 'entrenamiento', planned_rpe: '', planned_minutes: '', focus: '' });
   // Día para el que se está creando la sesión de contenido (SessionFormDialog, sin tocar el componente).
   const [sessionDialogDay, setSessionDialogDay] = useState<any | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   // Objeto ESTABLE para el prop `session` de SessionFormDialog: si en vez de esto
   // se arma un literal `{ session_date: ... }` inline en el JSX, cambia de
   // referencia en CADA render de MesocycleSection (no solo cuando cambia el día
@@ -189,36 +149,61 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
     enabled: !!microcycles && microcycles.length > 0,
   });
 
-  const sessionsById = useMemo(() => {
-    const m = new Map<string, any>();
-    sessions.forEach((s) => m.set(s.id, s));
+  // Índice MD: distancia en días al partido anterior/siguiente del EQUIPO,
+  // sin importar en qué microciclo esté cargado ese partido (H1 — antes se
+  // calculaba solo contra los partidos de la misma semana, y un lunes no
+  // veía el partido del domingo si vivía en el microciclo anterior).
+  // training_days_md_labels() lo resuelve en la base contra todo el
+  // historial del equipo, RPC 20260921115743.
+  const { data: mdLabelsByDate } = useQuery({
+    queryKey: ['md-labels', teamId, (days || []).map((d: any) => d.day_date).join(',')],
+    queryFn: async () => {
+      const dayDates = (days || []).map((d: any) => d.day_date);
+      const { data, error } = await (supabase as any).rpc('training_days_md_labels', {
+        p_team_id: teamId,
+        p_day_dates: dayDates,
+      });
+      if (error) throw error;
+      const map: Record<string, string[]> = {};
+      (data || []).forEach((r: any) => { map[r.day_date] = r.md_labels || []; });
+      return map;
+    },
+    enabled: !!days && days.length > 0,
+  });
+
+  // Por día, no por id de sesión (§8.2 corregido: un día admite cualquier
+  // cantidad de sesiones — gimnasio AM + cancha PM es un caso normal — así
+  // que el enganche vive en training_sessions.microcycle_day_id, no al revés).
+  const sessionsByDayId = useMemo(() => {
+    const m = new Map<string, any[]>();
+    sessions.forEach((s) => {
+      if (!s.microcycle_day_id) return;
+      const list = m.get(s.microcycle_day_id) || [];
+      list.push(s);
+      m.set(s.microcycle_day_id, list);
+    });
     return m;
   }, [sessions]);
 
   const createMesocycle = useMutation({
     mutationFn: async (input: MesocycleFormSubmit) => {
-      const { data: newMesocycle, error } = await (supabase as any)
-        .from('training_mesocycles')
-        .insert({ ...input, school_id: schoolId, created_by: user?.id })
-        .select()
-        .single();
+      // RPC transaccional (mesociclo + sus 4 semanas en la MISMA transacción
+      // de la función) — antes eran dos inserts sueltos desde el cliente: si
+      // el segundo (las semanas) chocaba con UNIQUE(team_id, starts_on) por
+      // reintentar sobre el mismo equipo/fechas, el mesociclo quedaba
+      // igual commiteado, sin semanas y sin forma de agregar sesiones.
+      const { data: newMesocycle, error } = await (supabase as any).rpc('create_mesocycle_with_weeks', {
+        p_school_id: schoolId,
+        p_team_id: teamId,
+        p_starts_on: input.starts_on,
+        p_ends_on: input.ends_on,
+        p_general_objective: input.general_objective ?? null,
+        p_game_model: input.game_model ?? null,
+        p_n_sessions_planned: input.n_sessions_planned ?? null,
+        p_session_duration_minutes: input.session_duration_minutes ?? null,
+        p_evaluation_mode: input.evaluation_mode ?? 'team',
+      });
       if (error) throw error;
-
-      // Auto-crea las semanas del mesociclo (D9/D10) — sin esto el coach
-      // crea el contenedor y no tiene dónde cargar ninguna sesión.
-      const weeks = buildWeeklyMicrocycles(input.starts_on, input.ends_on);
-      const { error: weeksError } = await (supabase as any).from('training_microcycles').insert(
-        weeks.map((w) => ({
-          school_id: schoolId,
-          team_id: teamId,
-          mesocycle_id: newMesocycle.id,
-          number: w.number,
-          starts_on: w.starts_on,
-          ends_on: w.ends_on,
-          created_by: user?.id,
-        })),
-      );
-      if (weeksError) throw weeksError;
 
       return newMesocycle;
     },
@@ -246,6 +231,29 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
     onError: (error: any) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
 
+  // Antes no existía forma de borrar un mesociclo mal creado desde la UI —
+  // el único recurso del coach era crear uno nuevo, y eso fue lo que disparó
+  // el bug de mesociclos fantasma sin semanas (20260918124721). RPC en vez
+  // de un DELETE directo: training_microcycles.mesocycle_id es
+  // ON DELETE SET NULL (D10, a propósito), así que un DELETE simple sobre
+  // training_mesocycles deja las semanas huérfanas SIN borrar, todavía
+  // ocupando UNIQUE(team_id, starts_on) — no resolvía el problema que lo
+  // motivó. delete_mesocycle_cascade() (20260921120611) borra semanas y
+  // mesociclo en la misma transacción. Las sesiones de contenido
+  // (training_sessions) NO se borran, solo pierden el enganche al día.
+  const deleteMesocycle = useMutation({
+    mutationFn: async () => {
+      const { error } = await (supabase as any).rpc('delete_mesocycle_cascade', { p_mesocycle_id: mesocycle.id });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mesocycle-current', teamId] });
+      toast({ title: 'Mesociclo eliminado' });
+      setConfirmDelete(false);
+    },
+    onError: (error: any) => toast({ title: 'Error al eliminar', description: error.message, variant: 'destructive' }),
+  });
+
   const createDay = useMutation({
     mutationFn: async ({ microcycleId, day }: { microcycleId: string; day: typeof newDay }) => {
       const { error } = await (supabase as any).from('training_microcycle_days').insert({
@@ -268,38 +276,22 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
   });
 
   // Crea la sesión de contenido (objetivos/bloques/principios de juego, CAR-8)
-  // para un día ya cargado, y liga session_id de vuelta al día. Reusa
-  // SessionFormDialog tal cual está, sin modificarlo.
-  //
-  // `dayId` viaja EXPLÍCITO en el payload de `.mutate()`, no se lee de
-  // `sessionDialogDay` (estado de React) desde adentro de la mutación.
-  // `SessionFormDialog.handleSubmit` llama `onSubmit(data)` y, en la misma
-  // función, justo después, `onOpenChange(false)` -- que en este componente
-  // dispara `setSessionDialogDay(null)`. El insert es async (una vuelta real
-  // de red); para cuando el `await` resuelve y el código sigue, `dayId` tiene
-  // que venir ya capturado como valor, no depender de que `sessionDialogDay`
-  // siga siendo lo que era al abrir el diálogo -- el toast "Cannot read
-  // properties of null (reading 'id')" es justo la forma en que se ve este
-  // tipo de dependencia rota.
+  // ya enganchada al día — un solo INSERT, sin el segundo UPDATE que antes
+  // enganchaba de vuelta desde training_microcycle_days.session_id (§8.2:
+  // esa segunda escritura sin transacción era la causa raíz de las sesiones
+  // huérfanas del 18-sep). Reusa SessionFormDialog tal cual, sin modificarlo.
   const createSessionForDay = useMutation({
     mutationFn: async ({ dayId, ...data }: { dayId: string; [key: string]: any }) => {
-      if (!dayId) {
+      const targetDayId = dayId || sessionDialogDay?.id;
+      if (!targetDayId) {
         throw new Error('No se pudo identificar el día del mesociclo para esta sesión. Cerrá el formulario y volvé a intentar desde "Crear sesión".');
       }
       const { data: session, error } = await (supabase as any)
         .from('training_sessions')
-        .insert(data)
+        .insert({ ...data, microcycle_day_id: targetDayId })
         .select()
         .single();
       if (error) throw error;
-      if (!session) {
-        throw new Error('La sesión se guardó pero el servidor no devolvió el registro creado.');
-      }
-      const { error: linkError } = await (supabase as any)
-        .from('training_microcycle_days')
-        .update({ session_id: session.id })
-        .eq('id', dayId);
-      if (linkError) throw linkError;
       return session;
     },
     onSuccess: () => {
@@ -382,10 +374,21 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                 </CardDescription>
               )}
             </div>
-            <Button variant="outline" size="sm" className="gap-1.5 shrink-0" onClick={() => setFormOpen(true)}>
-              <Pencil className="w-3.5 h-3.5" />
-              Editar
-            </Button>
+            <div className="flex gap-1.5 shrink-0">
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setFormOpen(true)}>
+                <Pencil className="w-3.5 h-3.5" />
+                Editar
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-destructive hover:text-destructive"
+                onClick={() => setConfirmDelete(true)}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Eliminar
+              </Button>
+            </div>
           </div>
         </CardHeader>
         {mesocycle.game_model && (
@@ -415,46 +418,56 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                 <AccordionContent className="space-y-3">
                   <div className="space-y-1.5">
                     {mcDays.map((day: any) => {
-                      const session = day.session_id ? sessionsById.get(day.session_id) : null;
-                      const mdLabels = mdLabelsForDay(day.day_date, mcDays);
+                      // Un día admite cualquier cantidad de sesiones (§8.2 —
+                      // ej. gimnasio AM + cancha PM), no una sola.
+                      const daySessions = sessionsByDayId.get(day.id) || [];
+                      const mdLabels = mdLabelsByDate?.[day.day_date] || [];
                       return (
-                        <div
-                          key={day.id}
-                          className={`flex items-center justify-between gap-2 p-2 rounded-md border text-sm ${session ? 'cursor-pointer hover:bg-accent/40' : ''}`}
-                          onClick={() => session && onEditSession(session)}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-xs text-muted-foreground w-16 shrink-0">
-                              {new Date(day.day_date).toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric' })}
-                            </span>
-                            <Badge variant="outline" className={`text-[10px] h-5 shrink-0 ${DAY_TYPE_BADGE[day.day_type] || ''}`}>
-                              {DAY_TYPE_LABEL[day.day_type] || day.day_type}
-                            </Badge>
-                            {mdLabels.map((l) => (
-                              <Badge key={l} variant="outline" className="text-[10px] h-5 shrink-0">
-                                {l}
+                        <div key={day.id} className="rounded-md border overflow-hidden">
+                          <div className="flex items-center justify-between gap-2 p-2 text-sm">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-xs text-muted-foreground w-16 shrink-0">
+                                {new Date(day.day_date).toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric' })}
+                              </span>
+                              <Badge variant="outline" className={`text-[10px] h-5 shrink-0 ${DAY_TYPE_BADGE[day.day_type] || ''}`}>
+                                {DAY_TYPE_LABEL[day.day_type] || day.day_type}
                               </Badge>
-                            ))}
-                            <span className="truncate text-muted-foreground">
-                              {session?.objectives || day.focus || ''}
-                            </span>
+                              {mdLabels.map((l) => (
+                                <Badge key={l} variant="outline" className="text-[10px] h-5 shrink-0">
+                                  {l}
+                                </Badge>
+                              ))}
+                              {daySessions.length === 0 && (
+                                <span className="truncate text-muted-foreground">{day.focus || ''}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {day.planned_rpe != null && (
+                                <span className="text-xs text-muted-foreground">RPE {day.planned_rpe}</span>
+                              )}
+                              {day.day_type !== 'descanso' && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-[11px] gap-1"
+                                  onClick={() => setSessionDialogDay(day)}
+                                >
+                                  <ClipboardList className="w-3 h-3" />
+                                  {daySessions.length === 0 ? 'Crear sesión' : 'Agregar otra'}
+                                </Button>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            {day.planned_rpe != null && (
-                              <span className="text-xs text-muted-foreground">RPE {day.planned_rpe}</span>
-                            )}
-                            {!session && day.day_type !== 'descanso' && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 px-2 text-[11px] gap-1"
-                                onClick={(e) => { e.stopPropagation(); setSessionDialogDay(day); }}
-                              >
-                                <ClipboardList className="w-3 h-3" />
-                                Crear sesión
-                              </Button>
-                            )}
-                          </div>
+                          {daySessions.map((session: any) => (
+                            <div
+                              key={session.id}
+                              className="flex items-center gap-2 px-2 py-1.5 text-xs border-t bg-muted/20 cursor-pointer hover:bg-accent/40"
+                              onClick={() => onEditSession(session)}
+                            >
+                              <ClipboardList className="w-3 h-3 text-muted-foreground shrink-0" />
+                              <span className="truncate text-muted-foreground">{session.objectives}</span>
+                            </div>
+                          ))}
                         </div>
                       );
                     })}
@@ -484,6 +497,8 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                                 onSelect={(date) => date && setNewDay({ ...newDay, day_date: format(date, 'yyyy-MM-dd') })}
                                 locale={es}
                                 initialFocus
+                                fromDate={new Date(mc.starts_on + 'T00:00:00')}
+                                toDate={new Date(mc.ends_on + 'T00:00:00')}
                               />
                             </PopoverContent>
                           </Popover>
@@ -628,6 +643,28 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
         isLoading={createMesocycle.isPending || updateMesocycle.isPending}
         mesocycle={mesocycle}
       />
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar este mesociclo?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se borran sus semanas, días y la rúbrica de evaluación. Las sesiones de contenido ya
+              creadas NO se eliminan, solo pierden el enganche al día. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteMesocycle.isPending}
+              onClick={() => deleteMesocycle.mutate()}
+            >
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {sessionDialogDay && (
         <SessionFormDialog

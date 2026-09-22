@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Loader2, AlertCircle, MapPin, ArrowRight, ShieldCheck, LogIn, UserPlus, CheckCircle2 } from 'lucide-react';
+import { Loader2, AlertCircle, MapPin, ArrowRight, ShieldCheck, LogIn, UserPlus, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,7 +35,41 @@ type LandingData = {
   payment_info?: any;
 };
 
-type Step = 'menu' | 'choose' | 'auth' | 'child' | 'pay' | 'done';
+type Step = 'menu' | 'search' | 'choose' | 'auth' | 'child' | 'pay' | 'done';
+
+/**
+ * Lo que devuelve `buscar_menor_por_documento_publico` (mismo contrato que usa
+ * JoinTeamPage). Nombre enmascarado y sin fecha de nacimiento a propósito
+ * (SEG-14): esta pantalla corre sin sesión.
+ */
+type AthleteMatch = {
+  child_id: string;
+  nombre: string;
+  school_id: string;
+  school_name: string | null;
+  team_name: string | null;
+  branch_name: string | null;
+  already_linked: boolean;
+  /**
+   * Contacto del acudiente que la escuela ya había capturado al pre-cargar la
+   * ficha (`children.parent_*_temp`). Viene en NULL si `already_linked` — ese
+   * contacto es de otra persona. Valor real, no enmascarado por el servidor:
+   * el enmascarado es solo visual, en esta pantalla (decisión de producto
+   * 2026-09-18, mismo criterio de acceso que ya rige `nombre`).
+   */
+  parent_name_temp?: string | null;
+  parent_email_temp?: string | null;
+  parent_phone_temp?: string | null;
+  /**
+   * De dónde salió la ficha: 'children' (el flujo de siempre) o
+   * 'unregistered_athlete' (import masivo — Besser y cualquier escuela con
+   * carga de matrícula previa). Decide cuál parámetro manda submit_qr_signup:
+   * `child_id` real para 'children', o `p_unregistered_athlete_id` para
+   * adoptar sin perder pagos/inscripciones/asistencia que ya cuelgan de esa
+   * ficha (ver migración 20260918140634).
+   */
+  source?: 'children' | 'unregistered_athlete';
+};
 
 type PayChild = {
   child_id: string;
@@ -86,6 +120,80 @@ export default function JoinSchoolPublicPage() {
   // Hijos existentes del padre (para ELEGIR en vez de crear uno nuevo).
   const [existingChildren, setExistingChildren] = useState<{ id: string; full_name: string; date_of_birth: string | null }[]>([]);
   const [selectedChildId, setSelectedChildId] = useState<string>('new');
+
+  // Búsqueda de ficha pre-cargada por la escuela (mismo patrón que JoinTeamPage).
+  // Escuelas como Besser ya tienen al atleta con equipo asignado: mejor
+  // encontrarlo por documento que hacerle elegir equipo/plan a ciegas y
+  // tipear de nuevo un nombre y fecha de nacimiento que ya existen.
+  const [docSearch, setDocSearch] = useState('');
+  const [docMatches, setDocMatches] = useState<AthleteMatch[]>([]);
+  const [docSearching, setDocSearching] = useState(false);
+  const [docSearched, setDocSearched] = useState(false);
+  const [preloadedMatch, setPreloadedMatch] = useState<AthleteMatch | null>(null);
+
+  // Campos del acudiente precargados desde la ficha (parent_*_temp) — se ven
+  // tapados hasta que el propio acudiente los revela (ojo) o los edita, para
+  // que tecleen menos sin dejar el dato a la vista de quien mire por encima
+  // del hombro. `prefilled` dice si ESE campo vino de la ficha (solo ahí tiene
+  // sentido el tapado + el botón de ojo); `revealed` es el toggle del ojo.
+  const [prefilled, setPrefilled] = useState<{ name: boolean; email: boolean; phone: boolean }>({ name: false, email: false, phone: false });
+  const [revealed, setRevealed] = useState<{ name: boolean; email: boolean; phone: boolean }>({ name: false, email: false, phone: false });
+
+  // Solo cuentan las fichas de ESTA escuela y sin acudiente todavía: el match
+  // con otra escuela no lo adopta `submit_qr_signup` (compara school_id), así
+  // que ofrecerlo como "usar esta ficha" aquí sería prometer algo que el
+  // servidor no cumple.
+  const claimableHere = docMatches.filter(m => m.school_id === data?.school?.id && !m.already_linked);
+  const linkedHere = docMatches.filter(m => m.school_id === data?.school?.id && m.already_linked);
+  const foundElsewhere = docMatches.filter(m => m.school_id !== data?.school?.id);
+
+  useEffect(() => {
+    setDocMatches([]);
+    setDocSearched(false);
+    setPreloadedMatch(null);
+    const digits = docSearch.replace(/[^A-Za-z0-9]/g, '');
+    if (digits.length < 5 || !data?.school?.id) return;
+    const timer = setTimeout(async () => {
+      setDocSearching(true);
+      const { data: rows, error } = await (supabase.rpc as any)('buscar_menor_por_documento_publico', {
+        p_doc_number: docSearch,
+        p_school_id: data.school!.id,
+      });
+      setDocSearching(false);
+      setDocSearched(true);
+      if (error) {
+        toast({ title: 'No pudimos buscar el documento', description: error.message, variant: 'destructive' });
+        return;
+      }
+      setDocMatches((rows as AthleteMatch[]) || []);
+    }, 500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docSearch, data?.school?.id]);
+
+  function selectPreloadedMatch(m: AthleteMatch) {
+    setPreloadedMatch(m);
+    setChildDocNumber(docSearch);
+    // Precarga el formulario del acudiente con lo que la escuela ya tenía.
+    // Solo se marca "prefilled" (tapado + botón de ojo) el campo que en
+    // efecto llegó con dato — uno vacío se deja en blanco, editable normal.
+    if (m.parent_name_temp) setParentName(m.parent_name_temp);
+    if (m.parent_email_temp) setEmail(m.parent_email_temp);
+    if (m.parent_phone_temp) setParentPhone(m.parent_phone_temp);
+    setPrefilled({
+      name: !!m.parent_name_temp,
+      email: !!m.parent_email_temp,
+      phone: !!m.parent_phone_temp,
+    });
+    setRevealed({ name: false, email: false, phone: false });
+    continueAfterChoose();
+  }
+
+  function skipSearchAndRegisterNew() {
+    setPreloadedMatch(null);
+    setPrefilled({ name: false, email: false, phone: false });
+    setStep('choose');
+  }
 
   useEffect(() => {
     if (!user) { setExistingChildren([]); return; }
@@ -264,24 +372,37 @@ export default function JoinSchoolPublicPage() {
   async function handleSubmitChild() {
     if (!user) return toast({ title: 'Debes iniciar sesión', variant: 'destructive' });
     const useExisting = selectedChildId !== 'new';
-    if (!useExisting && (!childName || !childDob)) {
+    // Ficha que la escuela ya cargó (parent_id NULL): `submit_qr_signup` la
+    // adopta buscando por documento, así que no se manda nombre/fecha/equipo/
+    // plan tecleados a ciegas — solo se rellenarían huecos que esa ficha no
+    // tiene, y lo normal es que ya los tenga todos.
+    const isPreloadedMatch = !useExisting && !!preloadedMatch;
+    // Ficha de import masivo (Besser y cualquier escuela con carga previa):
+    // NO es un child_id real todavía — es unregistered_athletes.id. Ese
+    // camino lo resuelve por completo submit_qr_signup reutilizando
+    // migrate_unregistered_athlete_to_profile (no perder pagos/inscripciones/
+    // asistencia que ya cuelgan de esa ficha), así que no manda ningún otro
+    // dato del menor ni de equipo/plan — se ignorarían de todos modos.
+    const isUnregisteredMatch = isPreloadedMatch && preloadedMatch?.source === 'unregistered_athlete';
+    if (!useExisting && !isPreloadedMatch && (!childName || !childDob)) {
       return toast({ title: 'Completa el nombre y la fecha de nacimiento del menor', variant: 'destructive' });
     }
 
     setSubmitting(true);
     const { data: res, error } = await supabase.rpc('submit_qr_signup' as any, {
       p_slug:           slug,
-      p_team_id:        chosenTeamId || null,
+      p_team_id:        isPreloadedMatch ? null : (chosenTeamId || null),
       p_branch_id:      null,
-      p_child_full_name: useExisting ? null : childName,
-      p_child_dob:      useExisting ? null : childDob,
-      p_child_doc_type: useExisting ? null : childDocType,
-      p_child_doc_number: useExisting ? null : (childDocNumber || null),
-      p_child_gender:   useExisting ? null : (childGender || null),
+      p_child_full_name: (useExisting || isPreloadedMatch) ? null : childName,
+      p_child_dob:      (useExisting || isPreloadedMatch) ? null : childDob,
+      p_child_doc_type: (useExisting || isPreloadedMatch) ? null : childDocType,
+      p_child_doc_number: (useExisting || isUnregisteredMatch) ? null : (childDocNumber || null),
+      p_child_gender:   (useExisting || isPreloadedMatch) ? null : (childGender || null),
       p_phone:          parentPhone || null,
       p_monthly_fee:    Number(monthlyFee) || 0,
       p_existing_child_id: useExisting ? selectedChildId : null,
-      p_plan_id:        chosenPlanId || null,
+      p_plan_id:        isPreloadedMatch ? null : (chosenPlanId || null),
+      p_unregistered_athlete_id: isUnregisteredMatch ? preloadedMatch!.child_id : null,
     });
     setSubmitting(false);
     if (error) {
@@ -326,7 +447,7 @@ export default function JoinSchoolPublicPage() {
       <div className="max-w-2xl mx-auto px-6 py-8">
         <Card>
           <CardContent className="pt-6 space-y-6">
-            {data.intro_text && (step === 'menu' || step === 'choose') && (
+            {data.intro_text && (step === 'menu' || step === 'search' || step === 'choose') && (
               <p className="text-base text-muted-foreground">{data.intro_text}</p>
             )}
 
@@ -337,7 +458,7 @@ export default function JoinSchoolPublicPage() {
 
                 <button
                   type="button"
-                  onClick={() => { setIntent('inscribir'); setStep('choose'); }}
+                  onClick={() => { setIntent('inscribir'); setDocSearch(''); setStep('search'); }}
                   className="w-full text-left border rounded-xl p-4 transition-all hover:border-primary/50 flex items-center gap-3"
                 >
                   <UserPlus className="h-5 w-5 shrink-0" style={{ color: accent }} />
@@ -380,6 +501,91 @@ export default function JoinSchoolPublicPage() {
                     Crear mi cuenta como atleta →
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* PASO 0b — Buscar ficha pre-cargada por documento antes de pedir nada más */}
+            {step === 'search' && (
+              <div className="space-y-4">
+                <div>
+                  <h2 className="font-bold text-lg">¿Ya inscribiste antes a tu hijo/a en {data.school?.name}?</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Si la escuela ya cargó a tu hijo/a, lo encontramos por su documento y te ahorramos
+                    volver a elegir equipo o plan: ya los tiene.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="docSearch">Documento del menor</Label>
+                  <Input
+                    id="docSearch"
+                    value={docSearch}
+                    onChange={(e) => setDocSearch(e.target.value.replace(/[^A-Za-z0-9]/g, ''))}
+                    placeholder="Documento del menor (TI o RC)"
+                    inputMode="numeric"
+                  />
+                  {docSearching && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Buscando...
+                    </p>
+                  )}
+                </div>
+
+                {claimableHere.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-green-700">
+                      {claimableHere.length === 1 ? 'Encontramos a:' : `Encontramos ${claimableHere.length} atletas con ese documento:`}
+                    </p>
+                    {claimableHere.map((m) => (
+                      <button
+                        key={m.child_id}
+                        type="button"
+                        onClick={() => selectPreloadedMatch(m)}
+                        className="w-full text-left rounded-lg border px-3 py-2.5 transition-all hover:border-green-500 hover:bg-green-50"
+                      >
+                        <span className="flex items-center gap-1.5 text-sm font-semibold">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-green-600" /> {m.nombre}
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          Ya inscrito en {[m.team_name, m.branch_name].filter(Boolean).join(' · ') || data.school?.name}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {linkedHere.length > 0 && (
+                  <div className="text-xs text-destructive space-y-1">
+                    {linkedHere.map((m) => (
+                      <p key={m.child_id} className="flex items-start gap-1">
+                        <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                        <span>{m.nombre} ya tiene una cuenta de acudiente vinculada.</span>
+                      </p>
+                    ))}
+                    <button type="button" onClick={() => navigate('/login')} className="font-semibold underline">
+                      Iniciar sesión con esa cuenta
+                    </button>
+                  </div>
+                )}
+
+                {foundElsewhere.length > 0 && claimableHere.length === 0 && linkedHere.length === 0 && (
+                  <p className="text-xs text-amber-700">
+                    Encontramos ese documento en otra escuela, no en {data.school?.name}. Si es tu hijo/a
+                    acá, regístralo como nuevo abajo.
+                  </p>
+                )}
+
+                {docSearched && !docSearching && docMatches.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No encontramos ninguna ficha con ese documento en {data.school?.name}. Puedes
+                    registrarlo como nuevo.
+                  </p>
+                )}
+
+                <Button variant="outline" onClick={skipSearchAndRegisterNew} className="w-full">
+                  {docSearch ? 'Ninguno es mi hijo/a — registrar como nuevo' : 'Mi hijo/a no está registrado aún'}
+                </Button>
+                <Button variant="ghost" onClick={() => setStep('menu')} className="w-full">Volver</Button>
               </div>
             )}
 
@@ -460,7 +666,7 @@ export default function JoinSchoolPublicPage() {
                   {user ? 'Continuar' : (data.cta_text || 'Inscribir a mi hijo/a')}
                   <ArrowRight className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" onClick={() => setStep('menu')} className="w-full">Volver</Button>
+                <Button variant="ghost" onClick={() => setStep(intent === 'inscribir' ? 'search' : 'menu')} className="w-full">Volver</Button>
               </>
             )}
 
@@ -479,17 +685,77 @@ export default function JoinSchoolPublicPage() {
                       Tus datos, no los del menor. Esta cuenta queda como responsable del pago.
                     </p>
                   </div>
+                  {(prefilled.name || prefilled.email || prefilled.phone) && (
+                    <p className="text-[11px] text-muted-foreground -mt-1 flex items-center gap-1">
+                      <ShieldCheck className="h-3 w-3 shrink-0" />
+                      {data.school?.name} ya tenía estos datos tuyos — tocá <Eye className="h-3 w-3 inline" /> para verlos, o escribe encima para corregirlos.
+                    </p>
+                  )}
                   <div>
                     <Label>Tu nombre completo (acudiente) *</Label>
-                    <Input value={parentName} onChange={(e) => setParentName(sanitizeName(e.target.value))} autoCapitalize="words" />
+                    <div className="relative">
+                      <Input
+                        value={parentName}
+                        onChange={(e) => { setParentName(sanitizeName(e.target.value)); setPrefilled((p) => ({ ...p, name: false })); }}
+                        onFocus={() => prefilled.name && setRevealed((r) => ({ ...r, name: true }))}
+                        autoCapitalize="words"
+                        className={prefilled.name && !revealed.name ? 'blur-[3px] pr-9' : prefilled.name ? 'pr-9' : ''}
+                      />
+                      {prefilled.name && (
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onClick={() => setRevealed((r) => ({ ...r, name: !r.name }))}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                        >
+                          {revealed.name ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <Label>Tu teléfono</Label>
-                    <Input value={parentPhone} inputMode="tel" onChange={(e) => setParentPhone(e.target.value.replace(/[^\d+\s-]/g, ''))} />
+                    <div className="relative">
+                      <Input
+                        value={parentPhone}
+                        inputMode="tel"
+                        onChange={(e) => { setParentPhone(e.target.value.replace(/[^\d+\s-]/g, '')); setPrefilled((p) => ({ ...p, phone: false })); }}
+                        onFocus={() => prefilled.phone && setRevealed((r) => ({ ...r, phone: true }))}
+                        className={prefilled.phone && !revealed.phone ? 'blur-[3px] pr-9' : prefilled.phone ? 'pr-9' : ''}
+                      />
+                      {prefilled.phone && (
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onClick={() => setRevealed((r) => ({ ...r, phone: !r.phone }))}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                        >
+                          {revealed.phone ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <Label>Tu email *</Label>
-                    <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                    <div className="relative">
+                      <Input
+                        type="email"
+                        value={email}
+                        onChange={(e) => { setEmail(e.target.value); setPrefilled((p) => ({ ...p, email: false })); }}
+                        onFocus={() => prefilled.email && setRevealed((r) => ({ ...r, email: true }))}
+                        className={prefilled.email && !revealed.email ? 'blur-[3px] pr-9' : prefilled.email ? 'pr-9' : ''}
+                      />
+                      {prefilled.email && (
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onClick={() => setRevealed((r) => ({ ...r, email: !r.email }))}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                        >
+                          {revealed.email ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <Label>Contraseña *</Label>
@@ -525,7 +791,11 @@ export default function JoinSchoolPublicPage() {
                 <AuthDivider />
                 <GoogleSignInButton redirectTo={`/join/${slug}?do=${intent}`} />
 
-                <Button variant="ghost" onClick={() => setStep(intent === 'pagar' ? 'menu' : 'choose')} className="w-full mt-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => setStep(intent === 'pagar' ? 'menu' : (preloadedMatch ? 'search' : 'choose'))}
+                  className="w-full mt-2"
+                >
                   Volver
                 </Button>
               </Tabs>
@@ -608,38 +878,54 @@ export default function JoinSchoolPublicPage() {
                   </p>
                 </div>
 
-                {existingChildren.length > 0 && (
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Menores ya registrados a tu cargo</Label>
-                    {existingChildren.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => setSelectedChildId(c.id)}
-                        className={`w-full text-left border rounded-lg p-3 transition-all ${selectedChildId === c.id ? 'border-2' : 'border-muted hover:border-muted-foreground/40'}`}
-                        style={selectedChildId === c.id ? { borderColor: accent, boxShadow: `0 0 0 2px ${accent}33` } : undefined}
-                      >
-                        <span className="font-semibold text-sm">{c.full_name}</span>
-                        {c.date_of_birth && (
-                          <span className="block text-xs text-muted-foreground">
-                            {new Date(c.date_of_birth + 'T12:00:00').toLocaleDateString('es-CO')}
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedChildId('new')}
-                      className={`w-full text-left border rounded-lg p-3 transition-all ${selectedChildId === 'new' ? 'border-2' : 'border-dashed border-muted hover:border-muted-foreground/40'}`}
-                      style={selectedChildId === 'new' ? { borderColor: accent, boxShadow: `0 0 0 2px ${accent}33` } : undefined}
-                    >
-                      <span className="font-semibold text-sm">+ Registrar otro menor</span>
-                    </button>
+                {preloadedMatch ? (
+                  <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                    <p className="text-xs text-green-700 font-medium flex items-center gap-1.5">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Usando la ficha que ya tiene {data.school?.name}
+                    </p>
+                    <p className="font-semibold text-sm mt-1">{preloadedMatch.nombre}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {[preloadedMatch.team_name, preloadedMatch.branch_name].filter(Boolean).join(' · ') || 'Sin equipo asignado aún'}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-1.5">
+                      No hace falta que vuelvas a escribir nombre, fecha de nacimiento ni elegir equipo:
+                      se mantiene lo que ya tiene cargado la escuela.
+                    </p>
                   </div>
-                )}
+                ) : (
+                  <>
+                    {existingChildren.length > 0 && (
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Menores ya registrados a tu cargo</Label>
+                        {existingChildren.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => setSelectedChildId(c.id)}
+                            className={`w-full text-left border rounded-lg p-3 transition-all ${selectedChildId === c.id ? 'border-2' : 'border-muted hover:border-muted-foreground/40'}`}
+                            style={selectedChildId === c.id ? { borderColor: accent, boxShadow: `0 0 0 2px ${accent}33` } : undefined}
+                          >
+                            <span className="font-semibold text-sm">{c.full_name}</span>
+                            {c.date_of_birth && (
+                              <span className="block text-xs text-muted-foreground">
+                                {new Date(c.date_of_birth + 'T12:00:00').toLocaleDateString('es-CO')}
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedChildId('new')}
+                          className={`w-full text-left border rounded-lg p-3 transition-all ${selectedChildId === 'new' ? 'border-2' : 'border-dashed border-muted hover:border-muted-foreground/40'}`}
+                          style={selectedChildId === 'new' ? { borderColor: accent, boxShadow: `0 0 0 2px ${accent}33` } : undefined}
+                        >
+                          <span className="font-semibold text-sm">+ Registrar otro menor</span>
+                        </button>
+                      </div>
+                    )}
 
-                {selectedChildId === 'new' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {selectedChildId === 'new' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="md:col-span-2">
                     <Label>Nombre completo del menor *</Label>
                     <Input value={childName} onChange={(e) => setChildName(sanitizeName(e.target.value))} autoCapitalize="words" />
@@ -682,15 +968,21 @@ export default function JoinSchoolPublicPage() {
                   </div>
                 </div>
                 )}
+                  </>
+                )}
 
                 {data.require_first_payment && (
                   <div className="pt-4 border-t">
                     <Label>Cuota a pagar</Label>
                     <div className="mt-1 text-2xl font-bold" style={{ color: accent }}>
-                      {selectedTeamPrice > 0 ? fmtCOP(selectedTeamPrice) : 'La definirá la escuela'}
+                      {selectedTeamPrice > 0
+                        ? fmtCOP(selectedTeamPrice)
+                        : preloadedMatch ? 'La de su inscripción actual' : 'La definirá la escuela'}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Definida por el equipo. Luego serás redirigido al checkout para el primer pago.
+                      {preloadedMatch
+                        ? 'No se cambia el equipo ni el plan que ya tiene.'
+                        : 'Definida por el equipo. Luego serás redirigido al checkout para el primer pago.'}
                     </p>
                   </div>
                 )}
@@ -699,7 +991,11 @@ export default function JoinSchoolPublicPage() {
                   {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
                   {data.require_first_payment ? 'Inscribir al menor y continuar al pago' : 'Completar inscripción del menor'}
                 </Button>
-                <Button variant="ghost" onClick={() => setStep(user ? 'choose' : 'auth')} className="w-full">
+                <Button
+                  variant="ghost"
+                  onClick={() => setStep(preloadedMatch ? 'search' : (user ? 'choose' : 'auth'))}
+                  className="w-full"
+                >
                   Volver
                 </Button>
               </div>

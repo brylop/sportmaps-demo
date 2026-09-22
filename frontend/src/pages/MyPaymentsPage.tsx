@@ -589,6 +589,21 @@ export default function MyPaymentsPage() {
           });
           setShowCheckout(true);
         }}
+        onPay={(p) => {
+          // Botón "Pagar" directo: selecciona y abre el modal en un solo
+          // click, sin pasar por la barra flotante (antes eran 2 clicks).
+          setSelectedPayment({
+            childId: p.child_id || '',
+            childName: p.child_name || 'Deportista',
+            teamName: p.concept || 'Mensualidad',
+            amount: p.balance_pending || p.amount,
+            schoolId: p.school_id || '',
+            paymentId: p.id,
+            discount_eligible: p.discount_eligible,
+            discount_amount: p.discount_amount
+          });
+          setShowCheckout(true);
+        }}
       />
     ));
   };
@@ -619,9 +634,11 @@ export default function MyPaymentsPage() {
 
       {/* Estado de Cuenta por hijo — misma pantalla que usa la escuela
           (get_athlete_account_statement), acotada a lo suyo por el gate de la
-          RPC (children.parent_id = auth.uid()). El atleta adulto (rol
-          `athlete`) ve el suyo con user_id = su propio id. */}
-      {(enrollments.some(e => e.child_id) || profile?.role === 'athlete') && (
+          RPC (children.parent_id = auth.uid()). Esta página es solo de
+          `parent` (el useEffect de arriba redirige a cualquier otro rol antes
+          de llegar acá), así que el bloque "Mi estado de cuenta" del atleta
+          adulto nunca podía renderizar — vive ahora en AthletePaymentsPage. */}
+      {enrollments.some(e => e.child_id) && (
         <div className="flex flex-wrap gap-2">
           {[...new Map(enrollments.filter(e => e.child_id).map(e => [e.child_id, e])).values()].map((e) => (
             <Button key={e.child_id} asChild variant="outline" size="sm">
@@ -631,14 +648,6 @@ export default function MyPaymentsPage() {
               </Link>
             </Button>
           ))}
-          {profile?.role === 'athlete' && user?.id && (
-            <Button asChild variant="outline" size="sm">
-              <Link to={`/estado-cuenta?user_id=${user.id}`}>
-                <FileText className="h-3.5 w-3.5 mr-2" />
-                Mi estado de cuenta
-              </Link>
-            </Button>
-          )}
         </div>
       )}
 
@@ -932,12 +941,13 @@ export default function MyPaymentsPage() {
   );
 }
 
-function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice, openGlosa, onRespondGlosa }: {
+function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, onPay, invoice, openGlosa, onRespondGlosa }: {
   txn: Transaction;
   onSelect: (p: Transaction) => void;
   isSelected: boolean;
   onShowProof: (url: string, concept: string, amount: number) => void;
   onAbonar: (p: Transaction) => void;
+  onPay: (p: Transaction) => void;
   invoice?: { number: string | null; public_url: string | null };
   openGlosa?: Glosa | null;
   onRespondGlosa?: (g: Glosa) => void;
@@ -945,6 +955,9 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice
   const config = statusConfig[txn.status] || statusConfig.pending;
   const StatusIcon = config.icon;
   const nonInteractive = txn.status === 'approved' || txn.status === 'glosado';
+  // Estados que necesitan un pago nuevo (no un abono ni una aclaración):
+  // el botón "Pagar" les ahorra el paso de seleccionar + usar la barra flotante.
+  const payableDirectly = ['pending', 'overdue', 'rejected', 'failed'].includes(txn.status);
 
   return (
     <Card
@@ -976,9 +989,13 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice
 
             <div className="flex items-center justify-between gap-2">
               <h3 className="font-bold text-sm sm:text-base text-foreground truncate">
-                {txn.period_label
-                  ? `Mensualidad ${txn.period_label}`
-                  : (txn.concept || 'Mensualidad')}
+                {/* El trigger fn_payments_fill_period rellena period_year/period_month
+                    en CUALQUIER pago (torneos, tienda, mensualidad — no solo mensualidad),
+                    así que su sola presencia no indica que el pago sea una mensualidad.
+                    concept siempre viene poblado (0 nulos verificado en producción) y ya
+                    incluye "Mensualidad {mes}" cuando corresponde — mostrarlo directo evita
+                    que un pago de torneo/tienda aparezca disfrazado de mensualidad. */}
+                {txn.concept || (txn.period_label ? `Mensualidad ${txn.period_label}` : 'Mensualidad')}
               </h3>
               <div className="text-right shrink-0">
                 {txn.discount_eligible && (txn.discount_amount ?? 0) > 0 && PENDING_STATES.includes(txn.status) ? (
@@ -1105,6 +1122,19 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice
                   >
                     <Plus className="h-3.5 w-3.5 mr-1" />
                     ABONAR
+                  </Button>
+                )}
+                {payableDirectly && (
+                  <Button
+                    size="sm"
+                    className="h-8 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPay(txn);
+                    }}
+                  >
+                    <CreditCard className="h-3.5 w-3.5 mr-1" />
+                    PAGAR
                   </Button>
                 )}
                 {txn.status === 'glosado' && openGlosa && onRespondGlosa && (

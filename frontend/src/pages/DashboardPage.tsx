@@ -16,7 +16,7 @@ import { useNotifications, useDashboardStats } from '@/hooks/useDashboardStats';
 import { useDashboardStatsReal } from '@/hooks/useDashboardStatsReal'; // Import the new hook
 import WelcomeSplash from '@/components/WelcomeSplash';
 import { UserRole, OnboardingStep } from '@/types/dashboard';
-import { Plus, MapPin, Zap, CalendarCheck, ChevronRight } from 'lucide-react';
+import { Plus, MapPin, Zap, CalendarCheck, ChevronRight, CreditCard } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/utils';
 import { DashboardChecklist } from '@/components/dashboard/DashboardChecklist';
@@ -518,6 +518,31 @@ export default function DashboardPage() {
             <p className="text-[11px] font-black uppercase tracking-[0.2em] opacity-80 mb-0.5">Acceso rápido</p>
             <h3 className="text-lg sm:text-xl font-black leading-tight">Tomar asistencia</h3>
             <p className="text-sm opacity-85 mt-0.5">Pasa lista de tu equipo de hoy en segundos</p>
+          </div>
+          <ChevronRight className="w-6 h-6 opacity-70 shrink-0" />
+        </button>
+      )}
+
+      {/* Pagar ahora — acceso directo grande para el padre cuando tiene
+          mensualidades pendientes, arriba de todo. Antes había que ir a
+          Mis Pagos → seleccionar la tarjeta → Pagar Ahora (3 clicks solo
+          para abrir el modal). Este botón lleva directo a Mis Pagos con
+          un solo click; ahí cada cobro ya tiene su propio botón "Pagar". */}
+      {profile.role === 'parent' && (realStats?.upcoming_payments || 0) > 0 && (
+        <button
+          type="button"
+          onClick={() => navigate('/my-payments')}
+          className="w-full text-left rounded-2xl bg-gradient-to-br from-emerald-600 to-emerald-700 text-white shadow-elevation hover:shadow-performance transition-all duration-300 hover:scale-[1.01] p-5 sm:p-6 flex items-center gap-4"
+        >
+          <div className="w-14 h-14 rounded-2xl bg-white/15 flex items-center justify-center shrink-0">
+            <CreditCard className="w-7 h-7" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-[0.2em] opacity-80 mb-0.5">Acceso rápido</p>
+            <h3 className="text-lg sm:text-xl font-black leading-tight">
+              Tienes {realStats.upcoming_payments} pago{realStats.upcoming_payments === 1 ? '' : 's'} pendiente{realStats.upcoming_payments === 1 ? '' : 's'}
+            </h3>
+            <p className="text-sm opacity-85 mt-0.5">Toca para pagar ahora</p>
           </div>
           <ChevronRight className="w-6 h-6 opacity-70 shrink-0" />
         </button>

@@ -47,7 +47,45 @@ async function assertCoachHasTeamAccess(req: AuthenticatedRequest, teamId: strin
   return !!tc;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Hallazgo de seguridad 2026-09-18: el chequeo de arriba solo cubre el camino
+// por `teamId`. El camino por `offeringId` (asistencia de "Planes" — clases/
+// mensualidades sueltas, sin equipo) no tenía ningún cruce de pertenencia:
+// cualquier coach de la escuela podía leer y marcar asistencia del roster de
+// una `offering` de OTRO coach/disciplina. Mismo patrón, mismo fix: resolver
+// el `offering_coaches` del coach que llama y exigir que contenga la offering.
+// ─────────────────────────────────────────────────────────────────────────────
+async function assertCoachHasOfferingAccess(req: AuthenticatedRequest, offeringId: string): Promise<boolean> {
+  if (req.role !== 'coach') return true;
+  const { schoolId } = req;
+
+  const { data: staffData } = await supabase
+    .from('school_staff')
+    .select('id')
+    .eq('coach_auth_id', req.user?.id)
+    .eq('school_id', schoolId)
+    .maybeSingle();
+  if (!staffData?.id) return false;
+
+  const { data: offering } = await supabase
+    .from('offerings')
+    .select('id')
+    .eq('id', offeringId)
+    .eq('school_id', schoolId)
+    .maybeSingle();
+  if (!offering) return false;
+
+  const { data: oc } = await supabase
+    .from('offering_coaches')
+    .select('id')
+    .eq('offering_id', offeringId)
+    .eq('coach_id', staffData.id)
+    .maybeSingle();
+  return !!oc;
+}
+
 const TEAM_ACCESS_DENIED = { error: 'No tienes ese equipo asignado.', reason: 'not_your_team' };
+const OFFERING_ACCESS_DENIED = { error: 'No tienes ese plan asignado.', reason: 'not_your_offering' };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Créditos de sesión — docs/plan-asistencia-y-creditos-de-sesion.md
@@ -898,6 +936,9 @@ router.get(
       if (contextType === 'team' && !(await assertCoachHasTeamAccess(req, contextId))) {
         return res.status(403).json(TEAM_ACCESS_DENIED);
       }
+      if (contextType === 'offering' && !(await assertCoachHasOfferingAccess(req, contextId))) {
+        return res.status(403).json(OFFERING_ACCESS_DENIED);
+      }
 
       // Besser (y cualquier otra escuela con el flag activo): el coach no ve
       // dinero en ninguna pantalla. Se enmascara acá porque este endpoint
@@ -1329,14 +1370,19 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
       let existingSessionId = sessionId;
 
       if (existingSessionId) {
-        const { data: existing, error } = await supabase.from('attendance_sessions').select('id, finalized, team_id').eq('id', existingSessionId).maybeSingle();
+        const { data: existing, error } = await supabase.from('attendance_sessions').select('id, finalized, team_id, offering_id').eq('id', existingSessionId).maybeSingle();
         if (error) throw error;
         if (existing?.finalized) return res.status(409).json({ error: 'La sesión ya fue finalizada y no puede modificarse.', finalized: true });
         // Si el sessionId llegó solo (sin teamId en el body), igual hay que
         // validar contra el team_id real de la sesión — si no, el chequeo de
-        // arriba (que solo mira `teamId` del body) queda de adorno.
+        // arriba (que solo mira `teamId` del body) queda de adorno. Una sesión
+        // de "offering" (plan/clase suelta) tiene team_id NULL, así que hace
+        // falta el mismo cruce contra offering_coaches.
         if (existing?.team_id && !(await assertCoachHasTeamAccess(req, existing.team_id))) {
           return res.status(403).json(TEAM_ACCESS_DENIED);
+        }
+        if (!existing?.team_id && existing?.offering_id && !(await assertCoachHasOfferingAccess(req, existing.offering_id))) {
+          return res.status(403).json(OFFERING_ACCESS_DENIED);
         }
       } else if (teamId) {
         const lookup = await findTeamSessionOfDay(teamId, today);
@@ -1534,6 +1580,9 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
       if (teamId && !(await assertCoachHasTeamAccess(req, teamId))) {
         return res.status(403).json(TEAM_ACCESS_DENIED);
       }
+      if (offeringId && !(await assertCoachHasOfferingAccess(req, offeringId))) {
+        return res.status(403).json(OFFERING_ACCESS_DENIED);
+      }
 
       const fecha = resolverFechaDeTrabajo(date, req.role);
       if (!fecha.ok) return res.status(fecha.status).json(fecha.body);
@@ -1652,10 +1701,13 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
           finalSessionId = newSession.id;
         }
       } else if (finalSessionId) {
-        const { data: sess } = await supabase.from('attendance_sessions').select('finalized, team_id').eq('id', finalSessionId).single();
+        const { data: sess } = await supabase.from('attendance_sessions').select('finalized, team_id, offering_id').eq('id', finalSessionId).single();
         if (sess?.finalized) return res.status(409).json({ error: 'La sesión ya fue finalizada.' });
         if (sess?.team_id && !(await assertCoachHasTeamAccess(req, sess.team_id))) {
           return res.status(403).json(TEAM_ACCESS_DENIED);
+        }
+        if (!sess?.team_id && sess?.offering_id && !(await assertCoachHasOfferingAccess(req, sess.offering_id))) {
+          return res.status(403).json(OFFERING_ACCESS_DENIED);
         }
       }
 
@@ -1941,7 +1993,7 @@ router.patch('/session/:sessionId/reopen', requireAuth, requireRole('owner', 'su
       const sessionId = req.params.sessionId as string;
       const { data: session, error: fetchErr } = await supabase
         .from('attendance_sessions')
-        .select('id, finalized, session_date, team_id, school_id')
+        .select('id, finalized, session_date, team_id, offering_id, school_id')
         .eq('id', sessionId)
         .single();
       if (fetchErr || !session) return res.status(404).json({ error: 'Sesión no encontrada.' });
@@ -1949,6 +2001,9 @@ router.patch('/session/:sessionId/reopen', requireAuth, requireRole('owner', 'su
         return res.status(404).json({ error: 'Sesión no encontrada.' });
       if (session.team_id && !(await assertCoachHasTeamAccess(req, session.team_id))) {
         return res.status(403).json(TEAM_ACCESS_DENIED);
+      }
+      if (!session.team_id && session.offering_id && !(await assertCoachHasOfferingAccess(req, session.offering_id))) {
+        return res.status(403).json(OFFERING_ACCESS_DENIED);
       }
       if (!session.finalized)
         return res.status(409).json({ error: 'Esa sesión ya está abierta.', reason: 'not_finalized' });
@@ -1987,10 +2042,13 @@ router.patch('/session/:sessionId/finalize', requireAuth, requireRole('owner', '
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { sessionId } = req.params;
-      const { data: session, error: fetchErr } = await supabase.from('attendance_sessions').select('id, finalized, team_id').eq('id', sessionId).single();
+      const { data: session, error: fetchErr } = await supabase.from('attendance_sessions').select('id, finalized, team_id, offering_id').eq('id', sessionId).single();
       if (fetchErr || !session) return res.status(404).json({ error: 'Sesión no encontrada.' });
       if (session.team_id && !(await assertCoachHasTeamAccess(req, session.team_id))) {
         return res.status(403).json(TEAM_ACCESS_DENIED);
+      }
+      if (!session.team_id && session.offering_id && !(await assertCoachHasOfferingAccess(req, session.offering_id))) {
+        return res.status(403).json(OFFERING_ACCESS_DENIED);
       }
       if (session.finalized) return res.status(409).json({ error: 'La sesión ya estaba finalizada.' });
 

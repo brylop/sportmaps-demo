@@ -24,6 +24,7 @@ import { supabase } from '../config/supabase';
 import { downloadMedia, sendTextMessage, aFormatoWhatsApp, type WhatsAppIntegration } from '../services/whatsapp.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from '../services/whatsapp-optin.service';
 import { extractReceipt } from '../services/ocr.service';
+import { extractEnrollmentForm, type EnrollmentFormResult } from '../services/enrollment-ocr.service';
 import { buildVerdictContext } from '../services/receipt-context.service';
 import { normalizeDestination, normalizeReference, evaluateVerdict } from '../services/receipt-verdict';
 import { evaluatePaymentReceipt, redRejectionMessage } from '../services/receipt-approval.service';
@@ -330,6 +331,321 @@ export async function aplicarComprobante(
     });
     ctx.log?.info?.({ queueId: ctx.queueId, paymentId: pago.id, accion: resultado.action }, '[wa-queue] aplicado');
 }
+/** Resultado de bajar y guardar el archivo — el llamador solo revisa `ok`; en `false` la fila ya quedó cerrada/reintentando y hay que retornar sin hacer nada más. */
+type ArchivoBajado =
+    | { ok: true; base64: string; mime: string; storagePath: string }
+    | { ok: false };
+
+/**
+ * Bajar y GUARDAR antes de leer. La URL de media de Meta expira en minutos;
+ * si se baja, se pasa al OCR y el OCR falla, un reintento veinte minutos
+ * después ya no puede bajar nada y el archivo se pierde sin dejar rastro.
+ *
+ * Idempotente por FILA: si `fila.storage_path` ya está estampado (reintento,
+ * o una rama anterior del mismo procesamiento ya lo bajó), relee del bucket
+ * en vez de volver a pedirle el archivo a Meta y volver a subirlo. Esto
+ * importa para la rama de staff-admin (§3 de
+ * alta-atleta-por-foto-hoja-matricula.md): si termina resolviendo que
+ * también es acudiente y sigue por `continuarComoComprobante`, NO vuelve a
+ * bajar el mismo archivo.
+ */
+async function bajarYGuardarArchivo(fila: FilaCola, wa: WhatsAppIntegration, log?: Logger): Promise<ArchivoBajado> {
+    let mime = fila.media_mime_type ?? 'image/jpeg';
+    let storagePath = fila.storage_path;
+
+    if (storagePath) {
+        const { data: blob, error } = await supabase.storage.from(BUCKET).download(storagePath);
+        if (error || !blob) { await reintentar(fila, `no se pudo releer del bucket: ${error?.message}`, log); return { ok: false }; }
+        const base64 = Buffer.from(await blob.arrayBuffer()).toString('base64');
+        return { ok: true, base64, mime, storagePath };
+    }
+
+    if (!fila.media_id) {
+        await cerrar(fila.id, 'failed', { error_message: 'fila sin media_id' });
+        return { ok: false };
+    }
+    const bajada = await downloadMedia(wa, fila.media_id);
+    if (!bajada.ok || !bajada.base64) {
+        if (!esTransitorio(bajada.error ?? '')) {
+            await cerrar(fila.id, 'failed', { error_message: bajada.error ?? 'no se pudo bajar' });
+        } else {
+            await reintentar(fila, bajada.error ?? 'fallo al bajar', log);
+        }
+        return { ok: false };
+    }
+    const base64 = bajada.base64;
+    mime = bajada.mimeType ?? mime;
+
+    const ext = mime === 'application/pdf' ? 'pdf' : (mime.split('/')[1] ?? 'jpg');
+    storagePath = `${fila.school_id}/whatsapp/${fila.id}.${ext}`;
+    const { error: upErr } = await supabase.storage.from(BUCKET)
+        .upload(storagePath, Buffer.from(base64, 'base64'), { contentType: mime, upsert: true });
+    if (upErr) {
+        const detalle = [upErr.message, (upErr as { statusCode?: string }).statusCode, upErr.name]
+            .filter(Boolean).join(' · ') || JSON.stringify(upErr).slice(0, 200);
+        await reintentar(fila, `no se pudo guardar en el bucket: ${detalle}`, log);
+        return { ok: false };
+    }
+
+    // Se estampa YA, antes del OCR: si el OCR falla, el reintento (o la rama
+    // que sigue en el mismo procesamiento) parte del bucket, no de una URL de
+    // Meta que para entonces ya expiró.
+    await supabase.from('whatsapp_inbound_queue')
+        .update({ storage_path: storagePath, media_mime_type: mime })
+        .eq('id', fila.id);
+    // Mutar la fila en memoria: si esta misma invocación sigue a
+    // continuarComoComprobante o a otra rama, esas lecturas de fila.storage_path
+    // ya ven el valor estampado.
+    fila.storage_path = storagePath;
+    fila.media_mime_type = mime;
+
+    return { ok: true, base64, mime, storagePath };
+}
+
+/**
+ * Todo lo que pasa una vez que sabemos QUIÉN paga (`parentId`) y que el
+ * archivo YA se leyó como comprobante (`ocr`). Compartida por el camino de
+ * siempre (acudiente identificado por OTP/teléfono) y por el camino nuevo
+ * (admin-que-también-es-acudiente, ver `procesarComoStaffAdmin`) — para que
+ * un admin con hijos en la escuela no pierda el camino de pagos de hoy, y
+ * para no volver a bajar el archivo una segunda vez.
+ */
+async function continuarComoComprobante(
+    fila: FilaCola,
+    parentId: string,
+    responder: (texto: string, paso: string) => Promise<unknown>,
+    base64: string,
+    mime: string,
+    storagePath: string,
+    ocr: Awaited<ReturnType<typeof extractReceipt>>,
+    log?: Logger,
+): Promise<void> {
+    if (ocr.isTransactionList === true) {
+        await responder(M.esListado, 'es_listado');
+        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'listado de movimientos' });
+        return;
+    }
+
+    // ¿El dinero fue siquiera a la escuela? Va ANTES de mirar los pendientes
+    // (ver comentario original: decirle "no tienes pendientes" a quien mandó
+    // el comprobante de otra cuenta es cierto pero inútil).
+    const ctx = await buildVerdictContext(fila.school_id, { referenceNorm: null, imageSha256: null });
+    const cuentas = ctx.registeredAccounts ?? [];
+    const destino = normalizeDestination(ocr.destination);
+    if (destino && cuentas.length > 0 && !cuentas.includes(destino)) {
+        await responder(
+            `Revisé tu comprobante y el dinero se envió a la cuenta *${ocr.destination}*, ` +
+            'que no es ninguna de las cuentas registradas por la escuela.\n\n' +
+            'Verifica la llave o el número antes de volver a transferir, y si ya lo hiciste ' +
+            'escríbele a la escuela para que lo revisen contigo.',
+            'destino_ajeno',
+        );
+        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'destino no es de la escuela' });
+        return;
+    }
+
+    // ¿A qué pago va?
+    const pendientes = await pagosPendientesDe(parentId, fila.school_id);
+    const match = resolverPago(pendientes, ocr.amount ?? null);
+
+    if (match.tipo === 'sin_pendientes') {
+        await responder(M.sinPendientes, 'sin_pendientes');
+        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'sin pagos pendientes' });
+        return;
+    }
+
+    if (match.tipo === 'preguntar' || match.tipo === 'combinacion') {
+        const texto = match.tipo === 'preguntar'
+            ? mensajeElegirPago(match.opciones)
+            : `Recibí tu comprobante por ${cop(ocr.amount ?? 0)}. Parece que cubre estos cobros:\n\n` +
+              `${match.pagos.map((p) => `• ${describirPago(p)}`).join('\n')}\n\n` +
+              'Respóndeme *sí* para aplicarlo así.';
+        await responder(texto, match.tipo === 'preguntar' ? 'ask_cual_pago' : 'confirmar_combinacion');
+        await esperarAlUsuario(fila.id, {
+            opciones: match.tipo === 'preguntar' ? match.opciones : match.pagos,
+            ocr,
+            sha: crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex'),
+            storagePath,
+            parentId,
+        });
+        return;
+    }
+
+    // Un solo destino: se estampa el comprobante Y SU VEREDICTO.
+    const pago: PagoPendiente = match.pago;
+    const sha = crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex');
+
+    await aplicarComprobante({
+        queueId: fila.id, schoolId: fila.school_id, parentId, storagePath, sha, ocr,
+        responder,
+        alFallar: (motivo) => reintentar(fila, motivo, log),
+        log,
+    }, pago, pendientes.filter((x) => x.id !== pago.id));
+}
+
+/**
+ * Busca si el documento del deportista ya existe en `children` de esta
+ * escuela, o en otra fila de `enrollment_form_intake` todavía sin aprobar —
+ * ver §6.1 de alta-atleta-por-foto-hoja-matricula.md. Solo corre si el OCR
+ * pudo leer el documento; sin documento no hay llave confiable y se deja la
+ * decisión al admin en el inbox (fase 4).
+ */
+async function buscarDuplicadoDeMatricula(
+    schoolId: string,
+    docNumber: string | null,
+): Promise<{ duplicateOfChildId: string | null; duplicateOfIntakeId: string | null }> {
+    if (!docNumber) return { duplicateOfChildId: null, duplicateOfIntakeId: null };
+    const docNorm = docNumber.replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+    if (!docNorm) return { duplicateOfChildId: null, duplicateOfIntakeId: null };
+
+    const { data: existingChild } = await supabase
+        .from('children')
+        .select('id')
+        .eq('school_id', schoolId)
+        .eq('doc_number', docNorm)
+        .maybeSingle();
+    if (existingChild) return { duplicateOfChildId: existingChild.id as string, duplicateOfIntakeId: null };
+
+    // Sin filtro JSONB en el query (evitar depender de sintaxis ->> del
+    // cliente): son pocas filas abiertas por escuela, se filtra en memoria.
+    const { data: abiertas } = await supabase
+        .from('enrollment_form_intake')
+        .select('id, extracted')
+        .eq('school_id', schoolId)
+        .in('status', ['pending', 'processing', 'waiting_review']);
+
+    const otra = (abiertas ?? []).find((row: any) => {
+        const otroDoc = (row.extracted as EnrollmentFormResult | null)?.docNumber;
+        return otroDoc && otroDoc.replace(/[^0-9A-Za-z]/g, '').toUpperCase() === docNorm;
+    });
+
+    return { duplicateOfChildId: null, duplicateOfIntakeId: (otra?.id as string) ?? null };
+}
+
+/** Encola la matrícula extraída en `enrollment_form_intake`, con su chequeo de duplicados, y cierra la fila de WhatsApp. */
+async function encolarMatricula(
+    fila: FilaCola,
+    storagePath: string,
+    enrollment: EnrollmentFormResult,
+    responder: (texto: string, paso: string) => Promise<unknown>,
+    log?: Logger,
+): Promise<void> {
+    const { duplicateOfChildId, duplicateOfIntakeId } = await buscarDuplicadoDeMatricula(fila.school_id, enrollment.docNumber);
+
+    const { data: intake, error: intakeErr } = await supabase
+        .from('enrollment_form_intake')
+        .insert({
+            school_id: fila.school_id,
+            integration_id: fila.integration_id,
+            wa_message_id: fila.wa_message_id,
+            wa_phone_number: fila.wa_phone_number,
+            media_id: fila.media_id,
+            storage_path: storagePath,
+            status: 'waiting_review',
+            extracted: enrollment,
+            duplicate_of_child_id: duplicateOfChildId,
+            duplicate_of_intake_id: duplicateOfIntakeId,
+        })
+        .select('id')
+        .single();
+
+    if (intakeErr || !intake) {
+        log?.error?.({ err: intakeErr?.message, queueId: fila.id }, '[wa-queue] no se pudo encolar la matrícula');
+        await reintentar(fila, `no se pudo encolar la matrícula: ${intakeErr?.message}`, log);
+        return;
+    }
+
+    const aviso = duplicateOfChildId
+        ? 'Recibí la hoja de matrícula 📋 El documento ya existe para un atleta activo de la escuela — ' +
+          'la dejé en revisión para que decidas si vinculas los datos nuevos o la descartas, no crea un atleta duplicado.'
+        : duplicateOfIntakeId
+        ? 'Recibí la hoja de matrícula 📋 Ya había otra foto con el mismo documento esperando revisión — las agrupé.'
+        : 'Recibí la hoja de matrícula 📋 La dejé lista para que la revises y confirmes los datos antes de crear al atleta.';
+
+    await responder(aviso, 'matricula_encolada');
+    await cerrar(fila.id, 'done', { result_type: 'enrollment_form', result_ref_id: intake.id });
+    log?.info?.({ queueId: fila.id, intakeId: intake.id, duplicateOfChildId, duplicateOfIntakeId }, '[wa-queue] matrícula encolada');
+}
+
+/**
+ * Camino nuevo para quien resulta ser owner/admin/school_admin de la
+ * escuela (§4.1/§4.2 de alta-atleta-por-foto-hoja-matricula.md). Corre ANTES
+ * del gate de acudiente porque un admin no tiene por qué estar identificado
+ * como acudiente para poder mandar la foto de una hoja de matrícula.
+ *
+ * Primero se descarta que sea un comprobante (mismo extractor que ya existe,
+ * cero clasificador nuevo): si lo es, y el admin TAMBIÉN es acudiente
+ * (escuela chica, el dueño tiene hijos entrenando ahí), sigue el camino de
+ * pagos de siempre sin perder esa función. Si no es acudiente, no se aplica
+ * —los pagos de terceros/efectivo se registran desde el panel, no por acá—.
+ * Si no es comprobante, se prueba como hoja de matrícula.
+ */
+async function procesarComoStaffAdmin(
+    fila: FilaCola,
+    wa: WhatsAppIntegration,
+    conv: { id?: string; parent_id?: string | null; identified?: boolean } | null | undefined,
+    responder: (texto: string, paso: string) => Promise<unknown>,
+    log?: Logger,
+): Promise<void> {
+    const bajada = await bajarYGuardarArchivo(fila, wa, log);
+    if (!bajada.ok) return;
+    const { base64, mime, storagePath } = bajada;
+
+    let ocr;
+    try {
+        ocr = await extractReceipt(base64, mime);
+    } catch (err: any) {
+        await reintentar(fila, `OCR (comprobantes) no disponible: ${err?.message ?? err}`, log);
+        return;
+    }
+
+    if (ocr.isReceipt === true) {
+        let parentId: string | null = (conv?.identified && conv.parent_id) ? conv.parent_id : null;
+        if (!parentId) {
+            const { data: identificacion } = await supabase.rpc('wa_identify_by_phone', {
+                p_integration_id: fila.integration_id,
+                p_contact_wa_id: fila.wa_phone_number,
+            });
+            if ((identificacion as any)?.estado === 'identificado' && (identificacion as any)?.parent_id) {
+                parentId = (identificacion as any).parent_id as string;
+            }
+        }
+
+        if (parentId) {
+            await continuarComoComprobante(fila, parentId, responder, base64, mime, storagePath, ocr, log);
+            return;
+        }
+
+        await responder(
+            'Este archivo parece un comprobante de pago. Los pagos de terceros o en efectivo se ' +
+            'registran desde el panel de administración, no por este canal.',
+            'admin_comprobante_no_acudiente',
+        );
+        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'admin no acudiente, comprobante no aplicado' });
+        return;
+    }
+
+    let enrollment: EnrollmentFormResult;
+    try {
+        enrollment = await extractEnrollmentForm(base64, mime);
+    } catch (err: any) {
+        await reintentar(fila, `OCR (matrícula) no disponible: ${err?.message ?? err}`, log);
+        return;
+    }
+
+    if (!enrollment.isEnrollmentForm) {
+        await responder(
+            'No reconocí este archivo ni como comprobante de pago ni como hoja de matrícula. ' +
+            'Si querías registrar un atleta nuevo, envía la foto completa de la hoja.',
+            'no_reconocido_admin',
+        );
+        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'ni comprobante ni matrícula' });
+        return;
+    }
+
+    await encolarMatricula(fila, storagePath, enrollment, responder, log);
+}
+
 async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
     // 1. La integración, que trae el token para bajar el archivo.
     const { data: integration } = await supabase
@@ -404,7 +720,10 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
         return enviado;
     };
 
-    // 2. ¿Quién es? Un comprobante no identifica a nadie: primero OTP.
+    // 2. ¿Quién es? Se busca la conversación PRIMERO —tanto el camino de
+    // siempre como la rama nueva de staff-admin la necesitan (esta última
+    // para poder registrar sus mensajes salientes y para saber, sin una
+    // segunda consulta, si el admin también es acudiente).
     const { data: conv } = await supabase
         .from('whatsapp_conversations')
         .select('id, parent_id, identified')
@@ -414,6 +733,19 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
 
     conversationId = (conv?.id as string) ?? null;
 
+    // 2.5. ¿Es un admin de esta escuela? Va ANTES de exigir identificación de
+    // acudiente — ver §4.1/§4.2 de alta-atleta-por-foto-hoja-matricula.md.
+    const { data: staffCheck } = await supabase.rpc('wa_identify_staff_admin_by_phone', {
+        p_school_id: fila.school_id,
+        p_wa_phone_number: fila.wa_phone_number,
+    });
+    if ((staffCheck as any)?.estado === 'identificado') {
+        await procesarComoStaffAdmin(fila, wa, conv, responder, log);
+        return;
+    }
+
+    // Un comprobante no identifica a nadie: primero OTP/teléfono (sin cambios
+    // respecto de hoy).
     if (!conv?.identified || !conv.parent_id) {
         await responder(M.noIdentificado, 'pide_identificacion');
         await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'contacto sin identificar' });
@@ -421,53 +753,10 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
     }
     const parentId = conv.parent_id as string;
 
-    // 3. Bajar y GUARDAR antes de leer (ver el encabezado del archivo).
-    let base64: string;
-    let mime = fila.media_mime_type ?? 'image/jpeg';
-    let storagePath = fila.storage_path;
-
-    if (storagePath) {
-        // Reintento: el archivo ya está a salvo, se relee del bucket.
-        const { data: blob, error } = await supabase.storage.from(BUCKET).download(storagePath);
-        if (error || !blob) { await reintentar(fila, `no se pudo releer del bucket: ${error?.message}`, log); return; }
-        base64 = Buffer.from(await blob.arrayBuffer()).toString('base64');
-    } else {
-        if (!fila.media_id) {
-            await cerrar(fila.id, 'failed', { error_message: 'fila sin media_id' });
-            return;
-        }
-        const bajada = await downloadMedia(wa, fila.media_id);
-        if (!bajada.ok || !bajada.base64) {
-            if (!esTransitorio(bajada.error ?? '')) {
-                await cerrar(fila.id, 'failed', { error_message: bajada.error ?? 'no se pudo bajar' });
-            } else {
-                await reintentar(fila, bajada.error ?? 'fallo al bajar', log);
-            }
-            return;
-        }
-        base64 = bajada.base64;
-        mime = bajada.mimeType ?? mime;
-
-        const ext = mime === 'application/pdf' ? 'pdf' : (mime.split('/')[1] ?? 'jpg');
-        storagePath = `${fila.school_id}/whatsapp/${fila.id}.${ext}`;
-        const { error: upErr } = await supabase.storage.from(BUCKET)
-            .upload(storagePath, Buffer.from(base64, 'base64'), { contentType: mime, upsert: true });
-        if (upErr) {
-            // `.message` puede venir vacío y dejaba «no se pudo guardar en el
-            // bucket: <none>», que no dice nada al diagnosticar. Se guarda todo
-            // lo que traiga el error.
-            const detalle = [upErr.message, (upErr as { statusCode?: string }).statusCode, upErr.name]
-                .filter(Boolean).join(' · ') || JSON.stringify(upErr).slice(0, 200);
-            await reintentar(fila, `no se pudo guardar en el bucket: ${detalle}`, log);
-            return;
-        }
-
-        // Se estampa YA, antes del OCR: si el OCR falla, el reintento parte del
-        // bucket y no de una URL de Meta que para entonces ya expiró.
-        await supabase.from('whatsapp_inbound_queue')
-            .update({ storage_path: storagePath, media_mime_type: mime })
-            .eq('id', fila.id);
-    }
+    // 3. Bajar y GUARDAR antes de leer.
+    const bajada = await bajarYGuardarArchivo(fila, wa, log);
+    if (!bajada.ok) return;
+    const { base64, mime, storagePath } = bajada;
 
     // 4. Leer. Si el OCR no responde, NO hay veredicto: se reintenta.
     let ocr;
@@ -485,79 +774,8 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
         await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'no es un comprobante' });
         return;
     }
-    if (ocr.isTransactionList === true) {
-        await responder(M.esListado, 'es_listado');
-        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'listado de movimientos' });
-        return;
-    }
 
-    // 6. ¿El dinero fue siquiera a la escuela?
-    //
-    //    Va ANTES de mirar los pendientes. Si no, alguien que manda un
-    //    comprobante de otra cosa recibe «no tienes cobros pendientes», que es
-    //    cierto pero inútil: lo que necesita saber es que ese pago no llegó a la
-    //    escuela. Caso real del 2026-09-11.
-    //
-    //    Solo se puede afirmar si la escuela TIENE cuentas registradas. Sin
-    //    ellas no hay contra qué comparar y callar es lo correcto — decir «no es
-    //    nuestra cuenta» sin saberlo sería peor que no decir nada.
-    const ctx = await buildVerdictContext(fila.school_id, { referenceNorm: null, imageSha256: null });
-    const cuentas = ctx.registeredAccounts ?? [];
-    const destino = normalizeDestination(ocr.destination);
-    if (destino && cuentas.length > 0 && !cuentas.includes(destino)) {
-        await responder(
-            `Revisé tu comprobante y el dinero se envió a la cuenta *${ocr.destination}*, ` +
-            'que no es ninguna de las cuentas registradas por la escuela.\n\n' +
-            'Verifica la llave o el número antes de volver a transferir, y si ya lo hiciste ' +
-            'escríbele a la escuela para que lo revisen contigo.',
-            'destino_ajeno',
-        );
-        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'destino no es de la escuela' });
-        return;
-    }
-
-    // 7. ¿A qué pago va?
-    const pendientes = await pagosPendientesDe(parentId, fila.school_id);
-    const match = resolverPago(pendientes, ocr.amount ?? null);
-
-    if (match.tipo === 'sin_pendientes') {
-        await responder(M.sinPendientes, 'sin_pendientes');
-        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'sin pagos pendientes' });
-        return;
-    }
-
-    if (match.tipo === 'preguntar' || match.tipo === 'combinacion') {
-        // No se adivina y no se reparte plata sin un sí explícito.
-        const texto = match.tipo === 'preguntar'
-            ? mensajeElegirPago(match.opciones)
-            : `Recibí tu comprobante por ${cop(ocr.amount ?? 0)}. Parece que cubre estos cobros:\n\n` +
-              `${match.pagos.map((p) => `• ${describirPago(p)}`).join('\n')}\n\n` +
-              'Respóndeme *sí* para aplicarlo así.';
-        await responder(texto, match.tipo === 'preguntar' ? 'ask_cual_pago' : 'confirmar_combinacion');
-        // Congelar la pregunta. Sin esto la respuesta es inaplicable: el «1»
-        // se reinterpretaria contra los pendientes del momento de contestar
-        // —que pueden haber cambiado— y volver a leer la imagen costaria OCR
-        // contra una URL de Meta que ya expiro.
-        await esperarAlUsuario(fila.id, {
-            opciones: match.tipo === 'preguntar' ? match.opciones : match.pagos,
-            ocr,
-            sha: crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex'),
-            storagePath,
-            parentId,
-        });
-        return;
-    }
-
-    // 7. Un solo destino: se estampa el comprobante Y SU VEREDICTO.
-    const pago: PagoPendiente = match.pago;
-    const sha = crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex');
-
-    await aplicarComprobante({
-        queueId: fila.id, schoolId: fila.school_id, parentId, storagePath, sha, ocr,
-        responder,
-        alFallar: (motivo) => reintentar(fila, motivo, log),
-        log,
-    }, pago, pendientes.filter((x) => x.id !== pago.id));
+    await continuarComoComprobante(fila, parentId, responder, base64, mime, storagePath, ocr, log);
 }
 
 // ─── Entrada del job ─────────────────────────────────────────────────────────

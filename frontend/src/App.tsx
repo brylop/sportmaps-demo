@@ -232,6 +232,7 @@ const SchoolDelegationsPage = lazy(() => import("./pages/school/SchoolDelegation
 const SchoolDelegationDetailPage = lazy(() => import("./pages/school/SchoolDelegationDetailPage"));
 const AccessControlPage = lazy(() => import('./pages/school/AccessControlPage'));
 const SchoolRoutines = lazy(() => import("./pages/school/SchoolRoutines"));
+const EnrollmentIntakeInboxPage = lazy(() => import("./pages/school/EnrollmentIntakeInboxPage"));
 
 // ─── Trainer pages (lazy) ────────────────────────────────────────────────────
 const TrainerOnboarding = lazy(() => import("./pages/trainer/TrainerOnboarding"));
@@ -612,6 +613,14 @@ const App = () => (
                       <Route path="students" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
                           <SchoolStudentsManagementPage />
+                        </ProtectedRoute>
+                      } />
+                      {/* Inbox de revisión de hojas de matrícula por foto (WhatsApp + OCR).
+                          Mismos roles que students/bulk y create-one — nunca coach: dar de
+                          alta un atleta es decisión de admin, no de quien solo entrena. */}
+                      <Route path="school/enrollment-intake" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <EnrollmentIntakeInboxPage />
                         </ProtectedRoute>
                       } />
                       {/* El plan lo ve SOLO quien lo paga. Estar asociado a una entidad no

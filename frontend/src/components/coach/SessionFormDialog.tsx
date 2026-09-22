@@ -44,6 +44,11 @@ interface Drill {
  *  reusan para VARIAS sesiones distintas y un id fijo ahí colisionaría
  *  entre sesiones. Opcional a propósito: bloques viejos guardados antes
  *  de esto no tienen id hasta que se abre su tablero por primera vez. */
+/** técnico/táctico/físico/mixto — spec periodización §3.5: lo único que la
+ *  grilla del Excel de Carmel pedía y CAR-8 no había sumado todavía. Sin
+ *  CHECK en la base (vive dentro del jsonb de session_blocks), opcional. */
+type BlockComponent = 'tecnico' | 'tactico' | 'fisico' | 'mixto';
+
 interface SessionBlock {
   id?: string;
   name: string;
@@ -51,14 +56,22 @@ interface SessionBlock {
   activity: string;
   objective: string;
   description: string;
+  component?: BlockComponent | '';
 }
 
+const BLOCK_COMPONENT_OPTIONS: { value: BlockComponent; label: string }[] = [
+  { value: 'tecnico', label: 'Técnico' },
+  { value: 'tactico', label: 'Táctico' },
+  { value: 'fisico', label: 'Físico' },
+  { value: 'mixto', label: 'Mixto' },
+];
+
 const FOOTBALL_BLOCK_TEMPLATE: SessionBlock[] = [
-  { name: 'Calentamiento', minutes: '', activity: '', objective: '', description: '' },
-  { name: 'Parte 1 — Introductorio', minutes: '', activity: '', objective: '', description: '' },
-  { name: 'Parte 2 — Situacional', minutes: '', activity: '', objective: '', description: '' },
-  { name: 'Parte 3 — Evaluativo', minutes: '', activity: '', objective: '', description: '' },
-  { name: 'Vuelta a la calma', minutes: '', activity: '', objective: '', description: '' },
+  { name: 'Calentamiento', minutes: '', activity: '', objective: '', description: '', component: '' },
+  { name: 'Parte 1 — Introductorio', minutes: '', activity: '', objective: '', description: '', component: '' },
+  { name: 'Parte 2 — Situacional', minutes: '', activity: '', objective: '', description: '', component: '' },
+  { name: 'Parte 3 — Evaluativo', minutes: '', activity: '', objective: '', description: '', component: '' },
+  { name: 'Vuelta a la calma', minutes: '', activity: '', objective: '', description: '', component: '' },
 ];
 
 type ObjectivesMet = 'si' | 'parcial' | 'no';
@@ -163,11 +176,11 @@ export function SessionFormDialog({
     setDrills(updated);
   };
 
-  const addBlock = () => setBlocks([...blocks, { name: '', minutes: '', activity: '', objective: '', description: '' }]);
+  const addBlock = () => setBlocks([...blocks, { name: '', minutes: '', activity: '', objective: '', description: '', component: '' }]);
   const removeBlock = (index: number) => setBlocks(blocks.filter((_, i) => i !== index));
-  const updateBlock = (index: number, field: keyof SessionBlock, value: string) => {
+  const updateBlock = (index: number, field: keyof SessionBlock, value: any) => {
     const updated = [...blocks];
-    updated[index][field] = value;
+    (updated[index] as any)[field] = value;
     setBlocks(updated);
   };
 
@@ -403,11 +416,26 @@ export function SessionFormDialog({
                         </Button>
                       )}
                     </div>
-                    <Input
-                      placeholder="Actividad / ejercicio"
-                      value={block.activity}
-                      onChange={(e) => updateBlock(index, 'activity', e.target.value)}
-                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+                      <Input
+                        placeholder="Actividad / ejercicio"
+                        value={block.activity}
+                        onChange={(e) => updateBlock(index, 'activity', e.target.value)}
+                      />
+                      <Select
+                        value={block.component || undefined}
+                        onValueChange={(v) => updateBlock(index, 'component', v)}
+                      >
+                        <SelectTrigger className="w-full sm:w-36">
+                          <SelectValue placeholder="Componente" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {BLOCK_COMPONENT_OPTIONS.map((o) => (
+                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <Input
                       placeholder="Objetivo específico"
                       value={block.objective}

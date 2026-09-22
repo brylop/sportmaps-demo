@@ -42,24 +42,29 @@ export default function NotificationsPage() {
 
   const unreadCount = notifications.filter((n: any) => !n.read).length;
 
+  // `type` en la interfaz de arriba es un union cerrado, pero la tabla real
+  // en Supabase acepta cualquier string ('payment_reminder', etc.) y esta
+  // página lo consume vía `any` — un tipo no mapeado acá dejaba `Icon`
+  // undefined y React tiraba "Element type is invalid", tumbando toda la
+  // página (bug 2026-09-18). Bell/texto por defecto para lo no mapeado.
   const getIcon = (type: Notification['type']) => {
-    const icons = {
+    const icons: Record<string, typeof Bell> = {
       success: CheckCircle,
       warning: AlertCircle,
       error: AlertCircle,
       info: Info
     };
-    return icons[type];
+    return icons[type] ?? Bell;
   };
 
   const getIconColor = (type: Notification['type']) => {
-    const colors = {
+    const colors: Record<string, string> = {
       success: 'text-green-600',
       warning: 'text-orange-500',
       error: 'text-red-600',
       info: 'text-primary'
     };
-    return colors[type];
+    return colors[type] ?? 'text-muted-foreground';
   };
 
   const markAsRead = async (id: string) => {

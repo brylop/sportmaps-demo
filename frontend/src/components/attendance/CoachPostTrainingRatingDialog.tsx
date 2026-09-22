@@ -51,9 +51,13 @@ export function CoachPostTrainingRatingDialog({ sessionId, open, onOpenChange }:
       if (error) throw error;
 
       return ((data ?? []) as any[]).map((r) => ({
-        key: r.child_id ?? r.user_id,
+        key: r.child_id ?? r.user_id ?? r.unregistered_athlete_id,
         childId: r.child_id as string | null,
         userId: r.user_id as string | null,
+        // submit_post_training_coach_rating solo acepta child_id/user_id —
+        // una atleta sin cuenta se puede mostrar pero no se puede calificar
+        // (fallaría toda la calificación del grupo, no solo la de ella).
+        isUnregistered: !r.child_id && !r.user_id,
         name: r.full_name ?? 'Deportista',
         avatarUrl: r.avatar_url ?? null,
       }));
@@ -95,7 +99,7 @@ export function CoachPostTrainingRatingDialog({ sessionId, open, onOpenChange }:
     },
   });
 
-  const total = athletes?.length ?? 0;
+  const total = (athletes ?? []).filter((a) => !a.isUnregistered).length;
   const done = Object.keys(ratings).length;
 
   return (
@@ -117,21 +121,29 @@ export function CoachPostTrainingRatingDialog({ sessionId, open, onOpenChange }:
                 </div>
                 <p className="font-semibold text-sm">{a.name}</p>
               </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {RATING_STEPS.map((s) => (
-                  <button
-                    key={s.value}
-                    onClick={() => setRatings((r) => ({ ...r, [a.key]: s.value }))}
-                    className={`rounded-lg px-2 py-1.5 text-[11px] font-bold border-2 ${ratings[a.key] === s.value ? 'border-orange bg-orange text-white' : 'border-border text-muted-foreground'}`}
-                  >
-                    {s.value}%
-                  </button>
-                ))}
-              </div>
-              {ratings[a.key] && (
-                <p className="text-[11px] text-orange-dark font-semibold mt-1">
-                  {ratings[a.key]}% · {RATING_STEPS.find((s) => s.value === ratings[a.key])?.label}
+              {a.isUnregistered ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Sin cuenta registrada — no recibirá el informe ni las encuestas hasta que se registre.
                 </p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {RATING_STEPS.map((s) => (
+                      <button
+                        key={s.value}
+                        onClick={() => setRatings((r) => ({ ...r, [a.key]: s.value }))}
+                        className={`rounded-lg px-2 py-1.5 text-[11px] font-bold border-2 ${ratings[a.key] === s.value ? 'border-orange bg-orange text-white' : 'border-border text-muted-foreground'}`}
+                      >
+                        {s.value}%
+                      </button>
+                    ))}
+                  </div>
+                  {ratings[a.key] && (
+                    <p className="text-[11px] text-orange-dark font-semibold mt-1">
+                      {ratings[a.key]}% · {RATING_STEPS.find((s) => s.value === ratings[a.key])?.label}
+                    </p>
+                  )}
+                </>
               )}
             </div>
           ))}

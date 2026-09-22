@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 575,
-  "head": "20260919195137",
+  "count": 593,
+  "head": "20260921131039",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -576,8 +576,26 @@
     {"v":"20260917123008","file":"20260917123008_enrollment_intake_storage_policies.sql","sha256":"89cc639f27c7bca9a4793e7965d9182c722fa7d15a7ff6f7b23127b6a5ce9acd","added":"2026-09-17","by":"brylop"},
     {"v":"20260917131156","file":"20260917131156_fix_identity_docs_public_read_nunca_aplicado.sql","sha256":"8af4c0a727126b5208c321b4d2751b354182a264c7323736e2b59c8eb2802ff9","added":"2026-09-17","by":"brylop"},
     {"v":"20260917131343","file":"20260917131343_enrollment_intake_storage_policies_v2.sql","sha256":"78d69ab1429a630438ad382ea3a0aae821dfd67b9b8f7d2dec02be34ad5730a3","added":"2026-09-17","by":"brylop"},
+    {"v":"20260917133748","file":"20260917133748_wa_identify_staff_admin_por_telefono.sql","sha256":"3475f0c2bb1f530cf53dffb008ba00e731eee71f1dd92509b7c683a1aad3cb46","added":"2026-09-17","by":"brylop"},
     {"v":"20260917152141","file":"20260917152141_revoca_grant_authenticated_get_or_open_hour_bank_period.sql","sha256":"ba4a855a38d8da8932f9a2dcc913b4025eb653f530834213f811f767b858e35c","added":"2026-09-17","by":"judegor99"},
     {"v":"20260917152834","file":"20260917152834_revoca_default_privilege_execute_anon_authenticated_funciones.sql","sha256":"35f6c813133d33cf257792944f89065c9b2264b801ed70c70ef9a56029a20ca7","added":"2026-09-17","by":"judegor99"},
-    {"v":"20260919195137","file":"20260919195137_match_lineups_arrows.sql","sha256":"921424a3efded845ee66745b92f0429187c18f1261b52d5254c2e30d630d0bd9","added":"2026-09-20","by":"judegor99"}
+    {"v":"20260917162556","file":"20260917162556_enrollment_intake_unregistered_athlete.sql","sha256":"75ea2951d0c47a4ea40d358de8a0112573c985ff2629461eb64af91902434815","added":"2026-09-17","by":"brylop"},
+    {"v":"20260918121305","file":"20260918121305_invitations_opened_at_tracking.sql","sha256":"e20652b7a322ed41de93bd7fc0c37998e02f5ef75caf35ce446e48654fe9fadf","added":"2026-09-18","by":"brylop"},
+    {"v":"20260918123632","file":"20260918123632_buscar_menor_incluye_contacto_temp_del_acudiente.sql","sha256":"83aca1948f89ba4e83345c45bb7c8ce53ba41c8faa1138f4bb5fc830ed4bfe1b","added":"2026-09-18","by":"brylop"},
+    {"v":"20260918124721","file":"20260918124721_mesociclo_transaccional_y_fix_sesiones_huerfanas.sql","sha256":"3007ddc18ca7041a0393f04ed78ceb297bfb1ba5de16c00e0344b3a7641578e1","added":"2026-09-18","by":"brylop"},
+    {"v":"20260918130622","file":"20260918130622_qr_signup_team_fallback_preloaded.sql","sha256":"9c61858ee39fec5a0a189a1fe7754aab24c17fed472b73579057ceafa486157f","added":"2026-09-18","by":"brylop"},
+    {"v":"20260918130753","file":"20260918130753_post_entreno_roster_incluye_no_registrados.sql","sha256":"5ec230f4fbccc3d5d6bc5c0ffca127cf31bd19782033f9d4e8c52e635074e633","added":"2026-09-18","by":"brylop"},
+    {"v":"20260918131232","file":"20260918131232_training_sessions_select_solo_staff.sql","sha256":"ef4a57efb793cfcf764827986bd5be98df72210067be773e4b3944d9260900e9","added":"2026-09-18","by":"brylop"},
+    {"v":"20260918140634","file":"20260918140634_buscar_menor_incluye_unregistered_athletes.sql","sha256":"fd3185d5b6fc9f2339d40371446dc88f20fceff280415399063f3f3dd8e15207","added":"2026-09-18","by":"brylop"},
+    {"v":"20260919193702","file":"20260919193702_fix_pg_net_schema_extensions.sql","sha256":"d3e55207f5764c9e3c3f50db9c1a2a83f36b09fd882d23ceedc0415752358dd7","added":"2026-09-20","by":"brylop"},
+    {"v":"20260919194017","file":"20260919194017_fix_athlete_payments_summary_overdue.sql","sha256":"263799a7c3668b7c5b2bfbc685824270ba915524447b500c7c84308514640665","added":"2026-09-20","by":"brylop"},
+    {"v":"20260919194236","file":"20260919194236_fix_identity_spoofing_trainer_plans_unblock_payment.sql","sha256":"56d1403b31aa401fa357fd567ba7177ad150ad02c75d97249c095163c4e73579","added":"2026-09-20","by":"brylop"},
+    {"v":"20260919194528","file":"20260919194528_hotfix_trainer_plans_service_role_broke.sql","sha256":"5b9990d836bf3dc6f16bd1ae44c3485fde3c3e4debce32b3a388f0668bce2cc6","added":"2026-09-20","by":"brylop"},
+    {"v":"20260919195137","file":"20260919195137_match_lineups_arrows.sql","sha256":"921424a3efded845ee66745b92f0429187c18f1261b52d5254c2e30d630d0bd9","added":"2026-09-20","by":"judegor99"},
+    {"v":"20260921115743","file":"20260921115743_mesociclo_md_cross_microciclo_y_ddl_hardening.sql","sha256":"a2190d5da30343e0e252352a4422653c73ffcadd629985eb4a4f228fcfb007aa","added":"2026-09-21","by":"brylop"},
+    {"v":"20260921120611","file":"20260921120611_mesociclo_delete_cascade_rpc.sql","sha256":"24062f7421d41fe850dbfe14ef7eb1c71d57535b7b8761cae792c5368d38ff08","added":"2026-09-21","by":"brylop"},
+    {"v":"20260921120707","file":"20260921120707_fix_org_enumeration_functions.sql","sha256":"3db536ed462115e8c2f4adc4573cd548e2aeb436f2904ea1bb925c90bf3e453e","added":"2026-09-21","by":"brylop"},
+    {"v":"20260921130849","file":"20260921130849_mesociclo_fk_dia_sesion_invertido.sql","sha256":"c59e39d853b32c8afa2c144077a2f148809f9d41e9663740014e30b8422ca73e","added":"2026-09-21","by":"brylop"},
+    {"v":"20260921131039","file":"20260921131039_fix_more_identity_spoofing_and_execute_grants.sql","sha256":"f1aa610ab017c548485ec901f9e50a048ec94a669cd963a594af4dc357ef0fd0","added":"2026-09-21","by":"brylop"}
   ]
 }

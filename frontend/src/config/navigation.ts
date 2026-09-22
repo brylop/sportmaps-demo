@@ -352,6 +352,10 @@ export function getNavigationByRole(
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Deportistas', href: '/students', icon: Users },
+          // Fotos de hojas de matrícula recibidas por WhatsApp, pendientes de
+          // confirmar antes de crear el atleta. Ver
+          // docs/specs/alta-atleta-por-foto-hoja-matricula.md (fase 4).
+          { title: 'Matrículas por revisar', href: '/school/enrollment-intake', icon: ClipboardList },
           { title: 'Entrenadores', href: '/staff', icon: Users },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
         ]
@@ -603,6 +607,10 @@ export function getNavigationByRole(
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Deportistas', href: '/students', icon: Users },
+          // Fotos de hojas de matrícula recibidas por WhatsApp, pendientes de
+          // confirmar antes de crear el atleta. Ver
+          // docs/specs/alta-atleta-por-foto-hoja-matricula.md (fase 4).
+          { title: 'Matrículas por revisar', href: '/school/enrollment-intake', icon: ClipboardList },
           { title: 'Entrenadores', href: '/staff', icon: Users },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
         ]
