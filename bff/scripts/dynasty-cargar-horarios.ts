@@ -110,6 +110,11 @@ const HORARIOS: Record<string, Franja[]> = {
         { day: 6, time: '11:00', end: '13:00', place: COLISEO },
         { day: 0, time: '11:00', end: '13:00', place: COLISEO },
     ],
+    // De la escuela por escrito, 2026-09-22. Acá el «8 a 10pm» venía explícito.
+    'SENIORS': [
+        { day: 1, time: '20:00', end: '22:00', place: COLISEO },
+        { day: 4, time: '20:00', end: '22:00', place: COLISEO },
+    ],
     'JUVENIL MAYORES MASCULINO': [
         { day: 2, time: '20:00', end: '22:00', place: COLISEO },
         { day: 5, time: '20:00', end: '22:00', place: COLISEO },
@@ -128,7 +133,6 @@ const HORARIOS: Record<string, Franja[]> = {
  */
 const SIN_CARGAR: Record<string, string> = {
     'JUVENIL MAYORES FEMENINO': 'no salió en ninguna imagen',
-    'SENIORS':                  'no salió en ninguna imagen',
     'MINIVOLLEY -BENJAMINES (DUPLICADO - NO USAR)': 'el nombre lo dice; tiene 3 atletas que alguien debería mover',
 };
 
