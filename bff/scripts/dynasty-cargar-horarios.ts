@@ -43,7 +43,13 @@ const COLIBRI = 'Cancha externa Nido del Colibrí';
 const ALSACIA = 'Cancha externa Asoalsacia';
 
 /** day: 0=domingo … 6=sábado, como Date.getDay(). */
-type Franja = { day: number; time: string; end: string; place: string };
+type Franja = { day: number; time: string; end: string; place: string; group?: string };
+
+// INTERMEDIO y MENORES FEMENINO se dividen en dos subgrupos que la escuela
+// publica por separado pero que el sistema no modela: hay UN equipo con 106 y
+// 42 atletas. En vez de crear equipos y mover gente a ciegas —o de dejar 148
+// familias sin horario— se cargan las DOS tandas etiquetadas, y el bot las
+// nombra. El papa sabe en cual esta su hijo; nosotros no.
 
 /**
  * Nombre EXACTO del equipo en la base → sus franjas.
@@ -70,6 +76,26 @@ const HORARIOS: Record<string, Franja[]> = {
         { day: 6, time: '09:30', end: '11:30', place: COLISEO },
         { day: 0, time: '09:30', end: '11:30', place: ALSACIA },
     ],
+    'INTERMEDIO': [
+        { day: 1, time: '16:00', end: '18:00', place: COLISEO, group: 'Origen' },
+        { day: 3, time: '16:00', end: '18:00', place: COLISEO, group: 'Origen' },
+        { day: 5, time: '16:00', end: '18:00', place: COLISEO, group: 'Origen' },
+        { day: 6, time: '07:00', end: '09:00', place: COLISEO, group: 'Origen' },
+        { day: 0, time: '09:30', end: '11:30', place: ALSACIA, group: 'Origen' },
+        { day: 2, time: '16:00', end: '18:00', place: COLIBRI, group: 'Evolución' },
+        { day: 4, time: '16:00', end: '18:00', place: COLISEO, group: 'Evolución' },
+        { day: 6, time: '09:30', end: '11:30', place: ALSACIA, group: 'Evolución' },
+        { day: 0, time: '07:00', end: '09:00', place: COLISEO, group: 'Evolución' },
+    ],
+    'MENORES FEMENINO': [
+        { day: 2, time: '17:00', end: '19:00', place: COLIBRI, group: 'White' },
+        { day: 4, time: '17:00', end: '19:00', place: COLISEO, group: 'White' },
+        { day: 6, time: '09:30', end: '11:30', place: ALSACIA, group: 'White' },
+        { day: 0, time: '07:00', end: '09:00', place: COLISEO, group: 'White' },
+        { day: 2, time: '18:30', end: '20:30', place: COLISEO, group: 'Selección' },
+        { day: 4, time: '18:30', end: '20:30', place: COLISEO, group: 'Selección' },
+        { day: 5, time: '18:30', end: '20:30', place: COLISEO, group: 'Selección' },
+    ],
     'JUVENIL MAYORES MASCULINO': [
         { day: 2, time: '20:00', end: '22:00', place: COLISEO },
         { day: 5, time: '20:00', end: '22:00', place: COLISEO },
@@ -90,8 +116,6 @@ const SIN_CARGAR: Record<string, string> = {
     'INFANTIL FEMENINO':        'no salió en ninguna imagen — 76 atletas, el 2º grupo más grande',
     'JUVENIL MAYORES FEMENINO': 'no salió en ninguna imagen',
     'SENIORS':                  'no salió en ninguna imagen',
-    'INTERMEDIO':               'la escuela publicó DOS: «Intermedio Origen» y «Intermedio Evolución». Son dos equipos distintos y en la base hay uno solo, con 106 atletas. Cargar uno de los dos le mentiría a la mitad',
-    'MENORES FEMENINO':         'igual: «White» y «Selección» son dos grupos con horarios y sedes distintas, y en la base hay un solo equipo con 42 atletas',
     'MINIVOLLEY -BENJAMINES (DUPLICADO - NO USAR)': 'el nombre lo dice; tiene 3 atletas que alguien debería mover',
 };
 

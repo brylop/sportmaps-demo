@@ -78,15 +78,28 @@ function describirEntrenamiento(raw: unknown): string | null {
     } catch { return null; }
     if (!Array.isArray(franjas) || !franjas.length) return null;
 
-    const partes = franjas
-        .filter((f) => f && typeof f.day === 'number' && f.time)
-        .map((f) => {
-            const dia = DIA[f.day] ?? '';
-            const hasta = f.end ? ` a ${f.end}` : '';
-            const donde = f.place ? ` (${f.place})` : '';
-            return `${dia} ${f.time}${hasta}${donde}`.trim();
-        });
-    return partes.length ? partes.join(' · ') : null;
+    const util = franjas.filter((f) => f && typeof f.day === 'number' && f.time);
+    if (!util.length) return null;
+
+    const franja = (f: any) => {
+        const hasta = f.end ? ` a ${f.end}` : '';
+        const donde = f.place ? ` (${f.place})` : '';
+        return `${DIA[f.day] ?? ''} ${f.time}${hasta}${donde}`.trim();
+    };
+
+    // Algunos equipos tienen SUBGRUPOS que el sistema no modela como equipos
+    // aparte: Dynasty divide «Intermedio» en Origen y Evolución, con horarios y
+    // sedes distintas, y en la base hay un solo equipo con 106 atletas. Si se
+    // listan las franjas mezcladas, el papá lee nueve dias y no sabe cuales son
+    // los de su hijo. Agrupadas, elige — porque el SI sabe en cual esta.
+    const grupos = [...new Set(util.map((f: any) => f.group).filter(Boolean))];
+    if (grupos.length > 1) {
+        return grupos
+            .map((g) => `${g}: ${util.filter((f: any) => f.group === g).map(franja).join(' · ')}`)
+            .join(' || ');
+    }
+
+    return util.map(franja).join(' · ');
 }
 
 /** «{"dias":{"1":["16:00","20:00"]}}» → «lunes a viernes de 4:00 p. m. a 8:00 p. m.» */
