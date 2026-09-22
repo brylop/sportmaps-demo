@@ -96,6 +96,20 @@ const HORARIOS: Record<string, Franja[]> = {
         { day: 4, time: '18:30', end: '20:30', place: COLISEO, group: 'Selección' },
         { day: 5, time: '18:30', end: '20:30', place: COLISEO, group: 'Selección' },
     ],
+    // Recibido de la escuela por escrito el 2026-09-22, no de una imagen.
+    //
+    // AM/PM: el mensaje decia «6:30 a 8:30» sin aclarar. Se toma PM porque
+    // TODAS las franjas entre semana de Dynasty caen entre las 4 y las 10 de la
+    // noche —ninguna es de manana— y 18:30-20:30 es exactamente la misma franja
+    // que ya tiene INFANTIL MASCULINO. Es una suposicion y esta marcada como
+    // tal: si resulta ser de manana, la familia llega con 12 horas de
+    // diferencia. CONFIRMAR con la escuela.
+    'INFANTIL FEMENINO': [
+        { day: 1, time: '18:30', end: '20:30', place: COLISEO },
+        { day: 3, time: '18:30', end: '20:30', place: COLISEO },
+        { day: 6, time: '11:00', end: '13:00', place: COLISEO },
+        { day: 0, time: '11:00', end: '13:00', place: COLISEO },
+    ],
     'JUVENIL MAYORES MASCULINO': [
         { day: 2, time: '20:00', end: '22:00', place: COLISEO },
         { day: 5, time: '20:00', end: '22:00', place: COLISEO },
@@ -113,7 +127,6 @@ const HORARIOS: Record<string, Franja[]> = {
  * vista en cada corrida, no enterrada en un comentario.
  */
 const SIN_CARGAR: Record<string, string> = {
-    'INFANTIL FEMENINO':        'no salió en ninguna imagen — 76 atletas, el 2º grupo más grande',
     'JUVENIL MAYORES FEMENINO': 'no salió en ninguna imagen',
     'SENIORS':                  'no salió en ninguna imagen',
     'MINIVOLLEY -BENJAMINES (DUPLICADO - NO USAR)': 'el nombre lo dice; tiene 3 atletas que alguien debería mover',
