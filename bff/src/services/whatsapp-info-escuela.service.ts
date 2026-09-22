@@ -58,6 +58,37 @@ export interface InfoDeEscuela {
 
 const vacio = (v: unknown) => String(v ?? '').trim() === '';
 
+const DIA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+
+/**
+ * «[{day:2,time:"16:00",end:"18:00",place:"Coliseo"}]» →
+ * «martes 16:00 a 18:00 (Coliseo)»
+ *
+ * Se formatea acá y no se le pasa el JSON crudo al modelo: leyendo `day: 2` el
+ * modelo tiene que acordarse de que 0 es domingo, y si se equivoca le dice a la
+ * familia el día que no es. Traducirlo en codigo no falla nunca.
+ *
+ * `place` es de Dynasty y el formato original no lo tenía: sus grupos rotan
+ * entre tres sedes DENTRO de la misma semana. Si viene, se dice.
+ */
+function describirEntrenamiento(raw: unknown): string | null {
+    let franjas: any[];
+    try {
+        franjas = typeof raw === 'string' ? JSON.parse(raw) : (raw as any[]);
+    } catch { return null; }
+    if (!Array.isArray(franjas) || !franjas.length) return null;
+
+    const partes = franjas
+        .filter((f) => f && typeof f.day === 'number' && f.time)
+        .map((f) => {
+            const dia = DIA[f.day] ?? '';
+            const hasta = f.end ? ` a ${f.end}` : '';
+            const donde = f.place ? ` (${f.place})` : '';
+            return `${dia} ${f.time}${hasta}${donde}`.trim();
+        });
+    return partes.length ? partes.join(' · ') : null;
+}
+
 /** «{"dias":{"1":["16:00","20:00"]}}» → «lunes a viernes de 4:00 p. m. a 8:00 p. m.» */
 function describirAtencion(bh: any): string | null {
     const dias = bh?.dias;
@@ -90,7 +121,13 @@ export async function infoDeEscuela(schoolId: string): Promise<InfoDeEscuela> {
             .select('name, rama, sort_order')
             .eq('school_id', schoolId).eq('is_active', true)
             .order('sort_order', { ascending: true, nullsFirst: false }).limit(60),
-        supabase.from('whatsapp_settings').select('business_hours').eq('school_id', schoolId).maybeSingle(),
+        // whatsapp_settings se llavea por `integration_id`, NO por school_id.
+        // La version anterior filtraba por una columna que no existe: fallaba en
+        // silencio y el horario de atencion salia null aunque estuviera puesto.
+        supabase.from('whatsapp_settings')
+            .select('business_hours, integration:school_whatsapp_integrations!inner(school_id)')
+            .eq('integration.school_id', schoolId)
+            .maybeSingle(),
     ]);
 
     const e = (escuela.data ?? {}) as any;
@@ -102,10 +139,7 @@ export async function infoDeEscuela(schoolId: string): Promise<InfoDeEscuela> {
     const grupos = eq.map((t) => ({
         nombre: String(t.name ?? '').trim(),
         sede: vacio(t.location) ? null : String(t.location).trim(),
-        // `schedule` es jsonb/text y en las cuatro escuelas medidas está VACÍO.
-        // Se devuelve igual por si alguna lo llena: el día que pase, el bot
-        // empieza a contestar horarios sin que haya que tocar nada.
-        horario: vacio(t.schedule) ? null : String(t.schedule).trim(),
+        horario: describirEntrenamiento(t.schedule),
     })).filter((g) => g.nombre);
 
     const info: InfoDeEscuela = {
@@ -125,8 +159,15 @@ export async function infoDeEscuela(schoolId: string): Promise<InfoDeEscuela> {
     // Lo que falta se dice EXPLÍCITO. Un campo vacío el modelo lo puede leer
     // como «no aplica» y rellenarlo; una frase que diga «no tengo horarios de
     // entrenamiento» no deja lugar a eso.
-    if (!grupos.some((g) => g.horario)) {
+    // El horario se avisa POR GRUPO, no en bloque. Dynasty tiene 5 de 11
+    // cargados: decir «no tengo horarios» seria falso, y no decir nada haria
+    // que el modelo diera por completa una lista a la que le faltan seis.
+    const sinHorario = grupos.filter((g) => !g.horario).map((g) => g.nombre);
+    if (sinHorario.length === grupos.length && grupos.length) {
         info.no_disponible.push('horarios de entrenamiento (días y horas de cada grupo)');
+    } else if (sinHorario.length) {
+        info.no_disponible.push(
+            `horario de estos grupos: ${sinHorario.join(', ')}`);
     }
     info.no_disponible.push('edades exactas de cada categoría');
     info.no_disponible.push('precios de mensualidad, inscripción y uniforme');
