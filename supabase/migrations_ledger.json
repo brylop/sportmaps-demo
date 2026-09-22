@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 596,
-  "head": "20260921205815",
+  "count": 597,
+  "head": "20260921211509",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -599,6 +599,7 @@
     {"v":"20260921204955","file":"20260921204955_guard_de_prueba_en_rpcs_restantes.sql","sha256":"d6178a5c0a65895439f4787fc2f25a4cb17b79645cfeb15cf2df664dcbd4f926","added":"2026-09-22","by":"brylop"},
     {"v":"20260921205001","file":"20260921205001_seg16_confirma_revoke_open_month_anon.sql","sha256":"6fba78c173953d03beda5d7caaf23a7f352ca79afa096c5a8f00b8bd17e9520d","added":"2026-09-22","by":"brylop"},
     {"v":"20260921205037","file":"20260921205037_din3_backfill_wompi_provider_regresado.sql","sha256":"dce091c819aa417ce548838b1962c7d9da7df0a23e3fc3988462c28b0ab63213","added":"2026-09-22","by":"brylop"},
-    {"v":"20260921205815","file":"20260921205815_fix_identity_spoofing_segunda_pasada_pt_sessions.sql","sha256":"1e66ac408f31178465b004147237d3a518ace2d10eca8bd0d5ff7063d3b4f907","added":"2026-09-22","by":"brylop"}
+    {"v":"20260921205815","file":"20260921205815_fix_identity_spoofing_segunda_pasada_pt_sessions.sql","sha256":"1e66ac408f31178465b004147237d3a518ace2d10eca8bd0d5ff7063d3b4f907","added":"2026-09-22","by":"brylop"},
+    {"v":"20260921211509","file":"20260921211509_seg17_revoke_public_5_rpc_identidad.sql","sha256":"bf0f084ca79d921ff18434fca8be751dd1f26092ec15bf4e82df180cd65e0acb","added":"2026-09-22","by":"brylop"}
   ]
 }
