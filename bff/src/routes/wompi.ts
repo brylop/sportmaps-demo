@@ -377,6 +377,14 @@ async function handleSchoolPayment({
                 payment_method: payMethod,
                 payment_date: today,
                 approved_at: new Date().toISOString(),
+                // DIN-3 (segunda pasada, 20260921205037): antes del 13-ago esta
+                // columna se sellaba sola vía DEFAULT 'wompi'. Al quitarse el
+                // default (20260813180537), este UPDATE se quedó sin setearla
+                // explícito y todo pago de Wompi confirmado por webhook empezó
+                // a quedar con payment_provider = NULL — el mismo bug de DIN-3,
+                // en la dirección opuesta. mercadopago.ts sí la setea en cada
+                // UPDATE de webhook; este es el único camino que quedó asimétrico.
+                payment_provider: 'wompi',
                 wompi_reference: txReference,
                 wompi_transaction_id: txId,
                 gross_amount: txAmountCop,
