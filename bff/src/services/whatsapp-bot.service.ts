@@ -220,15 +220,12 @@ async function identificarPorTelefono(
         // UNA VEZ POR DIA, no en cada mensaje.
         //
         // Esto corre mientras la conversacion siga sin identificar, que para
-        // estas 156 familias es SIEMPRE: sin el freno, cada mensaje que
-        // escriban recibe el mismo «crea tu cuenta». Desde el lado del papa
-        // eso es spam, y en un canal donde Meta mide la calidad del numero
-        // repetir lo mismo es justo lo que penaliza — ya lo vimos el
-        // 2026-09-11 con 7 respuestas identicas seguidas.
+        // estas familias es SIEMPRE: sin el freno, cada mensaje que escriban
+        // recibe el mismo aviso. Desde el lado del papa eso es spam, y en un
+        // canal donde Meta mide la calidad del numero repetir lo mismo es justo
+        // lo que penaliza — ya lo vimos el 2026-09-11 con 7 respuestas iguales.
         //
         // Se devuelve true igual cuando se calla: el turno SI esta resuelto.
-        // Caer al camino del correo seria pedirle credenciales a alguien que
-        // acabamos de decirle que no tiene cuenta.
         const desde = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         const { count: yaAvisado } = await supabase
             .from('whatsapp_messages')
@@ -239,21 +236,49 @@ async function identificarPorTelefono(
             .gte('created_at', desde);
         if ((yaAvisado ?? 0) > 0) return true;
 
-        // Reconocido como familia, sin cuenta. NO se le da ningun dato.
+        // EL ENLACE TIENE QUE SER EL DE LA INVITACION, no `/register?phone=`.
+        //
+        // El registro normal NO toca `children`: solo `accept_invitation_pro`
+        // hace `UPDATE children SET parent_id = auth.uid()`. Sin eso el papa se
+        // registra, se crea su perfil con el telefono, `children.parent_id`
+        // sigue vacio, vuelve a escribir, `wa_identify_by_phone` exige ser
+        // acudiente de un atleta activo, falla — y el bot le dice OTRA VEZ que
+        // se registre. Hizo todo bien y el sistema le dice que no hizo nada.
+        //
+        // Medido el 2026-09-22: 148 de 157 de estas familias en Dynasty YA
+        // tienen invitacion pendiente. No hay que crear nada, solo encontrarla.
+        const { data: inv } = await supabase.rpc('wa_invitacion_pendiente_por_telefono', {
+            p_integration_id: integration.id,
+            p_contact_wa_id: contactWaId,
+        });
+
+        const invitacion = inv as { invite_id?: string; email?: string } | null;
+        let enlace: string;
+        if (invitacion?.invite_id) {
+            // El correo viaja para que el formulario lo precargue:
+            // `accept_invitation_pro` exige que la sesion sea de ESE correo, y
+            // si el papa usa otro la aceptacion falla EN SILENCIO despues de
+            // que ya lleno todo.
+            const correo = invitacion.email ? `&email=${encodeURIComponent(invitacion.email)}` : '';
+            enlace = `${FRONTEND_URL}/register?invite=${invitacion.invite_id}${correo}`;
+        } else {
+            // Sin invitacion (9 de 157 en Dynasty) queda el camino viejo. No
+            // vincula solo, pero al menos la escuela lo ve en el buzon y lo
+            // resuelve a mano. Crear invitaciones desde el bot es otra decision
+            // —quien queda como invited_by, que rol, que plan— y no se toma de
+            // contrabando dentro de un fix.
+            enlace = `${FRONTEND_URL}/register?phone=${encodeURIComponent(contactWaId)}`;
+        }
+
         await deliver(integration, conversationId, contactWaId,
             'Tu número está registrado en la escuela, pero todavía no tienes tu cuenta creada. 🙌' + '\n\n' +
-            // El telefono viaja en la URL y RegisterPage lo precarga. Sin esto
-            // el flujo se rompe justo al final: el campo es OPCIONAL en el
-            // formulario, asi que el papa se registra sin ponerlo, vuelve a
-            // escribir, y choca contra la misma pared — ahora convencido de que
-            // ya hizo lo que le pedimos.
-            `Créala aquí, ya te dejé tu número puesto: ${FRONTEND_URL}/register?phone=${encodeURIComponent(contactWaId)}` + '\n\n' +
+            `Créala aquí, ya te dejé todo listo: ${enlace}` + '\n\n' +
             'Cuando la tengas, escríbeme por acá y podrás consultar tus pagos, mandar ' +
             'comprobantes y recibir los avisos de tu atleta.',
-            { step: 'debe_registrarse' });
+            { step: 'debe_registrarse', con_invitacion: Boolean(invitacion?.invite_id) });
 
-        // Que quede en el buzon: son 156 familias en Dynasty que hay que
-        // empujar a registrarse, y eso lo trabaja la escuela, no el bot.
+        // Que quede en el buzon: son familias que hay que empujar a registrarse,
+        // y eso lo trabaja la escuela, no el bot.
         await supabase.from('whatsapp_conversations')
             .update({ status: 'open', updated_at: new Date().toISOString() })
             .eq('id', conversationId);
