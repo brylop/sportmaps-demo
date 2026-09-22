@@ -44,6 +44,9 @@ export interface Lineup {
   source_type: LineupSourceType;
   source_id: string;
   formation: string | null;
+  /** Modo pizarra (P2d) de ESTE partido/entrenamiento puntual -- distinto de
+   *  team_tactical_presets.arrows, que vive en una plantilla con nombre. */
+  arrows: TacticalArrow[];
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -75,6 +78,7 @@ export async function saveFootballLineup(payload: {
   source_id: string;
   formation?: string | null;
   players: LineupPlayerInput[];
+  arrows?: TacticalArrow[];
 }): Promise<LineupDetail> {
   return bffClient.post<LineupDetail>('/api/v1/school/football/lineups', payload);
 }

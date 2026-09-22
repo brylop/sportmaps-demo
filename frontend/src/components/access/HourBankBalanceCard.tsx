@@ -22,7 +22,7 @@ import { es } from 'date-fns/locale';
  * padre/atleta (MyEnrollmentsPage), que solo necesita el saldo de hoy.
  */
 
-interface HourBankBalance {
+export interface HourBankBalance {
   has_hours_plan: boolean;
   period_id?: string;
   period_start?: string;
@@ -87,12 +87,20 @@ function HistoryPanel({ enrollmentId }: { enrollmentId: string }) {
   );
 }
 
-export function HourBankBalanceCard({ enrollmentId, showHistory = false }: { enrollmentId: string; showHistory?: boolean }) {
+export function HourBankBalanceCard({ enrollmentId, showHistory = false, fetcher }: {
+  enrollmentId: string;
+  showHistory?: boolean;
+  // Quien agenda sin cuenta desde el link público no tiene sesión de Supabase
+  // — no puede pegarle a /api/v1/access (requireAuth). Pasar un fetcher
+  // reemplaza SOLO cómo se trae el dato; el resto de la tarjeta (formato,
+  // colores, barra de progreso) es idéntico en los dos casos.
+  fetcher?: () => Promise<HourBankBalance>;
+}) {
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['hour-bank-balance', enrollmentId],
-    queryFn: () => bffClient.get<HourBankBalance>(`/api/v1/access/hour-bank-balance/${enrollmentId}`),
+    queryKey: ['hour-bank-balance', enrollmentId, fetcher ? 'public' : 'auth'],
+    queryFn: fetcher ?? (() => bffClient.get<HourBankBalance>(`/api/v1/access/hour-bank-balance/${enrollmentId}`)),
     enabled: !!enrollmentId,
     staleTime: 60_000,
   });

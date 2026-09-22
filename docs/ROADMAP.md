@@ -1,17 +1,57 @@
 # SportMaps — Roadmap Maestro
 
-<<<<<<< HEAD
-**Versión:** 2.30 · **Fecha:** 2026-08-31 · **Rama:** `develop`
-=======
-**Versión:** 2.15 · **Fecha:** 2026-08-31 · **Rama:** `develop`
->>>>>>> 195d7f5c763796751a39cfdc9a61697c784a9117
+**Versión:** 2.32 · **Fecha:** 2026-09-17 · **Rama:** `develop`
 
 > **Este es el único roadmap.** Todo lo demás en `docs/` es *spec* (qué se construye y por qué),
 > *plan de fase* (cómo se migra), *doctrina de arquitectura* (cómo se hace) o *auditoría* (qué está
 > mal). Ninguno de esos documentos define prioridades: las define esta cola. Si un pendiente no
 > aparece aquí, no existe.
 
-<<<<<<< HEAD
+**Cambios v2.31 → v2.32** (banco de horas real desde el link público, con y sin cuenta,
+2026-09-15/17): el escenario `enrolled_unregistered` del link (`/agendar-clase/:slug`) siempre
+caía a "clase de prueba" aunque tuviera un plan/banco de horas real detrás — sin forma de
+tocarlo sin registrarse. Se agregó `POST /register-unregistered` (crear cuenta real desde el
+OTP ya verificado, migrando historial vía `migrate_unregistered_athlete_to_profile`) y, para
+quien prefiere no registrarse, paridad completa con "Mis Inscripciones" sin cuenta:
+`GET /available-for-enrollment`, `POST /book-for-enrollment`, `POST /cancel-for-enrollment`,
+`GET /my-bookings-for-enrollment`, `GET /hour-bank-balance-for-enrollment` — bloques,
+sesión personalizada, filtro Personal/Grupal y saldo de banco de horas (`HourBankBalanceCard`
+reusado), todo verificado en vivo. Backend generalizado con un tipo `AthleteIdentity`
+(`userId | childId | unregisteredAthleteId`) en `session-bookings.ts` en vez de duplicar la
+lógica — las rutas autenticadas quedaron de wrappers delgados, sin regresión. Dos bugs reales
+encontrados y corregidos: `handle_new_user()` dejaba `needs_role_selection=true` por falta de
+`role` en el `user_metadata` de `createUser` (atrapaba a la cuenta nueva en
+`/onboarding/role`), y el `INSERT` de `session_bookings` violaba el CHECK
+`chk_booking_identity` al mandar `enrollment_id` junto con `unregistered_athlete_id` (son
+mutuamente excluyentes). **Pendiente real, heredado, no cerrado acá:** `min_cancellation_hours`
+solo aplica a reservas por instalación (`facility_id`) — las de coach (`avail_`, lo que usan
+estos planes) no tienen tope de cancelación en ningún camino, ni antes ni después de esta
+ampliación. Detalle completo en
+[`mis-inscripciones-agenda-clases-prueba.md`](specs/mis-inscripciones-agenda-clases-prueba.md).
+
+**Cambios v2.30 → v2.31** (piloto de agendamiento por equipo + banco de horas variable, migraciones
+`20260912102517`→`20260917152834`, entregado 2026-09-12/17, registrado ahora — **séptimo caso de
+«trabajo vivo que el tablero no refleja»**): equipo de agendamiento asignable en `enrollments`
+(`AssignSchedulingTeamModal.tsx`), reemplazando el intento inicial de tabla `team_availability`
+propia por reusar `coach_availability` del equipo (migración `20260914221557`, revertida en limpio
+el mismo día que se creó al notar que duplicaba lo que ya existía); `reserve_hour_bank()` ahora
+descuenta minutos reales agendados (bloques consecutivos de `coach_availability`) en vez de siempre
+el bloque fijo de la escuela, detrás de `school_settings.hour_bank_flexible_booking_enabled`
+(piloto en Dreamers + Academia Superior Bogotá); fix de datos para Academia Superior Bogotá, que
+nunca tuvo prendido `school_settings.hours_plan_enabled` (el flag maestro del módulo) pese a tener
+el piloto flexible activo — el pack de 6 clases rechazaba toda reserva con `not_hours_plan`.
+**Dos hallazgos de seguridad encontrados y cerrados el mismo cierre de sesión (2026-09-17), fuera
+del alcance original de esta feature:** `get_or_open_hour_bank_period(uuid)` había recuperado
+`EXECUTE` para `authenticated` (un `CREATE OR REPLACE` reusó el cuerpo de una migración vieja sin
+arrastrar el `REVOKE` de `20260827174032`) y `auto_close_stale_hour_bank_visits()` tenía `EXECUTE`
+para **`anon` y `authenticated`** — causa raíz real: el default privilege de funciones nuevas en
+`public` nunca se había revocado (el gemelo, para tablas, sí se cerró en `SEG-23`, 2026-08-31).
+Ambos RPCs corregidos (`20260917152141`) y el default privilege cerrado de raíz para toda función
+futura (`20260917152834`), verificado en vivo. **Pendiente real:** esta feature no tiene spec en
+`docs/specs/` — ver [`agendamiento-equipo-banco-horas-variable.md`](specs/agendamiento-equipo-banco-horas-variable.md).
+Detalle completo en la memoria de sesión (`project-team-scheduling-docs-gap`,
+`project-anon-default-privilege-drift`, `project-hour-bank-status`).
+
 **Cambios v2.29 → v2.30** ("crea un evento desde el owner y que le salga al padre demo",
 2026-08-31): **gap de producto real, no de datos** — `calendar_events` es estrictamente personal
 (`user_id` único, sin campo de audiencia/destinatarios). La "vista de escuela" del owner/admin no es

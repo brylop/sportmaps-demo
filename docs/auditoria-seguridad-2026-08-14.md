@@ -270,3 +270,52 @@ vivas — es la prueba de que la escalada nunca hizo falta en este proyecto.
 no restringe por escuela, cualquier staff de la plataforma puede leer
 documentos de cualquier niño. Bajado de "crítico" (lectura anónima) a "medio"
 (cross-tenant entre staff autenticado), pero sigue abierto.
+
+---
+
+## Adenda 2026-09-17 (2) — default privilege de funciones nunca cerrado (gemelo de `SEG-23`)
+
+Auditando el piloto de agendamiento por equipo + banco de horas variable (ver
+`docs/specs/agendamiento-equipo-banco-horas-variable.md`), verificado en vivo
+que dos RPCs de banco de horas tenían `EXECUTE` otorgado a roles que no
+debían:
+
+- `get_or_open_hour_bank_period(uuid)` — `authenticated` en el ACL. La función
+  no valida que el caller sea dueño del `enrollment_id` que recibe; con esto,
+  cualquier usuario autenticado de cualquier escuela podía abrir o leer el
+  `hour_bank_period` de una inscripción ajena.
+- `auto_close_stale_hour_bank_visits()` — **`anon` y `authenticated`**. Sin
+  parámetros, recorre y cierra todas las visitas abiertas de banco de horas de
+  **todas las escuelas**; con `anon` en el ACL, cualquier visitante sin sesión
+  podía dispararla a voluntad.
+
+**Causa raíz:** ambas funciones habían sido revocadas correctamente por
+`20260827174032_hour_bank_rpc_auth_y_autocierre_fix.sql` (`REVOKE ... FROM
+authenticated; GRANT ... TO service_role`). Migraciones posteriores
+(`20260905124655` y `20260915121329`) las recrearon con `CREATE OR REPLACE`
+agregando solo `GRANT ... TO service_role`, sin revocar antes de
+`anon`/`authenticated` — y `GRANT` es aditivo en Postgres, no pisa privilegios
+existentes. Lo que los volvió a exponer fue un **default privilege del
+esquema `public` nunca cerrado para funciones**: `pg_default_acl` con
+`defaclrole=postgres, defaclobjtype='f'` otorga `EXECUTE` a
+`anon`/`authenticated`/`service_role` en **toda función nueva** creada por
+`postgres` (el rol de `apply_migration`). El equivalente para **tablas** ya se
+había cerrado en `SEG-23` (2026-08-31, `20260831163530`) — el de funciones
+quedó abierto sin que ninguna nota lo marcara pendiente.
+
+**Corregido el 2026-09-17:**
+- `20260917152141` — revoca `EXECUTE` de `anon`/`authenticated` en las dos
+  funciones puntuales, deja solo `service_role`.
+- `20260917152834` — cierra el default privilege de raíz para toda función
+  futura (`ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE
+  ALL ON FUNCTIONS FROM anon, authenticated`), mismo patrón que `SEG-23`.
+  Verificado empíricamente igual que aquella vez: función de prueba creada
+  dentro de una transacción con `ROLLBACK`, quedó con `EXECUTE` solo para
+  `service_role`/`postgres`.
+
+**No es retroactivo.** El fix de raíz solo protege funciones creadas *después*
+del 2026-09-17. **Pendiente real:** no se auditó el resto de funciones
+`public` ya existentes en busca del mismo patrón (`GRANT ... TO service_role`
+agregado sin `REVOKE` previo de anon/authenticated) — estas dos se encontraron
+por estar en el camino de una feature que se estaba auditando, no por barrido
+sistemático.

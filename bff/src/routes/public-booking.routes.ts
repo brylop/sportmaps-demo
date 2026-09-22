@@ -617,6 +617,59 @@ router.post('/cancel-for-enrollment', async (req: Request, res: Response) => {
   }
 });
 
+// ── GET /hour-bank-balance-for-enrollment?token=&enrollment_id= ────────────
+// Mismo criterio que GET /api/v1/access/hour-bank-balance/:enrollmentId
+// (misma RPC, misma tabla, mismo shape de respuesta) — solo cambia cómo se
+// valida el dueño: ahí es requireAuth + canManageHourBankEnrollment, acá es
+// el booking_token resuelto a unregistered_athlete_id. El frontend reusa el
+// mismo componente HourBankBalanceCard para los dos casos.
+router.get('/hour-bank-balance-for-enrollment', async (req: Request, res: Response) => {
+  try {
+    const { token, enrollment_id } = req.query as { token?: string; enrollment_id?: string };
+    if (!token || !enrollment_id) {
+      return res.status(400).json({ error: 'token y enrollment_id son requeridos.' });
+    }
+
+    const resolved = await resolveUnregisteredIdentity(token);
+    if (!resolved.ok) return res.status(resolved.status).json({ error: resolved.error });
+
+    const { data: enrollment } = await supabase
+      .from('enrollments')
+      .select('id, unregistered_athlete_id')
+      .eq('id', enrollment_id)
+      .maybeSingle();
+
+    if (!enrollment || enrollment.unregistered_athlete_id !== resolved.unregisteredAthleteId) {
+      return res.status(403).json({ error: 'Sin permiso para ver el saldo de esta inscripción' });
+    }
+
+    const { data: periodId } = await supabase.rpc('get_or_open_hour_bank_period', { p_enrollment_id: enrollment_id });
+    if (!periodId) return res.json({ has_hours_plan: false });
+
+    const { data: period } = await supabase
+      .from('hour_bank_periods')
+      .select('id, period_start, period_end, included_minutes, reserved_minutes, consumed_minutes')
+      .eq('id', periodId)
+      .maybeSingle();
+
+    if (!period) return res.status(500).json({ error: 'Error al leer el período' });
+
+    return res.json({
+      has_hours_plan: true,
+      period_id: period.id,
+      period_start: period.period_start,
+      period_end: period.period_end,
+      included_minutes: period.included_minutes,
+      reserved_minutes: period.reserved_minutes,
+      consumed_minutes: period.consumed_minutes,
+      available_minutes: period.included_minutes - period.reserved_minutes - period.consumed_minutes,
+    });
+  } catch (err: any) {
+    req.log?.error({ err }, 'public-booking hour-bank-balance-for-enrollment error');
+    return res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
 // ── GET /slots — reusa la generación de disponibilidad de instalación ──────
 router.get('/slots', async (req: Request, res: Response) => {
   try {

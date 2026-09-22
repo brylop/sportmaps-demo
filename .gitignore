@@ -59,6 +59,8 @@ dump.rdb
 # System files
 .DS_Store
 *.pem
+bin/
+*.exe
 
 # Python
 __pycache__/

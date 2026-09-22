@@ -3,7 +3,54 @@
 **Producto:** SportMaps · **Versión:** v1 · **Fecha:** 2026-08-29
 **Estado:** decisiones de producto **resueltas** en conversación (§3) · diseño técnico (§4) **aprobado** · **Fases 1-3 (backend, BFF, frontend) aplicadas y probadas en vivo el 2026-08-29** contra `luebjarufsiadojhvxgi`, sin commitear todavía. Fase 4 (QA) la corre el usuario.
 
-**Ampliación el mismo día — link público (`/agendar-clase/:slug`):** además de Mis
+**Ampliación 2026-09-15/17 — banco de horas real desde el link, con y sin cuenta:** el
+escenario `enrolled_unregistered` (ficha con enrollment real en la escuela, sin cuenta) hoy
+siempre caía a "clase de prueba" — sin forma de tocar su plan/banco de horas real sin
+registrarse. Se agregó, en `public-booking.routes.ts`:
+- `POST /register-unregistered` — crea la cuenta real desde el OTP ya verificado (reusa
+  `booking_token`, sin segundo código), migra el historial completo (`enrollments`,
+  `attendance_records`, `session_bookings`, `payments`, `zk_user_mappings`) vía
+  `migrate_unregistered_athlete_to_profile` (misma RPC que `accept_invitation_pro`), y entra
+  logueado con un magic link. Bug encontrado y corregido: `createUser` no mandaba `role` en
+  `user_metadata`, así que `handle_new_user()` dejaba `needs_role_selection=true` (el camino de
+  OAuth sin rol) y `ProtectedRoute` lo mandaba siempre a `/onboarding/role`, pisando el
+  `redirectTo` del magic link.
+- **Paridad completa sin cuenta** con lo que ya tenía "Mis Inscripciones" — no una versión
+  reducida: `GET /available-for-enrollment`, `POST /book-for-enrollment`,
+  `POST /cancel-for-enrollment`, `GET /my-bookings-for-enrollment`,
+  `GET /hour-bank-balance-for-enrollment` (saldo — `HourBankBalanceCard` reusado tal cual, con
+  un `fetcher` opcional nuevo para no depender de sesión de Supabase). Backend: se generalizó
+  `session-bookings.ts` con un tipo `AthleteIdentity` (`userId | childId | unregisteredAthleteId`)
+  en vez de duplicar `listAvailableSessions`/`bookSession`/`cancelSessionBooking` — las rutas
+  autenticadas quedaron como wrappers delgados sobre las mismas funciones, cero regresión
+  (verificado: misma cantidad de sesiones antes/después del refactor). Frontend: el paso
+  `enrolled_choice` del link ahora ofrece "Crear mi cuenta" o "Agendar sin crear cuenta"
+  (ya no manda automáticamente a clase de prueba); el paso nuevo replica el selector
+  Por-bloque/Personalizada (elegido ANTES de ver la lista) y el filtro Personal/Grupal — son
+  dos ejes independientes que se habían mezclado en un primer intento.
+- **Bug real encontrado probando el camino "Personalizada" sin cuenta:** el `INSERT` en
+  `session_bookings` violaba el CHECK `chk_booking_identity` porque mandaba `enrollment_id`
+  además de `unregistered_athlete_id` — ese CHECK exige que sean mutuamente excluyentes (mismo
+  criterio que ya documentaba `trial_class_public_create` en
+  `20260827184021_clases_de_prueba_agenda.sql`, pero `bookSession` no lo tenía en cuenta al
+  generalizarse). Corregido: `enrollment_id: identity.unregisteredAthleteId ? null : enrollment_id`.
+- **Verificado en vivo end-to-end, camino sin cuenta:** listar con saldo (720 min completos),
+  agendar por bloque (2h), agendar personalizada (3h, vía `HourGridPicker` con horas atómicas),
+  cancelar (reembolso de banco de horas + reversión del bloque estirado a su hora atómica
+  original), todo con datos reales en Academia Superior Bogotá, limpiado después de cada
+  prueba. El camino **con cuenta** (`plan_sessions`) ya tenía exactamente esta misma UI de
+  antes (`planBookingModeChoice`/`planClassTypeFilter`/`HourGridPicker`/`useCancelBooking`) —
+  solo se le agregó `HourBankBalanceCard`, sin tocar su lógica; no se pudo re-probar por click
+  hoy por no tener la contraseña de una cuenta de prueba real, queda pendiente de un smoke test
+  del usuario.
+- **Deuda heredada, NO cerrada en esta ampliación:** `min_cancellation_hours` (el tope de horas
+  para poder cancelar) solo se evalúa en `DELETE /athlete/cancel-booking` cuando la sesión
+  tiene `facility_id` — las reservas por coach (`avail_`, que es lo que usan estos planes de
+  banco de horas) no tienen ningún tope de cancelación, ni en el camino autenticado ni en el
+  nuevo sin cuenta. No es una regresión de hoy — ya era así antes; solo se heredó al reusar la
+  misma función.
+
+**Ampliación 2026-08-29 — link público (`/agendar-clase/:slug`):** además de Mis
 Inscripciones, el owner puede compartir un link público (y QR) para agendar clases de prueba
 sin cuenta — nuevo y separado de `/agendar/:slug` (instalaciones + cortesía, SEG-20), pero
 reusando su misma identificación por correo+OTP (`/verify-otp` tal cual, `/trial-start-verification`
@@ -24,6 +71,11 @@ Prueba, visible solo si el self-service está prendido.
 **Deuda conocida, sin resolver a propósito:** el link público solo permite **crear** —
 reprogramar/cancelar una reserva hecha por ahí se gestiona por ahora desde el panel del owner
 (Instalaciones), no hay flujo público de autoservicio para eso todavía.
+> Actualizado 2026-09-17: esto seguía siendo cierto solo para **clases de prueba**
+> (`trial_class_bookings`). Para reservas de **plan** (banco de horas) agendadas por este
+> mismo link, sí hay cancelación pública de autoservicio — ver la ampliación 2026-09-15/17
+> más arriba (`POST /cancel-for-enrollment` sin cuenta, `useCancelBooking` ya existente con
+> cuenta). Reprogramar sigue sin existir para ninguno de los dos casos.
 
 **Decisión añadida el mismo día, tras la primera pasada:** antes de ofrecer una prueba para un
 sujeto (hijo ya registrado, o el propio adulto), se valida si ese sujeto **ya tiene un plan

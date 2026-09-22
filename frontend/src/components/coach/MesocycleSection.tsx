@@ -101,10 +101,12 @@ interface MesocycleSectionProps {
   roster: { id: string; full_name: string; athlete_type?: string }[];
   sessions: any[];
   isFootball?: boolean;
+  /** Solo para el título del tablero táctico dentro del SessionFormDialog de un día. */
+  teamName?: string;
   onEditSession: (session: any) => void;
 }
 
-export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootball, onEditSession }: MesocycleSectionProps) {
+export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootball, teamName, onEditSession }: MesocycleSectionProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -114,6 +116,28 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
   const [newDay, setNewDay] = useState({ day_date: '', day_type: 'entrenamiento', planned_rpe: '', planned_minutes: '', focus: '' });
   // Día para el que se está creando la sesión de contenido (SessionFormDialog, sin tocar el componente).
   const [sessionDialogDay, setSessionDialogDay] = useState<any | null>(null);
+  // Objeto ESTABLE para el prop `session` de SessionFormDialog: si en vez de esto
+  // se arma un literal `{ session_date: ... }` inline en el JSX, cambia de
+  // referencia en CADA render de MesocycleSection (no solo cuando cambia el día
+  // elegido). SessionFormDialog resetea blocks/drills/evaluation en un
+  // useEffect con `session` en las dependencias -- con una referencia nueva en
+  // cada render, cualquier re-render incidental de este componente (ej. un
+  // refetch de fondo de las queries del mesociclo) vuelve a disparar ESE
+  // efecto y borra el `id` que openBlockTacticalBoard le acababa de generar al
+  // bloque, justo en la ventana de un tick antes de que el setTimeout abra el
+  // tablero -- el guard `blocks[tacticalBlockIndex]?.id` de TacticalBoard da
+  // false, el tablero nunca llega a montar, y tacticalBlockIndex queda
+  // trabado en un índice no-null para siempre (nunca se llama a su onClose):
+  // el diálogo de sesión de ESE día queda oculto de por vida (open = open &&
+  // tacticalBlockIndex === null), y como sessionDialogDay nunca vuelve a
+  // null, es la MISMA instancia de SessionFormDialog la que se reutiliza para
+  // cualquier otro día -- "Crear sesión" deja de abrir nada, para cualquier
+  // día, hasta recargar la página. Memoizado por día, esta referencia solo
+  // cambia cuando el coach realmente abre un día distinto.
+  const sessionDialogSession = useMemo(
+    () => (sessionDialogDay ? { session_date: sessionDialogDay.day_date } : undefined),
+    [sessionDialogDay],
+  );
 
   const { data: mesocycle, isLoading: loadingMesocycle } = useQuery({
     queryKey: ['mesocycle-current', teamId],
@@ -246,18 +270,35 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
   // Crea la sesión de contenido (objetivos/bloques/principios de juego, CAR-8)
   // para un día ya cargado, y liga session_id de vuelta al día. Reusa
   // SessionFormDialog tal cual está, sin modificarlo.
+  //
+  // `dayId` viaja EXPLÍCITO en el payload de `.mutate()`, no se lee de
+  // `sessionDialogDay` (estado de React) desde adentro de la mutación.
+  // `SessionFormDialog.handleSubmit` llama `onSubmit(data)` y, en la misma
+  // función, justo después, `onOpenChange(false)` -- que en este componente
+  // dispara `setSessionDialogDay(null)`. El insert es async (una vuelta real
+  // de red); para cuando el `await` resuelve y el código sigue, `dayId` tiene
+  // que venir ya capturado como valor, no depender de que `sessionDialogDay`
+  // siga siendo lo que era al abrir el diálogo -- el toast "Cannot read
+  // properties of null (reading 'id')" es justo la forma en que se ve este
+  // tipo de dependencia rota.
   const createSessionForDay = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async ({ dayId, ...data }: { dayId: string; [key: string]: any }) => {
+      if (!dayId) {
+        throw new Error('No se pudo identificar el día del mesociclo para esta sesión. Cerrá el formulario y volvé a intentar desde "Crear sesión".');
+      }
       const { data: session, error } = await (supabase as any)
         .from('training_sessions')
         .insert(data)
         .select()
         .single();
       if (error) throw error;
+      if (!session) {
+        throw new Error('La sesión se guardó pero el servidor no devolvió el registro creado.');
+      }
       const { error: linkError } = await (supabase as any)
         .from('training_microcycle_days')
         .update({ session_id: session.id })
-        .eq('id', sessionDialogDay.id);
+        .eq('id', dayId);
       if (linkError) throw linkError;
       return session;
     },
@@ -592,11 +633,12 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
         <SessionFormDialog
           open={!!sessionDialogDay}
           onOpenChange={(open) => { if (!open) setSessionDialogDay(null); }}
-          onSubmit={(data) => createSessionForDay.mutate({ ...data, team_id: teamId, session_date: sessionDialogDay.day_date })}
+          onSubmit={(data) => createSessionForDay.mutate({ ...data, team_id: teamId, session_date: sessionDialogDay.day_date, dayId: sessionDialogDay.id })}
           teamId={teamId}
+          teamName={teamName}
           isFootball={isFootball}
           isLoading={createSessionForDay.isPending}
-          session={{ session_date: sessionDialogDay.day_date }}
+          session={sessionDialogSession}
         />
       )}
     </div>

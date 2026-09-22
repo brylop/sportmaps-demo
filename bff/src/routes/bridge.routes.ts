@@ -63,7 +63,7 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const MAX_WAIT_SECONDS = 20;
 const LONG_POLL_STEP_MS = 1500;
 
-async function claimPendingCommands(schoolId: string, commandTypes: string[]) {
+export async function claimPendingCommands(schoolId: string, commandTypes: string[]) {
   const { data: claimed, error } = await supabase
     .from('device_commands')
     .update({ claimed_at: new Date().toISOString() })
@@ -76,6 +76,41 @@ async function claimPendingCommands(schoolId: string, commandTypes: string[]) {
 
   if (error) throw error;
   return claimed || [];
+}
+
+// Compartido entre el endpoint HTTP de siempre (long-poll, GET /door-commands
+// -- lo sigue usando Dreamers) y el WS nuevo (bridgeWsServer.ts -- GYM RM
+// desde 2026-09-21). Mismo mapeo, un solo lugar.
+export async function claimAndMapCommands(schoolId: string, commandTypes: string[]) {
+  const claimed = await claimPendingCommands(schoolId, commandTypes);
+  if (claimed.length === 0) return [];
+
+  const deviceIds = [...new Set(claimed.map((c: any) => c.device_id))];
+  const { data: devices } = await supabase
+    .from('turnstile_devices')
+    .select('id, serial_number')
+    .in('id', deviceIds);
+
+  const deviceById = new Map((devices || []).map((d: any) => [d.id, d]));
+
+  return claimed.map((c: any) => ({
+    id: c.id,
+    device_serial: deviceById.get(c.device_id)?.serial_number ?? null,
+    direction: c.direction,
+    command_type: c.command_type,
+    metadata: c.metadata ?? {},
+  }));
+}
+
+// Mismo chequeo de X-Bridge-Api-Key que usa el endpoint HTTP, pero contra un
+// valor recibido en un mensaje WS en vez de un header -- usado por
+// bridgeWsServer.ts en el mensaje `auth`.
+export function apiKeyMatches(candidate: string): boolean {
+  const key = process.env.BRIDGE_API_KEY;
+  if (!key) return false;
+  const a = Buffer.from(String(candidate || ''));
+  const b = Buffer.from(key);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 router.get('/door-commands', async (req: Request, res: Response) => {

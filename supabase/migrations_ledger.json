@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 574,
-  "head": "20260917152834",
+  "count": 575,
+  "head": "20260919195137",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -577,6 +577,7 @@
     {"v":"20260917131156","file":"20260917131156_fix_identity_docs_public_read_nunca_aplicado.sql","sha256":"8af4c0a727126b5208c321b4d2751b354182a264c7323736e2b59c8eb2802ff9","added":"2026-09-17","by":"brylop"},
     {"v":"20260917131343","file":"20260917131343_enrollment_intake_storage_policies_v2.sql","sha256":"78d69ab1429a630438ad382ea3a0aae821dfd67b9b8f7d2dec02be34ad5730a3","added":"2026-09-17","by":"brylop"},
     {"v":"20260917152141","file":"20260917152141_revoca_grant_authenticated_get_or_open_hour_bank_period.sql","sha256":"ba4a855a38d8da8932f9a2dcc913b4025eb653f530834213f811f767b858e35c","added":"2026-09-17","by":"judegor99"},
-    {"v":"20260917152834","file":"20260917152834_revoca_default_privilege_execute_anon_authenticated_funciones.sql","sha256":"35f6c813133d33cf257792944f89065c9b2264b801ed70c70ef9a56029a20ca7","added":"2026-09-17","by":"judegor99"}
+    {"v":"20260917152834","file":"20260917152834_revoca_default_privilege_execute_anon_authenticated_funciones.sql","sha256":"35f6c813133d33cf257792944f89065c9b2264b801ed70c70ef9a56029a20ca7","added":"2026-09-17","by":"judegor99"},
+    {"v":"20260919195137","file":"20260919195137_match_lineups_arrows.sql","sha256":"921424a3efded845ee66745b92f0429187c18f1261b52d5254c2e30d630d0bd9","added":"2026-09-20","by":"judegor99"}
   ]
 }

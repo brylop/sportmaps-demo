@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,7 @@ import {
 } from '@/hooks/useAthleteSessionBookings';
 import { CompactSessionSlot } from '@/components/booking/CompactSessionSlot';
 import { HourGridPicker } from '@/components/booking/HourGridPicker';
+import { HourBankBalanceCard, type HourBankBalance } from '@/components/access/HourBankBalanceCard';
 
 /**
  * Link público NUEVO y separado de /agendar/:slug (facilities + cortesía,
@@ -254,6 +255,14 @@ export default function PublicTrialClassBookingPage() {
   const planSessionsForThisSchool = useMemo(
     () => (planSessions?.sessions ?? []).filter((s) => s.school_id === schoolInfo?.school?.id),
     [planSessions, schoolInfo],
+  );
+
+  // Para mostrar "cuántas horas le quedan" (HourBankBalanceCard) — la
+  // inscripción de banco de horas de esta escuela, si tiene una (default_minutes
+  // solo viene poblado en sesiones de un plan de horas con el piloto flexible).
+  const planHourBankEnrollmentId = useMemo(
+    () => planSessionsForThisSchool.find((s) => s.default_minutes != null)?.enrollment_id ?? null,
+    [planSessionsForThisSchool],
   );
 
   // Mismo criterio de alcance para "Cancelar una clase" — solo las de ESTA
@@ -581,6 +590,18 @@ export default function PublicTrialClassBookingPage() {
     return noAccountFlexibleGrid.filter((g) => g.session_date === noAccountDate);
   }, [noAccountFlexibleGrid, noAccountDate]);
 
+  // Mismo criterio que planHourBankEnrollmentId, para "cuántas horas le
+  // quedan" sin cuenta.
+  const noAccountHourBankEnrollmentId = useMemo(
+    () => noAccountSessions.find((s) => s.default_minutes != null)?.enrollment_id ?? null,
+    [noAccountSessions],
+  );
+
+  const fetchNoAccountHourBankBalance = useCallback(async (): Promise<HourBankBalance> => {
+    if (!bookingToken || !noAccountHourBankEnrollmentId) return { has_hours_plan: false };
+    return api(`/hour-bank-balance-for-enrollment?token=${encodeURIComponent(bookingToken)}&enrollment_id=${noAccountHourBankEnrollmentId}`);
+  }, [bookingToken, noAccountHourBankEnrollmentId]);
+
   // ── Camino "ya registrado": login inline + sus clases de plan ───────────
   const handleLogin = async () => {
     if (!email.trim() || !password) return;
@@ -845,6 +866,8 @@ export default function PublicTrialClassBookingPage() {
                 <Zap className="h-3.5 w-3.5" />
                 {planIsAthleteSelf ? 'Tus clases disponibles' : `Clases de ${planChildren.find((c) => c.id === planChildId)?.full_name ?? 'tu hijo/a'}`}
               </p>
+
+              {planHourBankEnrollmentId && <HourBankBalanceCard enrollmentId={planHourBankEnrollmentId} />}
 
               {/* Tercera opción del link: agendar (por bloque o personalizada,
                   eso se elige un paso más adelante) o cancelar una clase ya
@@ -1163,6 +1186,10 @@ export default function PublicTrialClassBookingPage() {
                   </button>
                 ))}
               </div>
+
+              {noAccountHourBankEnrollmentId && (
+                <HourBankBalanceCard enrollmentId={noAccountHourBankEnrollmentId} fetcher={fetchNoAccountHourBankBalance} />
+              )}
 
               {noAccountTopAction === 'cancel' ? (
                 loadingNoAccountBookings ? (

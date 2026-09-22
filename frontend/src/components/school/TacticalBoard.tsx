@@ -907,6 +907,15 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     }
     setPlaced(nextPlaced);
     setBenchKeys(nextBench);
+    // Modo pizarra (P2d) de ESTE partido/entrenamiento -- viaja con la
+    // alineación desde 20260919195137_match_lineups_arrows.sql. Antes de esa
+    // migración `existingLineup.arrows` no existía (undefined): el `?? []`
+    // deja el tablero vacío en vez de romper con alineaciones ya guardadas.
+    setArrows(
+      (existingLineup.arrows ?? []).map((a) => ({
+        type: a.type, x1: Number(a.x1), y1: Number(a.y1), x2: Number(a.x2), y2: Number(a.y2), color: a.color,
+      })),
+    );
     setInitialized(true);
   }
 
@@ -1308,7 +1317,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     ];
 
     try {
-      await saveLineup.mutateAsync({ team_id: teamId, source_type: sourceType, source_id: sourceId, players });
+      await saveLineup.mutateAsync({ team_id: teamId, source_type: sourceType, source_id: sourceId, players, arrows });
       toast({ title: 'Alineación guardada' });
       onClose();
     } catch (err: any) {
