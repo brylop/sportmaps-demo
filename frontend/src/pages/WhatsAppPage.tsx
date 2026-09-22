@@ -17,6 +17,7 @@ import { bffClient } from '@/lib/api/bffClient';
 import { type ResultadoDelAlta } from '@/components/whatsapp/ConectarNumero';
 import { AltaDelCanal } from '@/components/whatsapp/AltaDelCanal';
 import { Conversaciones } from '@/components/whatsapp/Conversaciones';
+import { HorariosDeEntrenamiento } from '@/components/whatsapp/HorariosDeEntrenamiento';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -277,6 +278,9 @@ export default function WhatsAppPage() {
                         <Inbox className="h-4 w-4 mr-1" /> Bandeja
                         {bandeja.length > 0 && <Badge variant="secondary" className="ml-2">{bandeja.length}</Badge>}
                     </TabsTrigger>
+                    <TabsTrigger value="horarios">
+                        <Clock className="mr-1 h-3.5 w-3.5" /> Horarios
+                    </TabsTrigger>
                     <TabsTrigger value="config">
                         <Settings className="h-4 w-4 mr-1" /> Configuración
                     </TabsTrigger>
@@ -398,6 +402,9 @@ export default function WhatsAppPage() {
                 </TabsContent>
 
                 {/* ── Configuración ── */}
+                <TabsContent value="horarios" className="space-y-4">
+                    {schoolId && <HorariosDeEntrenamiento schoolId={schoolId} />}
+                </TabsContent>
                 <TabsContent value="config">
                     <PanelConfig
                         ajustes={estado?.ajustes ?? null}
