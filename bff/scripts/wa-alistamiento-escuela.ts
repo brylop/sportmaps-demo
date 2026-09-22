@@ -73,7 +73,7 @@ async function main() {
     const escuela = escuelas[0] as { id: string; name: string };
     const sid = escuela.id;
 
-    const [atletas, pagos, settings, integracion, equipos, categorias] = await Promise.all([
+    const [atletas, pagos, settings, integracion, equipos, categorias, sinRegistrar, invitaciones] = await Promise.all([
         supabase.from('children')
             .select('id, full_name, parent_id, parent_phone_temp')
             .eq('school_id', sid).eq('is_active', true).limit(5000),
@@ -84,6 +84,10 @@ async function main() {
         supabase.from('school_whatsapp_integrations').select('id, status').eq('school_id', sid).maybeSingle(),
         supabase.from('teams').select('id, name, schedule, location, student_count').eq('school_id', sid).limit(200),
         supabase.from('school_categories').select('id').eq('school_id', sid).limit(200),
+        supabase.from('unregistered_athletes')
+            .select('id, full_name, phone, guardian_phone, invitation_id, email')
+            .eq('school_id', sid).eq('is_active', true).is('linked_profile_id', null).limit(2000),
+        supabase.from('invitations').select('id, status').eq('school_id', sid).limit(2000),
     ]);
 
     const hijos = atletas.data ?? [];
@@ -165,6 +169,47 @@ async function main() {
         conHorario.length < eq.length ? 'Sin horario el bot dirá «no lo tengo». Correcto, pero la escuela recibe la pregunta.' : '');
     linea('Categorías por edad', (categorias.data ?? []).length > 0, String((categorias.data ?? []).length),
         !(categorias.data ?? []).length ? 'Sin school_categories no puede decir a qué grupo va un niño por su año.' : '');
+
+    // ── 6b. Atletas que la escuela cargo y nunca se registraron ─────────────
+    //
+    // Es la TERCERA tabla de atletas, y el bot la mira desde el 2026-09-22.
+    // Pero reconocerlos no basta: para VINCULARLOS hace falta una invitacion,
+    // porque `accept_invitation_pro` es lo unico que migra el atleta a un
+    // perfil. Y ahi las escuelas se parten en dos grupos:
+    //
+    //   Besser    38 de 38 con invitacion  -> el bot los resuelve solo
+    //   GYM RM     3 de 125                -> 6 invitaciones en toda su
+    //                                          historia; nunca se invito a
+    //                                          nadie. Eso no lo arregla el
+    //                                          codigo, lo arregla la escuela.
+    //
+    // Distinguirlos es la diferencia entre «falta un dato» y «falta que la
+    // escuela haga algo».
+    const sr = sinRegistrar.data ?? [];
+    const invits = invitaciones.data ?? [];
+    if (sr.length) {
+        const alcanzables = sr.filter((a: any) => esCelular(a.guardian_phone) || esCelular(a.phone));
+        // SOLO `invitation_id` cuenta. El correo NO alcanza, y creerlo fue un
+        // error mio: `accept_invitation_pro` recibe un ID DE INVITACION, y el
+        // correo sirve despues, para encontrar al atleta una vez aceptada. Sin
+        // invitacion que aceptar no hay nada que el correo pueda salvar.
+        //
+        // La metrica vieja daba «Monster's 125/125» y era falso: tienen 5
+        // invitaciones para 125 atletas.
+        const vinculables = sr.filter((a: any) => a.invitation_id);
+        console.log('\n6b · ATLETAS CARGADOS SIN REGISTRAR');
+        linea('Total', true, String(sr.length));
+        linea('Alcanzables por celular', alcanzables.length === sr.length,
+            `${alcanzables.length} / ${sr.length}`,
+            alcanzables.length < sr.length ? 'Sin celular el bot no los reconoce.' : '');
+        linea('Con invitación ligada', vinculables.length === sr.length,
+            `${vinculables.length} / ${sr.length}`,
+            vinculables.length < sr.length
+                ? `A ${sr.length - vinculables.length} el bot los reconoce pero NO los puede vincular: la escuela tiene que invitarlos primero.`
+                : '');
+        linea('Invitaciones creadas', invits.length >= sr.length, String(invits.length),
+            invits.length < sr.length ? 'Menos invitaciones que atletas: no es que no aceptaran, es que no se invitó.' : '');
+    }
 
     // ── 7. El canal ─────────────────────────────────────────────────────────
     console.log('\n7 · CANAL');
