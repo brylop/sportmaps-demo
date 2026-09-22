@@ -309,6 +309,8 @@
     "vercel": "^50.25.4"
   },
   "scripts": {
+    "dev:all": "powershell -ExecutionPolicy Bypass -File ./start-all.ps1",
+    "dev:remote": "powershell -ExecutionPolicy Bypass -File ./start-remote.ps1",
     "test": "echo \"Error: no test specified\" && exit 1",
     "prepare": "git config core.hooksPath .husky",
     "qa:bot": "npm --prefix bff run qa:bot --",

@@ -48,6 +48,7 @@ export function useSaveFootballLineup() {
       source_id: string;
       formation?: string | null;
       players: LineupPlayerInput[];
+      arrows?: TacticalArrow[];
     }) => saveFootballLineup(payload),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['football-lineups'] });

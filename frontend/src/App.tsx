@@ -619,7 +619,7 @@ const App = () => (
                           Mismos roles que students/bulk y create-one — nunca coach: dar de
                           alta un atleta es decisión de admin, no de quien solo entrena. */}
                       <Route path="school/enrollment-intake" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'owner']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <EnrollmentIntakeInboxPage />
                         </ProtectedRoute>
                       } />

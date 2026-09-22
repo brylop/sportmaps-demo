@@ -178,9 +178,9 @@ export function SessionFormDialog({
 
   const addBlock = () => setBlocks([...blocks, { name: '', minutes: '', activity: '', objective: '', description: '', component: '' }]);
   const removeBlock = (index: number) => setBlocks(blocks.filter((_, i) => i !== index));
-  const updateBlock = (index: number, field: keyof SessionBlock, value: string) => {
+  const updateBlock = (index: number, field: keyof SessionBlock, value: any) => {
     const updated = [...blocks];
-    updated[index][field] = value;
+    (updated[index] as any)[field] = value;
     setBlocks(updated);
   };
 
@@ -244,7 +244,25 @@ export function SessionFormDialog({
        *  segundos después de abrir, sin ningún click real de por medio. El estado del
        *  formulario (blocks, etc.) vive en este componente, no en el Dialog, así que
        *  ocultarlo no pierde nada: reaparece igual como estaba al cerrar el tablero. */}
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        className="max-w-2xl max-h-[90vh] overflow-y-auto"
+        // Mientras tacticalBlockIndex !== null, este Dialog ya está en camino a
+        // open=false (ver arriba) pero sigue MONTADO durante su animación de
+        // salida (Tailwind animate-out, ~200ms). En esa ventana, el Dialog del
+        // tablero táctico monta y le roba el foco (auto-focus de Radix al
+        // abrir) -- este Dialog interpreta ESE cambio de foco como "el usuario
+        // interactuó afuera" y llama a su propio onOpenChange(false), que en
+        // MesocycleSection vacía `sessionDialogDay` y desmonta TODO el árbol
+        // (este Dialog + el tablero) de un golpe, sin animación -- eso es lo
+        // que se veía como "se cierran los 2 modales" y dejaba la página
+        // trabada (el lock de scroll/pointer-events de dos modales Radix
+        // desmontados a la fuerza en el mismo tick no se libera bien). Con el
+        // tablero abierto no hay ninguna razón legítima para que ESTE diálogo
+        // se autocierre por foco/click/Escape afuera, así que se ignora.
+        onPointerDownOutside={(e) => { if (tacticalBlockIndex !== null) e.preventDefault(); }}
+        onInteractOutside={(e) => { if (tacticalBlockIndex !== null) e.preventDefault(); }}
+        onEscapeKeyDown={(e) => { if (tacticalBlockIndex !== null) e.preventDefault(); }}
+      >
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">

@@ -364,6 +364,7 @@ export default function TrainingPlansPage() {
               roster={roster}
               sessions={sessions || []}
               isFootball={isFootballTeam}
+              teamName={selectedName}
               onEditSession={(session) => { setEditingSession(session); setDialogOpen(true); }}
             />
           )}

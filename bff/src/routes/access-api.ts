@@ -3,6 +3,7 @@ import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { invalidateDeviceCache, invalidateMappingCache, getHourBankSettings } from './access-adms';
 import { getAccessBlockMechanism, buildBlockCommand, computeIsBlocked, BLOCK_COMMAND_TYPES } from '../utils/accessBlockMechanism';
+import { wakeSchool } from '../services/bridgeWsHub';
 import fs from 'fs';
 import path from 'path';
 
@@ -308,6 +309,12 @@ router.post('/manual-open', requireAuth, requireRole('owner', 'admin', 'school_a
       })
       .select('id')
       .single();
+
+    // Si hay un bridge local conectado por WS (ej. GYM RM desde 2026-09-21,
+    // ver bridgeWsHub.ts), avisarle que revise ahora en vez de esperar a que
+    // vuelva a preguntar solo. No-op si no hay conexión (ej. Dreamers, que
+    // sigue con el long-polling de siempre) -- wakeSchool() ya maneja eso.
+    wakeSchool(schoolId);
 
     await supabase.from('access_events').insert({
       school_id:       schoolId,

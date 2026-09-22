@@ -591,6 +591,7 @@
     {"v":"20260919194017","file":"20260919194017_fix_athlete_payments_summary_overdue.sql","sha256":"263799a7c3668b7c5b2bfbc685824270ba915524447b500c7c84308514640665","added":"2026-09-20","by":"brylop"},
     {"v":"20260919194236","file":"20260919194236_fix_identity_spoofing_trainer_plans_unblock_payment.sql","sha256":"56d1403b31aa401fa357fd567ba7177ad150ad02c75d97249c095163c4e73579","added":"2026-09-20","by":"brylop"},
     {"v":"20260919194528","file":"20260919194528_hotfix_trainer_plans_service_role_broke.sql","sha256":"5b9990d836bf3dc6f16bd1ae44c3485fde3c3e4debce32b3a388f0668bce2cc6","added":"2026-09-20","by":"brylop"},
+    {"v":"20260919195137","file":"20260919195137_match_lineups_arrows.sql","sha256":"921424a3efded845ee66745b92f0429187c18f1261b52d5254c2e30d630d0bd9","added":"2026-09-20","by":"judegor99"},
     {"v":"20260921115743","file":"20260921115743_mesociclo_md_cross_microciclo_y_ddl_hardening.sql","sha256":"a2190d5da30343e0e252352a4422653c73ffcadd629985eb4a4f228fcfb007aa","added":"2026-09-21","by":"brylop"},
     {"v":"20260921120611","file":"20260921120611_mesociclo_delete_cascade_rpc.sql","sha256":"24062f7421d41fe850dbfe14ef7eb1c71d57535b7b8761cae792c5368d38ff08","added":"2026-09-21","by":"brylop"},
     {"v":"20260921120707","file":"20260921120707_fix_org_enumeration_functions.sql","sha256":"3db536ed462115e8c2f4adc4573cd548e2aeb436f2904ea1bb925c90bf3e453e","added":"2026-09-21","by":"brylop"},

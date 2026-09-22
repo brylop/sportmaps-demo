@@ -80,6 +80,7 @@ import admsRouter from './routes/access-adms';
 import accessApiRouter from './routes/access-api';
 import accessAdminRouter from './routes/access-admin.routes';
 import bridgeRouter from './routes/bridge.routes';
+import { attachBridgeWsServer } from './services/bridgeWsServer';
 
 import trainerProfileRouter from './routes/trainer/profile';
 import trainerOnboardingRouter from './routes/trainer/onboarding';
@@ -472,10 +473,10 @@ try {
     process.exit(1);
 }
 
-app.listen(PORT, () => {
+const httpServer = app.listen(PORT, () => {
     console.log(`🚀 BFF corriendo en http://localhost:${PORT}`);
     console.log(`   NODE_ENV: ${process.env.NODE_ENV ?? 'development'}`);
-    
+
     // Qué proveedores de IA quedaron vivos. No aborta el arranque: un OCR mal
     // configurado no debe tumbar el resto del BFF, pero tiene que verse en el log.
     logAiProvidersAtStartup();
@@ -483,4 +484,9 @@ app.listen(PORT, () => {
     // Iniciar trabajos de mantenimiento programados
     initMaintenanceJobs();
 });
+
+// Bridges locales (ej. scripts/gymrm-door-bridge/) mantienen UNA conexión
+// WS abierta en vez de long-polling HTTP repetido (2026-09-21, ver
+// bridgeWsHub.ts) -- se cuelga del mismo servidor HTTP, en /bridge/ws.
+attachBridgeWsServer(httpServer);
 

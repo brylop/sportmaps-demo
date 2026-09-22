@@ -220,7 +220,7 @@ router.get(
 
       let query = supabase
         .from('match_lineups')
-        .select('id, team_id, source_type, source_id, formation, created_by, created_at, updated_at')
+        .select('id, team_id, source_type, source_id, formation, arrows, created_by, created_at, updated_at')
         .eq('school_id', schoolId)
         .order('created_at', { ascending: false });
 
@@ -254,7 +254,7 @@ router.get(
 
       const { data: lineup, error: lineupErr } = await supabase
         .from('match_lineups')
-        .select('id, team_id, source_type, source_id, formation, created_by, created_at, updated_at')
+        .select('id, team_id, source_type, source_id, formation, arrows, created_by, created_at, updated_at')
         .eq('id', id)
         .eq('school_id', schoolId)
         .maybeSingle();
@@ -289,7 +289,7 @@ router.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { schoolId, user } = req;
-      const { team_id, source_type, source_id, formation, players } = req.body;
+      const { team_id, source_type, source_id, formation, players, arrows } = req.body;
 
       if (!team_id || !source_type || !VALID_LINEUP_SOURCE_TYPES.includes(source_type) || !source_id) {
         return res.status(400).json({
@@ -301,6 +301,22 @@ router.post(
       const playerErrors = validateLineupPlayers(playerList);
       if (playerErrors.length > 0) {
         return res.status(422).json({ error: 'Alineación inválida.', details: playerErrors });
+      }
+
+      // Modo pizarra (P2d): mismas figuras y misma validación que
+      // team_tactical_presets.arrows, pero acá viajan con LA alineación de
+      // este partido/entrenamiento puntual, no con una plantilla con nombre.
+      // `arrows === undefined` (LineupModal.tsx, la vista clásica, no manda
+      // este campo) se distingue de "mandó []" -- si no, guardar la
+      // alineación desde la vista clásica borraría en silencio las flechas
+      // que el coach ya había dibujado en el tablero táctico nuevo.
+      const arrowsProvided = arrows !== undefined;
+      const arrowList = Array.isArray(arrows) ? arrows : [];
+      if (arrowsProvided) {
+        const arrowErrors = validateArrows(arrowList);
+        if (arrowErrors.length > 0) {
+          return res.status(422).json({ error: 'Flechas inválidas.', details: arrowErrors });
+        }
       }
 
       if (!(await assertTeamBelongsToSchool(team_id, schoolId!))) {
@@ -316,9 +332,14 @@ router.post(
 
       let lineupId: string;
       if (existing) {
+        const updatePayload: Record<string, any> = {
+          team_id, formation: formation ?? null, updated_at: new Date().toISOString(),
+        };
+        if (arrowsProvided) updatePayload.arrows = arrowList;
+
         const { data: updated, error: updateErr } = await supabase
           .from('match_lineups')
-          .update({ team_id, formation: formation ?? null, updated_at: new Date().toISOString() })
+          .update(updatePayload)
           .eq('id', existing.id)
           .eq('school_id', schoolId)
           .select('id')
@@ -340,6 +361,7 @@ router.post(
             source_type,
             source_id,
             formation: formation ?? null,
+            arrows: arrowList,
             created_by: user.id,
           })
           .select('id')
@@ -369,7 +391,7 @@ router.post(
 
       const { data: fullLineup } = await supabase
         .from('match_lineups')
-        .select('id, team_id, source_type, source_id, formation, created_by, created_at, updated_at')
+        .select('id, team_id, source_type, source_id, formation, arrows, created_by, created_at, updated_at')
         .eq('id', lineupId)
         .single();
       const { data: fullPlayers } = await supabase
