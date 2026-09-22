@@ -38,6 +38,7 @@ import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
 import { estadoDeHorario, mensajeDeEscalamiento } from './whatsapp-horario.service';
 import { sendToUser } from './push.service';
 import { mediosDePago } from './whatsapp-medios-de-pago.service';
+import { infoDeEscuela, fallbackInfoEscuela } from './whatsapp-info-escuela.service';
 import { resolverRespuestaDeCobro } from './whatsapp-respuesta-de-cobro.service';
 
 const OTP_TTL_MIN = 10;
@@ -613,6 +614,18 @@ FUERA DE TEMA:
 - Ante algo fuera de tema, responde corto y amable, y vuelve a lo tuyo. No lo
   escales: escalar cada pregunta suelta le llena la bandeja a la escuela.
 
+SOBRE LA ESCUELA:
+- Para «donde queda», «que sedes tienen», «que deportes», «que categorias hay» o
+  «en que grupo va mi hijo» usa get_school_info.
+- Esa herramienta devuelve 'no_disponible': TODO lo que aparezca ahi lo dices como
+  que no lo tienes, y ofreces que la escuela lo confirme. No lo deduzcas de ningun
+  otro campo.
+- EN PARTICULAR, no traduzcas el nombre de un grupo a edades. «U15 FEMENINO» sugiere
+  sub-15, pero la convencion cambia por federacion y por ano: una edad equivocada
+  manda a una familia a la categoria que no es. Di el nombre tal cual.
+- Los horarios de entrenamiento casi nunca estan cargados. Si 'no_disponible' los
+  menciona, no inventes ni «suele ser por la tarde»: no lo sabes.
+
 COMO PAGAR:
 - Para «medios de pago», «como pago», «a que cuenta», «acepta Nequi» o «donde mando el
   soporte» usa get_payment_methods. Esas preguntas NO se escalan.
@@ -626,6 +639,11 @@ export const TOOLS: LlmTool[] = [
     {
         name: 'get_payment_status',
         description: 'Estado de los pagos del acudiente en esta escuela: lo que debe Y lo resuelto en los ultimos 60 dias. Cada pago trae `estado_legible` (pagado y confirmado, comprobante en revision, rechazado, pendiente) y `debe_pagarse`. Usala SIEMPRE que pregunte por pagos, mensualidades, inscripciones, saldos, vencimientos, o si un pago suyo ya quedo aprobado. Si un concepto no aparece en el resultado, di que no lo encuentras — NUNCA afirmes que un cobro no existe.',
+        parameters: { type: 'object', properties: {}, required: [] },
+    },
+    {
+        name: 'get_school_info',
+        description: 'Datos publicos de la escuela: donde queda, sus sedes, que deportes y que grupos o categorias tiene, y el horario de atencion. Usala cuando pregunten por la ubicacion, las sedes, los deportes, las categorias o los grupos. Devuelve tambien `no_disponible`: lo que la escuela NO tiene cargado, y eso se responde diciendo que no se tiene.',
         parameters: { type: 'object', properties: {}, required: [] },
     },
     {
@@ -676,6 +694,31 @@ async function handleIntent(
 
     if (call.name === 'escalate_to_human') {
         await escalate(integration, conversationId, contactWaId, String((call.args as any)?.reason || 'user_request'));
+        return;
+    }
+
+    if (call.name === 'get_school_info') {
+        const info = await infoDeEscuela(integration.school_id);
+
+        messages.push({ role: 'assistant', content: `Llamando get_school_info` });
+        messages.push({ role: 'tool', toolName: 'get_school_info', content: JSON.stringify(info) });
+        let final;
+        try {
+            // SIN herramientas: este turno solo REDACTA. Ofrecerle TOOLS lo invita
+            // a llamar otra, y cuando lo hace `text` vuelve vacio.
+            final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: [] });
+        } catch {
+            await deliver(integration, conversationId, contactWaId,
+                fallbackInfoEscuela(info), { step: 'info_escuela_fallback' });
+            return;
+        }
+        if (!final.text) {
+            console.warn('[whatsapp-bot] get_school_info: el modelo no devolvio texto',
+                { proveedor: final.provider });
+        }
+        await deliver(integration, conversationId, contactWaId,
+            final.text || fallbackInfoEscuela(info),
+            { step: 'get_school_info', provider: final.provider });
         return;
     }
 

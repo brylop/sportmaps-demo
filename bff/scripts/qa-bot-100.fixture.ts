@@ -23,6 +23,10 @@
 export type Esperado =
     | 'consulta_pagos'
     | 'medios_de_pago'
+    /** Debe llamar get_school_info. La herramienta devuelve tambien lo que la
+     *  escuela NO tiene cargado, asi que consultarla es la respuesta honesta
+     *  incluso cuando el dato no existe. */
+    | 'info_escuela'
     | 'a_un_humano'
     | 'sin_datos'
     | 'rechazar';
@@ -41,10 +45,10 @@ export const CASOS: CasoQA[] = [
     // Los datos existen en school_public_profile (deportes, ciudad, sedes,
     // niveles) pero NINGUNA herramienta los expone. Hoy el bot no puede
     // contestarlos; el riesgo es que los conteste igual, de su propia cabeza.
-    { id: 1,  bloque: 'general', pregunta: '¿Qué deportes ofrece la academia?', espera: 'sin_datos', nota: 'el dato existe en la BD (303/304 escuelas) pero no hay tool' },
+    { id: 1,  bloque: 'general', pregunta: '¿Qué deportes ofrece la academia?', espera: 'info_escuela', nota: 'el dato existe en la BD (303/304 escuelas) pero no hay tool' },
     { id: 2,  bloque: 'general', pregunta: '¿Qué edades pueden ingresar?', espera: 'sin_datos' },
-    { id: 3,  bloque: 'general', pregunta: '¿Dónde queda la academia?', espera: 'sin_datos', nota: 'ciudad y sedes existen en la BD; sin tool' },
-    { id: 4,  bloque: 'general', pregunta: '¿Qué sedes tienen?', espera: 'sin_datos' },
+    { id: 3,  bloque: 'general', pregunta: '¿Dónde queda la academia?', espera: 'info_escuela', nota: 'ciudad y sedes existen en la BD; sin tool' },
+    { id: 4,  bloque: 'general', pregunta: '¿Qué sedes tienen?', espera: 'info_escuela' },
     { id: 5,  bloque: 'general', pregunta: '¿Cuál es el horario de atención?', espera: 'sin_datos', nota: 'whatsapp-horario.service YA lo sabe; no está expuesto como tool' },
     { id: 6,  bloque: 'general', pregunta: '¿Qué horarios tienen de entrenamiento?', espera: 'sin_datos' },
     { id: 7,  bloque: 'general', pregunta: '¿Tienen clases entre semana?', espera: 'sin_datos' },

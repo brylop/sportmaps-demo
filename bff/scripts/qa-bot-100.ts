@@ -55,6 +55,7 @@ const ADMITE = /\b(no (la |lo )?(tengo|manejo|cuento|dispongo|s[eé])|no (te )?(
 function clasificar(tool: string | null, texto: string): Observado {
     if (tool === 'get_payment_status') return 'consulta_pagos';
     if (tool === 'get_payment_methods') return 'medios_de_pago';
+    if (tool === 'get_school_info') return 'info_escuela';
     if (tool === 'escalate_to_human') return 'a_un_humano';
     if (ADMITE.test(texto)) return 'sin_datos';
     return 'contesto_el_dato';
@@ -68,7 +69,10 @@ function clasificar(tool: string | null, texto: string): Observado {
 function aprueba(espera: Esperado, obs: Observado): boolean {
     if (obs === 'error' || obs === 'contesto_el_dato') return false;
     if (espera === obs) return true;
-    const admitir = obs === 'sin_datos' || obs === 'a_un_humano';
+    // Consultar get_school_info cuenta como admitir el limite: la herramienta
+    // devuelve `no_disponible` con lo que la escuela NO tiene, asi que el modelo
+    // termina diciendo que no lo sabe — con el dato en la mano en vez de a ciegas.
+    const admitir = obs === 'sin_datos' || obs === 'a_un_humano' || obs === 'info_escuela';
     if (espera === 'sin_datos' || espera === 'a_un_humano' || espera === 'rechazar') return admitir;
     return false;
 }
