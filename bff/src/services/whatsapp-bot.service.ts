@@ -242,7 +242,12 @@ async function identificarPorTelefono(
         // Reconocido como familia, sin cuenta. NO se le da ningun dato.
         await deliver(integration, conversationId, contactWaId,
             'Tu número está registrado en la escuela, pero todavía no tienes tu cuenta creada. 🙌' + '\n\n' +
-            `Créala aquí con *este mismo número*: ${FRONTEND_URL}/register` + '\n\n' +
+            // El telefono viaja en la URL y RegisterPage lo precarga. Sin esto
+            // el flujo se rompe justo al final: el campo es OPCIONAL en el
+            // formulario, asi que el papa se registra sin ponerlo, vuelve a
+            // escribir, y choca contra la misma pared — ahora convencido de que
+            // ya hizo lo que le pedimos.
+            `Créala aquí, ya te dejé tu número puesto: ${FRONTEND_URL}/register?phone=${encodeURIComponent(contactWaId)}` + '\n\n' +
             'Cuando la tengas, escríbeme por acá y podrás consultar tus pagos, mandar ' +
             'comprobantes y recibir los avisos de tu atleta.',
             { step: 'debe_registrarse' });
