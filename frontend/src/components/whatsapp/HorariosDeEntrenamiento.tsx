@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -48,6 +49,9 @@ interface Equipo {
     name: string;
     student_count: number | null;
     franjas: Franja[];
+    /** false = no recibe atletas nuevos. Los inscritos siguen igual. */
+    admite_nuevos: boolean;
+    nota_admision: string;
 }
 
 const DIAS = [
@@ -87,13 +91,15 @@ export function HorariosDeEntrenamiento({ schoolId }: { schoolId: string }) {
         setCargando(true);
         const [{ data: eq }, { data: br }] = await Promise.all([
             supabase.from('teams')
-                .select('id, name, schedule, student_count')
+                .select('id, name, schedule, student_count, admite_nuevos, nota_admision')
                 .eq('school_id', schoolId).order('name'),
             supabase.from('school_branches').select('name').eq('school_id', schoolId),
         ]);
         setEquipos(((eq ?? []) as any[]).map((t) => ({
             id: t.id, name: t.name, student_count: t.student_count,
             franjas: leerFranjas(t.schedule).sort(ordenSemana),
+            admite_nuevos: t.admite_nuevos !== false,
+            nota_admision: t.nota_admision ?? '',
         })));
         setSedes(((br ?? []) as any[]).map((b) => String(b.name)).filter(Boolean));
         setCargando(false);
@@ -122,7 +128,11 @@ export function HorariosDeEntrenamiento({ schoolId }: { schoolId: string }) {
 
         setGuardando(equipo.id);
         const { error } = await supabase.from('teams')
-            .update({ schedule: equipo.franjas.sort(ordenSemana) })
+            .update({
+                schedule: equipo.franjas.sort(ordenSemana),
+                admite_nuevos: equipo.admite_nuevos,
+                nota_admision: equipo.nota_admision.trim() || null,
+            })
             .eq('id', equipo.id);
         setGuardando(null);
 
@@ -175,6 +185,7 @@ export function HorariosDeEntrenamiento({ schoolId }: { schoolId: string }) {
                             <CardDescription>
                                 {equipo.student_count ?? 0} atletas
                                 {equipo.franjas.length === 0 && ' · sin horario'}
+                                {!equipo.admite_nuevos && ' · no recibe nuevos'}
                             </CardDescription>
                         </div>
                         <Button
@@ -190,6 +201,29 @@ export function HorariosDeEntrenamiento({ schoolId }: { schoolId: string }) {
                     </CardHeader>
 
                     <CardContent className="space-y-3">
+                        {/* Cerrar admisiones NO es dar de baja: los inscritos siguen
+                            exactamente igual. Es lo que permite decir «esta categoria no
+                            la ofertamos este ano» sin romperle la inscripcion a nadie. */}
+                        <div className="flex flex-wrap items-center gap-3 rounded-md border p-3">
+                            <Switch
+                                id={`admite-${equipo.id}`}
+                                checked={equipo.admite_nuevos}
+                                onCheckedChange={(v) => setEquipos((prev) => prev.map((e) =>
+                                    e.id === equipo.id ? { ...e, admite_nuevos: v } : e))}
+                            />
+                            <Label htmlFor={`admite-${equipo.id}`} className="cursor-pointer">
+                                Recibe atletas nuevos
+                            </Label>
+                            {!equipo.admite_nuevos && (
+                                <Input
+                                    className="min-w-[16rem] flex-1"
+                                    placeholder="Qué responder a quien pregunte por este grupo"
+                                    value={equipo.nota_admision}
+                                    onChange={(e) => setEquipos((prev) => prev.map((x) =>
+                                        x.id === equipo.id ? { ...x, nota_admision: e.target.value } : x))}
+                                />
+                            )}
+                        </div>
                         {equipo.franjas.map((f, i) => (
                             <div key={i} className="flex flex-wrap items-end gap-2 rounded-md border p-3">
                                 <div className="w-full sm:w-36">

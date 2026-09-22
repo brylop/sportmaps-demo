@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 601,
-  "head": "20260922130832",
+  "count": 602,
+  "head": "20260922164841",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -604,6 +604,7 @@
     {"v":"20260921211509","file":"20260921211509_seg17_revoke_public_5_rpc_identidad.sql","sha256":"bf0f084ca79d921ff18434fca8be751dd1f26092ec15bf4e82df180cd65e0acb","added":"2026-09-22","by":"brylop"},
     {"v":"20260922123945","file":"20260922123945_wa_invitacion_para_registro_por_whatsapp.sql","sha256":"2f1db1c25b7aa0f6d02d94efbd66f19602a4de2a12998b113624760ddababd05","added":"2026-09-22","by":"brylop"},
     {"v":"20260922130717","file":"20260922130717_wa_reconocer_atletas_sin_registrar.sql","sha256":"1efbae85f84676e2d320ab88b2ba6cd77d59d040beb9d903aa9066e7ebdce269","added":"2026-09-22","by":"brylop"},
-    {"v":"20260922130832","file":"20260922130832_wa_identify_mira_tambien_sin_registrar.sql","sha256":"92f0cc6e4a91f65f7715715889db24c091fb72fc1ebe6e1defb252870177e55f","added":"2026-09-22","by":"brylop"}
+    {"v":"20260922130832","file":"20260922130832_wa_identify_mira_tambien_sin_registrar.sql","sha256":"92f0cc6e4a91f65f7715715889db24c091fb72fc1ebe6e1defb252870177e55f","added":"2026-09-22","by":"brylop"},
+    {"v":"20260922164841","file":"20260922164841_teams_admite_nuevos.sql","sha256":"b16fd67f2603eecfb051c04423ce6d47b2947eb605b33d5011273b7540600a9e","added":"2026-09-22","by":"brylop"}
   ]
 }

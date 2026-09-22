@@ -44,7 +44,15 @@ export interface InfoDeEscuela {
     /** Deportes que aparecen en los equipos, sin repetir. */
     deportes: string[];
     /** Nombre de cada grupo/equipo, tal como lo escribió la escuela. */
-    grupos: { nombre: string; sede: string | null; horario: string | null }[];
+    grupos: {
+        nombre: string;
+        sede: string | null;
+        horario: string | null;
+        /** false = no recibe atletas nuevos. Los inscritos siguen igual. */
+        admite_nuevos: boolean;
+        /** Qué decirle a quien pregunte por un grupo cerrado. */
+        nota_admision: string | null;
+    }[];
     /** Categorías formales, cuando la escuela las cargó. */
     categorias: { nombre: string; rama: string | null }[];
     /** Horario de ATENCIÓN (no de entrenamiento), si está configurado. */
@@ -128,7 +136,7 @@ export async function infoDeEscuela(schoolId: string): Promise<InfoDeEscuela> {
         supabase.from('schools').select('name, city, address').eq('id', schoolId).maybeSingle(),
         supabase.from('school_branches').select('name').eq('school_id', schoolId).limit(50),
         supabase.from('teams')
-            .select('name, sport, location, schedule, active')
+            .select('name, sport, location, schedule, active, admite_nuevos, nota_admision')
             .eq('school_id', schoolId).limit(100),
         supabase.from('school_categories')
             .select('name, rama, sort_order')
@@ -153,6 +161,8 @@ export async function infoDeEscuela(schoolId: string): Promise<InfoDeEscuela> {
         nombre: String(t.name ?? '').trim(),
         sede: vacio(t.location) ? null : String(t.location).trim(),
         horario: describirEntrenamiento(t.schedule),
+        admite_nuevos: t.admite_nuevos !== false,
+        nota_admision: vacio(t.nota_admision) ? null : String(t.nota_admision).trim(),
     })).filter((g) => g.nombre);
 
     const info: InfoDeEscuela = {
@@ -205,7 +215,9 @@ export function fallbackInfoEscuela(i: InfoDeEscuela): string {
 
     if (i.grupos.length) {
         l.push('', '*Grupos:*');
-        for (const g of i.grupos.slice(0, 12)) l.push(`• ${g.nombre}`);
+        for (const g of i.grupos.slice(0, 12)) {
+            l.push(`• ${g.nombre}${g.admite_nuevos ? '' : ' — sin cupos'}`);
+        }
     }
 
     l.push('', 'Los horarios y precios te los confirma la escuela directamente.');
