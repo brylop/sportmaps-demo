@@ -170,15 +170,30 @@ export async function conectarEscuela(
         return { ok: false, error: 'no_se_pudo_guardar', detalle: e1?.message };
     }
 
-    // `mode` tiene DEFAULT 'assisted' en la tabla. El modo asistido deja el
-    // borrador esperando aprobacion: con el buzon ya construido eso funciona,
-    // pero una escuela que estrena el canal no sabe que tiene que entrar a
-    // aprobar, y sus familias se quedarian sin respuesta el primer dia. Arranca
-    // en `auto` y que la escuela decida cambiarlo.
+    // EL ASISTENTE ARRANCA APAGADO, y esto es deliberado.
+    //
+    // Conectar el numero y prender el bot son dos decisiones distintas, y hasta
+    // hoy eran una sola: la escuela apretaba «conectar» y en ese mismo segundo
+    // un bot que nunca habia corrido empezaba a responderle a cientos de
+    // familias. Si conecta al final del turno y se va —el caso real de Dynasty,
+    // 2026-09-22— eso es una noche entera de respuestas automaticas sin nadie
+    // mirando.
+    //
+    // Ademas hay una razon de calendario: la sincronizacion del historial tiene
+    // 24 HORAS de plazo y conviene largarla cuanto antes. Separar las dos cosas
+    // deja que el historial corra de noche y que el bot se prenda cuando haya
+    // gente despierta.
+    //
+    // El costo de equivocarse en este sentido es bajo: la escuela sigue
+    // contestando a mano, como lo hacia ayer. Al reves, no.
+    //
+    // `mode` si arranca en 'auto': el modo asistido deja las respuestas como
+    // borrador esperando aprobacion, y una escuela que estrena el canal no sabe
+    // que tiene que entrar a aprobar.
     const { error: e2 } = await supabase.from('whatsapp_settings').insert({
         integration_id: creada.id,
         mode: 'auto',
-        ai_enabled: true,
+        ai_enabled: false,
     });
     if (e2) {
         return { ok: false, error: 'sin_ajustes', detalle: e2.message };

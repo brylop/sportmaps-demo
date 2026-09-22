@@ -28,7 +28,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import {
-    MessageSquare, RefreshCw, AlertTriangle, Clock, FileText, Inbox, Settings, Plus, Loader2,
+    MessageSquare, RefreshCw, AlertTriangle, Clock, FileText, Inbox, Settings, Plus, Loader2, Power,
 } from 'lucide-react';
 
 // ─── Tipos que devuelve el BFF ──────────────────────────────────────────────
@@ -231,10 +231,45 @@ export default function WhatsAppPage() {
                 </Button>
             </div>
 
+            {/* EL ASISTENTE APAGADO ES EL PRIMER AVISO, arriba de todos los demas.
+
+                Un canal recien conectado arranca con la IA apagada a proposito
+                (ver whatsapp-onboarding.service.ts): conectar el numero y
+                prender el bot son dos decisiones distintas. Pero apagado y sin
+                avisar es peor que prendido — la escuela cree que esta
+                respondiendo y nadie contesta. Asi que el estado se dice, y el
+                boton para prenderlo esta en el mismo aviso: si hay que ir a
+                buscarlo a otra pestana, alguien no lo encuentra. */}
+            {estado?.ajustes && estado.ajustes.ai_enabled === false && (
+                <Card className="border-sky-300 bg-sky-50 dark:bg-sky-950/20">
+                    <CardContent className="pt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+                        <Power className="h-5 w-5 text-sky-600 shrink-0" />
+                        <div className="text-sm flex-1">
+                            <p className="font-medium">El asistente todavia no esta respondiendo</p>
+                            <p className="text-muted-foreground">
+                                El numero ya quedo conectado y los mensajes llegan a
+                                <strong> Conversaciones</strong>, pero los contesta una persona.
+                                Antes de prenderlo revisa <strong>Horarios</strong>: lo que este
+                                cargado ahi es lo que el bot le va a decir a las familias.
+                            </p>
+                        </div>
+                        <Button
+                            onClick={() => void guardarAjustes({ ai_enabled: true })}
+                            disabled={guardando}
+                            className="shrink-0"
+                        >
+                            {guardando
+                                ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                : <Power className="h-4 w-4 mr-2" />}
+                            Prender el asistente
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
             {/* El modo asistido se avisa arriba: con el bot en asistido responde
                 pero NADA sale hasta que alguien aprueba cada mensaje. Es la
                 confusión más cara de este módulo. */}
-            {estado?.ajustes?.mode === 'assisted' && (
+            {estado?.ajustes?.mode === 'assisted' && estado.ajustes.ai_enabled !== false && (
                 <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/20">
                     <CardContent className="pt-6 flex gap-3">
                         <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
