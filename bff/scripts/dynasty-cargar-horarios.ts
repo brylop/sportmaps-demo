@@ -17,6 +17,14 @@
  * nadie verificó. Un horario inventado no se ve como un error: se ve como una
  * respuesta, y la familia llega el día equivocado.
  *
+ * AM/PM
+ *
+ * Confirmado por la escuela el 2026-09-22: en Dynasty TODO es de tarde. Entre
+ * semana nada empieza antes de las 4 p.m. Un horario que llegue como «6:30 a
+ * 8:30» es 18:30. Para OTRA escuela esto no aplica: hay clubes que entrenan de
+ * 6 a 8 de la manana antes del colegio, y ahi la misma suposicion mandaria a la
+ * familia con 12 horas de diferencia.
+ *
  * FORMATO
  *
  * El que ya usa la plataforma (visto en Club Campestre Demo):
@@ -98,12 +106,9 @@ const HORARIOS: Record<string, Franja[]> = {
     ],
     // Recibido de la escuela por escrito el 2026-09-22, no de una imagen.
     //
-    // AM/PM: el mensaje decia «6:30 a 8:30» sin aclarar. Se toma PM porque
-    // TODAS las franjas entre semana de Dynasty caen entre las 4 y las 10 de la
-    // noche —ninguna es de manana— y 18:30-20:30 es exactamente la misma franja
-    // que ya tiene INFANTIL MASCULINO. Es una suposicion y esta marcada como
-    // tal: si resulta ser de manana, la familia llega con 12 horas de
-    // diferencia. CONFIRMAR con la escuela.
+    // AM/PM: el mensaje decia «6:30 a 8:30» sin aclarar y se tomo PM. La
+    // escuela lo CONFIRMO el 2026-09-22: «todo es tarde». Ninguna franja de
+    // Dynasty entre semana es de manana — la mas temprana son las 4 p.m.
     'INFANTIL FEMENINO': [
         { day: 1, time: '18:30', end: '20:30', place: COLISEO },
         { day: 3, time: '18:30', end: '20:30', place: COLISEO },
