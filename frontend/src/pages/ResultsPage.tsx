@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { Trophy, Plus, TrendingUp, Minus, Equal, Trash2 } from 'lucide-react';
+import { Trophy, Plus, TrendingUp, Minus, Equal, Trash2, Pencil } from 'lucide-react';
 import { MatchResultFormDialog } from '@/components/coach/MatchResultFormDialog';
 import { CompetitionResultFormDialog } from '@/components/coach/CompetitionResultFormDialog';
 import { CompetitionResultsList } from '@/components/coach/CompetitionResultsList';
@@ -30,10 +30,21 @@ export default function ResultsPage() {
   const queryClient = useQueryClient();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingMatch, setEditingMatch] = useState<any | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [competitionDialogOpen, setCompetitionDialogOpen] = useState(false);
 
   const { schoolId, activeBranchId, currentUserRole } = useSchoolContext();
+  // Corregir un resultado ya guardado queda restringido a la dirección de la
+  // escuela + coach -- a diferencia de crear/eliminar (que ya estaban
+  // abiertos a todo el que llega a esta página), fue un pedido explícito
+  // para no dejar que un 'staff' cualquiera reescriba el marcador de un
+  // partido jugado. 'owner'/'admin'/'school_admin'/'super_admin' son roles
+  // DISTINTOS en este sistema (ver RLS de match_results) -- "admin" acá se
+  // lee como "quien dirige la escuela", no el string literal 'admin' solo
+  // (la cuenta owner de la escuela demo no veía el botón con ese gate).
+  const EDIT_RESULTS_ROLES = ['owner', 'admin', 'school_admin', 'super_admin', 'coach'];
+  const canEditResults = EDIT_RESULTS_ROLES.includes(currentUserRole || '');
 
   // Fetch teams
   const { data: teams } = useQuery({
@@ -148,6 +159,28 @@ export default function ResultsPage() {
     },
   });
 
+  // Update result mutation
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, ...input }: any) => {
+      const { data, error } = await supabase
+        .from('match_results')
+        .update(input)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['match-results', selectedTeamId] });
+      toast({ title: '✅ Resultado actualizado' });
+      setEditingMatch(null);
+    },
+    onError: (error: any) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
   // Delete result mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -164,7 +197,12 @@ export default function ResultsPage() {
     },
   });
 
+  // 'scheduled' = partido cargado sin marcador todavía (ahora se puede dejar
+  // en blanco al registrar/editar, ver MatchResultFormDialog) -- sin esto,
+  // `null > null` y `null < null` son ambos false y caía en 'draw' por
+  // defecto, contando un partido sin jugar como empate en el récord.
   const getMatchResult = (match: any) => {
+    if (match.home_score == null || match.away_score == null) return 'scheduled';
     const ourScore = match.is_home ? match.home_score : match.away_score;
     const theirScore = match.is_home ? match.away_score : match.home_score;
     if (ourScore > theirScore) return 'win';
@@ -183,6 +221,7 @@ export default function ResultsPage() {
 
   const getResultLabel = (result: string) => {
     switch (result) {
+      case 'scheduled': return 'Por jugar';
       case 'win': return 'Victoria';
       case 'loss': return 'Derrota';
       case 'draw': return 'Empate';
@@ -207,7 +246,10 @@ export default function ResultsPage() {
         </div>
         <Button
           className="gap-2"
-          onClick={() => (usesSets ? setCompetitionDialogOpen(true) : setDialogOpen(true))}
+          onClick={() => {
+            setEditingMatch(null);
+            usesSets ? setCompetitionDialogOpen(true) : setDialogOpen(true);
+          }}
           disabled={!selectedTeamId}
         >
           <Plus className="w-4 h-4" />
@@ -297,18 +339,28 @@ export default function ResultsPage() {
                       <div className="flex items-center gap-4">
                         <div className="text-right">
                           <p className="text-2xl font-bold">
-                            {ourScore} - {theirScore}
+                            {result === 'scheduled' ? '— vs —' : `${ourScore} - ${theirScore}`}
                           </p>
                           <Badge
                             variant={
                               result === 'win' ? 'default' :
-                                result === 'draw' ? 'secondary' : 'destructive'
+                                result === 'draw' ? 'secondary' :
+                                  result === 'scheduled' ? 'outline' : 'destructive'
                             }
                           >
                             {getResultLabel(result)}
                           </Badge>
                         </div>
                         <Badge variant="outline">{match.match_type}</Badge>
+                        {canEditResults && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => { setEditingMatch(match); setDialogOpen(true); }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -327,7 +379,7 @@ export default function ResultsPage() {
                     <p>No hay resultados registrados aún</p>
                     <Button
                       className="mt-4 gap-2"
-                      onClick={() => setDialogOpen(true)}
+                      onClick={() => { setEditingMatch(null); setDialogOpen(true); }}
                     >
                       <Plus className="w-4 h-4" />
                       Registrar Primer Resultado
@@ -371,10 +423,11 @@ export default function ResultsPage() {
       {selectedTeamId && !usesSets && (
         <MatchResultFormDialog
           open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          onSubmit={createMutation.mutate}
+          onOpenChange={(open) => { setDialogOpen(open); if (!open) setEditingMatch(null); }}
+          onSubmit={(data) => (editingMatch ? updateMutation.mutate({ id: editingMatch.id, ...data }) : createMutation.mutate(data))}
           teamId={selectedTeamId}
-          isLoading={createMutation.isPending}
+          isLoading={editingMatch ? updateMutation.isPending : createMutation.isPending}
+          match={editingMatch}
         />
       )}
 

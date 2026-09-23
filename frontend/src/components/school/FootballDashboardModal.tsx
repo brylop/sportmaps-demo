@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, ClipboardList, Goal, Trophy, Calendar as CalendarIcon, Plus, Trash2, Users } from 'lucide-react';
+import { Loader2, ClipboardList, Goal, Trophy, Calendar as CalendarIcon, Plus, Pencil, Trash2, Users } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { todayColombia } from '@/lib/dateUtils';
@@ -25,6 +25,7 @@ import {
   useFootballLineup,
   useFootballLineups,
   useCreateTeamMatch,
+  useUpdateTeamMatch,
   useDeleteTeamMatch,
   useTournamentMatches,
 } from '@/hooks/useFootballData';
@@ -32,7 +33,9 @@ import { LineupModal } from './LineupModal';
 import { MatchEventsModal } from './MatchEventsModal';
 import { FootballSeasonStats } from './FootballSeasonStats';
 import { TacticalBoard } from './TacticalBoard';
+import { MatchResultFormDialog } from '../coach/MatchResultFormDialog';
 import { useTeamPerformanceRoster } from '@/hooks/usePerformanceData';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 
 interface FootballDashboardModalProps {
   open: boolean;
@@ -45,12 +48,20 @@ const MATCH_TYPES = ['Liga', 'Copa', 'Amistoso', 'Torneo', 'Clasificatorio', 'Fi
 
 export function FootballDashboardModal({ open, onClose, teamId, teamName }: FootballDashboardModalProps) {
   const { toast } = useToast();
+  const { currentUserRole } = useSchoolContext();
+  // Mismo criterio y mismos roles que ResultsPage.tsx: corregir un marcador
+  // ya guardado queda restringido a quien dirige la escuela + coach, no a
+  // cualquier 'staff' que abra este panel.
+  const EDIT_RESULTS_ROLES = ['owner', 'admin', 'school_admin', 'super_admin', 'coach'];
+  const canEditResults = EDIT_RESULTS_ROLES.includes(currentUserRole || '');
   const { data: matches, isLoading: loadingMatches } = useTeamMatches(teamId);
   const { data: tournamentMatches, isLoading: loadingTournamentMatches } = useTournamentMatches(teamId);
   const createMatch = useCreateTeamMatch();
+  const updateMatch = useUpdateTeamMatch();
   const deleteMatch = useDeleteTeamMatch();
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [editingMatch, setEditingMatch] = useState<any | null>(null);
   const [lineupMatch, setLineupMatch] = useState<{ id: string; label: string; sourceType: 'team_match' | 'tournament_match' } | null>(null);
   const [tacticalMatch, setTacticalMatch] = useState<{ id: string; label: string; sourceType: 'team_match' | 'tournament_match' } | null>(null);
   const [eventsMatch, setEventsMatch] = useState<{ id: string; label: string; sourceType: 'team_match' | 'tournament_match' } | null>(null);
@@ -198,6 +209,17 @@ export function FootballDashboardModal({ open, onClose, teamId, teamName }: Foot
                         >
                           <Goal className="w-3 h-3" /> Eventos
                         </Button>
+                        {canEditResults && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                            onClick={() => setEditingMatch(m)}
+                            title="Editar resultado"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="ghost"
@@ -298,6 +320,17 @@ export function FootballDashboardModal({ open, onClose, teamId, teamName }: Foot
           onClose={() => setShowCreateDialog(false)}
           onSubmit={handleCreateMatchSubmit}
           isPending={createMatch.isPending}
+        />
+      )}
+
+      {editingMatch && (
+        <MatchResultFormDialog
+          open={!!editingMatch}
+          onOpenChange={(open) => { if (!open) setEditingMatch(null); }}
+          onSubmit={(data) => updateMatch.mutate({ id: editingMatch.id, ...data })}
+          teamId={teamId}
+          isLoading={updateMatch.isPending}
+          match={editingMatch}
         />
       )}
 
