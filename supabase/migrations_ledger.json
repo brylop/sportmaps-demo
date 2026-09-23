@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 602,
-  "head": "20260922164841",
+  "count": 607,
+  "head": "20260923113401",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -605,6 +605,11 @@
     {"v":"20260922123945","file":"20260922123945_wa_invitacion_para_registro_por_whatsapp.sql","sha256":"2f1db1c25b7aa0f6d02d94efbd66f19602a4de2a12998b113624760ddababd05","added":"2026-09-22","by":"brylop"},
     {"v":"20260922130717","file":"20260922130717_wa_reconocer_atletas_sin_registrar.sql","sha256":"1efbae85f84676e2d320ab88b2ba6cd77d59d040beb9d903aa9066e7ebdce269","added":"2026-09-22","by":"brylop"},
     {"v":"20260922130832","file":"20260922130832_wa_identify_mira_tambien_sin_registrar.sql","sha256":"92f0cc6e4a91f65f7715715889db24c091fb72fc1ebe6e1defb252870177e55f","added":"2026-09-22","by":"brylop"},
-    {"v":"20260922164841","file":"20260922164841_teams_admite_nuevos.sql","sha256":"b16fd67f2603eecfb051c04423ce6d47b2947eb605b33d5011273b7540600a9e","added":"2026-09-22","by":"brylop"}
+    {"v":"20260922164841","file":"20260922164841_teams_admite_nuevos.sql","sha256":"b16fd67f2603eecfb051c04423ce6d47b2947eb605b33d5011273b7540600a9e","added":"2026-09-22","by":"brylop"},
+    {"v":"20260922223853","file":"20260922223853_identity_docs_staff_read_scoped_por_escuela.sql","sha256":"d65ccab7e45caf81f44551aef92d7275ef5b1047b8241d7dbb77a8261b493cba","added":"2026-09-23","by":"judegor99"},
+    {"v":"20260922224444","file":"20260922224444_unblock_payment_y_payouts_usan_is_platform_admin.sql","sha256":"0d33d3800353cf462da6b946173b0967a8048da5a2d888721832121b22495321","added":"2026-09-23","by":"judegor99"},
+    {"v":"20260922224730","file":"20260922224730_barrido_profiles_role_admin_resto_de_rpcs.sql","sha256":"1b38001204c79e4fb8dc279e38886fabb7982f6944e9f262f40d2371be033f41","added":"2026-09-23","by":"judegor99"},
+    {"v":"20260923113359","file":"20260923113359_fix_qr_signup_pending_sin_cobro.sql","sha256":"f79745531299e8032e85c563977aa248ba0e10442e4c29fac4f31ec267d3a553","added":"2026-09-23","by":"brylop"},
+    {"v":"20260923113401","file":"20260923113401_calendar_events_por_equipo_y_escuela.sql","sha256":"51557a50b2654eeb93bc20fd9ff641a7ad3fecb5b7028eae32b9687ef53e8c1e","added":"2026-09-23","by":"brylop"}
   ]
 }

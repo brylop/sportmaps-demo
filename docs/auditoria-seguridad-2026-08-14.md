@@ -319,3 +319,215 @@ del 2026-09-17. **Pendiente real:** no se auditó el resto de funciones
 agregado sin `REVOKE` previo de anon/authenticated) — estas dos se encontraron
 por estar en el camino de una feature que se estaba auditando, no por barrido
 sistemático.
+
+---
+
+## Adenda 2026-09-22 — auditoría de pagos + GYM RM: dos huecos con plata real, sin corregir
+
+Auditoría solicitada sobre arquitectura de pagos, RLS y todo lo relacionado con
+GYM RM (bridge de torniquete). Se lanzaron tres pasadas de
+`sm-security-auditor` (RLS/multi-tenancy, dinero/webhooks, GYM RM/secretos) y
+cada hallazgo con dudas se verificó contra la base viva con Supabase MCP.
+
+**Metodología — varios "críticos" reportados por los agentes resultaron ser
+drift ya cerrado a mano en producción, nunca capturado en una migración:**
+`is_super_admin()` en vivo es `select is_platform_admin()` (consulta
+`platform_admins`, no `profiles.role` — el repo tiene una definición vieja sin
+actualizar); el trigger `trg_profiles_guard_role`
+(`profiles_guard_role_escalation()`) bloquea cualquier auto-asignación de rol
+desde el cliente; `calculate_settlement`/`process_refund` (que el repo aún
+tiene en migraciones viejas) **no existen** en la base — fueron reemplazadas
+hace tiempo por `compute_settlements_for_order`/`request_refund` +
+`approve_refund` + `complete_refund`, bien resguardadas. Ninguna de estas tres
+cosas está documentada en ningún archivo del repo — quien audite este
+documento contra el repo solo, sin consultar la base, llegaría a la
+conclusión contraria.
+
+De lo que sí quedó confirmado en vivo, dos siguen **abiertos, con dinero real
+de por medio**:
+
+### A. Cualquier admin de escuela puede redirigir los cobros de OTRA escuela a su propia cuenta
+
+`bff/src/routes/payment-providers.routes.ts:394-412`:
+
+```ts
+async function isSchoolAuthorized(userId: string, schoolId: string): Promise<boolean> {
+    if (await isAdminGlobal(userId)) return true;
+    const { data: school } = await supabase.from('schools').select('owner_id').eq('id', schoolId).maybeSingle();
+    if (school?.owner_id === userId) return true;
+    const { data: profile } = await supabase.from('profiles').select('role').eq('id', userId).maybeSingle();
+    return profile?.role === 'school_admin' || profile?.role === 'owner';   // ← sin correlacionar con schoolId
+}
+```
+
+`schoolId` sale de `req.params`, sin validar. La usan `GET /school/:schoolId`
+(línea 77), `POST /school/:schoolId` (línea 129, escribe llaves de cobro vía
+`upsert_school_provider`) y los `PATCH`/`DELETE` por id (líneas 290-347).
+
+**No requiere ninguna escalación de privilegios.** `trg_profiles_guard_role`
+está vivo y nadie se auto-asigna `role='school_admin'` — pero cualquier admin
+**legítimo** de su propia escuela ya tiene ese rol en su perfil, y el chequeo
+no distingue de qué escuela. Alcanza con `POST
+/api/v1/payment-providers/school/<escuela ajena>` con sus propias llaves de
+Wompi/MercadoPago para que los cobros de esa escuela empiecen a entrar a su
+cuenta. Único freno: la escuela objetivo necesita tener el addon de pasarela
+activo (`hasGatewayAddon`, línea 145) — es decir, exactamente las escuelas
+que sí cobran en línea hoy (Dynasty entre ellas).
+
+No es marketplace: es la conexión de pasarela que sostiene el cobro de
+mensualidades, en producción, con familias pagando ahora mismo.
+
+**Fix (no aplicado, ~1 línea):** reemplazar la última rama por algo que
+cruce el `schoolId` recibido contra `user_admin_school_ids()` del actor,
+igual que ya hace `school_payment_providers_admin_read` a nivel de RLS
+(`school_id IN (SELECT unnest(user_admin_school_ids())) OR is_super_admin()`,
+verificado en `pg_policies`). El resto de las 4 rutas que llaman a
+`isSchoolAuthorized`/`isAdminGlobal` heredan el mismo fix.
+
+### B. `release_settlements_all()` — cualquier autenticado libera TODOS los saldos pendientes de TODOS los vendors
+
+Verificado en `pg_proc` de la base viva:
+`proacl={postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`.
+El cuerpo (`supabase/migrations/20260511000008_payouts_functions_unconditional.sql:56-131`)
+no valida nada — recorre `SELECT DISTINCT vendor_profile_id FROM settlements
+WHERE status='pending'` y llama `release_settlements_for_vendor` por cada
+uno (esa sí está cerrada a `service_role` solamente, pero al ejecutarse
+*dentro* de una función `SECURITY DEFINER` corre con los privilegios del
+dueño, no los del caller — el `REVOKE` de la interna no protege nada aquí).
+
+Sí es marketplace (`settlements`/`vendor_balances`/`vendor_payouts`, el
+pipeline de pago a vendors). El módulo está mayormente sin desplegar, pero
+`vendor_balances` ya tiene 30 filas reales — el radio de impacto crece con
+cada venta que se procese mientras esto siga abierto.
+
+**Fix (no aplicado):** `REVOKE EXECUTE ON FUNCTION public.release_settlements_all() FROM authenticated;`
+(el BFF la invoca, si la invoca, con `service_role` — confirmar en
+`vendor-payouts.routes.ts` antes de revocar).
+
+### Encontrado en el mismo barrido, confirmado en vivo — C, D y E corregidos el mismo día (2026-09-22)
+
+- **C. `identity_docs_staff_read`** ✅ **corregido y aplicado en vivo.**
+  Migración `20260922223853_identity_docs_staff_read_scoped_por_escuela.sql`,
+  reemplaza la policy sin acotar por dos policies (`identity_docs_unregistered_staff_read`,
+  `identity_docs_children_staff_read`) que cruzan el path contra
+  `unregistered_athletes`/`children` y exigen `is_school_admin(school_id)` de
+  ESA escuela (o `is_super_admin()`). Verificado contra `pg_policies` tras
+  aplicar. Reduce el alcance de 8 roles (incluía `coach`/`staff`/`organizer`)
+  a `owner`/`admin`/`school_admin` — mismo scope que ya regía el INSERT/DELETE
+  de estos documentos, así que no le saca acceso a nadie que ya pudiera subir
+  o borrar. **Limitación conocida y documentada en la migración:** el formato
+  legado de paths sin `child_id` (`children/{parent_id}/docs/...`, 32 de 59
+  archivos) acota por padre, no por hijo — si un mismo padre tiene hijos en
+  más de una escuela, un admin de cualquiera de esas escuelas ve toda la
+  carpeta. El formato nuevo (con `child_id` en el path) ya no tiene ese
+  problema. `npm run seguridad:invariantes` reconfirmado sin CRÍTICAS después
+  del cambio.
+- **D. Canal ADMS de torniquetes** ✅ **corregido en código** (`bff/src/routes/access-adms.ts`),
+  **pendiente de desplegar a Render.**
+  - `clientIp()` ahora usa `req.ip` (Express ya resuelve la IP real vía
+    `trust proxy=1`, configurado en `index.ts` desde antes) en vez de tomar
+    el primer valor de `X-Forwarded-For`, que el cliente controla. Esto hace
+    que la allowlist (global y por-dispositivo) vuelva a ser una barrera de
+    verdad el día que se active — hoy sigue en `ip_check_mode='off'` para
+    las 6 `turnstile_devices` existentes, eso no cambió, sigue siendo una
+    decisión operativa aparte.
+  - `POST /iclock/devicecmd` ahora acota el `UPDATE` de `device_commands`
+    con `.eq('device_id', device.id)` además del match por `cmd_seq`/`id` —
+    ya no se puede marcar como `executed` el comando de otra escuela con
+    solo mandar un `ID` numérico y un SN válido cualquiera.
+  - **No corregido en esta pasada:** el canal ATTLOG sigue sin autenticación
+    criptográfica real (el protocolo del dispositivo no la soporta); la
+    mitigación sigue siendo la IP, ahora al menos confiable. Evaluar
+    `ip_check_mode='enforce'` por escuela requiere antes confirmar que el
+    `ip_address` guardado en cada `turnstile_devices` coincide con la IP
+    pública real de esa escuela — no se hizo en esta pasada para no
+    bloquear un dispositivo real por una IP desactualizada.
+- **E. WebSocket del bridge (`bridgeWsServer.ts`)** ✅ **corregido en código,
+  sin desplegar (igual que antes de esta pasada).**
+  - Ya no acepta cualquier `school_id`: antes de autenticar, valida que la
+    escuela declarada tenga al menos un `turnstile_devices.has_local_bridge=true`
+    (verificado contra GYM RM: sí lo tiene, el fix no la bloquea el día que
+    se despliegue). Decisión explícita (con el usuario, 2026-09-22): se
+    mantiene la API key global compartida entre escuelas — una key por
+    escuela se evaluó y se descartó por el costo operativo de rotarla en
+    cada PC física; **este es el residual conocido**, alguien con la key
+    filtrada de una escuela con bridge sigue pudiendo autenticarse, aunque
+    ya no puede declarar un `school_id` ajeno o inventado.
+  - `maxPayload: 8192` (antes: default de `ws`, ~100 MiB).
+  - Límite de intentos de auth fallidos por IP (20 cada 5 min) antes de
+    cortar la conexión — sin esto cada reconexión era un intento gratis de
+    fuerza bruta contra `BRIDGE_API_KEY`.
+  - Un socket ya autenticado ya no puede re-autenticarse con otro
+    `school_id` (antes quedaba registrado en varias escuelas a la vez).
+  - `POST /bridge/door-commands/:id/ack` acepta ahora un `school_id`
+    opcional y, si viene, acota el `UPDATE` a esa escuela — opcional a
+    propósito: los bridges ya desplegados (Dreamers, y GYM RM en su versión
+    HTTP previa) no lo mandan y no hay forma de redesplegarlos desde acá.
+    `scripts/gymrm-door-bridge/door_bridge.py` (todavía sin subir a la PC
+    física de GYM RM) ya se actualizó para mandarlo — el día que se
+    redespliegue ese script, GYM RM queda cerrado en este punto. Dreamers
+    sigue abierto hasta que su script se actualice igual (fuera del
+    alcance de esta pasada).
+- **F. `unblock_payment` y `admin_generate_pending_payouts`** ✅ **corregidos
+  y aplicados en la base viva** (migración `20260922224444_unblock_payment_y_payouts_usan_is_platform_admin.sql`).
+  Ambas dejaron de leer `profiles.role = 'admin'` y ahora usan
+  `is_platform_admin()` — mismo patrón que las 16 tablas migradas en
+  `20260824165639`. De paso, `admin_generate_pending_payouts` quedó con el
+  `search_path` estándar del repo (`pg_catalog, public, pg_temp`; antes solo
+  `public`). Verificado en vivo: ninguna de las dos menciona ya
+  `profiles.role` en su definición (`pg_get_functiondef`), y
+  `seguridad:invariantes` sigue sin CRÍTICAS.
+
+**Pendiente:** A y B (el hallazgo de pagos/marketplace de más arriba) no
+tienen migración/PR asociado todavía — quedan como los dos riesgos más
+grandes sin cerrar de esta sesión. C, F y G ya están aplicados en la base
+viva. D y E son cambios de código en el working tree de `develop`, sin
+commitear ni desplegar a Render al cierre de esta sesión.
+
+### G. Barrido sistemático del patrón — 4 funciones más, mismo día
+
+Corrido el `grep` sobre `pg_get_functiondef()` de todo `pg_proc` en busca del
+mismo patrón (`profiles.role = 'admin'` / `role IN ('admin','super_admin')`
+como atajo de plataforma). Cuatro resultados además de F, los cuatro
+corregidos en la misma migración (`20260922224730_barrido_profiles_role_admin_resto_de_rpcs.sql`):
+
+- **`is_admin()`** — mismo patrón que `is_super_admin()`, ahora delega en
+  `is_platform_admin()`. Sin consumidores hoy (ni policies ni otras
+  funciones la llaman), pero su ACL incluía `anon` **y** `authenticated` —
+  quedaba lista para que alguien la conectara sin revisar el cuerpo.
+- **`_glosa_actor_is_admin(p_actor, p_school_id)`** — gatea 5 RPCs de dinero
+  (`create_glosa`, `resolve_glosa`, `conciliate_glosa`, `reopen_glosa`,
+  `reconcile_statement`). Tenía una rama correcta (`school_members` acotada
+  por escuela) y una global sin acotar — cualquier cuenta con
+  `role IN ('admin','super_admin')` podía resolver una glosa de CUALQUIER
+  escuela. Corrección con un matiz: esta función recibe el actor como
+  **parámetro** (`p_actor`), no vía `auth.uid()` — se invoca con el cliente
+  `service_role` y el actor ya resuelto en el BFF. Por eso el fix no pudo
+  ser `is_platform_admin()` (que mira `auth.uid()` de la sesión, siempre
+  NULL en ese camino) — se inlineó el chequeo contra `platform_admins`
+  parametrizado por `p_actor`.
+- **`approve_refund(p_refund_id)`** — misma familia que `unblock_payment`
+  (usa `auth.uid()` directo), mismo fix. Tenía además un SEGUNDO bug del
+  mismo tipo en su propia rama de pagos: `v_actor_role IN ('school_admin','owner')`
+  sin correlacionar con la escuela del pago — cualquier `school_admin` de
+  cualquier escuela podía aprobar el reembolso de un pago de otra. Corregido
+  con `is_school_admin(s.id)`. **Nota funcional aparte** (no es hallazgo de
+  seguridad): el único caller conocido
+  (`bff/src/routes/marketplace-checkout.routes.ts:654`) invoca con el
+  cliente `supabase` del BFF, que es siempre `service_role`
+  (`bff/src/config/supabase.ts`) — `auth.uid()` ahí es `NULL`, así que hoy
+  esta RPC devuelve `unauthenticated` en cada llamada real, sea cual sea el
+  chequeo de rol. El fix no la revive ni la rompe más: queda correcta para
+  el día que se conecte con el JWT del usuario (mismo bug de fondo que
+  `vendor_payout_summary`/`request_payout`, ya anotado en la Adenda de
+  pagos/GYM RM de más arriba).
+- **`tg_notify_super_admin_on_upgrade_request()`** — no es un gate de
+  autorización, es un trigger que solo manda notificaciones. Notificaba a
+  `profiles.role='admin'` en vez de a `platform_admins`; corregido por
+  consistencia (si alguna escuela real tuviera ese rol, sus dueños hubieran
+  empezado a recibir solicitudes de upgrade de OTRAS escuelas — molesto, no
+  un hueco de seguridad).
+
+Reconfirmado tras el barrido: `select proname from pg_proc where
+pg_get_functiondef(oid) ~* 'profiles\.role\s*=\s*''admin'''` — **cero
+resultados** en todo `public`. `seguridad:invariantes` sigue sin CRÍTICAS.

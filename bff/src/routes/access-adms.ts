@@ -29,8 +29,14 @@ const IP_ALLOWLIST = (process.env.ACCESS_DEVICE_IP_ALLOWLIST || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 
 function clientIp(req: Request): string {
-  const xff = (req.headers['x-forwarded-for'] as string) || '';
-  return (xff.split(',')[0] || req.socket?.remoteAddress || '').trim();
+  // `req.ip` (no el header crudo): con `app.set('trust proxy', 1)` en
+  // index.ts, Express ya resuelve la IP real detrás del proxy de Render.
+  // Antes esto tomaba `x-forwarded-for`.split(',')[0] — el PRIMER valor del
+  // header, que el cliente controla si lo manda; Render agrega el suyo al
+  // final de la cadena, no al principio. Con eso, cualquiera podía falsear
+  // la IP que ve la allowlist de dispositivo (ip_check_mode) o el fallback
+  // global (ACCESS_DEVICE_IP_ALLOWLIST), en modo 'enforce' incluido.
+  return (req.ip || req.socket?.remoteAddress || '').trim();
 }
 
 // ─── express.text() SOLO para rutas /iclock/* (+ allowlist por device) ───────
@@ -979,6 +985,11 @@ router.post('/iclock/devicecmd', async (req: Request, res: Response) => {
     const seq = Number.parseInt(trimmed, 10);
     const matchBySeq = Number.isFinite(seq) && String(seq) === trimmed;
 
+    // .eq('device_id', device.id): `device` ya se resolvió arriba a partir
+    // del SN que el propio dispositivo mandó en la query string — sin esto,
+    // `cmd_seq` es una secuencia GLOBAL (no por escuela, ver
+    // 20260627000001) y cualquier SN válido podía marcar como 'executed'
+    // el comando de OTRA escuela sin que el torniquete lo hubiera recibido.
     await supabase
       .from('device_commands')
       .update({
@@ -986,7 +997,8 @@ router.post('/iclock/devicecmd', async (req: Request, res: Response) => {
         executed_at:   new Date().toISOString(),
         error_message: success ? null : `Return code: ${returnCode}`,
       })
-      .eq(matchBySeq ? 'cmd_seq' : 'id', matchBySeq ? seq : trimmed);
+      .eq(matchBySeq ? 'cmd_seq' : 'id', matchBySeq ? seq : trimmed)
+      .eq('device_id', device.id);
 
     if (returnCode === -1002) {
       console.error(`[ADMS] ⚠️ Error -1002 — Usar DATA UPDATE/DELETE USERINFO, no USER ADD/DEL`);
