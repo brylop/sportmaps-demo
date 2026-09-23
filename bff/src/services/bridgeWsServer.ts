@@ -27,6 +27,71 @@ const HEARTBEAT_STALE_MS = 90_000;
 const STALE_CHECK_INTERVAL_MS = 30_000;
 const AUTH_TIMEOUT_MS = 10_000;
 
+// Tope de tamaño de frame -- sin esto el default de `ws` es ~100 MiB y un
+// frame así, aun antes de autenticar, va directo a JSON.parse(). El
+// protocolo real (auth/heartbeat/poll) nunca pasa de un par de líneas.
+const MAX_PAYLOAD_BYTES = 8 * 1024;
+
+// Fuerza bruta de BRIDGE_API_KEY por reconexión: sin esto, cada conexión
+// nueva es un intento gratis (AUTH_TIMEOUT_MS no limita reintentos en OTRA
+// conexión). Ventana simple en memoria, por IP -- alcanza para esto porque
+// el proceso del BFF hoy es una sola instancia (mismo supuesto que
+// bridgeWsHub.ts documenta para el registro de conexiones).
+const AUTH_FAIL_WINDOW_MS = 5 * 60_000;
+const AUTH_FAIL_MAX = 20;
+const authFailuresByIp = new Map<string, { count: number; windowStart: number }>();
+
+function registerAuthFailure(ip: string) {
+  const now = Date.now();
+  const entry = authFailuresByIp.get(ip);
+  if (!entry || now - entry.windowStart > AUTH_FAIL_WINDOW_MS) {
+    authFailuresByIp.set(ip, { count: 1, windowStart: now });
+    return;
+  }
+  entry.count += 1;
+}
+
+function isRateLimited(ip: string): boolean {
+  const entry = authFailuresByIp.get(ip);
+  if (!entry) return false;
+  if (Date.now() - entry.windowStart > AUTH_FAIL_WINDOW_MS) {
+    authFailuresByIp.delete(ip);
+    return false;
+  }
+  return entry.count >= AUTH_FAIL_MAX;
+}
+
+// Mismo criterio que access-adms.ts::clientIp -- el último salto del header,
+// no el primero (el cliente controla el principio de la cadena; Render
+// agrega el suyo al final). El upgrade de un WS no pasa por el
+// `trust proxy` de Express (eso solo aplica a requests que Express mismo
+// enruta), así que se resuelve a mano acá.
+function requestIp(req: import('http').IncomingMessage): string {
+  const xff = (req.headers['x-forwarded-for'] as string) || '';
+  const parts = xff.split(',').map(s => s.trim()).filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : (req.socket?.remoteAddress || '');
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// El WS solo debe aceptar el school_id que el propio cliente declara si esa
+// escuela de verdad tiene un bridge local dado de alta -- sin esto, la key
+// (compartida entre escuelas, ver bridge.routes.ts) autentica la conexión
+// pero CUALQUIER school_id pasaba, incluido el de una escuela ajena o uno
+// inventado. No resuelve el key global compartido (eso requeriría una key
+// por escuela, evaluado y descartado por ahora por el costo operativo de
+// rotarla en cada PC física) pero cierra la suplantación de escuela.
+async function schoolHasLocalBridge(schoolId: string): Promise<boolean> {
+  const { data } = await supabase
+    .from('turnstile_devices')
+    .select('id')
+    .eq('school_id', schoolId)
+    .eq('has_local_bridge', true)
+    .limit(1)
+    .maybeSingle();
+  return !!data;
+}
+
 interface BridgeSocket extends WebSocket {
   schoolId?: string;
   authed?: boolean;
@@ -54,11 +119,17 @@ async function pushPending(ws: BridgeSocket, schoolId: string) {
 }
 
 export function attachBridgeWsServer(server: Server): WebSocketServer {
-  const wss = new WebSocketServer({ server, path: '/bridge/ws' });
+  const wss = new WebSocketServer({ server, path: '/bridge/ws', maxPayload: MAX_PAYLOAD_BYTES });
 
-  wss.on('connection', (socket: WebSocket) => {
+  wss.on('connection', (socket: WebSocket, req: import('http').IncomingMessage) => {
     const ws = socket as BridgeSocket;
     ws.authed = false;
+    const ip = requestIp(req);
+
+    if (isRateLimited(ip)) {
+      try { ws.close(4029, 'too many auth failures'); } catch { /* noop */ }
+      return;
+    }
 
     const authTimeout = setTimeout(() => {
       if (!ws.authed) {
@@ -75,20 +146,40 @@ export function attachBridgeWsServer(server: Server): WebSocketServer {
       }
 
       if (msg.type === 'auth') {
+        // Un socket ya autenticado no puede re-autenticarse con OTRO
+        // school_id: sin este freno, una sola conexión se registraba en N
+        // escuelas a la vez (amplifica la suplantación de más abajo) y
+        // `close` solo desregistraba la última.
+        if (ws.authed) return;
+
         clearTimeout(authTimeout);
         const schoolId = String(msg.school_id || '');
-        if (!schoolId || !apiKeyMatches(msg.api_key)) {
+        if (!UUID_RE.test(schoolId) || !apiKeyMatches(msg.api_key)) {
+          registerAuthFailure(ip);
           try { ws.send(JSON.stringify({ type: 'auth_failed' })); } catch { /* noop */ }
           try { ws.close(4003, 'unauthorized'); } catch { /* noop */ }
           return;
         }
-        ws.schoolId = schoolId;
-        ws.authed = true;
-        ws.lastHeartbeat = Date.now();
-        registerConnection(schoolId, ws);
-        try { ws.send(JSON.stringify({ type: 'auth_ok' })); } catch { /* noop */ }
-        touchHeartbeat(schoolId);
-        pushPending(ws, schoolId);
+
+        schoolHasLocalBridge(schoolId).then((hasBridge) => {
+          if (ws.readyState !== ws.OPEN) return;
+          if (!hasBridge) {
+            registerAuthFailure(ip);
+            try { ws.send(JSON.stringify({ type: 'auth_failed' })); } catch { /* noop */ }
+            try { ws.close(4003, 'unauthorized'); } catch { /* noop */ }
+            return;
+          }
+          ws.schoolId = schoolId;
+          ws.authed = true;
+          ws.lastHeartbeat = Date.now();
+          registerConnection(schoolId, ws);
+          try { ws.send(JSON.stringify({ type: 'auth_ok' })); } catch { /* noop */ }
+          touchHeartbeat(schoolId);
+          pushPending(ws, schoolId);
+        }, () => {
+          // fallo de DB al verificar -- no autenticar por las dudas.
+          try { ws.close(1011, 'internal error'); } catch { /* noop */ }
+        });
         return;
       }
 
