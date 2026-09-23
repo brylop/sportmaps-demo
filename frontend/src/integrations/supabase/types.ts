@@ -4636,6 +4636,7 @@ export type Database = {
           id: string
           is_demo: boolean | null
           location: string | null
+          school_id: string | null
           sport: string | null
           start_time: string
           team_id: string | null
@@ -4653,6 +4654,7 @@ export type Database = {
           id?: string
           is_demo?: boolean | null
           location?: string | null
+          school_id?: string | null
           sport?: string | null
           start_time: string
           team_id?: string | null
@@ -4670,6 +4672,7 @@ export type Database = {
           id?: string
           is_demo?: boolean | null
           location?: string | null
+          school_id?: string | null
           sport?: string | null
           start_time?: string
           team_id?: string | null

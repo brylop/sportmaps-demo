@@ -198,7 +198,11 @@ DEVICE_BY_SERIAL = {d["serial_number"]: d for d in DEVICES}
 def ack_command(command_id, success, error_message=None):
     url = f"{BACKEND_BASE_URL}/bridge/door-commands/{command_id}/ack"
     headers = {"X-Bridge-Api-Key": BRIDGE_API_KEY}
-    payload = {"success": success}
+    # school_id: el backend lo usa para acotar el UPDATE a esta escuela (la
+    # API key es global, compartida con otros bridges -- ver bridgeWsServer.py
+    # / bridge.routes.ts). Sin esto, cualquier bridge podia confirmar el
+    # comando de otra escuela.
+    payload = {"success": success, "school_id": SCHOOL_ID}
     if error_message:
         payload["error_message"] = error_message[:500]
     try:

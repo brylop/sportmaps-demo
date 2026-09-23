@@ -129,7 +129,7 @@ export function HorariosDeEntrenamiento({ schoolId }: { schoolId: string }) {
         setGuardando(equipo.id);
         const { error } = await supabase.from('teams')
             .update({
-                schedule: equipo.franjas.sort(ordenSemana),
+                schedule: equipo.franjas.sort(ordenSemana) as any,
                 admite_nuevos: equipo.admite_nuevos,
                 nota_admision: equipo.nota_admision.trim() || null,
             })

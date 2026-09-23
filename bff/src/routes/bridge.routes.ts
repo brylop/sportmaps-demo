@@ -181,17 +181,27 @@ router.get('/door-commands', async (req: Request, res: Response) => {
 });
 
 // ─── POST /bridge/door-commands/:id/ack ──────────────────────────────────────
+// `school_id` es OPCIONAL a propósito: los scripts ya desplegados (Dreamers,
+// GYM RM antes de migrar a WS) no lo mandan hoy y no hay forma de
+// redesplegarlos desde acá. Si viene, se usa para acotar el UPDATE a esa
+// escuela -- con la key global compartida (ver apiKeyOk arriba), cualquier
+// bridge podía confirmar el comando de CUALQUIER escuela con solo adivinar
+// o filtrar un id. Si no viene, se preserva el comportamiento de siempre.
 router.post('/door-commands/:id/ack', async (req: Request, res: Response) => {
   if (!apiKeyOk(req)) return res.status(401).json({ error: 'unauthorized' });
 
   const { id } = req.params;
-  const { success, error_message } = req.body as { success?: boolean; error_message?: string };
+  const { success, error_message, school_id: schoolId } = req.body as {
+    success?: boolean;
+    error_message?: string;
+    school_id?: string;
+  };
   if (typeof success !== 'boolean') {
     return res.status(400).json({ error: 'success (boolean) requerido' });
   }
 
   try {
-    const { error } = await supabase
+    let query = supabase
       .from('device_commands')
       .update({
         status: success ? 'executed' : 'failed',
@@ -199,6 +209,12 @@ router.post('/door-commands/:id/ack', async (req: Request, res: Response) => {
         error_message: success ? null : String(error_message || 'Fallo reportado por door_bridge local').slice(0, 500),
       })
       .eq('id', id);
+
+    if (schoolId) {
+      query = query.eq('school_id', schoolId);
+    }
+
+    const { error } = await query;
 
     if (error) throw error;
     return res.json({ success: true });
