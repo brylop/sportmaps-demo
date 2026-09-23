@@ -172,6 +172,7 @@ export interface TeamMatch {
   is_home: boolean | null;
   match_date: string;
   match_type: string | null;
+  notes: string | null;
 }
 
 export function useTeamMatches(teamId?: string) {
@@ -180,7 +181,7 @@ export function useTeamMatches(teamId?: string) {
     queryFn: async (): Promise<TeamMatch[]> => {
       const { data, error } = await supabase
         .from('match_results')
-        .select('id, opponent, home_score, away_score, is_home, match_date, match_type')
+        .select('id, opponent, home_score, away_score, is_home, match_date, match_type, notes')
         .eq('team_id', teamId!)
         .order('match_date', { ascending: false })
         .limit(30);
@@ -214,6 +215,36 @@ export function useCreateTeamMatch() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['team-matches', variables.team_id] });
+    },
+  });
+}
+
+export function useUpdateTeamMatch() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, team_id, ...input }: {
+      id: string;
+      team_id: string;
+      opponent: string;
+      home_score: number | null;
+      away_score: number | null;
+      is_home: boolean;
+      match_date: string;
+      match_type: string;
+      notes?: string;
+    }) => {
+      const { data, error } = await supabase
+        .from('match_results')
+        .update(input)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['team-matches', variables.team_id] });
+      queryClient.invalidateQueries({ queryKey: ['match-results', variables.team_id] });
     },
   });
 }

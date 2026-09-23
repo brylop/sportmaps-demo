@@ -115,16 +115,24 @@ function KpiCard({
   iconColor?: string;
 }) {
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardContent className="pt-5 pb-4">
-        <div className="flex items-center gap-3">
-          <div className={`p-2 rounded-lg bg-muted/50 ${iconColor || 'text-primary'}`}>
+        {/* min-w-0 en la fila y en la columna de texto: un hijo de grid/flex
+            no se achica por debajo del ancho de su contenido por defecto
+            (aunque la card tenga w-full), así que con 6 columnas + sidebar
+            fijo el texto empujaba la card entera fuera del viewport en vez
+            de truncarse -- mismo bug que el botón de fecha de
+            MatchResultFormDialog. truncate en label/valor: con la card ya
+            angosta, evita que "Asist. Promedio" o un valor largo la
+            vuelvan a ensanchar. */}
+        <div className="flex items-center gap-3 min-w-0">
+          <div className={`p-2 rounded-lg bg-muted/50 shrink-0 ${iconColor || 'text-primary'}`}>
             <Icon className="w-4 h-4" />
           </div>
-          <div>
-            <p className="text-xs text-muted-foreground">{label}</p>
-            <p className="text-2xl font-bold leading-tight">{value}</p>
-            {sub && <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>}
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground truncate">{label}</p>
+            <p className="text-2xl font-bold leading-tight truncate">{value}</p>
+            {sub && <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{sub}</p>}
           </div>
         </div>
       </CardContent>
@@ -145,18 +153,21 @@ function ResultRow({ r, index }: { r: MatchResult; index: number }) {
   const OutcomeIcon = config.icon;
 
   return (
-    <div className={`flex items-center justify-between px-4 py-3 rounded-lg border ${config.bg} ${config.border}`}>
-      <div className="flex items-center gap-3">
-        <span className="text-xs font-bold text-muted-foreground w-5 text-center">{index + 1}</span>
-        <div>
-          <p className="text-sm font-semibold">{r.opponent || r.rival || 'Rival desconocido'}</p>
-          <p className="text-[11px] text-muted-foreground">
+    // min-w-0 en la fila y en el grupo izquierdo, truncate en el rival: mismo
+    // bug que KpiCard -- un rival de nombre largo empujaba el marcador/badge
+    // de la derecha fuera del contenedor en vez de truncarse.
+    <div className={`flex items-center justify-between gap-3 px-4 py-3 rounded-lg border ${config.bg} ${config.border}`}>
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="text-xs font-bold text-muted-foreground w-5 text-center shrink-0">{index + 1}</span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold truncate">{r.opponent || r.rival || 'Rival desconocido'}</p>
+          <p className="text-[11px] text-muted-foreground truncate">
             {r.match_date ? format(new Date(r.match_date), "dd 'de' MMMM yyyy", { locale: es }) : 'Fecha no registrada'}
             {(r.location || r.venue) ? ` · ${r.location || r.venue}` : ''}
           </p>
         </div>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 shrink-0">
         <span className="text-base font-mono font-bold">{formatScore(r)}</span>
         <div className={`flex items-center gap-1 text-xs font-semibold ${config.color}`}>
           <OutcomeIcon className="w-3.5 h-3.5" />
@@ -565,7 +576,11 @@ export default function CoachReportsPage() {
       {selectedTeamId && !reportLoading && !reportError && report && (
         <>
           {/* ── KPIs ─────────────────────────────────────────────────────── */}
-          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+          {/* xl (no lg) para la última columna: el sidebar fijo de la app le
+              come ancho real al contenido, así que a los 1024px de "lg" 6
+              cards todavía no entran cómodas -- se veía en vivo con "Derrotas"
+              cortada fuera del viewport en una pantalla de escritorio normal. */}
+          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
             <KpiCard
               icon={Shirt}
               label="Jugadores"
@@ -645,16 +660,16 @@ export default function CoachReportsPage() {
                         const isMid = player.percentage >= 70 && player.percentage < 85;
                         return (
                           <div key={player.name} className="space-y-1.5">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <p className="text-sm font-medium">{player.name}</p>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <p className="text-sm font-medium truncate">{player.name}</p>
                                 {isCritical && (
-                                  <Badge variant="destructive" className="text-[9px] h-4 px-1.5">
+                                  <Badge variant="destructive" className="text-[9px] h-4 px-1.5 shrink-0">
                                     Requiere atención
                                   </Badge>
                                 )}
                               </div>
-                              <span className={`text-sm font-bold ${isCritical ? 'text-red-600' :
+                              <span className={`text-sm font-bold shrink-0 ${isCritical ? 'text-red-600' :
                                 isMid ? 'text-yellow-600' :
                                   'text-green-600'}`}>
                                 {player.percentage}%
@@ -777,18 +792,18 @@ export default function CoachReportsPage() {
                       {scorerData.map((player, index) => (
                         <div
                           key={player.name}
-                          className="flex items-center justify-between p-3 rounded-lg border bg-card hover:shadow-sm transition-shadow"
+                          className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-card hover:shadow-sm transition-shadow"
                         >
-                          <div className="flex items-center gap-3">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${index === 0 ? 'bg-yellow-100 text-yellow-700' :
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${index === 0 ? 'bg-yellow-100 text-yellow-700' :
                               index === 1 ? 'bg-gray-100 text-gray-600' :
                                 index === 2 ? 'bg-orange-100 text-orange-600' :
                                   'bg-primary/10 text-primary'}`}>
                               {index + 1}
                             </div>
-                            <p className="font-medium text-sm">{player.name}</p>
+                            <p className="font-medium text-sm truncate">{player.name}</p>
                           </div>
-                          <div className="text-right">
+                          <div className="text-right shrink-0">
                             <p className="text-2xl font-bold">{player.goals}</p>
                             <p className="text-[10px] text-muted-foreground">goles</p>
                           </div>
