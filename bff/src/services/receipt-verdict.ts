@@ -165,6 +165,35 @@ export function normalizeDestination(destination: string | null | undefined): st
     return norm.length > 0 ? norm : null;
 }
 
+/**
+ * Sufijo visible de un destino ENMASCARADO por el banco. La pantalla
+ * "Transferencia exitosa" de Davivienda imprime la cuenta como "**** 6942"
+ * (normalizado: "****6942"); otras apps usan "XXXX6942" o "••••6942". Devuelve
+ * los dígitos visibles (mínimo 4) solo si van precedidos de una máscara: un
+ * destino de puros dígitos cortos NO cuenta, porque puede ser una lectura
+ * truncada del OCR y no una máscara del banco.
+ */
+export function maskedDestinationSuffix(destNorm: string | null | undefined): string | null {
+    if (!destNorm) return null;
+    const m = /[*•●·#X]+(\d{4,})$/i.exec(destNorm);
+    return m ? m[1] : null;
+}
+
+/**
+ * ¿El destino leído corresponde a alguna cuenta registrada de la escuela?
+ * Igualdad exacta primero; si el banco enmascaró la cuenta, basta con que una
+ * cuenta registrada TERMINE en los dígitos visibles. Caso real (Besser,
+ * 2026-09-22): "**** 6942" contra 478170006942 caía en DESTINO_NO_COINCIDE y la
+ * acudiente no podía subir un comprobante legítimo.
+ */
+export function destinationMatchesRegistered(destNorm: string | null | undefined, accounts: string[]): boolean {
+    if (!destNorm || accounts.length === 0) return false;
+    if (accounts.includes(destNorm)) return true;
+    const suffix = maskedDestinationSuffix(destNorm);
+    if (!suffix) return false;
+    return accounts.some((a) => a.length > suffix.length && a.endsWith(suffix));
+}
+
 /** Diferencia en días calendario (a - b), tz-safe, sin depender del reloj. */
 function diffDays(aIso: string, bIso: string): number | null {
     const a = parseIsoDate(aIso);
@@ -238,7 +267,7 @@ export function evaluateVerdict(ocr: OcrResult, ctx: VerdictContext): VerdictRes
     //    Solo evaluable con destino leído Y cuentas registradas cargadas.
     const destNorm = normalizeDestination(ocr.destination);
     const accounts = ctx.registeredAccounts ?? [];
-    if (destNorm && accounts.length > 0 && !accounts.includes(destNorm)) {
+    if (destNorm && accounts.length > 0 && !destinationMatchesRegistered(destNorm, accounts)) {
         reasons.push({
             check: 4,
             code: 'DESTINO_NO_COINCIDE',
