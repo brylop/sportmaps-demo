@@ -58,7 +58,9 @@ interface CalendarEvent {
   user_id: string;
   sport?: string;
   event_label?: string;
-  team_id?: string;
+  team_id?: string | null;
+  school_id?: string | null;
+  team_name?: string | null;
   creator_name?: string;
 }
 
@@ -175,6 +177,10 @@ export default function CalendarPage() {
 
   // Admin/owner/reporter see all school events
   const isSchoolWideView = ['owner', 'admin', 'super_admin', 'school_admin', 'reporter'].includes(currentUserRole || '');
+  // Quién puede publicar un evento para un equipo o para toda la escuela: el
+  // staff (la RLS exige user_staff_school_ids). Los padres solo crean lo suyo.
+  const isStaff = isSchoolWideView || currentUserRole === 'coach';
+  const isParentView = currentUserRole === 'parent' || currentUserRole === 'athlete';
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -198,6 +204,8 @@ export default function CalendarPage() {
     location: '',
     all_day: false,
     event_label: '',
+    // 'private' = solo yo · 'school' = toda la escuela · <uuid> = ese equipo
+    target: 'private',
   });
 
   // ── Get sport-specific event types ────────────────────────────────────
@@ -226,52 +234,106 @@ export default function CalendarPage() {
     }
   }, [profile?.role, user?.id]);
 
+  // ── Equipos que este usuario puede elegir al crear un evento ─────────
+  // Owner/admin: todos los equipos activos de la escuela. Coach: solo los
+  // suyos (teams.coach_id o team_coaches, comparando contra auth.uid() y
+  // contra su school_staff.id — mismo criterio que TrainingPlansPage). Los
+  // padres no eligen equipo: sus eventos son personales.
+  const { data: selectableTeams = [] } = useQuery({
+    queryKey: ['calendar-teams', user?.id, schoolId, currentUserRole],
+    queryFn: async () => {
+      if (!user?.id || !schoolId || !isStaff) return [] as { id: string; name: string }[];
+
+      const { data: staffData } = await supabase
+        .from('school_staff')
+        .select('id')
+        .eq('coach_auth_id', user.id)
+        .eq('school_id', schoolId)
+        .maybeSingle();
+      const staffId = (staffData as any)?.id as string | undefined;
+
+      const { data, error } = await (supabase
+        .from('teams')
+        .select('id, name, coach_id, active, team_coaches(coach_id)')
+        .eq('school_id', schoolId)
+        .eq('active', true) as any);
+      if (error) throw error;
+
+      let rows: any[] = data || [];
+      if (currentUserRole === 'coach') {
+        rows = rows.filter((t) =>
+          t.coach_id === user.id
+          || (staffId && t.coach_id === staffId)
+          || t.team_coaches?.some((tc: any) => tc.coach_id === user.id || (staffId && tc.coach_id === staffId)),
+        );
+      }
+      return rows
+        .map((t) => ({ id: t.id as string, name: t.name as string }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    },
+    enabled: !!user?.id && !!schoolId && isStaff,
+  });
+
+  // Con qué "Para quién" arranca el formulario de crear.
+  const defaultTarget = useMemo(() => {
+    if (!isStaff || !schoolId) return 'private';
+    if (currentUserRole === 'coach') {
+      // Un solo equipo: se preselecciona. Varios: que elija (no adivinamos).
+      return selectableTeams.length === 1 ? selectableTeams[0].id : '';
+    }
+    return 'school';
+  }, [isStaff, schoolId, currentUserRole, selectableTeams]);
+
+  // 'private' → solo mío; 'school' → toda la escuela; <uuid> → ese equipo.
+  // school_id viaja siempre que haya equipo, pero en la base manda el equipo
+  // (trigger calendar_events_fill_school).
+  const targetToColumns = (target: string) => {
+    if (!isStaff || !schoolId || !target || target === 'private') return { school_id: null, team_id: null };
+    if (target === 'school') return { school_id: schoolId, team_id: null };
+    return { school_id: schoolId, team_id: target };
+  };
+
   // ── Fetch events ──────────────────────────────────────────────────────
+  // Una sola consulta para todos los roles: lo de la escuela activa (de un
+  // equipo o de toda la escuela) más lo propio. Quién ve qué lo decide la RLS
+  // de calendar_events: el staff ve todo lo de su escuela, la familia ve los
+  // equipos de sus hijos, y cada uno ve lo suyo. Antes cada rol pedía solo
+  // `user_id = yo`, y por eso los papás nunca veían lo que creaba el coach.
   const { data: events = [], isLoading } = useQuery({
-    queryKey: ['calendar-events', user?.id, schoolId, isSchoolWideView],
+    queryKey: ['calendar-events', user?.id, schoolId],
     queryFn: async () => {
       if (!user) return [];
 
-      // School-wide view: fetch events from all members of the school
-      if (isSchoolWideView && schoolId) {
-        // 1. Get all member profile IDs in this school
-        const { data: members } = await supabase
-          .from('school_members')
-          .select('profile_id, profiles(full_name)')
-          .eq('school_id', schoolId)
-          .eq('status', 'active');
+      let query = (supabase
+        .from('calendar_events' as any)
+        .select('*, teams(name)') as any);
+      query = schoolId
+        ? query.or(`school_id.eq.${schoolId},user_id.eq.${user.id}`)
+        : query.eq('user_id', user.id);
+      const { data, error } = await query.order('start_time', { ascending: true });
+      if (error) throw error;
 
-        const memberIds = (members || []).map((m: any) => m.profile_id);
-        if (memberIds.length === 0) return [];
+      const rows: any[] = data || [];
 
-        // Build a name lookup
-        const nameMap: Record<string, string> = {};
-        (members || []).forEach((m: any) => {
-          nameMap[m.profile_id] = m.profiles?.full_name || 'Sin nombre';
-        });
-
-        // 2. Fetch events for all school members
-        const { data, error } = await supabase
-          .from('calendar_events')
-          .select('*')
-          .in('user_id', memberIds)
-          .order('start_time', { ascending: true });
-        if (error) throw error;
-
-        return (data || []).map((e: any) => ({
-          ...e,
-          creator_name: nameMap[e.user_id] || 'Desconocido',
-        })) as CalendarEvent[];
+      // Nombre de quien creó cada evento: solo le sirve al staff, que ve
+      // eventos de varias personas. Si profiles no deja leer, queda sin nombre.
+      const nameMap: Record<string, string> = {};
+      if (isStaff && schoolId) {
+        const creatorIds = Array.from(new Set(rows.map((r) => r.user_id).filter(Boolean)));
+        if (creatorIds.length > 0) {
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id, full_name')
+            .in('id', creatorIds);
+          (profiles || []).forEach((p: any) => { nameMap[p.id] = p.full_name || 'Sin nombre'; });
+        }
       }
 
-      // Personal view: only own events
-      const { data, error } = await supabase
-        .from('calendar_events')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('start_time', { ascending: true });
-      if (error) throw error;
-      return (data || []) as CalendarEvent[];
+      return rows.map((e) => ({
+        ...e,
+        team_name: e.teams?.name ?? null,
+        creator_name: nameMap[e.user_id] || undefined,
+      })) as CalendarEvent[];
     },
     enabled: !!user?.id,
   });
@@ -304,6 +366,7 @@ export default function CalendarPage() {
         all_day: fd.all_day,
         sport: coachSport || null,
         event_label: fd.event_label || null,
+        ...targetToColumns(fd.target),
       };
 
       const { error } = await (supabase
@@ -339,14 +402,18 @@ export default function CalendarPage() {
         all_day: fd.all_day,
         sport: coachSport || null,
         event_label: fd.event_label || null,
+        ...targetToColumns(fd.target),
       };
 
-      const { error } = await (supabase
+      // Sin `.eq('user_id', yo)`: la RLS deja editar al creador y a la
+      // administración de la escuela (para corregir lo de un coach).
+      const { data: updated, error } = await (supabase
         .from('calendar_events' as any)
         .update(payload)
         .eq('id', id)
-        .eq('user_id', user.id) as any);
+        .select('id') as any);
       if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error('No tienes permiso para editar este evento');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['calendar-events'] });
@@ -357,6 +424,34 @@ export default function CalendarPage() {
       toast({ title: 'Error', description: err.message || 'No se pudo actualizar', variant: 'destructive' });
     },
   });
+
+  // ── Delete event mutation ─────────────────────────────────────────────
+  // La RLS deja borrar al creador y a la administración de la escuela.
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { data: deleted, error } = await (supabase
+        .from('calendar_events' as any)
+        .delete()
+        .eq('id', id)
+        .select('id') as any);
+      if (error) throw error;
+      if (!deleted || deleted.length === 0) throw new Error('No tienes permiso para eliminar este evento');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['calendar-events'] });
+      toast({ title: 'Evento eliminado', description: `${formData.title} ya no está en el calendario` });
+      closeDialog();
+    },
+    onError: (err: any) => {
+      toast({ title: 'Error', description: err.message || 'No se pudo eliminar', variant: 'destructive' });
+    },
+  });
+
+  const handleDelete = () => {
+    if (!editingEvent) return;
+    if (!window.confirm(`¿Eliminar "${editingEvent.title}"? Las familias dejarán de verlo.`)) return;
+    deleteMutation.mutate(editingEvent.id);
+  };
 
   // ── Calendar grid computation ─────────────────────────────────────────
   const calendarDays = useMemo(() => {
@@ -407,6 +502,16 @@ export default function CalendarPage() {
     return DEFAULT_SPORT_COLOR;
   };
 
+  // Para quién es el evento, tal como se muestra en la tarjeta.
+  const audienceLabel = (event: CalendarEvent): string | null => {
+    if (event.team_id) return event.team_name || 'Equipo';
+    if (event.school_id) return 'Toda la escuela';
+    return null;
+  };
+
+  // El lápiz solo aparece si la RLS va a dejar guardar: creador o admin.
+  const canEdit = (event: CalendarEvent) => event.user_id === user?.id || isSchoolWideView;
+
   const resetForm = () =>
     setFormData({
       title: '',
@@ -419,6 +524,7 @@ export default function CalendarPage() {
       location: '',
       all_day: false,
       event_label: '',
+      target: 'private',
     });
 
   const closeDialog = () => {
@@ -430,13 +536,11 @@ export default function CalendarPage() {
   const handleOpenCreate = () => {
     setEditingEvent(null);
     resetForm();
-    if (selectedDate) {
-      setFormData(prev => ({
-        ...prev,
-        startDate: selectedDate,
-        endDate: selectedDate,
-      }));
-    }
+    setFormData(prev => ({
+      ...prev,
+      target: defaultTarget,
+      ...(selectedDate ? { startDate: selectedDate, endDate: selectedDate } : {}),
+    }));
     setDialogOpen(true);
   };
 
@@ -455,6 +559,7 @@ export default function CalendarPage() {
       location: event.location || '',
       all_day: event.all_day,
       event_label: event.event_label || '',
+      target: event.team_id ? event.team_id : event.school_id ? 'school' : 'private',
     });
     setDialogOpen(true);
   };
@@ -480,14 +585,16 @@ export default function CalendarPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
-            {isSchoolWideView ? 'Calendario de la Escuela' : 'Mi Calendario'}
+            {isSchoolWideView ? 'Calendario de la Escuela' : isParentView ? 'Calendario Familiar' : 'Mi Calendario'}
           </h1>
           <p className="text-muted-foreground">
             {isSchoolWideView
               ? 'Todos los eventos de entrenadores y sedes'
-              : coachSport
-                ? `Gestiona tus actividades de ${coachSport}`
-                : 'Gestiona tus entrenamientos, partidos y eventos'}
+              : isParentView
+                ? 'Entrenamientos, partidos y eventos de los equipos de tu familia'
+                : coachSport
+                  ? `Gestiona tus actividades de ${coachSport}`
+                  : 'Gestiona tus entrenamientos, partidos y eventos'}
           </p>
         </div>
         <PermissionGate permission="calendar:create">
@@ -639,24 +746,31 @@ export default function CalendarPage() {
                           <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${typeConfig.color}`}>
                             {event.event_label || typeConfig.label}
                           </Badge>
-                          {isSchoolWideView && event.creator_name && (
+                          {audienceLabel(event) && (
                             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                               <Users className="h-2.5 w-2.5 mr-0.5" />
+                              {audienceLabel(event)}
+                            </Badge>
+                          )}
+                          {isStaff && event.creator_name && event.user_id !== user?.id && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
                               {event.creator_name}
                             </Badge>
                           )}
                         </div>
                       </div>
 
-                      <div className="shrink-0 self-start">
-                        <Button
-                          variant="ghost" size="icon"
-                          className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary/10"
-                          onClick={() => handleOpenEdit(event)}
-                        >
-                          <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                        </Button>
-                      </div>
+                      {canEdit(event) && (
+                        <div className="shrink-0 self-start">
+                          <Button
+                            variant="ghost" size="icon"
+                            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary/10"
+                            onClick={() => handleOpenEdit(event)}
+                          >
+                            <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -691,13 +805,15 @@ export default function CalendarPage() {
                       <div className="flex-1">
                         <div className="flex items-start justify-between">
                           <h3 className="font-semibold">{event.title}</h3>
-                          <Button
-                            variant="ghost" size="icon"
-                            className="h-7 w-7 -mt-1 -mr-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary/10"
-                            onClick={() => handleOpenEdit(event)}
-                          >
-                            <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                          </Button>
+                          {canEdit(event) && (
+                            <Button
+                              variant="ghost" size="icon"
+                              className="h-7 w-7 -mt-1 -mr-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary/10"
+                              onClick={() => handleOpenEdit(event)}
+                            >
+                              <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                            </Button>
+                          )}
                         </div>
                         {event.description && (
                           <p className="text-sm text-muted-foreground mt-1">{event.description}</p>
@@ -717,9 +833,14 @@ export default function CalendarPage() {
                         <Badge variant="outline" className={`mt-2 text-[10px] ${typeConfig.color}`}>
                           {event.event_label || typeConfig.label}
                         </Badge>
-                        {isSchoolWideView && event.creator_name && (
+                        {audienceLabel(event) && (
                           <Badge variant="secondary" className="mt-2 ml-1 text-[10px]">
                             <Users className="h-2.5 w-2.5 mr-0.5" />
+                            {audienceLabel(event)}
+                          </Badge>
+                        )}
+                        {isStaff && event.creator_name && event.user_id !== user?.id && (
+                          <Badge variant="outline" className="mt-2 ml-1 text-[10px] text-muted-foreground">
                             {event.creator_name}
                           </Badge>
                         )}
@@ -772,6 +893,32 @@ export default function CalendarPage() {
                 required
               />
             </div>
+
+            {/* Para quién es el evento (solo staff) */}
+            {isStaff && schoolId && (
+              <div className="space-y-2">
+                <Label>Para quién *</Label>
+                <Select value={formData.target} onValueChange={v => setFormData({ ...formData, target: v })}>
+                  <SelectTrigger><SelectValue placeholder="Elige el equipo" /></SelectTrigger>
+                  <SelectContent>
+                    {selectableTeams.map(t => (
+                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                    ))}
+                    <SelectItem value="school">Toda la escuela</SelectItem>
+                    <SelectItem value="private">Solo para mí</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {!formData.target
+                    ? 'Las familias de ese equipo lo verán en su calendario.'
+                    : formData.target === 'private'
+                      ? 'Nadie más lo ve.'
+                      : formData.target === 'school'
+                        ? 'Lo ven todas las familias y el staff de la escuela.'
+                        : 'Lo ven las familias de ese equipo y el staff de la escuela.'}
+                </p>
+              </div>
+            )}
 
             {/* Type + Location */}
             <div className="grid grid-cols-2 gap-4">
@@ -910,8 +1057,20 @@ export default function CalendarPage() {
             </div>
 
             <DialogFooter>
+              {editingEvent && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="mr-auto text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={handleDelete}
+                  disabled={isSaving || deleteMutation.isPending}
+                >
+                  {deleteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Eliminar
+                </Button>
+              )}
               <Button type="button" variant="outline" onClick={closeDialog}>Cancelar</Button>
-              <Button type="submit" disabled={isSaving || !formData.startDate || !formData.endDate}>
+              <Button type="submit" disabled={isSaving || !formData.startDate || !formData.endDate || (isStaff && !!schoolId && !formData.target)}>
                 {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {editingEvent ? 'Guardar Cambios' : 'Crear Evento'}
               </Button>
