@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { todayColombia } from '@/lib/dateUtils';
 import { Button } from '@/components/ui/button';
@@ -6,17 +7,26 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import { z } from 'zod';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Trophy } from 'lucide-react';
+import { Trophy, Calendar } from 'lucide-react';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 import { NumberStepper } from '../ui/number-stepper';
 
 const resultSchema = z.object({
   match_date: z.string().min(1, 'Fecha es requerida'),
   opponent: z.string().min(2, 'Nombre del oponente es requerido'),
-  home_score: z.string().min(1, 'Marcador local es requerido'),
-  away_score: z.string().min(1, 'Marcador visitante es requerido'),
+  // Vacíos = partido sin marcador todavía (programado, aún sin jugar) --
+  // mismo criterio que "Programar Partido" en FootballDashboardModal, que ya
+  // guarda null cuando se deja en blanco. Antes eran obligatorios acá, y
+  // editar un partido programado (sin marcador) desde Panorama de fútbol
+  // mostraba literalmente el texto "null" en el stepper.
+  home_score: z.string().optional(),
+  away_score: z.string().optional(),
   is_home: z.string(),
   match_type: z.string().min(1, 'Tipo de partido es requerido'),
   notes: z.string().optional(),
@@ -31,14 +41,24 @@ interface MatchResultFormDialogProps {
     team_id: string;
     match_date: string;
     opponent: string;
-    home_score: number;
-    away_score: number;
+    home_score: number | null;
+    away_score: number | null;
     is_home: boolean;
     match_type: string;
     notes?: string;
   }) => void;
   teamId: string;
   isLoading?: boolean;
+  /** Presente = editar ese resultado ya guardado; ausente/null = registrar uno nuevo. */
+  match?: {
+    match_date: string;
+    opponent: string;
+    home_score: number | null;
+    away_score: number | null;
+    is_home: boolean;
+    match_type: string;
+    notes?: string | null;
+  } | null;
 }
 
 const matchTypes = [
@@ -50,33 +70,57 @@ const matchTypes = [
   'Final',
 ];
 
+const emptyDefaults: ResultFormData = {
+  match_date: todayColombia(),
+  opponent: '',
+  home_score: '',
+  away_score: '',
+  is_home: 'true',
+  match_type: '',
+  notes: '',
+};
+
 export function MatchResultFormDialog({
   open,
   onOpenChange,
   onSubmit,
   teamId,
-  isLoading
+  isLoading,
+  match = null,
 }: MatchResultFormDialogProps) {
   const form = useForm<ResultFormData>({
     resolver: zodResolver(resultSchema),
-    defaultValues: {
-      match_date: todayColombia(),
-      opponent: '',
-      home_score: '0',
-      away_score: '0',
-      is_home: 'true',
-      match_type: '',
-      notes: '',
-    },
+    defaultValues: emptyDefaults,
   });
+
+  // Mismo patrón que SessionFormDialog: re-hidrata al abrir, según si hay un
+  // resultado existente (editar) o no (registrar uno nuevo) -- sin esto el
+  // formulario quedaría con los valores de la última vez que se abrió.
+  useEffect(() => {
+    if (!open) return;
+    form.reset(
+      match
+        ? {
+            match_date: match.match_date,
+            opponent: match.opponent,
+            home_score: match.home_score == null ? '' : String(match.home_score),
+            away_score: match.away_score == null ? '' : String(match.away_score),
+            is_home: String(match.is_home),
+            match_type: match.match_type,
+            notes: match.notes || '',
+          }
+        : emptyDefaults,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, match]);
 
   const handleSubmit = (data: ResultFormData) => {
     onSubmit({
       team_id: teamId,
       match_date: data.match_date,
       opponent: data.opponent,
-      home_score: parseInt(data.home_score),
-      away_score: parseInt(data.away_score),
+      home_score: data.home_score ? parseInt(data.home_score) : null,
+      away_score: data.away_score ? parseInt(data.away_score) : null,
       is_home: data.is_home === 'true',
       match_type: data.match_type,
       notes: data.notes || undefined,
@@ -94,8 +138,10 @@ export function MatchResultFormDialog({
               <Trophy className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <DialogTitle>Registrar Resultado</DialogTitle>
-              <DialogDescription>Registra el resultado del partido.</DialogDescription>
+              <DialogTitle>{match ? 'Editar Resultado' : 'Registrar Resultado'}</DialogTitle>
+              <DialogDescription>
+                {match ? 'Corrige el resultado de este partido.' : 'Registra el resultado del partido.'}
+              </DialogDescription>
             </div>
           </div>
         </DialogHeader>
@@ -104,16 +150,53 @@ export function MatchResultFormDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="match_date">Fecha del Partido *</Label>
-              <Input
-                id="match_date"
-                type="date"
-                {...form.register('match_date')}
+              <Controller
+                control={form.control}
+                name="match_date"
+                render={({ field }) => (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={`w-full min-w-0 justify-start text-left font-normal bg-background border-input ${
+                          !field.value ? 'text-muted-foreground' : ''
+                        }`}
+                      >
+                        <Calendar className="mr-2 h-4 w-4 opacity-75 shrink-0" />
+                        {/* Formato corto ('PPP' completo -- "6 de septiembre de 2026" --
+                            se salía del botón al compartir la fila con "Tipo de Partido").
+                            truncate + min-w-0 en el span: el botón es un flex row, sin
+                            min-w-0 en el hijo el texto empuja el ancho en vez de cortarse. */}
+                        <span className="truncate min-w-0">
+                          {field.value ? (
+                            format(new Date(field.value + 'T12:00:00'), 'd MMM yyyy', { locale: es })
+                          ) : (
+                            'Selecciona una fecha'
+                          )}
+                        </span>
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0 rounded-xl border-border/60 shadow-xl" align="start">
+                      <CalendarPicker
+                        mode="single"
+                        selected={field.value ? new Date(field.value + 'T12:00:00') : undefined}
+                        onSelect={(date) => date && field.onChange(format(date, 'yyyy-MM-dd'))}
+                        locale={es}
+                        captionLayout="dropdown-buttons"
+                        fromYear={new Date().getFullYear() - 3}
+                        toYear={new Date().getFullYear() + 1}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                )}
               />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="match_type">Tipo de Partido *</Label>
-              <Select onValueChange={(value) => form.setValue('match_type', value)}>
+              <Select value={form.watch('match_type')} onValueChange={(value) => form.setValue('match_type', value)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecciona" />
                 </SelectTrigger>
@@ -143,7 +226,7 @@ export function MatchResultFormDialog({
           <div className="space-y-2">
             <Label>Condición</Label>
             <RadioGroup
-              defaultValue="true"
+              value={form.watch('is_home')}
               onValueChange={(value) => form.setValue('is_home', value)}
               className="flex gap-4"
             >
@@ -160,7 +243,7 @@ export function MatchResultFormDialog({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="home_score">Goles Local *</Label>
+              <Label htmlFor="home_score">Goles Local</Label>
               <NumberStepper
                 value={form.watch('home_score') === '' ? '' : parseInt(form.watch('home_score'))}
                 onChange={(val) => form.setValue('home_score', String(val))}
@@ -169,7 +252,7 @@ export function MatchResultFormDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="away_score">Goles Visitante *</Label>
+              <Label htmlFor="away_score">Goles Visitante</Label>
               <NumberStepper
                 value={form.watch('away_score') === '' ? '' : parseInt(form.watch('away_score'))}
                 onChange={(val) => form.setValue('away_score', String(val))}
@@ -193,7 +276,7 @@ export function MatchResultFormDialog({
               Cancelar
             </Button>
             <Button type="submit" disabled={isLoading}>
-              {isLoading ? 'Guardando...' : 'Registrar Resultado'}
+              {isLoading ? 'Guardando...' : match ? 'Guardar Cambios' : 'Registrar Resultado'}
             </Button>
           </DialogFooter>
         </form>
