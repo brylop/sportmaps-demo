@@ -34,6 +34,8 @@ const SPORT_VISUALS: Record<string, SportVisual> = {
     hipica_salto: { label: 'Hípica Salto', sessionLabel: 'Clase', memberLabel: 'Jinete', categoryLabel: 'Nivel', icon: '🐴', color: 'text-amber-900', bgColor: 'bg-amber-50' },
     esgrima: { label: 'Esgrima', sessionLabel: 'Clase', memberLabel: 'Esgrimista', categoryLabel: 'Arma', icon: '🤺', color: 'text-slate-600', bgColor: 'bg-slate-50' },
     futbol: { label: 'Fútbol', sessionLabel: 'Entrenamiento', memberLabel: 'Jugador', categoryLabel: 'Categoría', icon: '⚽', color: 'text-green-700', bgColor: 'bg-green-50' },
+    futsal: { label: 'Fútbol Sala', sessionLabel: 'Entrenamiento', memberLabel: 'Jugador', categoryLabel: 'Categoría', icon: '⚽', color: 'text-teal-700', bgColor: 'bg-teal-50' },
+    futbol_sala: { label: 'Fútbol Sala', sessionLabel: 'Entrenamiento', memberLabel: 'Jugador', categoryLabel: 'Categoría', icon: '⚽', color: 'text-teal-700', bgColor: 'bg-teal-50' },
     golf: { label: 'Golf', sessionLabel: 'Ronda', memberLabel: 'Golfista', categoryLabel: 'Handicap', icon: '⛳', color: 'text-green-600', bgColor: 'bg-green-50' },
     gimnasia_artistica: { label: 'Gimnasia Artística', sessionLabel: 'Entrenamiento', memberLabel: 'Gimnasta', categoryLabel: 'Aparato', icon: '🤸', color: 'text-pink-600', bgColor: 'bg-pink-50' },
     gimnasia_ritmica: { label: 'Gimnasia Rítmica', sessionLabel: 'Ensayo', memberLabel: 'Gimnasta', categoryLabel: 'Aparato', icon: '🎀', color: 'text-fuchsia-500', bgColor: 'bg-fuchsia-50' },

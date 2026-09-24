@@ -11,7 +11,7 @@ import { formatFriendlyDuration } from "@/lib/utils";
 
 const DAYS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const SPORT_COLORS: Record<string, string> = {
-  "Fútbol": "#22c55e", "Baloncesto": "#f97316", "Natación": "#0ea5e9",
+  "Fútbol": "#22c55e", "Fútbol Sala": "#14b8a6", "Baloncesto": "#f97316", "Natación": "#0ea5e9",
   "Cheerleading": "#ec4899", "Porras": "#a855f7", "Gimnasia": "#eab308",
   "Artes Marciales": "#ef4444", "Tenis": "#84cc16", "Voleibol": "#06b6d4",
   "Béisbol": "#f59e0b", "Atletismo": "#10b981", "MMA": "#dc2626",

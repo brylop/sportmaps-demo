@@ -10,7 +10,7 @@ import { MapPin } from 'lucide-react';
 import { LocationPicker } from '@/components/events/LocationPicker';
 import { sanitizeText, sanitizeSlug, sanitizeCity, sanitizeAddress, sanitizePositiveInt } from '@/lib/inputSanitizers';
 
-const SPORTS = ['Porrismo', 'Fútbol', 'Voleibol', 'General'];
+const SPORTS = ['Porrismo', 'Fútbol', 'Fútbol Sala', 'Voleibol', 'General'];
 
 interface Props {
   state: EventWizardState;
