@@ -47,6 +47,7 @@ interface FacilityFormDialogProps {
 
 const facilityTypes = [
   'Cancha de Fútbol',
+  'Cancha de Fútbol Sala',
   'Cancha de Baloncesto',
   'Cancha de Tenis',
   'Cancha de Voleibol',

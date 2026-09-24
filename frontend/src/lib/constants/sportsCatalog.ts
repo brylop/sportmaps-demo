@@ -1689,6 +1689,27 @@ export const SPORTS_CATALOG: SportCatalogEntry[] = [
       niveles: ['Principiante', 'Intermedio', 'Avanzado'],
     },
   },
+  {
+    // Agregado a mano el 2026-09-24 (no viene del JSON del generador). Es un
+    // deporte propio —FIFA Futsal World Cup, ligas Sub-13/15/17/20 en Colombia—
+    // y no una modalidad de Fútbol: una escuela de fútbol sala no es una escuela
+    // de fútbol 11. El slug 'futsal' es el reservado en
+    // docs/specs/sport-categories-and-multi-category.md §3.1. La misma fila vive
+    // en public.sports_categories (mig 20260924111620).
+    id: 129,
+    nombre: 'Fútbol Sala',
+    nombreIngles: 'Futsal',
+    slug: 'futsal',
+    federacion: 'FIFA',
+    acronimo: 'FIFA',
+    estadoOlimpico: 'No Olímpico',
+    categoriaGlobal: 'no_olimpicos_federacion_internacional' as CategoriaGlobal,
+    categoriasCompetencia: {
+      modalidades: ['5v5 (Futsal FIFA)'],
+      categorias_edad: ['Sub-6', 'Sub-8', 'Sub-10', 'Sub-12', 'Sub-14', 'Sub-16', 'Sub-18', 'Sub-20', 'Libre'],
+      genero: ['Masculino', 'Femenino'],
+    },
+  },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════

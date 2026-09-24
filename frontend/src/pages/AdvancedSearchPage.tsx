@@ -14,7 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { EmptyState } from '@/components/common/EmptyState';
 
-const SPORTS = ['Fútbol', 'Baloncesto', 'Tenis', 'Voleibol', 'Natación', 'Gimnasia', 'Artes Marciales'];
+const SPORTS = ['Fútbol', 'Fútbol Sala', 'Baloncesto', 'Tenis', 'Voleibol', 'Natación', 'Gimnasia', 'Artes Marciales'];
 const AMENITIES = ['Piscina', 'Gimnasio', 'Cafetería', 'Parqueadero', 'Wi-Fi', 'Vestuarios', 'Duchas'];
 const CITIES = ['Bogotá', 'Medellín', 'Cali', 'Barranquilla', 'Cartagena', 'Bucaramanga'];
 

@@ -21,6 +21,7 @@ export type ModuleKey =
   | 'gestion_deportiva_entrenamiento_metricas'
   | 'gestion_deportiva_entrenamiento_rutinas'
   | 'gestion_deportiva_informe_mensual'
+  | 'gestion_deportiva_disponibilidad_coach'
   | 'finanzas_pagos'
   | 'finanzas_recepcion'
   | 'finanzas_contabilidad'
@@ -75,6 +76,15 @@ export const MODULE_CATALOG: Record<ModuleKey, ModuleDefinition> = {
   gestion_deportiva_informe_mensual: {
     key: 'gestion_deportiva_informe_mensual',
     label: 'Informe Mensual',
+    group: 'Gestión Deportiva',
+  },
+  gestion_deportiva_disponibilidad_coach: {
+    key: 'gestion_deportiva_disponibilidad_coach',
+    // Menú del coach → "Mis Planes" (/coach-plans): su disponibilidad reservable
+    // y citas (coach_availability, session_bookings). Una escuela que no ofrece
+    // sesiones reservables (Carmel) lo apaga acá; el ítem del menú y la página
+    // desaparecen SOLO para los coaches de esa escuela.
+    label: 'Mis Planes del coach (disponibilidad y citas)',
     group: 'Gestión Deportiva',
   },
   finanzas_pagos: {

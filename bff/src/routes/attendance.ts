@@ -2348,6 +2348,14 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
       };
 
       const athletes = new Map<string, AthleteRow & { _ctx: Set<string>; _aliases: Set<string> }>();
+      // Agregado por contexto (equipo / oferta / instalación), para el bloque
+      // "Asistencia del mes" del reporte gerencial: "% por equipo" no se puede
+      // reconstruir desde `athletes[].contexts` sin contar dos veces a quien
+      // está en dos equipos (Carmel: categoría + arqueros).
+      const byContext = new Map<string, {
+        name: string; present: number; absent: number; late: number; excused: number;
+        total: number; rate: number; _athletes: Set<string>;
+      }>();
       const days = new Map<string, {
         date: string; present: number; absent: number; late: number; excused: number;
         total: number; athletes: number; rate: number; _athletes: Set<string>;
@@ -2412,6 +2420,20 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
         row.total += 1;
         day.total += 1;
 
+        if (ctxLabel) {
+          let ctxRow = byContext.get(ctxLabel);
+          if (!ctxRow) {
+            ctxRow = {
+              name: ctxLabel, present: 0, absent: 0, late: 0, excused: 0,
+              total: 0, rate: 0, _athletes: new Set<string>(),
+            };
+            byContext.set(ctxLabel, ctxRow);
+          }
+          ctxRow[status] += 1;
+          ctxRow.total += 1;
+          ctxRow._athletes.add(id);
+        }
+
         // En la matriz manda el mejor estado del día: quien faltó a un equipo
         // pero entrenó en la instalación asistió ese día.
         const prev = row.by_day[r.attendance_date];
@@ -2436,6 +2458,14 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
           rate: day.total > 0 ? Math.round(((day.present + day.late) / day.total) * 100) : 0,
         }))
         .sort((a, b) => a.date.localeCompare(b.date));
+
+      const contextRows = [...byContext.values()]
+        .map(({ _athletes, ...ctx }) => ({
+          ...ctx,
+          athletes: _athletes.size,
+          rate: ctx.total > 0 ? Math.round(((ctx.present + ctx.late) / ctx.total) * 100) : 0,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'es'));
 
       // ── Plan vs consumo ──────────────────────────────────────────────────
       //
@@ -2575,6 +2605,7 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
         month, from, to,
         days: dayRows,
         athletes: athleteRows,
+        contexts: contextRows,
         desfases,
         totals: {
           ...totals,

@@ -225,6 +225,7 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="futbol">Fútbol</SelectItem>
+              <SelectItem value="futbol-sala">Fútbol Sala</SelectItem>
               <SelectItem value="baloncesto">Baloncesto</SelectItem>
               <SelectItem value="natacion">Natación</SelectItem>
               <SelectItem value="tenis">Tenis</SelectItem>

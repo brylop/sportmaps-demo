@@ -1,4 +1,5 @@
 // src/components/payment/InstallmentsConfigCard.tsx
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -15,7 +16,68 @@ interface InstallmentsConfigCardProps {
   onChange: (updated: Partial<InstallmentsConfigCardProps['settings']>) => void;
 }
 
+const MIN_INSTALLMENTS = 2;
+const MAX_INSTALLMENTS = 12;
+const DEFAULT_INSTALLMENTS = 3;
+
+/**
+ * Borrador de texto para un input numérico controlado que SÍ deja borrar.
+ *
+ * Antes el campo era `value={settings.x}` + `onChange={parseInt(v) || 3}`:
+ * al borrar el último dígito el input quedaba vacío, `parseInt('')` daba NaN
+ * y el `|| 3` lo volvía a escribir en el mismo tick. En el celular se sentía
+ * como "no deja borrar" (reporte de Athletic League, 2026-09-24).
+ *
+ * Acá lo que se escribe vive como string local; el número se confirma al
+ * padre solo cuando parsea, y al salir del campo se normaliza (vacío →
+ * valor por defecto, fuera de rango → al límite).
+ */
+function useDraftNumber(
+  value: number,
+  commit: (n: number) => void,
+  normalize: (n: number) => number,
+) {
+  const [draft, setDraft] = useState(String(value));
+
+  // Si el valor cambia desde afuera (carga inicial de settings, reset), se
+  // re-sincroniza; si cambió porque nosotros mismos lo confirmamos, se deja
+  // el texto tal cual para no pisar lo que la persona está escribiendo.
+  useEffect(() => {
+    setDraft(prev => (prev.trim() !== '' && Number(prev) === value ? prev : String(value)));
+  }, [value]);
+
+  const onChange = (raw: string) => {
+    setDraft(raw);
+    if (raw.trim() === '') return; // vacío se permite mientras escribe
+    const n = Number(raw);
+    if (Number.isFinite(n)) commit(n);
+  };
+
+  const onBlur = () => {
+    const n = draft.trim() === '' ? NaN : Number(draft);
+    const fixed = normalize(Number.isFinite(n) ? n : NaN);
+    setDraft(String(fixed));
+    if (fixed !== value) commit(fixed);
+  };
+
+  return { draft, onChange, onBlur };
+}
+
 export function InstallmentsConfigCard({ settings, onChange }: InstallmentsConfigCardProps) {
+  const maxInstallments = useDraftNumber(
+    settings.max_installments_per_payment,
+    n => onChange({ max_installments_per_payment: n }),
+    n => (Number.isNaN(n)
+      ? DEFAULT_INSTALLMENTS
+      : Math.min(MAX_INSTALLMENTS, Math.max(MIN_INSTALLMENTS, Math.round(n)))),
+  );
+
+  const minAmount = useDraftNumber(
+    settings.min_installment_amount,
+    n => onChange({ min_installment_amount: n }),
+    n => (Number.isNaN(n) || n < 0 ? 0 : n),
+  );
+
   return (
     <Card className="md:col-span-1 border-emerald-100/30">
       <CardHeader>
@@ -44,14 +106,17 @@ export function InstallmentsConfigCard({ settings, onChange }: InstallmentsConfi
               <Input 
                 id="max_installments" 
                 type="number" 
-                min={2} 
-                max={12} 
+                inputMode="numeric"
+                min={MIN_INSTALLMENTS} 
+                max={MAX_INSTALLMENTS} 
                 className="w-24" 
-                value={settings.max_installments_per_payment} 
-                onChange={(e) => onChange({ max_installments_per_payment: parseInt(e.target.value) || 3 })} 
+                value={maxInstallments.draft} 
+                onChange={(e) => maxInstallments.onChange(e.target.value)} 
+                onBlur={maxInstallments.onBlur}
               />
               <span className="text-sm text-muted-foreground">abonos por mensualidad</span>
             </div>
+            <p className="text-[10px] text-muted-foreground italic">Entre {MIN_INSTALLMENTS} y {MAX_INSTALLMENTS}</p>
           </div>
 
           <div className="space-y-2">
@@ -60,14 +125,16 @@ export function InstallmentsConfigCard({ settings, onChange }: InstallmentsConfi
               <Input 
                 id="min_amount" 
                 type="number" 
+                inputMode="decimal"
                 min={0} 
                 className="pl-8" 
-                value={settings.min_installment_amount} 
-                onChange={(e) => onChange({ min_installment_amount: parseFloat(e.target.value) || 0 })} 
+                value={minAmount.draft} 
+                onChange={(e) => minAmount.onChange(e.target.value)} 
+                onBlur={minAmount.onBlur}
               />
               <DollarSign className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             </div>
-            <p className="text-[10px] text-muted-foreground italic">Ej: $10.000 COP</p>
+            <p className="text-[10px] text-muted-foreground italic">Ej: $10.000 COP. En 0 no hay mínimo.</p>
           </div>
 
           <div className="flex items-center justify-between pt-2">

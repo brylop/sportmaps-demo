@@ -3,6 +3,7 @@ export const SPORTS_LIST = [
     "Atletismo",
     "Baloncesto",
     "Fútbol",
+    "Fútbol Sala",
     "Gimnasia",
     "Natación",
     "Porrismo",

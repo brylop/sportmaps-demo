@@ -177,7 +177,11 @@ export async function getTournamentMatches(teamId: string): Promise<TournamentMa
 // subject_id -- reutilizable aunque cambie quién está disponible ese día.
 export type TacticalSituation =
   | 'ataque' | 'defensa' | 'presion' | 'transicion'
-  | 'corner' | 'tiro_libre' | 'penalti';
+  | 'corner' | 'tiro_libre' | 'penalti'
+  // Trabajo específico de arqueros (Carmel 2026-09-24). Ampliar JUNTO con
+  // SITUATION_LABEL (TacticalBoard.tsx), VALID_SITUATIONS (bff football.ts) y el
+  // CHECK team_tactical_presets_situation_check (migración).
+  | 'arqueros';
 
 export interface TacticalPresetSlot {
   slot_label: string;
@@ -189,12 +193,28 @@ export interface TacticalPresetSlot {
  *  los slots, para no manejar dos sistemas distintos en el frontend.
  *  "type" es opcional y por defecto 'arrow' -- así las flechas guardadas
  *  ANTES de agregar curva/zona se siguen leyendo sin romper. */
-export type TacticalArrowColor = 'white' | 'yellow' | 'red' | 'blue';
-/** arrow/curve/zone: figuras de 2 puntos. Del cono en adelante: objetos de
- *  UN punto (x1/y1) -- x2/y2 se guardan igual a x1/y1 por simplicidad de
- *  esquema (la misma columna jsonb sirve para los dos casos). */
-export type TacticalShapeType = 'arrow' | 'curve' | 'zone' | 'cone' | 'ball' | 'goal' | 'opponent' | 'hurdle';
+/** 9 colores (eran 4): marcar zonas por color con 4 no alcanzaba. Ampliar
+ *  JUNTO con ARROW_COLOR_HEX (TacticalBoard.tsx) y VALID_ARROW_COLORS (bff). */
+export type TacticalArrowColor =
+  | 'white' | 'yellow' | 'red' | 'blue'
+  | 'green' | 'orange' | 'purple' | 'pink' | 'black';
+/** arrow/curve/zone/ball_path: figuras de 2 puntos. Del cono en adelante:
+ *  objetos de UN punto (x1/y1) -- x2/y2 se guardan igual a x1/y1 por
+ *  simplicidad de esquema (la misma columna jsonb sirve para los dos casos).
+ *  Material de entrenamiento agregado 2026-09-24 (Carmel): plato, arco chico,
+ *  maniquí, aro, escalera, estaca. Ampliar JUNTO con OBJECT_TYPES /
+ *  renderObjectBody (TacticalBoard.tsx) y VALID_SHAPE_TYPES (bff football.ts). */
+export type TacticalShapeType =
+  | 'arrow' | 'curve' | 'zone' | 'ball_path'
+  | 'cone' | 'marker' | 'ball' | 'goal' | 'mini_goal' | 'hurdle'
+  | 'ring' | 'ladder' | 'pole' | 'mannequin' | 'opponent';
 
+/** Recorrido del balón (ball_path): pase raso, remate o penal. Cambia el
+ *  dibujo (recta vs. comba) y la animación (remate/penal lo elevan). */
+export type BallPathKind = 'pase' | 'remate' | 'penal';
+
+/** Todos los campos nuevos son OPCIONALES a propósito: una figura guardada
+ *  antes de 2026-09-24 se lee tal cual (sin size = 1×, sin rot = 0°). */
 export interface TacticalArrow {
   type?: TacticalShapeType;
   x1: number;
@@ -202,6 +222,12 @@ export interface TacticalArrow {
   x2: number;
   y2: number;
   color?: TacticalArrowColor;
+  /** Objetos de un punto: multiplicador de tamaño (0.5–3, default 1). */
+  size?: number;
+  /** Objetos de un punto: rotación en grados (default 0). */
+  rot?: number;
+  /** Solo ball_path. */
+  kind?: BallPathKind;
 }
 
 export interface TacticalPreset {

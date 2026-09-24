@@ -1175,7 +1175,12 @@ export default function SchoolStudentsManagementPage() {
   const StudentActions = ({ student }: { student: any }) => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={`Más acciones para ${student.full_name}`}>
+        <Button
+          variant="ghost" size="sm"
+          className="h-8 w-8 p-0 hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground"
+          title="Más acciones"
+          aria-label={`Más acciones para ${student.full_name}`}
+        >
           <MoreVertical className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
@@ -1455,7 +1460,19 @@ export default function SchoolStudentsManagementPage() {
                         </div>
                       )}
                     </div>
-                    <StudentActions student={student} />
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      {canCreateOrEditStudents && (
+                        <Button
+                          variant="outline" size="sm"
+                          className="h-8 px-2 text-xs gap-1"
+                          onClick={() => handleEditStudent(student)}
+                          aria-label={`Editar a ${student.full_name}`}
+                        >
+                          <Edit className="h-3.5 w-3.5" /> Editar
+                        </Button>
+                      )}
+                      <StudentActions student={student} />
+                    </div>
                   </div>
                 ))}
               </div>

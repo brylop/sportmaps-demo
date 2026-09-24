@@ -68,6 +68,7 @@ interface CalendarEvent {
 const SPORT_ICONS: Record<string, React.ElementType> = {
   'Porrismo': Megaphone,
   'Fútbol': CircleDot,
+  'Fútbol Sala': CircleDot,
   'Baloncesto': Target,
   'Natación': Waves,
   'Tenis': Swords,
@@ -80,6 +81,7 @@ const SPORT_ICONS: Record<string, React.ElementType> = {
 const SPORT_COLORS: Record<string, { bg: string; text: string; icon: string; border: string }> = {
   'Porrismo': { bg: 'bg-fuchsia-500/15', text: 'text-fuchsia-400', icon: 'text-fuchsia-400', border: 'border-fuchsia-500/30' },
   'Fútbol': { bg: 'bg-emerald-500/15', text: 'text-emerald-400', icon: 'text-emerald-400', border: 'border-emerald-500/30' },
+  'Fútbol Sala': { bg: 'bg-teal-500/15', text: 'text-teal-400', icon: 'text-teal-400', border: 'border-teal-500/30' },
   'Baloncesto': { bg: 'bg-orange-500/15', text: 'text-orange-400', icon: 'text-orange-400', border: 'border-orange-500/30' },
   'Natación': { bg: 'bg-cyan-500/15', text: 'text-cyan-400', icon: 'text-cyan-400', border: 'border-cyan-500/30' },
   'Tenis': { bg: 'bg-lime-500/15', text: 'text-lime-400', icon: 'text-lime-400', border: 'border-lime-500/30' },
@@ -115,6 +117,11 @@ const SPORT_EVENT_OVERRIDES: Record<string, Record<string, { label: string; colo
     training: { label: 'Entrenamiento Táctico', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
     match: { label: 'Partido Oficial', color: 'bg-green-500/20 text-green-300 border-green-500/30' },
     competition: { label: 'Torneo', color: 'bg-emerald-600/20 text-emerald-200 border-emerald-600/30' },
+  },
+  'Fútbol Sala': {
+    training: { label: 'Entrenamiento Táctico', color: 'bg-teal-500/20 text-teal-300 border-teal-500/30' },
+    match: { label: 'Partido Oficial', color: 'bg-teal-500/20 text-teal-300 border-teal-500/30' },
+    competition: { label: 'Torneo', color: 'bg-teal-600/20 text-teal-200 border-teal-600/30' },
   },
   'Baloncesto': {
     training: { label: 'Práctica de Cancha', color: 'bg-orange-500/20 text-orange-300 border-orange-500/30' },
@@ -941,7 +948,7 @@ export default function CalendarPage() {
                   placeholder={
                     coachSport === 'Porrismo'
                       ? 'Ej: Competencia Nivel 3'
-                      : coachSport === 'Fútbol'
+                      : coachSport === 'Fútbol' || coachSport === 'Fútbol Sala'
                         ? 'Ej: Liga Municipal Sub-15'
                         : 'Ej: Competencia Regional'
                   }

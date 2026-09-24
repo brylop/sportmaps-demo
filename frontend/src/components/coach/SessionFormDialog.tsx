@@ -47,7 +47,7 @@ interface Drill {
 /** técnico/táctico/físico/mixto — spec periodización §3.5: lo único que la
  *  grilla del Excel de Carmel pedía y CAR-8 no había sumado todavía. Sin
  *  CHECK en la base (vive dentro del jsonb de session_blocks), opcional. */
-type BlockComponent = 'tecnico' | 'tactico' | 'fisico' | 'mixto';
+type BlockComponent = 'tecnico' | 'tactico' | 'fisico' | 'arqueros' | 'mixto';
 
 interface SessionBlock {
   id?: string;
@@ -63,6 +63,7 @@ const BLOCK_COMPONENT_OPTIONS: { value: BlockComponent; label: string }[] = [
   { value: 'tecnico', label: 'Técnico' },
   { value: 'tactico', label: 'Táctico' },
   { value: 'fisico', label: 'Físico' },
+  { value: 'arqueros', label: 'Arqueros' },
   { value: 'mixto', label: 'Mixto' },
 ];
 
