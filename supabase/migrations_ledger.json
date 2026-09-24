@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 607,
-  "head": "20260923113401",
+  "count": 609,
+  "head": "20260924101138",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -610,6 +610,8 @@
     {"v":"20260922224444","file":"20260922224444_unblock_payment_y_payouts_usan_is_platform_admin.sql","sha256":"0d33d3800353cf462da6b946173b0967a8048da5a2d888721832121b22495321","added":"2026-09-23","by":"judegor99"},
     {"v":"20260922224730","file":"20260922224730_barrido_profiles_role_admin_resto_de_rpcs.sql","sha256":"1b38001204c79e4fb8dc279e38886fabb7982f6944e9f262f40d2371be033f41","added":"2026-09-23","by":"judegor99"},
     {"v":"20260923113359","file":"20260923113359_fix_qr_signup_pending_sin_cobro.sql","sha256":"f79745531299e8032e85c563977aa248ba0e10442e4c29fac4f31ec267d3a553","added":"2026-09-23","by":"brylop"},
-    {"v":"20260923113401","file":"20260923113401_calendar_events_por_equipo_y_escuela.sql","sha256":"51557a50b2654eeb93bc20fd9ff641a7ad3fecb5b7028eae32b9687ef53e8c1e","added":"2026-09-23","by":"brylop"}
+    {"v":"20260923113401","file":"20260923113401_calendar_events_por_equipo_y_escuela.sql","sha256":"51557a50b2654eeb93bc20fd9ff641a7ad3fecb5b7028eae32b9687ef53e8c1e","added":"2026-09-23","by":"brylop"},
+    {"v":"20260924100845","file":"20260924100845_team_coaches_select_staff_scoped.sql","sha256":"8dd6166e7f938e2b05f6bddf2e51ee6e96d1355b64608f198a35e19ee987db05","added":"2026-09-24","by":"brylop"},
+    {"v":"20260924101138","file":"20260924101138_secondary_team_enrollment_carmel.sql","sha256":"e89851ee4eb429b220c560040e6cb134e732e2d5e46318da4414f5d50f2acba7","added":"2026-09-24","by":"brylop"}
   ]
 }

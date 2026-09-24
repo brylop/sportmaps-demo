@@ -102,6 +102,14 @@ interface EntitlementsResponse {
      * escuela lo veía y lo podía aplicar).
      */
     military_discount_enabled?: boolean;
+    /**
+     * true → en esta escuela un deportista puede estar en un SEGUNDO equipo
+     * sin salir de su categoría (grupo de trabajo transversal: arqueros,
+     * preparación física; `school_settings.allow_secondary_team_enrollment`,
+     * caso Carmel Club). El segundo equipo nunca cobra. Default false: el
+     * modal de inscribir solo ofrece "mover", como siempre.
+     */
+    allow_secondary_team_enrollment?: boolean;
 }
 
 // ============================================================
@@ -198,6 +206,11 @@ export interface Entitlements {
     /** Esta escuela ofrece el descuento "Fuerza Militar 10%" al editar un
      *  atleta (`military_discount_enabled`, caso Besser). Default false. */
     militaryDiscountEnabled: boolean;
+
+    /** Un deportista puede estar en un SEGUNDO equipo sin salir de su
+     *  categoría (`allow_secondary_team_enrollment`, caso Carmel Club: equipo
+     *  de arqueros). Default false. */
+    allowSecondaryTeamEnrollment: boolean;
 }
 
 export interface EntitlementsHelpers {
@@ -271,6 +284,7 @@ const EMPTY_ENTITLEMENTS: Entitlements = {
     coachHideFinancialInfo: false,
     coachCanEditCategories: false,
     militaryDiscountEnabled: false,
+    allowSecondaryTeamEnrollment: false,
 };
 
 // ============================================================
@@ -386,6 +400,7 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
             coachHideFinancialInfo: data.coach_hide_financial_info === true,
             coachCanEditCategories: data.coach_can_edit_categories === true,
             militaryDiscountEnabled: data.military_discount_enabled === true,
+            allowSecondaryTeamEnrollment: data.allow_secondary_team_enrollment === true,
         };
     }, [query.data]);
 

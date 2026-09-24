@@ -27,6 +27,12 @@ const CreateEnrollmentSchema = z.object({
     status: z.enum(['active', 'cancelled', 'pending']).default('active'),
     start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    // true = agregar al atleta a un SEGUNDO equipo sin sacarlo del actual
+    // (grupo de trabajo: arqueros, preparación física, selección). Solo vale
+    // con team_id y sin plan, y solo si la escuela prendió
+    // school_settings.allow_secondary_team_enrollment. Ver el bloque
+    // "Equipo secundario" más abajo.
+    secondary: z.boolean().optional(),
 }).refine(
     (data) => data.user_id || data.child_id || data.unregistered_athlete_id,
     { message: 'Se requiere user_id, child_id o unregistered_athlete_id', path: ['user_id'] }
@@ -400,6 +406,81 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
             // 'pending' (alta por QR sin pagar), se nombra como tal para que el admin
             // no crea que el atleta ya está adentro.
             const current = openEnrollments!.find((r: any) => r.status === 'active') ?? openEnrollments![0];
+
+            // ── Equipo secundario (grupo de trabajo) ──────────────────────────
+            // El atleta se queda en su categoría Y entra a un segundo equipo
+            // (arqueros de todas las categorías, preparación física, selección).
+            // Caso Carmel Club, 2026-09-24: "EQUIPO ARQUERO" con arqueros que ya
+            // están en su categoría por edad.
+            //
+            // Es una SEGUNDA fila en enrollments, no enrollment_categories (esa
+            // exige catálogo de categorías, "arquero" no es una categoría y hoy
+            // ningún lector la mira). Los índices únicos parciales solo chocan
+            // por el MISMO equipo, el editor de atletas (readActiveEnrollments)
+            // solo cancela duplicados exactos, y 14 menores de 6 escuelas ya
+            // viven así. Lo que SÍ se cuida es la plata: la fila nace con
+            // monthly_fee = 0 y fee_is_manual = true, así open_month resuelve
+            // COALESCE(e.monthly_fee, …) = 0 y nunca la cobra, aunque el equipo
+            // tenga precio o children.monthly_fee esté cargado. Un equipo
+            // secundario NO cobra, por definición.
+            //
+            // Tres condiciones, todas explícitas: el cliente lo pide
+            // (`secondary: true`, el modal lo ofrece solo cuando el atleta ya
+            // tiene otro equipo), la escuela lo permite (flag, default false)
+            // y hay una inscripción ACTIVA con equipo de la cual colgarse. Una
+            // 'pending' (QR sin pagar) no califica y cae al 409 de siempre.
+            if (
+                data.secondary === true &&
+                data.team_id && !data.offering_plan_id &&
+                current.status === 'active' && current.team_id && current.team_id !== data.team_id
+            ) {
+                const { data: secondarySettings } = await supabase
+                    .from('school_settings')
+                    .select('allow_secondary_team_enrollment')
+                    .eq('school_id', schoolId)
+                    .maybeSingle();
+
+                if (!(secondarySettings as any)?.allow_secondary_team_enrollment) {
+                    return res.status(403).json({
+                        error: 'Esta escuela no permite que un deportista esté en dos equipos a la vez.',
+                        details: 'Para moverlo de equipo, edítalo desde la ficha del atleta. Si la escuela necesita grupos transversales (arqueros, preparación física), pídelo a SportMaps.',
+                        code: 'SECONDARY_TEAM_NOT_ENABLED',
+                        enrollment_id: current.id,
+                    });
+                }
+
+                const { data: primaryTeam } = await supabase
+                    .from('teams').select('name').eq('id', current.team_id).maybeSingle();
+
+                const { data: secondaryRow, error: secondaryError } = await supabase
+                    .from('enrollments')
+                    .insert({
+                        [studentField]: studentId,
+                        team_id: data.team_id,
+                        school_id: schoolId,
+                        status: 'active',
+                        start_date: startDate,
+                        sessions_used: 0,
+                        secondary_sessions_used: 0,
+                        monthly_fee: 0,
+                        fee_is_manual: true,
+                        fee_reason: 'Equipo secundario (grupo de trabajo): sin cobro',
+                        fee_set_by: req.user?.id ?? null,
+                        fee_set_at: new Date().toISOString(),
+                    })
+                    .select()
+                    .single();
+
+                if (secondaryError) throw secondaryError;
+
+                return res.status(201).json({
+                    message: 'Agregado al equipo secundario. Sigue en su equipo principal.',
+                    data: secondaryRow,
+                    secondary: true,
+                    primary_enrollment_id: current.id,
+                    primary_team_name: (primaryTeam as any)?.name ?? null,
+                });
+            }
 
             // ── MOD-3 F3: multi-categoría ─────────────────────────────────────
             // Si lo que llega es SOLO un team_id (sin offering_plan_id) y ese
