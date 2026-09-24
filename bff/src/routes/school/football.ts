@@ -1,6 +1,9 @@
 import { Router, Response } from 'express';
 import { supabase } from '../../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../../middlewares/authMiddleware';
+// Validación de figuras de la pizarra: vive aparte para probarla en unidad
+// sin cargar este router (ver footballShapes.ts).
+import { validateArrows } from './footballShapes';
 
 const router = Router();
 
@@ -665,7 +668,7 @@ router.get(
 // + x/y, sin subject_id -- un preset viejo nunca intenta ubicar en silencio
 // a un jugador que ya no está en la plantilla.
 // ==========================================
-const VALID_SITUATIONS = ['ataque', 'defensa', 'presion', 'transicion', 'corner', 'tiro_libre', 'penalti'] as const;
+const VALID_SITUATIONS = ['ataque', 'defensa', 'presion', 'transicion', 'corner', 'tiro_libre', 'penalti', 'arqueros'] as const;
 
 function validatePresetSlots(slots: any[]): string[] {
   const errors: string[] = [];
@@ -678,30 +681,6 @@ function validatePresetSlots(slots: any[]): string[] {
     }
     if (typeof s.y !== 'number' || s.y < 0 || s.y > 100) {
       errors.push(`y inválido en slot "${s.slot_label}": debe estar entre 0 y 100.`);
-    }
-  }
-  return errors;
-}
-
-const VALID_ARROW_COLORS = ['white', 'yellow', 'red', 'blue'] as const;
-const VALID_SHAPE_TYPES = ['arrow', 'curve', 'zone', 'cone', 'ball', 'goal', 'opponent', 'hurdle'] as const;
-
-/** Figuras del modo pizarra (P2d) -- coordenadas en el mismo espacio 0-100
- *  que slots/x/y, para que el frontend no tenga que manejar dos sistemas.
- *  "type" es opcional (compat con flechas guardadas antes de curva/zona). */
-function validateArrows(arrows: any[]): string[] {
-  const errors: string[] = [];
-  for (const a of arrows) {
-    for (const key of ['x1', 'y1', 'x2', 'y2'] as const) {
-      if (typeof a[key] !== 'number' || a[key] < 0 || a[key] > 100) {
-        errors.push(`${key} inválido en una flecha: debe estar entre 0 y 100.`);
-      }
-    }
-    if (a.color !== undefined && !VALID_ARROW_COLORS.includes(a.color)) {
-      errors.push(`color de flecha inválido: ${a.color}`);
-    }
-    if (a.type !== undefined && !VALID_SHAPE_TYPES.includes(a.type)) {
-      errors.push(`type de figura inválido: ${a.type}`);
     }
   }
   return errors;

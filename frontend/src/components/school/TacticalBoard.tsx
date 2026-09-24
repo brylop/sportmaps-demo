@@ -8,7 +8,7 @@
  * mouse+touch, sin el comportamiento errático de HTML5 DnD dentro de
  * WebViews de Capacitor (D7).
  */
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   DndContext,
   useDraggable,
@@ -31,7 +31,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, X, Bookmark, Trash2, Eye, EyeOff, ChevronUp, ChevronDown, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play } from 'lucide-react';
+import { Loader2, X, Bookmark, Trash2, Eye, EyeOff, ChevronUp, ChevronDown, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play, User, Maximize2, Minimize2, Copy, RotateCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useTeamPerformanceRoster } from '@/hooks/usePerformanceData';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
@@ -49,7 +49,17 @@ import {
 import { FootballPitchBackground } from './FootballPitchBackground';
 import { PlayerCard } from './PlayerCard';
 import { POSITION_LABEL, suggestLabel, legacyFallbackPosition } from '@/lib/school/footballDisplay';
-import type { LineupSourceType, LineupPlayerInput, TacticalSituation, TacticalArrow, TacticalArrowColor, TacticalShapeType, EventSourceType } from '@/lib/school/footballQueries';
+import type { LineupSourceType, LineupPlayerInput, TacticalSituation, TacticalArrow, TacticalArrowColor, TacticalShapeType, BallPathKind, EventSourceType } from '@/lib/school/footballQueries';
+import {
+  FULL_VIEW, GK_VIEW, viewBoxOf, yToView, yFromView, curveControlPoint, hydrateShape,
+  BALL_PATH_BEND, isLoftedPath, ballPathPoint, OBJECT_TYPES, isPointShape, OBJECT_BOX,
+  OBJ_SIZE_MIN, OBJ_SIZE_MAX, type PitchView, type ArrowPoint, type ObjectType,
+} from '@/lib/school/tacticalGeometry';
+import {
+  ARROW_COLOR_HEX, COLOR_LABEL, OBJECT_LABEL, BALL_PATH_LABEL, PIN_STYLE_KEY, readPinStyle,
+  isGoalkeeperLabel, type PinStyle,
+} from '@/lib/school/tacticalPalette';
+import { BallGlyph, SilhouetteGlyph, ObjectIcon } from './tacticalGlyphs';
 import type { RosterSubject } from '@/lib/school/performanceQueries';
 
 const SITUATION_LABEL: Record<TacticalSituation, string> = {
@@ -60,12 +70,14 @@ const SITUATION_LABEL: Record<TacticalSituation, string> = {
   corner: 'Córner',
   tiro_libre: 'Tiro libre',
   penalti: 'Penalti',
+  arqueros: 'Arqueros',
 };
 const SITUATIONS = Object.keys(SITUATION_LABEL) as TacticalSituation[];
 
 /** Distancia (en % de cancha) dentro de la cual soltar un jugador "adopta"
  *  un marcador de plantilla en vez de crear una posición libre nueva. */
 const SNAP_DISTANCE = 8;
+
 
 interface TacticalBoardProps {
   open: boolean;
@@ -212,13 +224,15 @@ function BenchDraggable({ subject, onOpenCard }: { subject: RosterSubject; onOpe
 
 /** Marcador de plantilla cargada -- no arrastrable, solo referencia visual
  *  hasta que un jugador se suelte cerca y lo "adopte" (ver SNAP_DISTANCE). */
-function EmptySlotMarker({ slot, onRemove }: { slot: EmptySlot; onRemove: () => void }) {
+function EmptySlotMarker({ slot, view, onRemove }: { slot: EmptySlot; view: PitchView; onRemove: () => void }) {
+  const topPct = yToView(slot.y, view);
+  if (topPct < -1 || topPct > 101) return null; // fuera de la ventana (zoom al área)
   return (
     <div
       style={{
         position: 'absolute',
         left: `${slot.x}%`,
-        top: `${slot.y}%`,
+        top: `${topPct}%`,
         transform: 'translate(-50%, -50%)',
         zIndex: 5,
       }}
@@ -242,19 +256,25 @@ function EmptySlotMarker({ slot, onRemove }: { slot: EmptySlot; onRemove: () => 
 
 /** Overlay de zonas (ataque/medio/defensa/arquero + bandas), togglable con el
  *  ícono de ojo. Puramente visual -- pointer-events-none para no interferir
- *  con el drag de los pines que quedan encima. */
-function ZoneOverlay() {
+ *  con el drag de los pines que quedan encima. Recorta las franjas a la
+ *  ventana visible (zoom al área). */
+function ZoneOverlay({ view }: { view: PitchView }) {
   return (
     <div className="absolute inset-0 pointer-events-none z-[1]">
-      {ZONE_BANDS.map((b, i) => (
-        <div
-          key={b.label}
-          style={{ position: 'absolute', top: `${b.y0}%`, height: `${b.y1 - b.y0}%`, left: 0, right: 0 }}
-          className={`flex items-start justify-center pt-1.5 border-t border-white/25 ${i % 2 === 0 ? 'bg-white/[0.05]' : ''}`}
-        >
-          <span className="text-[10px] uppercase tracking-widest text-white/45 font-bold">{b.label}</span>
-        </div>
-      ))}
+      {ZONE_BANDS.map((b, i) => {
+        const top = Math.max(0, yToView(b.y0, view));
+        const bottom = Math.min(100, yToView(b.y1, view));
+        if (bottom <= 0 || top >= 100) return null;
+        return (
+          <div
+            key={b.label}
+            style={{ position: 'absolute', top: `${top}%`, height: `${bottom - top}%`, left: 0, right: 0 }}
+            className={`flex items-start justify-center pt-1.5 border-t border-white/25 ${i % 2 === 0 ? 'bg-white/[0.05]' : ''}`}
+          >
+            <span className="text-[10px] uppercase tracking-widest text-white/45 font-bold">{b.label}</span>
+          </div>
+        );
+      })}
       {/* Bandas (izquierda/centro/derecha) */}
       <div style={{ position: 'absolute', left: '33.33%', top: 0, bottom: 0, width: 1 }} className="bg-white/20" />
       <div style={{ position: 'absolute', left: '66.66%', top: 0, bottom: 0, width: 1 }} className="bg-white/20" />
@@ -262,131 +282,89 @@ function ZoneOverlay() {
   );
 }
 
-const ARROW_COLOR_HEX: Record<TacticalArrowColor, string> = {
-  white: '#f8fafc',
-  yellow: '#facc15',
-  red: '#ef4444',
-  blue: '#38bdf8',
-};
+/** Campos editables de una figura desde la capa de dibujo y el panel. */
+type ShapePatch = Partial<Pick<TacticalArrow, 'x1' | 'y1' | 'x2' | 'y2' | 'size' | 'rot'>>;
 
-/** cono/balón/valla/contrincante/implemento: objetos de UN punto (se
- *  colocan con un toque, no arrastrando de un punto A a un punto B como
- *  flecha/curva/zona). */
-const POINT_SHAPE_TYPES: TacticalShapeType[] = ['cone', 'ball', 'goal', 'opponent', 'hurdle'];
-const isPointShape = (t: TacticalShapeType | undefined) => !!t && POINT_SHAPE_TYPES.includes(t);
-
-const OBJECT_LABEL: Record<'cone' | 'ball' | 'goal' | 'opponent' | 'hurdle', string> = {
-  cone: 'Cono', ball: 'Balón', goal: 'Valla', opponent: 'Contrincante', hurdle: 'Vallita',
-};
-
-/** Ícono de cada objeto, dibujado a mano en vez de emoji para 'cone'/'hurdle'
- *  (no hay un emoji de cono confiable multiplataforma) y 'opponent' (mismo
- *  estilo de disco que PitchPin, en rojo, para que se lea como "del otro
- *  equipo" de un vistazo). 'ball'/'goal' sí tienen emoji bien soportado. */
-function ObjectIcon({ type, x, y }: { type: TacticalShapeType; x: number; y: number }) {
-  switch (type) {
-    case 'cone':
-      return <polygon points={`${x},${y - 6} ${x - 5},${y + 6} ${x + 5},${y + 6}`} fill="#f97316" stroke="#7c2d12" strokeWidth={0.8} />;
-    case 'hurdle':
-      return (
-        <g stroke="#e2e8f0" strokeWidth={1.2}>
-          <line x1={x - 6} y1={y + 4} x2={x + 6} y2={y + 4} />
-          <line x1={x - 5} y1={y + 4} x2={x - 5} y2={y - 3} />
-          <line x1={x + 5} y1={y + 4} x2={x + 5} y2={y - 3} />
-        </g>
-      );
-    case 'opponent':
-      return (
-        <>
-          <circle cx={x} cy={y} r={7} fill="#dc2626" stroke="white" strokeWidth={1.5} />
-          <text x={x} y={y + 3} textAnchor="middle" fontSize={8} fontWeight={800} fill="white">R</text>
-        </>
-      );
-    case 'ball':
-      return <text x={x} y={y + 4} textAnchor="middle" fontSize={12}>⚽</text>;
-    case 'goal':
-      return <text x={x} y={y + 4} textAnchor="middle" fontSize={13}>🥅</text>;
-    default:
-      return null;
-  }
-}
-
-/** Punto en el mismo espacio 0-100 que x/y de jugadores y slots -- se
- *  convierte al viewBox real (300x340, igual que FootballPitchBackground)
- *  solo al dibujar, para no manejar dos sistemas de coordenadas. */
-interface ArrowPoint { x: number; y: number }
-
-/** Punto de control de una curva, calculado en espacio SVG (no en % 0-100)
- *  para que el "abombado" se vea perpendicular de verdad -- la cancha no es
- *  cuadrada (300x340), así que un offset calculado en % antes de escalar
- *  queda torcido. */
-function curveControlPoint(p1: { x: number; y: number }, p2: { x: number; y: number }) {
-  const mx = (p1.x + p2.x) / 2;
-  const my = (p1.y + p2.y) / 2;
-  const dx = p2.x - p1.x;
-  const dy = p2.y - p1.y;
-  const len = Math.hypot(dx, dy) || 1;
-  // Perpendicular normalizado * 18% de la longitud -- "comba" fija, no es
-  // dibujo libre de la curva, es la forma más simple que se distingue de
-  // una flecha recta sin pedirle al usuario un gesto de 3 puntos.
-  const offset = len * 0.18;
-  return { x: mx - (dy / len) * offset, y: my + (dx / len) * offset };
-}
+/** Balón "fantasma" que recorre un ball_path durante "Reproducir jugada"
+ *  (x/y en % de cancha; scale > 1 = elevado, en remate/penal). */
+interface GhostBall { x: number; y: number; scale: number }
 
 /** Capa de dibujo + edición del modo pizarra (P2d): crea flechas/curvas/
- *  zonas, deja mover cada figura por sus extremos y borrarlas individual, y
- *  la herramienta de medir distancia. Todo el manejo de puntero vive ACÁ
- *  (no en el padre) para no re-renderizar TacticalBoard entero en cada
- *  pixel de arrastre.
+ *  zonas/recorridos de balón, coloca material, deja mover cada figura por sus
+ *  extremos (o entera, si es un objeto), seleccionar un objeto para girarlo y
+ *  quitarlo, y la herramienta de medir distancia. Todo el manejo de puntero
+ *  vive ACÁ (no en el padre) para no re-renderizar TacticalBoard entero en
+ *  cada pixel de arrastre.
  *
  *  Capas de pointer-events: el <svg> raíz solo intercepta el puntero
  *  (pointer-events-auto) cuando drawMode o measureMode están activos -- así
  *  el resto del tiempo los pines de abajo se arrastran normal. Los handles y
  *  el cuerpo de cada figura SÍ son siempre interactivos (pointer-events
  *  explícito por elemento), para poder ajustar o borrar una figura ya hecha
- *  sin tener que activar el modo dibujo. */
+ *  sin tener que activar el modo dibujo.
+ *
+ *  Gestos sobre un OBJETO: arrastrar = mover; tocar sin arrastrar = seleccionar
+ *  (marco + handle de giro + ×). Antes tocar borraba: con tamaño y giro por
+ *  objeto hace falta un estado "seleccionado" y borrar pasa a ser explícito. */
 function ArrowLayer({
-  shapes, drawMode, drawShapeType, drawColor, measureMode, pitchLengthMeters,
-  onCreateShape, onUpdateShape, onDeleteShape,
+  shapes, drawMode, drawShapeType, drawColor, ballKind, newObjSize, newObjRot,
+  measureMode, pitchLengthMeters, view, pinStyle, selectedIndex, ghostBalls, hiddenIndexes,
+  onCreateShape, onUpdateShape, onDeleteShape, onSelectShape,
 }: {
   shapes: TacticalArrow[];
   drawMode: boolean;
   drawShapeType: TacticalShapeType;
   drawColor: TacticalArrowColor;
+  ballKind: BallPathKind;
+  newObjSize: number;
+  newObjRot: number;
   measureMode: boolean;
   pitchLengthMeters: number;
+  view: PitchView;
+  pinStyle: PinStyle;
+  selectedIndex: number | null;
+  ghostBalls: GhostBall[] | null;
+  hiddenIndexes: ReadonlySet<number>;
   onCreateShape: (shape: TacticalArrow) => void;
-  onUpdateShape: (index: number, patch: Partial<Pick<TacticalArrow, 'x1' | 'y1' | 'x2' | 'y2'>>) => void;
+  onUpdateShape: (index: number, patch: ShapePatch) => void;
   onDeleteShape: (index: number) => void;
+  onSelectShape: (index: number | null) => void;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [preview, setPreview] = useState<{ start: ArrowPoint; current: ArrowPoint } | null>(null);
   const [measurePoints, setMeasurePoints] = useState<ArrowPoint[]>([]);
-  // `moved` distingue un tap real (borra un objeto de un punto) de un drag
-  // (lo reposiciona) -- se marca en handleHandlePointerMove, que el
+  // `moved` distingue un tap real (selecciona un objeto de un punto) de un
+  // drag (lo reposiciona) -- se marca en handleHandlePointerMove, que el
   // navegador solo dispara cuando el puntero de verdad se movió.
   const draggingHandle = useRef<{ index: number; endpoint: 'start' | 'end'; moved: boolean } | null>(null);
   const draggingMeasurePoint = useRef<0 | 1 | null>(null);
+  // Handle de giro del objeto seleccionado: centro del objeto en espacio SVG.
+  const rotating = useRef<{ index: number; cx: number; cy: number } | null>(null);
 
   const toSvg = (p: ArrowPoint) => ({ x: p.x * 3, y: p.y * 3.4 });
+  const clamp01 = (n: number) => Math.min(100, Math.max(0, n));
 
+  /** Puntero → % de cancha COMPLETA (0-100), pasando por la ventana visible:
+   *  con zoom, el alto del <svg> en pantalla representa solo y0..y1. */
   function pctFromEvent(e: { clientX: number; clientY: number }): ArrowPoint | null {
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect) return null;
-    return {
-      x: Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100)),
-      y: Math.min(100, Math.max(0, ((e.clientY - rect.top) / rect.height) * 100)),
-    };
+    const vx = ((e.clientX - rect.left) / rect.width) * 100;
+    const vy = ((e.clientY - rect.top) / rect.height) * 100;
+    return { x: clamp01(vx), y: clamp01(yFromView(vy, view)) };
   }
 
   function handleCanvasPointerDown(e: ReactPointerEvent<SVGSVGElement>) {
     if (measureMode || !drawMode) return;
     const p = pctFromEvent(e);
     if (!p) return;
-    // Objetos de un punto (cono/balón/valla/contrincante/vallita) se colocan
-    // con un toque, no con un arrastre de A a B como flecha/curva/zona.
+    // Objetos de un punto se colocan con un toque, con el tamaño y giro que
+    // estén fijados en el panel; flecha/curva/zona/recorrido, arrastrando de A a B.
     if (isPointShape(drawShapeType)) {
-      onCreateShape({ type: drawShapeType, x1: p.x, y1: p.y, x2: p.x, y2: p.y, color: drawColor });
+      const shape: TacticalArrow = { type: drawShapeType, x1: p.x, y1: p.y, x2: p.x, y2: p.y, color: drawColor };
+      if (newObjSize !== 1) shape.size = newObjSize;
+      if (newObjRot) shape.rot = newObjRot;
+      onCreateShape(shape);
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -405,7 +383,9 @@ function ArrowLayer({
     const p = pctFromEvent(e) ?? preview.current;
     const dist = Math.hypot(p.x - preview.start.x, p.y - preview.start.y);
     if (dist >= 4) {
-      onCreateShape({ type: drawShapeType, x1: preview.start.x, y1: preview.start.y, x2: p.x, y2: p.y, color: drawColor });
+      const shape: TacticalArrow = { type: drawShapeType, x1: preview.start.x, y1: preview.start.y, x2: p.x, y2: p.y, color: drawColor };
+      if (drawShapeType === 'ball_path') shape.kind = ballKind;
+      onCreateShape(shape);
     }
     setPreview(null);
   }
@@ -413,9 +393,7 @@ function ArrowLayer({
   function handleCanvasClick(e: ReactMouseEvent<SVGSVGElement>) {
     if (!measureMode) return;
     // Con los 2 puntos ya puestos, un click en la cancha NO reinicia la
-    // medición -- antes sí, y por eso "solo dejaba usarla una vez": para
-    // ajustarla había que empezar de cero. Ahora se ajusta arrastrando los
-    // puntos (ver handleMeasure*), y se borra tocando la línea entre ellos.
+    // medición: se ajusta arrastrando los puntos y se borra tocando la línea.
     if (measurePoints.length >= 2) return;
     const p = pctFromEvent(e);
     if (!p) return;
@@ -453,8 +431,7 @@ function ArrowLayer({
     if (!p) return;
     dh.moved = true;
     // Objeto de un punto: mover su único handle actualiza x1/y1 Y x2/y2
-    // juntos, para que se mantengan iguales (así el ícono se sigue
-    // dibujando en un solo punto, no como si fuera una línea).
+    // juntos, para que se mantengan iguales (el ícono sigue siendo un punto).
     if (isPointShape(shapes[dh.index]?.type)) {
       onUpdateShape(dh.index, { x1: p.x, y1: p.y, x2: p.x, y2: p.y });
       return;
@@ -466,12 +443,36 @@ function ArrowLayer({
     draggingHandle.current = null;
   }
 
-  /** Solo para objetos de un punto: soltar sin haber movido = borrar (un
-   *  "tap" limpio); soltar habiendo arrastrado = solo reposicionar, no borra. */
+  /** Solo objetos de un punto: soltar sin haber movido = seleccionar (o
+   *  deseleccionar si ya lo estaba); soltar habiendo arrastrado = solo mover. */
   function handleObjectPointerUp(index: number) {
     const wasTap = draggingHandle.current !== null && !draggingHandle.current.moved;
     draggingHandle.current = null;
-    if (wasTap) onDeleteShape(index);
+    if (wasTap) onSelectShape(selectedIndex === index ? null : index);
+  }
+
+  function handleRotatePointerDown(index: number, s: TacticalArrow, e: ReactPointerEvent<SVGCircleElement>) {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const c = toSvg({ x: s.x1, y: s.y1 });
+    rotating.current = { index, cx: c.x, cy: c.y };
+  }
+
+  /** Ángulo entre el centro del objeto y el puntero, en espacio SVG. La
+   *  cancha se dibuja isotrópica en pantalla (el contenedor tiene la misma
+   *  proporción que el viewBox), así que el ángulo en SVG es el que se ve. */
+  function handleRotatePointerMove(e: ReactPointerEvent<SVGCircleElement>) {
+    const r = rotating.current;
+    if (!r) return;
+    const p = pctFromEvent(e);
+    if (!p) return;
+    const sp = toSvg(p);
+    const deg = (Math.atan2(sp.y - r.cy, sp.x - r.cx) * 180) / Math.PI + 90;
+    onUpdateShape(r.index, { rot: Math.round(((deg % 360) + 360) % 360) });
+  }
+
+  function handleRotatePointerUp() {
+    rotating.current = null;
   }
 
   // Ancho real = largo * proporción de la cancha (300/340) -- la cancha no
@@ -484,10 +485,31 @@ function ArrowLayer({
       )
     : null;
 
+  /** Handles de una figura de 2 puntos (flecha/curva/recorrido): siempre
+   *  interactivos, muevan o no drawMode/measureMode. */
+  function renderEndHandles(i: number, p1: ArrowPoint, p2: ArrowPoint, color: string) {
+    return (
+      <>
+        <circle cx={p1.x} cy={p1.y} r={3.2} fill="white" stroke={color} strokeWidth={1.5}
+          className="pointer-events-auto cursor-grab touch-none"
+          onPointerDown={(e) => handleHandlePointerDown(i, 'start', e)}
+          onPointerMove={handleHandlePointerMove}
+          onPointerUp={handleHandlePointerUp}
+        />
+        <circle cx={p2.x} cy={p2.y} r={3.2} fill="white" stroke={color} strokeWidth={1.5}
+          className="pointer-events-auto cursor-grab touch-none"
+          onPointerDown={(e) => handleHandlePointerDown(i, 'end', e)}
+          onPointerMove={handleHandlePointerMove}
+          onPointerUp={handleHandlePointerUp}
+        />
+      </>
+    );
+  }
+
   return (
     <svg
       ref={svgRef}
-      viewBox="0 0 300 340"
+      viewBox={viewBoxOf(view)}
       preserveAspectRatio="none"
       className={`absolute inset-0 w-full h-full z-40 touch-none ${
         measureMode ? 'cursor-crosshair pointer-events-auto' : drawMode ? 'cursor-crosshair pointer-events-auto' : 'pointer-events-none'
@@ -498,13 +520,17 @@ function ArrowLayer({
       onClick={handleCanvasClick}
     >
       <defs>
-        {/* Punta más chica que antes (era 8x8) -- se sentía muy pesada sobre
-            una cancha con jugadores y etiquetas ya de por sí cargada. */}
+        {/* Punta chica (5.5): una más grande se sentía pesada sobre una cancha
+            con jugadores y etiquetas ya de por sí cargada. */}
         {(Object.keys(ARROW_COLOR_HEX) as TacticalArrowColor[]).map((c) => (
           <marker key={c} id={`arrowhead-${c}`} markerWidth="5.5" markerHeight="5.5" refX="4" refY="2.75" orient="auto">
             <path d="M0,0 L5.5,2.75 L0,5.5 Z" fill={ARROW_COLOR_HEX[c]} />
           </marker>
         ))}
+        {/* Red del arco (patrón en unidades del usuario: escala con el objeto). */}
+        <pattern id="tb-net" width="2.6" height="2.6" patternUnits="userSpaceOnUse">
+          <path d="M0 0 L2.6 2.6 M2.6 0 L0 2.6" stroke="#f8fafc" strokeOpacity={0.6} strokeWidth={0.35} />
+        </pattern>
       </defs>
 
       {shapes.map((s, i) => {
@@ -514,19 +540,74 @@ function ArrowLayer({
         const type = s.type ?? 'arrow';
 
         if (isPointShape(type)) {
-          // Objeto de un punto: el ícono ENTERO es el handle -- un solo
-          // toque para mover, tocar sin arrastrar para borrar (mismo umbral
-          // de distancia que ya usa handleCanvasPointerUp para no confundir
-          // un tap con un drag).
+          if (hiddenIndexes.has(i)) return null; // balón real "en juego": lo reemplaza el fantasma
+          const size = s.size ?? 1;
+          const rot = s.rot ?? 0;
+          const box = OBJECT_BOX[type];
+          const hw = (box.w / 2 + 2) * size;
+          const hh = (box.h / 2 + 2) * size;
+          const selected = selectedIndex === i;
           return (
-            <g
-              key={i}
-              className="pointer-events-auto cursor-grab touch-none"
-              onPointerDown={(e) => handleHandlePointerDown(i, 'start', e)}
-              onPointerMove={handleHandlePointerMove}
-              onPointerUp={() => handleObjectPointerUp(i)}
-            >
-              <ObjectIcon type={type} x={p1.x} y={p1.y} />
+            <g key={i}>
+              {/* El ícono ENTERO es el handle: arrastrar mueve, tocar selecciona.
+                  El rect transparente es el área de toque real (gira con él). */}
+              <g
+                className="pointer-events-auto cursor-grab touch-none"
+                onPointerDown={(e) => handleHandlePointerDown(i, 'start', e)}
+                onPointerMove={handleHandlePointerMove}
+                onPointerUp={() => handleObjectPointerUp(i)}
+              >
+                <ObjectIcon type={type} x={p1.x} y={p1.y} size={size} rot={rot} color={s.color} pinStyle={pinStyle} />
+                <rect x={p1.x - hw} y={p1.y - hh} width={hw * 2} height={hh * 2} fill="transparent" transform={`rotate(${rot} ${p1.x} ${p1.y})`} />
+              </g>
+              {selected && (
+                <g transform={`rotate(${rot} ${p1.x} ${p1.y})`}>
+                  <rect x={p1.x - hw} y={p1.y - hh} width={hw * 2} height={hh * 2} rx={2} fill="none" stroke="#34d399" strokeWidth={1} strokeDasharray="3 2" className="pointer-events-none" />
+                  {/* Handle de giro: arrastrarlo alrededor del centro fija rot. */}
+                  <line x1={p1.x} y1={p1.y - hh} x2={p1.x} y2={p1.y - hh - 9} stroke="#34d399" strokeWidth={1} className="pointer-events-none" />
+                  <circle cx={p1.x} cy={p1.y - hh - 11} r={4.2} fill="#34d399" stroke="#064e3b" strokeWidth={1}
+                    className="pointer-events-auto cursor-grab touch-none"
+                    onPointerDown={(e) => handleRotatePointerDown(i, s, e)}
+                    onPointerMove={handleRotatePointerMove}
+                    onPointerUp={handleRotatePointerUp}
+                  />
+                  {/* Quitar: explícito, ya no es "tocar de nuevo". */}
+                  <g className="pointer-events-auto cursor-pointer" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDeleteShape(i); }}>
+                    <circle cx={p1.x + hw + 4} cy={p1.y - hh - 4} r={4.6} fill="#dc2626" stroke="white" strokeWidth={1} />
+                    <path d={`M ${p1.x + hw + 2} ${p1.y - hh - 6} l 4 4 M ${p1.x + hw + 6} ${p1.y - hh - 6} l -4 4`} stroke="white" strokeWidth={1.3} strokeLinecap="round" />
+                  </g>
+                </g>
+              )}
+            </g>
+          );
+        }
+
+        if (type === 'ball_path') {
+          const kind = s.kind ?? 'pase';
+          const lofted = kind !== 'pase';
+          const c = lofted ? curveControlPoint(p1, p2, BALL_PATH_BEND) : null;
+          const d = c ? `M ${p1.x} ${p1.y} Q ${c.x} ${c.y} ${p2.x} ${p2.y}` : `M ${p1.x} ${p1.y} L ${p2.x} ${p2.y}`;
+          return (
+            <g key={i}>
+              <path d={d} stroke="transparent" strokeWidth={12} fill="none"
+                className="pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); onDeleteShape(i); }} />
+              {/* Sombra oscura debajo del trazo: legible sobre el verde con cualquier color. */}
+              <path d={d} stroke="#111827" strokeOpacity={0.35} strokeWidth={3.6} fill="none" strokeLinecap="round" className="pointer-events-none" />
+              <path d={d} stroke={color} strokeWidth={2} fill="none" strokeLinecap="round"
+                strokeDasharray={lofted ? '2.5 3.5' : '5 3'}
+                markerEnd={kind === 'pase' ? `url(#arrowhead-${s.color ?? 'white'})` : undefined}
+                className="pointer-events-none" />
+              <g transform={`translate(${p1.x} ${p1.y})`} className="pointer-events-none"><BallGlyph r={3.6} /></g>
+              {lofted && (
+                <g className="pointer-events-none">
+                  <circle cx={p2.x} cy={p2.y} r={4.5} fill="none" stroke={color} strokeWidth={1.6} />
+                  <circle cx={p2.x} cy={p2.y} r={1.3} fill={color} />
+                  {kind === 'penal' && (
+                    <text x={p2.x} y={p2.y - 7} textAnchor="middle" fontSize={7} fontWeight={800} fill={color} stroke="#111827" strokeWidth={0.5} paintOrder="stroke">P</text>
+                  )}
+                </g>
+              )}
+              {renderEndHandles(i, p1, p2, color)}
             </g>
           );
         }
@@ -537,7 +618,7 @@ function ArrowLayer({
               <rect
                 x={Math.min(p1.x, p2.x)} y={Math.min(p1.y, p2.y)}
                 width={Math.abs(p2.x - p1.x)} height={Math.abs(p2.y - p1.y)}
-                rx={5} fill={color} fillOpacity={0.1} stroke={color} strokeOpacity={0.55} strokeWidth={1}
+                rx={5} fill={color} fillOpacity={0.14} stroke={color} strokeOpacity={0.7} strokeWidth={1.2}
                 className="pointer-events-auto cursor-pointer"
                 onClick={(e) => { e.stopPropagation(); onDeleteShape(i); }}
               />
@@ -561,21 +642,7 @@ function ArrowLayer({
                   markerEnd={`url(#arrowhead-${s.color ?? 'white'})`} className="pointer-events-none" />
               </>
             )}
-
-            {/* Handles -- más chicos que antes (r=5), siguen siendo
-                interactivos siempre, muevan o no drawMode/measureMode. */}
-            <circle cx={p1.x} cy={p1.y} r={3.2} fill="white" stroke={color} strokeWidth={1.5}
-              className="pointer-events-auto cursor-grab touch-none"
-              onPointerDown={(e) => handleHandlePointerDown(i, 'start', e)}
-              onPointerMove={handleHandlePointerMove}
-              onPointerUp={handleHandlePointerUp}
-            />
-            <circle cx={p2.x} cy={p2.y} r={3.2} fill="white" stroke={color} strokeWidth={1.5}
-              className="pointer-events-auto cursor-grab touch-none"
-              onPointerDown={(e) => handleHandlePointerDown(i, 'end', e)}
-              onPointerMove={handleHandlePointerMove}
-              onPointerUp={handleHandlePointerUp}
-            />
+            {renderEndHandles(i, p1, p2, color)}
           </g>
         );
       })}
@@ -583,28 +650,51 @@ function ArrowLayer({
       {preview && (() => {
         const p1 = toSvg(preview.start);
         const p2 = toSvg(preview.current);
+        const c = ARROW_COLOR_HEX[drawColor];
         if (drawShapeType === 'zone') {
           return (
             <rect
               x={Math.min(p1.x, p2.x)} y={Math.min(p1.y, p2.y)}
               width={Math.abs(p2.x - p1.x)} height={Math.abs(p2.y - p1.y)}
-              rx={6} fill={ARROW_COLOR_HEX[drawColor]} fillOpacity={0.15}
-              stroke={ARROW_COLOR_HEX[drawColor]} strokeOpacity={0.6} strokeWidth={1.5} strokeDasharray="5 4"
+              rx={6} fill={c} fillOpacity={0.15} stroke={c} strokeOpacity={0.6} strokeWidth={1.5} strokeDasharray="5 4"
             />
           );
         }
         if (drawShapeType === 'curve') {
-          const c = curveControlPoint(p1, p2);
-          return <path d={`M ${p1.x} ${p1.y} Q ${c.x} ${c.y} ${p2.x} ${p2.y}`} stroke="#f8fafc" strokeOpacity={0.7} strokeWidth={2} fill="none" strokeDasharray="5 4" strokeLinecap="round" />;
+          const cp = curveControlPoint(p1, p2);
+          return <path d={`M ${p1.x} ${p1.y} Q ${cp.x} ${cp.y} ${p2.x} ${p2.y}`} stroke="#f8fafc" strokeOpacity={0.7} strokeWidth={2} fill="none" strokeDasharray="5 4" strokeLinecap="round" />;
+        }
+        if (drawShapeType === 'ball_path') {
+          const lofted = ballKind !== 'pase';
+          const cp = lofted ? curveControlPoint(p1, p2, BALL_PATH_BEND) : null;
+          const d = cp ? `M ${p1.x} ${p1.y} Q ${cp.x} ${cp.y} ${p2.x} ${p2.y}` : `M ${p1.x} ${p1.y} L ${p2.x} ${p2.y}`;
+          return (
+            <>
+              <path d={d} stroke="#f8fafc" strokeOpacity={0.7} strokeWidth={2} fill="none" strokeDasharray="3 3" strokeLinecap="round" />
+              <g transform={`translate(${p1.x} ${p1.y})`}><BallGlyph r={3.6} /></g>
+            </>
+          );
         }
         return <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#f8fafc" strokeOpacity={0.7} strokeWidth={2} strokeDasharray="5 4" strokeLinecap="round" />;
       })()}
 
+      {/* Balones fantasma de "Reproducir jugada": recorren cada ball_path.
+          Elevados (remate/penal) crecen y proyectan sombra. Encima de todo. */}
+      {ghostBalls?.map((b, i) => {
+        const p = toSvg(b);
+        return (
+          <g key={`gb${i}`} className="pointer-events-none">
+            {b.scale > 1.05 && (
+              <ellipse cx={p.x} cy={p.y + 6 * b.scale} rx={4.5} ry={1.8} fill="#000" opacity={0.35 / b.scale} />
+            )}
+            <g transform={`translate(${p.x} ${p.y}) scale(${b.scale})`}><BallGlyph r={5} /></g>
+          </g>
+        );
+      })}
+
       {/* Regla de medir (no se guarda con la plantilla -- es una consulta
           puntual). Los puntos se arrastran para ajustar la medición sin
-          reiniciarla, y tocar la línea la borra -- antes un 3er click
-          simplemente arrancaba una medición nueva, sin forma de afinar la
-          que ya estaba ni de borrarla explícitamente. */}
+          reiniciarla, y tocar la línea la borra. */}
       {measurePoints.length === 2 && measureDistanceM !== null && (() => {
         const a = toSvg(measurePoints[0]);
         const b = toSvg(measurePoints[1]);
@@ -621,10 +711,6 @@ function ArrowLayer({
           </>
         );
       })()}
-      {/* Puntos de la regla -- arrastrables (antes eran fijos: la única forma
-          de "ajustar" era borrar todo y volver a medir desde cero). Más
-          chicos que las figuras (r=2.6) porque son solo una referencia, no
-          algo que se guarda. */}
       {measurePoints.map((p, i) => {
         const svgP = toSvg(p);
         return (
@@ -640,10 +726,11 @@ function ArrowLayer({
     </svg>
   );
 }
-
-/** Ficha de jugador en la cancha, estilo disco de videojuego (número de
- *  camiseta si existe, si no las iniciales) con etiqueta flotante debajo. */
-function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, animate }: {
+/** Ficha de jugador en la cancha: disco de videojuego (número de camiseta o
+ *  iniciales, foto si hay) o silueta genérica por posición (arquero en
+ *  amarillo, resto en verde; NUNCA la foto -- es una figura, no la persona),
+ *  con etiqueta flotante debajo. */
+function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, animate, pinStyle, view }: {
   subject: RosterSubject;
   slot: PlacedSlot;
   onLabelChange: (label: string) => void;
@@ -655,6 +742,8 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, 
    *  saltar de golpe. Fuera de esos momentos NO se anima (arrastrar se
    *  sentiría con retraso si el transition estuviera siempre activo). */
   animate?: boolean;
+  pinStyle: PinStyle;
+  view: PitchView;
 }) {
   const key = subjectKey(subject.subject_type, subject.subject_id);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -662,13 +751,28 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, 
     data: { subject },
   });
   const [editing, setEditing] = useState(false);
-  // BenchDraggable y LineupModal ya mostraban la foto -- el pin en cancha
-  // era el único lugar que se quedaba en solo número/iniciales. `imgError`
-  // cubre el caso de una avatar_url rota (404, bucket privado, etc.): cae
-  // de vuelta al disco de siempre en vez de dejar un ícono roto.
+  // `imgError` cubre el caso de una avatar_url rota (404, bucket privado,
+  // etc.): cae de vuelta al disco de siempre en vez de dejar un ícono roto.
   const [imgError, setImgError] = useState(false);
   const displayNumber = slot.jersey_number !== '' ? String(slot.jersey_number) : null;
   const hasPhoto = !!subject.avatar_url && !imgError;
+  const topPct = yToView(slot.y, view);
+  // Fuera de la ventana visible (zoom al área): se oculta, no se desmonta,
+  // para que useDraggable siga registrado y la posición guardada no cambie.
+  const hidden = topPct < -1 || topPct > 101;
+  const isGK = isGoalkeeperLabel(slot.slot_label);
+
+  // P2c: goles/asistencias de este partido, de un vistazo.
+  const eventsBadge = events && (events.goals > 0 || events.assists > 0) ? (
+    <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 flex gap-0.5 whitespace-nowrap">
+      {events.goals > 0 && (
+        <span className="text-[9px] bg-zinc-950 rounded-full px-1 ring-1 ring-white/30">⚽{events.goals > 1 ? `×${events.goals}` : ''}</span>
+      )}
+      {events.assists > 0 && (
+        <span className="text-[9px] bg-zinc-950 rounded-full px-1 ring-1 ring-white/30">🅰️{events.assists > 1 ? `×${events.assists}` : ''}</span>
+      )}
+    </div>
+  ) : null;
 
   return (
     <div
@@ -676,10 +780,11 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, 
       style={{
         position: 'absolute',
         left: `${slot.x}%`,
-        top: `${slot.y}%`,
+        top: `${topPct}%`,
         transform: `translate(-50%, -50%) ${transform ? CSS.Translate.toString(transform) : ''}`,
         transition: animate ? 'left 1.3s ease-in-out, top 1.3s ease-in-out' : undefined,
         zIndex: isDragging ? 30 : 10,
+        display: hidden ? 'none' : undefined,
       }}
       className="flex flex-col items-center gap-1 touch-none"
     >
@@ -691,51 +796,51 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, 
       >
         <X className="h-3 w-3" />
       </button>
-      {/* El handle de arrastre cubre disco + etiqueta juntos -- antes solo
-          cubría el círculo del avatar (36px), así que agarrar la etiqueta o
-          el borde del pin no arrastraba nada. El botón X queda AFUERA de
-          este div a propósito, para que nunca compita con el drag. */}
+      {/* El handle de arrastre cubre figura + etiqueta juntos. El botón X
+          queda AFUERA de este div a propósito, para que nunca compita con el drag. */}
       <div
         {...listeners}
         {...attributes}
         className="flex flex-col items-center gap-1 touch-none cursor-grab active:cursor-grabbing"
       >
-        <div
-          onClick={(e) => { e.stopPropagation(); onOpenCard(); }}
-          className={`relative h-11 w-11 rounded-full overflow-hidden flex items-center justify-center font-black text-sm text-white cursor-pointer
-            ${hasPhoto ? 'bg-zinc-800' : 'bg-gradient-to-br from-emerald-400 via-emerald-500 to-emerald-700'}
-            shadow-[0_3px_12px_rgba(0,0,0,0.55)] ring-2 transition-transform
-            ${isDragging ? 'ring-white scale-110' : 'ring-white/80'}`}
-        >
-          {hasPhoto ? (
-            <img
-              src={subject.avatar_url ?? undefined}
-              alt={subject.full_name}
-              className="absolute inset-0 h-full w-full object-cover"
-              onError={() => setImgError(true)}
-            />
-          ) : (
-            displayNumber ?? initialsOf(subject.full_name)
-          )}
-          {/* Con foto, el número pasa a insignia de esquina (estilo FC/PES)
-              en vez de superpuesto sobre la cara del jugador. */}
-          {hasPhoto && displayNumber && (
-            <span className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-zinc-950 ring-1 ring-white/70 text-[8px] font-black flex items-center justify-center">
-              {displayNumber}
-            </span>
-          )}
-          {/* P2c: goles/asistencias de este partido, de un vistazo. */}
-          {events && (events.goals > 0 || events.assists > 0) && (
-            <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 flex gap-0.5 whitespace-nowrap">
-              {events.goals > 0 && (
-                <span className="text-[9px] bg-zinc-950 rounded-full px-1 ring-1 ring-white/30">⚽{events.goals > 1 ? `×${events.goals}` : ''}</span>
-              )}
-              {events.assists > 0 && (
-                <span className="text-[9px] bg-zinc-950 rounded-full px-1 ring-1 ring-white/30">🅰️{events.assists > 1 ? `×${events.assists}` : ''}</span>
-              )}
-            </div>
-          )}
-        </div>
+        {pinStyle === 'silhouette' ? (
+          <div
+            onClick={(e) => { e.stopPropagation(); onOpenCard(); }}
+            className={`relative h-12 w-11 cursor-pointer transition-transform drop-shadow-[0_3px_8px_rgba(0,0,0,0.65)] ${isDragging ? 'scale-110' : ''}`}
+          >
+            <svg viewBox="0 0 40 44" className="h-full w-full overflow-visible" aria-hidden="true">
+              <SilhouetteGlyph jersey={isGK ? '#facc15' : '#10b981'} accent="#0f172a" number={displayNumber ?? initialsOf(subject.full_name)} />
+            </svg>
+            {eventsBadge}
+          </div>
+        ) : (
+          <div
+            onClick={(e) => { e.stopPropagation(); onOpenCard(); }}
+            className={`relative h-11 w-11 rounded-full overflow-hidden flex items-center justify-center font-black text-sm text-white cursor-pointer
+              ${hasPhoto ? 'bg-zinc-800' : 'bg-gradient-to-br from-emerald-400 via-emerald-500 to-emerald-700'}
+              shadow-[0_3px_12px_rgba(0,0,0,0.55)] ring-2 transition-transform
+              ${isDragging ? 'ring-white scale-110' : 'ring-white/80'}`}
+          >
+            {hasPhoto ? (
+              <img
+                src={subject.avatar_url ?? undefined}
+                alt={subject.full_name}
+                className="absolute inset-0 h-full w-full object-cover"
+                onError={() => setImgError(true)}
+              />
+            ) : (
+              displayNumber ?? initialsOf(subject.full_name)
+            )}
+            {/* Con foto, el número pasa a insignia de esquina (estilo FC/PES)
+                en vez de superpuesto sobre la cara del jugador. */}
+            {hasPhoto && displayNumber && (
+              <span className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-zinc-950 ring-1 ring-white/70 text-[8px] font-black flex items-center justify-center">
+                {displayNumber}
+              </span>
+            )}
+            {eventsBadge}
+          </div>
+        )}
         {editing ? (
           <Input
             autoFocus
@@ -757,7 +862,6 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, 
     </div>
   );
 }
-
 export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sourceId, contextLabel }: TacticalBoardProps) {
   const { toast } = useToast();
   const { data: roster, isLoading: loadingRoster } = useTeamPerformanceRoster({ team_id: teamId });
@@ -801,6 +905,26 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   const [drawShapeType, setDrawShapeType] = useState<TacticalShapeType>('arrow');
   const [arrows, setArrows] = useState<TacticalArrow[]>([]);
   const [drawColor, setDrawColor] = useState<TacticalArrowColor>('white');
+  // Recorridos de balón (pase/remate/penal) y material con tamaño y giro.
+  const [ballKind, setBallKind] = useState<BallPathKind>('pase');
+  const [newObjSize, setNewObjSize] = useState(1);
+  const [newObjRot, setNewObjRot] = useState(0);
+  // Objeto seleccionado (índice en `arrows`): tamaño/giro/duplicar/quitar
+  // desde el panel y handle de giro en la cancha.
+  const [selectedShape, setSelectedShape] = useState<number | null>(null);
+  // Disco vs. silueta: preferencia del coach, persistida en localStorage.
+  const [pinStyle, setPinStyle] = useState<PinStyle>(() => readPinStyle());
+  // Zoom al área (modo arqueros): se prende solo al elegir esa situación y
+  // se puede alternar a mano desde el toolbar en cualquier situación.
+  const [gkZoom, setGkZoom] = useState(false);
+  const view = gkZoom ? GK_VIEW : FULL_VIEW;
+  useEffect(() => { setGkZoom(situation === 'arqueros'); }, [situation]);
+  // Balones fantasma de "Reproducir jugada" + balones reales que se esconden
+  // mientras corre la animación (los que están en el origen de un recorrido).
+  const [ghostBalls, setGhostBalls] = useState<GhostBall[] | null>(null);
+  const [hiddenBallIdx, setHiddenBallIdx] = useState<ReadonlySet<number>>(() => new Set());
+  const ballRaf = useRef<number | null>(null);
+  useEffect(() => () => { if (ballRaf.current) cancelAnimationFrame(ballRaf.current); }, []);
 
   // Regla de medir -- consulta puntual, no viaja con la plantilla (mutuamente
   // excluyente con drawMode: no tiene sentido dibujar y medir con el mismo gesto).
@@ -911,11 +1035,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     // alineación desde 20260919195137_match_lineups_arrows.sql. Antes de esa
     // migración `existingLineup.arrows` no existía (undefined): el `?? []`
     // deja el tablero vacío en vez de romper con alineaciones ya guardadas.
-    setArrows(
-      (existingLineup.arrows ?? []).map((a) => ({
-        type: a.type, x1: Number(a.x1), y1: Number(a.y1), x2: Number(a.x2), y2: Number(a.y2), color: a.color,
-      })),
-    );
+    setArrows((existingLineup.arrows ?? []).map(hydrateShape));
     setInitialized(true);
   }
 
@@ -949,7 +1069,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     if (!pitchRect) return;
 
     const xPct = current.x + (delta.x / pitchRect.width) * 100;
-    const yPct = current.y + (delta.y / pitchRect.height) * 100;
+    // Con zoom, el alto del contenedor representa solo y0..y1 de la cancha.
+    const yPct = current.y + (delta.y / pitchRect.height) * (view.y1 - view.y0);
 
     const xs: number[] = [];
     const ys: number[] = [];
@@ -1002,7 +1123,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     if (!withinPitch) return;
 
     let xPct = Math.min(100, Math.max(0, ((centerX - pitchRect.left) / pitchRect.width) * 100));
-    let yPct = Math.min(100, Math.max(0, ((centerY - pitchRect.top) / pitchRect.height) * 100));
+    let yPct = Math.min(100, Math.max(0, yFromView(((centerY - pitchRect.top) / pitchRect.height) * 100, view)));
     let adoptedLabel: string | null = null;
 
     // Si es un jugador NUEVO (no reposicionando) y cae cerca de un marcador
@@ -1111,7 +1232,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       setEmptySlots(slots.map((s, i) => ({ id: `${preset.id}:${i}`, slot_label: s.slot_label, x: s.x, y: s.y })));
     }
 
-    setArrows((preset.arrows ?? []).map((a) => ({ type: a.type, x1: Number(a.x1), y1: Number(a.y1), x2: Number(a.x2), y2: Number(a.y2), color: a.color })));
+    setArrows((preset.arrows ?? []).map(hydrateShape));
+    setSelectedShape(null);
     setLoadedPresetId(preset.id);
   }
 
@@ -1213,10 +1335,41 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
    *  "gasta": si el jugador se quedara en la punta, la segunda reproducción
    *  no tendría de dónde partir, porque el jugador ya no está donde arranca
    *  la flecha. */
+  /** Anima balones fantasma a lo largo de cada recorrido, con
+   *  requestAnimationFrame (los objetos son SVG, no tienen transition CSS de
+   *  left/top como los pines). Ease in-out para que arranque y frene suave. */
+  function runBallAnimation(paths: TacticalArrow[], durationMs: number) {
+    if (paths.length === 0) return;
+    if (ballRaf.current) cancelAnimationFrame(ballRaf.current);
+    const start = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / durationMs);
+      const e = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+      setGhostBalls(paths.map((p) => {
+        const pos = ballPathPoint(p, e);
+        return { ...pos, scale: isLoftedPath(p) ? 1 + Math.sin(Math.PI * e) * 0.8 : 1 };
+      }));
+      if (t < 1) ballRaf.current = requestAnimationFrame(step);
+      else ballRaf.current = null;
+    };
+    ballRaf.current = requestAnimationFrame(step);
+  }
+
+  /** "Reproducir jugada": cada jugador puesto que tenga una flecha o curva
+   *  arrancando cerca de su posición se desliza animado hasta la punta, y
+   *  cada recorrido de balón (pase/remate/penal) lo recorre un balón
+   *  fantasma -- elevándose si es remate o penal. Es una aproximación (los
+   *  jugadores van en línea recta con CSS, no siguen el arco de una curva);
+   *  alcanza para "mostrar la jugada", no pretende ser exacta.
+   *
+   *  Ida, pausa breve mostrando la formación final, y VUELTA al punto de
+   *  partida -- así "Reproducir" es un ensayo repetible (el coach lo aprieta
+   *  las veces que quiera) y no algo que se "gasta". */
   function handlePlayMovement() {
     if (playingSequence) return;
 
     const candidateArrows = arrows.filter((a) => (a.type ?? 'arrow') === 'arrow' || a.type === 'curve');
+    const ballPaths = arrows.filter((a) => a.type === 'ball_path');
 
     const placedEntries = Object.entries(placed);
     const matches: { key: string; fromX: number; fromY: number; fromLabel: string; toX: number; toY: number }[] = [];
@@ -1230,15 +1383,23 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       if (closest) matches.push({ key, fromX: slot.x, fromY: slot.y, fromLabel: slot.slot_label, toX: closest.x2, toY: closest.y2 });
     }
 
-    if (matches.length === 0) {
+    if (matches.length === 0 && ballPaths.length === 0) {
       toast({
         title: 'Nada que reproducir',
-        description: 'Dibuja una flecha o curva que salga de un jugador puesto en la cancha.',
+        description: 'Dibuja una flecha o curva que salga de un jugador, o un recorrido de balón (pase, remate o penal).',
         variant: 'destructive',
       });
       return;
     }
 
+    // Un balón real puesto en el origen de un recorrido se esconde mientras
+    // corre el fantasma: si no, se verían dos balones (uno quieto, uno en juego).
+    const hidden = new Set<number>();
+    arrows.forEach((a, i) => {
+      if (a.type === 'ball' && ballPaths.some((p) => Math.hypot(p.x1 - a.x1, p.y1 - a.y1) < PLAY_MATCH_DISTANCE)) hidden.add(i);
+    });
+    setHiddenBallIdx(hidden);
+    setSelectedShape(null);
     setPlayingSequence(true);
 
     // 1) Ida.
@@ -1250,6 +1411,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       return next;
     });
     setAnimatingMove(true);
+    runBallAnimation(ballPaths, ANIMATE_MS);
 
     setTimeout(() => {
       setAnimatingMove(false);
@@ -1264,6 +1426,10 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
           return next;
         });
         setAnimatingMove(true);
+        // El balón vuelve al punto de partida (el fantasma desaparece y el
+        // balón real, si había, reaparece donde estaba).
+        setGhostBalls(null);
+        setHiddenBallIdx(new Set());
 
         setTimeout(() => {
           setAnimatingMove(false);
@@ -1272,20 +1438,66 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       }, PLAY_HOLD_MS);
     }, ANIMATE_MS);
   }
-
   // El manejo de puntero para dibujar/editar vive dentro de ArrowLayer (no
   // acá) para no re-renderizar todo TacticalBoard en cada pixel de
   // arrastre -- estos 3 callbacks son la única superficie que necesita.
   function handleCreateShape(shape: TacticalArrow) {
     setArrows((prev) => [...prev, shape]);
   }
-  function handleUpdateShape(index: number, patch: Partial<Pick<TacticalArrow, 'x1' | 'y1' | 'x2' | 'y2'>>) {
+  function handleUpdateShape(index: number, patch: ShapePatch) {
     setArrows((prev) => prev.map((a, i) => (i === index ? { ...a, ...patch } : a)));
   }
+  /** Borrar corre los índices de las figuras posteriores: la selección se
+   *  ajusta para seguir apuntando al mismo objeto (o se limpia si era ese). */
   function handleDeleteShape(index: number) {
     setArrows((prev) => prev.filter((_, i) => i !== index));
+    setSelectedShape((prev) => (prev === null || prev === index ? null : prev > index ? prev - 1 : prev));
+  }
+  function handleDuplicateSelected() {
+    if (selectedShape === null) return;
+    const src = arrows[selectedShape];
+    if (!src) return;
+    const dx = 4;
+    const dy = 3;
+    const copy: TacticalArrow = {
+      ...src,
+      x1: Math.min(100, src.x1 + dx), y1: Math.min(100, src.y1 + dy),
+      x2: Math.min(100, src.x2 + dx), y2: Math.min(100, src.y2 + dy),
+    };
+    setArrows((prev) => [...prev, copy]);
+    setSelectedShape(arrows.length); // la copia queda al final
+  }
+  function togglePinStyle() {
+    setPinStyle((prev) => {
+      const next: PinStyle = prev === 'disc' ? 'silhouette' : 'disc';
+      try { localStorage.setItem(PIN_STYLE_KEY, next); } catch { /* modo privado / storage bloqueado: se pierde al recargar, nada más */ }
+      return next;
+    });
   }
 
+  // Objeto seleccionado (si el índice sigue siendo válido y es un objeto de
+  // un punto): el panel edita SU tamaño/giro. Sin selección, edita los
+  // valores con los que se colocan los objetos nuevos.
+  const selected = selectedShape !== null ? arrows[selectedShape] : undefined;
+  const selectedIsObject = !!selected && isPointShape(selected.type);
+  const panelSize = selectedIsObject ? (selected!.size ?? 1) : newObjSize;
+  const panelRot = selectedIsObject ? (selected!.rot ?? 0) : newObjRot;
+  function setPanelSize(v: number) {
+    const clamped = Math.min(OBJ_SIZE_MAX, Math.max(OBJ_SIZE_MIN, v));
+    if (selectedIsObject) handleUpdateShape(selectedShape!, { size: clamped }); else setNewObjSize(clamped);
+  }
+  function setPanelRot(v: number) {
+    const norm = ((Math.round(v) % 360) + 360) % 360;
+    if (selectedIsObject) handleUpdateShape(selectedShape!, { rot: norm }); else setNewObjRot(norm);
+  }
+  /** Elegir una herramienta de dibujo prende el modo dibujo: antes había que
+   *  activarlo aparte y era el tropiezo más común ("toco Cono y no pasa nada"). */
+  function pickTool(type: TacticalShapeType, kind?: BallPathKind) {
+    setDrawShapeType(type);
+    if (kind) setBallKind(kind);
+    setDrawMode(true);
+    setMeasureMode(false);
+  }
   async function handleSave() {
     const starters = Object.entries(placed);
     if (starters.length > 11) {
@@ -1369,7 +1581,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
           {!loading && (
             <>
-              <Select value={situation} onValueChange={(v) => { setSituation(v as TacticalSituation); setEmptySlots([]); setLoadedPresetId(null); setArrows([]); }}>
+              <Select value={situation} onValueChange={(v) => { setSituation(v as TacticalSituation); setEmptySlots([]); setLoadedPresetId(null); setArrows([]); setSelectedShape(null); setGhostBalls(null); }}>
                 <SelectTrigger className="h-7 w-[110px] text-[11px] bg-white/5 border-white/15 text-white">
                   <SelectValue />
                 </SelectTrigger>
@@ -1469,6 +1681,26 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
               <Button
                 size="sm"
+                variant="ghost"
+                className={`h-7 w-7 p-0 hover:bg-white/10 ${pinStyle === 'silhouette' ? 'text-emerald-400 hover:text-emerald-300' : 'text-white/60 hover:text-white'}`}
+                onClick={togglePinStyle}
+                title={pinStyle === 'silhouette' ? 'Ver jugadores como discos' : 'Ver jugadores como siluetas (arquero en amarillo)'}
+              >
+                <User className="h-3.5 w-3.5" />
+              </Button>
+
+              <Button
+                size="sm"
+                variant="ghost"
+                className={`h-7 w-7 p-0 hover:bg-white/10 ${gkZoom ? 'text-emerald-400 hover:text-emerald-300' : 'text-white/60 hover:text-white'}`}
+                onClick={() => setGkZoom((v) => !v)}
+                title={gkZoom ? 'Ver la cancha completa' : 'Zoom al área (modo arqueros)'}
+              >
+                {gkZoom ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+              </Button>
+
+              <Button
+                size="sm"
                 variant={tacticsOpen ? 'default' : 'ghost'}
                 className={`h-7 gap-1 text-[11px] px-2 ${tacticsOpen ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'text-white/60 hover:text-white hover:bg-white/10'}`}
                 onClick={() => setTacticsOpen((v) => !v)}
@@ -1538,14 +1770,23 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     síntoma de "se ve aprisionado" en un dispositivo real. */}
                 <div
                   ref={pitchRef}
-                  className="relative w-[min(580px,calc((100vh-90px)*300/340),100%)] aspect-[300/340] rounded-2xl overflow-hidden select-none shadow-[0_12px_40px_rgba(0,0,0,0.55)] ring-1 ring-white/10"
+                  className="relative rounded-2xl overflow-hidden select-none shadow-[0_12px_40px_rgba(0,0,0,0.55)] ring-1 ring-white/10"
+                  style={{
+                    // Proporción = la de la ventana visible (300 × alto visible del
+                    // viewBox), así las líneas de la cancha no se deforman ni con zoom.
+                    // Ancho: alto disponible convertido a ancho por esa proporción,
+                    // topado (más ancho en zoom: la ventana es apaisada).
+                    aspectRatio: `300 / ${(view.y1 - view.y0) * 3.4}`,
+                    width: `min(${gkZoom ? 760 : 580}px, calc((100vh - 90px) * 300 / ${(view.y1 - view.y0) * 3.4}), 100%)`,
+                  }}
                 >
-                  <FootballPitchBackground />
-                  {showZones && <ZoneOverlay />}
+                  <FootballPitchBackground viewBox={viewBoxOf(view)} />
+                  {showZones && <ZoneOverlay view={view} />}
                   {emptySlots.map((es) => (
                     <EmptySlotMarker
                       key={es.id}
                       slot={es}
+                      view={view}
                       onRemove={() => setEmptySlots((prev) => prev.filter((s) => s.id !== es.id))}
                     />
                   ))}
@@ -1562,6 +1803,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         onOpenCard={() => setCardSubject(subject)}
                         events={eventSummaryByKey.get(key)}
                         animate={animatingMove}
+                        pinStyle={pinStyle}
+                        view={view}
                       />
                     );
                   })}
@@ -1576,16 +1819,25 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     drawMode={drawMode}
                     drawShapeType={drawShapeType}
                     drawColor={drawColor}
+                    ballKind={ballKind}
+                    newObjSize={newObjSize}
+                    newObjRot={newObjRot}
                     measureMode={measureMode}
                     pitchLengthMeters={pitchLengthMeters}
+                    view={view}
+                    pinStyle={pinStyle}
+                    selectedIndex={selectedShape}
+                    ghostBalls={ghostBalls}
+                    hiddenIndexes={hiddenBallIdx}
                     onCreateShape={handleCreateShape}
                     onUpdateShape={handleUpdateShape}
                     onDeleteShape={handleDeleteShape}
+                    onSelectShape={setSelectedShape}
                   />
                   {/* Guías de alineación mientras se arrastra un jugador ya
                       puesto -- puramente visuales, encima de todo (z-50). */}
                   {(alignGuides.x.length > 0 || alignGuides.y.length > 0) && (
-                    <svg viewBox="0 0 300 340" preserveAspectRatio="none" className="absolute inset-0 w-full h-full z-50 pointer-events-none">
+                    <svg viewBox={viewBoxOf(view)} preserveAspectRatio="none" className="absolute inset-0 w-full h-full z-50 pointer-events-none">
                       {alignGuides.x.map((x, i) => (
                         <line key={`x${i}`} x1={x * 3} y1={0} x2={x * 3} y2={340} stroke="#34d399" strokeWidth={1} strokeDasharray="4 4" opacity={0.8} />
                       ))}
@@ -1641,7 +1893,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         <button
                           key={opt.type}
                           type="button"
-                          onClick={() => setDrawShapeType(opt.type)}
+                          onClick={() => pickTool(opt.type)}
                           className={`flex-1 h-7 rounded text-[10px] font-semibold border ${
                             drawShapeType === opt.type
                               ? 'bg-emerald-600 border-emerald-500 text-white'
@@ -1655,43 +1907,145 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   </div>
 
                   <div>
-                    <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Objetos</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {(Object.keys(OBJECT_LABEL) as (keyof typeof OBJECT_LABEL)[]).map((type) => (
+                    <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Balón en juego</p>
+                    <div className="flex gap-1.5">
+                      {(Object.keys(BALL_PATH_LABEL) as BallPathKind[]).map((k) => (
+                        <button
+                          key={k}
+                          type="button"
+                          onClick={() => pickTool('ball_path', k)}
+                          className={`flex-1 h-7 rounded text-[10px] font-semibold border ${
+                            drawShapeType === 'ball_path' && ballKind === k
+                              ? 'bg-emerald-600 border-emerald-500 text-white'
+                              : 'bg-white/5 border-white/15 text-white/70 hover:bg-white/10'
+                          }`}
+                        >
+                          {BALL_PATH_LABEL[k]}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-white/40 mt-1 leading-snug">
+                      Arrastra desde donde sale el balón hasta donde llega. En "Reproducir jugada" el balón recorre la línea; remate y penal lo muestran elevándose.
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Material</p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {OBJECT_TYPES.map((type) => (
                         <button
                           key={type}
                           type="button"
-                          onClick={() => setDrawShapeType(type)}
+                          onClick={() => pickTool(type)}
                           title={OBJECT_LABEL[type]}
-                          className={`h-7 px-2 rounded text-[10px] font-semibold border ${
+                          className={`h-8 px-1.5 rounded text-[10px] font-semibold border flex items-center gap-1.5 ${
                             drawShapeType === type
                               ? 'bg-emerald-600 border-emerald-500 text-white'
                               : 'bg-white/5 border-white/15 text-white/70 hover:bg-white/10'
                           }`}
                         >
-                          {OBJECT_LABEL[type]}
+                          {/* Vista previa con el color elegido: el mismo dibujo que va a la cancha. */}
+                          <svg viewBox="-19 -19 38 38" className="h-6 w-6 shrink-0" aria-hidden="true">
+                            <ObjectIcon type={type} x={0} y={0} size={type === 'goal' || type === 'ladder' ? 0.9 : 1.15} color={drawColor} pinStyle={pinStyle} />
+                          </svg>
+                          <span className="truncate">{OBJECT_LABEL[type]}</span>
                         </button>
                       ))}
                     </div>
                     <p className="text-[10px] text-white/40 mt-1 leading-snug">
-                      Un toque para colocarlo; tócalo de nuevo (sin arrastrar) para borrarlo.
+                      Un toque en la cancha lo coloca. Arrástralo para moverlo; tócalo para seleccionarlo (tamaño, giro, duplicar, quitar).
                     </p>
                   </div>
-
                   <div>
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Color</p>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       {(Object.keys(ARROW_COLOR_HEX) as TacticalArrowColor[]).map((c) => (
                         <button
                           key={c}
                           type="button"
                           onClick={() => setDrawColor(c)}
-                          aria-label={`Color ${c}`}
-                          className={`h-6 w-6 rounded-full border-2 transition-transform ${drawColor === c ? 'border-emerald-400 scale-110' : 'border-white/20'}`}
+                          aria-label={`Color ${COLOR_LABEL[c]}`}
+                          title={COLOR_LABEL[c]}
+                          className={`h-6 w-6 rounded-full border-2 transition-transform ${drawColor === c ? 'border-emerald-400 scale-110 ring-2 ring-emerald-400/40' : 'border-white/30'}`}
                           style={{ backgroundColor: ARROW_COLOR_HEX[c] }}
                         />
                       ))}
                     </div>
+                    <p className="text-[10px] text-white/40 mt-1 leading-snug">
+                      Aplica a líneas, zonas y material. Zonas de distinto color = distintas consignas.
+                    </p>
+                  </div>
+
+                  <div className="pt-2 border-t border-white/10">
+                    <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">
+                      {selectedIsObject ? `Seleccionado: ${OBJECT_LABEL[selected!.type as ObjectType]}` : 'Tamaño y giro al colocar'}
+                    </p>
+                    <label className="flex items-center gap-2 text-[10px] text-white/60">
+                      <span className="w-12 shrink-0">Tamaño</span>
+                      <input
+                        type="range"
+                        min={OBJ_SIZE_MIN}
+                        max={OBJ_SIZE_MAX}
+                        step={0.1}
+                        value={panelSize}
+                        onChange={(e) => setPanelSize(Number(e.target.value))}
+                        className="flex-1 min-w-0 accent-emerald-500"
+                        aria-label="Tamaño del objeto"
+                      />
+                      <span className="w-9 text-right tabular-nums text-white/80">{panelSize.toFixed(1)}×</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-[10px] text-white/60 mt-1">
+                      <span className="w-12 shrink-0">Giro</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={355}
+                        step={5}
+                        value={panelRot}
+                        onChange={(e) => setPanelRot(Number(e.target.value))}
+                        className="flex-1 min-w-0 accent-emerald-500"
+                        aria-label="Giro del objeto"
+                      />
+                      <span className="w-9 text-right tabular-nums text-white/80">{panelRot}°</span>
+                    </label>
+                    <div className="flex gap-1.5 mt-1.5">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 h-7 gap-1 text-[11px] bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-white"
+                        onClick={() => setPanelRot(panelRot + 90)}
+                        title="Girar 90° (dos veces = arco mirando hacia abajo)"
+                      >
+                        <RotateCw className="h-3.5 w-3.5" /> +90°
+                      </Button>
+                      {selectedIsObject && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1 h-7 gap-1 text-[11px] bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-white"
+                            onClick={handleDuplicateSelected}
+                            title="Copia el objeto con su tamaño y giro, un poco desplazado"
+                          >
+                            <Copy className="h-3.5 w-3.5" /> Duplicar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 w-7 p-0 bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-red-400"
+                            onClick={() => handleDeleteShape(selectedShape!)}
+                            title="Quitar el objeto seleccionado"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-white/40 mt-1 leading-snug">
+                      {selectedIsObject
+                        ? 'Arrástralo para moverlo; el punto verde de arriba lo gira; la × lo quita. Tócalo de nuevo para deseleccionar.'
+                        : 'Se aplica a los objetos nuevos. Toca un objeto ya puesto para editar el suyo.'}
+                    </p>
                   </div>
 
                   <div className="flex gap-1.5">
@@ -1700,7 +2054,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       variant="outline"
                       className="flex-1 h-7 gap-1 text-[11px] bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30"
                       disabled={arrows.length === 0}
-                      onClick={() => setArrows((prev) => prev.slice(0, -1))}
+                      onClick={() => { setArrows((prev) => prev.slice(0, -1)); setSelectedShape(null); }}
                     >
                       <Undo2 className="h-3.5 w-3.5" /> Deshacer
                     </Button>
@@ -1709,12 +2063,11 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       variant="outline"
                       className="flex-1 h-7 gap-1 text-[11px] bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-red-400 disabled:opacity-30"
                       disabled={arrows.length === 0}
-                      onClick={() => setArrows([])}
+                      onClick={() => { setArrows([]); setSelectedShape(null); }}
                     >
                       <Eraser className="h-3.5 w-3.5" /> Borrar
                     </Button>
                   </div>
-
                   <p className="text-[10px] text-white/40">
                     {arrows.length} {arrows.length === 1 ? 'figura' : 'figuras'} · se guardan junto con la plantilla.
                   </p>

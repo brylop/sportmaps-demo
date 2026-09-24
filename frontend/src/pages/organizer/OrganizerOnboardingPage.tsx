@@ -20,7 +20,7 @@ import { PhoneInput } from '@/components/ui/phone-input';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const AVAILABLE_SPORTS = [
-  'Porrismo', 'Fútbol', 'Baloncesto', 'Voleibol', 'Natación',
+  'Porrismo', 'Fútbol', 'Fútbol Sala', 'Baloncesto', 'Voleibol', 'Natación',
   'Patinaje', 'Gimnasia', 'Ciclismo', 'Atletismo', 'General',
 ];
 

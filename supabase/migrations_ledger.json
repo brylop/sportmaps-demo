@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 609,
-  "head": "20260924101138",
+  "count": 612,
+  "head": "20260924111620",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -612,6 +612,9 @@
     {"v":"20260923113359","file":"20260923113359_fix_qr_signup_pending_sin_cobro.sql","sha256":"f79745531299e8032e85c563977aa248ba0e10442e4c29fac4f31ec267d3a553","added":"2026-09-23","by":"brylop"},
     {"v":"20260923113401","file":"20260923113401_calendar_events_por_equipo_y_escuela.sql","sha256":"51557a50b2654eeb93bc20fd9ff641a7ad3fecb5b7028eae32b9687ef53e8c1e","added":"2026-09-23","by":"brylop"},
     {"v":"20260924100845","file":"20260924100845_team_coaches_select_staff_scoped.sql","sha256":"8dd6166e7f938e2b05f6bddf2e51ee6e96d1355b64608f198a35e19ee987db05","added":"2026-09-24","by":"brylop"},
-    {"v":"20260924101138","file":"20260924101138_secondary_team_enrollment_carmel.sql","sha256":"e89851ee4eb429b220c560040e6cb134e732e2d5e46318da4414f5d50f2acba7","added":"2026-09-24","by":"brylop"}
+    {"v":"20260924101138","file":"20260924101138_secondary_team_enrollment_carmel.sql","sha256":"e89851ee4eb429b220c560040e6cb134e732e2d5e46318da4414f5d50f2acba7","added":"2026-09-24","by":"brylop"},
+    {"v":"20260924102932","file":"20260924102932_coach_plans_module_key_carmel.sql","sha256":"c37c447826c2eaa42d95129664090a1acea2a344f3903855a2e57bc3615d4112","added":"2026-09-24","by":"brylop"},
+    {"v":"20260924102935","file":"20260924102935_tactical_situation_arqueros.sql","sha256":"faf939356e03acb73e9b8b8419a27ffb2e63fb6b9f4c2005bc5781b6fc7387dc","added":"2026-09-24","by":"brylop"},
+    {"v":"20260924111620","file":"20260924111620_futsal_en_catalogo_de_deportes.sql","sha256":"08b487573288e3d88913abe08317074dc2f137b6a23b2f4321263ead5fa63dc4","added":"2026-09-24","by":"brylop"}
   ]
 }

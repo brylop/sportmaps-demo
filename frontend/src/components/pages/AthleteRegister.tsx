@@ -275,6 +275,7 @@ const AthleteRegister = ({ onNavigate }: AthleteRegisterProps) => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="futbol">Fútbol</SelectItem>
+                <SelectItem value="futbol_sala">Fútbol Sala</SelectItem>
                 <SelectItem value="baloncesto">Baloncesto</SelectItem>
                 <SelectItem value="tenis">Tenis</SelectItem>
                 <SelectItem value="natacion">Natación</SelectItem>

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { todayColombia } from '@/lib/dateUtils';
 import {
   Dialog,
@@ -10,9 +10,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Download } from 'lucide-react';
+import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Download, ChevronDown } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { studentsAPI } from '@/lib/api/students';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -46,6 +45,12 @@ interface ParsedStudent {
   monthly_fee: number;
 }
 
+/** En escritorio la ayuda del formato va abierta; en celular, plegada. */
+const isDesktopViewport = () =>
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(min-width: 640px)').matches
+    : false;
+
 export function CSVImportModal({
   open,
   onClose,
@@ -62,15 +67,18 @@ export function CSVImportModal({
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [parsedStudents, setParsedStudents] = useState<ParsedStudent[]>([]);
+  const [showFormat, setShowFormat] = useState<boolean>(isDesktopViewport);
   const [result, setResult] = useState<{
     success: number;
     failed: number;
     updated?: number;
     errors: Array<{ row: number; error: string }>;
   } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const DEFAULT_FEE = 150000;
+  const hasStudents = students.length > 0;
 
   const parseCSV = (text: string): ParsedStudent[] => {
     const lines = text.split(/\r?\n/).filter(l => l.trim());
@@ -116,7 +124,7 @@ export function CSVImportModal({
   };
 
   const handleFile = useCallback((selectedFile: File) => {
-    if (!selectedFile.name.endsWith('.csv')) {
+    if (!selectedFile.name.toLowerCase().endsWith('.csv')) {
       toast({
         title: 'Formato inválido',
         description: 'Por favor selecciona un archivo CSV',
@@ -165,6 +173,13 @@ export function CSVImportModal({
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) handleFile(selectedFile);
+    // Permite volver a elegir el mismo archivo tras "Cambiar archivo".
+    e.target.value = '';
+  };
+
+  const openFilePicker = () => {
+    if (uploading) return;
+    fileInputRef.current?.click();
   };
 
   const formatCurrency = (amount: number) =>
@@ -199,7 +214,7 @@ export function CSVImportModal({
 
       if (bffResponse.success) {
         toast({
-          title: '¡Procesamiento BFF exitoso!',
+          title: 'Importación completada',
           description: bffResponse.message,
         });
         setTimeout(() => onSuccess(), 1500);
@@ -214,8 +229,8 @@ export function CSVImportModal({
     } catch (error: any) {
       console.error('BFF Upload error:', error);
       toast({
-        title: 'Error vinculando con el BFF',
-        description: error.message || 'El servidor BFF no respondió correctamente.',
+        title: 'No se pudo importar',
+        description: error.message || 'El servidor no respondió correctamente. Intenta de nuevo.',
         variant: 'destructive',
       });
     } finally {
@@ -243,7 +258,7 @@ export function CSVImportModal({
 
     let csvContent = headers.join(',') + '\n';
 
-    if (students && students.length > 0) {
+    if (hasStudents) {
       // Si hay deportistas, exportamos su data real para edición masiva
       const rows = students.map(s => {
         const branchName = s.branch_name || (branches ? branches.find((b: any) => b.id === s.branch_id)?.name : '') || '';
@@ -287,71 +302,102 @@ export function CSVImportModal({
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = students && students.length > 0 ? `deportistas_${todayColombia()}.csv` : 'plantilla_deportistas.csv';
+    a.download = hasStudents ? `deportistas_${todayColombia()}.csv` : 'plantilla_deportistas.csv';
     a.click();
     window.URL.revokeObjectURL(url);
 
     toast({
-      title: students && students.length > 0 ? 'Exportación completada' : 'Plantilla descargada',
-      description: students && students.length > 0
-        ? 'Abre el archivo en Excel, edita "sede", "equipo", etc., y vuelve a subirlo marcando la casilla de sobrescribir para importación masiva.'
+      title: hasStudents ? 'Exportación completada' : 'Plantilla descargada',
+      description: hasStudents
+        ? 'Abre el archivo en Excel, edita "sede", "equipo", etc., y vuelve a subirlo para actualizar en masa.'
         : 'Abre el archivo y llénalo basándote en el ejemplo. Los nombres de sede deben coincidir con tu sistema.',
     });
   };
 
+  const sinDocumento = parsedStudents.filter(s => !s.document_id).length;
+
   return (
     <Dialog open={open} onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileSpreadsheet className="h-5 w-5 text-primary" />
-            Importar Deportistas desde CSV
+      {/* Móvil: casi a todo lo ancho, con margen, y alto acotado al viewport
+          dinámico; el cuerpo hace scroll y el footer queda siempre a la vista.
+          Antes el aviso de la plantilla ponía texto y botón en una sola fila y
+          desbordaba de lado en el celular (reporte Athletic League 2026-09-24). */}
+      <DialogContent className="w-[calc(100%-1.5rem)] sm:w-full max-w-2xl max-h-[90dvh] flex flex-col gap-3 sm:gap-4 p-4 sm:p-6 rounded-lg overflow-hidden">
+        <DialogHeader className="text-left pr-8 shrink-0">
+          <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <FileSpreadsheet className="h-5 w-5 text-primary shrink-0" />
+            Importar deportistas desde CSV
           </DialogTitle>
-          <DialogDescription>
-            Sube un archivo CSV con la lista de deportistas. Se crearán con pago pendiente asociado a la escuela.
+          <DialogDescription className="text-xs sm:text-sm">
+            Sube un archivo CSV con tus deportistas. Se crean con su cobro pendiente en la escuela.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 overflow-y-auto flex-1 -mx-1 px-1">
-          {/* Download Template */}
-          <Alert>
-            <Download className="h-4 w-4" />
-            <AlertDescription className="flex items-center justify-between">
-              <span className="text-sm">
-                ¿Primera vez? Descarga la plantilla CSV (incluye columna <code>monthly_fee</code>)
-              </span>
-              <Button type="button" variant="outline" onClick={downloadTemplate} className="w-full">
-                <Download className="mr-2 h-4 w-4" />
-                {students && students.length > 0 ? 'Exportar Mis Deportistas para Edición Masiva (CSV)' : 'Descargar Plantilla CSV con Ejemplo'}
-              </Button>
-            </AlertDescription>
-          </Alert>
+        <div className="space-y-3 sm:space-y-4 overflow-y-auto overflow-x-hidden flex-1 min-h-0 -mx-1 px-1">
+          {/* Plantilla / exportación */}
+          <div className="rounded-lg border bg-muted/40 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-4">
+            <div className="flex items-start gap-2 flex-1 min-w-0">
+              <Download className="h-4 w-4 mt-0.5 shrink-0 text-primary" />
+              <p className="text-sm leading-snug">
+                {hasStudents
+                  ? 'Exporta tus deportistas, edítalos en Excel y vuelve a subir el archivo para actualizarlos en masa.'
+                  : '¿Primera vez? Descarga la plantilla con un ejemplo y llénala con tus deportistas.'}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={downloadTemplate}
+              className="w-full sm:w-auto shrink-0"
+            >
+              <Download className="mr-2 h-4 w-4" />
+              {hasStudents ? 'Exportar deportistas (CSV)' : 'Descargar plantilla'}
+            </Button>
+          </div>
 
-          {/* Drop Zone */}
+          {/* Zona de carga: en celular no se arrastra nada, se toca. Toda la
+              tarjeta abre el selector. */}
           <div
+            role="button"
+            tabIndex={0}
+            aria-label="Seleccionar archivo CSV"
+            onClick={() => { if (!file) openFilePicker(); }}
+            onKeyDown={(e) => { if (!file && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openFilePicker(); } }}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             className={`
-              border-2 border-dashed rounded-lg p-8 text-center transition-colors
+              border-2 border-dashed rounded-lg p-5 sm:p-8 text-center transition-colors
+              ${!file ? 'cursor-pointer active:bg-muted/60' : ''}
               ${isDragging ? 'border-primary bg-primary/5' : 'border-muted-foreground/30'}
               ${file ? 'bg-green-50 dark:bg-green-950/20 border-green-500' : ''}
             `}
           >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              onChange={handleFileInput}
+              className="hidden"
+              id="csv-upload"
+              disabled={uploading}
+            />
             {file ? (
-              <div className="flex flex-col items-center gap-3">
-                <CheckCircle2 className="h-12 w-12 text-green-500" />
-                <div>
-                  <p className="font-medium text-lg">{file.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {(file.size / 1024).toFixed(2)} KB — {parsedStudents.length} deportistas detectados
+              <div className="flex flex-col items-center gap-2 sm:gap-3">
+                <CheckCircle2 className="h-10 w-10 sm:h-12 sm:w-12 text-green-500" />
+                <div className="min-w-0 max-w-full">
+                  <p className="font-medium text-sm sm:text-lg break-all">{file.name}</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">
+                    {(file.size / 1024).toFixed(1)} KB · {parsedStudents.length} deportista{parsedStudents.length === 1 ? '' : 's'} detectado{parsedStudents.length === 1 ? '' : 's'}
                   </p>
                 </div>
                 {!uploading && !result && (
                   <Button
+                    type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => { setFile(null); setParsedStudents([]); }}
+                    onClick={(e) => { e.stopPropagation(); setFile(null); setParsedStudents([]); }}
                   >
                     Cambiar archivo
                   </Button>
@@ -359,63 +405,60 @@ export function CSVImportModal({
               </div>
             ) : (
               <>
-                <Upload className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="font-medium text-lg mb-2">Arrastra tu archivo CSV aquí</p>
-                <p className="text-sm text-muted-foreground mb-4">
-                  o haz clic para seleccionar
+                <Upload className="h-10 w-10 sm:h-12 sm:w-12 text-muted-foreground mx-auto mb-3" />
+                <p className="font-medium text-base sm:text-lg mb-1">
+                  <span className="hidden sm:inline">Arrastra tu archivo CSV aquí</span>
+                  <span className="sm:hidden">Sube tu archivo CSV</span>
                 </p>
-                <input
-                  type="file"
-                  accept=".csv"
-                  onChange={handleFileInput}
-                  className="hidden"
-                  id="csv-upload"
+                <p className="text-xs sm:text-sm text-muted-foreground mb-3 sm:mb-4">
+                  <span className="hidden sm:inline">o haz clic para seleccionar</span>
+                  <span className="sm:hidden">Toca para elegirlo desde tu teléfono</span>
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full sm:w-auto"
                   disabled={uploading}
-                />
-                <Button variant="outline" asChild>
-                  <label htmlFor="csv-upload" className="cursor-pointer">
-                    Seleccionar archivo CSV
-                  </label>
+                  onClick={(e) => { e.stopPropagation(); openFilePicker(); }}
+                >
+                  Seleccionar archivo CSV
                 </Button>
               </>
             )}
           </div>
 
           {/* Advertencia: filas sin documento */}
-          {parsedStudents.length > 0 && !uploading && !result && (() => {
-            const sinDocumento = parsedStudents.filter(s => !s.document_id).length;
-            return sinDocumento > 0 ? (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  <strong>{sinDocumento} {sinDocumento === 1 ? 'fila no tiene' : 'filas no tienen'} documento</strong> y {sinDocumento === 1 ? 'será rechazada' : 'serán rechazadas'} al importar.
-                  Solo {parsedStudents.length - sinDocumento} de {parsedStudents.length} {parsedStudents.length === 1 ? 'fila es válida' : 'filas son válidas'}.
-                </AlertDescription>
-              </Alert>
-            ) : null;
-          })()}
+          {parsedStudents.length > 0 && !uploading && !result && sinDocumento > 0 && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="text-xs sm:text-sm">
+                <strong>{sinDocumento} {sinDocumento === 1 ? 'fila no tiene' : 'filas no tienen'} documento</strong> y {sinDocumento === 1 ? 'será rechazada' : 'serán rechazadas'} al importar.
+                Solo {parsedStudents.length - sinDocumento} de {parsedStudents.length} {parsedStudents.length === 1 ? 'fila es válida' : 'filas son válidas'}.
+              </AlertDescription>
+            </Alert>
+          )}
 
-          {/* Preview Table */}
+          {/* Vista previa */}
           {parsedStudents.length > 0 && !uploading && !result && (
-            <div className="max-h-48 overflow-y-auto border rounded-lg">
+            <div className="max-h-48 overflow-auto border rounded-lg">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="text-xs">Nombre</TableHead>
-                    <TableHead className="text-xs">Sede</TableHead>
+                    <TableHead className="text-xs hidden sm:table-cell">Sede</TableHead>
                     <TableHead className="text-xs">Equipo</TableHead>
-                    <TableHead className="text-xs">Deporte</TableHead>
-                    <TableHead className="text-xs">Mensualidad</TableHead>
+                    <TableHead className="text-xs hidden sm:table-cell">Deporte</TableHead>
+                    <TableHead className="text-xs text-right">Mensualidad</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {parsedStudents.slice(0, 5).map((s, i) => (
                     <TableRow key={i}>
-                      <TableCell className="text-xs py-1">{s.full_name}</TableCell>
-                      <TableCell className="text-xs py-1">{s.branch || '-'}</TableCell>
+                      <TableCell className="text-xs py-1 max-w-[9rem] truncate">{s.full_name}</TableCell>
+                      <TableCell className="text-xs py-1 hidden sm:table-cell">{s.branch || '-'}</TableCell>
                       <TableCell className="text-xs py-1">{s.team || '-'}</TableCell>
-                      <TableCell className="text-xs py-1">{s.sport || '-'}</TableCell>
-                      <TableCell className="text-xs py-1 font-semibold">{formatCurrency(s.monthly_fee)}</TableCell>
+                      <TableCell className="text-xs py-1 hidden sm:table-cell">{s.sport || '-'}</TableCell>
+                      <TableCell className="text-xs py-1 font-semibold text-right whitespace-nowrap">{formatCurrency(s.monthly_fee)}</TableCell>
                     </TableRow>
                   ))}
                   {parsedStudents.length > 5 && (
@@ -430,13 +473,13 @@ export function CSVImportModal({
             </div>
           )}
 
-          {/* Upload Progress */}
+          {/* Progreso */}
           {uploading && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
                 <span className="text-sm font-medium">
-                  Creando deportistas y pagos pendientes...
+                  Creando deportistas y cobros pendientes...
                 </span>
               </div>
               <Progress value={uploadProgress} className="h-2" />
@@ -446,49 +489,62 @@ export function CSVImportModal({
             </div>
           )}
 
-          {/* Results */}
+          {/* Resultado */}
           {result && !uploading && (
             <div className="space-y-3">
-              <div className="flex gap-3">
+              <div className="flex flex-col sm:flex-row gap-3">
                 {result.success > 0 && (
-                  <div className="flex-1 p-4 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg">
+                  <div className="flex-1 p-3 sm:p-4 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg">
                     <div className="flex items-center gap-2 mb-1">
-                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+                      <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
                       <span className="font-semibold text-green-900 dark:text-green-100">
-                        {result.success} exitosos
+                        {result.success} {result.success === 1 ? 'creado' : 'creados'}
                       </span>
                     </div>
                     <p className="text-sm text-green-700 dark:text-green-300">
-                      Deportistas importados con pago pendiente
+                      Deportistas importados con cobro pendiente
+                    </p>
+                  </div>
+                )}
+
+                {(result.updated ?? 0) > 0 && (
+                  <div className="flex-1 p-3 sm:p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <div className="flex items-center gap-2 mb-1">
+                      <CheckCircle2 className="h-5 w-5 text-blue-600 shrink-0" />
+                      <span className="font-semibold text-blue-900 dark:text-blue-100">
+                        {result.updated} {result.updated === 1 ? 'actualizado' : 'actualizados'}
+                      </span>
+                    </div>
+                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                      Ya existían y se actualizaron con el archivo
                     </p>
                   </div>
                 )}
 
                 {result.failed > 0 && (
-                  <div className="flex-1 p-4 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <div className="flex-1 p-3 sm:p-4 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg">
                     <div className="flex items-center gap-2 mb-1">
-                      <AlertCircle className="h-5 w-5 text-red-600" />
+                      <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
                       <span className="font-semibold text-red-900 dark:text-red-100">
-                        {result.failed} fallidos
+                        {result.failed} {result.failed === 1 ? 'con error' : 'con errores'}
                       </span>
                     </div>
                     <p className="text-sm text-red-700 dark:text-red-300">
-                      Filas con errores
+                      Filas que no se pudieron importar
                     </p>
                   </div>
                 )}
               </div>
 
-              {/* Error Details */}
               {result.errors.length > 0 && (
-                <div className="bg-destructive/10 rounded-lg p-4 max-h-40 overflow-y-auto">
+                <div className="bg-destructive/10 rounded-lg p-3 sm:p-4 max-h-40 overflow-y-auto">
                   <p className="text-sm font-medium text-destructive mb-2">
                     Errores encontrados:
                   </p>
-                  <ul className="text-xs text-destructive space-y-1">
+                  <ul className="text-xs text-destructive space-y-1 break-words">
                     {result.errors.slice(0, 10).map((err, index) => (
                       <li key={index}>
-                        <strong>Fila {err.row}:</strong> {err.error}
+                        {err.row > 0 && <strong>Fila {err.row}: </strong>}{err.error}
                       </li>
                     ))}
                     {result.errors.length > 10 && (
@@ -502,42 +558,59 @@ export function CSVImportModal({
             </div>
           )}
 
-          {/* CSV Format Help */}
+          {/* Ayuda del formato: plegable, abierta en escritorio */}
           {!file && !uploading && (
-            <div className="bg-muted/50 rounded-lg p-4">
-              <p className="text-sm font-medium mb-2">📋 Formato esperado del CSV:</p>
-              <div className="text-xs space-y-2">
-                <p><strong>Columnas requeridas:</strong></p>
-                <ul className="list-disc list-inside space-y-1 text-muted-foreground ml-2">
-                  <li><code>documento</code> — Número de documento (<strong>requerido</strong>)</li>
-                  <li><code>nombre</code> + <code>apellido</code> — Nombre y apellido (<strong>requerido</strong>)</li>
-                  <li><code>acudiente</code> — Nombre del acudiente (<strong>requerido</strong>, mín. 2 caracteres)</li>
-                  <li><code>correo_acudiente</code> — Email del acudiente (<strong>requerido</strong>, formato válido)</li>
-                  <li><code>telefono_acudiente</code> — Teléfono del acudiente (<strong>requerido</strong>, mín. 10 dígitos)</li>
-                  <li><code>mensualidad</code> — Mensualidad en COP (<strong>requerida</strong>, ej: 150000)</li>
-                  <li><code>sede</code> — Nombre de la sede (se crea automáticamente si no existe)</li>
-                  <li><code>equipo</code> — Nombre del equipo (se crea automáticamente si no existe)</li>
-                  <li><code>deporte</code> — Deporte del equipo (ej: Fútbol, Natación)</li>
-                  <li><code>fecha_nacimiento</code> — Fecha de nacimiento YYYY-MM-DD (opcional)</li>
-                  <li><code>grado</code> — Grado escolar (opcional)</li>
-                  <li><code>notas_medicas</code> — JSON médico, ej: <code>{'{"has_allergies": false}'}</code> (opcional)</li>
-                </ul>
-              </div>
+            <div className="bg-muted/50 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setShowFormat(v => !v)}
+                aria-expanded={showFormat}
+                className="w-full flex items-center justify-between gap-2 p-3 sm:p-4 text-left text-sm font-medium"
+              >
+                <span>📋 Formato esperado del CSV</span>
+                <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${showFormat ? 'rotate-180' : ''}`} />
+              </button>
+              {showFormat && (
+                <div className="px-3 pb-3 sm:px-4 sm:pb-4 text-xs space-y-2 break-words">
+                  <p><strong>Columnas requeridas:</strong></p>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><code>documento</code> — Número de documento (<strong>requerido</strong>)</li>
+                    <li><code>nombre</code> + <code>apellido</code> — Nombre y apellido (<strong>requerido</strong>)</li>
+                    <li><code>acudiente</code> — Nombre del acudiente (<strong>requerido</strong>, mín. 2 caracteres)</li>
+                    <li><code>correo_acudiente</code> — Email del acudiente (<strong>requerido</strong>, formato válido)</li>
+                    <li><code>telefono_acudiente</code> — Teléfono del acudiente (<strong>requerido</strong>, mín. 10 dígitos)</li>
+                    <li><code>mensualidad</code> — Mensualidad en COP (<strong>requerida</strong>, ej: 150000)</li>
+                  </ul>
+                  <p className="pt-1"><strong>Opcionales:</strong></p>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><code>sede</code> — Nombre de la sede (se crea si no existe)</li>
+                    <li><code>equipo</code> — Nombre del equipo (se crea si no existe)</li>
+                    <li><code>deporte</code> — Deporte del equipo (ej: Fútbol, Natación)</li>
+                    <li><code>fecha_nacimiento</code> — Fecha YYYY-MM-DD</li>
+                    <li><code>grado</code> — Grado escolar</li>
+                    <li><code>notas_medicas</code> — JSON médico, ej: <code>{'{"has_allergies": false}'}</code></li>
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        <DialogFooter className="shrink-0">
+        <DialogFooter className="shrink-0 gap-2 sm:gap-0 pt-1">
           <Button
+            type="button"
             variant="outline"
             onClick={handleClose}
+            className="w-full sm:w-auto"
           >
             {result ? 'Cerrar' : 'Cancelar'}
           </Button>
           {!result && (
             <Button
+              type="button"
               onClick={handleUpload}
               disabled={parsedStudents.length === 0 || uploading}
+              className="w-full sm:w-auto"
             >
               {uploading ? (
                 <>
@@ -547,7 +620,9 @@ export function CSVImportModal({
               ) : (
                 <>
                   <Upload className="h-4 w-4 mr-2" />
-                  Importar {parsedStudents.length} Deportista{parsedStudents.length > 1 ? 's' : ''}
+                  {parsedStudents.length === 0
+                    ? 'Importar deportistas'
+                    : `Importar ${parsedStudents.length} deportista${parsedStudents.length === 1 ? '' : 's'}`}
                 </>
               )}
             </Button>

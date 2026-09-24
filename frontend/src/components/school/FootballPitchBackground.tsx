@@ -4,10 +4,14 @@
  * las posiciones de las líneas NO cambian entre versiones, solo el estilo
  * visual, para no romper a ninguno de los dos consumidores.
  */
-export function FootballPitchBackground() {
+/** `viewBox` opcional: el TacticalBoard lo usa para el zoom al área (modo
+ *  arqueros) pasando una ventana vertical del mismo dibujo. Las líneas NO
+ *  cambian de lugar; solo cambia qué parte se mira. LineupModal no lo pasa
+ *  y sigue viendo la cancha completa. */
+export function FootballPitchBackground({ viewBox = '0 0 300 340' }: { viewBox?: string } = {}) {
   return (
     <svg
-      viewBox="0 0 300 340"
+      viewBox={viewBox}
       preserveAspectRatio="none"
       className="absolute inset-0 w-full h-full rounded-xl"
       aria-hidden="true"

@@ -534,7 +534,11 @@ const App = () => (
                       {/* Coach routes */}
                       <Route path="coach-attendance" element={<CoachAttendancePage />} />
                       <Route path="coach-attendance/scan" element={<CoachCheckInScanPage />} />
-                      <Route path="coach-plans" element={<CoachPlansPage />} />
+                      <Route path="coach-plans" element={
+                        <ModuleGate moduleKey="gestion_deportiva_disponibilidad_coach" roles={['coach']}>
+                          <CoachPlansPage />
+                        </ModuleGate>
+                      } />
                       <Route path="results" element={<ResultsPage />} />
                       <Route path="training-plans" element={
                         <ModuleGate moduleKey="gestion_deportiva_entrenamiento_metricas">

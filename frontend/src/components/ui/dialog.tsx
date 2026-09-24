@@ -4,6 +4,12 @@ import { X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
+/** Puntero "grueso" = pantalla táctil (celular o tablet). */
+const isCoarsePointer = () =>
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(pointer: coarse)").matches;
+
 const Dialog = DialogPrimitive.Root;
 
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -30,11 +36,23 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, onOpenAutoFocus, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
+      onOpenAutoFocus={(event) => {
+        onOpenAutoFocus?.(event);
+        // En pantallas táctiles Radix enfocaría el primer campo del diálogo y
+        // eso levanta el teclado apenas se abre, tapando la mitad del contenido
+        // (Android, "Inscribir Deportistas", reporte Athletic League 2026-09-24).
+        // El foco pasa al propio diálogo (sigue siendo accesible) y el teclado
+        // sale solo cuando la persona toca un campo. En escritorio no cambia nada.
+        if (!event.defaultPrevented && isCoarsePointer()) {
+          event.preventDefault();
+          (event.target as HTMLElement | null)?.focus?.();
+        }
+      }}
       className={cn(
         "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
         // PWA/iOS: nunca superar el alto visible ni tapar los botones tras el home indicator.

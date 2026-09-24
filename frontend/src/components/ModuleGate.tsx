@@ -17,6 +17,13 @@ const GATED_ROLES = ['school', 'school_admin'];
 interface ModuleGateProps {
   moduleKey: ModuleKey;
   children: React.ReactNode;
+  /**
+   * Roles a los que se aplica el gate. Default: GATED_ROLES (escuela). Una ruta
+   * exclusiva de otro rol (p. ej. /coach-plans, solo coach) lo pasa explícito;
+   * si no, el default dejaría pasar al coach y el apagado por escuela no
+   * bloquearía la URL escrita a mano.
+   */
+  roles?: readonly string[];
 }
 
 /**
@@ -30,13 +37,13 @@ interface ModuleGateProps {
  *   - ¿Tiene derecho? → el addon comercial del catálogo, si el módulo tiene uno.
  *   - ¿Está prendido? → el override operativo del Super Admin.
  */
-export function ModuleGate({ moduleKey, children }: ModuleGateProps) {
+export function ModuleGate({ moduleKey, children, roles = GATED_ROLES }: ModuleGateProps) {
   const { profile } = useAuth();
   const { currentUserRole } = useSchoolContext();
   const { isLoading: entLoading, hasAddon, isModuleEnabled } = useEntitlements();
 
   const effectiveRole = currentUserRole || profile?.role;
-  if (!effectiveRole || !GATED_ROLES.includes(effectiveRole)) {
+  if (!effectiveRole || !roles.includes(effectiveRole)) {
     return <>{children}</>;
   }
 
