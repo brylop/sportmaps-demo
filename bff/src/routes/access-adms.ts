@@ -29,14 +29,20 @@ const IP_ALLOWLIST = (process.env.ACCESS_DEVICE_IP_ALLOWLIST || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 
 function clientIp(req: Request): string {
-  // `req.ip` (no el header crudo): con `app.set('trust proxy', 1)` en
-  // index.ts, Express ya resuelve la IP real detrás del proxy de Render.
-  // Antes esto tomaba `x-forwarded-for`.split(',')[0] — el PRIMER valor del
-  // header, que el cliente controla si lo manda; Render agrega el suyo al
-  // final de la cadena, no al principio. Con eso, cualquiera podía falsear
-  // la IP que ve la allowlist de dispositivo (ip_check_mode) o el fallback
-  // global (ACCESS_DEVICE_IP_ALLOWLIST), en modo 'enforce' incluido.
-  return (req.ip || req.socket?.remoteAddress || '').trim();
+  // Render pone a Cloudflare como borde SIEMPRE (confirmado: hasta pegándole
+  // directo al *.onrender.com, sin dominio custom, responde `Server: cloudflare`).
+  // O sea la cadena real es cliente -> Cloudflare -> LB interno de Render -> app,
+  // DOS saltos de proxy. `req.ip` con `trust proxy: 1` (index.ts) solo descuenta
+  // el salto de Render, y deja la IP de BORDE de Cloudflare (que rota por
+  // request, uno de su pool) en vez de la IP real del dispositivo — reventó el
+  // allowlist de Dreamers y GYM RM el 2026-09-22 al desplegarse (commit 42fef4d).
+  // `CF-Connecting-IP` es el header que Cloudflare mismo fija con la IP que vio
+  // en el socket: el cliente NO puede falsificarlo, Cloudflare lo sobreescribe
+  // siempre en su borde — así que no reabre el hueco de spoofing que `trust
+  // proxy` buscaba cerrar, y no depende de contar saltos si Render cambia su
+  // topología de nuevo. `req.ip` queda de fallback para local/dev sin Cloudflare.
+  const cfIp = (req.headers['cf-connecting-ip'] as string) || '';
+  return (cfIp || req.ip || req.socket?.remoteAddress || '').trim();
 }
 
 // ─── express.text() SOLO para rutas /iclock/* (+ allowlist por device) ───────

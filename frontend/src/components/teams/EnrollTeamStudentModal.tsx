@@ -17,7 +17,17 @@ import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { studentsAPI, Student } from '@/lib/api/students';
 import { classesAPI } from '@/lib/api/classes';
 import { supabase } from '@/integrations/supabase/client';
-import { Search, Loader2, UserPlus, Check, Users, X, Wallet } from 'lucide-react';
+import { useEntitlements } from '@/hooks/useEntitlements';
+import {
+    AlertDialog,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Search, Loader2, UserPlus, Check, Users, X, Wallet, ArrowRightLeft, Layers } from 'lucide-react';
 
 interface Team {
     id: string;
@@ -43,6 +53,14 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
     const [searchQuery, setSearchQuery] = useState('');
     const [teamFee, setTeamFee] = useState<number | null>(null);
     const { toast } = useToast();
+    const { allowSecondaryTeamEnrollment } = useEntitlements();
+    // Atleta que YA está en otro equipo: en vez de dejar pasar el 409 del BFF
+    // ("ya tiene una inscripción activa"), se le pregunta al usuario qué hacer.
+    const [conflict, setConflict] = useState<{
+        student: any;
+        otherTeamName: string;
+        hasPlan: boolean;
+    } | null>(null);
 
     useEffect(() => {
         if (open && team) {
@@ -119,33 +137,69 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
         }
     };
 
+    // Los tres ejes son mutuamente excluyentes — antes esto solo distinguía
+    // adult/child, así que un atleta sin cuenta (athlete_type='unregistered')
+    // se mandaba como child_id, un id que la tabla children no reconoce.
+    const subjectFieldFor = (student: any) =>
+        student.athlete_type === 'adult' ? 'user_id' :
+        student.athlete_type === 'unregistered' ? 'unregistered_athlete_id' :
+        'child_id';
+
+    /**
+     * Inscribir. Si el atleta YA está en otro equipo, el BFF responde 409
+     * ("ya tiene una inscripción activa en esta escuela") — regla deliberada,
+     * de ella cuelga el cobro. Antes ese 409 llegaba crudo al toast y el
+     * entrenador quedaba sin salida (Carmel, 2026-09-24: "EQUIPO ARQUERO" con
+     * arqueros que ya están en su categoría por edad; y un coach con dos
+     * categorías de pequeños que no podía pasar niños de una a la otra).
+     *
+     * Ahora se detecta ANTES de llamar, con `enrolled_team_id` de la vista
+     * school_athletes, y se pregunta qué hacer:
+     *  · Agregarlo también → segundo equipo, sin salir del actual. Solo si la
+     *    escuela lo habilitó (allow_secondary_team_enrollment); el segundo
+     *    equipo nunca cobra (el BFF lo crea con cuota 0 fijada a mano).
+     *  · Moverlo → el mismo camino del editor de atletas, que sí maneja los
+     *    cobros pendientes del equipo anterior.
+     */
     const handleEnroll = async (student: any) => {
+        if (!team) return;
+        const otherTeamId: string | null = student.enrolled_team_id ?? null;
+        if (otherTeamId && otherTeamId !== team.id) {
+            setConflict({
+                student,
+                otherTeamName: student.team_name || 'otro equipo',
+                hasPlan: !!student.offering_plan_id,
+            });
+            return;
+        }
+        await postEnrollment(student, false);
+    };
+
+    const postEnrollment = async (student: any, secondary: boolean) => {
         if (!team) return;
 
         try {
             setEnrolling(student.id);
 
-            // Los tres ejes son mutuamente excluyentes — antes esto solo distinguía
-            // adult/child, así que un atleta sin cuenta (athlete_type='unregistered')
-            // se mandaba como child_id, un id que la tabla children no reconoce.
-            const subjectField =
-                student.athlete_type === 'adult' ? 'user_id' :
-                student.athlete_type === 'unregistered' ? 'unregistered_athlete_id' :
-                'child_id';
-
             // Usar BFF para soportar los tres tipos de sujeto
             const { bffClient } = await import('@/lib/api/bffClient');
             await bffClient.post('/api/v1/enrollments', {
-                [subjectField]: student.id,
+                [subjectFieldFor(student)]: student.id,
                 team_id: team.id,
+                ...(secondary ? { secondary: true } : {}),
             });
 
-            toast({
-                title: '¡Deportista inscrito!',
-                description: `${student.full_name} ha sido inscrito en ${team.name}`,
-            });
+            toast(secondary
+                ? {
+                    title: 'Agregado al segundo equipo',
+                    description: `${student.full_name} sigue en ${student.team_name || 'su equipo'} y ahora también está en ${team.name}. Este equipo no le genera cobro.`,
+                }
+                : {
+                    title: '¡Deportista inscrito!',
+                    description: `${student.full_name} ha sido inscrito en ${team.name}`,
+                });
 
-            setEnrolledStudentIds([...enrolledStudentIds, student.id]);
+            setEnrolledStudentIds(prev => [...prev, student.id]);
             onSuccess();
         } catch (error: any) {
             toast({
@@ -155,6 +209,56 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
             });
         } finally {
             setEnrolling(null);
+            setConflict(null);
+        }
+    };
+
+    /**
+     * Mover = PUT /students/:id, el camino del editor de atletas: actualiza la
+     * MISMA inscripción (no abre otra), cancela los cobros pendientes del
+     * equipo anterior y emite el del nuevo si tiene cuota. Se manda la cuota
+     * que el atleta ya tenía (team_monthly_fee de la vista) para no pisar una
+     * beca. Solo se ofrece sin plan: con plan, el cobro lo define el plan y ese
+     * cambio va por la ficha. La fecha de inicio la pone el BFF (hoy, en la
+     * zona de la escuela). El BFF decide si el rol puede (coach solo con
+     * coach_can_create_athletes o coach_can_edit_categories) y su mensaje llega
+     * al toast tal cual.
+     */
+    const handleMove = async (student: any) => {
+        if (!team) return;
+
+        try {
+            setEnrolling(student.id);
+
+            const { bffClient } = await import('@/lib/api/bffClient');
+            await bffClient.put(`/api/v1/students/${student.id}`, {
+                athlete_type: student.athlete_type ?? 'child',
+                enrollment: {
+                    team_id: team.id,
+                    team_monthly_fee: student.team_monthly_fee ?? null,
+                },
+            });
+
+            toast({
+                title: 'Deportista movido',
+                description: `${student.full_name} pasó de ${student.team_name || 'su equipo anterior'} a ${team.name}.`,
+            });
+
+            setEnrolledStudentIds(prev => [...prev, student.id]);
+            // Que un segundo clic no vuelva a preguntar: ya está en este equipo.
+            setStudents(prev => prev.map(s => (
+                s.id === student.id ? ({ ...s, enrolled_team_id: team.id, team_name: team.name } as any) : s
+            )));
+            onSuccess();
+        } catch (error: any) {
+            toast({
+                title: 'No se pudo mover',
+                description: error.message,
+                variant: 'destructive',
+            });
+        } finally {
+            setEnrolling(null);
+            setConflict(null);
         }
     };
 
@@ -403,6 +507,63 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                         </Button>
                     </div>
                 </DialogFooter>
+
+                {/* El atleta ya está en otro equipo: preguntar en vez de fallar. */}
+                <AlertDialog open={!!conflict} onOpenChange={(isOpen) => { if (!isOpen && !enrolling) setConflict(null); }}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>
+                                {conflict?.student.full_name} ya está en {conflict?.otherTeamName}
+                            </AlertDialogTitle>
+                            <AlertDialogDescription asChild>
+                                <div className="space-y-2 text-sm text-muted-foreground">
+                                    {allowSecondaryTeamEnrollment ? (
+                                        <p>
+                                            Puedes <strong>agregarlo también</strong> a <strong>{team?.name}</strong>:
+                                            queda en los dos equipos y este segundo equipo no le genera cobro.
+                                            O puedes <strong>moverlo</strong>: sale de {conflict?.otherTeamName}.
+                                        </p>
+                                    ) : (
+                                        <p>
+                                            Un deportista tiene un solo equipo. Puedes <strong>moverlo</strong> a{' '}
+                                            <strong>{team?.name}</strong>: sale de {conflict?.otherTeamName} y se
+                                            anulan los cobros pendientes de ese equipo.
+                                        </p>
+                                    )}
+                                    {conflict?.hasPlan && (
+                                        <p>
+                                            Este deportista tiene un plan asignado. Para moverlo, edítalo desde su
+                                            ficha en Deportistas, que es donde se ajusta el cobro.
+                                        </p>
+                                    )}
+                                </div>
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+                            <AlertDialogCancel disabled={!!enrolling}>Cancelar</AlertDialogCancel>
+                            {!conflict?.hasPlan && (
+                                <Button
+                                    variant="outline"
+                                    onClick={() => conflict && handleMove(conflict.student)}
+                                    disabled={!!enrolling}
+                                >
+                                    {enrolling ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <ArrowRightLeft className="h-4 w-4 mr-1" />}
+                                    Moverlo a {team?.name}
+                                </Button>
+                            )}
+                            {allowSecondaryTeamEnrollment && (
+                                <Button
+                                    className="bg-green-600 hover:bg-green-700"
+                                    onClick={() => conflict && postEnrollment(conflict.student, true)}
+                                    disabled={!!enrolling}
+                                >
+                                    {enrolling ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Layers className="h-4 w-4 mr-1" />}
+                                    Agregarlo también
+                                </Button>
+                            )}
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
             </DialogContent>
         </Dialog>
     );
