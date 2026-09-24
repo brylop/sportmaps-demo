@@ -16,7 +16,7 @@ import { useNotifications, useDashboardStats } from '@/hooks/useDashboardStats';
 import { useDashboardStatsReal } from '@/hooks/useDashboardStatsReal'; // Import the new hook
 import WelcomeSplash from '@/components/WelcomeSplash';
 import { UserRole, OnboardingStep } from '@/types/dashboard';
-import { Plus, MapPin, Zap, CalendarCheck, ChevronRight, CreditCard } from 'lucide-react';
+import { Plus, MapPin, Zap, CalendarCheck, ChevronRight, CreditCard, Activity } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/utils';
 import { DashboardChecklist } from '@/components/dashboard/DashboardChecklist';
@@ -506,21 +506,42 @@ export default function DashboardPage() {
           QuickActions, debajo de las stat cards: para verlo había que scrollear.
           El pedido fue explícito — de primeras, grande, inmediato. */}
       {profile.role === 'coach' && (
-        <button
-          type="button"
-          onClick={() => navigate('/coach-attendance')}
-          className="w-full text-left rounded-2xl bg-gradient-to-br from-primary to-primary-dark text-primary-foreground shadow-elevation hover:shadow-performance transition-all duration-300 hover:scale-[1.01] p-5 sm:p-6 flex items-center gap-4"
-        >
-          <div className="w-14 h-14 rounded-2xl bg-white/15 flex items-center justify-center shrink-0">
-            <CalendarCheck className="w-7 h-7" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-black uppercase tracking-[0.2em] opacity-80 mb-0.5">Acceso rápido</p>
-            <h3 className="text-lg sm:text-xl font-black leading-tight">Tomar asistencia</h3>
-            <p className="text-sm opacity-85 mt-0.5">Pasa lista de tu equipo de hoy en segundos</p>
-          </div>
-          <ChevronRight className="w-6 h-6 opacity-70 shrink-0" />
-        </button>
+        <div className="grid gap-4 md:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => navigate('/coach-attendance')}
+            className="w-full text-left rounded-2xl bg-gradient-to-br from-primary to-primary-dark text-primary-foreground shadow-elevation hover:shadow-performance transition-all duration-300 hover:scale-[1.01] p-5 sm:p-6 flex items-center gap-4"
+          >
+            <div className="w-14 h-14 rounded-2xl bg-white/15 flex items-center justify-center shrink-0">
+              <CalendarCheck className="w-7 h-7" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-black uppercase tracking-[0.2em] opacity-80 mb-0.5">Acceso rápido</p>
+              <h3 className="text-lg sm:text-xl font-black leading-tight">Tomar asistencia</h3>
+              <p className="text-sm opacity-85 mt-0.5">Pasa lista de tu equipo de hoy en segundos</p>
+            </div>
+            <ChevronRight className="w-6 h-6 opacity-70 shrink-0" />
+          </button>
+
+          {/* Sesiones de entrenamiento — segundo acceso directo. Antes: Gestión →
+              Entrenamiento → Métricas y Rendimiento, con la sección plegada por
+              defecto. Pedido de Carmel 2026-09-24 ("son muchos pasos"). */}
+          <button
+            type="button"
+            onClick={() => navigate('/training-plans')}
+            className="w-full text-left rounded-2xl bg-gradient-to-br from-emerald-700 to-emerald-900 text-white shadow-elevation hover:shadow-performance transition-all duration-300 hover:scale-[1.01] p-5 sm:p-6 flex items-center gap-4"
+          >
+            <div className="w-14 h-14 rounded-2xl bg-white/15 flex items-center justify-center shrink-0">
+              <Activity className="w-7 h-7" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-black uppercase tracking-[0.2em] opacity-80 mb-0.5">Acceso rápido</p>
+              <h3 className="text-lg sm:text-xl font-black leading-tight">Sesiones de entrenamiento</h3>
+              <p className="text-sm opacity-85 mt-0.5">Planifica la semana, arma la sesión y abre la pizarra</p>
+            </div>
+            <ChevronRight className="w-6 h-6 opacity-70 shrink-0" />
+          </button>
+        </div>
       )}
 
       {/* Pagar ahora — acceso directo grande para el padre cuando tiene

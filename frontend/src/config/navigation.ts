@@ -303,7 +303,14 @@ export function getNavigationByRole(
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Mis Equipos', href: '/teams', icon: Users },
-          { title: 'Mis Planes', href: '/coach-plans', icon: FileText },
+          // Sesiones de entrenamiento al frente. Antes vivía solo como Gestión →
+          // Entrenamiento → "Métricas y Rendimiento": tres clics con la sección
+          // plegada y un nombre que no dice "sesiones". Pedido de Carmel 2026-09-24.
+          { title: 'Sesiones de Entrenamiento', href: '/training-plans', icon: Activity },
+          // "Mis Planes" es la disponibilidad reservable y las citas del coach
+          // (coach_availability / session_bookings). 13 escuelas la usan, así que
+          // no se quita: se apaga por escuela desde el Super Admin con este moduleKey.
+          { title: 'Mis Planes', href: '/coach-plans', icon: FileText, moduleKey: 'gestion_deportiva_disponibilidad_coach' },
           { title: 'Mi Dotación', href: '/coach/dotacion', icon: Dumbbell },
           { title: 'Mis Deportistas', href: '/students', icon: Users },
           { title: 'Calendario', href: '/calendar', icon: Calendar }
@@ -312,14 +319,9 @@ export function getNavigationByRole(
       {
         title: 'Gestión',
         items: [
-          {
-            title: 'Entrenamiento',
-            icon: Activity,
-            submenu: [
-              { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity },
-              { title: 'Gestión de Rutinas', href: '/school/routines', icon: Dumbbell },
-            ]
-          },
+          // "Métricas y Rendimiento" subió a Principal como "Sesiones de
+          // Entrenamiento"; acá queda solo Rutinas, sin submenú de un ítem.
+          { title: 'Gestión de Rutinas', href: '/school/routines', icon: Dumbbell },
           {
             title: 'Asistencias',
             icon: BarChart3,
