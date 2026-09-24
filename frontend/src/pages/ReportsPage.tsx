@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import DocumentsReportTab from '@/components/reports/DocumentsReportTab';
+import AttendanceMonthCard from '@/components/reports/AttendanceMonthCard';
+import { useEntitlements } from '@/hooks/useEntitlements';
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 interface SummaryData {
@@ -158,6 +160,9 @@ async function fetchReportsFromSupabase(
 // ─── Componente principal ──────────────────────────────────────────────────────
 export default function ReportsPage() {
   const { schoolId, activeBranchId } = useSchoolContext();
+  // Escuela sin facturación (billing_enabled = false, p. ej. Carmel): las
+  // tarjetas de dinero son ruido — se esconden y la asistencia toma su lugar.
+  const { hasBilling } = useEntitlements();
 
   const [loading, setLoading] = useState(true);
   const [dataSource, setDataSource] = useState<'bff' | 'supabase' | null>(null);
@@ -371,7 +376,7 @@ export default function ReportsPage() {
         {/* ── Tab: Resumen ──────────────────────────────────────────────── */}
         <TabsContent value="resumen" className="space-y-6">
           {/* KPI Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className={`grid grid-cols-1 gap-4 ${hasBilling ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Ocupación Global</CardTitle>
@@ -385,21 +390,23 @@ export default function ReportsPage() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                {/* Decía "Ingresos Mensuales / Confirmados este mes", pero el
-                    número nunca se filtró por mes: es el acumulado de todos los
-                    pagos confirmados. El del mes en curso vive en el Dashboard. */}
-                <CardTitle className="text-sm font-medium">Ingresos Confirmados</CardTitle>
-                <DollarSign className="h-4 w-4 text-green-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-500">
-                  {formatCurrency(summary.totalRevenue)}
-                </div>
-                <p className="text-xs text-muted-foreground">Acumulado histórico</p>
-              </CardContent>
-            </Card>
+            {hasBilling && (
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  {/* Decía "Ingresos Mensuales / Confirmados este mes", pero el
+                      número nunca se filtró por mes: es el acumulado de todos los
+                      pagos confirmados. El del mes en curso vive en el Dashboard. */}
+                  <CardTitle className="text-sm font-medium">Ingresos Confirmados</CardTitle>
+                  <DollarSign className="h-4 w-4 text-green-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-green-500">
+                    {formatCurrency(summary.totalRevenue)}
+                  </div>
+                  <p className="text-xs text-muted-foreground">Acumulado histórico</p>
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -413,9 +420,12 @@ export default function ReportsPage() {
             </Card>
           </div>
 
+          {/* Asistencia del mes — mismo endpoint que el Histórico */}
+          <AttendanceMonthCard />
+
           {/* Gráficas */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card>
+            <Card className={hasBilling ? '' : 'lg:col-span-2'}>
               <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
                 <div>
                   <CardTitle>Reporte de Ocupación por Programa</CardTitle>
@@ -496,6 +506,7 @@ export default function ReportsPage() {
               </CardContent>
             </Card>
 
+            {hasBilling && (
             <Card>
               <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
                 <div>
@@ -542,6 +553,7 @@ export default function ReportsPage() {
                 )}
               </CardContent>
             </Card>
+            )}
           </div>
 
           <Card>

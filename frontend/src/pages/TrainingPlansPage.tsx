@@ -12,6 +12,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { Plus, Calendar, Target, ClipboardList, Trash2, Activity, Users, Loader2, TrendingUp, Trophy, Star, Goal } from 'lucide-react';
 import { SessionFormDialog } from '@/components/coach/SessionFormDialog';
 import { MesocycleSection } from '@/components/coach/MesocycleSection';
+import { WeekSessionsPanel } from '@/components/school/WeekSessionsPanel';
 import { TeamPerformanceEntryModal } from '@/components/school/TeamPerformanceEntryModal';
 import { FootballDashboardModal } from '@/components/school/FootballDashboardModal';
 import { TacticalBoard } from '@/components/school/TacticalBoard';
@@ -123,6 +124,10 @@ export default function TrainingPlansPage() {
   });
 
   // Fetch active roster for the team or plan
+  // El owner/admin ve todos los equipos; el panel semanal solo tiene sentido
+  // para él (el coach ya ve las suyas al elegir su equipo).
+  const isAdminRole = ['owner', 'admin', 'school_admin', 'school', 'super_admin'].includes(currentUserRole || '');
+
   const activeId = filterType === 'teams' ? selectedTeamId : selectedPlanId;
   const { data: roster = [], isLoading: loadingRoster } = useQuery<any[]>({
     queryKey: ['performance-roster-list', filterType, activeId],
@@ -303,6 +308,16 @@ export default function TrainingPlansPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Sección Izquierda: Selectores + Planes (Col 1 y 2) */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Owner/admin: todas las sesiones de la semana, de todos los
+              equipos, con su entrenador. Un clic lleva al equipo. */}
+          {isAdminRole && schoolId && (
+            <WeekSessionsPanel
+              schoolId={schoolId}
+              teams={(teams as any[]) || []}
+              onSelectTeam={(teamId) => { setFilterType('teams'); setSelectedTeamId(teamId); }}
+            />
+          )}
+
           <Card className="border-border/40 bg-background/50 backdrop-blur-sm shadow-sm">
             <CardHeader className="pb-3">
               <CardTitle className="text-base font-bold">Panel de Selección</CardTitle>
