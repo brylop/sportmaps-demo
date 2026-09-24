@@ -18,13 +18,14 @@ import { studentsAPI, Student } from '@/lib/api/students';
 import { classesAPI } from '@/lib/api/classes';
 import { supabase } from '@/integrations/supabase/client';
 import { useEntitlements } from '@/hooks/useEntitlements';
+import * as AlertDialogPrimitive from '@radix-ui/react-alert-dialog';
 import {
     AlertDialog,
     AlertDialogCancel,
-    AlertDialogContent,
     AlertDialogDescription,
-    AlertDialogFooter,
     AlertDialogHeader,
+    AlertDialogOverlay,
+    AlertDialogPortal,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Search, Loader2, UserPlus, Check, Users, X, Wallet, ArrowRightLeft, Layers } from 'lucide-react';
@@ -61,6 +62,9 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
         otherTeamName: string;
         hasPlan: boolean;
     } | null>(null);
+    // Qué opción del diálogo está en vuelo, para poner el spinner en ESA tarjeta
+    // y no en las dos.
+    const [pendingAction, setPendingAction] = useState<'add' | 'move' | null>(null);
 
     useEffect(() => {
         if (open && team) {
@@ -180,6 +184,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
 
         try {
             setEnrolling(student.id);
+            if (secondary) setPendingAction('add');
 
             // Usar BFF para soportar los tres tipos de sujeto
             const { bffClient } = await import('@/lib/api/bffClient');
@@ -209,6 +214,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
             });
         } finally {
             setEnrolling(null);
+            setPendingAction(null);
             setConflict(null);
         }
     };
@@ -229,6 +235,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
 
         try {
             setEnrolling(student.id);
+            setPendingAction('move');
 
             const { bffClient } = await import('@/lib/api/bffClient');
             await bffClient.put(`/api/v1/students/${student.id}`, {
@@ -258,6 +265,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
             });
         } finally {
             setEnrolling(null);
+            setPendingAction(null);
             setConflict(null);
         }
     };
@@ -508,61 +516,101 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                     </div>
                 </DialogFooter>
 
-                {/* El atleta ya está en otro equipo: preguntar en vez de fallar. */}
-                <AlertDialog open={!!conflict} onOpenChange={(isOpen) => { if (!isOpen && !enrolling) setConflict(null); }}>
-                    <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>
-                                {conflict?.student.full_name} ya está en {conflict?.otherTeamName}
-                            </AlertDialogTitle>
-                            <AlertDialogDescription asChild>
-                                <div className="space-y-2 text-sm text-muted-foreground">
-                                    {allowSecondaryTeamEnrollment ? (
-                                        <p>
-                                            Puedes <strong>agregarlo también</strong> a <strong>{team?.name}</strong>:
-                                            queda en los dos equipos y este segundo equipo no le genera cobro.
-                                            O puedes <strong>moverlo</strong>: sale de {conflict?.otherTeamName}.
-                                        </p>
-                                    ) : (
-                                        <p>
-                                            Un deportista tiene un solo equipo. Puedes <strong>moverlo</strong> a{' '}
-                                            <strong>{team?.name}</strong>: sale de {conflict?.otherTeamName} y se
-                                            anulan los cobros pendientes de ese equipo.
-                                        </p>
-                                    )}
-                                    {conflict?.hasPlan && (
-                                        <p>
-                                            Este deportista tiene un plan asignado. Para moverlo, edítalo desde su
-                                            ficha en Deportistas, que es donde se ajusta el cobro.
-                                        </p>
-                                    )}
-                                </div>
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-                            <AlertDialogCancel disabled={!!enrolling}>Cancelar</AlertDialogCancel>
-                            {!conflict?.hasPlan && (
-                                <Button
-                                    variant="outline"
-                                    onClick={() => conflict && handleMove(conflict.student)}
-                                    disabled={!!enrolling}
-                                >
-                                    {enrolling ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <ArrowRightLeft className="h-4 w-4 mr-1" />}
-                                    Moverlo a {team?.name}
-                                </Button>
-                            )}
-                            {allowSecondaryTeamEnrollment && (
-                                <Button
-                                    className="bg-green-600 hover:bg-green-700"
-                                    onClick={() => conflict && postEnrollment(conflict.student, true)}
-                                    disabled={!!enrolling}
-                                >
-                                    {enrolling ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Layers className="h-4 w-4 mr-1" />}
-                                    Agregarlo también
-                                </Button>
-                            )}
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
+                {/* El atleta ya está en otro equipo: preguntar en vez de fallar.
+                    Va DENTRO de DialogContent a propósito: Radix apila las capas
+                    por el árbol de React, así que un clic dentro de este diálogo
+                    no cuenta como "clic afuera" del modal padre (si fuera hermano,
+                    el padre se cerraría). El portal igual lo monta en <body>.
+                    Se arma con primitivas para poder subir el z-index por encima
+                    del modal padre (z-50) y oscurecer también su contenido: con
+                    AlertDialogContent el overlay quedaba al mismo nivel y la lista
+                    de atrás se veía a pleno brillo. */}
+                <AlertDialog open={!!conflict} onOpenChange={(isOpen) => { if (!isOpen && !pendingAction) setConflict(null); }}>
+                    <AlertDialogPortal>
+                        <AlertDialogOverlay className="z-[70] bg-black/60 backdrop-blur-[2px]" />
+                        <AlertDialogPrimitive.Content
+                            className="fixed left-1/2 top-1/2 z-[70] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2
+                                       rounded-xl border bg-background p-5 shadow-xl duration-200
+                                       data-[state=open]:animate-in data-[state=closed]:animate-out
+                                       data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0
+                                       data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+                        >
+                            <AlertDialogHeader className="text-left space-y-1">
+                                <AlertDialogTitle className="text-base sm:text-lg leading-snug">
+                                    {conflict?.student.full_name} ya tiene equipo
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Está inscrito en{' '}
+                                    <span className="font-medium text-foreground">{conflict?.otherTeamName}</span>.
+                                    ¿Qué quieres hacer?
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+
+                            <div className="mt-4 grid gap-2">
+                                {allowSecondaryTeamEnrollment && (
+                                    <button
+                                        type="button"
+                                        onClick={() => conflict && postEnrollment(conflict.student, true)}
+                                        disabled={!!pendingAction}
+                                        className="flex w-full items-start gap-3 rounded-lg border border-primary/40 bg-primary/5 p-3 text-left
+                                                   transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2
+                                                   focus-visible:ring-ring disabled:opacity-60 disabled:cursor-not-allowed"
+                                    >
+                                        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+                                            {pendingAction === 'add'
+                                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                                : <Layers className="h-4 w-4" />}
+                                        </span>
+                                        <span className="min-w-0">
+                                            <span className="block font-medium leading-tight">Agregarlo también a {team?.name}</span>
+                                            <span className="mt-0.5 block text-xs text-muted-foreground">
+                                                Queda en los dos equipos. Este equipo no le genera cobro.
+                                            </span>
+                                        </span>
+                                    </button>
+                                )}
+
+                                {!conflict?.hasPlan ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => conflict && handleMove(conflict.student)}
+                                        disabled={!!pendingAction}
+                                        className="flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-colors
+                                                   hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
+                                                   disabled:opacity-60 disabled:cursor-not-allowed"
+                                    >
+                                        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-foreground">
+                                            {pendingAction === 'move'
+                                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                                : <ArrowRightLeft className="h-4 w-4" />}
+                                        </span>
+                                        <span className="min-w-0">
+                                            <span className="block font-medium leading-tight">Moverlo a {team?.name}</span>
+                                            <span className="mt-0.5 block text-xs text-muted-foreground">
+                                                Sale de {conflict?.otherTeamName}. Sus cobros pendientes de ese equipo se anulan.
+                                            </span>
+                                        </span>
+                                    </button>
+                                ) : (
+                                    <div className="flex w-full items-start gap-3 rounded-lg border border-dashed p-3 text-left">
+                                        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                                            <ArrowRightLeft className="h-4 w-4" />
+                                        </span>
+                                        <span className="min-w-0">
+                                            <span className="block font-medium leading-tight text-muted-foreground">Moverlo a {team?.name}</span>
+                                            <span className="mt-0.5 block text-xs text-muted-foreground">
+                                                Tiene un plan asignado: muévelo desde su ficha en Deportistas, donde se ajusta el cobro.
+                                            </span>
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="mt-4 flex justify-end">
+                                <AlertDialogCancel disabled={!!pendingAction} className="mt-0">Cancelar</AlertDialogCancel>
+                            </div>
+                        </AlertDialogPrimitive.Content>
+                    </AlertDialogPortal>
                 </AlertDialog>
             </DialogContent>
         </Dialog>
