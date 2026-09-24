@@ -173,7 +173,14 @@ Para que Carmel lo haga desde la app; nosotros no borramos ni corregimos datos d
 > - Migración `20260924101138_secondary_team_enrollment_carmel.sql`: flag `school_settings.allow_secondary_team_enrollment` (default false, Carmel true) expuesto en `v_school_entitlements`. Aplicada en la base compartida.
 > - BFF `POST /enrollments` acepta `secondary: true`: si la escuela tiene el flag y el atleta ya tiene equipo activo, inserta la segunda inscripción con `monthly_fee = 0` y `fee_is_manual = true` (nunca cobra). Sin flag → 403 `SECONDARY_TEAM_NOT_ENABLED`.
 > - `EnrollTeamStudentModal`: si el atleta ya está en otro equipo, pregunta "Agregarlo también" (solo con flag) o "Moverlo" (vía `PUT /students/:id`, el camino del editor; solo sin plan). Ya no llega el 409 crudo.
-> - Falta: push de `develop`, merge a `main` y deploy (BFF en Render + frontend en Vercel), que hace el usuario. Hasta entonces Carmel sigue viendo el 409 en producción.
+> - Promovido a `staging` y `main` el mismo día (main `94bb7a70`); prod ya sirve el diálogo. Rediseño del diálogo en `2b54a471` (tarjetas por opción, overlay propio).
+>
+> **Avance 2026-09-24, segunda tanda (`9649a7b6`):**
+> - **#9 hecho:** bloque "Asistencia del mes" en `/school-reports` (porcentaje, presentes/registros, días con lista, deportistas, % por equipo, más faltas, navegación por mes) sobre `GET /attendance/history`, que ahora devuelve también `contexts[]` (agregado por equipo). Las tarjetas de dinero se esconden cuando `has_billing = false` y la ocupación ocupa el ancho completo.
+> - **#8 hecho:** panel "Sesiones de la semana" para owner/admin en Métricas y Rendimiento: todas las `training_sessions` de todos los equipos, con entrenador, objetivo, bloques y marca de mesociclo; un clic selecciona el equipo.
+> - **#3 no necesita código:** el coach ya tiene asistencia por atleta (por equipo y mes) en Reportes → Asistencia. Queda solo la pregunta a Carmel de si quieren el % en la ficha.
+> - **#6 y #7 (menú del owner):** pendientes a propósito. Otra sesión del usuario tiene `navigation.ts`, `module-catalog.ts`, `App.tsx` y `ModuleGate.tsx` modificados sin commitear (hizo la parte del coach: "Sesiones de Entrenamiento" al frente y `moduleKey` para "Mis Planes" del coach). Tocar esos archivos en paralelo era pisarle el trabajo; van cuando ese cambio esté commiteado.
+> - **#10 hecho:** `docs/manuales/academias/entrenador-carmel.pdf` (13 páginas, para Carmel) y `docs/manuales/interno/entrenador-carmel.pdf` (14, con notas internas), más `entrenador-carmel-help-article.ts` para el Sportbot. Capturas reales en stg con el tenant demo y los flags de Carmel prendidos temporalmente (apagados al terminar). Fuentes en `docs/manuales/_src/entrenador-carmel/`.
 
 **Tanda 1 — esta semana, sin migraciones**
 1. Paliativo arqueros: coach adicional en las 5 categorías (Carmel, desde la app).
