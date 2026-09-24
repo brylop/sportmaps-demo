@@ -180,7 +180,7 @@ Para que Carmel lo haga desde la app; nosotros no borramos ni corregimos datos d
 > - **#8 hecho:** panel "Sesiones de la semana" para owner/admin en Métricas y Rendimiento: todas las `training_sessions` de todos los equipos, con entrenador, objetivo, bloques y marca de mesociclo; un clic selecciona el equipo.
 > - **#3 no necesita código:** el coach ya tiene asistencia por atleta (por equipo y mes) en Reportes → Asistencia. Queda solo la pregunta a Carmel de si quieren el % en la ficha.
 > - **#6 y #7 (menú del owner):** pendientes a propósito. Otra sesión del usuario tiene `navigation.ts`, `module-catalog.ts`, `App.tsx` y `ModuleGate.tsx` modificados sin commitear (hizo la parte del coach: "Sesiones de Entrenamiento" al frente y `moduleKey` para "Mis Planes" del coach). Tocar esos archivos en paralelo era pisarle el trabajo; van cuando ese cambio esté commiteado.
-> - **#10 manual:** sin empezar.
+> - **#10 hecho:** `docs/manuales/academias/entrenador-carmel.pdf` (13 páginas, para Carmel) y `docs/manuales/interno/entrenador-carmel.pdf` (14, con notas internas), más `entrenador-carmel-help-article.ts` para el Sportbot. Capturas reales en stg con el tenant demo y los flags de Carmel prendidos temporalmente (apagados al terminar). Fuentes en `docs/manuales/_src/entrenador-carmel/`.
 
 **Tanda 1 — esta semana, sin migraciones**
 1. Paliativo arqueros: coach adicional en las 5 categorías (Carmel, desde la app).
