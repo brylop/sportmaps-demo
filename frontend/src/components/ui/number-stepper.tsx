@@ -66,6 +66,8 @@ export function NumberStepper({
             <div className="flex-1 relative flex items-center h-full min-w-0">
                 <Input
                     type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     className={cn(
                         "border-0 bg-transparent text-center font-bold text-sm focus-visible:ring-0 focus-visible:ring-offset-0 h-full no-spinners w-full px-2",
                         unit ? "pr-6" : "px-2"
