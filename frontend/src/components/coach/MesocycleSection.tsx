@@ -286,9 +286,11 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
       if (!targetDayId) {
         throw new Error('No se pudo identificar el día del mesociclo para esta sesión. Cerrá el formulario y volvé a intentar desde "Crear sesión".');
       }
+      // school_id es NOT NULL con RLS que lo exige (deriva sin versionar
+      // encontrada y documentada el 25-sep, migración 20260925135425).
       const { data: session, error } = await (supabase as any)
         .from('training_sessions')
-        .insert({ ...data, microcycle_day_id: targetDayId })
+        .insert({ ...data, microcycle_day_id: targetDayId, school_id: schoolId })
         .select()
         .single();
       if (error) throw error;
