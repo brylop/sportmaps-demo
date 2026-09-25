@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 612,
-  "head": "20260924111620",
+  "count": 617,
+  "head": "20260925135705",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -615,6 +615,11 @@
     {"v":"20260924101138","file":"20260924101138_secondary_team_enrollment_carmel.sql","sha256":"e89851ee4eb429b220c560040e6cb134e732e2d5e46318da4414f5d50f2acba7","added":"2026-09-24","by":"brylop"},
     {"v":"20260924102932","file":"20260924102932_coach_plans_module_key_carmel.sql","sha256":"c37c447826c2eaa42d95129664090a1acea2a344f3903855a2e57bc3615d4112","added":"2026-09-24","by":"brylop"},
     {"v":"20260924102935","file":"20260924102935_tactical_situation_arqueros.sql","sha256":"faf939356e03acb73e9b8b8419a27ffb2e63fb6b9f4c2005bc5781b6fc7387dc","added":"2026-09-24","by":"brylop"},
-    {"v":"20260924111620","file":"20260924111620_futsal_en_catalogo_de_deportes.sql","sha256":"08b487573288e3d88913abe08317074dc2f137b6a23b2f4321263ead5fa63dc4","added":"2026-09-24","by":"brylop"}
+    {"v":"20260924111620","file":"20260924111620_futsal_en_catalogo_de_deportes.sql","sha256":"08b487573288e3d88913abe08317074dc2f137b6a23b2f4321263ead5fa63dc4","added":"2026-09-24","by":"brylop"},
+    {"v":"20260925134721","file":"20260925134721_calendar_events_notificar_familias.sql","sha256":"16aa11444fb0a6eebd9fd7032beff8e776b303128652faaa1cac2b575cc3b8e7","added":"2026-09-25","by":"brylop"},
+    {"v":"20260925134939","file":"20260925134939_mesociclo_carga_por_atleta_y_duplicar_semana.sql","sha256":"f49af077313dab5a9015f2a8168fc919040937d58fe1ffd750a4f5d024838bbf","added":"2026-09-25","by":"brylop"},
+    {"v":"20260925135425","file":"20260925135425_training_sessions_school_id_deriva_sin_versionar.sql","sha256":"d497d13137957c7cf0fd6354d9137e1c8955c0e6621e27067ac80e276ec7a25f","added":"2026-09-25","by":"brylop"},
+    {"v":"20260925135553","file":"20260925135553_guard_duplicado_contra_fichas_precargadas.sql","sha256":"44b55c76a7eaf5d88250577b3b9fe56cbc756b84f87fbc28c067539ef2a81a23","added":"2026-09-25","by":"brylop"},
+    {"v":"20260925135705","file":"20260925135705_fix_verify_carnet_nombre_null_sin_foto.sql","sha256":"697e5cb75d2126e2212a7512a44c2d5d6f77aff686eae4bbcfe3addbaf5bc06d","added":"2026-09-25","by":"brylop"}
   ]
 }
