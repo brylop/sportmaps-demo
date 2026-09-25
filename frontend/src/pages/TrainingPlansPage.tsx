@@ -38,6 +38,12 @@ export default function TrainingPlansPage() {
   const queryClient = useQueryClient();
   useActiveWorkPage();
 
+  // training_plans_delete (RLS) excluye a 'coach' -- puede crear/editar
+  // sesiones pero no borrarlas. Sin este gate, un coach ve el botón de
+  // borrar y se encuentra con un error de permisos al apretarlo.
+  const DELETE_SESSION_ROLES = ['owner', 'admin', 'staff', 'school_admin', 'super_admin'];
+  const canDeleteSessions = DELETE_SESSION_ROLES.includes(currentUserRole || '');
+
   const [filterType, setFilterType] = useState<'teams' | 'plans'>('teams');
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
   const [selectedPlanId, setSelectedPlanId] = useState<string>('');
@@ -421,13 +427,15 @@ export default function TrainingPlansPage() {
                         </div>
                         <div className="flex gap-2">
                           <Button variant="outline" size="sm" onClick={() => { setEditingSession(session); setDialogOpen(true); }}>Editar</Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setDeleteId(session.id)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          {canDeleteSessions && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDeleteId(session.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </CardHeader>
