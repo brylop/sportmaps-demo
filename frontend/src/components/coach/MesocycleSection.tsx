@@ -23,12 +23,15 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Calendar, CalendarRange, ClipboardList, Pencil, Plus, Star, Target, Trash2 } from 'lucide-react';
+import { Calendar, CalendarRange, ClipboardList, Copy, Pencil, Plus, Star, Target, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { MesocycleFormDialog, type MesocycleFormSubmit } from './MesocycleFormDialog';
 import { MesocycleRubricTable } from './MesocycleRubricTable';
 import { SessionFormDialog } from './SessionFormDialog';
+import { WeeklyLoadPanel } from './WeeklyLoadPanel';
+import { StandaloneMicrocyclesPanel } from './StandaloneMicrocyclesPanel';
+import { MesocycleExportButton } from './MesocycleExportButton';
 
 const DAY_TYPE_OPTIONS = [
   { value: 'entrenamiento', label: 'Entrenamiento' },
@@ -275,6 +278,30 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
     onError: (error: any) => toast({ title: 'Error al agregar el día', description: error.message, variant: 'destructive' }),
   });
 
+  // PER-4 (spec §4 F4): duplicar la semana anterior como punto de partida
+  // editable, no un catálogo cerrado — copia día/tipo/RPE/minutos/foco, NUNCA
+  // sesiones de contenido (esas las escribe el coach de cero para la semana
+  // nueva). No pisa un día que el coach ya haya cargado a mano en destino
+  // (ON CONFLICT DO NOTHING del lado de la RPC).
+  const duplicatePreviousWeek = useMutation({
+    mutationFn: async ({ sourceMicrocycleId, targetMicrocycleId }: { sourceMicrocycleId: string; targetMicrocycleId: string }) => {
+      const { data, error } = await (supabase as any).rpc('duplicate_microcycle_days', {
+        p_source_microcycle_id: sourceMicrocycleId,
+        p_target_microcycle_id: targetMicrocycleId,
+      });
+      if (error) throw error;
+      return data as number;
+    },
+    onSuccess: (copiedCount) => {
+      queryClient.invalidateQueries({ queryKey: ['microcycle-days', mesocycle?.id] });
+      toast({
+        title: copiedCount > 0 ? `✅ ${copiedCount} día(s) copiados` : 'Sin días para copiar',
+        description: copiedCount > 0 ? 'Editalos como punto de partida para esta semana.' : 'La semana anterior no tenía días cargados.',
+      });
+    },
+    onError: (error: any) => toast({ title: 'Error al duplicar la semana', description: error.message, variant: 'destructive' }),
+  });
+
   // Crea la sesión de contenido (objetivos/bloques/principios de juego, CAR-8)
   // ya enganchada al día — un solo INSERT, sin el segundo UPDATE que antes
   // enganchaba de vuelta desde training_microcycle_days.session_id (§8.2:
@@ -331,6 +358,15 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
   if (!mesocycle) {
     return (
       <>
+        {/* D10: un equipo puede tener semanas sueltas sin haber creado nunca
+            el mesociclo que las agrupe — antes no tenían ninguna vista. */}
+        <StandaloneMicrocyclesPanel
+          teamId={teamId}
+          schoolId={schoolId}
+          sessions={sessions}
+          isFootball={isFootball}
+          onEditSession={onEditSession}
+        />
         <Card className="border-border/40 bg-background/50 backdrop-blur-sm shadow-sm">
           <CardContent className="pt-6 text-center">
             <CalendarRange className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-40" />
@@ -377,6 +413,7 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
               )}
             </div>
             <div className="flex gap-1.5 shrink-0">
+              <MesocycleExportButton mesocycleId={mesocycle.id} mesocycle={mesocycle} teamName={teamName || 'Equipo'} />
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setFormOpen(true)}>
                 <Pencil className="w-3.5 h-3.5" />
                 Editar
@@ -550,12 +587,28 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                         </Button>
                       </div>
                     ) : (
-                      <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={() => setAddingDayFor(mc.id)}>
-                        <Plus className="w-3.5 h-3.5" />
-                        Agregar día
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={() => setAddingDayFor(mc.id)}>
+                          <Plus className="w-3.5 h-3.5" />
+                          Agregar día
+                        </Button>
+                        {idx > 0 && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 h-7 text-xs"
+                            disabled={duplicatePreviousWeek.isPending}
+                            onClick={() => duplicatePreviousWeek.mutate({ sourceMicrocycleId: microcycles[idx - 1].id, targetMicrocycleId: mc.id })}
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            Duplicar semana anterior
+                          </Button>
+                        )}
+                      </div>
                     )}
                   </div>
+
+                  <WeeklyLoadPanel microcycleId={mc.id} />
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t">
                     <div className="space-y-1">

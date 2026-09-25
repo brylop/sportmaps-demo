@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 617,
-  "head": "20260925135705",
+  "count": 618,
+  "head": "20260925140545",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -619,7 +619,8 @@
     {"v":"20260925134721","file":"20260925134721_calendar_events_notificar_familias.sql","sha256":"16aa11444fb0a6eebd9fd7032beff8e776b303128652faaa1cac2b575cc3b8e7","added":"2026-09-25","by":"brylop"},
     {"v":"20260925134939","file":"20260925134939_mesociclo_carga_por_atleta_y_duplicar_semana.sql","sha256":"f49af077313dab5a9015f2a8168fc919040937d58fe1ffd750a4f5d024838bbf","added":"2026-09-25","by":"brylop"},
     {"v":"20260925135425","file":"20260925135425_training_sessions_school_id_deriva_sin_versionar.sql","sha256":"d497d13137957c7cf0fd6354d9137e1c8955c0e6621e27067ac80e276ec7a25f","added":"2026-09-25","by":"brylop"},
-    {"v":"20260925135553","file":"20260925135553_guard_duplicado_contra_fichas_precargadas.sql","sha256":"44b55c76a7eaf5d88250577b3b9fe56cbc756b84f87fbc28c067539ef2a81a23","added":"2026-09-25","by":"brylop"},
-    {"v":"20260925135705","file":"20260925135705_fix_verify_carnet_nombre_null_sin_foto.sql","sha256":"697e5cb75d2126e2212a7512a44c2d5d6f77aff686eae4bbcfe3addbaf5bc06d","added":"2026-09-25","by":"brylop"}
+    {"v":"20260925135553","file":"20260925135553_guard_duplicado_contra_fichas_precargadas.sql","sha256":"43399ffcb98d3021e6de2d68a7939dadae6a4f9c1a14d6d92a276af61d554778","added":"2026-09-25","by":"brylop"},
+    {"v":"20260925135705","file":"20260925135705_fix_verify_carnet_nombre_null_sin_foto.sql","sha256":"47f489a004045d557d420ec20750e4860bd6983c5460551beb1cb559586a8067","added":"2026-09-25","by":"brylop"},
+    {"v":"20260925140545","file":"20260925140545_pausas_avisar_familia_y_escuela.sql","sha256":"dc803f64ad4cfdc000190f79c53a6e4a61e32f9e5596ef7296e1cb14425572d7","added":"2026-09-25","by":"brylop"}
   ]
 }
