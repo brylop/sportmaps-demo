@@ -334,6 +334,7 @@ export function useSchoolFacilities() {
 
 export function useCoachData() {
   const { user } = useAuth();
+  const { schoolId } = useSchoolContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -376,7 +377,7 @@ export function useCoachData() {
     }) => {
       const { data, error } = await supabase
         .from('training_sessions')
-        .insert(input)
+        .insert({ ...input, school_id: schoolId })
         .select()
         .single();
       if (error) throw error;

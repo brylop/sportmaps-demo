@@ -45,6 +45,13 @@ export default function ResultsPage() {
   // (la cuenta owner de la escuela demo no veía el botón con ese gate).
   const EDIT_RESULTS_ROLES = ['owner', 'admin', 'school_admin', 'super_admin', 'coach'];
   const canEditResults = EDIT_RESULTS_ROLES.includes(currentUserRole || '');
+  // match_results_delete (RLS) excluye a 'coach' a propósito -- a diferencia
+  // de insert/update, que sí lo incluyen. Sin este gate, un coach veía el
+  // botón de borrar y se encontraba con un error de permisos sin explicación
+  // al apretarlo (RLS lo bloqueaba en silencio, la UI no sabía que era un
+  // caso distinto a editar).
+  const DELETE_RESULTS_ROLES = ['owner', 'admin', 'staff', 'school_admin', 'super_admin'];
+  const canDeleteResults = DELETE_RESULTS_ROLES.includes(currentUserRole || '');
 
   // Fetch teams
   const { data: teams } = useQuery({
@@ -248,7 +255,11 @@ export default function ResultsPage() {
           className="gap-2"
           onClick={() => {
             setEditingMatch(null);
-            usesSets ? setCompetitionDialogOpen(true) : setDialogOpen(true);
+            if (usesSets) {
+              setCompetitionDialogOpen(true);
+            } else {
+              setDialogOpen(true);
+            }
           }}
           disabled={!selectedTeamId}
         >
@@ -361,13 +372,15 @@ export default function ResultsPage() {
                             <Pencil className="h-4 w-4" />
                           </Button>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleteId(match.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                        {canDeleteResults && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDeleteId(match.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   );

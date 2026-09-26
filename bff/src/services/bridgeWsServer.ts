@@ -2,7 +2,10 @@
 //
 // Servidor WS para bridges locales (ver bridgeWsHub.ts para el porqué).
 // Protocolo, todo JSON sobre la misma conexión:
-//   cliente -> servidor  {type:'auth', school_id, api_key}   -- primer mensaje, obligatorio
+//   cliente -> servidor  {type:'auth', school_id, api_key, command_types?}  -- primer mensaje, obligatorio
+//                        command_types: coma-separado, default 'open_door' (igual que el
+//                        GET /door-commands viejo) -- Dreamers manda 'open_door,set_group'
+//                        porque sus lectores no procesan set_group nativo por ADMS.
 //   servidor -> cliente  {type:'auth_ok'} | {type:'auth_failed'}
 //   servidor -> cliente  {type:'wake'}                        -- "revisa ahora" (bridgeWsHub.wakeSchool)
 //   cliente -> servidor  {type:'poll'}                        -- "dame lo que haya pendiente"
@@ -61,12 +64,17 @@ function isRateLimited(ip: string): boolean {
   return entry.count >= AUTH_FAIL_MAX;
 }
 
-// Mismo criterio que access-adms.ts::clientIp -- el último salto del header,
-// no el primero (el cliente controla el principio de la cadena; Render
-// agrega el suyo al final). El upgrade de un WS no pasa por el
+// Mismo criterio que access-adms.ts::clientIp (ver ese archivo para el porqué
+// completo): Render pone a Cloudflare de borde SIEMPRE, dos saltos de proxy
+// (cliente -> Cloudflare -> Render -> app), no uno. `CF-Connecting-IP` es el
+// header que Cloudflare mismo fija con la IP real que vio en el socket -- el
+// cliente no puede falsificarlo. El upgrade de un WS no pasa por el
 // `trust proxy` de Express (eso solo aplica a requests que Express mismo
-// enruta), así que se resuelve a mano acá.
+// enruta), así que se resuelve a mano acá; el fallback de X-Forwarded-For
+// queda solo para local/dev sin Cloudflare por delante.
 function requestIp(req: import('http').IncomingMessage): string {
+  const cfIp = (req.headers['cf-connecting-ip'] as string) || '';
+  if (cfIp) return cfIp.trim();
   const xff = (req.headers['x-forwarded-for'] as string) || '';
   const parts = xff.split(',').map(s => s.trim()).filter(Boolean);
   return parts.length ? parts[parts.length - 1] : (req.socket?.remoteAddress || '');
@@ -96,6 +104,7 @@ interface BridgeSocket extends WebSocket {
   schoolId?: string;
   authed?: boolean;
   lastHeartbeat?: number;
+  commandTypes?: string[];
 }
 
 function touchHeartbeat(schoolId: string) {
@@ -109,7 +118,7 @@ function touchHeartbeat(schoolId: string) {
 
 async function pushPending(ws: BridgeSocket, schoolId: string) {
   try {
-    const commands = await claimAndMapCommands(schoolId, ['open_door']);
+    const commands = await claimAndMapCommands(schoolId, ws.commandTypes || ['open_door']);
     if (commands.length > 0 && ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ type: 'commands', commands }));
     }
@@ -169,8 +178,11 @@ export function attachBridgeWsServer(server: Server): WebSocketServer {
             try { ws.close(4003, 'unauthorized'); } catch { /* noop */ }
             return;
           }
+          const commandTypes = String(msg.command_types || 'open_door')
+            .split(',').map((t: string) => t.trim()).filter(Boolean);
           ws.schoolId = schoolId;
           ws.authed = true;
+          ws.commandTypes = commandTypes;
           ws.lastHeartbeat = Date.now();
           registerConnection(schoolId, ws);
           try { ws.send(JSON.stringify({ type: 'auth_ok' })); } catch { /* noop */ }
