@@ -85,7 +85,7 @@ export default function JoinSchoolPublicPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { user, profile } = useAuth();
+  const { user, profile, updateProfile } = useAuth();
 
   const [data, setData] = useState<LandingData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -313,6 +313,12 @@ export default function JoinSchoolPublicPage() {
     if (!email || !password || !parentName) {
       return toast({ title: 'Completa todos los datos', variant: 'destructive' });
     }
+    // El WhatsApp es la identidad del acudiente (el bot lo reconoce por el
+    // número). Con ficha precargada ya viene puesto; si no, se pide acá y no
+    // vuelve a pedirse en ningún onboarding.
+    if (parentPhone.replace(/\D/g, '').length < 7) {
+      return toast({ title: 'Escribe tu WhatsApp', description: 'Por ahí te llegan los cobros y las novedades del menor.', variant: 'destructive' });
+    }
     setAuthLoading(true);
     try {
       const { data: signUp, error } = await supabase.auth.signUp({
@@ -410,6 +416,19 @@ export default function JoinSchoolPublicPage() {
     }
     const r = res as any;
     toast({ title: '¡Inscripción registrada!' });
+
+    // El acudiente ya dio nombre, WhatsApp y contraseña, y el menor quedó
+    // inscrito: el onboarding de /onboarding/parent no tiene nada que pedirle.
+    // Se cierra acá y se refresca el perfil en memoria para que el dashboard
+    // no lo desvíe. Si falla, el gate del dashboard lo manda al onboarding
+    // como antes; no bloquea la inscripción.
+    try {
+      const { error: onboardingErr } = await (supabase.rpc as any)('complete_onboarding');
+      if (onboardingErr) throw onboardingErr;
+      await updateProfile({}, { silent: true });
+    } catch (e) {
+      console.warn('[join] complete_onboarding falló, el dashboard pedirá el onboarding:', e);
+    }
 
     if (r?.requires_payment && r?.payment_id) {
       navigate(`/parent-checkout?payment_id=${r.payment_id}&school_id=${r.school_id}&child_id=${r.child_id}&qr_id=${r.qr_id}`);
@@ -714,7 +733,7 @@ export default function JoinSchoolPublicPage() {
                     </div>
                   </div>
                   <div>
-                    <Label>Tu teléfono</Label>
+                    <Label>Tu WhatsApp *</Label>
                     <div className="relative">
                       <Input
                         value={parentPhone}

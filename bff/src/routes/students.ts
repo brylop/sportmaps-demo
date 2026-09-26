@@ -913,10 +913,17 @@ router.put(
          */
         const readActiveEnrollments = async (kind: 'team' | 'plan') => {
           const col = kind === 'team' ? 'team_id' : 'offering_plan_id';
+          // 'pending' también cuenta como abierta (misma lección que en POST
+          // /enrollments): es la fila que deja el QR cuando exige primer pago.
+          // Con `status='active'` a secas el editor no la veía, insertaba una
+          // segunda fila activa y el atleta quedaba con dos inscripciones. La
+          // activa va primero en el orden para que, si hay una, sea la que
+          // sobrevive; consolidateEnrollments ya cerró las pending sobrantes.
           const { data, error } = await applyAthleteFilter(
             supabase.from('enrollments')
-              .select('id, team_id, offering_plan_id, monthly_fee')
-              .eq('school_id', schoolId).eq('status', 'active')
+              .select('id, team_id, offering_plan_id, monthly_fee, status')
+              .eq('school_id', schoolId).in('status', ['active', 'pending'])
+              .order('status', { ascending: true })
               .order('created_at', { ascending: true })
           );
           if (error) throw new Error(`Error leyendo inscripciones: ${error.message}`);
@@ -962,12 +969,31 @@ router.put(
         const consolidateEnrollments = async () => {
           const { data, error } = await applyAthleteFilter(
             supabase.from('enrollments')
-              .select('id, team_id, offering_plan_id, monthly_fee')
-              .eq('school_id', schoolId).eq('status', 'active')
+              .select('id, team_id, offering_plan_id, monthly_fee, status')
+              .eq('school_id', schoolId).in('status', ['active', 'pending'])
+              .order('status', { ascending: true })
               .order('created_at', { ascending: true })
           );
           if (error) throw new Error(`Error leyendo inscripciones: ${error.message}`);
-          const rows = (data as any[]) ?? [];
+          const allOpen = (data as any[]) ?? [];
+
+          // 'pending' es el placeholder del QR ("espera el primer pago"). Si el
+          // atleta YA tiene una inscripción activa, esa fila no es una segunda
+          // disciplina: es el rastro de un alta por QR que la escuela resolvió
+          // creando otra inscripción, y se cierra. Medido el 2026-09-25: 12
+          // atletas en 3 escuelas con el par pending + active, 6 de ellos en
+          // Besser en una sola semana. Sin ninguna activa, la pending es la que
+          // sobrevive y los bloques de abajo la activan al ponerle equipo o plan.
+          const activeRows = allOpen.filter(r => r.status === 'active');
+          const stalePending = activeRows.length ? allOpen.filter(r => r.status === 'pending') : [];
+          if (stalePending.length) {
+            await cancelExtraEnrollments(stalePending);
+            req.log?.warn?.(
+              { athleteId: id, schoolId, cancelled: stalePending.map(r => r.id) },
+              'Inscripción pending del QR cerrada: el atleta ya tiene una activa',
+            );
+          }
+          const rows = activeRows.length ? activeRows : allOpen;
           if (rows.length <= 1) return;
 
           // Fusionar solo cuando las filas NO compiten por la misma columna.
@@ -1039,6 +1065,15 @@ router.put(
         // que ambos escriben sobre la misma fila en vez de crear una cada uno.
         await consolidateEnrollments();
 
+        // Si la fila que sobrevive es la 'pending' del QR, ponerle equipo o plan
+        // desde el editor es la escuela dándola de alta: se activa la MISMA fila.
+        // El cobro que emitió el QR no se toca acá; se avisa para que lo revisen.
+        const PENDING_ACTIVATED_MSG =
+          'La inscripción venía pendiente del primer pago (alta por QR) y quedó activa al asignarle equipo o plan. Revisa su cobro pendiente.';
+        const notePendingActivated = () => {
+          if (!warnings.includes(PENDING_ACTIVATED_MSG)) warnings.push(PENDING_ACTIVATED_MSG);
+        };
+
         // ── Enrollment de EQUIPO ────────────────────────────────────────────────
         if (enrollment.team_id !== undefined) {
           const teamStartDate: string = enrollment.team_start_date || todayInZone();
@@ -1057,9 +1092,11 @@ router.put(
           const oldTeamId: string | null = existingTeam?.team_id || null;
 
           if (existingTeam) {
+            const activatePending = existingTeam.status === 'pending' && !!enrollment.team_id;
             await supabase.from('enrollments')
-              .update({ team_id: enrollment.team_id || null, start_date: teamStartDate, monthly_fee: teamFee, updated_at: new Date().toISOString(), ...feeManualPatch })
+              .update({ team_id: enrollment.team_id || null, start_date: teamStartDate, monthly_fee: teamFee, updated_at: new Date().toISOString(), ...feeManualPatch, ...(activatePending ? { status: 'active' } : {}) })
               .eq('id', existingTeam.id).eq('school_id', schoolId);
+            if (activatePending) notePendingActivated();
 
             if (hasPlan) {
               // Con plan, el equipo NO cobra: cancelar cualquier cobro pendiente
@@ -1147,9 +1184,11 @@ router.put(
           const oldPlanId: string | null = existingPlan?.offering_plan_id || null;
 
           if (existingPlan) {
+            const activatePending = existingPlan.status === 'pending' && !!enrollment.offering_plan_id;
             await supabase.from('enrollments')
-              .update({ offering_plan_id: enrollment.offering_plan_id || null, start_date: planStartDate, expires_at: expiresAtStr, monthly_fee: planFee, updated_at: new Date().toISOString(), ...feeManualPatch })
+              .update({ offering_plan_id: enrollment.offering_plan_id || null, start_date: planStartDate, expires_at: expiresAtStr, monthly_fee: planFee, updated_at: new Date().toISOString(), ...feeManualPatch, ...(activatePending ? { status: 'active' } : {}) })
               .eq('id', existingPlan.id).eq('school_id', schoolId);
+            if (activatePending) notePendingActivated();
 
             if (oldPlanId && oldPlanId !== enrollment.offering_plan_id) {
               // Plan cambió: cancelar pagos pending del plan anterior
