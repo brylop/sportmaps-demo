@@ -1246,7 +1246,7 @@ siempre. Cerrado en la misma sesión: `createMesocycle` ahora genera las 4 seman
 (fecha/tipo/intensidad/duración) y un botón "Crear sesión" por día que abre `SessionFormDialog`
 (sin modificarlo) y liga el `session_id` de vuelta al día. `tsc --noEmit` limpio otra vez. **Sigue sin
 probarse el flujo end-to-end con un coach real** (sin credenciales de login en esta sesión) | ✅ aplicado | 4–5 d | [spec §3.5, §4 F1b](specs/periodizacion-microciclos-y-carga.md) · [plan](plan-mesociclo-carmel-2026-08-31.md) |
-| PER-8 | **Rúbrica de mesociclo (6 indicadores × 5 cortes, 1–10).** `training_mesocycle_evaluations` en formato largo para modo `team`; modo `individual` reusa `performance_entries` (`context_type='evaluation'`, sin usar hasta ahora) + 6 `sport_metric_definitions` nuevas prefijadas `mesociclo_` (evita repetir la colisión de `duelos_ganados`), categorías ajustadas al `CHECK` real (`physical\|technical\|tactical\|attendance`) y verificadas post-aplicación. **`D12` resuelta: el coach elige el modo por mesociclo** (`evaluation_mode`, toggle en `MesocycleFormDialog`) — `MesocycleRubricTable.tsx` construido para ambos modos. ⚠️ **Modo `individual` con defecto real** (revisión 18-sep): el `INSERT` a `performance_entries` no tiene dónde guardar el corte (`inicial`/`semana_2`/.../`final`) — se pierde el eje que distingue la rúbrica de una nota suelta, y es un camino con cero uso en producción. Mismo estado que `PER-7` en lo demás: ✅ aplicado, mismo hallazgo de `anon` cerrado en la misma migración | ✅ aplicado, ⚠️ modo `individual` con defecto | 2 d | [spec §3.5, §4 F7, §8.5](specs/periodizacion-microciclos-y-carga.md) · [plan](plan-mesociclo-carmel-2026-08-31.md) |
+| PER-8 | **Rúbrica de mesociclo (6 indicadores × 5 cortes, 1–10).** `training_mesocycle_evaluations` en formato largo para modo `team`; modo `individual` reusa `performance_entries` (`context_type='evaluation'`, sin usar hasta ahora) + 6 `sport_metric_definitions` nuevas prefijadas `mesociclo_` (evita repetir la colisión de `duelos_ganados`), categorías ajustadas al `CHECK` real (`physical\|technical\|tactical\|attendance`) y verificadas post-aplicación. **`D12` resuelta: el coach elige el modo por mesociclo** (`evaluation_mode`, toggle en `MesocycleFormDialog`) — `MesocycleRubricTable.tsx` construido para ambos modos. **Modo `individual`, defecto real encontrado el 18-sep y corregido el 25-sep** (`20260925170003`, Julián): el `INSERT` a `performance_entries` no tenía dónde guardar el corte (`inicial`/`semana_2`/.../`final`) — el corte más nuevo pisaba a todos los anteriores en la UI. Columna `checkpoint` (nullable, mismo `CHECK` de 5 valores) + `MesocycleRubricTable.tsx` con grilla 6×5; opción "Por atleta" reactivada en `MesocycleFormDialog.tsx` (había quedado deshabilitada el 21-sep mientras se corregía). Probado en vivo: dos cortes del mismo indicador conviven | ✅ aplicado | 2 d | [spec §3.5, §4 F7, §8.5](specs/periodizacion-microciclos-y-carga.md) · [plan](plan-mesociclo-carmel-2026-08-31.md) |
 
 > **Revisión externa — 2026-09-18.** Primer uso real del módulo por un coach
 > (equipo Categoria 2018-19), que expuso dos bugs de construcción — arreglados
@@ -1298,6 +1298,26 @@ probarse el flujo end-to-end con un coach real** (sin credenciales de login en e
 > (cerrado el 21-sep), pero faltan pruebas negativas de RLS en
 > `seguridad:invariantes` y las fases `PER-0(c)`/`PER-2` real/`PER-3`/`PER-6`
 > completas.
+
+> **Seguimiento — 2026-09-25/26, aporte de Julián (`judegor99`).** Revisado y
+> verificado en vivo el 26-sep, sin correcciones necesarias: (1) cierra el
+> defecto de modo `individual` de arriba (`PER-8`); (2) el "Cierre del
+> Mesociclo" (3 textareas sobre una sola columna jsonb) perdía un campo si el
+> coach llenaba dos seguido — el segundo guardado salía antes de que el
+> primero volviera del refetch y pisaba el valor recién guardado con el
+> viejo. RPC `merge_mesocycle_closing_review` (`20260925170002`) hace el
+> merge en la base, no en el cliente — probado en vivo, los dos campos
+> conviven; (3) `match_lineups`/`match_lineup_players`/
+> `football_match_events`/`team_tactical_presets` tenían un
+> `OR created_by = auth.uid()` que anulaba el chequeo de escuela — cualquier
+> cuenta autenticada, de cualquier escuela, podía escribir alineaciones de
+> cualquier equipo. Función `user_tactical_edit_school_ids()` nueva
+> (`20260925170001`), angosta a owner/coach/super_admin — espejo exacto de
+> `TACTICAL_EDIT_ROLES` del BFF, que hasta ahora solo se aplicaba desde ahí,
+> nunca en RLS. De paso, botón de borrar sesión oculto para `coach` en
+> `TrainingPlansPage.tsx` (la policy de `DELETE` ya lo excluía, el botón
+> igual se mostraba). `seguridad:invariantes` sin violaciones críticas
+> nuevas.
 
 > **Dos cosas que este track NO hace, y conviene que queden escritas.** **(1)** No mide con GPS ni
 > wearables: `D-CARGA` elige sRPE justamente porque no necesita hardware ni presupuesto, y funciona

@@ -397,11 +397,18 @@ El `INSERT` a `performance_entries` de §1.5 (ver
 `plan-mesociclo-carmel-2026-08-31.md`) no tiene dónde guardar el corte
 (`inicial`/`semana_2`/`semana_3`/`semana_4`/`final`) — se pierde exactamente el
 eje que distingue una rúbrica de una sola nota. Camino nunca ejercido en
-producción (§3.6 ya lo advertía). ⚠️ **Mitigado, no corregido, 2026-09-21:**
-la opción "Por atleta" queda deshabilitada (grisada, con nota) en
-`MesocycleFormDialog.tsx` — sigue eligible el que ya la tuviera guardada de
-antes (no había ninguno en producción), pero nadie nuevo puede elegirla hasta
-que el corte se guarde de verdad. La causa de fondo sigue sin tocarse.
+producción (§3.6 ya lo advertía). Mitigado el 21-sep (opción deshabilitada
+en el formulario) mientras se corregía la causa de fondo.
+
+✅ **Corregido de raíz 2026-09-25** (`20260925170003`, Julián). Columna
+`checkpoint` en `performance_entries` (nullable, `CHECK` contra los mismos 5
+cortes de `training_mesocycle_evaluations`), y `MesocycleRubricTable.tsx`
+pasa de 6 inputs sueltos a una grilla 6×5 (indicador × corte), leyendo la
+fila más reciente de cada par `(metric_key, checkpoint)` — antes el mapa
+solo tenía `metric_key`, así que el corte más nuevo pisaba a todos los
+anteriores en la UI. La opción "Por atleta" quedó reactivada en
+`MesocycleFormDialog.tsx`. Probado en vivo: `inicial` y `final` del mismo
+indicador conviven sin pisarse.
 
 ### 8.6 Endurecer el DDL — hallazgos de QA sobre el esquema aplicado
 
