@@ -274,3 +274,7 @@ papá, un coach y un admin con `set_config('request.jwt.claims', …)`.
   [plan-partidos-f1-db-rls-rpc.md](../plan-partidos-f1-db-rls-rpc.md) con el DDL, las
   policies, los RPCs, el radio de impacto y las 10 pruebas; verificado contra la base viva
   (24 partidos, 0 huérfanos, 3 sin marcador). Pendiente: aprobar el plan y aplicar.
+- 2026-09-26 · **F1 aplicada** (`20260926131340_partidos_f1_school_id_status_criterios_rls_rpcs`).
+  Pruebas T1–T10 en verde con sesiones simuladas del papá y del coach de Besser, todas en
+  transacciones revertidas. Diferencia con el plan: un criterio `text` guarda `value = 0` porque
+  `performance_entries.value` es NOT NULL. Siguiente: F2 (BFF).

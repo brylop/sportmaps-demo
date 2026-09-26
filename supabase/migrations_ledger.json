@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 624,
-  "head": "20260926124337",
+  "count": 625,
+  "head": "20260926131340",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -627,6 +627,7 @@
     {"v":"20260925170003","file":"20260925170003_performance_entries_checkpoint.sql","sha256":"781abb644c351a0496d7365a3389b25f5816fbb183a740c9934bc8d116cb8f8b","added":"2026-09-25","by":"judegor99"},
     {"v":"20260926124215","file":"20260926124215_training_sessions_school_id_derivar_por_trigger.sql","sha256":"c2115a737317a5080f1a12d832f3ff37b6d1f01cf7f5337da709d3a96bbf3e78","added":"2026-09-26","by":"brylop"},
     {"v":"20260926124241","file":"20260926124241_pausas_avisar_pausa_directa_y_reactivacion.sql","sha256":"2d19a3521ee4a0c78a8a35f7f07c31defdffd79d0cb53858546fbb6b84a7ec27","added":"2026-09-26","by":"brylop"},
-    {"v":"20260926124337","file":"20260926124337_coach_attendance_retro_days_carmel.sql","sha256":"6e5928be56836982c2a4e832e174bcb54e1056695858c0e1607bb6b88f31375a","added":"2026-09-26","by":"brylop"}
+    {"v":"20260926124337","file":"20260926124337_coach_attendance_retro_days_carmel.sql","sha256":"6e5928be56836982c2a4e832e174bcb54e1056695858c0e1607bb6b88f31375a","added":"2026-09-26","by":"brylop"},
+    {"v":"20260926131340","file":"20260926131340_partidos_f1_school_id_status_criterios_rls_rpcs.sql","sha256":"1df9cf8539344a320a6ae04cf32700ad9afadb579a50d7db09dfe883475a1250","added":"2026-09-26","by":"brylop"}
   ]
 }
