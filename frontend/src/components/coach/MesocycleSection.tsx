@@ -454,6 +454,15 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
         <Accordion type="multiple" defaultValue={[microcycles[0]?.id]} className="rounded-lg border bg-background/50">
           {microcycles.map((mc: any, idx: number) => {
             const mcDays = (days || []).filter((d: any) => d.microcycle_id === mc.id);
+            // Adherencia (spec §3.3): días de entrenamiento con al menos una
+            // sesión que registró RPE, sobre el total de días de
+            // entrenamiento de la semana. Es la única métrica que dice si el
+            // módulo se está usando o quedó vacío (R1) — nunca se mostraba
+            // en ningún lado.
+            const trainingDays = mcDays.filter((d: any) => d.day_type === 'entrenamiento');
+            const daysWithRpe = trainingDays.filter((d: any) =>
+              (sessionsByDayId.get(d.id) || []).some((s: any) => s.evaluation?.rpe != null),
+            );
             return (
               <AccordionItem key={mc.id} value={mc.id} className="px-3">
                 <AccordionTrigger className="text-sm">
@@ -464,6 +473,11 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                       {' – '}
                       {new Date(mc.ends_on).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
                     </span>
+                    {trainingDays.length > 0 && (
+                      <Badge variant="outline" className="text-[10px] h-5 shrink-0">
+                        Adherencia {daysWithRpe.length}/{trainingDays.length}
+                      </Badge>
+                    )}
                   </span>
                 </AccordionTrigger>
                 <AccordionContent className="space-y-3">

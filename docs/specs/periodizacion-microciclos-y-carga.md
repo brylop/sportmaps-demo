@@ -155,7 +155,7 @@ monetarios ya dejó la lección: lo que calcula el navegador divergen del RPC.
 | ACWR | UA 7 días ÷ media de 28 días | El salto de carga. Necesita **28 días de historia** → R2 |
 | Densidad competitiva | partidos en ventana de 7 días y de 72 h | **H3** |
 | Días consecutivos sin descanso | recorrido de `day_type` | **H3** |
-| Adherencia | sesiones con `session_rpe` ÷ días `entrenamiento` | Si el módulo se está usando o quedó vacío → R1 |
+| Adherencia | sesiones con `session_rpe` ÷ días `entrenamiento` | Si el módulo se está usando o quedó vacío → R1. **✅ Mostrado 2026-09-26**: badge en el encabezado de cada semana en `MesocycleSection.tsx`, calculado en cliente sobre los datos ya cargados (sin RPC nueva) — definida desde el 31-ago, nunca se había mostrado en ningún lado |
 | Carga por atleta *(nuevo, D13)* | `asistió × session_rpe × minutos`, de la asistencia que ya se registra; en día `partido`, titular/suplente desde `match_lineups` | Responde §0.3 tal cual está planteada ("¿cuánta carga acumuló ESTE jugador?") sin pedirle nada nuevo a nadie — hoy la UA es una cifra por equipo, no por jugador |
 
 > ⚠️ **Umbral de frecuencia — encontrado en la revisión 2026-09-18, no estaba
