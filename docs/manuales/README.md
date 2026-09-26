@@ -32,6 +32,19 @@ Cuando un manual tiene versión interna, ambos archivos comparten el mismo nombr
 - `calendario-equipos-familias-help-article.ts` (en `academias/`) — artículo NUEVO listo para pegar en `bff/src/data/help-articles.ts` (slug `calendario-equipos-familias`, categoría `operacion-diaria`; no reemplaza `calendario-reservas`, que es otro calendario).
 - **Fuente reproducible en `_src/calendario-equipos-familias/`:** `capture.mjs` (login programático + capturas Playwright, reanudable), `build.mjs` (recortes por canvas, HTML de las dos versiones y PDF con aviso de páginas que desbordan) y `manual.css` (el sistema visual de todos los manuales). Es la primera guía que deja el generador en el repo; para el próximo manual, copiar la carpeta y cambiar contenido y coordenadas de recorte.
 
+## Funciones del entrenador — Club Carmel (2026-09-24)
+
+- `entrenador-carmel.pdf` (`academias/` para Carmel y `interno/` con notas) — el manual del rol entrenador con los permisos que Carmel tiene prendidos: menú y panel, categorías y **Nuevo Equipo**, inscribir / **agregarlo también** (equipo de arqueros, `allow_secondary_team_enrollment`) / **moverlo**, alta de deportista, asistencia (dos categorías = dos listas), sesiones y mesociclo, reportes por deportista, y qué no ve el entrenador (nada de dinero). Capturas reales en stg con el tenant demo `Club Campestre Demo` (coach de tenis), prendiendo temporalmente en el demo los tres flags de Carmel y apagándolos al terminar: ningún menor de Carmel aparece en el PDF. La versión interna suma el estado de Carmel (flags, segundo equipo en prod, datos por corregir) y la receta para regenerar.
+- `entrenador-carmel-help-article.ts` (en `academias/`) — artículo NUEVO listo para pegar (slug sugerido `entrenador-categorias-y-segundo-equipo`), genérico: no nombra a la escuela.
+- **Fuente reproducible en `_src/entrenador-carmel/`** (`capture.mjs` con `ONLY=07` para reanudar una sola captura, `build.mjs`, `manual.css`).
+
+## Pizarra táctica (2026-09-25)
+
+- `pizarra-tactica.pdf` (`academias/` e `interno/`) — la pizarra F1 completa (commit `2b1dc946`): abrir desde el bloque de sesión, jugadores como discos o siluetas (arquero en amarillo), los 11 objetos de material con **tamaño y giro** (selección, deslizadores, +90°, Duplicar), nueve colores, flecha/curva/zona, **balón en juego** (pase, remate, penal) y "Reproducir jugada", **modo arqueros** (zoom al área) y guardar en el bloque o como plantilla. La versión interna suma el modelo (jsonb sin `schema_version`, validación en el BFF), lo que NO existe (3D: solo con métrica, spec §6) y el QA en dispositivos pendiente.
+- `video/pizarra-tactica.mp4` y `.webm` — **video de ~3:20 con subtítulos y cursor**, grabado en la misma pasada de las capturas (Playwright `recordVideo` + ffmpeg): colocar jugadores, siluetas, los 11 objetos, seleccionar/tamaño/giro/duplicar, colores, líneas, pase y remate, reproducir, arqueros, plantilla y guardar. Mudo, apto para WhatsApp.
+- `pizarra-tactica-help-article.ts` (en `academias/`) — artículo NUEVO listo para pegar (slug sugerido `pizarra-tactica`).
+- **Fuente reproducible en `_src/pizarra-tactica/`**: `capture.mjs` (owner del demo, equipo `Fútbol — Sub-10` porque con mesociclo activo la lista plana de sesiones se oculta; sesión sembrada `817c0183…` con dos bloques; deja guardadas la alineación y la plantilla "Arqueros 1v1") y `build.mjs` (recortes, dos PDF y conversión del video con ffmpeg). Las capturas crudas y el video crudo (`video-raw/`) no se versionan.
+
 ## Manuales sueltos en la raíz
 
 `Guia-SportMaps-Registro-Atletas-QR.pdf` y `SportMaps_Manual_de_Marca_v2.pdf` viven en la raíz de `docs/manuales/`, no en `interno/` ni `academias/`: son documentos traídos de la carpeta de documentación general del proyecto (fuera del repo) para unificar todo en un solo lugar, y no siguen el proceso de capturas Playwright ni el par interno/academias — no tienen contraparte de la otra audiencia.
