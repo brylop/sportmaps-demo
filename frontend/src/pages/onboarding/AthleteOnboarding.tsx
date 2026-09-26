@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { todayColombia } from '@/lib/dateUtils';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+import { acceptPendingInvitations } from '@/lib/invitations/acceptPendingInvitations';
 import { OnboardingShell, type ShellStep } from '@/components/onboarding/OnboardingShell';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -37,6 +38,21 @@ export default function AthleteOnboarding() {
   const [sports, setSports] = useState<string[]>([]);
   const [level, setLevel] = useState('');
   const [bio, setBio] = useState(profile?.bio ?? '');
+
+  // Backstop de invitaciones: quien se registra SIN el link llega acá antes que
+  // al dashboard (el gate de onboarding lo saca de /dashboard), así que el
+  // backstop del dashboard nunca corría y la invitación quedaba 'pending' para
+  // siempre. Se acepta acá, una vez por montaje, y se avisa a qué escuela quedó vinculado.
+  const autoAcceptRan = useRef(false);
+  useEffect(() => {
+    if (!user || autoAcceptRan.current) return;
+    autoAcceptRan.current = true;
+    acceptPendingInvitations().then(({ schools }) => {
+      if (schools.length) {
+        toast.success(`Te vinculamos con ${schools.join(', ')}.`);
+      }
+    });
+  }, [user]);
 
   if (authLoading) {
     return (

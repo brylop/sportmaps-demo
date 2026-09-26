@@ -79,6 +79,7 @@ router.get('/entitlements', requireAuth, async (req: Request, res: Response) => 
                 coach_hide_financial_info: false,
                 coach_can_edit_categories: false,
                 military_discount_enabled: false,
+                coach_attendance_retro_days: 7,
             });
         }
 

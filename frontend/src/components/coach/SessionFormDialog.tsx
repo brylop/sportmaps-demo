@@ -270,9 +270,9 @@ export function SessionFormDialog({
               <ClipboardList className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <DialogTitle>{session ? 'Editar Sesión de Entrenamiento' : 'Crear Sesión de Entrenamiento'}</DialogTitle>
+              <DialogTitle>{session?.id ? 'Editar Sesión de Entrenamiento' : 'Crear Sesión de Entrenamiento'}</DialogTitle>
               <DialogDescription>
-                {session ? 'Actualiza los detalles de la sesión de entrenamiento.' : 'Crea una sesión de entrenamiento para tu equipo.'}
+                {session?.id ? 'Actualiza los detalles de la sesión de entrenamiento.' : 'Crea una sesión de entrenamiento para tu equipo.'}
               </DialogDescription>
             </div>
           </div>
@@ -587,7 +587,7 @@ export function SessionFormDialog({
               Cancelar
             </Button>
             <Button type="submit" disabled={isLoading}>
-              {isLoading ? 'Guardando...' : (session ? 'Actualizar Sesión' : 'Crear Sesión')}
+              {isLoading ? 'Guardando...' : (session?.id ? 'Actualizar Sesión' : 'Crear Sesión')}
             </Button>
           </DialogFooter>
         </form>

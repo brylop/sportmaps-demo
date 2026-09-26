@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useSearchParams } from 'react-router-dom';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -91,7 +92,13 @@ export default function SchoolCardsAdminPage() {
   const { schoolId } = useSchoolContext();
   const { toast } = useToast();
 
-  const [tab, setTab] = useState<'athletes' | 'cards' | 'templates'>('athletes');
+  // ?tab=templates llega desde el menú "Plantillas de Carnets"; antes ese ítem
+  // mandaba a las plantillas de CONSTANCIAS (otra página) y este editor no tenía enlace.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const [tab, setTab] = useState<'athletes' | 'cards' | 'templates'>(
+    tabParam === 'cards' || tabParam === 'templates' ? tabParam : 'athletes'
+  );
   const [templates, setTemplates] = useState<{ id: string; name: string; is_default: boolean }[]>([]);
   const [issueTemplate, setIssueTemplate] = useState<string>('default');
   const [search, setSearch] = useState('');
@@ -550,7 +557,7 @@ export default function SchoolCardsAdminPage() {
         </div>
       </header>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
+      <Tabs value={tab} onValueChange={(v) => { setTab(v as any); setSearchParams(v === 'athletes' ? {} : { tab: v }, { replace: true }); }}>
         <TabsList>
           <TabsTrigger value="athletes">Emitir nuevo</TabsTrigger>
           <TabsTrigger value="cards">Carnets emitidos</TabsTrigger>

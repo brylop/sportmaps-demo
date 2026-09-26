@@ -54,6 +54,11 @@ export function FootballDashboardModal({ open, onClose, teamId, teamName }: Foot
   // cualquier 'staff' que abra este panel.
   const EDIT_RESULTS_ROLES = ['owner', 'admin', 'school_admin', 'super_admin', 'coach'];
   const canEditResults = EDIT_RESULTS_ROLES.includes(currentUserRole || '');
+  // match_results_delete (RLS) excluye a 'coach' -- mismo motivo que en
+  // ResultsPage.tsx: sin este gate, un coach ve el botón y se encuentra con
+  // un error de permisos al apretarlo.
+  const DELETE_RESULTS_ROLES = ['owner', 'admin', 'staff', 'school_admin', 'super_admin'];
+  const canDeleteResults = DELETE_RESULTS_ROLES.includes(currentUserRole || '');
   const { data: matches, isLoading: loadingMatches } = useTeamMatches(teamId);
   const { data: tournamentMatches, isLoading: loadingTournamentMatches } = useTournamentMatches(teamId);
   const createMatch = useCreateTeamMatch();
@@ -220,15 +225,17 @@ export function FootballDashboardModal({ open, onClose, teamId, teamName }: Foot
                             <Pencil className="w-3.5 h-3.5" />
                           </Button>
                         )}
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 w-7 p-0 text-muted-foreground hover:text-red-500"
-                          onClick={() => handleDeleteMatch(m.id)}
-                          disabled={deleteMatch.isPending}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                        {canDeleteResults && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-red-500"
+                            onClick={() => handleDeleteMatch(m.id)}
+                            disabled={deleteMatch.isPending}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </CardContent>
                   </Card>

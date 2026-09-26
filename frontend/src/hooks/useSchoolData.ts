@@ -334,6 +334,7 @@ export function useSchoolFacilities() {
 
 export function useCoachData() {
   const { user } = useAuth();
+  const { schoolId } = useSchoolContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -374,9 +375,13 @@ export function useCoachData() {
       materials?: string;
       notes?: string;
     }) => {
+      // school_id es NOT NULL en training_sessions (mig 20260925135425) y el
+      // schoolId del contexto puede ser null: sin escuela activa no hay dónde
+      // guardar la sesión. Esto también destraba el tsc del pre-commit.
+      if (!schoolId) throw new Error('No hay una escuela activa para guardar la sesión.');
       const { data, error } = await supabase
         .from('training_sessions')
-        .insert(input)
+        .insert({ ...input, school_id: schoolId })
         .select()
         .single();
       if (error) throw error;

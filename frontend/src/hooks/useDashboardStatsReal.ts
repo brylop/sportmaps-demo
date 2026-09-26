@@ -305,12 +305,16 @@ export function useDashboardStatsReal() {
           ? Math.round((presentCount / totalAttendance) * 100)
           : 0;
 
-        // Upcoming payments
+        // Cobros sin pagar. Antes solo contaba 'pending': un acudiente con tres
+        // cobros (dos vencidos, uno pendiente) veía "Tienes 1 pago pendiente" y
+        // uno con todo vencido veía "0". Vencido y abonado parcial siguen
+        // debiéndose (mismo criterio que isUnpaid en lib/paymentCartera).
+        // Reporte Athletic League 2026-09-25.
         const { count: upcomingPayments } = await (supabase
           .from('payments') as any)
           .select('*', { count: 'exact', head: true })
           .eq('parent_id', profile.id)
-          .in('status', ['pending', 'awaiting_approval']);
+          .in('status', ['pending', 'overdue', 'partial', 'awaiting_approval']);
 
         // Unread notifications
         const { count: unreadNotifications } = await (supabase

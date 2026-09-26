@@ -42,7 +42,13 @@ function toLocalInputValue(iso: string): string {
 
 function CorrectVisitRow({ visit, onDone }: { visit: PendingVisit; onDone: () => void }) {
   const { toast } = useToast();
-  const [endedAt, setEndedAt] = useState(() => toLocalInputValue(visit.ended_at ?? visit.started_at));
+  // Default a "ahora", no a started_at: si el owner no toca el campo y
+  // confirma tal cual, started_at truncado a minuto (el input datetime-local
+  // pierde los segundos) quedaba IGUAL o DESPUÉS del started_at real con
+  // segundos -- el backend lo rechazaba con "ended_at no puede ser anterior
+  // a started_at" en cualquier visita auto-cerrada (ended_at null) que el
+  // owner confirmara sin editar la hora, que es el caso normal de uso.
+  const [endedAt, setEndedAt] = useState(() => toLocalInputValue(visit.ended_at ?? new Date().toISOString()));
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {

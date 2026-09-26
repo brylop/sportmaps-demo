@@ -341,9 +341,21 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
     onError: (error: any) => toast({ title: 'Error al guardar el cierre semanal', description: error.message, variant: 'destructive' }),
   });
 
+  // RPC (merge_mesocycle_closing_review, 20260923215537) en vez de mandar el
+  // objeto `closing` completo mergeado en el cliente: closing_review es UNA
+  // sola columna jsonb para las 3 cajas de texto (Fortalezas/A mejorar/
+  // Notas), y `closing` se capturaba por closure al renderizar -- si el
+  // coach llenaba dos campos seguido (tabular de un textarea al siguiente),
+  // el segundo guardado podía salir antes de que el primero terminara su
+  // ida-vuelta + refetch, pisando el valor recién guardado con el viejo. El
+  // merge ahora pasa en la base (closing_review || patch), así cada blur
+  // solo manda SU campo, sin depender de conocer el resto.
   const updateClosingReview = useMutation({
-    mutationFn: async (closing_review: any) => {
-      const { error } = await (supabase as any).from('training_mesocycles').update({ closing_review }).eq('id', mesocycle.id);
+    mutationFn: async (patch: Record<string, string>) => {
+      const { error } = await (supabase as any).rpc('merge_mesocycle_closing_review', {
+        p_mesocycle_id: mesocycle.id,
+        p_patch: patch,
+      });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -442,6 +454,15 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
         <Accordion type="multiple" defaultValue={[microcycles[0]?.id]} className="rounded-lg border bg-background/50">
           {microcycles.map((mc: any, idx: number) => {
             const mcDays = (days || []).filter((d: any) => d.microcycle_id === mc.id);
+            // Adherencia (spec §3.3): días de entrenamiento con al menos una
+            // sesión que registró RPE, sobre el total de días de
+            // entrenamiento de la semana. Es la única métrica que dice si el
+            // módulo se está usando o quedó vacío (R1) — nunca se mostraba
+            // en ningún lado.
+            const trainingDays = mcDays.filter((d: any) => d.day_type === 'entrenamiento');
+            const daysWithRpe = trainingDays.filter((d: any) =>
+              (sessionsByDayId.get(d.id) || []).some((s: any) => s.evaluation?.rpe != null),
+            );
             return (
               <AccordionItem key={mc.id} value={mc.id} className="px-3">
                 <AccordionTrigger className="text-sm">
@@ -452,6 +473,11 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                       {' – '}
                       {new Date(mc.ends_on).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
                     </span>
+                    {trainingDays.length > 0 && (
+                      <Badge variant="outline" className="text-[10px] h-5 shrink-0">
+                        Adherencia {daysWithRpe.length}/{trainingDays.length}
+                      </Badge>
+                    )}
                   </span>
                 </AccordionTrigger>
                 <AccordionContent className="space-y-3">
@@ -660,7 +686,7 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
               <Textarea
                 rows={2}
                 defaultValue={closing.strengths || ''}
-                onBlur={(e) => updateClosingReview.mutate({ ...closing, strengths: e.target.value })}
+                onBlur={(e) => updateClosingReview.mutate({ strengths: e.target.value })}
               />
             </div>
             <div className="space-y-1">
@@ -668,7 +694,7 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
               <Textarea
                 rows={2}
                 defaultValue={closing.areas_to_improve || ''}
-                onBlur={(e) => updateClosingReview.mutate({ ...closing, areas_to_improve: e.target.value })}
+                onBlur={(e) => updateClosingReview.mutate({ areas_to_improve: e.target.value })}
               />
             </div>
           </div>
@@ -677,7 +703,7 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
             <Textarea
               rows={2}
               defaultValue={closing.next_cycle_notes || ''}
-              onBlur={(e) => updateClosingReview.mutate({ ...closing, next_cycle_notes: e.target.value })}
+              onBlur={(e) => updateClosingReview.mutate({ next_cycle_notes: e.target.value })}
             />
           </div>
         </CardContent>

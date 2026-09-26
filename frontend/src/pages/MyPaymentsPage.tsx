@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -117,6 +117,10 @@ const PENDING_STATES = ['pending', 'awaiting_approval', 'partial', 'glosado'];
 // 'overdue' afuera.
 const TERMINAL_STATES_FOR_FAILURE_CHIP = ['approved', 'cancelled', 'rejected', 'failed'];
 
+// Estados en los que el cobro tiene botón "Pagar" directo (y que el atajo
+// `?pay=` del dashboard puede abrir solo).
+const DIRECTLY_PAYABLE_STATES = ['pending', 'overdue', 'rejected', 'failed'];
+
 interface Subscription {
   id: string;
   team_id: string;
@@ -152,6 +156,15 @@ export default function MyPaymentsPage() {
   } | null>(null);
 
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+
+  // Atajo `?pay=<id>` o `?pay=auto` (banner del dashboard, correos, WhatsApp):
+  // abre el modal de pago sin que el padre tenga que buscar el cobro y tocar
+  // "Pagar". `auto` solo actúa cuando hay exactamente un cobro pagable; con
+  // varios, se queda en la lista. El parámetro se limpia para que un refresh
+  // no reabra el modal.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const autoOpenedRef = useRef(false);
+
   const [viewingProof, setViewingProof] = useState<ViewingProof>({
     open: false,
     url: '',
@@ -491,6 +504,34 @@ export default function MyPaymentsPage() {
     }
   };
 
+  // Lo que el modal de pago necesita de una fila, armado en un solo lugar.
+  const toSelectedPayment = (p: Transaction) => ({
+    childId: p.child_id || '',
+    childName: p.child_name || 'Deportista',
+    teamName: p.concept || 'Mensualidad',
+    amount: p.balance_pending || p.amount,
+    schoolId: p.school_id || '',
+    paymentId: p.id,
+    discount_eligible: p.discount_eligible,
+    discount_amount: p.discount_amount,
+  });
+
+  useEffect(() => {
+    if (loading || autoOpenedRef.current) return;
+    const pay = searchParams.get('pay');
+    if (!pay) return;
+    autoOpenedRef.current = true;
+    const payable = transactions.filter(t => DIRECTLY_PAYABLE_STATES.includes(t.status));
+    const target = pay === 'auto'
+      ? (payable.length === 1 ? payable[0] : null)
+      : (payable.find(t => t.id === pay) ?? null);
+    setSearchParams(prev => { prev.delete('pay'); return prev; }, { replace: true });
+    if (!target) return;
+    setSelectedPayment(toSelectedPayment(target));
+    setShowCheckout(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- corre una sola vez, al terminar la carga
+  }, [loading, transactions, searchParams]);
+
   const handleShowProof = async (receiptUrl: string, concept: string, amount: number) => {
     if (!receiptUrl) return;
 
@@ -577,31 +618,13 @@ export default function MyPaymentsPage() {
           // queda awaiting_approval → la escuela lo registra como abono (suma a
           // amount_paid). El flujo viejo de payment_installments quedó huérfano
           // (la escuela no lo revisaba).
-          setSelectedPayment({
-            childId: p.child_id || '',
-            childName: p.child_name || 'Deportista',
-            teamName: p.concept || 'Mensualidad',
-            amount: p.balance_pending || p.amount,
-            schoolId: p.school_id || '',
-            paymentId: p.id,
-            discount_eligible: p.discount_eligible,
-            discount_amount: p.discount_amount
-          });
+          setSelectedPayment(toSelectedPayment(p));
           setShowCheckout(true);
         }}
         onPay={(p) => {
           // Botón "Pagar" directo: selecciona y abre el modal en un solo
           // click, sin pasar por la barra flotante (antes eran 2 clicks).
-          setSelectedPayment({
-            childId: p.child_id || '',
-            childName: p.child_name || 'Deportista',
-            teamName: p.concept || 'Mensualidad',
-            amount: p.balance_pending || p.amount,
-            schoolId: p.school_id || '',
-            paymentId: p.id,
-            discount_eligible: p.discount_eligible,
-            discount_amount: p.discount_amount
-          });
+          setSelectedPayment(toSelectedPayment(p));
           setShowCheckout(true);
         }}
       />
@@ -957,7 +980,7 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, onPay, 
   const nonInteractive = txn.status === 'approved' || txn.status === 'glosado';
   // Estados que necesitan un pago nuevo (no un abono ni una aclaración):
   // el botón "Pagar" les ahorra el paso de seleccionar + usar la barra flotante.
-  const payableDirectly = ['pending', 'overdue', 'rejected', 'failed'].includes(txn.status);
+  const payableDirectly = DIRECTLY_PAYABLE_STATES.includes(txn.status);
 
   return (
     <Card
