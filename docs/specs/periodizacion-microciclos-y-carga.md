@@ -155,7 +155,7 @@ monetarios ya dejó la lección: lo que calcula el navegador divergen del RPC.
 | ACWR | UA 7 días ÷ media de 28 días | El salto de carga. Necesita **28 días de historia** → R2 |
 | Densidad competitiva | partidos en ventana de 7 días y de 72 h | **H3** |
 | Días consecutivos sin descanso | recorrido de `day_type` | **H3** |
-| Adherencia | sesiones con `session_rpe` ÷ días `entrenamiento` | Si el módulo se está usando o quedó vacío → R1 |
+| Adherencia | sesiones con `session_rpe` ÷ días `entrenamiento` | Si el módulo se está usando o quedó vacío → R1. **✅ Mostrado 2026-09-26**: badge en el encabezado de cada semana en `MesocycleSection.tsx`, calculado en cliente sobre los datos ya cargados (sin RPC nueva) — definida desde el 31-ago, nunca se había mostrado en ningún lado |
 | Carga por atleta *(nuevo, D13)* | `asistió × session_rpe × minutos`, de la asistencia que ya se registra; en día `partido`, titular/suplente desde `match_lineups` | Responde §0.3 tal cual está planteada ("¿cuánta carga acumuló ESTE jugador?") sin pedirle nada nuevo a nadie — hoy la UA es una cifra por equipo, no por jugador |
 
 > ⚠️ **Umbral de frecuencia — encontrado en la revisión 2026-09-18, no estaba
@@ -397,11 +397,18 @@ El `INSERT` a `performance_entries` de §1.5 (ver
 `plan-mesociclo-carmel-2026-08-31.md`) no tiene dónde guardar el corte
 (`inicial`/`semana_2`/`semana_3`/`semana_4`/`final`) — se pierde exactamente el
 eje que distingue una rúbrica de una sola nota. Camino nunca ejercido en
-producción (§3.6 ya lo advertía). ⚠️ **Mitigado, no corregido, 2026-09-21:**
-la opción "Por atleta" queda deshabilitada (grisada, con nota) en
-`MesocycleFormDialog.tsx` — sigue eligible el que ya la tuviera guardada de
-antes (no había ninguno en producción), pero nadie nuevo puede elegirla hasta
-que el corte se guarde de verdad. La causa de fondo sigue sin tocarse.
+producción (§3.6 ya lo advertía). Mitigado el 21-sep (opción deshabilitada
+en el formulario) mientras se corregía la causa de fondo.
+
+✅ **Corregido de raíz 2026-09-25** (`20260925170003`, Julián). Columna
+`checkpoint` en `performance_entries` (nullable, `CHECK` contra los mismos 5
+cortes de `training_mesocycle_evaluations`), y `MesocycleRubricTable.tsx`
+pasa de 6 inputs sueltos a una grilla 6×5 (indicador × corte), leyendo la
+fila más reciente de cada par `(metric_key, checkpoint)` — antes el mapa
+solo tenía `metric_key`, así que el corte más nuevo pisaba a todos los
+anteriores en la UI. La opción "Por atleta" quedó reactivada en
+`MesocycleFormDialog.tsx`. Probado en vivo: `inicial` y `final` del mismo
+indicador conviven sin pisarse.
 
 ### 8.6 Endurecer el DDL — hallazgos de QA sobre el esquema aplicado
 

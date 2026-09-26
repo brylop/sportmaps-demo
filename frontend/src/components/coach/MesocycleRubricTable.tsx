@@ -83,14 +83,14 @@ export function MesocycleRubricTable({ mesocycleId, schoolId, evaluationMode, ro
       if (!selectedMember) return [];
       const { data, error } = await (supabase as any)
         .from('performance_entries')
-        .select('metric_key, value, notes, recorded_at')
+        .select('metric_key, checkpoint, value, notes, recorded_at')
         .eq('context_type', 'evaluation')
         .eq('context_id', mesocycleId)
         .eq('subject_type', subjectTypeFor(selectedMember))
         .eq('subject_id', selectedMember.id)
         .order('recorded_at', { ascending: true });
       if (error) throw error;
-      return data as { metric_key: string; value: number; notes: string | null; recorded_at: string }[];
+      return data as { metric_key: string; checkpoint: string | null; value: number; notes: string | null; recorded_at: string }[];
     },
     enabled: evaluationMode === 'individual' && !!mesocycleId && !!selectedMember,
   });
@@ -101,13 +101,22 @@ export function MesocycleRubricTable({ mesocycleId, schoolId, evaluationMode, ro
     return m;
   }, [teamScores]);
 
-  // Modo individual no tiene 5 columnas de checkpoint: cada guardado es una
-  // fila nueva de performance_entries (recorded_at = el corte real), así que
-  // el historial completo ya lo muestra "Evolución" (AthleteEvolutionModal,
-  // ya construido) leyendo la misma tabla. Acá solo se ve/edita el más reciente.
+  // Cada guardado es una fila NUEVA de performance_entries (nunca un
+  // update) -- el historial completo lo sigue mostrando "Evolución"
+  // (AthleteEvolutionModal) leyendo la misma tabla sin filtrar por
+  // checkpoint. Acá, ordenado ascendente por recorded_at, la fila más
+  // reciente de cada (metric_key, checkpoint) pisa a las anteriores en el
+  // mapa -- así una corrección posterior del mismo corte se ve sin
+  // necesitar un upsert ni una constraint UNIQUE. Filas viejas guardadas
+  // ANTES de esta migración (checkpoint aún NULL, cero uso real reportado
+  // en el ROADMAP) no entran al mapa -- no había dónde mostrarlas antes,
+  // no se pierde nada mostrándolas ahora.
   const individualScoreMap = useMemo(() => {
     const m = new Map<string, { value: number; notes: string | null }>();
-    (individualScores || []).forEach((r) => m.set(r.metric_key, { value: r.value, notes: r.notes }));
+    (individualScores || []).forEach((r) => {
+      if (!r.checkpoint) return;
+      m.set(`${r.metric_key}__${r.checkpoint}`, { value: r.value, notes: r.notes });
+    });
     return m;
   }, [individualScores]);
 
@@ -135,13 +144,14 @@ export function MesocycleRubricTable({ mesocycleId, schoolId, evaluationMode, ro
   });
 
   const saveIndividualScore = useMutation({
-    mutationFn: async ({ indicator, score }: { indicator: string; score: number }) => {
+    mutationFn: async ({ indicator, checkpoint, score }: { indicator: string; checkpoint: string; score: number }) => {
       if (!selectedMember) return;
       const { error } = await (supabase as any).from('performance_entries').insert({
         school_id: schoolId,
         subject_type: subjectTypeFor(selectedMember),
         subject_id: selectedMember.id,
         metric_key: METRIC_KEY_BY_INDICATOR[indicator],
+        checkpoint,
         value: score,
         context_type: 'evaluation',
         context_id: mesocycleId,
@@ -226,30 +236,54 @@ export function MesocycleRubricTable({ mesocycleId, schoolId, evaluationMode, ro
             </tbody>
           </table>
         ) : selectedMember ? (
-          <div className="space-y-2">
-            {INDICATORS.map((ind) => {
-              const metricKey = METRIC_KEY_BY_INDICATOR[ind.key];
-              const current = individualScoreMap.get(metricKey);
-              return (
-                <div key={ind.key} className="flex items-center justify-between gap-3 p-2 rounded-lg border bg-muted/30">
-                  <span className="text-sm font-medium">{ind.label}</span>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={10}
-                    className="h-8 w-20 text-center"
-                    defaultValue={current?.value ?? ''}
-                    onBlur={(e) => {
-                      const val = Number(e.target.value);
-                      if (val >= 1 && val <= 10) {
-                        saveIndividualScore.mutate({ indicator: ind.key, score: val });
-                      }
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
+          // key={selectedMember.id}: los <Input> de acá son no controlados
+          // (defaultValue), y ni <tr>/<td> cambian de key al cambiar de
+          // atleta -- sin este key en la tabla, React reutiliza los mismos
+          // nodos del DOM y defaultValue nunca se vuelve a aplicar. Cambiar
+          // de atleta en el selector se veía siempre con los valores del
+          // atleta anterior.
+          <table key={selectedMember.id} className="w-full text-sm border-collapse">
+            <thead>
+              <tr>
+                <th className="text-left p-2 font-medium text-muted-foreground">Indicador</th>
+                {CHECKPOINTS.map((cp) => (
+                  <th key={cp.key} className="p-2 font-medium text-muted-foreground text-center w-20">
+                    {cp.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {INDICATORS.map((ind) => {
+                const metricKey = METRIC_KEY_BY_INDICATOR[ind.key];
+                return (
+                  <tr key={ind.key} className="border-t">
+                    <td className="p-2 font-medium">{ind.label}</td>
+                    {CHECKPOINTS.map((cp) => {
+                      const current = individualScoreMap.get(`${metricKey}__${cp.key}`);
+                      return (
+                        <td key={cp.key} className="p-1.5 text-center">
+                          <Input
+                            type="number"
+                            min={1}
+                            max={10}
+                            className="h-8 w-16 text-center mx-auto"
+                            defaultValue={current?.value ?? ''}
+                            onBlur={(e) => {
+                              const val = Number(e.target.value);
+                              if (val >= 1 && val <= 10) {
+                                saveIndividualScore.mutate({ indicator: ind.key, checkpoint: cp.key, score: val });
+                              }
+                            }}
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         ) : (
           <p className="text-sm text-muted-foreground text-center py-4">Sin deportistas en el roster.</p>
         )}

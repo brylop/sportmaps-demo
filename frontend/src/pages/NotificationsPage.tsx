@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useNotifications } from '@/hooks/useDashboardStats';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -16,7 +17,8 @@ import {
   Info,
   Trash2,
   Check,
-  Filter
+  Filter,
+  ChevronRight
 } from 'lucide-react';
 
 interface Notification {
@@ -36,6 +38,7 @@ interface Notification {
 
 export default function NotificationsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: notifications = [], isLoading } = useNotifications();
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
@@ -192,11 +195,24 @@ export default function NotificationsPage() {
         ) : (
           filteredNotifications.map((notification, index) => {
             const Icon = getIcon(notification.type as any);
+            // Igual que la campana (GlobalNotificationBell): tocar la tarjeta
+            // marca leída y navega al `link` que trae la notificación (p.ej.
+            // /my-payments en un cobro). Antes esta página no llevaba a ningún
+            // lado: el padre leía "tienes un cobro" y tenía que buscarlo solo.
+            const link: string | undefined = (notification as any).link || undefined;
+            const open = () => {
+              if (!notification.read) void markAsRead(notification.id);
+              if (link) navigate(link);
+            };
             return (
               <Card
                 key={notification.id}
+                onClick={link ? open : undefined}
+                role={link ? 'link' : undefined}
+                tabIndex={link ? 0 : undefined}
+                onKeyDown={link ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } } : undefined}
                 className={`transition-all hover:shadow-md animate-in slide-in-from-left ${!notification.read ? 'border-primary/50 bg-primary/5' : ''
-                  }`}
+                  } ${link ? 'cursor-pointer' : ''}`}
                 style={{ animationDelay: `${index * 50}ms` }}
               >
                 <CardContent className="p-4">
@@ -223,13 +239,17 @@ export default function NotificationsPage() {
                       </p>
 
                       <div className="flex items-center gap-2">
-                        {/* Action handled by Supabase notifications should have a link/action structure if needed */}
-                        {/* For now, we only show buttons if they exist in DB structure or logic */}
+                        {link && (
+                          <Button size="sm" variant="secondary" className="gap-1" onClick={(e) => { e.stopPropagation(); open(); }}>
+                            Ver
+                            <ChevronRight className="h-3 w-3" />
+                          </Button>
+                        )}
                         {!notification.read && (
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => markAsRead(notification.id)}
+                            onClick={(e) => { e.stopPropagation(); markAsRead(notification.id); }}
                             className="gap-1"
                           >
                             <Check className="h-3 w-3" />
@@ -239,7 +259,7 @@ export default function NotificationsPage() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => deleteNotification(notification.id)}
+                          onClick={(e) => { e.stopPropagation(); deleteNotification(notification.id); }}
                           className="gap-1 text-destructive hover:text-destructive"
                         >
                           <Trash2 className="h-3 w-3" />

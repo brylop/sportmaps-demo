@@ -37,7 +37,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { emailClient } from '@/lib/email-client';
 import { getPaymentPayload, SchoolAthlete } from '@/lib/athleteUtils';
-import { PaymentConfirmModal } from '@/components/payment/PaymentConfirmModal';
 import { useWompiCheckout, type ServerQuote } from '@/hooks/useWompiCheckout';
 import { blockPwaReload, unblockPwaReload } from '@/pwa/reloadGuard';
 import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
@@ -87,8 +86,9 @@ export function PaymentCheckoutModal({
 }: PaymentCheckoutModalProps) {
   const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | 'online' | 'mercadopago' | null>(null);
   const [mpReference, setMpReference] = useState<string>('');
-  const [showOnlineConfirm, setShowOnlineConfirm] = useState(false);
   const [wompiEnabled, setWompiEnabled] = useState(false);
+  // true cuando ya se leyó school_settings: recién ahí se sabe qué método preseleccionar.
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [onlineFeePct, setOnlineFeePct] = useState(3);
   const [allowInstallments, setAllowInstallments] = useState(false);
   const [minInstallmentAmount, setMinInstallmentAmount] = useState(0);
@@ -309,9 +309,20 @@ export function PaymentCheckoutModal({
         days: Number((data as any)?.early_payment_discount_days) || 5,
         percentage: Number((data as any)?.early_payment_discount_percentage) || 0,
       });
+      setSettingsLoaded(true);
     };
     loadBankDetails();
   }, [open, schoolId]);
+
+  // Método preseleccionado: un clic menos para el padre. Wompi si la escuela lo
+  // tiene activo (es el camino inmediato); si no, transferencia, que es la única
+  // opción que queda. Solo se aplica una vez por apertura y nunca pisa una
+  // elección ya hecha.
+  useEffect(() => {
+    if (!open || !settingsLoaded || selectedMethod) return;
+    setSelectedMethod(wompiEnabled ? 'online' : 'transfer');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al cargar settings
+  }, [open, settingsLoaded, wompiEnabled]);
 
   // ── Wompi checkout hook ──────────────────────────────────────────────────
   const finalAmount = conceptType === 'articulos'
@@ -381,9 +392,6 @@ export function PaymentCheckoutModal({
     onError: (err) => {
       toast({ title: 'Error en el pago', description: err.message, variant: 'destructive' });
     },
-    onClosed: () => {
-      setShowOnlineConfirm(false);
-    },
   });
 
   const openCheckout = async () => {
@@ -448,7 +456,6 @@ export function PaymentCheckoutModal({
         }
       } catch (err: any) {
         toast({ title: 'Error iniciando el pago', description: err?.message || 'No se pudo crear el cobro.', variant: 'destructive' });
-        setShowOnlineConfirm(false);
         return;
       }
     }
@@ -480,7 +487,6 @@ export function PaymentCheckoutModal({
         // Radix aplica aria-hidden + pointer-events:none + scroll-lock al resto de
         // la página; el Widget de Wompi se monta como overlay aparte y, con el modal
         // abierto, queda recortado y peleando el foco ("Blocked aria-hidden…").
-        setShowOnlineConfirm(false);
         onOpenChange(false);
         return true;
       },
@@ -559,7 +565,7 @@ export function PaymentCheckoutModal({
       setProofUrl(null);
       setOcrResult(null);
       setPendingPaymentDate(null);
-      setShowOnlineConfirm(false);
+      setSettingsLoaded(false);
       setAdvancedPeriod(null);
       setConfirmAdvanceOpen(false);
       setMpReference('');
@@ -1467,22 +1473,40 @@ export function PaymentCheckoutModal({
                 </div>
               )}
 
-              {/* Botón online → abre PaymentConfirmModal */}
+              {/* Botón online → abre el Widget de Wompi directo. Antes pasaba por un
+                  segundo modal de confirmación que solo repetía el desglose del
+                  recargo; ese desglose ahora vive aquí mismo y el padre paga con un
+                  clic menos. Si el servidor cotiza otro total, confirmQuote no abre el
+                  Widget: actualiza estos montos y el padre vuelve a tocar el botón. */}
               {selectedMethod === 'online' && (
-                <div className="space-y-2 pt-2">
+                <div className="space-y-3 pt-2">
+                  <div className="rounded-lg bg-muted/50 p-3 text-sm space-y-1.5">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Valor</span>
+                      <span className="font-medium">{formatCurrency(displayedBase)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Recargo por pago online ({displayedFeePct}%)</span>
+                      <span className="font-medium text-amber-600">+{formatCurrency(sportmapsFee)}</span>
+                    </div>
+                    <div className="flex justify-between border-t pt-1.5">
+                      <span className="font-semibold">Total a pagar</span>
+                      <span className="font-bold text-primary">{formatCurrency(grossAmount)}</span>
+                    </div>
+                  </div>
                   <Button
                     className="w-full bg-green-600 hover:bg-green-700"
                     size="lg"
                     disabled={wompiLoading}
-                    onClick={() => setShowOnlineConfirm(true)}
+                    onClick={openCheckout}
                   >
                     {wompiLoading ? (
-                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Conectando...</>
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Conectando con Wompi...</>
                     ) : (
                       `Pagar online ${formatCurrency(grossAmount)}`
                     )}
                   </Button>
-                  <Button variant="outline" className="w-full" onClick={handleClose}>Cancelar</Button>
+                  <Button variant="outline" className="w-full" onClick={handleClose} disabled={wompiLoading}>Cancelar</Button>
                 </div>
               )}
 
@@ -1551,21 +1575,6 @@ export function PaymentCheckoutModal({
           )}
         </DialogContent>
       </Dialog>
-
-      {/* ── Modal de confirmación de pago online (Wompi) ────────────────────── */}
-      <PaymentConfirmModal
-        open={showOnlineConfirm}
-        onOpenChange={setShowOnlineConfirm}
-        baseAmount={displayedBase}
-        grossAmount={grossAmount}
-        sportmapsFee={sportmapsFee}
-        feePct={displayedFeePct}
-        concept={finalConcept}
-        childName={childName}
-        loading={wompiLoading}
-        onConfirm={openCheckout}
-        onBack={() => setShowOnlineConfirm(false)}
-      />
 
       {/* ── Confirmacion: ¿adelantar el siguiente mes? ──────────────────────── */}
       <AlertDialog open={confirmAdvanceOpen} onOpenChange={setConfirmAdvanceOpen}>

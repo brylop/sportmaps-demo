@@ -79,7 +79,9 @@ export function useDashboardStats(role?: UserRole) {
           .select('id, status', { count: 'exact' })
           .eq('parent_id', user.id);
         stats.payments = payCount || 0;
-        stats.pendingPayments = payData?.filter(p => p.status === 'pending').length || 0;
+        // Sin pagar = pendiente, vencido o abonado parcial (ver isUnpaid en
+        // lib/paymentCartera). Solo 'pending' escondía los vencidos.
+        stats.pendingPayments = payData?.filter(p => ['pending', 'overdue', 'partial'].includes(p.status)).length || 0;
 
         // Active enrollments for children
         // This is a bit complex as enrollments are linked to children, not parent directly usually

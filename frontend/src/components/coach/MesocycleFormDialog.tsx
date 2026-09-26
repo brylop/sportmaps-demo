@@ -234,19 +234,12 @@ export function MesocycleFormDialog({
                 <Label htmlFor="mode-team" className="font-normal cursor-pointer">Por equipo</Label>
               </div>
               <div className="flex items-center gap-2">
-                <RadioGroupItem value="individual" id="mode-individual" disabled />
-                <Label htmlFor="mode-individual" className="font-normal cursor-not-allowed text-muted-foreground">
+                <RadioGroupItem value="individual" id="mode-individual" />
+                <Label htmlFor="mode-individual" className="font-normal cursor-pointer">
                   Por atleta
                 </Label>
               </div>
             </RadioGroup>
-            {/* Deshabilitado a propósito (spec §8.5): el INSERT a
-                performance_entries del modo individual no guarda el corte
-                (inicial/semana_2/.../final) -- defecto real, cero uso en
-                producción. Se reactiva cuando se corrija. */}
-            <p className="text-[11px] text-muted-foreground pt-0.5">
-              "Por atleta" no está disponible todavía — vuelve a habilitarse cuando se corrija cómo guarda el corte de la evaluación.
-            </p>
           </div>
 
           <DialogFooter>

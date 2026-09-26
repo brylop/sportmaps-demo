@@ -14,7 +14,6 @@ import { PendingEnrollmentModal } from '@/components/dashboard/PendingEnrollment
 import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import { useNotifications, useDashboardStats } from '@/hooks/useDashboardStats';
 import { useDashboardStatsReal } from '@/hooks/useDashboardStatsReal'; // Import the new hook
-import WelcomeSplash from '@/components/WelcomeSplash';
 import { UserRole, OnboardingStep } from '@/types/dashboard';
 import { Plus, MapPin, Zap, CalendarCheck, ChevronRight, CreditCard, Activity } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -27,17 +26,17 @@ import { ActivateStoreCTA } from '@/components/vendor/ActivateStoreCTA';
 import { OpenTournamentsCard } from '@/components/dashboard/OpenTournamentsCard';
 import { supabase } from '@/integrations/supabase/client';
 import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
+import { acceptPendingInvitations } from '@/lib/invitations/acceptPendingInvitations';
 
 export default function DashboardPage() {
-  const { profile, user, updateProfile } = useAuth();
+  const { profile, user } = useAuth();
   const { toast } = useToast();
-  const { activeBranchId, activeBranchName, totalBranches, schoolName } = useSchoolContext();
+  const { activeBranchId, activeBranchName, totalBranches } = useSchoolContext();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   const pendingInviteId = localStorage.getItem('pending_invite_id');
   const inviteUrlId = searchParams.get('invite');
-  const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
   const [invitation, setInvitation] = useState<any | null>(null); // Keep any for polymorphic invitation data for now, but remove explicit any when possible
   const [onboardingSteps, setOnboardingSteps] = useState<OnboardingStep[]>([]);
   const [onboardingStatus, setOnboardingStatus] = useState<string | null>(null);
@@ -70,22 +69,6 @@ export default function DashboardPage() {
       if (data) setFallbackSchool(data);
     })();
   }, [profile?.role, user?.id]);
-
-  // Show welcome splash if it's the first time
-  useEffect(() => {
-    if (profile && profile.onboarding_started === false) {
-      setShowWelcomeSplash(true);
-    }
-  }, [profile]);
-
-  const handleCloseWelcome = async () => {
-    setShowWelcomeSplash(false);
-    try {
-      await updateProfile({ onboarding_started: true });
-    } catch (error) {
-      console.error("Error updating onboarding_started:", error);
-    }
-  };
 
   // Get real stats from NEW hook (Multitenant aware)
   const { stats: realStats, loading: realStatsLoading } = useDashboardStatsReal();
@@ -185,21 +168,12 @@ export default function DashboardPage() {
 
       // Backstop de MEMBRESÍA: acepta TODAS las invitaciones pendientes de este
       // correo (parent/athlete), sin depender de localStorage (que se pierde si
-      // el link se abre en otro dispositivo). Así queda school_members creado
-      // aunque el accept diferido no haya corrido. accept_invitation_pro es
-      // idempotente (marca 'accepted' + ON CONFLICT en la membresía).
-      try {
-        const { data: myInvites } = await (supabase.rpc as any)('get_my_invitations');
-        const pend = ((myInvites as any[]) || []).filter(
-          i => i?.status === 'pending' && ['parent', 'athlete'].includes(String(i?.role_to_assign || '').toLowerCase()),
-        );
-        for (const inv of pend) {
-          const { error: accErr } = await (supabase.rpc as any)('accept_invitation_pro', { p_invite_id: inv.id });
-          if (accErr) console.warn('auto-accept invite fallo', inv.id, accErr.message);
-        }
-      } catch (e) {
-        console.warn('auto-accept pending invites no-op:', e);
-      }
+      // el link se abre en otro dispositivo). Vive en acceptPendingInvitations
+      // porque el dashboard NO es la primera pantalla de un registro nuevo: el
+      // gate de onboarding de más abajo lo manda a /onboarding/<rol> y ese
+      // camino también tiene que aceptar (Besser 2026-09-25: 3 acudientes con
+      // cuenta creada y la invitación 'pending' por registrarse sin el link).
+      await acceptPendingInvitations();
 
       // 1. Obtener status de onboarding desde RPC (La función SQL maestra)
       const { data: status, error: statusError } = await (supabase.rpc as any)('get_onboarding_status');
@@ -545,14 +519,14 @@ export default function DashboardPage() {
       )}
 
       {/* Pagar ahora — acceso directo grande para el padre cuando tiene
-          mensualidades pendientes, arriba de todo. Antes había que ir a
-          Mis Pagos → seleccionar la tarjeta → Pagar Ahora (3 clicks solo
-          para abrir el modal). Este botón lleva directo a Mis Pagos con
-          un solo click; ahí cada cobro ya tiene su propio botón "Pagar". */}
+          mensualidades pendientes, arriba de todo. Con un solo cobro pendiente
+          aterriza con el modal de pago YA abierto (`?pay=auto`, lo resuelve
+          MyPaymentsPage); con varios, en la lista, donde cada cobro tiene su
+          botón "Pagar". Antes: Mis Pagos → tarjeta → Pagar Ahora (3 clicks). */}
       {profile.role === 'parent' && (realStats?.upcoming_payments || 0) > 0 && (
         <button
           type="button"
-          onClick={() => navigate('/my-payments')}
+          onClick={() => navigate(realStats.upcoming_payments === 1 ? '/my-payments?pay=auto' : '/my-payments')}
           className="w-full text-left rounded-2xl bg-gradient-to-br from-emerald-600 to-emerald-700 text-white shadow-elevation hover:shadow-performance transition-all duration-300 hover:scale-[1.01] p-5 sm:p-6 flex items-center gap-4"
         >
           <div className="w-14 h-14 rounded-2xl bg-white/15 flex items-center justify-center shrink-0">
@@ -716,17 +690,6 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {showWelcomeSplash && (
-        <WelcomeSplash
-          userRole={profile.role}
-          userName={
-            (profile.role === 'school' || profile.role === 'school_admin')
-              ? (schoolName || 'Tu Academia')
-              : (profile.full_name?.split(' ')[0] || 'Usuario')
-          }
-          onComplete={handleCloseWelcome}
-        />
-      )}
     </div>
   );
 }

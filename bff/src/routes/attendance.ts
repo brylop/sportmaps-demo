@@ -108,9 +108,12 @@ const OFFERING_ACCESS_DENIED = { error: 'No tienes ese plan asignado.', reason: 
 // entrenador que olvidaba un martes no tenía cómo completarlo, y terminábamos
 // cargándolo nosotros por SQL.
 //
-//   · Quién   → el entrenador hasta 7 días atrás; la administración sin tope.
-//               La regla de fondo: quien responde por la plata puede reescribir
-//               más lejos que quien solo pasa lista.
+//   · Quién   → el entrenador hasta 7 días atrás (default de plataforma; cada
+//               escuela lo cambia en school_settings.coach_attendance_retro_days,
+//               mig 20260926124337 — Carmel lo tiene en 90 para completar agosto
+//               2026); la administración sin tope. La regla de fondo: quien
+//               responde por la plata puede reescribir más lejos que quien solo
+//               pasa lista.
 //   · Créditos→ se descuentan evaluando el saldo COMO ESTABA ESE DÍA (el plan
 //               vencido se compara contra la fecha del evento, no contra hoy).
 //               Sin saldo, la asistencia se registra igual y se avisa — misma
@@ -121,10 +124,29 @@ const OFFERING_ACCESS_DENIED = { error: 'No tienes ese plan asignado.', reason: 
 // No hay columna que marque el registro como retroactivo: la trazabilidad va
 // por `security_audit_log`, que guarda quién, cuándo y para qué fecha.
 // ─────────────────────────────────────────────────────────────────────────────
+/** Default de plataforma. `school_settings.coach_attendance_retro_days` lo cambia por escuela. */
 const RETRO_DIAS_COACH = 7;
 
 /** Roles que pueden reescribir cualquier fecha. `req.role` sale de school_members. */
 const ROLES_SIN_TOPE = ['owner', 'super_admin', 'admin', 'school_admin', 'school'];
+
+/**
+ * Ventana retroactiva del entrenador para ESTA escuela. Se consulta solo cuando
+ * hace falta (coach + fecha distinta de hoy). Ante cualquier duda —sin escuela,
+ * error de lectura, valor raro— vuelve al default de plataforma: nunca abre más
+ * de lo que la escuela configuró.
+ */
+async function retroDiasCoachDeEscuela(schoolId: string | undefined | null): Promise<number> {
+  if (!schoolId) return RETRO_DIAS_COACH;
+  const { data, error } = await supabase
+    .from('school_settings')
+    .select('coach_attendance_retro_days')
+    .eq('school_id', schoolId)
+    .maybeSingle();
+  const n = Number((data as any)?.coach_attendance_retro_days);
+  if (error || !Number.isInteger(n) || n < 0) return RETRO_DIAS_COACH;
+  return n;
+}
 
 type FechaResuelta =
   | { ok: true; date: string; esRetroactiva: boolean }
@@ -137,7 +159,11 @@ type FechaResuelta =
  * Sin `pedida` se comporta como siempre: hoy. Así ninguna llamada vieja cambia
  * de significado por este agregado.
  */
-function resolverFechaDeTrabajo(pedida: string | undefined | null, rol: string): FechaResuelta {
+async function resolverFechaDeTrabajo(
+  pedida: string | undefined | null,
+  rol: string,
+  schoolId?: string | null,
+): Promise<FechaResuelta> {
   const hoy = todayInZone();
   if (!pedida || pedida === hoy) return { ok: true, date: hoy, esRetroactiva: false };
 
@@ -153,21 +179,23 @@ function resolverFechaDeTrabajo(pedida: string | undefined | null, rol: string):
 
   if (ROLES_SIN_TOPE.includes(rol)) return { ok: true, date: pedida, esRetroactiva: true };
 
-  // El coach: solo dentro de su ventana. La resta se hace sobre la fecha de
-  // negocio, no sobre Date.now(), para no volver a mezclar UTC con Colombia.
+  // El coach: solo dentro de la ventana de SU escuela. La resta se hace sobre
+  // la fecha de negocio, no sobre Date.now(), para no volver a mezclar UTC con
+  // Colombia.
+  const retroDias = await retroDiasCoachDeEscuela(schoolId);
   const limite = new Date(`${hoy}T00:00:00Z`);
-  limite.setUTCDate(limite.getUTCDate() - RETRO_DIAS_COACH);
+  limite.setUTCDate(limite.getUTCDate() - retroDias);
   const limiteStr = limite.toISOString().slice(0, 10);
 
   if (pedida < limiteStr) {
     return {
       ok: false, status: 403,
       body: {
-        error: `Como entrenador puedes completar hasta ${RETRO_DIAS_COACH} días atrás (desde el ${limiteStr}). `
+        error: `Como entrenador puedes completar hasta ${retroDias} días atrás (desde el ${limiteStr}). `
              + 'Para una fecha más antigua, pídeselo a la administración de la escuela.',
         reason: 'retro_window_exceeded',
         limite: limiteStr,
-        dias_permitidos: RETRO_DIAS_COACH,
+        dias_permitidos: retroDias,
       },
     };
   }
@@ -1362,7 +1390,7 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
         return res.status(403).json(TEAM_ACCESS_DENIED);
       }
 
-      const fecha = resolverFechaDeTrabajo(date, req.role);
+      const fecha = await resolverFechaDeTrabajo(date, req.role, req.schoolId);
       if (!fecha.ok) return res.status(fecha.status).json(fecha.body);
       // `today` conserva el nombre pero ya no es necesariamente hoy: es la fecha
       // de trabajo. Todo lo que sigue —sesión, registros y saldo— cuelga de ella.
@@ -1584,7 +1612,7 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
         return res.status(403).json(OFFERING_ACCESS_DENIED);
       }
 
-      const fecha = resolverFechaDeTrabajo(date, req.role);
+      const fecha = await resolverFechaDeTrabajo(date, req.role, req.schoolId);
       if (!fecha.ok) return res.status(fecha.status).json(fecha.body);
       const today = fecha.date;
       let finalSessionId = sessionId;
@@ -2010,7 +2038,7 @@ router.patch('/session/:sessionId/reopen', requireAuth, requireRole('owner', 'su
 
       // La ventana se evalúa contra la fecha de la sesión: reabrir el martes
       // pasado es tan retroactivo como escribirlo.
-      const permiso = resolverFechaDeTrabajo(session.session_date, req.role);
+      const permiso = await resolverFechaDeTrabajo(session.session_date, req.role, req.schoolId);
       if (!permiso.ok) return res.status(permiso.status).json(permiso.body);
 
       const { error: updErr } = await supabase

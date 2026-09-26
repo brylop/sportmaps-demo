@@ -205,7 +205,7 @@ export default function AthleteCardPublicPage() {
                 className="text-xs text-muted-foreground underline underline-offset-2 mx-auto block"
                 onClick={() => setShowStaffLogin(true)}
               >
-                ¿Sos del staff de esta escuela? Iniciar sesión
+                ¿Eres del staff de esta escuela? Iniciar sesión
               </button>
             ) : (
               <form onSubmit={handleStaffSignIn} className="bg-white border rounded-xl p-4 space-y-2">

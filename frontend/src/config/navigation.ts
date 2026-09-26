@@ -424,7 +424,7 @@ export function getNavigationByRole(
             moduleKey: 'documentos_carnets',
             submenu: [
               { title: 'Carnets Digitales', href: '/cards', icon: IdCard },
-              { title: 'Plantillas de Carnets', href: '/cards/templates/certificates', icon: FileText },
+              { title: 'Plantillas de Carnets', href: '/cards?tab=templates', icon: FileText },
             ],
           },
           { title: 'Constancias', href: '/certificates', icon: FileCheck2, moduleKey: 'documentos_constancias' },
@@ -679,7 +679,7 @@ export function getNavigationByRole(
             moduleKey: 'documentos_carnets',
             submenu: [
               { title: 'Carnets Digitales', href: '/cards', icon: IdCard },
-              { title: 'Plantillas de Carnets', href: '/cards/templates/certificates', icon: FileText },
+              { title: 'Plantillas de Carnets', href: '/cards?tab=templates', icon: FileText },
             ],
           },
           { title: 'Constancias', href: '/certificates', icon: FileCheck2, moduleKey: 'documentos_constancias' },

@@ -47,7 +47,7 @@ export default function CoachCheckInScanPage() {
       const { CapacitorBarcodeScanner, CapacitorBarcodeScannerTypeHint } = await import('@capacitor/barcode-scanner');
       const { ScanResult } = await CapacitorBarcodeScanner.scanBarcode({
         hint: CapacitorBarcodeScannerTypeHint.QR_CODE,
-        scanInstructions: 'Apuntá al QR del carnet',
+        scanInstructions: 'Apunta al QR del carnet',
       });
 
       const token = extractQrToken(ScanResult);
@@ -85,7 +85,7 @@ export default function CoachCheckInScanPage() {
         </Button>
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Check-in por carnet</h1>
-          <p className="text-sm text-muted-foreground">Escaneá el QR del carnet de cada atleta</p>
+          <p className="text-sm text-muted-foreground">Escanea el QR del carnet de cada atleta</p>
         </div>
       </div>
 

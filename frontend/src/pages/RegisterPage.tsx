@@ -57,10 +57,12 @@ function ageFromDateOfBirth(iso: string | undefined): number | null {
 const registerSchema = z.object({
   email: z.string().email('Email inválido'),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
-  confirmPassword: z.string(),
   fullName: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
   phone: z.string().regex(/^\+?[0-9\s-]*$/, 'Formato de teléfono inválido').optional().or(z.literal('')),
   dateOfBirth: z.string().optional(),
+  // Acudiente: en vez de la fecha de nacimiento (4 clics de calendario que no
+  // aportan al vínculo con la escuela) declara la mayoría de edad con una casilla.
+  isAdult: z.boolean().optional(),
   code: z.string().optional(),
   role: z.string().min(1, 'Selecciona un rol'),
   schoolName: z.string().optional(),
@@ -72,10 +74,8 @@ const registerSchema = z.object({
   acceptTerms: z.boolean().refine(val => val === true, {
     message: 'Debes aceptar los términos y condiciones para continuar',
   }),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: 'Las contraseñas no coinciden',
-  path: ['confirmPassword'],
 }).refine((data) => {
+  if (data.role === 'parent') return true; // el acudiente declara la mayoría de edad con la casilla
   if (!INSTITUTION_ROLES.includes(data.role) && (!data.dateOfBirth || data.dateOfBirth.trim() === '')) {
     return false;
   }
@@ -85,7 +85,7 @@ const registerSchema = z.object({
   path: ['dateOfBirth'],
 }).refine((data) => {
   // Gate de edad: solo personas físicas mayores de edad abren cuenta propia.
-  if (INSTITUTION_ROLES.includes(data.role)) return true;
+  if (INSTITUTION_ROLES.includes(data.role) || data.role === 'parent') return true;
   const age = ageFromDateOfBirth(data.dateOfBirth);
   if (age === null) return true; // el refine anterior ya exige la fecha
   return age >= MIN_SELF_SIGNUP_AGE;
@@ -93,6 +93,18 @@ const registerSchema = z.object({
   message:
     'Debes ser mayor de edad para crear una cuenta. Si eres menor, pídele a tu padre, madre o acudiente que cree su cuenta y te registre como deportista a su cargo.',
   path: ['dateOfBirth'],
+}).refine((data) => data.role !== 'parent' || data.isAdult === true, {
+  message: 'Confirma que eres mayor de edad para registrarte como acudiente',
+  path: ['isAdult'],
+}).refine((data) => {
+  // El WhatsApp es la identidad del acudiente (el bot lo reconoce por el
+  // número y los recordatorios de cobro salen por ahí). Se pide una sola vez,
+  // acá, y ya no en el onboarding.
+  if (data.role !== 'parent') return true;
+  return (data.phone || '').replace(/\D/g, '').length >= 7;
+}, {
+  message: 'Tu WhatsApp es obligatorio: por ahí te llegan los cobros y las novedades del menor',
+  path: ['phone'],
 }).refine((data) => {
   if (data.role === 'school' && (!data.schoolName || data.schoolName.trim() === '')) {
     return false;
@@ -138,7 +150,6 @@ const ROLE_DISPLAY_NAMES: Record<string, string> = {
 
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [emailForDisplay, setEmailForDisplay] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -200,6 +211,12 @@ export default function RegisterPage() {
       code: searchParams.get('code') || '',
       role: searchParams.get('role') || '',
       sportId: undefined,
+      // Las casillas arrancan en false, no undefined: con undefined z.boolean()
+      // aborta el parse del objeto y Zod ya no evalúa NINGÚN refine cruzado
+      // (mayoría de edad, WhatsApp, contraseña), así que el usuario veía un
+      // "Required" en inglés y nada más.
+      acceptTerms: false,
+      isAdult: false,
     }
   });
 
@@ -276,6 +293,13 @@ export default function RegisterPage() {
     try {
       const { error } = await (supabase.rpc as any)('accept_invitation_pro', { p_invite_id: inviteId });
       if (error) throw error;
+      // El acudiente invitado ya dio nombre, teléfono y contraseña, y el menor
+      // viene precargado por la escuela: no hay nada que el onboarding de
+      // /onboarding/parent pueda pedirle. Se cierra acá para que el dashboard no
+      // lo desvíe a dos pantallas más. Si falla, el gate del dashboard lo lleva
+      // al onboarding como antes; no es bloqueante.
+      const { error: onboardingErr } = await (supabase.rpc as any)('complete_onboarding');
+      if (onboardingErr) console.warn('[register] complete_onboarding falló, el dashboard pedirá el onboarding:', onboardingErr);
       toast({ title: "¡Configuración lista!", description: "Se ha vinculado tu perfil. Redirigiendo..." });
       localStorage.removeItem('pending_invite_id');
       window.location.href = '/dashboard';
@@ -440,7 +464,7 @@ export default function RegisterPage() {
   }
 
   const roleValue = watch('role');
-  const showDateOfBirth = roleValue && !INSTITUTION_ROLES.includes(roleValue);
+  const showDateOfBirth = roleValue && !INSTITUTION_ROLES.includes(roleValue) && roleValue !== 'parent';
 
   return (
     // Con tenant, fondo gris NEUTRO en vez del verde de SportMaps. Se mantiene
@@ -623,26 +647,8 @@ export default function RegisterPage() {
                 </div>
               </div>
 
-              {/* Confirm Password */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">Confirmar</label>
-                <div className="relative group">
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
-                    <Check className="w-4 h-4 text-[#4a5246] group-focus-within:text-[#2ea82d] transition-colors" />
-                  </div>
-                  <input
-                    {...register('confirmPassword')}
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    placeholder="Repetir"
-                    className="w-full bg-[#0f2614] border border-white/5 rounded-xl py-3.5 pl-11 pr-12 text-sm focus:outline-none focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all placeholder:text-[#4a5246]"
-                  />
-                  <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-[#4a5246] hover:text-[#f5f7f2]">
-                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                {errors.confirmPassword && <p className="text-[10px] text-red-500 font-medium px-1 mt-1">{errors.confirmPassword.message}</p>}
-              </div>
-
+              {/* "Confirmar contraseña" se quitó: el ojo para verla cumple lo mismo
+                  con un campo menos. */}
               <div className="h-4 md:col-span-2"></div>
 
               {/* Name */}
@@ -662,9 +668,11 @@ export default function RegisterPage() {
                 {errors.fullName && <p className="text-[10px] text-red-500 font-medium px-1 mt-1">{errors.fullName.message}</p>}
               </div>
 
-              {/* Phone */}
+              {/* Phone — obligatorio para el acudiente (ver refine del esquema) */}
               <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">WhatsApp</label>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">
+                  WhatsApp{roleValue === 'parent' && <span className="text-[#4dcc4c]"> *</span>}
+                </label>
                 <Controller
                   name="phone"
                   control={control}
@@ -675,6 +683,7 @@ export default function RegisterPage() {
                     />
                   )}
                 />
+                {errors.phone && <p className="text-[10px] text-red-500 font-medium px-1 mt-1">{errors.phone.message}</p>}
               </div>
 
               {/* Role Selection */}
@@ -717,7 +726,28 @@ export default function RegisterPage() {
                 {errors.role && <p className="text-[10px] text-red-500 font-medium px-1 mt-1">{errors.role.message}</p>}
               </div>
 
-              {/* ── FECHA DE NACIMIENTO — solo para usuarios individuales ── */}
+              {/* ── ACUDIENTE: declaración de mayoría de edad (reemplaza la fecha) ── */}
+              {roleValue === 'parent' && (
+                <div className="md:col-span-2 animate-in slide-in-from-top-2 duration-300">
+                  <div
+                    className="flex items-start gap-4 cursor-pointer select-none"
+                    onClick={() => setValue('isAdult', !watch('isAdult'), { shouldValidate: true })}
+                  >
+                    <div
+                      className={cn("w-5 h-5 rounded-md border flex items-center justify-center transition-all flex-shrink-0 mt-0.5",
+                        watch('isAdult') ? "bg-[#248223] border-[#248223]" : "bg-[#0f2614] border-white/10")}
+                    >
+                      {watch('isAdult') && <Check className="w-3.5 h-3.5 text-white" />}
+                    </div>
+                    <p className="text-xs text-[#8a9186] leading-relaxed">
+                      Soy mayor de edad y acudiente del menor que voy a inscribir.
+                    </p>
+                  </div>
+                  {errors.isAdult && <p className="text-[10px] text-red-500 font-medium px-1 mt-1">{errors.isAdult.message}</p>}
+                </div>
+              )}
+
+              {/* ── FECHA DE NACIMIENTO — atleta, coach y profesional (no acudiente) ── */}
               {showDateOfBirth && (
                 <div className="space-y-2 md:col-span-2 animate-in slide-in-from-top-2 duration-300">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">
