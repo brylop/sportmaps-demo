@@ -741,7 +741,7 @@ const App = () => (
                       } />
                       <Route path="cards/templates/certificates" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                          <ModuleGate moduleKey="documentos_carnets">
+                          <ModuleGate moduleKey="documentos_constancias">
                             <CertificateTemplatesPage />
                           </ModuleGate>
                         </ProtectedRoute>
