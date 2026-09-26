@@ -267,7 +267,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
   useActiveWorkPage();
   const { user, profile } = useAuth();
   const { schoolId } = useSchoolContext();
-  const { coachHideFinancialInfo } = useEntitlements();
+  const { coachHideFinancialInfo, coachAttendanceRetroDays } = useEntitlements();
   // Besser: el coach no ve mensualidad ni estado de pago en ninguna pantalla.
   // El BFF ya manda price/payment_status en null; esto además evita que el
   // badge de pago caiga a su default "Pendiente" cuando no hay dato.
@@ -320,10 +320,12 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
   const { staffId, estado: estadoFicha, refetch: refetchFicha } = useCoachStaffId();
 
   // ── Fecha de trabajo ────────────────────────────────────────────────────
-  // Por defecto hoy. El entrenador puede retroceder 7 días para completar lo
-  // que se le pasó; la administración, sin tope. El BFF vuelve a validar esto
-  // mismo: acá solo se evita ofrecer un botón que va a devolver 403.
-  const RETRO_DIAS_COACH = 7;
+  // Por defecto hoy. El entrenador puede retroceder N días para completar lo
+  // que se le pasó (7 por defecto; la escuela lo cambia en
+  // school_settings.coach_attendance_retro_days — Carmel: 90 para agosto 2026);
+  // la administración, sin tope. El BFF vuelve a validar esto mismo: acá solo
+  // se evita ofrecer un botón que va a devolver 403.
+  const RETRO_DIAS_COACH = coachAttendanceRetroDays;
   const hoy = todayColombia();
   const [fechaLista, setFechaLista] = useState<string>(hoy);
   const esRetroactiva = fechaLista !== hoy;
@@ -333,7 +335,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
     const d = new Date(`${hoy}T00:00:00Z`);
     d.setUTCDate(d.getUTCDate() - RETRO_DIAS_COACH);
     return d.toISOString().slice(0, 10);
-  }, [hoy, isAdmin]);
+  }, [hoy, isAdmin, RETRO_DIAS_COACH]);
 
   // ── 1. Equipos ──────────────────────────────────────────────────────────
   const { data: teams = [], isLoading: loadingTeams } = useQuery<TeamItem[]>({

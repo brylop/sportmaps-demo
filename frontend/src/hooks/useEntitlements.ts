@@ -110,6 +110,14 @@ interface EntitlementsResponse {
      * modal de inscribir solo ofrece "mover", como siempre.
      */
     allow_secondary_team_enrollment?: boolean;
+    /**
+     * Días hacia atrás que un ENTRENADOR puede pasar lista o reabrir una sesión
+     * de asistencia (`school_settings.coach_attendance_retro_days`, mig
+     * 20260926124337). Default 7 (regla de producto del 2026-08-16). Caso
+     * Carmel Club: 90 para completar agosto 2026. La administración no tiene
+     * tope y no lo usa.
+     */
+    coach_attendance_retro_days?: number | null;
 }
 
 // ============================================================
@@ -211,6 +219,10 @@ export interface Entitlements {
      *  categoría (`allow_secondary_team_enrollment`, caso Carmel Club: equipo
      *  de arqueros). Default false. */
     allowSecondaryTeamEnrollment: boolean;
+
+    /** Días hacia atrás que un entrenador puede pasar lista o reabrir una
+     *  sesión (`coach_attendance_retro_days`). Default 7; Carmel Club 90. */
+    coachAttendanceRetroDays: number;
 }
 
 export interface EntitlementsHelpers {
@@ -285,6 +297,7 @@ const EMPTY_ENTITLEMENTS: Entitlements = {
     coachCanEditCategories: false,
     militaryDiscountEnabled: false,
     allowSecondaryTeamEnrollment: false,
+    coachAttendanceRetroDays: 7,
 };
 
 // ============================================================
@@ -401,6 +414,11 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
             coachCanEditCategories: data.coach_can_edit_categories === true,
             militaryDiscountEnabled: data.military_discount_enabled === true,
             allowSecondaryTeamEnrollment: data.allow_secondary_team_enrollment === true,
+            // Un BFF viejo no manda el campo: se queda en el default de siempre.
+            coachAttendanceRetroDays:
+                Number.isInteger(data.coach_attendance_retro_days) && (data.coach_attendance_retro_days as number) >= 0
+                    ? (data.coach_attendance_retro_days as number)
+                    : 7,
         };
     }, [query.data]);
 

@@ -64,19 +64,19 @@ export const tomarAsistenciaCoachBody: ContentBlock[] = [
   {
     type: "p",
     content:
-      "El campo 'Día de la lista' permite retroceder la fecha. Un coach puede retroceder hasta 7 días; un admin, owner o super_admin no tiene tope. Las fechas futuras siempre se rechazan.",
+      "El campo 'Día de la lista' permite retroceder la fecha. Un coach puede retroceder hasta 7 días por defecto (la escuela puede pedirle a SportMaps una ventana distinta); un admin, owner o super_admin no tiene tope. Las fechas futuras siempre se rechazan.",
   },
   { type: "h3", content: "Finalizar y reabrir" },
   {
     type: "p",
     content:
-      "Al finalizar una sesión, cualquier atleta con inscripción activa que no quedó con ningún registro se marca automáticamente como Ausente, y se notifica al padre (o al atleta si es adulto). Si un atleta acumula ausencias seguidas hasta cruzar un umbral (2 por defecto, configurable por la escuela), se avisa al dueño de la escuela. Si algo quedó mal marcado, 'Reabrir para corregir' desbloquea la sesión con la misma regla de 7 días / sin tope.",
+      "Al finalizar una sesión, cualquier atleta con inscripción activa que no quedó con ningún registro se marca automáticamente como Ausente, y se notifica al padre (o al atleta si es adulto). Si un atleta acumula ausencias seguidas hasta cruzar un umbral (2 por defecto, configurable por la escuela), se avisa al dueño de la escuela. Si algo quedó mal marcado, 'Reabrir para corregir' desbloquea la sesión con la misma ventana del coach / sin tope para la administración.",
   },
   {
     type: "callout",
     variant: "warning",
     content:
-      "Corrección importante: antes decíamos que una sesión finalizada quedaba editable por 24 horas. Eso no es así — el límite real es 7 días para coach, y sin tope para admin, owner o super_admin.",
+      "Corrección importante: antes decíamos que una sesión finalizada quedaba editable por 24 horas. Eso no es así — el límite real es la ventana del coach (7 días por defecto, configurable por escuela), y sin tope para admin, owner o super_admin.",
   },
   { type: "h2", content: "2. Escaneo del carnet digital (QR)" },
   {

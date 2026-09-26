@@ -18444,6 +18444,7 @@ export type Database = {
           breb_number: string | null
           business_hours: Json | null
           charge_notifications_enabled: boolean
+          coach_attendance_retro_days: number
           coach_attendance_teams_only: boolean
           coach_can_create_athletes: boolean
           coach_can_create_teams: boolean
@@ -18538,6 +18539,7 @@ export type Database = {
           breb_number?: string | null
           business_hours?: Json | null
           charge_notifications_enabled?: boolean
+          coach_attendance_retro_days?: number
           coach_attendance_teams_only?: boolean
           coach_can_create_athletes?: boolean
           coach_can_create_teams?: boolean
@@ -18632,6 +18634,7 @@ export type Database = {
           breb_number?: string | null
           business_hours?: Json | null
           charge_notifications_enabled?: boolean
+          coach_attendance_retro_days?: number
           coach_attendance_teams_only?: boolean
           coach_can_create_athletes?: boolean
           coach_can_create_teams?: boolean
@@ -27675,6 +27678,7 @@ export type Database = {
           billing_cycle: string | null
           blocking_exempt: boolean | null
           blocking_exempt_reason: string | null
+          coach_attendance_retro_days: number | null
           coach_can_create_athletes: boolean | null
           coach_can_create_teams: boolean | null
           coach_can_edit_categories: boolean | null

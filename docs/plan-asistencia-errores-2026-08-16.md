@@ -139,7 +139,7 @@ Las tres decisiones de producto, resueltas:
 
 | | Decisión |
 |---|---|
-| **Quién** | El entrenador hasta **7 días** atrás; la administración **sin tope**. Quien responde por la plata puede reescribir más lejos que quien solo pasa lista. |
+| **Quién** | El entrenador hasta **7 días** atrás; la administración **sin tope**. Quien responde por la plata puede reescribir más lejos que quien solo pasa lista. Desde el 2026-09-26 los 7 días son el default: `school_settings.coach_attendance_retro_days` lo cambia por escuela (mig `20260926124337`; Carmel Club = 90 para completar agosto 2026, porque su dueño no tiene en el menú la pantalla de pasar lista y quien la toma es el entrenador). |
 | **Créditos** | Se descuentan evaluando el saldo **como estaba ese día**: el plan vencido se compara contra la fecha del evento, no contra hoy. Sin saldo, la asistencia se registra igual y se avisa — misma regla que en el día corriente. |
 | **Cerrado** | Una sesión finalizada se puede **reabrir**, solo si su fecha cae dentro de la ventana de quien lo pide. |
 
