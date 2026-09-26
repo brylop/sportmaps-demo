@@ -379,9 +379,12 @@ desengancha sus sesiones sin borrarlas.
 
 ### 8.3 Carga por atleta — ver D13 nuevo en §3.3
 
-El objetivo declarado en §0.3 ("¿cuánta carga acumuló este jugador?") no lo
-responde lo construido (carga por equipo). D13 propone cerrarlo cruzando
-sRPE × asistencia × alineación, sin pedir un dato nuevo.
+✅ **Construido 2026-09-25** (`20260925134939`). RPC `athlete_weekly_load(microcycle_id)`
+cruza sRPE × minutos × asistencia real por atleta (sin la alineación de
+titular/suplente que D13 mencionaba como posible — quedó fuera de v1 a
+propósito, documentado en la migración). `WeeklyLoadPanel.tsx` la muestra en
+cada semana del mesociclo, con estado vacío explícito cuando no hay RPE o
+asistencia cargados. Probado con datos reales: RPE 6 × 60 min = 360 UA.
 
 ### 8.4 Monotonía/strain/ACWR necesitan un umbral de frecuencia — ver nota en §3.3
 
@@ -453,13 +456,12 @@ desactualizado en ese punto (ver nota ahí).
 
 ### 8.8 D10 a medias — microciclos sin mesociclo pierden la vista agrupada
 
-`training_microcycles.mesocycle_id` es opcional por diseño (D10: "un equipo
-puede seguir usando microciclos sueltos"), pero `MesocycleSection.tsx` solo
-renderiza el accordion por semana cuando hay un `mesocycle` cargado — un
-equipo con microciclos sueltos (sin mesociclo) hoy no tiene ninguna vista que
-los agrupe; cae a la lista plana de sesiones de siempre, sin días, sin tipo,
-sin índice MD. La opción que D10 dijo que quedaba disponible no tiene UI.
-Sigue sin construirse.
+✅ **Cerrado 2026-09-25.** `StandaloneMicrocyclesPanel.tsx` — mismo patrón de
+acordeón-por-semana que `MesocycleSection.tsx`, para equipos con microciclos
+sueltos (`mesocycle_id IS NULL`). Sin índice MD (no era requisito) ni
+CRUD de mesociclo/rúbrica — solo la vista + crear sesiones por día, que era
+el hueco real. Probado con datos reales end-to-end (semana suelta + día +
+sesión, RLS incluido).
 
 ### 8.9 Cerrado en la misma pasada del 21-sep, no encontrado en la revisión original
 

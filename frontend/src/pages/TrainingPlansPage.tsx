@@ -187,9 +187,12 @@ export default function TrainingPlansPage() {
   // Create session mutation
   const createMutation = useMutation({
     mutationFn: async (input: any) => {
+      // school_id es NOT NULL con RLS que lo exige (deriva sin versionar
+      // encontrada y documentada el 25-sep, migración
+      // 20260925135425) — sin esto el INSERT rompe con 403 para cualquiera.
       const { data, error } = await supabase
         .from('training_sessions')
-        .insert(input)
+        .insert({ ...input, school_id: schoolId })
         .select()
         .single();
       if (error) throw error;

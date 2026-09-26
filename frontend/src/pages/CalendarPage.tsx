@@ -78,79 +78,82 @@ const SPORT_ICONS: Record<string, React.ElementType> = {
   'Artes Marciales': Swords,
 };
 
+// Colores de badges/íconos conscientes del tema. Antes eran solo `text-*-300`
+// sobre `bg-*-500/20`: pensados para modo oscuro, en modo claro quedaban
+// verde claro sobre verde claro (reporte Athletic League 2026-09-25).
 const SPORT_COLORS: Record<string, { bg: string; text: string; icon: string; border: string }> = {
-  'Porrismo': { bg: 'bg-fuchsia-500/15', text: 'text-fuchsia-400', icon: 'text-fuchsia-400', border: 'border-fuchsia-500/30' },
-  'Fútbol': { bg: 'bg-emerald-500/15', text: 'text-emerald-400', icon: 'text-emerald-400', border: 'border-emerald-500/30' },
-  'Fútbol Sala': { bg: 'bg-teal-500/15', text: 'text-teal-400', icon: 'text-teal-400', border: 'border-teal-500/30' },
-  'Baloncesto': { bg: 'bg-orange-500/15', text: 'text-orange-400', icon: 'text-orange-400', border: 'border-orange-500/30' },
-  'Natación': { bg: 'bg-cyan-500/15', text: 'text-cyan-400', icon: 'text-cyan-400', border: 'border-cyan-500/30' },
-  'Tenis': { bg: 'bg-lime-500/15', text: 'text-lime-400', icon: 'text-lime-400', border: 'border-lime-500/30' },
-  'Gimnasia': { bg: 'bg-pink-500/15', text: 'text-pink-300', icon: 'text-pink-300', border: 'border-pink-500/30' },
-  'Atletismo': { bg: 'bg-amber-500/15', text: 'text-amber-400', icon: 'text-amber-400', border: 'border-amber-500/30' },
-  'Voleibol': { bg: 'bg-yellow-500/15', text: 'text-yellow-400', icon: 'text-yellow-400', border: 'border-yellow-500/30' },
-  'Artes Marciales': { bg: 'bg-red-500/15', text: 'text-red-400', icon: 'text-red-400', border: 'border-red-500/30' },
+  'Porrismo': { bg: 'bg-fuchsia-50 dark:bg-fuchsia-500/15', text: 'text-fuchsia-700 dark:text-fuchsia-400', icon: 'text-fuchsia-700 dark:text-fuchsia-400', border: 'border-fuchsia-200 dark:border-fuchsia-500/30' },
+  'Fútbol': { bg: 'bg-emerald-50 dark:bg-emerald-500/15', text: 'text-emerald-700 dark:text-emerald-400', icon: 'text-emerald-700 dark:text-emerald-400', border: 'border-emerald-200 dark:border-emerald-500/30' },
+  'Fútbol Sala': { bg: 'bg-teal-50 dark:bg-teal-500/15', text: 'text-teal-700 dark:text-teal-400', icon: 'text-teal-700 dark:text-teal-400', border: 'border-teal-200 dark:border-teal-500/30' },
+  'Baloncesto': { bg: 'bg-orange-50 dark:bg-orange-500/15', text: 'text-orange-700 dark:text-orange-400', icon: 'text-orange-700 dark:text-orange-400', border: 'border-orange-200 dark:border-orange-500/30' },
+  'Natación': { bg: 'bg-cyan-50 dark:bg-cyan-500/15', text: 'text-cyan-700 dark:text-cyan-400', icon: 'text-cyan-700 dark:text-cyan-400', border: 'border-cyan-200 dark:border-cyan-500/30' },
+  'Tenis': { bg: 'bg-lime-50 dark:bg-lime-500/15', text: 'text-lime-700 dark:text-lime-400', icon: 'text-lime-700 dark:text-lime-400', border: 'border-lime-200 dark:border-lime-500/30' },
+  'Gimnasia': { bg: 'bg-pink-50 dark:bg-pink-500/15', text: 'text-pink-800 dark:text-pink-300', icon: 'text-pink-800 dark:text-pink-300', border: 'border-pink-200 dark:border-pink-500/30' },
+  'Atletismo': { bg: 'bg-amber-50 dark:bg-amber-500/15', text: 'text-amber-700 dark:text-amber-400', icon: 'text-amber-700 dark:text-amber-400', border: 'border-amber-200 dark:border-amber-500/30' },
+  'Voleibol': { bg: 'bg-yellow-50 dark:bg-yellow-500/15', text: 'text-yellow-700 dark:text-yellow-400', icon: 'text-yellow-700 dark:text-yellow-400', border: 'border-yellow-200 dark:border-yellow-500/30' },
+  'Artes Marciales': { bg: 'bg-red-50 dark:bg-red-500/15', text: 'text-red-700 dark:text-red-400', icon: 'text-red-700 dark:text-red-400', border: 'border-red-200 dark:border-red-500/30' },
 };
 
 const DEFAULT_SPORT_COLOR = { bg: 'bg-primary/15', text: 'text-primary', icon: 'text-primary', border: 'border-primary/30' };
 
 // ─── Sport-specific event type labels ─────────────────────────────────────
 const BASE_EVENT_TYPES: Record<string, { label: string; color: string }> = {
-  training: { label: 'Entrenamiento', color: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
-  match: { label: 'Partido', color: 'bg-green-500/20 text-green-300 border-green-500/30' },
-  meeting: { label: 'Reunión', color: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
-  evaluation: { label: 'Evaluación', color: 'bg-teal-500/20 text-teal-300 border-teal-500/30' },
-  competition: { label: 'Competencia', color: 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/30' },
-  workshop: { label: 'Taller', color: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
-  staff_meeting: { label: 'Reunión de Staff', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
-  other: { label: 'Otro', color: 'bg-gray-500/20 text-gray-300 border-gray-500/30' },
+  training: { label: 'Entrenamiento', color: 'bg-blue-100 dark:bg-blue-500/20 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-500/30' },
+  match: { label: 'Partido', color: 'bg-green-100 dark:bg-green-500/20 text-green-800 dark:text-green-300 border-green-200 dark:border-green-500/30' },
+  meeting: { label: 'Reunión', color: 'bg-purple-100 dark:bg-purple-500/20 text-purple-800 dark:text-purple-300 border-purple-200 dark:border-purple-500/30' },
+  evaluation: { label: 'Evaluación', color: 'bg-teal-100 dark:bg-teal-500/20 text-teal-800 dark:text-teal-300 border-teal-200 dark:border-teal-500/30' },
+  competition: { label: 'Competencia', color: 'bg-fuchsia-100 dark:bg-fuchsia-500/20 text-fuchsia-800 dark:text-fuchsia-300 border-fuchsia-200 dark:border-fuchsia-500/30' },
+  workshop: { label: 'Taller', color: 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-500/30' },
+  staff_meeting: { label: 'Reunión de Staff', color: 'bg-indigo-100 dark:bg-indigo-500/20 text-indigo-800 dark:text-indigo-300 border-indigo-200 dark:border-indigo-500/30' },
+  other: { label: 'Otro', color: 'bg-gray-100 dark:bg-gray-500/20 text-gray-800 dark:text-gray-300 border-gray-200 dark:border-gray-500/30' },
 };
 
 const SPORT_EVENT_OVERRIDES: Record<string, Record<string, { label: string; color: string }>> = {
   'Porrismo': {
-    training: { label: 'Práctica de Rutina', color: 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/30' },
-    match: { label: 'Exhibición', color: 'bg-pink-500/20 text-pink-300 border-pink-500/30' },
-    competition: { label: 'Competencia All-Star', color: 'bg-fuchsia-600/20 text-fuchsia-200 border-fuchsia-600/30' },
-    workshop: { label: 'Taller Técnica de Vuelo', color: 'bg-violet-500/20 text-violet-300 border-violet-500/30' },
-    evaluation: { label: 'Evaluación de Nivel', color: 'bg-teal-500/20 text-teal-300 border-teal-500/30' },
+    training: { label: 'Práctica de Rutina', color: 'bg-fuchsia-100 dark:bg-fuchsia-500/20 text-fuchsia-800 dark:text-fuchsia-300 border-fuchsia-200 dark:border-fuchsia-500/30' },
+    match: { label: 'Exhibición', color: 'bg-pink-100 dark:bg-pink-500/20 text-pink-800 dark:text-pink-300 border-pink-200 dark:border-pink-500/30' },
+    competition: { label: 'Competencia All-Star', color: 'bg-fuchsia-100 dark:bg-fuchsia-600/20 text-fuchsia-900 dark:text-fuchsia-200 border-fuchsia-300 dark:border-fuchsia-600/30' },
+    workshop: { label: 'Taller Técnica de Vuelo', color: 'bg-violet-100 dark:bg-violet-500/20 text-violet-800 dark:text-violet-300 border-violet-200 dark:border-violet-500/30' },
+    evaluation: { label: 'Evaluación de Nivel', color: 'bg-teal-100 dark:bg-teal-500/20 text-teal-800 dark:text-teal-300 border-teal-200 dark:border-teal-500/30' },
   },
   'Fútbol': {
-    training: { label: 'Entrenamiento Táctico', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
-    match: { label: 'Partido Oficial', color: 'bg-green-500/20 text-green-300 border-green-500/30' },
-    competition: { label: 'Torneo', color: 'bg-emerald-600/20 text-emerald-200 border-emerald-600/30' },
+    training: { label: 'Entrenamiento Táctico', color: 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30' },
+    match: { label: 'Partido Oficial', color: 'bg-green-100 dark:bg-green-500/20 text-green-800 dark:text-green-300 border-green-200 dark:border-green-500/30' },
+    competition: { label: 'Torneo', color: 'bg-emerald-100 dark:bg-emerald-600/20 text-emerald-900 dark:text-emerald-200 border-emerald-300 dark:border-emerald-600/30' },
   },
   'Fútbol Sala': {
-    training: { label: 'Entrenamiento Táctico', color: 'bg-teal-500/20 text-teal-300 border-teal-500/30' },
-    match: { label: 'Partido Oficial', color: 'bg-teal-500/20 text-teal-300 border-teal-500/30' },
-    competition: { label: 'Torneo', color: 'bg-teal-600/20 text-teal-200 border-teal-600/30' },
+    training: { label: 'Entrenamiento Táctico', color: 'bg-teal-100 dark:bg-teal-500/20 text-teal-800 dark:text-teal-300 border-teal-200 dark:border-teal-500/30' },
+    match: { label: 'Partido Oficial', color: 'bg-teal-100 dark:bg-teal-500/20 text-teal-800 dark:text-teal-300 border-teal-200 dark:border-teal-500/30' },
+    competition: { label: 'Torneo', color: 'bg-teal-100 dark:bg-teal-600/20 text-teal-900 dark:text-teal-200 border-teal-300 dark:border-teal-600/30' },
   },
   'Baloncesto': {
-    training: { label: 'Práctica de Cancha', color: 'bg-orange-500/20 text-orange-300 border-orange-500/30' },
-    match: { label: 'Juego Oficial', color: 'bg-orange-600/20 text-orange-200 border-orange-600/30' },
+    training: { label: 'Práctica de Cancha', color: 'bg-orange-100 dark:bg-orange-500/20 text-orange-800 dark:text-orange-300 border-orange-200 dark:border-orange-500/30' },
+    match: { label: 'Juego Oficial', color: 'bg-orange-100 dark:bg-orange-600/20 text-orange-900 dark:text-orange-200 border-orange-300 dark:border-orange-600/30' },
   },
   'Natación': {
-    training: { label: 'Entrenamiento en Piscina', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' },
-    competition: { label: 'Torneo de Natación', color: 'bg-sky-500/20 text-sky-300 border-sky-500/30' },
+    training: { label: 'Entrenamiento en Piscina', color: 'bg-cyan-100 dark:bg-cyan-500/20 text-cyan-800 dark:text-cyan-300 border-cyan-200 dark:border-cyan-500/30' },
+    competition: { label: 'Torneo de Natación', color: 'bg-sky-100 dark:bg-sky-500/20 text-sky-800 dark:text-sky-300 border-sky-200 dark:border-sky-500/30' },
   },
   'Gimnasia': {
-    training: { label: 'Práctica de Aparatos', color: 'bg-pink-500/20 text-pink-300 border-pink-500/30' },
-    competition: { label: 'Competencia de Gimnasia', color: 'bg-pink-600/20 text-pink-200 border-pink-600/30' },
+    training: { label: 'Práctica de Aparatos', color: 'bg-pink-100 dark:bg-pink-500/20 text-pink-800 dark:text-pink-300 border-pink-200 dark:border-pink-500/30' },
+    competition: { label: 'Competencia de Gimnasia', color: 'bg-pink-100 dark:bg-pink-600/20 text-pink-900 dark:text-pink-200 border-pink-300 dark:border-pink-600/30' },
   },
   'Atletismo': {
-    training: { label: 'Sesión de Pista', color: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
-    match: { label: 'Competencia de Pista', color: 'bg-amber-600/20 text-amber-200 border-amber-600/30' },
+    training: { label: 'Sesión de Pista', color: 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-500/30' },
+    match: { label: 'Competencia de Pista', color: 'bg-amber-100 dark:bg-amber-600/20 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-600/30' },
   },
   'Tenis': {
-    training: { label: 'Práctica de Cancha', color: 'bg-lime-500/20 text-lime-300 border-lime-500/30' },
-    match: { label: 'Partido de Tenis', color: 'bg-lime-600/20 text-lime-200 border-lime-600/30' },
+    training: { label: 'Práctica de Cancha', color: 'bg-lime-100 dark:bg-lime-500/20 text-lime-800 dark:text-lime-300 border-lime-200 dark:border-lime-500/30' },
+    match: { label: 'Partido de Tenis', color: 'bg-lime-100 dark:bg-lime-600/20 text-lime-900 dark:text-lime-200 border-lime-300 dark:border-lime-600/30' },
   },
   'Voleibol': {
-    training: { label: 'Práctica de Voleibol', color: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30' },
-    match: { label: 'Juego de Voleibol', color: 'bg-yellow-600/20 text-yellow-200 border-yellow-600/30' },
+    training: { label: 'Práctica de Voleibol', color: 'bg-yellow-100 dark:bg-yellow-500/20 text-yellow-800 dark:text-yellow-300 border-yellow-200 dark:border-yellow-500/30' },
+    match: { label: 'Juego de Voleibol', color: 'bg-yellow-100 dark:bg-yellow-600/20 text-yellow-900 dark:text-yellow-200 border-yellow-300 dark:border-yellow-600/30' },
   },
   'Artes Marciales': {
-    training: { label: 'Sesión de Dojo', color: 'bg-red-500/20 text-red-300 border-red-500/30' },
-    match: { label: 'Combate', color: 'bg-red-600/20 text-red-200 border-red-600/30' },
-    competition: { label: 'Campeonato', color: 'bg-red-700/20 text-red-100 border-red-700/30' },
+    training: { label: 'Sesión de Dojo', color: 'bg-red-100 dark:bg-red-500/20 text-red-800 dark:text-red-300 border-red-200 dark:border-red-500/30' },
+    match: { label: 'Combate', color: 'bg-red-100 dark:bg-red-600/20 text-red-900 dark:text-red-200 border-red-300 dark:border-red-600/30' },
+    competition: { label: 'Campeonato', color: 'bg-red-200 dark:bg-red-700/20 text-red-900 dark:text-red-100 border-red-300 dark:border-red-700/30' },
   },
 };
 

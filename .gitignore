@@ -234,3 +234,4 @@ Datos Plataforma Sede Suba.xlsx
 
 # Capturas crudas de los manuales: se regeneran con capture.mjs; el HTML/PDF ya las lleva embebidas
 docs/manuales/_src/**/shots/
+docs/manuales/_src/**/video-raw/
