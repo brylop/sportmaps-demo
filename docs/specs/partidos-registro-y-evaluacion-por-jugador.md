@@ -41,14 +41,23 @@ evaluar a cada jugador después del partido.
 | **Torneos internos** | `tournament_matches`, `tournament_match_events` | Fixture de torneos que organiza SportMaps | Mundo aparte; se enlaza, no se fusiona (D12) |
 | **`competition_results`** | tabla genérica «resultado después de competir» | Sin UI relevante | Se deja como está; no se toca |
 
-**RLS viva que hay que arreglar en F1** (`pg_policies`, 2026-09-23):
-`match_results` tiene `match_results_admin_all` **FOR ALL sin WITH CHECK** (viola
-I3) y sus policies de select/update/delete pasan por `teams JOIN school_members`
-sin filtrar rol — hay que confirmar si un padre puede hoy editar un marcador. Las
-de `match_lineups` / `match_lineup_players` / `performance_entries` ya usan
+**RLS viva que se reemplaza en F1** (`pg_policies`, releído completo el 2026-09-26):
+`match_results` tiene 5 policies: `match_results_admin_all` (FOR ALL, sí trae
+WITH CHECK, vía `is_school_admin(teams.school_id)`), lectura para **cualquier
+miembro activo** de la escuela (`teams JOIN school_members`, sin filtrar rol) y
+escritura para roles `owner/admin/staff/coach/super_admin/school_admin` por el
+mismo JOIN. No es un hueco de seguridad, pero: no usa los helpers de alcance del
+repo (`user_staff_school_ids()`), evalúa un JOIN por fila y no contempla a la
+familia de un equipo que no sea miembro de `school_members`. Se reemplazan por 4
+policies con helpers envueltos, igual que `calendar_events`. Las de
+`match_lineups` / `match_lineup_players` / `performance_entries` ya usan
 `user_staff_school_ids()` para escribir y dejan leer a la familia lo de su hijo
-(`is_parent_of_child`). `sport_metric_definitions` es lectura `true` para
-`authenticated`, correcto para un catálogo.
+(`is_parent_of_child`); la de lectura de `performance_entries` se **modifica**
+(no se suma otra: son permisivas) para que lo de contexto `competition` solo
+llegue a la familia cuando el partido está publicado (D7).
+`sport_metric_definitions` es lectura `true` para `authenticated`, correcto para
+un catálogo. `match_lineup_players.position_code` tiene CHECK solo con posiciones
+de fútbol: para otros deportes va `NULL` (el CHECK lo admite).
 
 ---
 
@@ -259,7 +268,9 @@ papá, un coach y un admin con `set_config('request.jwt.claims', …)`.
 ## 9. Estado
 
 - 2026-09-23 · F0 escrito con D2, D3 y D4 cerradas por el usuario en la
-  conversación de ese día. D7 y la pregunta 2 de §8 pendientes.
-- Siguiente paso: **plan detallado de F1** (DDL exacto, policies línea por línea,
-  conteo de huérfanas en `match_results`, casos del test de concurrencia) para
-  aprobación antes de escribir la migración.
+  conversación de ese día.
+- 2026-09-26 · «dale, continúa»: D7 queda **apagada por defecto** (la escuela la prende) y
+  los criterios son **por escuela**. Plan de F1 escrito en
+  [plan-partidos-f1-db-rls-rpc.md](../plan-partidos-f1-db-rls-rpc.md) con el DDL, las
+  policies, los RPCs, el radio de impacto y las 10 pruebas; verificado contra la base viva
+  (24 partidos, 0 huérfanos, 3 sin marcador). Pendiente: aprobar el plan y aplicar.
