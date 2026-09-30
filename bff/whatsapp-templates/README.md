@@ -1,7 +1,16 @@
 # Cobranza por WhatsApp — S0: plantillas Meta
 
 8 plantillas **UTILITY** (`es_CO`) para la escalera de cobranza. Se registran
-**una vez a nivel WABA** y sirven para todos los números de escuela.
+**por WABA**: sirven para todos los números que cuelgan de ESA WABA. Una escuela
+que entra por Coexistence trae la suya, y ahí hay que registrarlas de nuevo:
+
+```bash
+npx tsx scripts/wa-copiar-plantillas.ts --desde <school_id_origen> --hacia <school_id_destino>            # simula
+npx tsx scripts/wa-copiar-plantillas.ts --desde <school_id_origen> --hacia <school_id_destino> --aplicar  # registra
+```
+
+Copia lo APROBADO tal cual está en Meta, solo UTILITY salvo `--con-marketing`,
+y salta lo que ya exista en destino.
 
 ## Las 8 plantillas
 
