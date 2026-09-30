@@ -402,13 +402,22 @@ async function isSchoolAuthorized(userId: string, schoolId: string): Promise<boo
 
     if (school?.owner_id === userId) return true;
 
-    const { data: profile } = await supabase
-        .from('profiles')
+    // SEG-25: correlacionar SIEMPRE con la escuela de la URL. La versión
+    // anterior aceptaba `profiles.role === 'school_admin'` sin mirar schoolId:
+    // el admin de SU escuela podía reescribir la pasarela de CUALQUIER otra y
+    // desviar sus cobros a su propia cuenta. Mismo criterio que
+    // user_admin_school_ids() y que canManageFinances() en invoicing.routes.ts.
+    // limit(1) y no maybeSingle(): school_members no garantiza una fila única.
+    const { data: members } = await supabase
+        .from('school_members')
         .select('role')
-        .eq('id', userId)
-        .maybeSingle();
+        .eq('school_id', schoolId)
+        .eq('profile_id', userId)
+        .eq('status', 'active')
+        .in('role', ['owner', 'admin', 'school_admin', 'super_admin'])
+        .limit(1);
 
-    return profile?.role === 'school_admin' || profile?.role === 'owner';
+    return (members ?? []).length > 0;
 }
 
 async function locateProviderById(
