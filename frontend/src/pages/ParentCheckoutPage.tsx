@@ -500,7 +500,16 @@ export default function ParentCheckoutPage() {
     try {
       // 1. Crear la sesión server-side → registra la referencia en payment_links
       //    y devuelve el monto firmado por el servidor (fuente de verdad del monto).
-      const session = await bffClient.post<{ reference: string; amountInCents: number }>(
+      const session = await bffClient.post<{
+        reference: string;
+        amountInCents: number;
+        // Firma y public key del comercio de ESTA escuela, resueltas por el BFF según su
+        // payment_mode. Hay que pasarlas al Widget: sin ellas openWompiCheckout cae a la
+        // llave de build + firma de la Edge Function, que pueden ser de comercios
+        // distintos → Wompi responde "La firma es inválida" (Dynasty desde el 27-ago).
+        signature?: string | null;
+        publicKey?: string | null;
+      }>(
         '/api/v1/payments/create-session',
         { paymentId: paymentIdParam, preferredProvider: 'wompi' },
         schoolIdParam ? { 'x-school-id': schoolIdParam } : undefined,
@@ -533,6 +542,8 @@ export default function ParentCheckoutPage() {
       const transaction = await openWompiCheckout({
         reference,
         amountInCents: session.amountInCents,
+        signature: session.signature ?? undefined,
+        publicKey: session.publicKey ?? undefined,
         customerEmail,
         customerName,
         legalId,

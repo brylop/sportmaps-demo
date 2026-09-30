@@ -269,8 +269,16 @@ const HISTORY_QUICK_RANGES: { label: string; from: () => string; to: () => strin
   { label: 'Último año', from: () => addDaysToDay(todayColombia(), -HISTORY_DEFAULT_RANGE_DAYS), to: () => todayColombia() },
 ];
 
-/** Tope de seguridad de la consulta. No es el filtro: es la red por si acaso. */
-const HISTORY_FETCH_CAP = 500;
+/**
+ * La consulta se trae por páginas hasta agotar las filas: la tabla tiene que
+ * mostrar TODOS los movimientos del filtro. Con un `.limit(500)` fijo, Dynasty
+ * (más de 500 movimientos en el año) veía "500 total / 499 pagado" y leía mal
+ * su propia cartera. PostgREST corta cada respuesta en 1000 filas, por eso la
+ * página es de ese tamaño.
+ */
+const HISTORY_PAGE_SIZE = 1000;
+/** Red contra un bucle sin fin (50.000 filas), no un tope de negocio. */
+const HISTORY_MAX_PAGES = 50;
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   paid: { label: 'Pagado', className: 'bg-green-500 text-white border-transparent' },
@@ -443,6 +451,7 @@ export default function PaymentsAutomationPage() {
   const esPlatformAdmin = profile?.role === 'admin' || profile?.role === 'super_admin';
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState<PaymentTransaction[]>([]);
+  const [historyTruncated, setHistoryTruncated] = useState(false);
   // KPIs agregados en DB (school_payment_kpis). NO se derivan de `payments`:
   // esa lista está paginada a 100 filas y calcular las tarjetas sobre ella
   // mostraba "Histórico acumulado" de solo las últimas horas.
@@ -630,6 +639,7 @@ export default function PaymentsAutomationPage() {
         : [];
       const statuses = [...CORE_STATUSES, ...extraStatus].join(',');
 
+      const buildQuery = () => {
       let query = supabase
         .from('payments')
         .select(`
@@ -653,7 +663,9 @@ export default function PaymentsAutomationPage() {
         // recibe comprobante sin pasar por awaiting_approval, igual se ve.
         .or(`status.in.(${statuses}),and(status.in.(pending,overdue),receipt_url.not.is.null)`)
         .order('created_at', { ascending: false })
-        .limit(HISTORY_FETCH_CAP);
+        // Desempate estable: sin él, dos filas con el mismo created_at pueden
+        // saltar de página y salir repetidas o no salir.
+        .order('id', { ascending: false });
 
       // Rango de fechas, también en el servidor. Se compara contra `payment_date`
       // (columna `date`, se compara pelada) y, solo cuando esa está en NULL,
@@ -688,8 +700,20 @@ export default function PaymentsAutomationPage() {
       // asignada (207 de 499 en Dynasty). Con .eq() se caían todos al
       // seleccionar una sede, incluidos comprobantes esperando validación.
       if (activeBranchId) query = query.or(`branch_id.is.null,branch_id.eq.${activeBranchId}`);
-      const { data, error } = await query;
-      if (error) throw error;
+      return query;
+      };
+
+      const data: any[] = [];
+      let truncated = false;
+      for (let page = 0; ; page++) {
+        if (page >= HISTORY_MAX_PAGES) { truncated = true; break; }
+        const from = page * HISTORY_PAGE_SIZE;
+        const { data: rows, error } = await buildQuery().range(from, from + HISTORY_PAGE_SIZE - 1);
+        if (error) throw error;
+        data.push(...(rows || []));
+        if (!rows || rows.length < HISTORY_PAGE_SIZE) break;
+      }
+      setHistoryTruncated(truncated);
 
       // Resolver nombres de atletas sin cuenta (unregistered)
       const unregisteredIds = (data || [])
@@ -698,11 +722,16 @@ export default function PaymentsAutomationPage() {
 
       const unregisteredMap = new Map<string, string>();
       if (unregisteredIds.length > 0) {
-        const { data: unregistered } = await (supabase
-          .from('unregistered_athletes') as any)
-          .select('id, full_name')
-          .in('id', unregisteredIds);
-        (unregistered || []).forEach((u: any) => unregisteredMap.set(u.id, u.full_name));
+        // En lotes: con todos los movimientos cargados la lista de ids puede
+        // ser larga, y un `in` con cientos de uuid excede el largo de la URL.
+        const uniqueIds = [...new Set(unregisteredIds)];
+        for (let i = 0; i < uniqueIds.length; i += 150) {
+          const { data: unregistered } = await (supabase
+            .from('unregistered_athletes') as any)
+            .select('id, full_name')
+            .in('id', uniqueIds.slice(i, i + 150));
+          (unregistered || []).forEach((u: any) => unregisteredMap.set(u.id, u.full_name));
+        }
       }
 
       // Set de periodos ya cubiertos (paid/approved) por hijo, para marcar
@@ -1976,12 +2005,12 @@ export default function PaymentsAutomationPage() {
               </div>
               {/* Si la consulta llegó al tope, el usuario tiene que saberlo: una
                   tabla truncada en silencio se lee como "esto es todo". */}
-              {payments.length >= HISTORY_FETCH_CAP && (
+              {historyTruncated && (
                 <div className="mx-4 sm:mx-0 mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
                   <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                   <span>
-                    Se alcanzó el máximo de {HISTORY_FETCH_CAP} movimientos por consulta.
-                    Acota el rango de fechas o el estado para ver el resto — lo que falta no está perdido, solo no cabe en esta carga.
+                    Hay más de {(HISTORY_PAGE_SIZE * HISTORY_MAX_PAGES).toLocaleString('es-CO')} movimientos en este filtro y solo se cargaron esos.
+                    Acota el rango de fechas o el estado para ver el resto.
                   </span>
                 </div>
               )}
