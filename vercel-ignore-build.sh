@@ -52,7 +52,7 @@ fi
 # Rutas desde la raíz del repo (`:/…`), NO relativas al directorio actual: Vercel corre
 # esto dentro del Root Directory del proyecto, y con rutas relativas un cambio de esa
 # opción haría que el filtro no encuentre nunca nada y cancele TODOS los builds.
-PATHS=(":/frontend" ":/vercel.json" ":/vercel-ignore-build.sh")
+PATHS=(":/frontend" ":/vercel.json" ":/vercel-ignore-build.sh" ":/.vercelignore")
 
 # Sin padre alcanzable (clon superficial, primer commit de la rama) no hay con qué
 # comparar. Se construye: lo caro es NO desplegar un cambio real, no un build de más.

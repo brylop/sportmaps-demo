@@ -1,0 +1,12 @@
+
+# ─── Fuera del deploy de Vercel (2026-09-30) ────────────────────────────────
+# api/index.py + requirements.txt convertían el deploy en una función de Python
+# (FastAPI/MongoDB legacy de febrero, sin ningún llamador) que empaqueta TODO lo
+# que hay en el deploy, node_modules del frontend incluido. Superó el límite de
+# 225 MB ("Total bundle size exceeds the maximum function size") y rompió el
+# build de sportmaps-dev en 3408311. Vercel solo sirve frontend/build.
+api/
+backend/
+requirements.txt
+# Manuales (PDF/MP4) y specs: no los lee el build del frontend.
+docs/
