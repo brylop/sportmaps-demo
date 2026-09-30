@@ -17,6 +17,8 @@ interface InvoiceRow {
   invoice_number: string;
   plan_code: string;
   amount_cents: number;
+  // Desde la migración 20260929183752; vacío en facturas anteriores.
+  line_items?: { kind: 'plan' | 'addon'; code: string; amount_cents: number }[] | null;
   period_start: string;
   period_end: string;
   due_date: string;
@@ -31,6 +33,21 @@ const PLAN_NAMES: Record<string, string> = {
   profesional: 'Escuela Pro',
   elite: 'Escuela Elite',
   enterprise: 'Custom',
+};
+
+const ADDON_NAMES: Record<string, string> = {
+  accounting: 'Contabilidad',
+  invoicing: 'Facturación electrónica',
+  tournaments: 'Torneos',
+  store: 'Tienda escolar',
+  nutrition: 'Nutrición',
+  biomech: 'Biomecánica',
+  access_control: 'Control de acceso',
+  pwa_branding: 'PWA con tu marca',
+  whitelabel: 'App nativa propia',
+  whatsapp: 'WhatsApp campañas',
+  wompi: 'Pasarela Wompi',
+  mp: 'Pasarela MercadoPago',
 };
 
 const formatCop = (cents: number) => `$${Math.round(cents / 100).toLocaleString('es-CO')}`;
@@ -98,6 +115,12 @@ export default function SaasInvoiceReceiptPage() {
   }
 
   const planName = PLAN_NAMES[invoice.plan_code] ?? invoice.plan_code;
+  const items = Array.isArray(invoice.line_items) ? invoice.line_items : [];
+  const lines = items.length === 0
+    ? [{ label: 'Plan', value: planName, amount: null as number | null }]
+    : items.map((it) => it.kind === 'plan'
+      ? { label: 'Plan', value: PLAN_NAMES[it.code] ?? it.code, amount: it.amount_cents }
+      : { label: 'Adicional', value: ADDON_NAMES[it.code] ?? it.code, amount: it.amount_cents });
   const statusVariant =
     invoice.status === 'paid' ? 'border-emerald-500 text-emerald-600'
     : invoice.status === 'overdue' ? 'border-red-500 text-red-600'
@@ -116,7 +139,14 @@ export default function SaasInvoiceReceiptPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-lg bg-muted/50 p-4 space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-muted-foreground">Plan</span><span className="font-medium">{planName}</span></div>
+            {lines.map((l, i) => (
+              <div key={i} className="flex justify-between gap-3">
+                <span className="text-muted-foreground">{l.label}</span>
+                <span className="font-medium text-right">
+                  {l.value}{l.amount !== null && <> · {formatCop(l.amount)}</>}
+                </span>
+              </div>
+            ))}
             <div className="flex justify-between"><span className="text-muted-foreground">Período</span><span className="font-medium">{formatDate(invoice.period_start)} — {formatDate(invoice.period_end)}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Vence</span><span className="font-medium">{formatDate(invoice.due_date)}</span></div>
             <div className="flex justify-between text-base pt-2 border-t"><span className="font-semibold">Total</span><span className="font-bold">{formatCop(invoice.amount_cents)}</span></div>

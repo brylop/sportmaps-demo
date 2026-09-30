@@ -1,0 +1,30 @@
+
+/* ── Propio de este manual: conversación de WhatsApp y tarjetas ── */
+.row { display: grid; grid-template-columns: 1fr 300px; gap: 26px; align-items: start; margin-bottom: 18px; }
+.row-r .shot-wrap { margin-top: 0; }
+h3.sub { font-size: 19px; font-weight: 800; color: #123416; margin: 6px 0 10px; }
+
+.phone { width: 300px; border-radius: 22px; overflow: hidden; border: 1px solid #d6ddd8; box-shadow: 0 8px 22px rgba(20,50,30,.14); font-family: 'Inter', sans-serif; }
+.wa-head { background: #075e54; color: #fff; display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+.wa-head .av { width: 32px; height: 32px; border-radius: 50%; background: #1c5c34; border: 2px solid #4fd17a; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; font-family: 'Baloo 2', sans-serif; }
+.wa-head .nm { font-size: 12.5px; font-weight: 700; }
+.wa-head .st { font-size: 10px; opacity: .8; }
+.wa-body { background: #efeae2; padding: 10px 9px 12px; display: flex; flex-direction: column; gap: 6px; }
+.b { min-width: 84px; max-width: 88%; padding: 6px 8px 14px; border-radius: 8px; font-size: 11px; line-height: 1.42; color: #111b21; position: relative; box-shadow: 0 1px .5px rgba(0,0,0,.13); word-wrap: break-word; }
+.b.in { background: #fff; align-self: flex-start; border-top-left-radius: 2px; }
+.b.out { background: #d9fdd3; align-self: flex-end; border-top-right-radius: 2px; }
+.b .t { white-space: nowrap; position: absolute; right: 7px; bottom: 3px; font-size: 8.5px; color: #667781; }
+.b .link { color: #027eb5; text-decoration: underline; word-break: break-all; }
+.b.img { padding: 4px 4px 14px; }
+.receipt { width: 170px; background: #fff; border-radius: 6px; border: 1px solid #cfe3c9; padding: 12px 10px; text-align: center; }
+.receipt .r1 { font-size: 26px; }
+.receipt .r2 { font-size: 10.5px; font-weight: 700; color: #1c2b20; }
+.receipt .r3 { font-size: 10px; color: #55665a; margin-top: 2px; }
+.audio { font-size: 11px; color: #3b4a54; letter-spacing: .5px; }
+
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 6px 0 16px; }
+.card { border: 1px solid #dfe6e1; border-radius: 14px; padding: 14px; background: #fbfdfb; }
+.card .ic { font-size: 24px; }
+.card .ct { font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: 15px; color: #123416; margin: 4px 0 2px; }
+.card .cd { font-size: 12px; line-height: 1.45; color: #4a5a50; }
+.step-badge { font-size: 13px; }

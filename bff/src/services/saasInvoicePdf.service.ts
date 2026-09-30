@@ -19,7 +19,7 @@ import QRCode from 'qrcode';
 import fs from 'fs';
 import path from 'path';
 import { supabase } from '../config/supabase';
-import { ACADEMY_PLAN_NAMES } from './saasInvoicing.constants';
+import { invoiceLines, SaasInvoiceLineItem } from './saasInvoicing.constants';
 
 const SPORTMAPS_GREEN = '#248223';
 const INK = '#1f2937';
@@ -73,6 +73,7 @@ export interface SaasInvoiceForPdf {
     invoice_number: string;
     plan_code: string;
     amount_cents: number;
+    line_items?: SaasInvoiceLineItem[] | null;
     period_start: string;
     period_end: string;
     due_date: string;
@@ -81,7 +82,7 @@ export interface SaasInvoiceForPdf {
 
 export async function generateSaasInvoicePdf(invoice: SaasInvoiceForPdf, schoolName: string): Promise<Buffer> {
     const accounts = await loadActivePaymentAccounts();
-    const planName = ACADEMY_PLAN_NAMES[invoice.plan_code] ?? invoice.plan_code;
+    const lines = invoiceLines(invoice);
     const invoiceLink = `${FRONTEND_URL.replace(/\/$/, '')}/facturacion/recibo/${invoice.id}`;
     const logo = loadLogo();
     const qrPng = await QRCode.toBuffer(invoiceLink, { width: 140, margin: 0 });
@@ -116,9 +117,9 @@ export async function generateSaasInvoicePdf(invoice: SaasInvoiceForPdf, schoolN
         doc.fillColor(INK).fontSize(13).font('Helvetica').text(schoolName, 60, doc.y + 2);
         doc.moveDown(1.8);
 
-        // ── Tabla plan / período / valor — filas con hairline ──
+        // ── Tabla detalle (plan + adicionales) / período / vencimiento — filas con hairline ──
         const rows: [string, string][] = [
-            ['Plan', planName],
+            ...lines.map((l): [string, string] => [l.label, formatCop(l.amount_cents)]),
             ['Período facturado', `${formatDate(invoice.period_start)} — ${formatDate(invoice.period_end)}`],
             ['Fecha de vencimiento', formatDate(invoice.due_date)],
         ];

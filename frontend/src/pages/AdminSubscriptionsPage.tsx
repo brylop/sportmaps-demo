@@ -175,6 +175,11 @@ export default function AdminSubscriptionsPage() {
   const [loadingSaas, setLoadingSaas] = useState(false);
   const [sendingInvoiceId, setSendingInvoiceId] = useState<string | null>(null);
   const [customPriceCents, setCustomPriceCents] = useState<number | null>(null);
+  // Precio mensual por addon (school_addons.monthly_price_cents). Lo encendido
+  // con precio > 0 se suma a cada factura SaaS (mig 20260929183752).
+  const [addonPrices, setAddonPrices] = useState<Record<string, number>>({});
+  const [addonPriceDraft, setAddonPriceDraft] = useState<Record<string, string>>({});
+  const [savingAddonPrice, setSavingAddonPrice] = useState<string | null>(null);
   const [billingCycle, setBillingCycle] = useState<BillingCycle>('monthly');
   const [customPriceDraft, setCustomPriceDraft] = useState('');
   const [billingCycleDraft, setBillingCycleDraft] = useState<BillingCycle>('monthly');
@@ -395,12 +400,17 @@ export default function AdminSubscriptionsPage() {
 
   async function loadSaasInvoicing(schoolId: string) {
     setLoadingSaas(true);
-    const [{ data: sub }, { data: invoices }] = await Promise.all([
+    const [{ data: sub }, { data: invoices }, { data: addonRows }] = await Promise.all([
       supabase.from('school_subscriptions' as any)
         .select('saas_billing_enabled, custom_price_cents, billing_cycle, current_period_start, current_period_end, billing_emails')
         .eq('school_id', schoolId).maybeSingle(),
       supabase.from('school_subscription_invoices' as any).select('*').eq('school_id', schoolId).order('period_start', { ascending: false }),
+      supabase.from('school_addons' as any).select('addon_key, monthly_price_cents').eq('school_id', schoolId),
     ]);
+    const prices: Record<string, number> = {};
+    for (const row of ((addonRows as any[]) || [])) prices[row.addon_key] = row.monthly_price_cents ?? 0;
+    setAddonPrices(prices);
+    setAddonPriceDraft(Object.fromEntries(Object.entries(prices).map(([k, c]) => [k, c > 0 ? String(Math.round(c / 100)) : ''])));
     setSaasBillingEnabled((sub as any)?.saas_billing_enabled ?? false);
     setSaasInvoices((invoices as any) || []);
     const cents = (sub as any)?.custom_price_cents ?? null;
@@ -527,6 +537,32 @@ export default function AdminSubscriptionsPage() {
     } else {
       toast({ title: next ? 'Facturación SaaS activada' : 'Facturación SaaS desactivada', description: selected.name });
     }
+  }
+
+  async function saveAddonPrice(key: string) {
+    if (!selected) return;
+    const trimmed = (addonPriceDraft[key] ?? '').trim();
+    const pesos = trimmed === '' ? 0 : Number(trimmed.replace(/\./g, '').replace(/,/g, ''));
+    if (Number.isNaN(pesos) || pesos < 0) {
+      toast({ title: 'Valor inválido', description: 'Escribe un monto en pesos, sin puntos ni signos.', variant: 'destructive' });
+      return;
+    }
+    setSavingAddonPrice(key);
+    // Mismo RPC del toggle: con el addon encendido, solo cambia el precio.
+    const { error } = await supabase.rpc('admin_set_school_addon' as any, {
+      p_school_id: selected.id, p_addon_key: key, p_enabled: true,
+      p_monthly_price_cents: Math.round(pesos * 100),
+    });
+    setSavingAddonPrice(null);
+    if (error) {
+      toast({ title: 'No se pudo guardar el precio', description: error.message, variant: 'destructive' });
+      return;
+    }
+    setAddonPrices((prev) => ({ ...prev, [key]: Math.round(pesos * 100) }));
+    toast({
+      title: pesos === 0 ? 'Adicional sin costo' : 'Precio del adicional guardado',
+      description: pesos === 0 ? 'No se suma a la factura.' : `Se suma a la próxima factura: $${pesos.toLocaleString('es-CO')}/mes`,
+    });
   }
 
   async function toggleAddon(key: string, next: boolean) {
@@ -1124,6 +1160,49 @@ export default function AdminSubscriptionsPage() {
                       );
                     })}
                   </div>
+
+                  {/* Precio de los adicionales encendidos. Lo que tenga precio
+                      > 0 se suma como línea aparte en cada factura SaaS; en 0
+                      es "incluido" y no se cobra. */}
+                  {ADDONS.some((a) => !!ent?.[`has_${a.key}`]) && (
+                    <div className="mt-3 rounded-xl border p-3 space-y-2">
+                      <div>
+                        <div className="text-sm font-medium">Precio mensual de adicionales</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          Se suma a la factura SportMaps de la escuela desde la próxima que se genere. Vacío o 0 = incluido, no se cobra.
+                        </div>
+                      </div>
+                      {ADDONS.filter((a) => !!ent?.[`has_${a.key}`]).map((a) => {
+                        const saved = addonPrices[a.key] ?? 0;
+                        const draft = addonPriceDraft[a.key] ?? '';
+                        const draftCents = draft.trim() === '' ? 0 : Math.round(Number(draft.replace(/\./g, '').replace(/,/g, '')) * 100);
+                        return (
+                          <div key={a.key} className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm flex-1 min-w-[10rem]">{a.icon} {a.label}</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-sm text-muted-foreground">$</span>
+                              <Input
+                                className="h-8 w-28"
+                                inputMode="numeric"
+                                placeholder="0"
+                                value={draft}
+                                onChange={(e) => setAddonPriceDraft((prev) => ({ ...prev, [a.key]: e.target.value }))}
+                              />
+                              <span className="text-[11px] text-muted-foreground">/mes</span>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={savingAddonPrice === a.key || draftCents === saved}
+                              onClick={() => saveAddonPrice(a.key)}
+                            >
+                              {savingAddonPrice === a.key ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Guardar'}
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {/* Los iconos del manifest se generan al guardar la marca. Si
                       la escuela ya tenía logo de antes, no los tiene y su app se

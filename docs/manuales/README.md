@@ -45,6 +45,13 @@ Cuando un manual tiene versión interna, ambos archivos comparten el mismo nombr
 - `pizarra-tactica-help-article.ts` (en `academias/`) — artículo NUEVO listo para pegar (slug sugerido `pizarra-tactica`).
 - **Fuente reproducible en `_src/pizarra-tactica/`**: `capture.mjs` (owner del demo, equipo `Fútbol — Sub-10` porque con mesociclo activo la lista plana de sesiones se oculta; sesión sembrada `817c0183…` con dos bloques; deja guardadas la alineación y la plantilla "Arqueros 1v1") y `build.mjs` (recortes, dos PDF y conversión del video con ffmpeg). Las capturas crudas y el video crudo (`video-raw/`) no se versionan.
 
+## WhatsApp del club para familias — Dynasty, Besser, Monster (2026-09-27 / 09-29)
+
+- `whatsapp-familias-{dynasty,besser,monster}.pdf` (`academias/` para enviar a las familias, `interno/` con notas) — 8 capítulos para el ACUDIENTE: qué hace el asistente, primer mensaje (te reconoce por el número / enlace para crear la cuenta / número en dos cuentas), consultar pagos, cómo pagar, enviar el comprobante, sede/categorías (y horarios solo si el club los tiene cargados: hoy Dynasty sí, Besser y Monster no), hablar con una persona y SÍ/STOP/ACTIVAR. Las conversaciones se dibujan con los textos exactos del bot con nombres y montos de ejemplo (WhatsApp no se puede capturar); Crear cuenta y Mis Pagos sí son capturas reales. La versión interna de cada club trae su estado real (integración sin conectar, `ai_enabled=false` al conectar, cuentas, horarios, equipos duplicados) y el checklist previo al envío.
+- **Fuente única en `_src/whatsapp-familias/`**: `build.mjs` con la configuración de cada club en `CLUBS` (`CLUB=monster node …` genera uno). Monster va sin número a pedido del equipo.
+- **Besser tiene dos fuentes:** `_src/whatsapp-familias-besser/` la creó otra sesión el 2026-09-29, con el número +57 316 692 4086, y el PDF de Besser que está en `academias/` e `interno/` es el de esa sesión. Unificar en una sola.
+- `whatsapp-familias-dynasty-help-article.ts` (en `academias/`) — artículo genérico (slug `whatsapp-asistente-familias`, categoría `para-padres-atletas`); sirve para los tres clubes.
+
 ## Manuales sueltos en la raíz
 
 `Guia-SportMaps-Registro-Atletas-QR.pdf` y `SportMaps_Manual_de_Marca_v2.pdf` viven en la raíz de `docs/manuales/`, no en `interno/` ni `academias/`: son documentos traídos de la carpeta de documentación general del proyecto (fuera del repo) para unificar todo en un solo lugar, y no siguen el proceso de capturas Playwright ni el par interno/academias — no tienen contraparte de la otra audiencia.
