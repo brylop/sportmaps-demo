@@ -9,7 +9,7 @@ import { emailClient } from '../utils/emailClient';
 import { resolveSchoolBranding } from '../utils/schoolBrandingResolver';
 import { buildBrandedEmail } from '../utils/emailLayout';
 import { generateSaasInvoicePdf, SaasInvoiceForPdf, loadActivePaymentAccounts } from './saasInvoicePdf.service';
-import { ACADEMY_PLAN_NAMES } from './saasInvoicing.constants';
+import { ACADEMY_PLAN_NAMES, invoiceLines } from './saasInvoicing.constants';
 
 const INVOICE_BUCKET = 'saas-invoices';
 
@@ -149,6 +149,7 @@ export async function sendSaasInvoice(invoiceId: string, reason: SaasInvoiceSend
     const accounts = await loadActivePaymentAccounts();
     const planName = ACADEMY_PLAN_NAMES[invoice.plan_code] ?? invoice.plan_code;
     const amountStr = formatCop(invoice.amount_cents);
+    const lines = invoiceLines(invoice as any);
     const dueDateStr = new Date(invoice.due_date).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
 
     const copy = REASON_COPY[reason];
@@ -166,8 +167,8 @@ export async function sendSaasInvoice(invoiceId: string, reason: SaasInvoiceSend
                 <table cellpadding="0" cellspacing="0" border="0" width="100%"
                        style="background-color: #f3f4f6; border-radius: 8px; margin: 16px 0;">
                     <tr><td style="padding: 16px;">
-                        <p style="margin:4px 0;"><strong>Plan:</strong> ${planName}</p>
-                        <p style="margin:4px 0;"><strong>Valor:</strong> ${amountStr}</p>
+                        ${lines.map((l) => `<p style="margin:4px 0;"><strong>${l.label}:</strong> ${formatCop(l.amount_cents)}</p>`).join('')}
+                        <p style="margin:4px 0;"><strong>Total:</strong> ${amountStr}</p>
                         <p style="margin:4px 0;"><strong>Vence:</strong> ${dueDateStr}</p>
                         <p style="margin:4px 0;"><strong>N.° factura:</strong> ${invoice.invoice_number}</p>
                     </td></tr>
@@ -226,6 +227,7 @@ export async function sendSaasInvoice(invoiceId: string, reason: SaasInvoiceSend
     const whatsapp = {
         phone: firstAdminWithPhone?.phone ?? null,
         message: `Hola ${schoolName}, les compartimos la factura SportMaps ${invoice.invoice_number} por ${amountStr} (vence ${dueDateStr}).\n\n`
+            + (lines.length > 1 ? `${lines.map((l) => `• ${l.label}: ${formatCop(l.amount_cents)}`).join('\n')}\n\n` : '')
             + `Cómo pagar:\n${formatAccountsForWhatsapp(accounts)}\n\n`
             + `Envíanos el comprobante por acá para confirmar tu pago.`,
     };
