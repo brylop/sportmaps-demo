@@ -1,0 +1,35 @@
+{
+  "name": "pago_vence_hoy_v4",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Hola {{1}}, este es el estado de tu cuenta en {{2}}: la mensualidad de {{3}} correspondiente a {{4}} vence hoy. Valor del cobro: {{5}}. El detalle del cobro está disponible en el botón.",
+      "example": {
+        "body_text": [
+          [
+            "Carolina",
+            "Academia Tigres FC",
+            "Samuel",
+            "octubre 2026",
+            "$150.000"
+          ]
+        ]
+      }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "Ver detalle del cobro",
+          "url": "https://sportmaps.co/p/{{1}}",
+          "example": [
+            "https://sportmaps.co/p/aB3xK9mQ"
+          ]
+        }
+      ]
+    }
+  ]
+}
