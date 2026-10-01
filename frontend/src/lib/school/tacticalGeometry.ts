@@ -62,6 +62,8 @@ export function hydrateShape(a: TacticalArrow): TacticalArrow {
   if (a.size != null) out.size = Number(a.size);
   if (a.rot != null) out.rot = Number(a.rot);
   if (a.kind) out.kind = a.kind;
+  if (Array.isArray(a.points)) out.points = a.points.map(Number);
+  if (typeof a.text === 'string') out.text = a.text;
   return out;
 }
 
@@ -109,3 +111,116 @@ export const OBJECT_BOX: Record<ObjectType, { w: number; h: number }> = {
 /** Rango del slider de tamaño. El BFF acepta 0.25–4 (margen) y rechaza el resto. */
 export const OBJ_SIZE_MIN = 0.5;
 export const OBJ_SIZE_MAX = 3;
+
+// ─── Lápiz libre y texto ────────────────────────────────────────────────────
+
+/** Tope de puntos de un trazo: el mismo FREEHAND_MAX_POINTS del BFF. */
+export const FREEHAND_MAX_POINTS = 600;
+/** Tope de caracteres del texto: el mismo TEXT_MAX_LENGTH del BFF. */
+export const TEXT_MAX_LENGTH = 80;
+
+/** Distancia de un punto al segmento a-b (todo en la misma unidad). */
+function distToSegment(p: ArrowPoint, a: ArrowPoint, b: ArrowPoint) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+/** Ramer-Douglas-Peucker: deja los puntos que dan la forma y tira los que
+ *  caen casi sobre la recta. `tolerance` en % de cancha: 0.35 no se nota a
+ *  la vista y baja un trazo de cientos de eventos de puntero a decenas. */
+export function simplifyStroke(points: ArrowPoint[], tolerance = 0.35): ArrowPoint[] {
+  if (points.length <= 2) return points.slice();
+  let maxDist = 0;
+  let index = 0;
+  const first = points[0];
+  const last = points[points.length - 1];
+  for (let i = 1; i < points.length - 1; i++) {
+    const d = distToSegment(points[i], first, last);
+    if (d > maxDist) { maxDist = d; index = i; }
+  }
+  if (maxDist <= tolerance) return [first, last];
+  const left = simplifyStroke(points.slice(0, index + 1), tolerance);
+  const right = simplifyStroke(points.slice(index), tolerance);
+  return [...left.slice(0, -1), ...right];
+}
+
+/** Trazo de puntero → figura freehand lista para guardar (o null si fue un
+ *  toque sin recorrido). Simplifica, recorta al tope del BFF, redondea a 2
+ *  decimales y fija x1..y2 a la caja del trazo (la validación las exige y
+ *  "duplicar"/borrador las usan). */
+export function buildFreehandShape(raw: ArrowPoint[], color: TacticalArrow['color']): TacticalArrow | null {
+  if (raw.length < 2) return null;
+  let pts = simplifyStroke(raw);
+  // Un trazo larguísimo que ni simplificado entra: se recorta parejo.
+  if (pts.length > FREEHAND_MAX_POINTS) {
+    const step = pts.length / FREEHAND_MAX_POINTS;
+    pts = Array.from({ length: FREEHAND_MAX_POINTS }, (_, i) => pts[Math.floor(i * step)]);
+  }
+  const r = (n: number) => Math.round(Math.min(100, Math.max(0, n)) * 100) / 100;
+  const xs = pts.map((p) => r(p.x));
+  const ys = pts.map((p) => r(p.y));
+  if (pts.length === 2 && Math.hypot(xs[1] - xs[0], ys[1] - ys[0]) < 0.5) return null;
+  return {
+    type: 'freehand',
+    x1: Math.min(...xs), y1: Math.min(...ys), x2: Math.max(...xs), y2: Math.max(...ys),
+    color,
+    points: xs.flatMap((x, i) => [x, ys[i]]),
+  };
+}
+
+/** Path SVG suavizado de un trazo: curvas cuadráticas por los puntos medios
+ *  (el dibujo a mano no queda "quebrado" aunque se haya simplificado). Entra
+ *  en espacio SVG ya escalado. */
+export function smoothPathD(pts: ArrowPoint[]): string {
+  if (pts.length === 0) return '';
+  if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y} l 0.01 0`;
+  if (pts.length === 2) return `M ${pts[0].x} ${pts[0].y} L ${pts[1].x} ${pts[1].y}`;
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mx = (pts[i].x + pts[i + 1].x) / 2;
+    const my = (pts[i].y + pts[i + 1].y) / 2;
+    d += ` Q ${pts[i].x} ${pts[i].y} ${mx} ${my}`;
+  }
+  const last = pts[pts.length - 1];
+  return `${d} L ${last.x} ${last.y}`;
+}
+
+/** [x,y,x,y,…] → puntos. */
+export const pairsOf = (flat: number[] | undefined): ArrowPoint[] => {
+  const out: ArrowPoint[] = [];
+  if (!flat) return out;
+  for (let i = 0; i + 1 < flat.length; i += 2) out.push({ x: flat[i], y: flat[i + 1] });
+  return out;
+};
+
+/** ¿El borrador (punto `p`, radio `r`, ambos en % de cancha) toca la figura?
+ *  Trazo: cercanía a cualquiera de sus segmentos. Texto y objetos: su punto.
+ *  Flechas/curvas/recorridos: el segmento entre extremos. Zona: dentro del
+ *  rectángulo. Aproximado a propósito: es un borrador, no una selección fina. */
+export function eraserHits(s: TacticalArrow, p: ArrowPoint, r: number): boolean {
+  if (s.type === 'freehand') {
+    const pts = pairsOf(s.points);
+    if (pts.length === 1) return Math.hypot(p.x - pts[0].x, p.y - pts[0].y) <= r;
+    for (let i = 0; i + 1 < pts.length; i++) if (distToSegment(p, pts[i], pts[i + 1]) <= r) return true;
+    return false;
+  }
+  if (s.type === 'zone') {
+    return p.x >= Math.min(s.x1, s.x2) - r && p.x <= Math.max(s.x1, s.x2) + r
+      && p.y >= Math.min(s.y1, s.y2) - r && p.y <= Math.max(s.y1, s.y2) + r;
+  }
+  if (s.type === 'text' || isPointShape(s.type)) {
+    return Math.hypot(p.x - s.x1, p.y - s.y1) <= r + 2.5 * (s.size ?? 1);
+  }
+  return distToSegment(p, { x: s.x1, y: s.y1 }, { x: s.x2, y: s.y2 }) <= r;
+}
+
+/** Desplaza una figura entera (duplicar): también los puntos del trazo. */
+export function offsetShape(s: TacticalArrow, dx: number, dy: number): TacticalArrow {
+  const cx = (n: number) => Math.min(100, Math.max(0, n));
+  const out: TacticalArrow = { ...s, x1: cx(s.x1 + dx), y1: cx(s.y1 + dy), x2: cx(s.x2 + dx), y2: cx(s.y2 + dy) };
+  if (s.points) out.points = s.points.map((n, i) => cx(n + (i % 2 === 0 ? dx : dy)));
+  return out;
+}

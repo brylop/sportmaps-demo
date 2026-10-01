@@ -57,6 +57,14 @@ export interface FootballSummary {
     red_cards: number;
 }
 
+/** Carga de entrenamiento del mes (PER-6 mitad B) -- sRPE de Foster, mismo
+ *  cruce que `athlete_weekly_load` (D13) pero por mes calendario. null si
+ *  el atleta no tuvo ninguna sesión con asistencia registrada ese mes. */
+export interface TrainingLoadSummary {
+    sessions_count: number;
+    total_ua: number;
+}
+
 /** Una opción de una métrica de sesión con distribución (§3.4 del spec). */
 export interface SessionMetricOption {
     value: number;
@@ -102,6 +110,7 @@ export interface ReportSnapshot {
     /** Agregados de sesión del periodo (BORG, esfuerzo, comprensión, satisfacción, aspectos a mejorar). */
     metrics_session: SessionMetricSummary[];
     football: FootballSummary | null;
+    training_load: TrainingLoadSummary | null;
 }
 
 const MESES = [
@@ -307,6 +316,43 @@ async function loadFootballSummary(
 }
 
 /**
+ * Carga de entrenamiento del mes (PER-6 mitad B, spec periodización §4 F6).
+ * Mismo cruce que `athlete_weekly_load` (D13, sRPE de Foster × asistencia
+ * real), pero por mes calendario vía la RPC de sistema
+ * `athlete_monthly_load_system` -- este job corre con `service_role`, sin
+ * `auth.uid()`, así que la RPC gateada por `user_staff_school_ids()` no
+ * sirve acá (mismo motivo que las demás `_system`: `generate_report_drafts_system`).
+ * Complemento del informe, no su razón de ser -- si falla o no hay datos,
+ * el informe sale igual sin esta sección (mismo criterio que loadAttendance/loadFootballSummary).
+ */
+async function loadTrainingLoad(
+    schoolId: string,
+    subjectType: SubjectType,
+    subjectId: string,
+    year: number,
+    month: number,
+): Promise<TrainingLoadSummary | null> {
+    try {
+        const { data, error } = await supabase
+            .rpc('athlete_monthly_load_system', {
+                p_school_id: schoolId,
+                p_child_id: subjectType === 'child' ? subjectId : null,
+                p_user_id: subjectType === 'profile' ? subjectId : null,
+                p_unregistered_athlete_id: subjectType === 'unregistered' ? subjectId : null,
+                p_year: year,
+                p_month: month,
+            })
+            .single();
+        if (error) throw error;
+        const row = data as { sessions_count: number; total_ua: number } | null;
+        if (!row || row.sessions_count === 0) return null;
+        return { sessions_count: row.sessions_count, total_ua: Number(row.total_ua) };
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Agregados de sesión del periodo (§3.4 del spec) — promedio/distribución/conteo
  * de las métricas con context_type='session', a diferencia de `loadMetricSeries`
  * que solo compara última medición vs. anterior (correcto para una prueba física
@@ -446,10 +492,11 @@ export async function buildReportSnapshot(input: BuildSnapshotInput): Promise<Re
     }
 
     // ── Métricas ─────────────────────────────────────────────────────────────
-    const [series, attendance, football] = await Promise.all([
+    const [series, attendance, football, trainingLoad] = await Promise.all([
         loadMetricSeries(schoolId, subjectType, subjectId, periodEnd, periodStart),
         loadAttendance(schoolId, subjectType, subjectId, periodStart, periodEnd),
         isFootball ? loadFootballSummary(schoolId, subjectType, subjectId, periodStart, periodEnd) : Promise.resolve(null),
+        loadTrainingLoad(schoolId, subjectType, subjectId, year, month),
     ]);
 
     // getMetricCatalog devuelve un array; se indexa por metric_key para no
@@ -523,6 +570,7 @@ export async function buildReportSnapshot(input: BuildSnapshotInput): Promise<Re
         metrics,
         metrics_session: metricsSession,
         football,
+        training_load: trainingLoad,
     };
 }
 

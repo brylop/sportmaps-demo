@@ -49,6 +49,11 @@ interface EnrollTeamStudentModalProps {
 export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: EnrollTeamStudentModalProps) {
     const [students, setStudents] = useState<Student[]>([]);
     const [enrolledStudentIds, setEnrolledStudentIds] = useState<string[]>([]);
+    // Inscripciones 'pending': alta por QR que espera el primer pago. No cuentan
+    // en el cupo ni en el roster, pero se muestran: si no, el club ve "11/30" y
+    // cree que la deportista no existe cuando está a un pago de entrar
+    // (Besser, 2026-09-30).
+    const [pendingStudentIds, setPendingStudentIds] = useState<string[]>([]);
     const [loading, setLoading] = useState(false);
     const [enrolling, setEnrolling] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -130,12 +135,17 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
             // equipo tuviera roster real).
             const { data, error } = await supabase
                 .from('enrollments')
-                .select('user_id, child_id, unregistered_athlete_id')
+                .select('user_id, child_id, unregistered_athlete_id, status')
                 .eq('team_id', team.id)
-                .eq('status', 'active');
+                .in('status', ['active', 'pending']);
 
             if (error) throw error;
-            setEnrolledStudentIds(data.map(e => e.child_id ?? e.user_id ?? e.unregistered_athlete_id).filter(Boolean) as string[]);
+            const idsWith = (status: string) => data
+                .filter(e => e.status === status)
+                .map(e => e.child_id ?? e.user_id ?? e.unregistered_athlete_id)
+                .filter(Boolean) as string[];
+            setEnrolledStudentIds(idsWith('active'));
+            setPendingStudentIds(idsWith('pending'));
         } catch (error) {
             console.error('Error loading enrolled students:', error);
         }
@@ -317,6 +327,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
     };
 
     const isEnrolled = (studentId: string) => enrolledStudentIds.includes(studentId);
+    const isPending = (studentId: string) => !isEnrolled(studentId) && pendingStudentIds.includes(studentId);
 
     const matchesSearch = (s: Student) => {
         const q = searchQuery.toLowerCase();
@@ -327,15 +338,19 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
         );
     };
 
-    // Inscritos arriba y no inscritos abajo. Ambas listas respetan la búsqueda:
-    // con query vacío matchesSearch devuelve true, así que se muestran todos.
+    // Inscritos arriba, pendientes de pago después y no inscritos abajo. Las tres
+    // listas respetan la búsqueda: con query vacío matchesSearch devuelve true.
+    const byName = (a: Student, b: Student) => a.full_name.localeCompare(b.full_name);
     const enrolledList = students
         .filter(s => isEnrolled(s.id) && matchesSearch(s))
-        .sort((a, b) => a.full_name.localeCompare(b.full_name));
+        .sort(byName);
+    const pendingList = students
+        .filter(s => isPending(s.id) && matchesSearch(s))
+        .sort(byName);
     const availableList = students
-        .filter(s => !isEnrolled(s.id) && matchesSearch(s))
-        .sort((a, b) => a.full_name.localeCompare(b.full_name));
-    const filteredStudents = [...enrolledList, ...availableList];
+        .filter(s => !isEnrolled(s.id) && !isPending(s.id) && matchesSearch(s))
+        .sort(byName);
+    const filteredStudents = [...enrolledList, ...pendingList, ...availableList];
     // Sin cupo declarado NO hay tope. El `|| 20` inventaba un techo de 20 y dejaba
     // todos los botones "Inscribir" deshabilitados en cualquier categoria que lo
     // pasara, sin manera de recuperarse desde la UI del entrenador.
@@ -426,12 +441,13 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                             <div className="space-y-2">
                                 {filteredStudents.map((student) => {
                                     const enrolled = isEnrolled(student.id);
+                                    const pending = isPending(student.id);
                                     const isCurrentlyEnrolling = enrolling === student.id;
 
                                     return (
                                         <Card
                                             key={student.id}
-                                            className={`transition-all ${enrolled ? 'border-primary bg-primary/5' : 'hover:border-primary/50'}`}
+                                            className={`transition-all ${enrolled ? 'border-primary bg-primary/5' : pending ? 'border-amber-500/40 bg-amber-500/[0.05]' : 'hover:border-primary/50'}`}
                                         >
                                             <CardContent className="p-3">
                                                 <div className="flex items-start sm:items-center justify-between gap-3">
@@ -447,6 +463,12 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                                                                     Inscrito
                                                                 </Badge>
                                                             )}
+                                                            {pending && (
+                                                                <Badge variant="secondary" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 whitespace-nowrap w-fit">
+                                                                    <Wallet className="h-3 w-3 mr-1" />
+                                                                    Pendiente de pago
+                                                                </Badge>
+                                                            )}
                                                         </div>
                                                         <div className="flex flex-col sm:flex-row sm:items-center gap-0 sm:gap-2 text-xs sm:text-sm text-muted-foreground mt-0.5 sm:mt-1">
                                                             {student.email && <span className="truncate max-w-full">{student.email}</span>}
@@ -459,7 +481,14 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                                                         </div>
                                                     </div>
                                                     <div className="flex-shrink-0">
-                                                        {enrolled ? (
+                                                        {pending ? (
+                                                            // Sin botón: "Inscribir" chocaría con el 409 del BFF
+                                                            // (ya tiene inscripción pendiente). Entra al aprobarse
+                                                            // su primer cobro, o registrándolo a mano en Pagos.
+                                                            <span className="text-xs text-muted-foreground text-right block max-w-[9rem]">
+                                                                Entra al aprobar su primer pago
+                                                            </span>
+                                                        ) : enrolled ? (
                                                             <Button
                                                                 variant="outline"
                                                                 size="sm"
@@ -509,6 +538,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                     <div className="flex w-full justify-between items-center">
                         <p className="text-sm text-muted-foreground">
                             {enrolledStudentIds.length} inscrito{enrolledStudentIds.length !== 1 ? 's' : ''} en este grupo
+                            {pendingStudentIds.length > 0 && ` · ${pendingStudentIds.length} pendiente${pendingStudentIds.length !== 1 ? 's' : ''} de pago`}
                         </p>
                         <Button variant="outline" onClick={onClose}>
                             Cerrar

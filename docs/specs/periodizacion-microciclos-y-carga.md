@@ -394,21 +394,22 @@ Carmel). Nota agregada en §3.3 arriba.
 ### 8.5 Modo `individual` de D12, defecto real
 
 El `INSERT` a `performance_entries` de §1.5 (ver
-`plan-mesociclo-carmel-2026-08-31.md`) no tiene dónde guardar el corte
-(`inicial`/`semana_2`/`semana_3`/`semana_4`/`final`) — se pierde exactamente el
+`plan-mesociclo-carmel-2026-08-31.md`) no tenía dónde guardar el corte
+(`inicial`/`semana_2`/`semana_3`/`semana_4`/`final`) — se perdía exactamente el
 eje que distingue una rúbrica de una sola nota. Camino nunca ejercido en
-producción (§3.6 ya lo advertía). Mitigado el 21-sep (opción deshabilitada
-en el formulario) mientras se corregía la causa de fondo.
+producción (§3.6 ya lo advertía). Mitigado el 2026-09-21 deshabilitando "Por
+atleta" en `MesocycleFormDialog.tsx`.
 
-✅ **Corregido de raíz 2026-09-25** (`20260925170003`, Julián). Columna
-`checkpoint` en `performance_entries` (nullable, `CHECK` contra los mismos 5
-cortes de `training_mesocycle_evaluations`), y `MesocycleRubricTable.tsx`
-pasa de 6 inputs sueltos a una grilla 6×5 (indicador × corte), leyendo la
-fila más reciente de cada par `(metric_key, checkpoint)` — antes el mapa
-solo tenía `metric_key`, así que el corte más nuevo pisaba a todos los
-anteriores en la UI. La opción "Por atleta" quedó reactivada en
-`MesocycleFormDialog.tsx`. Probado en vivo: `inicial` y `final` del mismo
-indicador conviven sin pisarse.
+✅ **Corregido de raíz 2026-09-23**: columna `performance_entries.checkpoint`
+(`text CHECK` con los 5 valores de arriba). `MesocycleRubricTable.tsx` modo
+`individual` reescrito de lista de un input a tabla de 5 columnas (mismo
+layout que modo `team`), clave `${metric_key}__${checkpoint}`, con `key`
+por atleta seleccionado para forzar remount al cambiar de atleta (segundo
+defecto encontrado de paso: los inputs no controlados no se refrescaban al
+cambiar de atleta). "Por atleta" reactivado en `MesocycleFormDialog.tsx`.
+Verificado en vivo 2026-09-29: sigue en **0 uso real** (863 filas en
+`performance_entries`, 0 con `checkpoint`) — corregido en código, sin
+ejercitar todavía con datos de una escuela real.
 
 ### 8.6 Endurecer el DDL — hallazgos de QA sobre el esquema aplicado
 

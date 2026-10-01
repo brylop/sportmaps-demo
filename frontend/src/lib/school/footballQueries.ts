@@ -207,7 +207,10 @@ export type TacticalArrowColor =
 export type TacticalShapeType =
   | 'arrow' | 'curve' | 'zone' | 'ball_path'
   | 'cone' | 'marker' | 'ball' | 'goal' | 'mini_goal' | 'hurdle'
-  | 'ring' | 'ladder' | 'pole' | 'mannequin' | 'opponent';
+  | 'ring' | 'ladder' | 'pole' | 'mannequin' | 'opponent'
+  /** Lápiz libre y texto (2026-09-30): escribir sobre la cancha como en una
+   *  tablet. freehand guarda el trazo en `points`; text, la nota en `text`. */
+  | 'freehand' | 'text';
 
 /** Recorrido del balón (ball_path): pase raso, remate o penal. Cambia el
  *  dibujo (recta vs. comba) y la animación (remate/penal lo elevan). */
@@ -228,6 +231,10 @@ export interface TacticalArrow {
   rot?: number;
   /** Solo ball_path. */
   kind?: BallPathKind;
+  /** Solo freehand: [x,y,x,y,…] en % de cancha. x1..y2 = caja del trazo. */
+  points?: number[];
+  /** Solo text: la nota. x1/y1 (= x2/y2) es su centro; size la agranda. */
+  text?: string;
 }
 
 export interface TacticalPreset {

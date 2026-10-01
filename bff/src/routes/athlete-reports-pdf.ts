@@ -153,7 +153,10 @@ router.get(
                 ]
                 : [];
             const a = snapshot.attendance;
-            const cells = [...footballStats, ['Asistencia', a.pct !== null ? `${a.pct}%` : `${a.present}/${a.total}`]];
+            const trainingLoadCell: [string, string][] = snapshot.training_load
+                ? [['Carga (UA)', snapshot.training_load.total_ua.toFixed(0)]]
+                : [];
+            const cells = [...footballStats, ['Asistencia', a.pct !== null ? `${a.pct}%` : `${a.present}/${a.total}`], ...trainingLoadCell];
             const boxW = (doc.page.width - 120 - gap * (cells.length - 1)) / cells.length;
             cells.forEach(([label, value], i) => {
                 const x = 60 + i * (boxW + gap);

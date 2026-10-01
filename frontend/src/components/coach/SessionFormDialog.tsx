@@ -82,6 +82,12 @@ interface Evaluation {
   team_rating?: number;
   highlights?: string;
   improvements?: string;
+  /** RPE de sesión (0-10, escala de Borg/sRPE de Foster) — carga real de la
+   *  sesión, no la planeada. Lo lee `v_session_load` para calcular UA
+   *  (spec periodización §3.3, D4). Sin este dato el módulo de carga queda
+   *  vacío (R1) — por eso vive acá, junto a lo demás que el coach completa
+   *  al cerrar la sesión, no en un formulario aparte. */
+  rpe?: number;
 }
 
 interface SessionFormDialogProps {
@@ -558,6 +564,26 @@ export function SessionFormDialog({
                     </button>
                   ))}
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Carga de la sesión (RPE 0-10)</Label>
+                <p className="text-xs text-muted-foreground -mt-1">
+                  0 = reposo, 10 = esfuerzo máximo — es la que alimenta los indicadores de carga semanal.
+                </p>
+                <Select
+                  value={evaluation.rpe !== undefined ? String(evaluation.rpe) : undefined}
+                  onValueChange={(v) => setEvaluation({ ...evaluation, rpe: Number(v) })}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Sin registrar" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 11 }, (_, n) => (
+                      <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-2">
