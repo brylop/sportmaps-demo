@@ -16,9 +16,9 @@ y salta lo que ya exista en destino.
 
 | Archivo | Escalón | Botón |
 |---|---|---|
-| `pago_recordatorio_previo_v2.json` | día -5 | Pagar ahora |
+| `pago_recordatorio_previo_v3.json` | día -5 | Ver detalle del cobro |
 | `pago_vence_manana.json` | día -1 | Pagar ahora |
-| `pago_vence_hoy_v2.json` | día 0 | Pagar ahora |
+| `pago_vence_hoy_v4.json` | día 0 | Ver detalle del cobro |
 | `pago_pendiente_suave.json` | día +2 (abre conversación) | Pagar ahora |
 | `pago_pendiente_directo.json` | día +7 (opciones/acuerdo) | Ver opciones de pago |
 | `pago_aviso_final.json` | día +12 | Pagar ahora |
@@ -97,3 +97,17 @@ en ese lapso. Un nombre nuevo no arrastra ese historial.
 
 **Antes de borrar una plantilla en uso, tenerlo en cuenta:** queda fuera de
 servicio y no se puede recrear con la misma categoria hasta pasado el mes.
+
+## Segunda reclasificación (2026-10-01): `_v3` / `_v4`
+
+Las `_v2` (y una `pago_vence_hoy_v3` creada desde la pantalla) también terminaron en
+MARKETING, ya sin ningún argumento de venta. Sacar adjetivos no alcanzó. Dato que lo
+confirma: `pago_vence_manana` tiene el MISMO texto que `pago_vence_hoy_v3` y sigue en
+UTILITY — el clasificador de Meta no es determinista por frase.
+
+Las nuevas se escriben como **estado de cuenta de un cobro concreto**: periodo
+(`octubre 2026`), valor y vencimiento como datos, sin "evita recargos", y botón
+"Ver detalle del cobro" en vez de "Pagar ahora". Ojo: cambian las variables
+(`{{2}}` = escuela, `{{4}}` = periodo), así que el que las envíe debe mapearlas
+de nuevo. Las `_v2`/`_v3` quedan en la WABA de prueba como MARKETING, sin uso, y
+se apelaron; no borrarlas (ver arriba: el nombre queda bloqueado un mes).

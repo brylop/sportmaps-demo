@@ -1,0 +1,36 @@
+{
+  "name": "pago_recordatorio_previo_v3",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Hola {{1}}, este es el estado de tu cuenta en {{2}}: la mensualidad de {{3}} correspondiente a {{4}} tiene fecha de vencimiento el {{5}}. Valor del cobro: {{6}}. El detalle del cobro está disponible en el botón.",
+      "example": {
+        "body_text": [
+          [
+            "Carolina",
+            "Academia Tigres FC",
+            "Samuel",
+            "octubre 2026",
+            "5 de octubre",
+            "$150.000"
+          ]
+        ]
+      }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "Ver detalle del cobro",
+          "url": "https://sportmaps.co/p/{{1}}",
+          "example": [
+            "https://sportmaps.co/p/aB3xK9mQ"
+          ]
+        }
+      ]
+    }
+  ]
+}
