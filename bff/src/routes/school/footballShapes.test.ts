@@ -19,6 +19,8 @@ import {
   VALID_BALL_PATH_KINDS,
   SHAPE_SIZE_MIN,
   SHAPE_SIZE_MAX,
+  FREEHAND_MAX_POINTS,
+  TEXT_MAX_LENGTH,
 } from './footballShapes';
 
 /** Flecha vieja mínima (sin type ni color): la forma que hay guardada desde
@@ -40,8 +42,12 @@ describe('validateArrows — compat con figuras viejas', () => {
 });
 
 describe('validateArrows — type', () => {
+  /** Lápiz y texto traen su campo obligatorio (points / text); el resto, nada extra. */
+  const extraFor = (type: string) =>
+    type === 'freehand' ? { points: [10, 20, 20, 30, 30, 40] } : type === 'text' ? { text: 'Presión alta' } : {};
+
   it.each([...VALID_SHAPE_TYPES])("acepta type '%s'", (type) => {
-    expect(validateArrows([{ ...base, type }])).toEqual([]);
+    expect(validateArrows([{ ...base, type, ...extraFor(type) }])).toEqual([]);
   });
 
   it("rechaza type 'triangulo' con un solo error que menciona type", () => {
@@ -155,5 +161,61 @@ describe('validateArrows — coordenadas', () => {
       { ...base, color: 'magenta' },
     ]);
     expect(errs).toHaveLength(2);
+  });
+});
+
+describe('validateArrows — lápiz libre (freehand)', () => {
+  const stroke = { ...base, type: 'freehand' };
+
+  it('un trazo de 2+ puntos dentro de la cancha → válido', () => {
+    expect(validateArrows([{ ...stroke, points: [10, 20, 30, 40] }])).toEqual([]);
+  });
+
+  it.each([
+    ['sin points', undefined],
+    ['un solo punto', [10, 20]],
+    ['cantidad impar', [10, 20, 30]],
+    ['no es arreglo', 'M 10 20'],
+  ])('rechaza %s', (_label, points) => {
+    expect(validateArrows([{ ...stroke, points }])).toHaveLength(1);
+  });
+
+  it('rechaza una coordenada fuera de 0-100 o no numérica', () => {
+    expect(validateArrows([{ ...stroke, points: [10, 20, 101, 40] }])).toHaveLength(1);
+    expect(validateArrows([{ ...stroke, points: [10, 20, '30', 40] }])).toHaveLength(1);
+  });
+
+  it(`acepta hasta ${FREEHAND_MAX_POINTS} puntos y rechaza uno más`, () => {
+    const pts = (n: number) => Array.from({ length: n * 2 }, (_, i) => (i % 100));
+    expect(validateArrows([{ ...stroke, points: pts(FREEHAND_MAX_POINTS) }])).toEqual([]);
+    expect(validateArrows([{ ...stroke, points: pts(FREEHAND_MAX_POINTS + 1) }])).toHaveLength(1);
+  });
+
+  it('points en una figura que no es trazo → error', () => {
+    expect(validateArrows([{ ...base, type: 'arrow', points: [10, 20, 30, 40] }])).toHaveLength(1);
+  });
+});
+
+describe('validateArrows — texto', () => {
+  const label = { ...base, type: 'text' };
+
+  it('texto corto → válido, con tamaño', () => {
+    expect(validateArrows([{ ...label, text: 'Cubrir al 10', size: 1.5 }])).toEqual([]);
+  });
+
+  it.each([['ausente', undefined], ['vacío', ''], ['solo espacios', '   '], ['no string', 42]])(
+    'rechaza text %s',
+    (_l, text) => {
+      expect(validateArrows([{ ...label, text }])).toHaveLength(1);
+    },
+  );
+
+  it(`rechaza más de ${TEXT_MAX_LENGTH} caracteres`, () => {
+    expect(validateArrows([{ ...label, text: 'a'.repeat(TEXT_MAX_LENGTH) }])).toEqual([]);
+    expect(validateArrows([{ ...label, text: 'a'.repeat(TEXT_MAX_LENGTH + 1) }])).toHaveLength(1);
+  });
+
+  it('text en una figura que no es texto → error', () => {
+    expect(validateArrows([{ ...base, type: 'cone', text: 'hola' }])).toHaveLength(1);
   });
 });

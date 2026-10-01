@@ -1,0 +1,161 @@
+import { test, expect, devices, type Page, type Locator } from '@playwright/test';
+import { loginAs } from './helpers/auth';
+
+/**
+ * Pizarra táctica — "Escribir": lápiz libre, texto y borrador (2026-09-30).
+ * El coach pidió rayar y anotar sobre la cancha como en una tablet.
+ *
+ * No guarda nada: dibuja, escribe y borra en memoria y cierra sin guardar.
+ * Usa el coach del fixture demo y el primer bloque de sesión con "Tablero
+ * táctico" en /training-plans (solo aparece en equipos de fútbol).
+ */
+
+const COACH = {
+    email: process.env.PLAYWRIGHT_POST_ENTRENO_COACH_EMAIL || 'qa-post-entreno-coach@sportmaps.test',
+    password: process.env.PLAYWRIGHT_POST_ENTRENO_COACH_PASSWORD || 'TestPass123!',
+};
+
+test.use({ ...devices['Galaxy Tab S4'] });
+
+async function openBoard(page: Page) {
+    await loginAs(page, COACH);
+    // Los equipos demo no tienen partidos: se inyecta uno ficticio en la
+    // lectura de match_results para tener desde dónde abrir el tablero. Nada
+    // se escribe (la prueba no guarda).
+    await page.route(/\/rest\/v1\/match_results\?/, async (route) => {
+        if (route.request().method() !== 'GET') return route.continue();
+        await route.fulfill({
+            json: [{
+                id: '00000000-0000-4000-8000-0000000e2e01', opponent: 'Rival QA', home_score: null, away_score: null,
+                is_home: true, match_date: '2026-10-04', match_type: 'amistoso', notes: null,
+            }],
+        });
+    });
+    await page.goto('/training-plans');
+    await page.getByRole('combobox').first().click({ timeout: 20_000 });
+    await page.getByRole('option', { name: /THUNDER/i }).first().click();
+    await page.getByRole('button', { name: 'Fútbol', exact: true }).click();
+    const entry = page.getByRole('button', { name: /Tablero táctico/ }).first();
+    await expect(entry).toBeVisible({ timeout: 15_000 });
+    await entry.click();
+    await page.getByRole('button', { name: /^Pizarra/ }).click();
+    await expect(page.getByText('Escribir', { exact: true })).toBeVisible();
+}
+
+/** Capa de dibujo (el <svg> z-40 que intercepta el puntero en modo dibujo). */
+const drawLayer = (page: Page) => page.locator('svg.z-40');
+
+async function scribble(page: Page, layer: Locator, from: [number, number], to: [number, number]) {
+    const box = (await layer.boundingBox())!;
+    const at = (fx: number, fy: number) => [box.x + box.width * fx, box.y + box.height * fy] as const;
+    await page.mouse.move(...at(...from));
+    await page.mouse.down();
+    // Onda: que el trazo tenga forma, no una recta.
+    for (let i = 1; i <= 24; i++) {
+        const t = i / 24;
+        const fx = from[0] + (to[0] - from[0]) * t;
+        const fy = from[1] + (to[1] - from[1]) * t + Math.sin(t * Math.PI * 3) * 0.04;
+        await page.mouse.move(...at(fx, fy));
+    }
+    await page.mouse.up();
+}
+
+test('lápiz, texto y borrador sobre la cancha', async ({ page }) => {
+    test.setTimeout(120_000);
+    await openBoard(page);
+    const layer = drawLayer(page);
+
+    // 1. Lápiz: un trazo libre queda como path en la cancha.
+    await page.getByRole('button', { name: 'Lápiz' }).click();
+    const figuras = page.getByText(/^\d+ figuras? · se guardan/);
+    const countOf = async () => Number((await figuras.textContent())!.match(/^\d+/)![0]);
+    const before = await countOf();
+    await scribble(page, layer, [0.2, 0.3], [0.8, 0.35]);
+    await expect.poll(countOf).toBe(before + 1);
+    await page.screenshot({ path: 'e2e/screenshots/pizarra-escribir-01-lapiz.png' });
+
+    // 2. Texto: tocar la cancha abre el campo; Enter deja la nota.
+    await page.getByRole('button', { name: 'Texto' }).click();
+    const box = (await layer.boundingBox())!;
+    await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.6);
+    const input = page.getByRole('textbox', { name: 'Texto sobre la cancha' });
+    await expect(input).toBeFocused();
+    await input.fill('Presión alta');
+    await input.press('Enter');
+    await expect(layer.locator('text', { hasText: 'Presión alta' })).toBeVisible();
+    await expect.poll(countOf).toBe(before + 2);
+    await page.screenshot({ path: 'e2e/screenshots/pizarra-escribir-02-texto.png' });
+
+    // 3. Editar: tocar el texto lo selecciona, otro toque lo abre para cambiarlo.
+    const note = layer.locator('text', { hasText: 'Presión alta' });
+    await note.click();
+    await note.click();
+    await expect(input).toBeFocused();
+    await input.fill('Presión alta al 10');
+    await input.press('Enter');
+    await expect(layer.locator('text', { hasText: 'Presión alta al 10' })).toBeVisible();
+
+    // 4. Borrador: pasar por encima del trazo lo quita; el texto sigue.
+    await page.getByRole('button', { name: 'Borrador' }).click();
+    await scribble(page, layer, [0.5, 0.15], [0.5, 0.45]);
+    await expect.poll(countOf).toBe(before + 1);
+    await expect(layer.locator('text', { hasText: 'Presión alta al 10' })).toBeVisible();
+    await page.screenshot({ path: 'e2e/screenshots/pizarra-escribir-03-borrador.png' });
+});
+
+/** Arrastre con el DEDO de verdad: eventos táctiles por CDP (Chrome los
+ *  convierte en pointer events con pointerType 'touch'), no mouse. */
+async function fingerDrag(page: Page, layer: Locator, from: [number, number], to: [number, number]) {
+    const box = (await layer.boundingBox())!;
+    const pt = (fx: number, fy: number) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [pt(...from)] });
+    for (let i = 1; i <= 20; i++) {
+        const t = i / 20;
+        await cdp.send('Input.dispatchTouchEvent', {
+            type: 'touchMove',
+            touchPoints: [pt(from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t + Math.sin(t * Math.PI * 2) * 0.03)],
+        });
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await cdp.detach();
+}
+
+test('con el dedo, encima del material: rayar, escribir y borrar', async ({ page }) => {
+    test.setTimeout(120_000);
+    await openBoard(page);
+    const layer = drawLayer(page);
+    const box = (await layer.boundingBox())!;
+    const figuras = page.getByText(/^\d+ figuras? · se guardan/);
+    const countOf = async () => Number((await figuras.textContent())!.match(/^\d+/)![0]);
+    const at = (fx: number, fy: number) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+
+    // Un cono en el centro (toque con el dedo).
+    await page.getByRole('button', { name: 'Cono' }).click();
+    await page.touchscreen.tap(at(0.5, 0.4).x, at(0.5, 0.4).y);
+    await expect.poll(countOf).toBe(1);
+
+    // Lápiz: el trazo ARRANCA encima del cono y lo cruza. Si el cono capturara
+    // el dedo, lo arrastraría en vez de dibujar (y seguiría habiendo 1 figura).
+    await page.getByRole('button', { name: 'Lápiz' }).click();
+    await fingerDrag(page, layer, [0.5, 0.4], [0.85, 0.5]);
+    await expect.poll(countOf).toBe(2);
+    await expect(layer.locator('path[stroke-linejoin="round"]').first()).toBeVisible();
+
+    // Texto: tocar justo encima del cono pone la nota ahí (no selecciona el cono).
+    await page.getByRole('button', { name: 'Texto' }).click();
+    await page.touchscreen.tap(at(0.5, 0.4).x, at(0.5, 0.4).y);
+    const input = page.getByRole('textbox', { name: 'Texto sobre la cancha' });
+    await expect(input).toBeFocused();
+    await input.fill('Salida por acá');
+    await input.press('Enter');
+    await expect(layer.locator('text', { hasText: 'Salida por acá' })).toBeVisible();
+    await expect.poll(countOf).toBe(3);
+    await page.screenshot({ path: 'e2e/screenshots/pizarra-dedo-01-encima-del-cono.png' });
+
+    // Borrador con el dedo: una pasada por el centro se lleva cono, trazo y nota.
+    await page.getByRole('button', { name: 'Borrador' }).click();
+    await fingerDrag(page, layer, [0.35, 0.4], [0.7, 0.42]);
+    await expect.poll(countOf).toBe(0);
+    await page.screenshot({ path: 'e2e/screenshots/pizarra-dedo-02-borrado.png' });
+});
