@@ -192,7 +192,7 @@ function initialsOf(name: string) {
 
 /** Tarjeta de jugador estilo videojuego (banca): avatar circular con anillo,
  *  nombre debajo, en una tira horizontal desplazable. */
-function BenchDraggable({ subject, onOpenCard }: { subject: RosterSubject; onOpenCard: () => void }) {
+function BenchDraggable({ subject, onOpenCard, needsRotation }: { subject: RosterSubject; onOpenCard: () => void; needsRotation?: boolean }) {
   const key = subjectKey(subject.subject_type, subject.subject_id);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `bench:${key}`,
@@ -206,8 +206,17 @@ function BenchDraggable({ subject, onOpenCard }: { subject: RosterSubject; onOpe
       style={style}
       {...listeners}
       {...attributes}
-      className={`touch-none cursor-grab active:cursor-grabbing shrink-0 w-[62px] flex flex-col items-center gap-1 rounded-lg border border-white/10 bg-gradient-to-b from-zinc-800/95 to-zinc-900/95 px-1.5 py-1.5 shadow-lg transition-all hover:-translate-y-0.5 hover:border-emerald-400/50 hover:shadow-emerald-500/10 ${isDragging ? 'opacity-40 scale-95' : ''}`}
+      className={`relative touch-none cursor-grab active:cursor-grabbing shrink-0 w-[62px] flex flex-col items-center gap-1 rounded-lg border border-white/10 bg-gradient-to-b from-zinc-800/95 to-zinc-900/95 px-1.5 py-1.5 shadow-lg transition-all hover:-translate-y-0.5 hover:border-emerald-400/50 hover:shadow-emerald-500/10 ${isDragging ? 'opacity-40 scale-95' : ''}`}
     >
+      {/* P4 (D6): tercio de menos minutos jugados en la temporada -- candidato
+          a sumar minutos. Punto, no texto, para no competir con el nombre en
+          una tarjeta de 62px. */}
+      {needsRotation && (
+        <span
+          title="Entre el tercio con menos minutos jugados esta temporada"
+          className="absolute top-1 right-1 h-2 w-2 rounded-full bg-amber-400 ring-1 ring-black/40"
+        />
+      )}
       {/* Tocar (sin arrastrar) abre la tarjeta -- dnd-kit solo activa el drag
           después de moverse `distance` px, así que un tap corto sigue
           disparando este onClick normal, mismo patrón que ya usa la etiqueta
@@ -1530,6 +1539,20 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   const suggestibleCount = (seasonStats?.stats ?? []).filter((s) => s.matches_played > 0).length;
   const canSuggestXI = suggestibleCount >= MIN_SUGGEST_SAMPLE && Object.keys(placed).length === 0;
 
+  /** P4 (segunda regla, D6): alerta de rotación -- el tercio de jugadores con
+   *  MENOS minutos jugados en la temporada, entre los que sí tienen partidos
+   *  registrados. Mismo piso mínimo que "Sugerir XI" (MIN_SUGGEST_SAMPLE):
+   *  con pocos datos, "el tercio de abajo" es ruido, no señal. Se calcula
+   *  siempre sobre la temporada completa, nunca sobre un partido suelto. */
+  const rotationKeys = useMemo(() => {
+    if (suggestibleCount < MIN_SUGGEST_SAMPLE) return new Set<string>();
+    const jugados = (seasonStats?.stats ?? [])
+      .filter((s) => s.matches_played > 0)
+      .sort((a, b) => a.minutes_played - b.minutes_played);
+    const corte = Math.max(1, Math.floor(jugados.length / 3));
+    return new Set(jugados.slice(0, corte).map((s) => subjectKey(s.subject_type, s.subject_id)));
+  }, [seasonStats, suggestibleCount]);
+
   /** P4: ordena por minutos jugados (no hay dato de posición real en las
    *  season-stats) y los ubica en un 4-4-2 genérico. Solo actúa sobre cancha
    *  vacía a propósito -- sobre una alineación que el coach ya armó, "sugerir"
@@ -2443,7 +2466,12 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     ) : (
                       <div className="flex flex-wrap gap-1.5">
                         {availableSubjects.map((s) => (
-                          <BenchDraggable key={subjectKey(s.subject_type, s.subject_id)} subject={s} onOpenCard={() => setCardSubject(s)} />
+                          <BenchDraggable
+                            key={subjectKey(s.subject_type, s.subject_id)}
+                            subject={s}
+                            onOpenCard={() => setCardSubject(s)}
+                            needsRotation={rotationKeys.has(subjectKey(s.subject_type, s.subject_id))}
+                          />
                         ))}
                       </div>
                     )}

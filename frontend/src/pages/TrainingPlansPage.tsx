@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { Plus, Calendar, Target, ClipboardList, Trash2, Activity, Users, Loader2, TrendingUp, Trophy, Star, Goal } from 'lucide-react';
+import { Plus, Calendar, Target, ClipboardList, Trash2, Activity, Users, Loader2, TrendingUp, Trophy, Star, Goal, IdCard } from 'lucide-react';
 import { SessionFormDialog } from '@/components/coach/SessionFormDialog';
 import { MesocycleSection } from '@/components/coach/MesocycleSection';
 import { WeekSessionsPanel } from '@/components/school/WeekSessionsPanel';
@@ -18,6 +18,9 @@ import { FootballDashboardModal } from '@/components/school/FootballDashboardMod
 import { TacticalBoard } from '@/components/school/TacticalBoard';
 import { PerformanceEntryModal } from '@/components/school/PerformanceEntryModal';
 import { AthleteEvolutionModal } from '@/components/school/AthleteEvolutionModal';
+import { PlayerCard } from '@/components/school/PlayerCard';
+import { useTeamPerformanceRoster } from '@/hooks/usePerformanceData';
+import type { RosterSubject } from '@/lib/school/performanceQueries';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -53,6 +56,7 @@ export default function TrainingPlansPage() {
   const [footballDialogOpen, setFootballDialogOpen] = useState(false);
   const [individualStudent, setIndividualStudent] = useState<any>(null);
   const [evolutionStudent, setEvolutionStudent] = useState<any>(null);
+  const [cardSubject, setCardSubject] = useState<RosterSubject | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editingSession, setEditingSession] = useState<any>(null);
   // Tablero táctico por bloque de sesión -- ver openBlockTacticalBoard() más
@@ -151,6 +155,15 @@ export default function TrainingPlansPage() {
     },
     enabled: !!activeId && !!schoolId,
   });
+
+  // P1 (tablero táctico/spec fútbol §4): mismo roster de métricas que ya usan
+  // TacticalBoard/TeamPerformanceEntryModal -- se reusa acá para "ver tarjeta"
+  // desde la lista de deportistas, sin inventar una fuente de datos nueva.
+  const { data: performanceRoster } = useTeamPerformanceRoster({
+    team_id: filterType === 'teams' ? selectedTeamId : undefined,
+    offering_plan_id: filterType === 'plans' ? selectedPlanId : undefined,
+  });
+  const performanceSubjectById = new Map((performanceRoster?.subjects ?? []).map((s) => [s.subject_id, s]));
 
   // ¿El equipo tiene un mesociclo? Mismo queryKey y misma lógica que usa
   // MesocycleSection internamente — React Query comparte el fetch, no lo
@@ -721,6 +734,17 @@ export default function TrainingPlansPage() {
                           )}
                         </div>
                         <div className="flex items-center gap-1">
+                          {performanceSubjectById.get(student.id) && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-muted-foreground hover:text-primary hover:bg-primary/10 px-2 gap-1"
+                              onClick={() => setCardSubject(performanceSubjectById.get(student.id) ?? null)}
+                            >
+                              <IdCard className="w-3.5 h-3.5" />
+                              Tarjeta
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="ghost"
@@ -821,6 +845,16 @@ export default function TrainingPlansPage() {
           subjectType={evolutionStudent.athlete_type === 'adult' ? 'profile' : (evolutionStudent.athlete_type === 'child' ? 'child' : 'unregistered')}
           subjectId={evolutionStudent.id}
           subjectName={evolutionStudent.full_name}
+        />
+      )}
+
+      {cardSubject && performanceRoster && (
+        <PlayerCard
+          open={!!cardSubject}
+          onClose={() => setCardSubject(null)}
+          subject={cardSubject}
+          metrics={performanceRoster.metrics}
+          latestValues={performanceRoster.latest_values}
         />
       )}
 

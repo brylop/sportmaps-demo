@@ -7,7 +7,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
 import {
   ArrowLeft, School, Users, MessageSquare, CalendarCheck,
-  TrendingUp, AlertTriangle, Trophy, Download, Loader2,
+  TrendingUp, AlertTriangle, Trophy, Download, Loader2, Gauge,
 } from 'lucide-react';
 import { useAthleteReportDetail } from '@/hooks/useAthleteReports';
 import { CATEGORY_STYLE, CATEGORY_ORDER, BAND_STYLE, fmtWithUnit } from '@/lib/school/performanceDisplay';
@@ -180,6 +180,21 @@ export default function ChildReportDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* ── Carga de entrenamiento (PER-6 mitad B) ────────────────────────── */}
+      {s.training_load && (
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <Gauge className="h-5 w-5 text-primary shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold">
+                Carga de entrenamiento: {s.training_load.sessions_count} {s.training_load.sessions_count === 1 ? 'sesión' : 'sesiones'}
+                {' — '}{s.training_load.total_ua.toFixed(0)} UA este mes
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Destacados ─────────────────────────────────────────────────── */}
       {s.highlights.length > 0 && (

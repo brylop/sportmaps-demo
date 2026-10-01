@@ -38,6 +38,12 @@ export interface FootballSummary {
   red_cards: number;
 }
 
+/** PER-6 mitad B — carga de entrenamiento del mes (sRPE de Foster). */
+export interface TrainingLoadSummary {
+  sessions_count: number;
+  total_ua: number;
+}
+
 export interface ReportSnapshot {
   version: 1;
   generated_at: string;
@@ -53,6 +59,7 @@ export interface ReportSnapshot {
   to_work_on: SnapshotMetric[];
   metrics: SnapshotMetric[];
   football: FootballSummary | null;
+  training_load: TrainingLoadSummary | null;
 }
 
 export interface AthleteReportListItem {

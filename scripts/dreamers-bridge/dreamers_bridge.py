@@ -15,56 +15,78 @@ Por que existe este script (no borrar sin leer esto):
 
 Que hace:
 - Se conecta por SDK local (puerto 4370) a cada torniquete configurado abajo.
-- Cada cierto intervalo, revisa si hay registros de asistencia nuevos y los
-  reenvia al backend (bffdev.sportmaps.co) usando el mismo protocolo
-  ADMS/PUSH que el dispositivo usaria si su conexion cloud funcionara, asi
-  que el backend los procesa exactamente igual que si vinieran del equipo
-  directamente.
+- Captura asistencia EN VIVO (live_capture, ver mas abajo) y la reenvia al
+  backend (bffdev.sportmaps.co) usando el mismo protocolo ADMS/PUSH que el
+  dispositivo usaria si su conexion cloud funcionara, asi que el backend la
+  procesa exactamente igual que si viniera del equipo directamente.
 - Lleva un registro local (bridge_state.json) de que fue lo ultimo enviado,
   para no duplicar eventos.
 
+CAMBIO 2026-09-25 -- de polling completo a live_capture (tiempo real):
+    Hasta ahora la captura de asistencia llamaba conn.get_attendance() cada
+    POLL_INTERVAL_SECONDS -- ese metodo trae la tabla de asistencia COMPLETA
+    del equipo cada vez (no hay forma de pedirle al SDK "solo lo nuevo"), y
+    se filtraba el resto aca. Confirmado en campo el 2026-09-25: con ~48.000
+    registros acumulados en el equipo, UN solo ciclo tardaba ~47 segundos --
+    cada vez mas lento a medida que el equipo acumula mas historial, y con
+    eso "cada 5 segundos" no era real en absoluto (mas cerca de 1-2 minutos
+    de latencia real punta a punta).
+
+    Ahora cada dispositivo tiene su propio hilo corriendo conn.live_capture():
+    una conexion que el equipo mantiene abierta y por la que empuja cada
+    marcacion AL MOMENTO en que pasa, sin tener que traer ni comparar nada
+    del historial. Late en el orden de segundos, no minutos, y no se pone
+    mas lento con el tiempo.
+
+    live_capture() NO reemplaza del todo a get_attendance(): sigue habiendo
+    un barrido de respaldo (catchup_sweep) cada CATCHUP_INTERVAL_SECONDS
+    (5 minutos por defecto) que hace lo que antes hacia el polling, pero
+    mucho menos seguido -- por si el hilo de live_capture se cae, se
+    reconecta, o el equipo se reinicia y pierde la sesion en el medio; ese
+    barrido es la red de seguridad que garantiza que nada se pierda de
+    verdad, aunque tarde un poco mas en aparecer.
+
+    COORDINACION entre hilos (importante, ver DEVICE_LOCKS mas abajo): el
+    equipo solo atiende una conexion SDK a la vez. Con live_capture ocupando
+    la conexion la mayor parte del tiempo, cualquier otra operacion (abrir
+    puerta, bloquear por mora, o el barrido de respaldo) necesita que
+    live_capture se haga a un lado un momento. Se resuelve con
+    PAUSE_REQUESTED/LIVE_CAPTURE_PAUSED (threading.Event por dispositivo):
+    quien necesita el equipo pide la pausa, live_capture la nota en su
+    proximo timeout corto (LIVE_CAPTURE_TICK_SECONDS) y se desconecta, y
+    recien ahi el que la pidio toma el Lock real y opera. El Lock
+    (DEVICE_LOCKS) es la garantia de fondo -- si algo falla en la
+    coordinacion por Event, el Lock igual impide que dos conexiones
+    convivan al mismo tiempo, solo que con mas espera.
+
 CAMBIO 2026-09-25 -- de HTTP polling a WebSocket para el canal de comandos:
-    Hasta ahora este script volvia a preguntar por HTTP cada
-    POLL_INTERVAL_SECONDS si habia comandos de puerta/bloqueo pendientes --
-    trafico constante contra Render las 24h, la mayor parte del tiempo sin
-    nada que hacer. Mismo cambio que se hizo para GYM RM el 2026-09-21 (ver
+    Hasta ahora este script volvia a preguntar por HTTP cada pocos segundos
+    si habia comandos de puerta/bloqueo pendientes -- trafico constante
+    contra Render las 24h, la mayor parte del tiempo sin nada que hacer.
+    Mismo cambio que se hizo para GYM RM el 2026-09-21 (ver
     scripts/gymrm-door-bridge/door_bridge.py para el razonamiento completo).
 
     Ahora abre UNA conexion WebSocket y la mantiene viva: el backend empuja
     un aviso ({"type":"wake"}) por esa misma conexion apenas se crea un
-    comando nuevo, en vez de que este script tenga que volver a preguntar.
-    La conexion se refresca sola una vez al dia a una hora fija de Colombia
-    (RECONNECT_HOUR_COLOMBIA, 3am por defecto) -- mismo motivo que GYM RM:
-    no depender de que una conexion aguante dias sin que algun proxy
-    intermedio la corte en silencio, y hacerlo a una hora en que el gym esta
-    cerrado.
-
-    La captura de asistencia (poll_device) NO se movio a WS -- sigue siendo
-    su propio ciclo de sondeo cada POLL_INTERVAL_SECONDS, corriendo en un
-    hilo aparte del cliente WS. Son mecanismos independientes: uno lee
-    eventos que YA pasaron (asistencia), el otro reacciona a algo que el
-    backend pide AHORA (abrir puerta, bloquear). Como ahora SI hay dos hilos
-    que pueden llegar a tocar el mismo torniquete al mismo tiempo (antes
-    todo era secuencial en un solo hilo), cada dispositivo tiene su propio
-    Lock (DEVICE_LOCKS) que se toma antes de cualquier conexion SDK --
-    sin esto, dos conexiones simultaneas al mismo equipo pueden colgarlo o
-    hacer que ambas fallen (el firmware ZKTeco solo atiende una a la vez).
-
-    BUG DE PRODUCCION encontrado el 2026-09-25 y corregido acá: si
-    poll_device() detecta mas de MAX_EVENTS_PER_CYCLE eventos nuevos de
-    golpe, el codigo anterior cortaba SIN avanzar el cursor de "ultimo
-    enviado" -- asi que volvia a ver los mismos eventos "nuevos" en el
-    siguiente ciclo, para siempre, sin mandar ninguno y sin salir solo de
-    ese estado. Le paso exactamente eso a LECTOR ENTRADA: goteo de
-    asistencia real (huellas de alumnos) durante 3 dias sin que nada lo
-    reportara como caido, porque bridge_heartbeats (que solo depende del
-    sondeo de comandos, un canal aparte) seguia viendose sano. Ahora, si
-    pasa esto, se loguea fuerte pero el cursor SI avanza -- se saltan esos
-    eventos (a proposito, no se reenvian) en vez de quedar trabado.
+    comando nuevo. Se refresca sola una vez al dia a una hora fija de
+    Colombia (RECONNECT_HOUR_COLOMBIA, 3am por defecto).
 
     Si el backend todavia no tiene desplegado el endpoint WS (/bridge/ws),
     la conexion falla al conectar o al autenticar -- el script lo reporta y
     reintenta con backoff. No hay fallback automatico al HTTP polling viejo.
+
+    BUG DE PRODUCCION encontrado el 2026-09-25 (independiente del cambio de
+    arriba, pero corregido en el mismo commit): si se detectan mas de
+    MAX_EVENTS_PER_CYCLE eventos nuevos de golpe (barrido de respaldo, o el
+    live_capture inicial si habia backlog), el codigo anterior cortaba SIN
+    avanzar el cursor de "ultimo enviado" -- asi que volvia a ver los mismos
+    eventos "nuevos" en el siguiente ciclo, para siempre, sin mandar ninguno
+    y sin salir solo de ese estado. Le paso exactamente eso a LECTOR
+    ENTRADA: goteo de asistencia real durante 3 dias sin que nada lo
+    reportara como caido, porque bridge_heartbeats (que solo depende del
+    sondeo de comandos, un canal aparte) seguia viendose sano. Ahora, si
+    pasa esto, se loguea fuerte pero el cursor SI avanza -- se saltan esos
+    eventos (a proposito, no se reenvian) en vez de quedar trabado.
 
 - APERTURA MANUAL (agregado 2026-08-27): como estos lectores no hablan ADMS
   nunca, un click de "abrir puerta" en el dashboard tampoco les llegaria
@@ -94,6 +116,7 @@ Uso en produccion:
 """
 
 import asyncio
+import contextlib
 import json
 import os
 import sys
@@ -130,7 +153,6 @@ DEVICES = [
     },
 ]
 
-POLL_INTERVAL_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_POLL_INTERVAL_SECONDS", "5"))
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bridge_state.json")
 
 SCHOOL_ID = "57ba9352-2c11-4b5b-aa5b-e5ec6f526cbe"  # Dreamers Gymnastics
@@ -147,9 +169,39 @@ COMMAND_TYPES = "open_door,set_group,disable_user,enable_user"
 DOOR_PULSE_DECISECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_PULSE_DECISECONDS", "2"))
 DEVICE_BY_SERIAL = {d["serial_number"]: d for d in DEVICES}
 
-# Un Lock por dispositivo fisico -- ver docstring del modulo, seccion del
-# cambio 2026-09-25, para el porque.
+# Coordinacion de acceso al equipo entre live_capture (hilo propio por
+# dispositivo) y cualquier otra operacion SDK (comandos por WS, barrido de
+# respaldo) -- ver docstring del modulo, seccion "COORDINACION". El Lock es
+# la garantia real; los Event son solo para que live_capture se haga a un
+# lado rapido en vez de que el que pide el equipo tenga que esperar a que
+# expire un timeout largo.
 DEVICE_LOCKS = {d["serial_number"]: threading.Lock() for d in DEVICES}
+PAUSE_REQUESTED = {d["serial_number"]: threading.Event() for d in DEVICES}
+LIVE_CAPTURE_PAUSED = {d["serial_number"]: threading.Event() for d in DEVICES}
+
+# Protege lecturas/escrituras de bridge_state.json -- ahora hay hasta 3
+# hilos (2x live_capture + el barrido de respaldo) que pueden querer tocar
+# el mismo diccionario/archivo.
+STATE_LOCK = threading.Lock()
+
+# Cada cuanto live_capture() revisa internamente si le pidieron la pausa
+# (ver PAUSE_REQUESTED) -- entre mas chico, mas rapido cede el equipo a un
+# comando, pero mas overhead de reconexion. 2s es un buen equilibrio para
+# que "abrir puerta" siga sintiendose instantaneo.
+LIVE_CAPTURE_TICK_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_LIVE_CAPTURE_TICK_SECONDS", "2"))
+
+# Cuanto espera, como maximo, una operacion que necesita el equipo a que
+# live_capture note la pausa y se desconecte -- si se pasa igual intenta
+# tomar el Lock (que va a bloquear hasta que live_capture realmente libere
+# la conexion), solo que sin el aviso anticipado.
+PAUSE_WAIT_TIMEOUT_SECONDS = 5
+
+# Barrido de respaldo con get_attendance() (trae la tabla completa) -- red
+# de seguridad para lo que live_capture se pueda perder (caida del hilo,
+# reinicio del equipo a mitad de una sesion, etc). No hace falta que sea
+# frecuente: si live_capture funciona bien, este barrido normalmente no
+# encuentra nada nuevo que reportar.
+CATCHUP_INTERVAL_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_CATCHUP_INTERVAL_SECONDS", "300"))
 
 # Cada cuanto se manda un heartbeat por la conexion WS.
 HEARTBEAT_INTERVAL_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_HEARTBEAT_INTERVAL_SECONDS", "60"))
@@ -160,6 +212,7 @@ COLOMBIA_TZ = ZoneInfo("America/Bogota")
 RECONNECT_HOUR_COLOMBIA = int(os.environ.get("SPORTMAPS_BRIDGE_WS_RECONNECT_HOUR", "3"))
 
 RECONNECT_BACKOFF_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_WS_RECONNECT_BACKOFF_SECONDS", "5"))
+LIVE_CAPTURE_RECONNECT_BACKOFF_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_LIVE_CAPTURE_BACKOFF_SECONDS", "5"))
 REQUEST_TIMEOUT = 10
 DEVICE_CONNECT_TIMEOUT = 10
 
@@ -185,6 +238,23 @@ def seconds_until_next_reconnect():
     return (target - now).total_seconds()
 
 
+@contextlib.contextmanager
+def device_access(serial_number):
+    """
+    Usar SIEMPRE antes de abrir una conexion SDK que no sea la de
+    live_capture (comandos, barrido de respaldo) -- avisa a live_capture
+    que se haga a un lado, espera un poco a que lo note, y toma el Lock
+    real (que bloquea de todas formas si el aviso no alcanzo a tiempo).
+    """
+    PAUSE_REQUESTED[serial_number].set()
+    try:
+        LIVE_CAPTURE_PAUSED[serial_number].wait(timeout=PAUSE_WAIT_TIMEOUT_SECONDS)
+        with DEVICE_LOCKS[serial_number]:
+            yield
+    finally:
+        PAUSE_REQUESTED[serial_number].clear()
+
+
 # ------------------------------------------------------------------
 # Estado local (para no reenviar los mismos eventos)
 # ------------------------------------------------------------------
@@ -196,9 +266,47 @@ def load_state():
     return {}
 
 
-def save_state(state):
+def save_state_locked(state):
+    """Caller ya tiene STATE_LOCK tomado."""
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2)
+
+
+def ensure_initial_state(state):
+    """
+    Se llama una sola vez al arrancar, antes de lanzar ningun hilo -- si un
+    dispositivo nunca corrio el bridge, marca "ahora" como punto de partida
+    en vez de arrastrar anios de historial de fabrica/pruebas.
+    """
+    with STATE_LOCK:
+        changed = False
+        for device in DEVICES:
+            key = f"last_sent_{device['serial_number']}"
+            if key not in state:
+                now_iso = datetime.now().isoformat()
+                state[key] = now_iso
+                changed = True
+                log(f"[{device['name']}] primera ejecucion: se omite historial previo. "
+                    f"Desde ahora ({now_iso}) se capturaran eventos nuevos.")
+        if changed:
+            save_state_locked(state)
+
+
+def advance_cursor(state, serial_number, new_timestamp):
+    """Solo avanza el cursor hacia adelante -- nunca lo retrocede por las dudas."""
+    key = f"last_sent_{serial_number}"
+    with STATE_LOCK:
+        current = state.get(key)
+        new_iso = new_timestamp.isoformat()
+        if current is None or new_iso > current:
+            state[key] = new_iso
+            save_state_locked(state)
+
+
+def get_cursor(state, serial_number):
+    with STATE_LOCK:
+        iso = state.get(f"last_sent_{serial_number}")
+    return datetime.fromisoformat(iso) if iso else None
 
 
 # ------------------------------------------------------------------
@@ -260,7 +368,7 @@ def ack_door_command(command_id, success, error_message=None):
 # ------------------------------------------------------------------
 
 def open_door_physically(device):
-    with DEVICE_LOCKS[device["serial_number"]]:
+    with device_access(device["serial_number"]):
         zk = ZK(device["ip"], port=device["port"], timeout=DEVICE_CONNECT_TIMEOUT)
         conn = None
         try:
@@ -279,7 +387,7 @@ def open_door_physically(device):
 
 
 def set_group_physically(device, pin, group):
-    with DEVICE_LOCKS[device["serial_number"]]:
+    with device_access(device["serial_number"]):
         zk = ZK(device["ip"], port=device["port"], timeout=DEVICE_CONNECT_TIMEOUT)
         conn = None
         try:
@@ -313,7 +421,7 @@ def set_group_physically(device, pin, group):
 
 
 def set_enabled_physically(device, pin, enabled):
-    with DEVICE_LOCKS[device["serial_number"]]:
+    with device_access(device["serial_number"]):
         zk = ZK(device["ip"], port=device["port"], timeout=DEVICE_CONNECT_TIMEOUT)
         conn = None
         try:
@@ -474,57 +582,104 @@ def run_ws_client():
 
 
 # ------------------------------------------------------------------
-# Loop de asistencia (hilo principal)
+# Captura de asistencia EN VIVO (un hilo por dispositivo)
 # ------------------------------------------------------------------
 
-def poll_device(device, state):
+def handle_live_event(device, state, att):
+    """att: objeto Attendance de pyzk (user_id, timestamp, status, punch)."""
+    cursor = get_cursor(state, device["serial_number"])
+    if cursor is not None and att.timestamp <= cursor:
+        # Ya lo teniamos (p.ej. el barrido de respaldo lo mando primero, o
+        # el equipo repitio el evento al reconectar) -- no duplicar.
+        return
+
+    line = build_attlog_line(att.user_id, att.timestamp, att.status, att.punch)
+    ok = push_attlog(device["serial_number"], [line])
+    if ok:
+        advance_cursor(state, device["serial_number"], att.timestamp)
+        log(f"[{device['name']}] evento en vivo enviado: PIN {att.user_id} @ {att.timestamp}")
+    else:
+        log(f"[{device['name']}] fallo el envio del evento en vivo (PIN {att.user_id} @ {att.timestamp}) "
+            f"-- el barrido de respaldo lo va a recoger en el peor caso.")
+
+
+def live_capture_loop(device, state):
+    serial = device["serial_number"]
+    name = device["name"]
+
+    while True:
+        if PAUSE_REQUESTED[serial].is_set():
+            LIVE_CAPTURE_PAUSED[serial].set()
+            time.sleep(0.2)
+            continue
+        LIVE_CAPTURE_PAUSED[serial].clear()
+
+        with DEVICE_LOCKS[serial]:
+            zk = ZK(device["ip"], port=device["port"], timeout=DEVICE_CONNECT_TIMEOUT)
+            conn = None
+            try:
+                conn = zk.connect()
+                # NO disable_device() acá -- live_capture necesita que el
+                # equipo siga aceptando huellas normalmente, es lo que
+                # estamos escuchando.
+                log(f"[{name}] escuchando asistencia en vivo...")
+                for att in conn.live_capture(new_timeout=LIVE_CAPTURE_TICK_SECONDS):
+                    if PAUSE_REQUESTED[serial].is_set():
+                        log(f"[{name}] cediendo el equipo (comando o barrido pendiente)...")
+                        break
+                    if att is None:
+                        continue  # solo el timeout del tick, sin evento real
+                    handle_live_event(device, state, att)
+            except Exception as e:
+                log(f"[{name}] ERROR en captura en vivo: {type(e).__name__}: {e} -- reconectando en "
+                    f"{LIVE_CAPTURE_RECONNECT_BACKOFF_SECONDS}s.")
+            finally:
+                if conn:
+                    try:
+                        conn.disconnect()
+                    except Exception:
+                        pass
+
+        if not PAUSE_REQUESTED[serial].is_set():
+            time.sleep(LIVE_CAPTURE_RECONNECT_BACKOFF_SECONDS)
+
+
+# ------------------------------------------------------------------
+# Barrido de respaldo (red de seguridad, baja frecuencia)
+# ------------------------------------------------------------------
+
+def catchup_sweep(device, state):
     name = device["name"]
     serial_number = device["serial_number"]
 
-    last_sent_key = f"last_sent_{serial_number}"
-    last_sent_iso = state.get(last_sent_key)
+    last_sent_dt = get_cursor(state, serial_number)
+    if last_sent_dt is None:
+        return  # ensure_initial_state() ya debería haber puesto un cursor
 
-    first_run = last_sent_iso is None
-    if first_run:
-        now_iso = datetime.now().isoformat()
-        state[last_sent_key] = now_iso
-        save_state(state)
-        log(f"[{name}] primera ejecucion: se omite historial previo. "
-            f"Desde ahora ({now_iso}) se capturaran eventos nuevos.")
-        send_heartbeat(serial_number)
-        return
-
-    last_sent_dt = datetime.fromisoformat(last_sent_iso)
-
-    with DEVICE_LOCKS[serial_number]:
+    with device_access(serial_number):
         zk = ZK(device["ip"], port=device["port"], timeout=DEVICE_CONNECT_TIMEOUT)
         conn = None
         try:
             conn = zk.connect()
             conn.disable_device()
 
-            send_heartbeat(serial_number)
-
             attendances = conn.get_attendance()
             if not attendances:
-                log(f"[{name}] sin registros en el equipo.")
                 return
 
             new_records = [a for a in attendances if a.timestamp > last_sent_dt]
+            if not new_records:
+                return
 
             if len(new_records) > MAX_EVENTS_PER_CYCLE:
                 newest = max(new_records, key=lambda a: a.timestamp).timestamp
-                log(f"[{name}] ALERTA: se detectaron {len(new_records)} eventos nuevos de golpe "
-                    f"(> {MAX_EVENTS_PER_CYCLE}). NO se envian (revisa el reloj del dispositivo o si "
-                    f"hubo una caida larga) -- se SALTAN y el cursor avanza hasta {newest} para no "
-                    f"quedar trabado repitiendo esto en cada ciclo. Si esto no era basura y se queria "
-                    f"recuperar, usar diagnostico_backlog_asistencia.py ANTES del proximo reinicio.")
-                state[last_sent_key] = newest.isoformat()
-                save_state(state)
-                return
-
-            if not new_records:
-                log(f"[{name}] no hay eventos nuevos desde {last_sent_dt}.")
+                log(f"[{name}] ALERTA (barrido de respaldo): se detectaron {len(new_records)} eventos "
+                    f"nuevos de golpe (> {MAX_EVENTS_PER_CYCLE}). NO se envian (revisa el reloj del "
+                    f"dispositivo o si hubo una caida larga) -- se SALTAN y el cursor avanza hasta "
+                    f"{newest} para no quedar trabado repitiendo esto en cada barrido. Si esto no era "
+                    f"basura y se queria recuperar, usar diagnostico_backlog_asistencia.py ANTES del "
+                    f"proximo reinicio.")
+                advance_cursor(state, serial_number, newest)
                 return
 
             new_records.sort(key=lambda a: a.timestamp)
@@ -533,14 +688,14 @@ def poll_device(device, state):
             ok = push_attlog(serial_number, lines)
             if ok:
                 newest = new_records[-1].timestamp
-                state[last_sent_key] = newest.isoformat()
-                save_state(state)
-                log(f"[{name}] {len(new_records)} evento(s) enviado(s). Ultimo: {newest}")
+                advance_cursor(state, serial_number, newest)
+                log(f"[{name}] barrido de respaldo: {len(new_records)} evento(s) que live_capture no "
+                    f"habia mandado (revisar por que). Ultimo: {newest}")
             else:
-                log(f"[{name}] fallo el envio, se reintentara en el proximo ciclo.")
+                log(f"[{name}] barrido de respaldo: fallo el envio, se reintenta en el proximo barrido.")
 
         except Exception as e:
-            log(f"[{name}] ERROR conectando al dispositivo: {e}")
+            log(f"[{name}] ERROR en barrido de respaldo: {e}")
         finally:
             if conn:
                 try:
@@ -550,11 +705,19 @@ def poll_device(device, state):
                     pass
 
 
+def catchup_sweep_loop(state):
+    while True:
+        time.sleep(CATCHUP_INTERVAL_SECONDS)
+        for device in DEVICES:
+            catchup_sweep(device, state)
+
+
 def main():
     log("=== Puente ZKTeco -> SportMaps (Dreamers Gymnastics) ===")
     log(f"Backend: {BACKEND_BASE_URL}")
     log(f"School ID: {SCHOOL_ID}")
-    log(f"Intervalo de sondeo de asistencia: {POLL_INTERVAL_SECONDS}s")
+    log(f"Captura de asistencia: en vivo (live_capture) + barrido de respaldo cada "
+        f"{CATCHUP_INTERVAL_SECONDS}s")
     log("Presiona Ctrl+C para detener.\n")
 
     if BRIDGE_API_KEY == "CAMBIAR_ESTA_LLAVE":
@@ -562,15 +725,24 @@ def main():
             "La asistencia va a seguir funcionando, pero la apertura manual y "
             "el bloqueo por mora van a fallar con 401. Ver README.md.")
 
+    state = load_state()
+    ensure_initial_state(state)
+
     ws_thread = threading.Thread(target=run_ws_client, daemon=True, name="ws-commands")
     ws_thread.start()
 
-    state = load_state()
-    while True:
-        for device in DEVICES:
-            poll_device(device, state)
-        log(f"--- Ciclo de asistencia completo, esperando {POLL_INTERVAL_SECONDS}s ---\n")
-        time.sleep(POLL_INTERVAL_SECONDS)
+    for device in DEVICES:
+        t = threading.Thread(
+            target=live_capture_loop, args=(device, state), daemon=True,
+            name=f"live-capture-{device['serial_number']}",
+        )
+        t.start()
+
+    # El barrido de respaldo corre en el hilo principal -- si este proceso
+    # muere, la tarea programada lo reinicia entero (ver
+    # install_scheduled_task.ps1), asi que no hace falta que sea un hilo
+    # aparte con su propia supervision.
+    catchup_sweep_loop(state)
 
 
 if __name__ == "__main__":
