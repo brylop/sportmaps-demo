@@ -5,8 +5,12 @@
 # que hay en el deploy, node_modules del frontend incluido. Superó el límite de
 # 225 MB ("Total bundle size exceeds the maximum function size") y rompió el
 # build de sportmaps-dev en 3408311. Vercel solo sirve frontend/build.
-api/
-backend/
-requirements.txt
+#
+# La barra inicial ANCLA a la raíz (sintaxis de .gitignore). Sin ella, `api/`
+# también excluía frontend/src/lib/api/ y el build de 5bda8a3 falló con
+# "Could not load src/lib/api/transactions".
+/api/
+/backend/
+/requirements.txt
 # Manuales (PDF/MP4) y specs: no los lee el build del frontend.
-docs/
+/docs/

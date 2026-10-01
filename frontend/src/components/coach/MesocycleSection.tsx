@@ -30,6 +30,7 @@ import { MesocycleFormDialog, type MesocycleFormSubmit } from './MesocycleFormDi
 import { MesocycleRubricTable } from './MesocycleRubricTable';
 import { SessionFormDialog } from './SessionFormDialog';
 import { WeeklyLoadPanel } from './WeeklyLoadPanel';
+import { MicrocycleLoadPanel } from './MicrocycleLoadPanel';
 import { StandaloneMicrocyclesPanel } from './StandaloneMicrocyclesPanel';
 import { MesocycleExportButton } from './MesocycleExportButton';
 
@@ -487,6 +488,17 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                       // ej. gimnasio AM + cancha PM), no una sola.
                       const daySessions = sessionsByDayId.get(day.id) || [];
                       const mdLabels = mdLabelsByDate?.[day.day_date] || [];
+                      // H2 (spec periodización §3.3/D6): el rótulo del día
+                      // contradice su contenido. Se compara contra el RPE
+                      // REAL de una sesión ya evaluada cuando existe -- si
+                      // ninguna sesión del día tiene RPE cargado todavía, se
+                      // usa el planeado como aproximación. Aviso, nunca
+                      // bloqueo (D6) -- por eso es un badge, no un error.
+                      const dayRpe = daySessions.reduce((acc: number | null, s: any) => {
+                        const actual = s.evaluation?.rpe;
+                        return typeof actual === 'number' ? actual : acc;
+                      }, null as number | null) ?? day.planned_rpe ?? null;
+                      const labelContradicesContent = day.day_type === 'regenerativo' && dayRpe != null && dayRpe > 4;
                       return (
                         <div key={day.id} className="rounded-md border overflow-hidden">
                           <div className="flex items-center justify-between gap-2 p-2 text-sm">
@@ -502,6 +514,11 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                                   {l}
                                 </Badge>
                               ))}
+                              {labelContradicesContent && (
+                                <Badge variant="destructive" className="text-[10px] h-5 shrink-0" title="Regenerativo con RPE alto — el contenido no coincide con el rótulo del día">
+                                  RPE {dayRpe} en día regenerativo
+                                </Badge>
+                              )}
                               {daySessions.length === 0 && (
                                 <span className="truncate text-muted-foreground">{day.focus || ''}</span>
                               )}
@@ -634,6 +651,7 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                     )}
                   </div>
 
+                  <MicrocycleLoadPanel microcycleId={mc.id} />
                   <WeeklyLoadPanel microcycleId={mc.id} />
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t">

@@ -24,6 +24,13 @@ import {
     isPointShape,
     OBJECT_TYPES,
     OBJECT_BOX,
+    simplifyStroke,
+    buildFreehandShape,
+    smoothPathD,
+    pairsOf,
+    eraserHits,
+    offsetShape,
+    FREEHAND_MAX_POINTS,
 } from '../lib/school/tacticalGeometry';
 import type { PitchView } from '../lib/school/tacticalGeometry';
 import type { TacticalArrow } from '../lib/school/footballQueries';
@@ -255,5 +262,94 @@ describe('OBJECT_TYPES / OBJECT_BOX', () => {
     it.each([...OBJECT_TYPES])('la caja de %s tiene ancho y alto positivos', (t) => {
         expect(OBJECT_BOX[t].w).toBeGreaterThan(0);
         expect(OBJECT_BOX[t].h).toBeGreaterThan(0);
+    });
+});
+
+// ─── Lápiz libre y texto (2026-09-30) ────────────────────────────────────────
+
+describe('simplifyStroke', () => {
+    it('una recta con muchos puntos queda en sus dos extremos', () => {
+        const line = Array.from({ length: 50 }, (_, i) => ({ x: i, y: i }));
+        expect(simplifyStroke(line)).toEqual([{ x: 0, y: 0 }, { x: 49, y: 49 }]);
+    });
+
+    it('conserva la esquina de una L', () => {
+        const l = [
+            ...Array.from({ length: 10 }, (_, i) => ({ x: 10, y: 10 + i })),
+            ...Array.from({ length: 10 }, (_, i) => ({ x: 10 + i, y: 20 })),
+        ];
+        const out = simplifyStroke(l);
+        expect(out[0]).toEqual({ x: 10, y: 10 });
+        expect(out).toContainEqual({ x: 10, y: 20 });
+        expect(out[out.length - 1]).toEqual({ x: 19, y: 20 });
+    });
+});
+
+describe('buildFreehandShape', () => {
+    it('un toque sin recorrido no crea trazo', () => {
+        expect(buildFreehandShape([{ x: 50, y: 50 }], 'white')).toBeNull();
+        expect(buildFreehandShape([{ x: 50, y: 50 }, { x: 50.1, y: 50.1 }], 'white')).toBeNull();
+    });
+
+    it('x1..y2 es la caja del trazo y points va plano [x,y,…] con 2 decimales', () => {
+        const s = buildFreehandShape([{ x: 10.123, y: 20 }, { x: 30, y: 5.555 }, { x: 40, y: 25 }], 'red')!;
+        expect(s.type).toBe('freehand');
+        expect(s.color).toBe('red');
+        expect([s.x1, s.y1, s.x2, s.y2]).toEqual([10.12, 5.56, 40, 25]);
+        expect(s.points).toEqual([10.12, 20, 30, 5.56, 40, 25]);
+    });
+
+    it(`nunca supera ${FREEHAND_MAX_POINTS} puntos (el tope del BFF)`, () => {
+        // Zigzag: ningún punto es redundante, la simplificación no lo achica.
+        const zig = Array.from({ length: 2000 }, (_, i) => ({ x: (i % 2) * 10 + 5, y: (i / 2000) * 90 + 5 }));
+        const s = buildFreehandShape(zig, 'white')!;
+        expect(s.points!.length / 2).toBeLessThanOrEqual(FREEHAND_MAX_POINTS);
+    });
+});
+
+describe('smoothPathD / pairsOf', () => {
+    it('pairsOf arma puntos e ignora un número suelto al final', () => {
+        expect(pairsOf([1, 2, 3, 4, 5])).toEqual([{ x: 1, y: 2 }, { x: 3, y: 4 }]);
+        expect(pairsOf(undefined)).toEqual([]);
+    });
+
+    it('arranca en el primer punto y termina en el último', () => {
+        const d = smoothPathD([{ x: 0, y: 0 }, { x: 10, y: 5 }, { x: 20, y: 0 }]);
+        expect(d.startsWith('M 0 0')).toBe(true);
+        expect(d.endsWith('L 20 0')).toBe(true);
+    });
+});
+
+describe('eraserHits', () => {
+    const stroke = { type: 'freehand' as const, x1: 10, y1: 10, x2: 30, y2: 10, points: [10, 10, 30, 10] };
+
+    it('toca un trazo cerca de cualquiera de sus segmentos', () => {
+        expect(eraserHits(stroke, { x: 20, y: 11 }, 2)).toBe(true);
+        expect(eraserHits(stroke, { x: 20, y: 20 }, 2)).toBe(false);
+    });
+
+    it('toca un texto cerca de su centro', () => {
+        const t = { type: 'text' as const, x1: 50, y1: 50, x2: 50, y2: 50, text: 'hola' };
+        expect(eraserHits(t, { x: 52, y: 50 }, 1)).toBe(true);
+        expect(eraserHits(t, { x: 70, y: 50 }, 1)).toBe(false);
+    });
+
+    it('toca una flecha sobre su recta y una zona por dentro', () => {
+        expect(eraserHits({ type: 'arrow', x1: 0, y1: 0, x2: 40, y2: 40 }, { x: 20, y: 21 }, 2)).toBe(true);
+        expect(eraserHits({ type: 'zone', x1: 10, y1: 10, x2: 30, y2: 30 }, { x: 20, y: 20 }, 1)).toBe(true);
+    });
+});
+
+describe('offsetShape / hydrateShape con trazo y texto', () => {
+    it('duplicar un trazo corre también sus puntos', () => {
+        const s = offsetShape({ type: 'freehand', x1: 10, y1: 10, x2: 20, y2: 20, points: [10, 10, 20, 20] }, 4, 3);
+        expect(s.points).toEqual([14, 13, 24, 23]);
+        expect([s.x1, s.y1, s.x2, s.y2]).toEqual([14, 13, 24, 23]);
+    });
+
+    it('releer del jsonb conserva points (como números) y text', () => {
+        const h = hydrateShape({ type: 'freehand', x1: 1, y1: 2, x2: 3, y2: 4, points: ['1', '2', '3', '4'] as unknown as number[] });
+        expect(h.points).toEqual([1, 2, 3, 4]);
+        expect(hydrateShape({ type: 'text', x1: 5, y1: 5, x2: 5, y2: 5, text: 'Presión' }).text).toBe('Presión');
     });
 });
