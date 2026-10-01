@@ -39,7 +39,16 @@ async function openBoard(page: Page) {
     await expect(entry).toBeVisible({ timeout: 15_000 });
     await entry.click();
     await page.getByRole('button', { name: /^Pizarra/ }).click();
-    await expect(page.getByText('Escribir', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Lápiz' })).toBeVisible();
+}
+
+/** Pestaña de la hoja de celular (<768px) donde vive cada herramienta. En
+ *  pantalla ancha no hay pestañas y la herramienta ya está a la vista. */
+const TAB_OF: Record<string, string> = { Lápiz: 'Escribir', Texto: 'Escribir', Borrador: 'Escribir', Cono: 'Material' };
+async function pick(page: Page, tool: string) {
+    const tab = page.getByRole('tab', { name: TAB_OF[tool] });
+    if (await tab.isVisible().catch(() => false)) await tab.click();
+    await page.getByRole('button', { name: tool, exact: true }).click();
 }
 
 /** Capa de dibujo (el <svg> z-40 que intercepta el puntero en modo dibujo). */
@@ -66,7 +75,7 @@ test('lápiz, texto y borrador sobre la cancha', async ({ page }) => {
     const layer = drawLayer(page);
 
     // 1. Lápiz: un trazo libre queda como path en la cancha.
-    await page.getByRole('button', { name: 'Lápiz' }).click();
+    await pick(page, 'Lápiz');
     const figuras = page.getByText(/^\d+ figuras? · se guardan/);
     const countOf = async () => Number((await figuras.textContent())!.match(/^\d+/)![0]);
     const before = await countOf();
@@ -75,7 +84,7 @@ test('lápiz, texto y borrador sobre la cancha', async ({ page }) => {
     await page.screenshot({ path: 'e2e/screenshots/pizarra-escribir-01-lapiz.png' });
 
     // 2. Texto: tocar la cancha abre el campo; Enter deja la nota.
-    await page.getByRole('button', { name: 'Texto' }).click();
+    await pick(page, 'Texto');
     const box = (await layer.boundingBox())!;
     await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.6);
     const input = page.getByRole('textbox', { name: 'Texto sobre la cancha' });
@@ -96,7 +105,7 @@ test('lápiz, texto y borrador sobre la cancha', async ({ page }) => {
     await expect(layer.locator('text', { hasText: 'Presión alta al 10' })).toBeVisible();
 
     // 4. Borrador: pasar por encima del trazo lo quita; el texto sigue.
-    await page.getByRole('button', { name: 'Borrador' }).click();
+    await pick(page, 'Borrador');
     await scribble(page, layer, [0.5, 0.15], [0.5, 0.45]);
     await expect.poll(countOf).toBe(before + 1);
     await expect(layer.locator('text', { hasText: 'Presión alta al 10' })).toBeVisible();
@@ -131,19 +140,19 @@ test('con el dedo, encima del material: rayar, escribir y borrar', async ({ page
     const at = (fx: number, fy: number) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
 
     // Un cono en el centro (toque con el dedo).
-    await page.getByRole('button', { name: 'Cono' }).click();
+    await pick(page, 'Cono');
     await page.touchscreen.tap(at(0.5, 0.4).x, at(0.5, 0.4).y);
     await expect.poll(countOf).toBe(1);
 
     // Lápiz: el trazo ARRANCA encima del cono y lo cruza. Si el cono capturara
     // el dedo, lo arrastraría en vez de dibujar (y seguiría habiendo 1 figura).
-    await page.getByRole('button', { name: 'Lápiz' }).click();
+    await pick(page, 'Lápiz');
     await fingerDrag(page, layer, [0.5, 0.4], [0.85, 0.5]);
     await expect.poll(countOf).toBe(2);
     await expect(layer.locator('path[stroke-linejoin="round"]').first()).toBeVisible();
 
     // Texto: tocar justo encima del cono pone la nota ahí (no selecciona el cono).
-    await page.getByRole('button', { name: 'Texto' }).click();
+    await pick(page, 'Texto');
     await page.touchscreen.tap(at(0.5, 0.4).x, at(0.5, 0.4).y);
     const input = page.getByRole('textbox', { name: 'Texto sobre la cancha' });
     await expect(input).toBeFocused();
@@ -154,7 +163,7 @@ test('con el dedo, encima del material: rayar, escribir y borrar', async ({ page
     await page.screenshot({ path: 'e2e/screenshots/pizarra-dedo-01-encima-del-cono.png' });
 
     // Borrador con el dedo: una pasada por el centro se lleva cono, trazo y nota.
-    await page.getByRole('button', { name: 'Borrador' }).click();
+    await pick(page, 'Borrador');
     await fingerDrag(page, layer, [0.35, 0.4], [0.7, 0.42]);
     await expect.poll(countOf).toBe(0);
     await page.screenshot({ path: 'e2e/screenshots/pizarra-dedo-02-borrado.png' });
@@ -186,7 +195,7 @@ test.describe('en celular (iPhone 14)', () => {
         const pitch = (await pitchEl.boundingBox())!;
         const area = (await pitchEl.locator('..').boundingBox())!;
         const toolbarBottom = b.y + b.height;
-        const sheetTop = (await page.getByText('Pizarra táctica', { exact: true }).boundingBox())!.y;
+        const sheetTop = (await page.getByRole('button', { name: 'Deshacer' }).boundingBox())!.y;
         expect(pitch.y).toBeGreaterThanOrEqual(area.y);
         expect(pitch.y).toBeGreaterThan(toolbarBottom);
         expect(pitch.y + pitch.height).toBeLessThanOrEqual(area.y + area.height + 0.5);
@@ -199,7 +208,37 @@ test.describe('en celular (iPhone 14)', () => {
         const figuras = page.getByText(/^\d+ figuras? · se guardan/);
         await fingerDrag(page, drawLayer(page), [0.2, 0.3], [0.8, 0.6]);
         await expect(figuras).toHaveText(/^1 figura/);
+        await expect(figuras).toBeVisible();
         await page.screenshot({ path: 'e2e/screenshots/pizarra-iphone-02-trazo.png' });
+
+        // Cada pestaña deja sus herramientas DENTRO de la pantalla (antes, todo
+        // apilado en la hoja, la mayoría quedaba fuera de vista).
+        const tabs: [string, string][] = [
+            ['Líneas', 'Flecha'], ['Líneas', 'Penal'],
+            ['Material', 'Cono'], ['Material', 'Rival'],
+            ['Color', 'Color Rojo'],
+            ['Objeto', '+90°'], ['Medir', 'Regla'],
+            ['Escribir', 'Borrador'],
+        ];
+        for (const [tab, tool] of tabs) {
+            await page.getByRole('tab', { name: tab }).click();
+            await expect(page.getByRole('button', { name: tool }).first(), `${tab} → ${tool}`).toBeInViewport({ ratio: 1 });
+        }
+        // Las acciones fijas siguen a mano en cualquier pestaña.
+        for (const name of ['Deshacer', 'Borrar todo', 'Reproducir jugada']) {
+            await expect(page.getByRole('button', { name, exact: true })).toBeInViewport({ ratio: 1 });
+        }
+
+        // Tocar un objeto puesto abre la pestaña Objeto con sus controles.
+        await page.getByRole('tab', { name: 'Material' }).click();
+        await pick(page, 'Cono');
+        const lb = (await drawLayer(page).boundingBox())!;
+        await page.touchscreen.tap(lb.x + lb.width * 0.5, lb.y + lb.height * 0.75);
+        await page.getByRole('button', { name: /^Dibujando/ }).click(); // apagar dibujo: tocar = seleccionar
+        await page.touchscreen.tap(lb.x + lb.width * 0.5, lb.y + lb.height * 0.75);
+        await expect(page.getByText('Seleccionado: Cono')).toBeInViewport();
+        await expect(page.getByRole('tab', { name: 'Objeto' })).toHaveAttribute('aria-selected', 'true');
+        await page.screenshot({ path: 'e2e/screenshots/pizarra-iphone-03-ajustes.png' });
 
         // Abrir Plantilla cierra la Pizarra (una sola hoja a la vez).
         await page.getByRole('button', { name: /^Plantilla \(/ }).click();

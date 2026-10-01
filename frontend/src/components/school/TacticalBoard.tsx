@@ -305,6 +305,19 @@ type DrawTool = TacticalShapeType | 'eraser';
  *  seleccionan con un toque: el material y el texto. */
 const isMovableByPoint = (t: TacticalShapeType | undefined) => isPointShape(t) || t === 'text';
 
+/** Pestañas de la hoja de la pizarra en celular. */
+type MobileTab = 'escribir' | 'lineas' | 'material' | 'color' | 'ajustes' | 'medir';
+const MOBILE_TABS: { key: MobileTab; label: string }[] = [
+  { key: 'escribir', label: 'Escribir' },
+  { key: 'lineas', label: 'Líneas' },
+  { key: 'material', label: 'Material' },
+  { key: 'color', label: 'Color' },
+  // "Objeto": tamaño, giro, duplicar y quitar del material/texto (o los
+  // valores con que se coloca). Medir va aparte: juntos no entran en la hoja.
+  { key: 'ajustes', label: 'Objeto' },
+  { key: 'medir', label: 'Medir' },
+];
+
 /** Alto de la hoja inferior (Pizarra / Plantilla) en celular, en vh. */
 const SHEET_VH = 42;
 
@@ -1150,11 +1163,15 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   // la cancha, no al costado (un panel de 220-260px al lado de una cancha en
   // 390px de ancho no cabe). Solo una hoja abierta a la vez.
   const isMobile = useIsMobile();
-  const sheetOpen = isMobile && (tacticsOpen || rosterOpen);
   function toggleTactics() {
     setTacticsOpen((v) => !v);
     if (isMobile) setRosterOpen(false);
   }
+  // Hoja de la pizarra en celular: una pestaña a la vez (todo apilado no
+  // entraba en 42vh y las acciones quedaban fuera de vista).
+  const [mobileTab, setMobileTab] = useState<MobileTab>('escribir');
+  /** Clase de una sección del panel: en celular solo se ve la de la pestaña. */
+  const tabCls = (k: MobileTab) => (isMobile && mobileTab !== k ? 'hidden' : '');
   function toggleRoster() {
     setRosterOpen((v) => !v);
     if (isMobile) setTacticsOpen(false);
@@ -1754,6 +1771,11 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   const selected = selectedShape !== null ? arrows[selectedShape] : undefined;
   // Material y texto comparten el panel de tamaño/giro/duplicar/quitar.
   const selectedIsObject = !!selected && isMovableByPoint(selected.type);
+  // En celular, tocar un objeto puesto abre sus controles (tamaño, giro,
+  // duplicar, quitar): si no, quedan en otra pestaña y no se encuentran.
+  useEffect(() => {
+    if (isMobile && selectedIsObject) setMobileTab('ajustes');
+  }, [isMobile, selectedIsObject, selectedShape]);
   const panelSize = selectedIsObject ? (selected!.size ?? 1) : newObjSize;
   const panelRot = selectedIsObject ? (selected!.rot ?? 0) : newObjRot;
   function setPanelSize(v: number) {
@@ -2145,7 +2167,54 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   className="w-full md:w-[220px] shrink-0 border-t md:border-t-0 md:border-r border-white/10 bg-black/30 backdrop-blur-sm overflow-y-auto overscroll-contain px-3 py-3 space-y-3 order-last md:order-first"
                   style={isMobile ? { height: `${SHEET_VH}vh`, paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' } : undefined}
                 >
-                  <div>
+                  {isMobile && (
+                    // Celular: acciones de siempre fijas arriba + pestañas. Lo de
+                    // abajo muestra solo la sección de la pestaña elegida.
+                    <div className="sticky -top-3 z-10 -mx-3 -mt-3 px-3 pt-3 pb-2 bg-zinc-950/95 border-b border-white/10 space-y-2">
+                      <div className="flex gap-1.5">
+                        <Button
+                          size="sm"
+                          className={`h-9 flex-1 gap-1 text-[11px] px-2 ${drawMode ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-white/5 hover:bg-white/10 text-white border border-white/15'}`}
+                          onClick={() => { setDrawMode((v) => !v); setMeasureMode(false); }}
+                        >
+                          <PenLine className="h-3.5 w-3.5" /> {drawMode ? 'Dibujando' : 'Dibujar'}
+                        </Button>
+                        <Button size="sm" variant="outline" aria-label="Reproducir jugada" title="Reproducir jugada"
+                          className="h-9 w-10 p-0 bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30"
+                          disabled={playingSequence} onClick={handlePlayMovement}>
+                          <Play className="h-4 w-4" />
+                        </Button>
+                        <Button size="sm" variant="outline" aria-label="Deshacer" title="Deshacer"
+                          className="h-9 w-10 p-0 bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30"
+                          disabled={arrows.length === 0} onClick={() => { setArrows((prev) => prev.slice(0, -1)); setSelectedShape(null); }}>
+                          <Undo2 className="h-4 w-4" />
+                        </Button>
+                        <Button size="sm" variant="outline" aria-label="Borrar todo" title="Borrar todo"
+                          className="h-9 w-10 p-0 bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-red-400 disabled:opacity-30"
+                          disabled={arrows.length === 0} onClick={() => { setArrows([]); setSelectedShape(null); }}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      {/* Partes iguales y sin scroll: 6 pestañas entran en 360px. */}
+                      <div className="flex gap-1" role="tablist" aria-label="Herramientas de la pizarra">
+                        {MOBILE_TABS.map((t) => (
+                          <button
+                            key={t.key}
+                            type="button"
+                            role="tab"
+                            aria-selected={mobileTab === t.key}
+                            onClick={() => setMobileTab(t.key)}
+                            className={`flex-1 min-w-0 truncate h-8 px-1 rounded-full text-[11px] font-semibold border ${
+                              mobileTab === t.key ? 'bg-white text-zinc-900 border-white' : 'bg-white/5 border-white/15 text-white/70'
+                            }`}
+                          >
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className={isMobile ? 'hidden' : ''}>
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Pizarra táctica</p>
                     <Button
                       size="sm"
@@ -2172,7 +2241,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     </p>
                   </div>
 
-                  <div>
+                  <div className={tabCls('escribir')}>
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Escribir</p>
                     <div className="flex gap-1.5">
                       {([
@@ -2195,7 +2264,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         </button>
                       ))}
                     </div>
-                    <p className="text-[10px] text-white/40 mt-1 leading-snug">
+                    <p className="hidden md:block text-[10px] text-white/40 mt-1 leading-snug">
                       {drawShapeType === 'text'
                         ? 'Toca la cancha donde va la nota y escribe; Enter la deja puesta.'
                         : drawShapeType === 'eraser'
@@ -2204,7 +2273,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     </p>
                   </div>
 
-                  <div>
+                  <div className={tabCls('lineas')}>
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Líneas</p>
                     <div className="flex gap-1.5">
                       {([
@@ -2228,7 +2297,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     </div>
                   </div>
 
-                  <div>
+                  <div className={tabCls('lineas')}>
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Balón en juego</p>
                     <div className="flex gap-1.5">
                       {(Object.keys(BALL_PATH_LABEL) as BallPathKind[]).map((k) => (
@@ -2246,14 +2315,14 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         </button>
                       ))}
                     </div>
-                    <p className="text-[10px] text-white/40 mt-1 leading-snug">
+                    <p className="hidden md:block text-[10px] text-white/40 mt-1 leading-snug">
                       Arrastra desde donde sale el balón hasta donde llega. En "Reproducir jugada" el balón recorre la línea; remate y penal lo muestran elevándose.
                     </p>
                   </div>
 
-                  <div>
+                  <div className={tabCls('material')}>
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Material</p>
-                    <div className="grid grid-cols-2 gap-1.5">
+                    <div className="grid grid-cols-3 md:grid-cols-2 gap-1.5">
                       {OBJECT_TYPES.map((type) => (
                         <button
                           key={type}
@@ -2274,11 +2343,11 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         </button>
                       ))}
                     </div>
-                    <p className="text-[10px] text-white/40 mt-1 leading-snug">
+                    <p className="hidden md:block text-[10px] text-white/40 mt-1 leading-snug">
                       Un toque en la cancha lo coloca. Arrástralo para moverlo; tócalo para seleccionarlo (tamaño, giro, duplicar, quitar).
                     </p>
                   </div>
-                  <div>
+                  <div className={tabCls('color')}>
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Color</p>
                     <div className="flex flex-wrap gap-2">
                       {(Object.keys(ARROW_COLOR_HEX) as TacticalArrowColor[]).map((c) => (
@@ -2293,12 +2362,12 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         />
                       ))}
                     </div>
-                    <p className="text-[10px] text-white/40 mt-1 leading-snug">
+                    <p className="hidden md:block text-[10px] text-white/40 mt-1 leading-snug">
                       Aplica a líneas, zonas y material. Zonas de distinto color = distintas consignas.
                     </p>
                   </div>
 
-                  <div className="pt-2 border-t border-white/10">
+                  <div className={`pt-2 border-t border-white/10 ${tabCls('ajustes')}`}>
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">
                       {selectedIsObject
                         ? `Seleccionado: ${selected!.type === 'text' ? 'Texto' : OBJECT_LABEL[selected!.type as ObjectType]}`
@@ -2365,7 +2434,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         </>
                       )}
                     </div>
-                    <p className="text-[10px] text-white/40 mt-1 leading-snug">
+                    <p className="hidden md:block text-[10px] text-white/40 mt-1 leading-snug">
                       {selectedIsObject && selected!.type === 'text'
                         ? 'Arrástralo para moverlo; tócalo de nuevo para cambiar lo que dice; la × lo quita.'
                         : selectedIsObject
@@ -2374,7 +2443,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     </p>
                   </div>
 
-                  <div className="flex gap-1.5">
+                  <div className={`flex gap-1.5 ${isMobile ? 'hidden' : ''}`}>
                     <Button
                       size="sm"
                       variant="outline"
@@ -2398,7 +2467,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     {arrows.length} {arrows.length === 1 ? 'figura' : 'figuras'} · se guardan junto con la plantilla.
                   </p>
 
-                  <div className="pt-2 border-t border-white/10">
+                  <div className={`pt-2 border-t border-white/10 ${tabCls('medir')}`}>
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Medir distancia</p>
                     <Button
                       size="sm"
@@ -2419,7 +2488,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       />
                       <span className="text-[10px] text-white/50">m</span>
                     </div>
-                    <p className="text-[10px] text-white/40 mt-1 leading-snug">
+                    <p className="hidden md:block text-[10px] text-white/40 mt-1 leading-snug">
                       Toca 2 puntos en la cancha. Aproximado -- calculado a partir del largo que pongas arriba, no del tamaño real de tu cancha.
                     </p>
                   </div>
