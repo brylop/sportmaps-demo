@@ -8,7 +8,7 @@
  * mouse+touch, sin el comportamiento errático de HTML5 DnD dentro de
  * WebViews de Capacitor (D7).
  */
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { flushSync } from 'react-dom';
 import {
   DndContext,
@@ -36,6 +36,7 @@ import { Loader2, X, Bookmark, Trash2, Eye, EyeOff, ChevronUp, ChevronDown, PenL
 import { useToast } from '@/hooks/use-toast';
 import { useTeamPerformanceRoster } from '@/hooks/usePerformanceData';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   useFootballLineups,
   useFootballLineup,
@@ -294,6 +295,9 @@ type DrawTool = TacticalShapeType | 'eraser';
 /** Figuras que se mueven enteras con un punto (x1/y1 = x2/y2) y se
  *  seleccionan con un toque: el material y el texto. */
 const isMovableByPoint = (t: TacticalShapeType | undefined) => isPointShape(t) || t === 'text';
+
+/** Alto de la hoja inferior (Pizarra / Plantilla) en celular, en vh. */
+const SHEET_VH = 42;
 
 /** Radio del borrador en % de cancha. */
 const ERASER_RADIUS = 2.6;
@@ -1095,6 +1099,25 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   const { data: seasonStats } = useFootballSeasonStats(teamId);
 
   const pitchRef = useRef<HTMLDivElement>(null);
+  // Espacio REAL que le queda a la cancha (caja de contenido del área, sin
+  // padding). Antes se restaba a ojo el alto del toolbar ("100vh - 90px") y en
+  // celular, con el toolbar en 3 filas, safe-area y la hoja inferior, la
+  // cancha se salía y quedaba cortada arriba y abajo.
+  // Callback ref (no useEffect): el área se monta recién cuando termina de
+  // cargar el roster, y así el observer nace y muere con el nodo.
+  const [pitchArea, setPitchArea] = useState<{ w: number; h: number } | null>(null);
+  const pitchAreaObserver = useRef<ResizeObserver | null>(null);
+  const pitchAreaRef = useCallback((el: HTMLDivElement | null) => {
+    pitchAreaObserver.current?.disconnect();
+    pitchAreaObserver.current = null;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      setPitchArea((prev) => (prev && prev.w === width && prev.h === height ? prev : { w: width, h: height }));
+    });
+    ro.observe(el);
+    pitchAreaObserver.current = ro;
+  }, []);
   const [placed, setPlaced] = useState<Record<string, PlacedSlot>>({});
   const [benchKeys, setBenchKeys] = useState<Set<string>>(new Set());
   const [initialized, setInitialized] = useState(false);
@@ -1114,6 +1137,19 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   // Modo pizarra (P2d) -- flechas/curvas/zonas, viajan con la plantilla
   // guardada (D8 extendido: mismo mecanismo de "Guardar como plantilla").
   const [tacticsOpen, setTacticsOpen] = useState(false);
+  // Celular (<768px): Pizarra y Plantilla salen como hoja inferior debajo de
+  // la cancha, no al costado (un panel de 220-260px al lado de una cancha en
+  // 390px de ancho no cabe). Solo una hoja abierta a la vez.
+  const isMobile = useIsMobile();
+  const sheetOpen = isMobile && (tacticsOpen || rosterOpen);
+  function toggleTactics() {
+    setTacticsOpen((v) => !v);
+    if (isMobile) setRosterOpen(false);
+  }
+  function toggleRoster() {
+    setRosterOpen((v) => !v);
+    if (isMobile) setTacticsOpen(false);
+  }
   const [drawMode, setDrawMode] = useState(false);
   const [drawShapeType, setDrawShapeType] = useState<DrawTool>('arrow');
   const [arrows, setArrows] = useState<TacticalArrow[]>([]);
@@ -1789,7 +1825,14 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
         {/* Un solo toolbar compacto -- reemplaza lo que antes eran 2 barras
             (encabezado + controles) más el footer de guardar/cancelar. */}
-        <div className="px-3 sm:px-4 py-1.5 flex flex-wrap items-center gap-1.5 border-b border-white/10 bg-black/30 shrink-0">
+        {/* paddingTop con safe-area: en iPhone el diálogo ocupa la pantalla
+            entera y sin esto la primera fila queda debajo del reloj/notch
+            (no se podía tocar "Pizarra"). pr-12 en celular: la X del Dialog
+            (absolute, también bajo safe-area) cae sobre la primera fila. */}
+        <div
+          className="pl-3 pr-12 md:px-4 pb-1.5 flex flex-wrap items-center gap-1.5 border-b border-white/10 bg-black/30 shrink-0"
+          style={{ paddingTop: 'max(0.375rem, env(safe-area-inset-top))' }}
+        >
           <span className="text-xs font-bold text-white/80 truncate max-w-[110px] sm:max-w-none mr-1" title={teamName}>
             {teamName}
           </span>
@@ -1918,7 +1961,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 size="sm"
                 variant={tacticsOpen ? 'default' : 'ghost'}
                 className={`h-7 gap-1 text-[11px] px-2 ${tacticsOpen ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'text-white/60 hover:text-white hover:bg-white/10'}`}
-                onClick={() => setTacticsOpen((v) => !v)}
+                onClick={toggleTactics}
                 title="Pizarra táctica: dibujar flechas de movimiento"
               >
                 <PenLine className="h-3.5 w-3.5" />
@@ -1935,7 +1978,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 size="sm"
                 variant="outline"
                 className="h-7 gap-1 text-[11px] px-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
-                onClick={() => setRosterOpen((v) => !v)}
+                onClick={toggleRoster}
               >
                 {rosterOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
                 Plantilla ({availableSubjects.length + benchKeys.size})
@@ -1967,8 +2010,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 tapa la cancha por abajo. El lado izquierdo se deja libre a
                 propósito (futuro panel de tácticas), sin agregar nada ahí
                 todavía para no saturar la pantalla. */}
-            <div className="flex-1 min-h-0 flex flex-row overflow-hidden">
-              <div className="relative flex-1 min-h-0 flex items-center justify-center px-3 sm:px-6 py-3 overflow-hidden">
+            <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
+              <div ref={pitchAreaRef} className="relative flex-1 min-h-0 flex items-center justify-center px-3 sm:px-6 py-3 overflow-hidden">
                 {/* Ancho = alto de pantalla menos el toolbar (~90px) convertido
                     a ancho según la proporción de la cancha (300/340), topado
                     en 580px. El 100% final del min() ya cubre el caso de que
@@ -1992,7 +2035,12 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     // Ancho: alto disponible convertido a ancho por esa proporción,
                     // topado (más ancho en zoom: la ventana es apaisada).
                     aspectRatio: `300 / ${(view.y1 - view.y0) * 3.4}`,
-                    width: `min(${gkZoom ? 760 : 580}px, calc((100vh - 90px) * 300 / ${(view.y1 - view.y0) * 3.4}), 100%)`,
+                    // Con el área medida: el ancho que entra a lo ancho Y a lo
+                    // alto (alto disponible × proporción). Antes de medir (primer
+                    // render) cae a la fórmula vieja.
+                    width: pitchArea
+                      ? `${Math.max(120, Math.floor(Math.min(gkZoom ? 760 : 580, pitchArea.w, pitchArea.h * 300 / ((view.y1 - view.y0) * 3.4))))}px`
+                      : `min(${gkZoom ? 760 : 580}px, calc((100vh - 90px) * 300 / ${(view.y1 - view.y0) * 3.4}), 100%)`,
                   }}
                 >
                   <FootballPitchBackground viewBox={viewBoxOf(view)} />
@@ -2070,7 +2118,10 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   toolbar. Todo pasa dentro del mismo modal del tablero, sin
                   vistas aparte. */}
               {tacticsOpen && (
-                <div className="w-[220px] shrink-0 border-r border-white/10 bg-black/30 backdrop-blur-sm overflow-y-auto px-3 py-3 space-y-3 order-first">
+                <div
+                  className="w-full md:w-[220px] shrink-0 border-t md:border-t-0 md:border-r border-white/10 bg-black/30 backdrop-blur-sm overflow-y-auto overscroll-contain px-3 py-3 space-y-3 order-last md:order-first"
+                  style={isMobile ? { height: `${SHEET_VH}vh`, paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' } : undefined}
+                >
                   <div>
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Pizarra táctica</p>
                     <Button
@@ -2357,7 +2408,10 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   botón "Plantilla" del toolbar; el usuario decide si lo deja
                   visible todo el tiempo o lo oculta. */}
               {rosterOpen && (
-                <div className="w-[260px] shrink-0 border-l border-white/10 bg-black/30 backdrop-blur-sm overflow-y-auto px-3 py-3 space-y-3">
+                <div
+                  className="w-full md:w-[260px] shrink-0 border-t md:border-t-0 md:border-l border-white/10 bg-black/30 backdrop-blur-sm overflow-y-auto overscroll-contain px-3 py-3 space-y-3"
+                  style={isMobile ? { height: `${SHEET_VH}vh`, paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' } : undefined}
+                >
                   <div>
                     <Button
                       size="sm"

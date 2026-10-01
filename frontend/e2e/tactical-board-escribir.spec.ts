@@ -159,3 +159,50 @@ test('con el dedo, encima del material: rayar, escribir y borrar', async ({ page
     await expect.poll(countOf).toBe(0);
     await page.screenshot({ path: 'e2e/screenshots/pizarra-dedo-02-borrado.png' });
 });
+
+test.describe('en celular (iPhone 14)', () => {
+    // Pantalla y toque del iPhone en Chromium (el WebKit de Playwright no está
+    // instalado). env(safe-area-inset-*) da 0 acá: el notch se valida a mano.
+    const { defaultBrowserType: _ignored, ...iphone } = devices['iPhone 14'];
+    test.use(iphone);
+
+    test('el toolbar se ve, la pizarra abre como hoja inferior y la cancha cabe encima', async ({ page }) => {
+        test.setTimeout(120_000);
+        await openBoard(page);
+        const vp = page.viewportSize()!;
+
+        // "Pizarra" quedó tocable dentro de la pantalla.
+        const pizarraBtn = page.getByRole('button', { name: /^Pizarra/ });
+        const b = (await pizarraBtn.boundingBox())!;
+        expect(b.y).toBeGreaterThanOrEqual(0);
+        expect(b.x + b.width).toBeLessThanOrEqual(vp.width);
+
+        // La hoja va DEBAJO de la cancha y la cancha entera queda visible encima.
+        const tools = page.getByRole('button', { name: 'Lápiz' });
+        await expect(tools).toBeInViewport();
+        // El recuadro verde entero dentro de su área visible (que corta con
+        // overflow-hidden): antes la cancha se salía y quedaba sin arcos.
+        const pitchEl = drawLayer(page).locator('..');
+        const pitch = (await pitchEl.boundingBox())!;
+        const area = (await pitchEl.locator('..').boundingBox())!;
+        const toolbarBottom = b.y + b.height;
+        const sheetTop = (await page.getByText('Pizarra táctica', { exact: true }).boundingBox())!.y;
+        expect(pitch.y).toBeGreaterThanOrEqual(area.y);
+        expect(pitch.y).toBeGreaterThan(toolbarBottom);
+        expect(pitch.y + pitch.height).toBeLessThanOrEqual(area.y + area.height + 0.5);
+        expect(pitch.y + pitch.height).toBeLessThanOrEqual(sheetTop);
+        expect(pitch.width).toBeGreaterThan(vp.width * 0.4);
+        await page.screenshot({ path: 'e2e/screenshots/pizarra-iphone-01-hoja.png' });
+
+        // Rayar con el dedo sobre la cancha visible.
+        await tools.click();
+        const figuras = page.getByText(/^\d+ figuras? · se guardan/);
+        await fingerDrag(page, drawLayer(page), [0.2, 0.3], [0.8, 0.6]);
+        await expect(figuras).toHaveText(/^1 figura/);
+        await page.screenshot({ path: 'e2e/screenshots/pizarra-iphone-02-trazo.png' });
+
+        // Abrir Plantilla cierra la Pizarra (una sola hoja a la vez).
+        await page.getByRole('button', { name: /^Plantilla \(/ }).click();
+        await expect(page.getByRole('button', { name: 'Lápiz' })).toHaveCount(0);
+    });
+});
