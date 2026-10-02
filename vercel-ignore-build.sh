@@ -54,16 +54,30 @@ fi
 # opción haría que el filtro no encuentre nunca nada y cancele TODOS los builds.
 PATHS=(":/frontend" ":/vercel.json" ":/vercel-ignore-build.sh" ":/.vercelignore")
 
-# Sin padre alcanzable (clon superficial, primer commit de la rama) no hay con qué
-# comparar. Se construye: lo caro es NO desplegar un cambio real, no un build de más.
-if ! git rev-parse --verify --quiet "HEAD^" >/dev/null 2>&1; then
-  echo "⚠️  Sin commit padre alcanzable para comparar. Se construye por precaución."
+# Contra qué se compara: el ÚLTIMO DESPLIEGUE de esta rama (VERCEL_GIT_PREVIOUS_SHA),
+# no HEAD^. Con HEAD^, un push de varios commits solo miraba la punta: el 2026-10-02 un
+# push a main de 3 commits (frontend en el del medio, solo bff/docs en la punta) canceló
+# el build y el cambio de frontend nunca llegó a producción.
+BASE=""
+if [ -n "${VERCEL_GIT_PREVIOUS_SHA:-}" ]; then
+  if git cat-file -e "${VERCEL_GIT_PREVIOUS_SHA}^{commit}" 2>/dev/null; then
+    BASE="${VERCEL_GIT_PREVIOUS_SHA}"
+  else
+    # Clon superficial: el último despliegue quedó fuera del historial descargado.
+    echo "⚠️  Último despliegue (${VERCEL_GIT_PREVIOUS_SHA}) fuera del clon. Se construye por precaución."
+    exit 1
+  fi
+elif git rev-parse --verify --quiet "HEAD^" >/dev/null 2>&1; then
+  # Sin despliegue previo conocido: el padre (en un merge, el primer padre = lo que la
+  # rama tenía antes, así que cubre toda la promoción).
+  BASE="HEAD^"
+else
+  # Sin nada con qué comparar se construye: lo caro es NO desplegar un cambio real.
+  echo "⚠️  Sin commit base alcanzable para comparar. Se construye por precaución."
   exit 1
 fi
 
-# En un merge, HEAD^ es el primer padre — el commit que la rama tenía antes —, así que
-# el diff cubre todo lo que trajo la promoción, no solo la punta.
-if git diff --quiet "HEAD^" HEAD -- "${PATHS[@]}"; then
+if git diff --quiet "$BASE" HEAD -- "${PATHS[@]}"; then
   echo "🚫 Este commit no toca frontend/ ni la config de despliegue. Build cancelado."
   exit 0
 fi
