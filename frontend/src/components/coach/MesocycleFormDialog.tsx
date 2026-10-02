@@ -13,6 +13,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Calendar, CalendarRange } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { suggestEnd } from '@/lib/school/mesocyclePlanning';
 
 /** Encabezado + objetivo del mesociclo (Excel "MESOCICLO C.C.C.", Club Carmel).
  *  `evaluation_mode` es la decisión D12: el coach elige, por mesociclo, si la
@@ -47,6 +48,11 @@ interface MesocycleFormDialogProps {
   teamId: string;
   isLoading?: boolean;
   mesocycle?: any;
+  /** Solo al crear: fecha de inicio propuesta (el día después del último). */
+  suggestedStart?: string;
+  /** Solo al crear: mesociclo del que se heredan modelo de juego, sesiones
+   *  planeadas, duración y modo de evaluación (no fechas ni objetivo). */
+  template?: any;
 }
 
 export function MesocycleFormDialog({
@@ -56,6 +62,8 @@ export function MesocycleFormDialog({
   teamId,
   isLoading,
   mesocycle = null,
+  suggestedStart,
+  template,
 }: MesocycleFormDialogProps) {
   const form = useForm<MesocycleFormData>({
     resolver: zodResolver(mesocycleSchema),
@@ -84,16 +92,19 @@ export function MesocycleFormDialog({
         });
       } else {
         form.reset({
-          starts_on: '',
-          ends_on: '',
-          n_sessions_planned: '',
-          session_duration_minutes: '',
+          starts_on: suggestedStart ?? '',
+          ends_on: suggestedStart ? suggestEnd(suggestedStart) : '',
+          n_sessions_planned: template?.n_sessions_planned != null ? String(template.n_sessions_planned) : '',
+          session_duration_minutes: template?.session_duration_minutes != null ? String(template.session_duration_minutes) : '',
           general_objective: '',
-          game_model: '',
-          evaluation_mode: 'team',
+          game_model: template?.game_model ?? '',
+          evaluation_mode: template?.evaluation_mode ?? 'team',
         });
       }
     }
+    // suggestedStart/template se leen solo al abrir: no deben pisar lo que
+    // el coach ya escribió si cambian mientras el diálogo está abierto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, mesocycle, form]);
 
   const handleSubmit = (data: MesocycleFormData) => {

@@ -33,6 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { dayToLocalDate } from '@/lib/dateUtils';
 
 export default function TrainingPlansPage() {
   const { user } = useAuth();
@@ -425,7 +426,7 @@ export default function TrainingPlansPage() {
                           <div className="flex items-center gap-2">
                             <Calendar className="w-5 h-5 text-primary" />
                             <CardTitle className="text-lg">
-                              {new Date(session.session_date).toLocaleDateString('es-CO', {
+                              {dayToLocalDate(session.session_date).toLocaleDateString('es-CO', {
                                 weekday: 'long',
                                 day: 'numeric',
                                 month: 'long',

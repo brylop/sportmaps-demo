@@ -8,6 +8,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { useToast } from '@/hooks/use-toast';
 import { CalendarRange, ClipboardList } from 'lucide-react';
 import { SessionFormDialog } from './SessionFormDialog';
+import { dayToLocalDate } from '@/lib/dateUtils';
 
 const DAY_TYPE_LABEL: Record<string, string> = {
   descanso: 'Descanso',
@@ -143,9 +144,9 @@ export function StandaloneMicrocyclesPanel({ teamId, schoolId, sessions, isFootb
                 <span className="flex items-center gap-2">
                   <span className="font-semibold">{mc.objective || 'Semana suelta'}</span>
                   <span className="text-xs text-muted-foreground font-normal">
-                    {new Date(mc.starts_on).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
+                    {dayToLocalDate(mc.starts_on).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
                     {' – '}
-                    {new Date(mc.ends_on).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
+                    {dayToLocalDate(mc.ends_on).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
                   </span>
                 </span>
               </AccordionTrigger>
@@ -157,7 +158,7 @@ export function StandaloneMicrocyclesPanel({ teamId, schoolId, sessions, isFootb
                       <div className="flex items-center justify-between gap-2 p-2 text-sm">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-xs text-muted-foreground w-16 shrink-0">
-                            {new Date(day.day_date).toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric' })}
+                            {dayToLocalDate(day.day_date).toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric' })}
                           </span>
                           <Badge variant="outline" className={`text-[10px] h-5 shrink-0 ${DAY_TYPE_BADGE[day.day_type] || ''}`}>
                             {DAY_TYPE_LABEL[day.day_type] || day.day_type}

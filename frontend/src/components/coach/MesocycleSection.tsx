@@ -23,7 +23,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Calendar, CalendarRange, ClipboardList, Copy, Pencil, Plus, Star, Target, Trash2 } from 'lucide-react';
+import { Calendar, CalendarRange, ClipboardList, Copy, Link2, Pencil, Plus, Star, Target, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { MesocycleFormDialog, type MesocycleFormSubmit } from './MesocycleFormDialog';
@@ -33,6 +33,12 @@ import { WeeklyLoadPanel } from './WeeklyLoadPanel';
 import { MicrocycleLoadPanel } from './MicrocycleLoadPanel';
 import { StandaloneMicrocyclesPanel } from './StandaloneMicrocyclesPanel';
 import { MesocycleExportButton } from './MesocycleExportButton';
+import { dayToLocalDate, todayColombia } from '@/lib/dateUtils';
+import { datesBetween, pickDefaultMesocycle, placeLooseSessions, suggestNextStart } from '@/lib/school/mesocyclePlanning';
+
+/** 'YYYY-MM-DD' → texto en es-CO SIN correrse un día (ver dayToLocalDate). */
+const fmtDay = (iso: string, opts: Intl.DateTimeFormatOptions) => dayToLocalDate(iso).toLocaleDateString('es-CO', opts);
+const SHORT: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
 
 const DAY_TYPE_OPTIONS = [
   { value: 'entrenamiento', label: 'Entrenamiento' },
@@ -80,6 +86,10 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
   // Día para el que se está creando la sesión de contenido (SessionFormDialog, sin tocar el componente).
   const [sessionDialogDay, setSessionDialogDay] = useState<any | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Mesociclo elegido en el selector (null = el de por defecto) y si el
+  // formulario abre para editar el actual o para crear el siguiente.
+  const [selectedMesoId, setSelectedMesoId] = useState<string | null>(null);
+  const [formMode, setFormMode] = useState<'edit' | 'create'>('edit');
   // Objeto ESTABLE para el prop `session` de SessionFormDialog: si en vez de esto
   // se arma un literal `{ session_date: ... }` inline en el JSX, cambia de
   // referencia en CADA render de MesocycleSection (no solo cuando cambia el día
@@ -103,25 +113,33 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
     [sessionDialogDay],
   );
 
-  const { data: mesocycle, isLoading: loadingMesocycle } = useQuery({
-    queryKey: ['mesocycle-current', teamId],
+  // TODOS los mesociclos del equipo. Antes se traía solo el más reciente y
+  // no había forma de crear el siguiente: un equipo con septiembre no podía
+  // armar octubre sin borrarlo (Carmel, 2026-10-02). Ahora se elige en un
+  // selector y "Nuevo mesociclo" arranca el día después del último.
+  const { data: mesocycles, isLoading: loadingMesocycle } = useQuery({
+    queryKey: ['mesocycles', teamId],
     queryFn: async () => {
-      // El más reciente del equipo, sin exigir que "hoy" caiga dentro del
-      // rango — un mesociclo recién creado (o uno futuro, planeado con
-      // anticipación) tiene que aparecer igual, no solo el que está "activo
-      // hoy" en el calendario.
       const { data, error } = await (supabase as any)
         .from('training_mesocycles')
         .select('*')
         .eq('team_id', teamId)
-        .order('starts_on', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .order('starts_on', { ascending: false });
       if (error) throw error;
-      return data;
+      return (data || []) as any[];
     },
     enabled: !!teamId,
   });
+  // Por defecto: el que contiene hoy, si no el próximo, si no el último.
+  const mesocycle = useMemo(() => {
+    const list = mesocycles || [];
+    return list.find((m) => m.id === selectedMesoId) ?? pickDefaultMesocycle(list, todayColombia());
+  }, [mesocycles, selectedMesoId]);
+  /** TrainingPlansPage lee 'mesocycle-current' para ocultar la lista suelta. */
+  const invalidateMesocycles = () => {
+    queryClient.invalidateQueries({ queryKey: ['mesocycles', teamId] });
+    invalidateMesocycles();
+  };
 
   const { data: microcycles } = useQuery({
     queryKey: ['microcycles', mesocycle?.id],
@@ -189,6 +207,14 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
     return m;
   }, [sessions]);
 
+  // Sesiones sin día (creadas antes del mesociclo o sueltas): con mesociclo
+  // la lista plana se oculta y quedaban guardadas pero invisibles. Las que
+  // caen en una semana se muestran en su fecha con "Enganchar".
+  const loose = useMemo(
+    () => placeLooseSessions(sessions, microcycles || []),
+    [sessions, microcycles],
+  );
+
   const createMesocycle = useMutation({
     mutationFn: async (input: MesocycleFormSubmit) => {
       // RPC transaccional (mesociclo + sus 4 semanas en la MISMA transacción
@@ -211,8 +237,9 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
 
       return newMesocycle;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['mesocycle-current', teamId] });
+    onSuccess: (newMesocycle: any) => {
+      invalidateMesocycles();
+      if (newMesocycle?.id) setSelectedMesoId(newMesocycle.id);
       toast({ title: '✅ Mesociclo creado', description: 'Semanas generadas automáticamente.' });
       setFormOpen(false);
     },
@@ -228,7 +255,7 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['mesocycle-current', teamId] });
+      invalidateMesocycles();
       toast({ title: '✅ Mesociclo actualizado' });
       setFormOpen(false);
     },
@@ -251,7 +278,8 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['mesocycle-current', teamId] });
+      invalidateMesocycles();
+      setSelectedMesoId(null);
       toast({ title: 'Mesociclo eliminado' });
       setConfirmDelete(false);
     },
@@ -277,6 +305,57 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
       setNewDay({ day_date: '', day_type: 'entrenamiento', planned_rpe: '', planned_minutes: '', focus: '' });
     },
     onError: (error: any) => toast({ title: 'Error al agregar el día', description: error.message, variant: 'destructive' }),
+  });
+
+  // "+ Crear sesión" en un día que todavía no existe en la semana: crea el
+  // día (entrenamiento) y abre el formulario de sesión ya sobre él. Son dos
+  // escrituras, pero un día sin sesión es un estado válido (no deja nada
+  // huérfano si el coach cancela el formulario).
+  const createDayForSession = useMutation({
+    mutationFn: async ({ microcycleId, date }: { microcycleId: string; date: string }) => {
+      const { data, error } = await (supabase as any)
+        .from('training_microcycle_days')
+        .insert({ school_id: schoolId, microcycle_id: microcycleId, day_date: date, day_type: 'entrenamiento' })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (day: any) => {
+      queryClient.invalidateQueries({ queryKey: ['microcycle-days', mesocycle?.id] });
+      setSessionDialogDay(day);
+    },
+    onError: (error: any) => toast({ title: 'No se pudo abrir el día', description: error.message, variant: 'destructive' }),
+  });
+
+  // Enganchar una sesión suelta al día de su fecha (creándolo si no existe).
+  // El UPDATE exige microcycle_day_id nulo: si otra pestaña ya la enganchó,
+  // no la mueve.
+  const linkLooseSession = useMutation({
+    mutationFn: async ({ sessionId, microcycleId, date, dayId }: { sessionId: string; microcycleId: string; date: string; dayId?: string }) => {
+      let targetDayId = dayId;
+      if (!targetDayId) {
+        const { data, error } = await (supabase as any)
+          .from('training_microcycle_days')
+          .insert({ school_id: schoolId, microcycle_id: microcycleId, day_date: date, day_type: 'entrenamiento' })
+          .select('id')
+          .single();
+        if (error) throw error;
+        targetDayId = data.id;
+      }
+      const { error } = await (supabase as any)
+        .from('training_sessions')
+        .update({ microcycle_day_id: targetDayId })
+        .eq('id', sessionId)
+        .is('microcycle_day_id', null);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['microcycle-days', mesocycle?.id] });
+      queryClient.invalidateQueries({ queryKey: ['training-sessions', teamId] });
+      toast({ title: '✅ Sesión enganchada a su día' });
+    },
+    onError: (error: any) => toast({ title: 'No se pudo enganchar la sesión', description: error.message, variant: 'destructive' }),
   });
 
   // PER-4 (spec §4 F4): duplicar la semana anterior como punto de partida
@@ -360,7 +439,7 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['mesocycle-current', teamId] });
+      invalidateMesocycles();
       toast({ title: '✅ Cierre del mesociclo guardado' });
     },
     onError: (error: any) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
@@ -399,6 +478,7 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
           onSubmit={(data) => createMesocycle.mutate(data)}
           teamId={teamId}
           isLoading={createMesocycle.isPending}
+          suggestedStart={todayColombia()}
         />
       </>
     );
@@ -410,14 +490,28 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
     <div className="space-y-4">
       <Card className="border-border/40 bg-background/50 backdrop-blur-sm shadow-sm">
         <CardHeader className="pb-3">
-          <div className="flex items-start justify-between gap-2">
+          <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <CardTitle className="text-base font-bold flex items-center gap-2">
                 <CalendarRange className="w-4 h-4 text-primary" />
-                Mesociclo — {new Date(mesocycle.starts_on).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
+                Mesociclo — {fmtDay(mesocycle.starts_on, SHORT)}
                 {' → '}
-                {new Date(mesocycle.ends_on).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
+                {fmtDay(mesocycle.ends_on, SHORT)}
               </CardTitle>
+              {(mesocycles?.length ?? 0) > 1 && (
+                <Select value={mesocycle.id} onValueChange={setSelectedMesoId}>
+                  <SelectTrigger className="h-8 w-56 mt-2 text-xs" aria-label="Ver otro mesociclo">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(mesocycles || []).map((m: any) => (
+                      <SelectItem key={m.id} value={m.id} className="text-xs">
+                        {fmtDay(m.starts_on, SHORT)} → {fmtDay(m.ends_on, { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               {mesocycle.general_objective && (
                 <CardDescription className="mt-1 flex items-start gap-1.5">
                   <Target className="w-3.5 h-3.5 mt-0.5 shrink-0" />
@@ -425,9 +519,13 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                 </CardDescription>
               )}
             </div>
-            <div className="flex gap-1.5 shrink-0">
+            <div className="flex flex-wrap gap-1.5 w-full sm:w-auto sm:justify-end">
+              <Button size="sm" className="gap-1.5" onClick={() => { setFormMode('create'); setFormOpen(true); }}>
+                <Plus className="w-3.5 h-3.5" />
+                Nuevo mesociclo
+              </Button>
               <MesocycleExportButton mesocycleId={mesocycle.id} mesocycle={mesocycle} teamName={teamName || 'Equipo'} />
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setFormOpen(true)}>
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { setFormMode('edit'); setFormOpen(true); }}>
                 <Pencil className="w-3.5 h-3.5" />
                 Editar
               </Button>
@@ -470,9 +568,9 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                   <span className="flex items-center gap-2">
                     <span className="font-semibold">Semana {idx + 1}</span>
                     <span className="text-xs text-muted-foreground font-normal">
-                      {new Date(mc.starts_on).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
+                      {fmtDay(mc.starts_on, SHORT)}
                       {' – '}
-                      {new Date(mc.ends_on).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
+                      {fmtDay(mc.ends_on, SHORT)}
                     </span>
                     {trainingDays.length > 0 && (
                       <Badge variant="outline" className="text-[10px] h-5 shrink-0">
@@ -483,7 +581,54 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                 </AccordionTrigger>
                 <AccordionContent className="space-y-3">
                   <div className="space-y-1.5">
-                    {mcDays.map((day: any) => {
+                    {datesBetween(mc.starts_on, mc.ends_on).map((date) => {
+                      const day = mcDays.find((d: any) => d.day_date === date);
+                      const looseHere = loose.byDate.get(date) || [];
+                      const looseRows = looseHere.map((session: any) => (
+                        <div key={session.id} className="flex items-center gap-2 px-2 py-1.5 text-xs border-t bg-amber-500/5">
+                          <ClipboardList className="w-3 h-3 text-amber-600 shrink-0" />
+                          <button type="button" className="truncate text-left text-muted-foreground hover:underline flex-1 min-w-0" onClick={() => onEditSession(session)}>
+                            {session.objectives || 'Sesión sin objetivo'}
+                          </button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-2 text-[11px] gap-1 shrink-0"
+                            disabled={linkLooseSession.isPending}
+                            onClick={() => linkLooseSession.mutate({ sessionId: session.id, microcycleId: mc.id, date, dayId: day?.id })}
+                            title="Esta sesión se guardó sin día del mesociclo: engancharla la deja en esta semana"
+                          >
+                            <Link2 className="w-3 h-3" /> Enganchar
+                          </Button>
+                        </div>
+                      ));
+                      if (!day) {
+                        // Día sin planear: se ve igual, con su botón. Antes la
+                        // semana solo mostraba los días ya cargados y "Sin días
+                        // cargados" — el coach no encontraba cómo crear la
+                        // sesión del domingo (Carmel, arqueros, 2026-10-02).
+                        return (
+                          <div key={date} className="rounded-md border border-dashed overflow-hidden">
+                            <div className="flex items-center justify-between gap-2 p-2 text-sm">
+                              <span className="text-xs text-muted-foreground w-16 shrink-0 capitalize">
+                                {fmtDay(date, { weekday: 'short', day: 'numeric' })}
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-[11px] gap-1"
+                                disabled={createDayForSession.isPending}
+                                onClick={() => createDayForSession.mutate({ microcycleId: mc.id, date })}
+                              >
+                                <Plus className="w-3 h-3" />
+                                Crear sesión
+                              </Button>
+                            </div>
+                            {looseRows}
+                          </div>
+                        );
+                      }
+                      return (() => {
                       // Un día admite cualquier cantidad de sesiones (§8.2 —
                       // ej. gimnasio AM + cancha PM), no una sola.
                       const daySessions = sessionsByDayId.get(day.id) || [];
@@ -503,8 +648,8 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                         <div key={day.id} className="rounded-md border overflow-hidden">
                           <div className="flex items-center justify-between gap-2 p-2 text-sm">
                             <div className="flex items-center gap-2 min-w-0">
-                              <span className="text-xs text-muted-foreground w-16 shrink-0">
-                                {new Date(day.day_date).toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric' })}
+                              <span className="text-xs text-muted-foreground w-16 shrink-0 capitalize">
+                                {fmtDay(day.day_date, { weekday: 'short', day: 'numeric' })}
                               </span>
                               <Badge variant="outline" className={`text-[10px] h-5 shrink-0 ${DAY_TYPE_BADGE[day.day_type] || ''}`}>
                                 {DAY_TYPE_LABEL[day.day_type] || day.day_type}
@@ -550,12 +695,11 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                               <span className="truncate text-muted-foreground">{session.objectives}</span>
                             </div>
                           ))}
+                          {looseRows}
                         </div>
                       );
+                      })();
                     })}
-                    {mcDays.length === 0 && (
-                      <p className="text-xs text-muted-foreground italic py-2">Sin días cargados en esta semana.</p>
-                    )}
 
                     {addingDayFor === mc.id ? (
                       <div className="flex flex-wrap items-end gap-2 p-2 rounded-md border bg-muted/30">
@@ -690,6 +834,30 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
         </Accordion>
       )}
 
+      {loose.outside.length > 0 && (
+        // Sesiones sueltas fuera de este mesociclo (de otro mes, o de antes de
+        // planificar). Antes no se veían en ningún lado con mesociclo creado.
+        <Card className="border-dashed">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Sesiones sin semana ({loose.outside.length})</CardTitle>
+            <CardDescription className="text-xs">Guardadas sin día de mesociclo. Ábrelas para revisarlas o cambiarles la fecha.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {[...loose.outside].sort((a: any, b: any) => b.session_date.localeCompare(a.session_date)).map((session: any) => (
+              <button
+                key={session.id}
+                type="button"
+                onClick={() => onEditSession(session)}
+                className="w-full flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs text-left hover:bg-accent/40"
+              >
+                <span className="w-24 shrink-0 text-muted-foreground capitalize">{fmtDay(session.session_date, { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+                <span className="truncate">{session.objectives || 'Sesión sin objetivo'}</span>
+              </button>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="border-border/40 bg-background/50 backdrop-blur-sm shadow-sm">
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-bold flex items-center gap-2">
@@ -737,10 +905,14 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
       <MesocycleFormDialog
         open={formOpen}
         onOpenChange={setFormOpen}
-        onSubmit={(data) => (mesocycle ? updateMesocycle.mutate(data) : createMesocycle.mutate(data))}
+        onSubmit={(data) => (formMode === 'edit' ? updateMesocycle.mutate(data) : createMesocycle.mutate(data))}
         teamId={teamId}
         isLoading={createMesocycle.isPending || updateMesocycle.isPending}
-        mesocycle={mesocycle}
+        mesocycle={formMode === 'edit' ? mesocycle : null}
+        // Nuevo: arranca el día después del último y hereda modelo de juego,
+        // sesiones planeadas y duración del actual (el coach los ajusta).
+        suggestedStart={formMode === 'create' ? suggestNextStart(mesocycles || [], todayColombia()) : undefined}
+        template={formMode === 'create' ? mesocycle : undefined}
       />
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>

@@ -5,6 +5,7 @@ import { Trophy, Calendar, Trash2, Clock, MinusCircle } from 'lucide-react';
 import { useCompetitionResults, useDeleteCompetitionResult } from '@/hooks/useCompetitionResults';
 import type { CompetitionResult, MatchResult } from '@/lib/school/competitionResultsQueries';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { dayToLocalDate } from '@/lib/dateUtils';
 
 interface CompetitionResultsListProps {
   teamId: string;
@@ -84,7 +85,7 @@ export function CompetitionResultsList({ teamId }: CompetitionResultsListProps) 
                 )}
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Calendar className="h-3 w-3" />
-                  {new Date(r.competition_date).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  {dayToLocalDate(r.competition_date).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}
                 </div>
                 <SetsRow result={r} />
                 {r.notes && <p className="text-xs italic text-muted-foreground pt-1">{r.notes}</p>}
