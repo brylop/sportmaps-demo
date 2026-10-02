@@ -1,9 +1,8 @@
 /**
  * Contenido para el Centro de Ayuda / Sportbot (`bff/src/data/help-articles.ts`)
  * que acompaña al manual `docs/manuales/academias/informe-mensual-besser.pdf`.
- * NO está aplicado — snippet listo para pegar (política de
- * `feedback_pdf_manual_template`: «solo el contenido» salvo que se pida
- * cargarlo directo en código).
+ * APLICADO el 2026-10-02 en bff/src/data/help-articles.ts (lo pidió el
+ * usuario). Este archivo queda como registro de lo que se cargó.
  *
  * Dos piezas:
  *
