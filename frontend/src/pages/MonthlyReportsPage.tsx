@@ -24,6 +24,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { bffClient } from '@/lib/api/bffClient';
 import { supabase } from '@/integrations/supabase/client';
 import { FileText, Send, Users, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { downloadAthleteReportPdf } from '@/lib/school/reportsQueries';
 
 const MESES = [
     'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -640,6 +641,21 @@ export default function MonthlyReportsPage() {
                                                     <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                                                 )}
                                                 Publicar
+                                            </Button>
+                                        )}
+
+                                        {/* Revisar antes de enviar: publicar congela el informe, enviar
+                                            es otro paso — en medio la escuela ve exactamente lo que
+                                            le va a llegar a la familia. */}
+                                        {r.status === 'publicado' && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-7 text-xs"
+                                                onClick={() => downloadAthleteReportPdf(r.id).catch(fallar('No se pudo abrir el PDF'))}
+                                            >
+                                                <FileText className="h-3 w-3 mr-1" aria-hidden="true" />
+                                                Ver PDF
                                             </Button>
                                         )}
 

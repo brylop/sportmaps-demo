@@ -24,6 +24,18 @@ interface EmailItem {
     data?: Record<string, string>;
     subject?: string;
     html?: string;
+    // Nombre visible del remitente (escuela con marca blanca). La dirección
+    // sigue siendo noreply@sportmaps.co: es el dominio verificado en Resend.
+    from_name?: string;
+}
+
+const DEFAULT_FROM = "SportMaps <noreply@sportmaps.co>";
+
+/** Remitente con el nombre de la escuela. Se limpian los caracteres que
+ *  romperían el header (comillas, <>, saltos) y se limita el largo. */
+function buildFrom(name?: string): string {
+    const limpio = (name || "").replace(/[\u0000-\u001f"<>\\]/g, "").trim().slice(0, 80);
+    return limpio ? `"${limpio}" <noreply@sportmaps.co>` : DEFAULT_FROM;
 }
 
 interface EmailPayload extends Partial<EmailItem> {
@@ -276,7 +288,7 @@ Deno.serve(async (req: Request) => {
                         throw new Error(`Elemento sin 'type' ni ('subject' y 'html'): ${item.to}`);
                     }
                     return {
-                        from: "SportMaps <noreply@sportmaps.co>",
+                        from: buildFrom(item.from_name),
                         to: [item.to],
                         subject: built.subject,
                         html: built.html,
