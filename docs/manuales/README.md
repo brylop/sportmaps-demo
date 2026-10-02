@@ -55,3 +55,9 @@ Cuando un manual tiene versión interna, ambos archivos comparten el mismo nombr
 ## Manuales sueltos en la raíz
 
 `Guia-SportMaps-Registro-Atletas-QR.pdf` y `SportMaps_Manual_de_Marca_v2.pdf` viven en la raíz de `docs/manuales/`, no en `interno/` ni `academias/`: son documentos traídos de la carpeta de documentación general del proyecto (fuera del repo) para unificar todo en un solo lugar, y no siguen el proceso de capturas Playwright ni el par interno/academias — no tienen contraparte de la otra audiencia.
+
+## Mesociclo del mes y sesiones por día (2026-10-02)
+
+- `mesociclo-mes-siguiente.pdf` (`academias/` para enviar a Carmel, Besser o cualquier escuela, e `interno/`) — cómo crear el mesociclo del mes siguiente sin tocar el anterior ("Nuevo mesociclo" + selector), cargar la sesión de cualquier día de la semana ("+ Crear sesión" en cada día, también fines de semana), enganchar sesiones que habían quedado sin día y cómo se ve en el celular. Origen: Club Carmel 2026-10-02 (octubre no se podía crear; arqueros no podía cargar el domingo), fix `4c623e0d`. Capturas reales en stg con el tenant demo `Club Campestre Demo` (coach de tenis, "Tenis — Adultos"); en el demo quedaron el mesociclo de octubre y dos sesiones (sáb 3 y dom 4). La versión interna suma las causas, las sesiones sueltas que había en producción y la receta para regenerar.
+- `mesociclo-mes-siguiente-help-article.ts` (en `academias/`) — REEMPLAZA el `body` del artículo `planes-entrenamiento` de `bff/src/data/help-articles.ts` (mismo slug), que describía una pantalla de "Nuevo plan" que no existe.
+- **Fuente reproducible en `_src/mesociclo-mes-siguiente/`** (`capture.mjs` con `ONLY=01,08` para rehacer capturas sueltas, `build.mjs`, `manual.css`).
