@@ -12,6 +12,8 @@
  */
 import { supabase } from '../config/supabase';
 import type { ReportSnapshot, SnapshotMetric } from './report-snapshot.service';
+import { resolveSchoolBranding, type SchoolBrandingForEmail } from '../utils/schoolBrandingResolver';
+import { buildBrandedEmail } from '../utils/emailLayout';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -51,7 +53,11 @@ function filaMetrica(m: SnapshotMetric): string {
  * El correo lleva RESUMEN + ENLACE, nunca el informe completo ni un adjunto
  * (D5). Si el correo trae todo, el correo canibaliza la app y nadie entra.
  */
-export function renderReportEmail(snapshot: ReportSnapshot, link: string): { subject: string; html: string } {
+export function renderReportEmail(
+    snapshot: ReportSnapshot,
+    link: string,
+    branding: SchoolBrandingForEmail,
+): { subject: string; html: string } {
     const nombre = snapshot.athlete.name.split(' ')[0] || snapshot.athlete.name;
     const mejoras = snapshot.highlights.length;
 
@@ -61,10 +67,9 @@ export function renderReportEmail(snapshot: ReportSnapshot, link: string): { sub
 
     const notaEquipo = snapshot.team_notes[0]?.body;
 
-    const html = `
-<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111">
-  <p style="font-size:13px;color:#888;margin:0 0 4px">${esc(snapshot.school.name)}</p>
-  <h1 style="font-size:22px;margin:0 0 4px">Informe de ${esc(snapshot.athlete.name)}</h1>
+    // Sale con la marca de la escuela (logo, color, sin «SportMaps» si tiene
+    // marca blanca) — buildBrandedEmail es el mismo layout de los demás correos.
+    const bodyHtml = `
   <p style="font-size:14px;color:#666;margin:0 0 24px;text-transform:capitalize">${esc(snapshot.period.label)}</p>
 
   ${snapshot.highlights.length > 0 ? `
@@ -84,25 +89,22 @@ export function renderReportEmail(snapshot: ReportSnapshot, link: string): { sub
     <p style="font-size:14px;line-height:1.6;color:#333;margin:0 0 24px">${esc(notaEquipo)}</p>` : ''}
 
   ${snapshot.coach_note ? `
-    <p style="font-size:14px;line-height:1.6;color:#333;background:#f0f7ff;padding:12px;border-radius:8px;margin:0 0 24px">
+    <p style="font-size:14px;line-height:1.6;color:#333;background:#f6f6f6;padding:12px;border-radius:8px;margin:0 0 24px">
       ${esc(snapshot.coach_note)}
-    </p>` : ''}
+    </p>` : ''}`;
 
-  <a href="${esc(link)}"
-     style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:600">
-    Ver el detalle completo
-  </a>
-
-  <p style="font-size:12px;color:#999;margin-top:28px;line-height:1.5">
-    ${snapshot.metrics.length} ${snapshot.metrics.length === 1 ? 'medición' : 'mediciones'} de este mes.
-    Entra a la app para ver la evolución de cada una.
-  </p>
-</div>`;
+    const html = buildBrandedEmail({
+        branding,
+        title: `Informe de ${snapshot.athlete.name}`,
+        bodyHtml,
+        cta: { label: 'Ver el detalle completo', url: link },
+        closingHtml: `${snapshot.metrics.length} ${snapshot.metrics.length === 1 ? 'medición' : 'mediciones'} de este mes. Entra a la app para ver la evolución de cada una.`,
+    });
 
     return { subject, html };
 }
 
-interface EmailItem { to: string; subject: string; html: string }
+interface EmailItem { to: string; subject: string; html: string; from_name?: string }
 
 /**
  * Manda un lote a la edge function `send-email`. Se usan `subject`/`html`
@@ -147,6 +149,10 @@ export async function deliverPublishedReports(
     opts: { limit?: number; onlyDue?: boolean; teamIds?: string[]; reportIds?: string[] } = {},
 ): Promise<{ results: DeliveryResult[]; sent: number; skipped: number }> {
     const hoy = new Date().toISOString().slice(0, 10);
+    const branding = await resolveSchoolBranding(schoolId);
+    // schoolName viene escapado para HTML; el remitente va en un header, no en HTML.
+    const remitente = branding.schoolName
+        .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 
     let query = supabase
         .from('athlete_reports')
@@ -231,8 +237,9 @@ export async function deliverPublishedReports(
             ? `${FRONTEND_URL}/children/${informe.subject_id}/reports/${informe.id}`
             : `${FRONTEND_URL}/stats`;
 
-        const { subject, html } = renderReportEmail(snapshot, link);
-        batch.push({ to: email, subject, html });
+        const { subject, html } = renderReportEmail(snapshot, link, branding);
+        // Con marca blanca el remitente es la escuela, no SportMaps.
+        batch.push({ to: email, subject, html, ...(branding.hasWhitelabel ? { from_name: remitente } : {}) });
         enviados.push(informe.id);
 
         notificaciones.push({

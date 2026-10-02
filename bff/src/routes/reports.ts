@@ -738,7 +738,21 @@ router.get(
                     .order('match_date', { ascending: false });
 
                 if (resultsErr) throw resultsErr;
-                results = matchResults || [];
+                // match_results no guarda el desenlace: se deriva del marcador.
+                // home_score es el del LOCAL (no el nuestro) — misma regla que
+                // ResultsPage. Sin esto todo salía "Programado" y los KPIs en 0.
+                results = (matchResults || []).map((m: any) => {
+                    const nuestro = m.is_home === false ? m.away_score : m.home_score;
+                    const rival = m.is_home === false ? m.home_score : m.away_score;
+                    if (m.status !== 'played' || nuestro == null || rival == null) {
+                        return { ...m, result: 'unknown' };
+                    }
+                    return {
+                        ...m,
+                        result: nuestro > rival ? 'win' : nuestro < rival ? 'loss' : 'draw',
+                        score: `${nuestro} - ${rival}`,
+                    };
+                });
             }
 
             // Attendance
@@ -782,9 +796,70 @@ router.get(
                 };
             }).sort((a: any, b: any) => b.percentage - a.percentage);
 
-            const playedResults = usesSets
-                ? results.filter((r: any) => r.result !== 'unknown')
-                : results;
+            const playedResults = results.filter((r: any) => r.result !== 'unknown');
+
+            // Goleadores: el coach carga «goles» y «asistencias» como métrica
+            // (performance_entries) con aggregation 'latest' — cada registro es
+            // el ACUMULADO de la temporada, así que vale el último por atleta,
+            // no la suma. Plantel = inscripciones activas del equipo.
+            const { data: inscritos } = await supabase
+                .from('enrollments')
+                .select('child_id, user_id, unregistered_athlete_id')
+                .eq('team_id', teamId)
+                .eq('status', 'active');
+
+            const sujetos = new Map<string, 'child' | 'profile' | 'unregistered'>();
+            (inscritos || []).forEach((e: any) => {
+                if (e.child_id) sujetos.set(e.child_id, 'child');
+                else if (e.user_id) sujetos.set(e.user_id, 'profile');
+                else if (e.unregistered_athlete_id) sujetos.set(e.unregistered_athlete_id, 'unregistered');
+            });
+
+            let scorers: { name: string; goals: number; assists: number }[] = [];
+            if (sujetos.size > 0) {
+                const ids = [...sujetos.keys()];
+                const inicioTemporada = `${new Date().getFullYear()}-01-01`;
+                const { data: entradas } = await supabase
+                    .from('performance_entries')
+                    .select('subject_id, metric_key, value, recorded_at')
+                    .eq('school_id', team.school_id)
+                    .in('metric_key', ['goles', 'asistencias'])
+                    .in('subject_id', ids)
+                    .gte('recorded_at', inicioTemporada)
+                    .order('recorded_at', { ascending: true });
+
+                const ultimo: Record<string, { goals: number; assists: number }> = {};
+                (entradas || []).forEach((pe: any) => {
+                    const fila = (ultimo[pe.subject_id] ??= { goals: 0, assists: 0 });
+                    if (pe.metric_key === 'goles') fila.goals = Number(pe.value) || 0;
+                    else fila.assists = Number(pe.value) || 0;
+                });
+
+                const conDatos = Object.keys(ultimo);
+                if (conDatos.length > 0) {
+                    const porTipo = (t: string) => conDatos.filter((id) => sujetos.get(id) === t);
+                    const [ch, pr, un] = await Promise.all([
+                        porTipo('child').length
+                            ? supabase.from('children').select('id, full_name').in('id', porTipo('child'))
+                            : Promise.resolve({ data: [] as any[] }),
+                        porTipo('profile').length
+                            ? supabase.from('profiles').select('id, full_name').in('id', porTipo('profile'))
+                            : Promise.resolve({ data: [] as any[] }),
+                        porTipo('unregistered').length
+                            ? supabase.from('unregistered_athletes').select('id, full_name').in('id', porTipo('unregistered'))
+                            : Promise.resolve({ data: [] as any[] }),
+                    ]);
+                    const nombres = new Map<string, string>();
+                    [...(ch.data || []), ...(pr.data || []), ...(un.data || [])].forEach((n: any) =>
+                        nombres.set(n.id, (n.full_name || '').trim()),
+                    );
+
+                    scorers = conDatos
+                        .map((id) => ({ name: nombres.get(id) || '—', ...ultimo[id] }))
+                        .filter((s) => s.goals > 0 || s.assists > 0)
+                        .sort((a, b) => b.goals - a.goals || b.assists - a.assists);
+                }
+            }
 
             return res.json({
                 team: { id: team.id, name: team.name, age_group: team.age_group, sport: team.sport },
@@ -792,7 +867,7 @@ router.get(
                 results: results || [],
                 results_played_count: playedResults.length,
                 attendance: attendanceReport,
-                scorers: [],
+                scorers,
             });
 
         } catch (err: any) {
