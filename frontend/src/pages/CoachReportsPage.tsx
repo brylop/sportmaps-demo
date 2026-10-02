@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,7 +18,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import {
   BarChart3, Download, TrendingUp, Users, Trophy,
   Calendar, AlertCircle, CheckCircle, Shirt, Swords,
-  ChevronUp, ChevronDown, Minus
+  ChevronUp, ChevronDown, Minus, FileText
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -471,15 +472,25 @@ export default function CoachReportsPage() {
             Analiza el rendimiento y asistencia de tu equipo
           </p>
         </div>
-        <Button
-          onClick={handlePrint}
-          variant="outline"
-          className="gap-2 h-9"
-          disabled={!selectedTeamId || reportLoading || !report}
-        >
-          <Download className="w-3.5 h-3.5" />
-          Exportar PDF
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {/* Única entrada al informe grupal del mes: antes la página existía
+              pero solo se llegaba escribiendo la URL. */}
+          <Button asChild variant="outline" className="gap-2 h-9">
+            <Link to="/coach-reports/entreno-equipo">
+              <FileText className="w-3.5 h-3.5" />
+              Informe grupal del mes
+            </Link>
+          </Button>
+          <Button
+            onClick={handlePrint}
+            variant="outline"
+            className="gap-2 h-9"
+            disabled={!selectedTeamId || reportLoading || !report}
+          >
+            <Download className="w-3.5 h-3.5" />
+            Exportar PDF
+          </Button>
+        </div>
       </div>
 
       <AvisoFichaStaff
