@@ -451,25 +451,41 @@ export async function buildReportSnapshot(input: BuildSnapshotInput): Promise<Re
     const schoolName = (escuelaRes.data as any)?.name || 'la escuela';
     const sportCategoryId = (escuelaRes.data as any)?.category_id as string | null;
     const sportCategoryName = ((escuelaRes.data as any)?.sports_categories?.name as string | undefined)?.toLowerCase();
-    const isFootball = sportCategoryName === 'fútbol' || sportCategoryName === 'futbol';
+    const esFutbol = (n?: string | null) => ['fútbol', 'futbol'].includes((n ?? '').trim().toLowerCase());
 
     // ── Equipos del atleta vigentes en el periodo ────────────────────────────
     const columna = athleteColumn(subjectType);
     const { data: inscripciones } = await supabase
         .from('enrollments')
-        .select('team_id, teams(id, name)')
+        // FK explícita: enrollments tiene DOS llaves hacia teams (team_id y
+        // scheduling_team_id). Sin el !, PostgREST responde PGRST201 y el
+        // informe salía sin equipo, sin nota del equipo y sin nombre en el PDF.
+        .select('team_id, teams!enrollments_team_id_fkey(id, name, sport)')
         .eq('school_id', schoolId)
         .eq(columna, subjectId)
         .not('team_id', 'is', null)
         .lte('start_date', periodEnd.toISOString().slice(0, 10));
 
-    const teams = ((inscripciones ?? []) as any[])
+    const equipos = ((inscripciones ?? []) as any[])
         .map((r) => r.teams)
-        .filter((t): t is { id: string; name: string } => !!t);
+        .filter((t): t is { id: string; name: string; sport: string | null } => !!t);
+    const teams = equipos.map(({ id, name }) => ({ id, name }));
 
     const governingTeam = governingTeamId
         ? teams.find((t) => t.id === governingTeamId) ?? null
         : null;
+
+    // Escuela multideporte: su category_id es UN deporte (el demo dice Golf), y
+    // las métricas del atleta son las del deporte de SU equipo. Se suman al
+    // catálogo los deportes de sus equipos; sin esto el informe salía sin
+    // ninguna medición.
+    const deportesEquipos = [...new Set(equipos.map((t) => t.sport).filter((x): x is string => !!x))];
+    const { data: categoriasEquipos } = deportesEquipos.length
+        ? await supabase.from('sports_categories').select('id, name').in('name', deportesEquipos)
+        : { data: [] as any[] };
+    const categoryIds = [sportCategoryId, ...((categoriasEquipos ?? []) as any[]).map((c) => c.id as string)];
+    const deporteGobernante = equipos.find((t) => t.id === governingTeamId)?.sport ?? null;
+    const isFootball = governingTeamId ? esFutbol(deporteGobernante) || (!deporteGobernante && esFutbol(sportCategoryName)) : esFutbol(sportCategoryName);
 
     // ── Notas de TODOS sus equipos del periodo (D17) ─────────────────────────
     // No solo la del gobernante: el snapshot promete «las notas de todos sus
@@ -501,9 +517,7 @@ export async function buildReportSnapshot(input: BuildSnapshotInput): Promise<Re
 
     // getMetricCatalog devuelve un array; se indexa por metric_key para no
     // recorrerlo una vez por medición.
-    const definiciones = sportCategoryId
-        ? await getMetricCatalog([sportCategoryId], { includeInactive: true })
-        : [];
+    const definiciones = await getMetricCatalog(categoryIds, { includeInactive: true });
     const catalogo = new Map<string, MetricDefinition>(definiciones.map((d) => [d.metric_key, d]));
 
     const metricsSession = await loadSessionMetrics(schoolId, subjectType, subjectId, periodStart, periodEnd, catalogo);

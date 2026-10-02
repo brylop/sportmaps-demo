@@ -323,7 +323,9 @@ export default function MonthlyReportsPage() {
                 </h1>
                 <p className="text-sm text-muted-foreground mt-1">
                     {isCoach
-                        ? 'Tu nota del mes para cada equipo.'
+                        ? (puedePublicar
+                            ? 'Tu nota del mes para cada equipo, la publicación y el envío a las familias.'
+                            : 'Tu nota del mes para cada equipo.')
                         : 'Generar, escribir la nota de cada equipo, publicar y enviar a las familias.'}
                 </p>
             </div>
@@ -377,8 +379,9 @@ export default function MonthlyReportsPage() {
 
             {isCoach && (
                 <div className="rounded-lg border bg-accent/10 p-3 text-sm">
-                    Escribí la nota de cada uno de tus equipos. La escuela genera los
-                    borradores y hace el envío a las familias.
+                    {puedePublicar
+                        ? 'Escribe la nota de cada uno de tus equipos, publica, revisa el PDF y envía a las familias. La escuela genera los borradores.'
+                        : 'Escribe la nota de cada uno de tus equipos. La escuela genera los borradores y hace el envío a las familias.'}
                 </div>
             )}
 
