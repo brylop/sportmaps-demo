@@ -70,6 +70,7 @@ interface AttendanceRow {
 interface ScorerRow {
   name: string;
   goals: number;
+  assists?: number;
 }
 
 interface CoachReport {
@@ -784,7 +785,7 @@ export default function CoachReportsPage() {
                       <Trophy className="w-10 h-10 mx-auto mb-3 opacity-30" />
                       <p className="text-sm font-medium">Sin datos de goleadores aún</p>
                       <p className="text-xs mt-1 max-w-xs mx-auto opacity-75">
-                        Los goleadores se registrarán en futuras fases del sistema.
+                        Se llena con las métricas «Goles» y «Asistencias» que el entrenador registra en la evaluación de cada jugadora.
                       </p>
                     </div>
                   ) : (
@@ -805,7 +806,9 @@ export default function CoachReportsPage() {
                           </div>
                           <div className="text-right shrink-0">
                             <p className="text-2xl font-bold">{player.goals}</p>
-                            <p className="text-[10px] text-muted-foreground">goles</p>
+                            <p className="text-[10px] text-muted-foreground">
+                              goles{player.assists ? ` · ${player.assists} asist.` : ''}
+                            </p>
                           </div>
                         </div>
                       ))}

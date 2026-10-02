@@ -110,7 +110,9 @@ router.get(
             doc.pipe(res);
 
             // ── Header: logo (propio si hay whitelabel, si no SportMaps) + línea de acento ──
-            const headerLogo = schoolLogo ?? sportmapsLogo;
+            // Con marca blanca nunca cae al logo de SportMaps: si el propio no
+            // descarga, va el nombre de la escuela en texto (rama de abajo).
+            const headerLogo = branding.hasWhitelabel ? schoolLogo : (schoolLogo ?? sportmapsLogo);
             if (headerLogo) {
                 try {
                     doc.image(headerLogo, 60, 50, { height: 34 });
