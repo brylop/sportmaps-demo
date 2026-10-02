@@ -120,6 +120,10 @@ test.describe('mesociclos: mes siguiente y días de la semana', () => {
             await crear.scrollIntoViewIfNeeded();
             await expect(crear).toBeInViewport({ ratio: 1 });
             await page.screenshot({ path: 'e2e/screenshots/mesociclo-03-celular.png', fullPage: true });
+            // La semana a la vista: sábado con la sesión suelta, domingo con su botón.
+            await page.getByText(/Dom 4/i).first().scrollIntoViewIfNeeded();
+            await page.mouse.wheel(0, -120);
+            await page.screenshot({ path: 'e2e/screenshots/mesociclo-04-celular-semana.png' });
         });
     });
 });
