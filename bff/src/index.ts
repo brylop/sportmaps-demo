@@ -110,6 +110,7 @@ import devicesRouter from './routes/devices.routes';
 import pwaRouter from './routes/pwa.routes';
 import mobileRouter from './routes/mobile.routes';
 import internalNotificationsRouter from './routes/internal-notifications.routes';
+import { requireStoreEnabled } from './services/store-flag.service';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -368,7 +369,8 @@ app.use('/api/v1/recurring', paymentLimiter, requireCsrfHeader, recurringRouter)
 app.use('/api/v1/vendor', generalLimiter, vendorPayoutsRouter);
 app.use('/api/v1/vendor/bank-accounts', generalLimiter, vendorBankAccountsRouter);
 // Shipping publico: /api/v1/shipping/{quote,carriers,tracking/:n}
-app.use('/api/v1/shipping', generalLimiter, shippingRouter);
+// Tienda apagada (spec blindaje §1.3): 503 STORE_DISABLED si store_enabled() = false.
+app.use('/api/v1/shipping', generalLimiter, requireStoreEnabled, shippingRouter);
 // Shipping vendor: /api/v1/vendor/shipping/settings y /api/v1/vendor/shipments
 app.use('/api/v1', generalLimiter, vendorShippingRouter);
 // Webhook publico del provider de envios
@@ -394,9 +396,9 @@ app.use('/api/v1/admin', generalLimiter, marketplaceAdminRouter);
 app.use('/api/v1', generalLimiter, reviewsRouter);
 app.use('/api/v1/marketplace', paymentLimiter, marketplaceCheckoutRouter);
 app.use('/api/v1/vendor', generalLimiter, vendorRouter);
-app.use('/api/v1/vendor/products', generalLimiter, vendorProductsRouter);
+app.use('/api/v1/vendor/products', generalLimiter, requireStoreEnabled, vendorProductsRouter);
 app.use('/api/v1/vendor/services', generalLimiter, vendorServicesRouter);
-app.use('/api/v1/marketplace/orders', paymentLimiter, marketplaceOrdersRouter);
+app.use('/api/v1/marketplace/orders', paymentLimiter, requireStoreEnabled, marketplaceOrdersRouter);
 app.use('/api/v1/certificates', generalLimiter, certificatesRouter);
 app.use('/api/v1/athlete-reports', generalLimiter, athleteReportsPdfRouter);
 app.use('/api/v1/join-qr', generalLimiter, joinQrRouter);

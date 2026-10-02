@@ -2,6 +2,13 @@ import { Router, Request, Response } from 'express';
 import { optionalAuth } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
 import { todayInZone } from '../utils/businessDate';
+import { isStoreEnabled, requireStoreEnabled, STORE_DISABLED_BODY } from '../services/store-flag.service';
+
+// Columnas de vendor_profiles que se pueden mostrar a cualquiera (spec blindaje
+// §1.1 / T1). Fuera: bank_data, nit, verification_doc_url, commission_rate,
+// payment_methods, metadata, phone, email, address, capabilities.
+// Un solo literal (sin .join ni +) para que supabase-js infiera el tipo de la fila.
+const VENDOR_PUBLIC_COLUMNS = 'id, user_id, vendor_type, display_name, slug, description, logo_url, cover_image_url, city, website_url, verification_status, is_active, avg_rating, reviews_count, response_rate, avg_response_hours, created_at, updated_at';
 
 const router = Router();
 
@@ -16,6 +23,17 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
             service_type, modality, page = '1', limit = '24', order_by = 'newest'
         } = req.query;
 
+        // Tienda apagada (spec blindaje §1.3): Explorar sigue mostrando servicios,
+        // pero no productos. 'products' -> 503; 'all' -> se piden solo servicios
+        // (asi el total y la paginacion salen bien, en vez de filtrar despues).
+        let effectiveType = type as string;
+        if (effectiveType !== 'services' && !(await isStoreEnabled())) {
+            if (effectiveType === 'products') {
+                return res.status(503).json(STORE_DISABLED_BODY);
+            }
+            effectiveType = 'services';
+        }
+
         const VALID_MODALITIES = ['presencial', 'virtual', 'domicilio', 'hibrido'];
         const modalityParam = typeof modality === 'string' && VALID_MODALITIES.includes(modality)
             ? modality
@@ -23,7 +41,7 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
 
         const { data, error } = await supabase.rpc('search_marketplace', {
             p_query: (q as string) || null,
-            p_type: type as string,
+            p_type: effectiveType,
             p_category: (category as string) || null,
             p_city: (city as string) || null,
             p_price_max: price_max ? parseFloat(price_max as string) : null,
@@ -49,7 +67,7 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
 // GET /api/v1/marketplace/products/:id
 // Detalle de producto con variantes e info de vendor
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/products/:id', optionalAuth, async (req: Request, res: Response) => {
+router.get('/products/:id', requireStoreEnabled, optionalAuth, async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -185,15 +203,16 @@ router.get('/categories-legacy', async (_req: Request, res: Response) => {
 // GET /api/v1/marketplace/vendor/:slug
 // Perfil publico del vendedor con su catalogo
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/vendor/:slug', optionalAuth, async (req: Request, res: Response) => {
+router.get('/vendor/:slug', requireStoreEnabled, optionalAuth, async (req: Request, res: Response) => {
     try {
         const { slug } = req.params;
 
         const { data: vendor, error } = await supabase
             .from('vendor_profiles')
-            .select('*')
+            .select(VENDOR_PUBLIC_COLUMNS)
             .eq('slug', slug)
             .eq('is_active', true)
+            .eq('verification_status', 'verified')
             .maybeSingle();
 
         if (error || !vendor) {
@@ -238,7 +257,7 @@ router.get('/vendor/:slug', optionalAuth, async (req: Request, res: Response) =>
 // para que el padre entre a /tienda/:slug desde su app. La tienda de la escuela
 // es el vendor_profile con user_id = schools.owner_id y vendor_type='school'.
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/school-store/:schoolId', optionalAuth, async (req: Request, res: Response) => {
+router.get('/school-store/:schoolId', requireStoreEnabled, optionalAuth, async (req: Request, res: Response) => {
     try {
         const { schoolId } = req.params;
 

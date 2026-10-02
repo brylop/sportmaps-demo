@@ -8,6 +8,7 @@ import {
 import { reprocessOrphanWebhooks } from '../services/webhook-reprocess.service';
 import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders, reconcilePendingInvoices } from '../services/invoicing.service';
 import { runGlosaNotifications } from './glosa-notifications.job';
+import { isStoreEnabled } from '../services/store-flag.service';
 import { sendChargeCreatedEmails, sendOverdueNoticeEmails } from './payment-lifecycle-emails.job';
 import { runNotificationDispatch } from './notifications-dispatch.job';
 import { runAthleteReportsCycle } from './athlete-reports.job';
@@ -259,9 +260,12 @@ export function initMaintenanceJobs() {
             console.error('[CRON] Error en auto-facturación (marketplace):', err?.message || err);
         }
         try {
-            const ro = await autoEmitPendingOrders();
-            if (ro.scanned > 0) {
-                console.log(`[CRON] Auto-facturación (tienda/orders): scanned=${ro.scanned} emitted=${ro.emitted} skipped=${ro.skipped} failed=${ro.failed}`);
+            // Tienda apagada (spec blindaje §1.3): no se facturan órdenes de tienda.
+            if (await isStoreEnabled()) {
+                const ro = await autoEmitPendingOrders();
+                if (ro.scanned > 0) {
+                    console.log(`[CRON] Auto-facturación (tienda/orders): scanned=${ro.scanned} emitted=${ro.emitted} skipped=${ro.skipped} failed=${ro.failed}`);
+                }
             }
         } catch (err: any) {
             Sentry.captureException(err);

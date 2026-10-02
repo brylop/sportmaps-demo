@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { todayColombia } from '@/lib/dateUtils';
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useStoreEnabled } from '@/hooks/useStoreEnabled';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -100,7 +101,7 @@ export interface ExploreResult {
 
 // ── Fetch function ──────────────────────────────────────────────────────────
 
-async function fetchExploreGlobal(filters: ExploreFilters): Promise<ExploreResult> {
+async function fetchExploreGlobal(filters: ExploreFilters, includeProducts: boolean): Promise<ExploreResult> {
   const items: ExploreItem[] = [];
   const limit = filters.limit;
   const offset = (filters.page - 1) * limit;
@@ -303,8 +304,9 @@ async function fetchExploreGlobal(filters: ExploreFilters): Promise<ExploreResul
     }
   }
 
-  // Fetch products directly from the products table
-  if (filters.category === 'all' || filters.category === 'products') {
+  // Fetch products directly from the products table.
+  // Con la tienda apagada (store_enabled() = false) no se piden productos.
+  if (includeProducts && (filters.category === 'all' || filters.category === 'products')) {
     const prodLimit = filters.category === 'products' ? limit : 6;
     let productsQuery = supabase
       .from('products')
@@ -379,9 +381,12 @@ export function useExplorarGlobal(initialFilters?: Partial<ExploreFilters>) {
     ...initialFilters,
   });
 
+  // Fail-closed: mientras el flag carga, sin productos.
+  const { enabled: storeEnabled } = useStoreEnabled();
+
   const query = useQuery({
-    queryKey: ['explore-global', filters],
-    queryFn: () => fetchExploreGlobal(filters),
+    queryKey: ['explore-global', filters, storeEnabled],
+    queryFn: () => fetchExploreGlobal(filters, storeEnabled),
     staleTime: 2 * 60 * 1000,
   });
 

@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { useStoreEnabled } from '@/hooks/useStoreEnabled';
 
 export type CartItemType = 'enrollment' | 'product' | 'appointment' | 'service';
 
@@ -61,6 +62,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
+  // Tienda apagada (spec blindaje-dinero §1.3): el carrito no admite nada.
+  // Fail-closed: mientras el flag carga, tampoco.
+  const { enabled: storeEnabled } = useStoreEnabled();
 
   // Clear cart when user logs out
   useEffect(() => {
@@ -87,6 +91,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, [items]);
 
   const addItem = (newItem: Omit<CartItem, 'quantity'>, quantity: number = 1) => {
+    if (!storeEnabled) {
+      toast({
+        title: 'La tienda no está disponible',
+        description: 'Por ahora no se pueden agregar productos al carrito.',
+      });
+      return;
+    }
     setItems((current) => {
       const existingIndex = current.findIndex((item) => item.id === newItem.id);
 

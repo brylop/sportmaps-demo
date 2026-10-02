@@ -27,6 +27,7 @@ import { supabase } from '../config/supabase';
 import { generateReference, copToCents, assertUserNotBlocked, UserPaymentBlockedError, voidTransaction } from '../services/wompi.service';
 import { generateMpReference } from '../services/mercadopago.service';
 import { resolveProvider, type PaymentProvider } from '../services/payment-provider.resolver';
+import { requireStoreEnabled } from '../services/store-flag.service';
 
 const router = Router();
 
@@ -102,7 +103,7 @@ const CartCheckoutSchema = z.object({
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /checkout/service
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/checkout/service', ensureUserNotBlocked, async (req: Request, res: Response) => {
+router.post('/checkout/service', requireStoreEnabled, ensureUserNotBlocked, async (req: Request, res: Response) => {
     try {
         const parsed = ServiceCheckoutSchema.safeParse(req.body);
         if (!parsed.success) {
@@ -161,7 +162,7 @@ router.post('/checkout/service', ensureUserNotBlocked, async (req: Request, res:
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /checkout/event
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/checkout/event', ensureUserNotBlocked, async (req: Request, res: Response) => {
+router.post('/checkout/event', requireStoreEnabled, ensureUserNotBlocked, async (req: Request, res: Response) => {
     try {
         const parsed = EventCheckoutSchema.safeParse(req.body);
         if (!parsed.success) {
@@ -217,7 +218,7 @@ router.post('/checkout/event', ensureUserNotBlocked, async (req: Request, res: R
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /checkout/subscription
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/checkout/subscription', ensureUserNotBlocked, async (req: Request, res: Response) => {
+router.post('/checkout/subscription', requireStoreEnabled, ensureUserNotBlocked, async (req: Request, res: Response) => {
     try {
         const parsed = SubscriptionCheckoutSchema.safeParse(req.body);
         if (!parsed.success) {
@@ -343,7 +344,7 @@ router.post('/checkout/session-booking', ensureUserNotBlocked, async (req: Reque
 // ─────────────────────────────────────────────────────────────────────────────
 // Crea la order + order_items, calcula totales en server (incluye envio e IVA),
 // y devuelve la reference Wompi para abrir el Widget en el frontend.
-router.post('/checkout/cart', ensureUserNotBlocked, async (req: Request, res: Response) => {
+router.post('/checkout/cart', requireStoreEnabled, ensureUserNotBlocked, async (req: Request, res: Response) => {
     try {
         const parsed = CartCheckoutSchema.safeParse(req.body);
         if (!parsed.success) {
@@ -541,7 +542,7 @@ router.post('/checkout/cart', ensureUserNotBlocked, async (req: Request, res: Re
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /checkout/pay — Pagar marketplace_transaction existente
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/checkout/pay', ensureUserNotBlocked, async (req: Request, res: Response) => {
+router.post('/checkout/pay', requireStoreEnabled, ensureUserNotBlocked, async (req: Request, res: Response) => {
     try {
         const parsed = GenericPaySchema.safeParse(req.body);
         if (!parsed.success) {
@@ -601,7 +602,7 @@ const RefundRequestSchema = z.object({
     { message: 'Debes especificar exactamente uno: orderId, transactionId o paymentId' },
 );
 
-router.post('/refund', async (req: Request, res: Response) => {
+router.post('/refund', requireStoreEnabled, async (req: Request, res: Response) => {
     try {
         const parsed = RefundRequestSchema.safeParse(req.body);
         if (!parsed.success) {
@@ -646,7 +647,7 @@ router.post('/refund', async (req: Request, res: Response) => {
 //  2. Buscar el wompi_transaction_id del origen (order/tx/payment)
 //  3. Llamar voidTransaction(wompi_tx_id) en Wompi
 //  4. RPC complete_refund marca refunded + restituye stock si era cart
-router.post('/refund/:id/process', async (req: Request, res: Response) => {
+router.post('/refund/:id/process', requireStoreEnabled, async (req: Request, res: Response) => {
     try {
         const refundId = req.params.id;
 

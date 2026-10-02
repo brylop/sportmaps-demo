@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCart } from '@/contexts/CartContext';
+import { useStoreEnabled } from '@/hooks/useStoreEnabled';
 import {
   useExplorarGlobal,
   type ExploreCategory,
@@ -467,16 +468,25 @@ export default function ExplorarGlobalPage() {
   const { addItem } = useCart();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  // Tienda apagada (spec blindaje-dinero §1.3): sin pestaña ni resultados de
+  // productos. Los servicios de wellness siguen.
+  const { enabled: storeEnabled } = useStoreEnabled();
+  const categories = storeEnabled ? CATEGORIES : CATEGORIES.filter((c) => c.key !== 'products');
   const [searchInput, setSearchInput] = useState('');
   const [bookingItem, setBookingItem] = useState<ExploreItem | null>(null);
 
   const initialCategory = (() => {
     const c = searchParams.get('category');
-    const valid: ExploreCategory[] = ['all', 'services', 'trainers', 'events', 'schools', 'products'];
+    const valid: ExploreCategory[] = ['all', 'services', 'trainers', 'events', 'schools', ...(storeEnabled ? ['products' as const] : [])];
     return valid.includes(c as ExploreCategory) ? (c as ExploreCategory) : 'all';
   })();
 
   const { data, isLoading, filters, updateFilters, nextPage, prevPage, clearFilters } = useExplorarGlobal({ category: initialCategory });
+
+  // Si llegó con ?category=products o la tienda se apagó estando ahí.
+  useEffect(() => {
+    if (!storeEnabled && filters.category === 'products') updateFilters({ category: 'all' });
+  }, [storeEnabled, filters.category, updateFilters]);
 
   const isParent = profile?.role === 'parent';
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
@@ -637,7 +647,7 @@ export default function ExplorarGlobalPage() {
       <div className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-30">
         <div className="container mx-auto px-4 max-w-7xl">
           <div className="flex items-center gap-2 py-3 overflow-x-auto scrollbar-hide">
-            {CATEGORIES.map((cat) => {
+            {categories.map((cat) => {
               const Icon = cat.icon;
               const active = filters.category === cat.key;
               return (
@@ -915,13 +925,15 @@ export default function ExplorarGlobalPage() {
               </div>
             )}
 
-            {/* Products section */}
-            <SectionHeader
-              icon={Package} label="Productos Deportivos" color="bg-rose-500"
-              count={grouped.products.length}
-              onViewAll={() => updateFilters({ category: 'products' })}
-            />
-            {grouped.products.length > 0 && (
+            {/* Products section (solo con la tienda prendida) */}
+            {storeEnabled && (
+              <SectionHeader
+                icon={Package} label="Productos Deportivos" color="bg-rose-500"
+                count={grouped.products.length}
+                onViewAll={() => updateFilters({ category: 'products' })}
+              />
+            )}
+            {storeEnabled && grouped.products.length > 0 && (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {grouped.products.map((item) => (
                   <ProductCard key={`prd-${item.id}`} item={item} onAddToCart={handleAddToCart} />

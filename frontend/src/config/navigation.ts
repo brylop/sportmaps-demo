@@ -66,6 +66,13 @@ export interface NavItem {
    * tiene los dos, la visibilidad efectiva es `hasAddon AND isModuleEnabled`.
    */
   moduleKey?: ModuleKey;
+  /**
+   * Pertenece a la tienda (productos, carrito, pedidos, inventario, envíos,
+   * liquidaciones). Se oculta mientras `store_enabled()` sea false — flag
+   * global de plataforma, independiente del addon `store` de la escuela.
+   * Spec: docs/specs/blindaje-dinero-pagos-tienda-nomina.md §1.3.
+   */
+  requiresStore?: boolean;
 }
 
 export interface NavGroup {
@@ -82,24 +89,26 @@ export function getVendorNavGroup(opts: {
   canSellProducts: boolean;
   canSellServices: boolean;
   verificationStatus: 'pending' | 'verified' | 'rejected' | null;
+  /** Flag global de la tienda. Default false (fail-closed). */
+  storeEnabled?: boolean;
 }): NavGroup {
   const items: NavItem[] = [
     { title: 'Panel Tienda', href: '/vendor/dashboard', icon: ShoppingBag },
   ];
 
   if (opts.canSellProducts) {
-    items.push({ title: 'Productos',  href: '/vendor/products',  icon: ShoppingBag });
-    items.push({ title: 'Inventario', href: '/inventory',        icon: ClipboardList });
+    items.push({ title: 'Productos',  href: '/vendor/products',  icon: ShoppingBag, requiresStore: true });
+    items.push({ title: 'Inventario', href: '/inventory',        icon: ClipboardList, requiresStore: true });
   }
   if (opts.canSellServices) {
     items.push({ title: 'Servicios',  href: '/vendor/services',  icon: Activity });
     items.push({ title: 'Agenda',     href: '/vendor/appointments', icon: Calendar });
   }
-  items.push({ title: 'Pedidos',         href: '/orders',           icon: FileText });
-  items.push({ title: 'Inbox',           href: '/vendor/inbox',     icon: MessageSquare });
-  items.push({ title: 'Liquidaciones',   href: '/vendor/payouts',   icon: DollarSign });
-  items.push({ title: 'Envíos',          href: '/vendor/shipping',  icon: Truck });
-  items.push({ title: 'Promociones',     href: '/vendor/promotions', icon: Plus });
+  items.push({ title: 'Pedidos',         href: '/orders',           icon: FileText, requiresStore: true });
+  items.push({ title: 'Inbox',           href: '/vendor/inbox',     icon: MessageSquare, requiresStore: true });
+  items.push({ title: 'Liquidaciones',   href: '/vendor/payouts',   icon: DollarSign, requiresStore: true });
+  items.push({ title: 'Envíos',          href: '/vendor/shipping',  icon: Truck, requiresStore: true });
+  items.push({ title: 'Promociones',     href: '/vendor/promotions', icon: Plus, requiresStore: true });
   items.push({
     title: 'Verificación',
     href:  '/vendor/onboarding',
@@ -109,7 +118,13 @@ export function getVendorNavGroup(opts: {
          : undefined,
   });
 
-  return { title: 'Mi Tienda', items };
+  const storeEnabled = opts.storeEnabled ?? false;
+  // Con la tienda apagada queda lo de servicios (wellness/coach): panel,
+  // servicios, agenda y verificación. AppSidebar decide si el grupo se monta.
+  return {
+    title: storeEnabled ? 'Mi Tienda' : 'Mis Servicios',
+    items: filterByStore(items, storeEnabled),
+  };
 }
 
 // ── "Gestión Deportiva" (school / school_admin) ─────────────────────────
@@ -183,6 +198,18 @@ function filterByModuleOverride(items: NavItem[], isModuleEnabled: (key: ModuleK
 }
 
 /**
+ * Filtra la tienda (flag global `store_enabled()`): con la tienda apagada,
+ * todo ítem `requiresStore` desaparece. Misma poda de submenú huérfano.
+ */
+function filterByStore(items: NavItem[], storeEnabled: boolean): NavItem[] {
+  if (storeEnabled) return items;
+  return items
+    .filter(item => !item.requiresStore)
+    .map(item => item.submenu ? { ...item, submenu: filterByStore(item.submenu, storeEnabled) } : item)
+    .filter(item => !item.submenu || item.submenu.length > 0);
+}
+
+/**
  * Returns navigation structure based on user role. `hasAddon` es opcional
  * (default: todo visible) para no romper si algún caller no lo pasa —
  * `AppSidebar.tsx` sí lo pasa siempre, con el `hasAddon` de `useEntitlements()`.
@@ -191,6 +218,8 @@ export function getNavigationByRole(
   role: UserRole,
   hasAddon: (key: AddonKey) => boolean = () => true,
   isModuleEnabled: (key: ModuleKey) => boolean = () => true,
+  /** Flag global de la tienda. Default false: fail-closed, como el hook. */
+  storeEnabled: boolean = false,
 ): NavGroup[] {
   const baseNav: NavGroup = {
     title: 'Principal',
@@ -237,7 +266,7 @@ export function getNavigationByRole(
       {
         title: 'Tienda',
         items: [
-          { title: 'Catálogo', href: '/shop', icon: ShoppingBag },
+          { title: 'Catálogo', href: '/shop', icon: ShoppingBag, requiresStore: true },
         ]
       },
       {
@@ -278,7 +307,7 @@ export function getNavigationByRole(
           { title: 'Progreso Deportivo', href: '/academic-progress', icon: BookOpen },
           { title: 'Asistencias', href: '/parent-attendance', icon: BarChart3 },
           { title: 'Pagos', href: '/my-payments', icon: DollarSign },
-          { title: 'Tienda', href: '/mi-tienda', icon: ShoppingBag }
+          { title: 'Tienda', href: '/mi-tienda', icon: ShoppingBag, requiresStore: true }
         ]
       },
       {
@@ -507,24 +536,24 @@ export function getNavigationByRole(
         title: 'Principal',
         items: [
           { title: 'Dashboard Vendedor', href: '/vendor/dashboard', icon: Home },
-          { title: 'Mis Productos', href: '/vendor/products', icon: ShoppingBag },
-          { title: 'Pedidos', href: '/orders', icon: ShoppingBag },
+          { title: 'Mis Productos', href: '/vendor/products', icon: ShoppingBag, requiresStore: true },
+          { title: 'Pedidos', href: '/orders', icon: ShoppingBag, requiresStore: true },
         ]
       },
       {
         title: 'Inventario',
         items: [
-          { title: 'Stock', href: '/inventory', icon: BarChart3 },
-          { title: 'Proveedores', href: '/suppliers', icon: Building },
-          { title: 'Categorías', href: '/categories', icon: Activity }
+          { title: 'Stock', href: '/inventory', icon: BarChart3, requiresStore: true },
+          { title: 'Proveedores', href: '/suppliers', icon: Building, requiresStore: true },
+          { title: 'Categorías', href: '/categories', icon: Activity, requiresStore: true }
         ]
       },
       {
         title: 'Ventas',
         items: [
-          { title: 'Clientes', href: '/customers', icon: Users },
-          { title: 'Reportes', href: '/store-reports', icon: FileText },
-          { title: 'Promociones', href: '/promotions', icon: Trophy },
+          { title: 'Clientes', href: '/customers', icon: Users, requiresStore: true },
+          { title: 'Reportes', href: '/store-reports', icon: FileText, requiresStore: true },
+          { title: 'Promociones', href: '/promotions', icon: Trophy, requiresStore: true },
         ]
       },
       {
@@ -800,7 +829,7 @@ export function getNavigationByRole(
   return groups
     .map(group => ({
       ...group,
-      items: filterByModuleOverride(filterByAddon(group.items, hasAddon), isModuleEnabled),
+      items: filterByStore(filterByModuleOverride(filterByAddon(group.items, hasAddon), isModuleEnabled), storeEnabled),
     }))
     .filter(group => group.items.length > 0);
 }

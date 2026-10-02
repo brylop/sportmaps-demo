@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useVendorProfile } from '@/hooks/useVendorProfile';
+import { useStoreEnabled } from '@/hooks/useStoreEnabled';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Store, Sparkles, ArrowRight, X } from 'lucide-react';
@@ -37,7 +38,10 @@ export function ActivateStoreCTA({ compact = false, label = 'Activar Mi Tienda' 
     const { profile, updateProfile } = useAuth();
     const { hasVendorProfile, isInactive, isLoading } = useVendorProfile();
     const navigate = useNavigate();
+    const { enabled: storeEnabled } = useStoreEnabled();
 
+    // Tienda apagada a nivel plataforma: no se ofrece activarla.
+    if (!storeEnabled) return null;
     if (isLoading) return null;
     if (!profile) return null;
     if (!ELIGIBLE_ROLES.has(profile.role as string)) return null;

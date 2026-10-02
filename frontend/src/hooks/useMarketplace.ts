@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useStoreEnabled } from '@/hooks/useStoreEnabled';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -81,9 +82,14 @@ export function useMarketplace(initialFilters?: Partial<MarketplaceFilters>) {
     ...initialFilters,
   });
 
+  // Tienda apagada (spec blindaje-dinero §1.3): solo servicios. Fail-closed:
+  // mientras el flag carga, también solo servicios.
+  const { enabled: storeEnabled } = useStoreEnabled();
+  const effectiveFilters: MarketplaceFilters = storeEnabled ? filters : { ...filters, type: 'services' };
+
   const query = useQuery({
-    queryKey: ['marketplace', filters],
-    queryFn: () => fetchMarketplace(filters),
+    queryKey: ['marketplace', effectiveFilters],
+    queryFn: () => fetchMarketplace(effectiveFilters),
     staleTime: 2 * 60 * 1000,
   });
 
@@ -105,7 +111,7 @@ export function useMarketplace(initialFilters?: Partial<MarketplaceFilters>) {
 
   return {
     ...query,
-    filters,
+    filters: effectiveFilters,
     updateFilters,
     nextPage,
     prevPage,

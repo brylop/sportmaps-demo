@@ -20,12 +20,17 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { requireStoreEnabled } from '../services/store-flag.service';
 
 const vendorRouter = Router();
 const adminRouter = Router();
 
 vendorRouter.use(requireAuth);
 adminRouter.use(requireAuth);
+// Tienda apagada (spec blindaje §1.3). Los routers se montan en /api/v1/vendor y
+// /api/v1/admin: el gate va SOLO sobre sus prefijos, no sobre todo el mount.
+vendorRouter.use(['/payouts', '/balance'], requireStoreEnabled);
+adminRouter.use('/payouts', requireStoreEnabled);
 
 vendorRouter.get('/payouts', async (req: AuthenticatedRequest, res: Response) => {
     try {

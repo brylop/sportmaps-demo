@@ -122,7 +122,7 @@ export default function PayrollPage() {
             th{background:#f5f5f5} .r{text-align:right}
             tfoot td{font-weight:bold;border-top:2px solid #333}</style></head>
             <body><h1>${title}</h1>
-            <div class="sub">${run.employee_count} empleados · Neto ${formatCurrency(Number(run.total_net))} · Aportes ${formatCurrency(Number(run.total_employer))} · Costo caja ${formatCurrency(Number(run.total_net) + Number(run.total_employer))}</div>
+            <div class="sub">${run.employee_count} empleados · Neto ${formatCurrency(Number(run.total_net))} · Aportes ${formatCurrency(Number(run.total_employer))} · Costo caja ${formatCurrency(Number(run.total_gross) + Number(run.total_employer))}</div>
             <table><thead><tr><th>Empleado</th><th class="r">Salario</th><th class="r">Auxilio</th><th class="r">Deducciones</th><th class="r">Aportes patr.</th><th class="r">Provisiones</th><th class="r">Neto</th></tr></thead>
             <tbody>${body}</tbody></table></body></html>`;
         const w = window.open('', '_blank');
@@ -150,7 +150,7 @@ export default function PayrollPage() {
             if (error) throw error;
             const res = data as any;
             if (res?.ok === false) throw new Error(res.error === 'no_config_for_year'
-                ? `No hay parámetros de nómina para ${year} (pídele al super admin que los agregue).`
+                ? `Faltan los parámetros de nómina de ${year} (salario mínimo, auxilio, UVT). Los carga SportMaps: escríbenos por soporte.`
                 : res.error === 'run_locked' ? 'Ese período ya está pagado/cerrado.'
                 : res.error);
             return res;
@@ -267,7 +267,7 @@ export default function PayrollPage() {
                                     {selected.status !== 'paid' && (
                                         <Button size="sm" onClick={() => payMutation.mutate(selected.id)} disabled={payMutation.isPending}>
                                             {payMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DollarSign className="mr-2 h-4 w-4" />}
-                                            Pagar (caja {formatCurrency(selected.total_net + selected.total_employer)})
+                                            Pagar (caja {formatCurrency(Number(selected.total_gross) + Number(selected.total_employer))})
                                         </Button>
                                     )}
                                 </div>
@@ -350,7 +350,7 @@ export default function PayrollPage() {
                                                 <TableCell className="font-medium">{MONTHS[r.period_month - 1]} {r.period_year}</TableCell>
                                                 <TableCell className="text-right">{r.employee_count}</TableCell>
                                                 <TableCell className="text-right">{formatCurrency(Number(r.total_net))}</TableCell>
-                                                <TableCell className="text-right">{formatCurrency(Number(r.total_net) + Number(r.total_employer))}</TableCell>
+                                                <TableCell className="text-right">{formatCurrency(Number(r.total_gross) + Number(r.total_employer))}</TableCell>
                                                 <TableCell>{r.status === 'paid' ? <Badge className="bg-emerald-500 text-white">Pagada</Badge> : <Badge variant="secondary">Borrador</Badge>}</TableCell>
                                                 <TableCell className="text-right">
                                                     <Button size="sm" variant="ghost" onClick={() => setSelectedRun(r.id)}>Ver</Button>

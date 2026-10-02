@@ -10,6 +10,7 @@ import { CartProvider } from "@/contexts/CartContext";
 import { SchoolProvider } from "@/hooks/useSchoolContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ModuleGate } from "@/components/ModuleGate";
+import { StoreGate } from "@/components/store/StoreGate";
 import { RequirePersonalTrainer } from "@/components/trainer/RequirePersonalTrainer";
 import AuthLayout from "@/layouts/AuthLayout";
 import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
@@ -339,7 +340,7 @@ const App = () => (
                     <Route path="/eliminar-cuenta" element={<AccountDeletionPage />} />
                     <Route path="/delete-account" element={<Navigate to="/eliminar-cuenta" replace />} />
                     <Route path="/checkout" element={
-                      <ProtectedRoute><CheckoutPage /></ProtectedRoute>
+                      <ProtectedRoute><StoreGate><CheckoutPage /></StoreGate></ProtectedRoute>
                     } />
                     <Route path="/onboarding/school" element={
                       <ProtectedRoute><SchoolOnboardingPage /></ProtectedRoute>
@@ -384,8 +385,10 @@ const App = () => (
                     {/* Public Marketplace routes */}
                     <Route path="/explorar" element={<ExplorarGlobalPage />} />
                     <Route path="/marketplace" element={<MarketplacePage />} />
+                    {/* Detalle de PRODUCTO = tienda; el de servicio (/marketplace/service/:id) sigue abierto. */}
+                    <Route path="/marketplace/product/:id" element={<StoreGate><MarketplaceDetailPage /></StoreGate>} />
                     <Route path="/marketplace/:type/:id" element={<MarketplaceDetailPage />} />
-                    <Route path="/tienda/:slug" element={<TiendaPublicaPage />} />
+                    <Route path="/tienda/:slug" element={<StoreGate><TiendaPublicaPage /></StoreGate>} />
 
                     {/* Public trainer profile — no auth required */}
                     <Route path="/entrenador/:userId" element={<TrainerPublicProfile />} />
@@ -453,7 +456,7 @@ const App = () => (
                       <Route path="goals" element={<GoalsPage />} />
                       <Route path="training" element={<TrainingPage />} />
                       <Route path="enrollments" element={<MyEnrollmentsPage />} />
-                      <Route path="shop" element={<ShopPage />} />
+                      <Route path="shop" element={<StoreGate><ShopPage /></StoreGate>} />
                       <Route path="wellness" element={<AthleteWellnessPage />} />
                       <Route path="athlete-payments" element={
                         <ProtectedRoute allowedRoles={['athlete']}>
@@ -487,7 +490,7 @@ const App = () => (
                       } />
                       <Route path="mi-tienda" element={
                         <ProtectedRoute allowedRoles={['parent', 'athlete']}>
-                          <MiTiendaPage />
+                          <StoreGate><MiTiendaPage /></StoreGate>
                         </ProtectedRoute>
                       } />
 
@@ -899,42 +902,42 @@ const App = () => (
                       {/* Store routes */}
                       <Route path="products" element={
                         <ProtectedRoute allowedRoles={['store_owner', 'admin', 'school', 'school_admin', 'super_admin']}>
-                          <StoreProductsPage />
+                          <StoreGate><StoreProductsPage /></StoreGate>
                         </ProtectedRoute>
                       } />
                       <Route path="orders" element={
                         <ProtectedRoute allowedRoles={['store_owner', 'admin', 'school', 'school_admin', 'super_admin']}>
-                          <StoreOrdersPage />
+                          <StoreGate><StoreOrdersPage /></StoreGate>
                         </ProtectedRoute>
                       } />
                       <Route path="inventory" element={
                         <ProtectedRoute allowedRoles={['store_owner', 'admin', 'school', 'school_admin', 'super_admin']}>
-                          <StoreInventoryPage />
+                          <StoreGate><StoreInventoryPage /></StoreGate>
                         </ProtectedRoute>
                       } />
                       <Route path="suppliers" element={
                         <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                          <StoreInventoryPage />
+                          <StoreGate><StoreInventoryPage /></StoreGate>
                         </ProtectedRoute>
                       } />
                       <Route path="categories" element={
                         <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                          <StoreProductsPage />
+                          <StoreGate><StoreProductsPage /></StoreGate>
                         </ProtectedRoute>
                       } />
                       <Route path="customers" element={
                         <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                          <StoreOrdersPage />
+                          <StoreGate><StoreOrdersPage /></StoreGate>
                         </ProtectedRoute>
                       } />
                       <Route path="promotions" element={
                         <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                          <StoreProductsPage />
+                          <StoreGate><StoreProductsPage /></StoreGate>
                         </ProtectedRoute>
                       } />
                       <Route path="store-reports" element={
                         <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                          <ReportsPage />
+                          <StoreGate><ReportsPage /></StoreGate>
                         </ProtectedRoute>
                       } />
 
@@ -944,14 +947,14 @@ const App = () => (
                         <Route path="vendor/dashboard" element={<VendorDashboardPage />} />
                         <Route path="vendor/services" element={<VendorServicesPage />} />
                         <Route path="vendor/appointments" element={<VendorAppointmentsPage />} />
-                        <Route path="vendor/products" element={<VendorProductsPage />} />
-                        <Route path="vendor/products/new" element={<ProductWizardPage />} />
-                        <Route path="vendor/products/:id/edit" element={<ProductWizardPage />} />
-                        <Route path="vendor/inbox" element={<VendorInboxPage />} />
-                        <Route path="vendor/payouts" element={<VendorPayoutsPage />} />
+                        <Route path="vendor/products" element={<StoreGate><VendorProductsPage /></StoreGate>} />
+                        <Route path="vendor/products/new" element={<StoreGate><ProductWizardPage /></StoreGate>} />
+                        <Route path="vendor/products/:id/edit" element={<StoreGate><ProductWizardPage /></StoreGate>} />
+                        <Route path="vendor/inbox" element={<StoreGate><VendorInboxPage /></StoreGate>} />
+                        <Route path="vendor/payouts" element={<StoreGate><VendorPayoutsPage /></StoreGate>} />
                         <Route path="vendor/subscribers" element={<VendorSubscribersPage />} />
-                        <Route path="vendor/shipping" element={<VendorShippingSettingsPage />} />
-                        <Route path="vendor/promotions" element={<VendorPromotionsPage />} />
+                        <Route path="vendor/shipping" element={<StoreGate><VendorShippingSettingsPage /></StoreGate>} />
+                        <Route path="vendor/promotions" element={<StoreGate><VendorPromotionsPage /></StoreGate>} />
                       </Route>
 
                       {/* Organizer routes */}
@@ -1079,7 +1082,7 @@ const App = () => (
                 </Suspense>
 
                 <MobileBottomNav />
-                <CartDrawer />
+                <StoreGate fallback={null}><CartDrawer /></StoreGate>
               </BrowserRouter>
             </CartProvider>
           </ErrorBoundary>
