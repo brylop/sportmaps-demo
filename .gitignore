@@ -235,3 +235,9 @@ Datos Plataforma Sede Suba.xlsx
 # Capturas crudas de los manuales: se regeneran con capture.mjs; el HTML/PDF ya las lleva embebidas
 docs/manuales/_src/**/shots/
 docs/manuales/_src/**/video-raw/
+
+# Gemelo local (QA): volcado de esquema de la viva y logs de carga. Se regeneran
+# con npm run qa:dump-schema; no se versionan.
+supabase/qa-twin/dump/
+supabase/qa-twin/supabase/.temp/
+supabase/qa-twin/supabase/.branches/

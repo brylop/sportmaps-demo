@@ -1,0 +1,65 @@
+# Gemelo local de la base (QA). Ver docs/qa-gemelo-local.md.
+#
+# Es un proyecto Supabase APARTE del de la raiz (supabase/config.toml), a
+# proposito: `supabase start` en la raiz reproduciria supabase/migrations/, y eso
+# NO es la base real (~336 objetos viven fuera del repo). Este proyecto no tiene
+# migraciones: arranca vacio y `npm run qa:twin:up` le carga el volcado de
+# esquema de la viva + supabase/seed/qa_twin_seed.sql.
+#
+# Se usa siempre con --workdir supabase/qa-twin (los scripts npm ya lo hacen).
+
+project_id = "sportmaps-qa-twin"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[db.pooler]
+enabled = false
+
+[db.seed]
+# El seed lo carga scripts/qa-twin/twin.mjs DESPUES del volcado, no la CLI.
+enabled = false
+
+[realtime]
+enabled = true
+
+[studio]
+enabled = true
+port = 54323
+api_url = "http://127.0.0.1"
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[auth]
+enabled = true
+site_url = "http://localhost:3001"
+additional_redirect_urls = ["http://localhost:3001", "http://127.0.0.1:3001"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false
+double_confirm_changes = false
+
+[edge_runtime]
+enabled = false
+
+[analytics]
+enabled = false
