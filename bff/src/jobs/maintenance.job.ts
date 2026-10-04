@@ -22,6 +22,9 @@ import { runPostTrainingReminders } from './post-training-reminders.job';
 import { runWhatsAppQueue } from './whatsapp-queue.job';
 import { runWhatsAppPaymentOutcome } from './whatsapp-payment-outcome.job';
 import { runWhatsAppMantenimiento } from './whatsapp-mantenimiento.job';
+import { runWhatsAppPlantillasSync } from './whatsapp-plantillas-sync.job';
+import { runWhatsAppResumenDiario } from './whatsapp-resumen-diario.job';
+import { runBotResumenSemanal } from './bot-resumen-semanal.job';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -330,9 +333,11 @@ export function initMaintenanceJobs() {
     // días de gracia. Este job solo agrega el correo. Mismo gate que arriba.
     // ────────────────────────────────────────────────────────────────────────
     // Sin opción `timezone`: igual que el resto de jobs anclados a un cron de
-    // Postgres (pg_cron corre siempre en UTC), así 07:15 cae 15 min después
-    // de 'apply-late-fees-daily' (0 7 * * * = 07:00 UTC) sin desfase de zona.
-    cron.schedule('15 7 * * *', async () => {
+    // Postgres (pg_cron corre siempre en UTC). Corre a las 12:15 UTC = 07:15
+    // COT, después de 'apply-late-fees-daily' (07:00 UTC). Antes era 07:15 UTC
+    // = 02:15 COT: un aviso de cobro a las 2 de la mañana, y por WhatsApp ni
+    // siquiera saldría (fuera del horario de cobranza de whatsapp-plantillas).
+    cron.schedule('15 12 * * *', async () => {
         try {
             await sendOverdueNoticeEmails();
         } catch (err: any) {
@@ -341,7 +346,7 @@ export function initMaintenanceJobs() {
         }
     });
 
-    console.log('[CRON] Correo de pago vencido registrado para las 07:15 UTC (tras apply_late_fees).');
+    console.log('[CRON] Aviso de pago vencido registrado para las 12:15 UTC = 07:15 COT (tras apply_late_fees).');
 
     // ────────────────────────────────────────────────────────────────────────
     // Ciclo diario del Informe Mensual (F5): genera borradores, publica lo que
@@ -485,6 +490,67 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Mantenimiento del buzón de WhatsApp registrado (cada 15 min).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Estado de las plantillas de Meta por WABA — cada 30 min.
+    //
+    // La cobranza por WhatsApp solo usa plantillas APPROVED de la WABA de esa
+    // escuela. El webhook de status no trajo ningún evento de la WABA de
+    // Dynasty (2026-10-04), así que el sync es la fuente confiable.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/30 * * * *', async () => {
+        if (process.env.DISABLE_WHATSAPP_QUEUE_CRON === 'true') return;
+        try {
+            await runWhatsAppPlantillasSync();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error sincronizando plantillas de WhatsApp:', err?.message || err);
+        }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Resumen diario de WhatsApp por correo — 07:00 COT.
+    //
+    // El push del escalamiento no se ve ("no me entero", 2026-10-04). Cada
+    // mañana, a owner + admins de cada escuela con WhatsApp conectado: familias
+    // sin responder, comprobantes que quedaron para la escuela y prospectos de
+    // las últimas 24 h. Si no hay nada, no se manda.
+    //
+    // Los tres BFF (dev/stg/prod) comparten la base y los tres disparan este
+    // cron: la idempotencia está en `email_sends` (id determinístico por
+    // escuela + fecha), no en memoria. Kill-switch: DISABLE_WHATSAPP_RESUMEN_CORREO.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('0 7 * * *', async () => {
+        if (process.env.DISABLE_WHATSAPP_RESUMEN_CORREO === 'true') return;
+        try {
+            const r = await runWhatsAppResumenDiario();
+            if (r.enviados > 0) console.log(`[CRON] Resumen diario de WhatsApp: ${r.enviados} de ${r.escuelas} escuela(s).`);
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en el resumen diario de WhatsApp:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Resumen diario de WhatsApp por correo registrado para las 07:00 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Resumen semanal de los bots a SportMaps — lunes 07:05 COT (5 min después
+    // del diario para no pedir las mismas tablas en el mismo minuto). WhatsApp
+    // por escuela + tickets de SportBot de la semana anterior. Misma
+    // idempotencia en base. Kill-switch: DISABLE_BOT_RESUMEN_SEMANAL_CORREO.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('5 7 * * 1', async () => {
+        if (process.env.DISABLE_BOT_RESUMEN_SEMANAL_CORREO === 'true') return;
+        try {
+            const r = await runBotResumenSemanal();
+            console.log(`[CRON] Resumen semanal de los bots: ${r}.`);
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en el resumen semanal de los bots:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Resumen semanal de los bots registrado para los lunes 07:05 COT.');
 
     // ────────────────────────────────────────────────────────────────────────
     // Banco de horas por torniquete (F5) — auto-cierre de visitas 'open'.

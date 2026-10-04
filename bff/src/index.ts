@@ -53,6 +53,7 @@ import { requireOperationalSchool } from './middlewares/requireOperationalSchool
 import systemRouter from './routes/system';
 import whatsappWebhookRouter from './routes/whatsapp';
 import whatsappAdminRouter from './routes/whatsapp-admin.routes';
+import whatsappMetricasRouter from './routes/whatsapp-metricas.routes';
 import publicBookingRouter from './routes/public-booking.routes';
 import { initMaintenanceJobs } from './jobs/maintenance.job';
 import organizerRouter from './routes/organizers.route';
@@ -305,7 +306,12 @@ app.use('/api/v1/webhooks/whatsapp', whatsappWebhookRouter);
 // Panel de la escuela sobre su canal de WhatsApp: ajustes, horario, consumo del
 // mes, bandeja de comprobantes sin resolver y avisos de Meta. Lleva requireAuth
 // dentro del router, con verificacion de membresia REAL en esa escuela.
-app.use('/api/v1/whatsapp', generalLimiter, whatsappAdminRouter);
+// Tablero de métricas del bot (GET /:schoolId/metricas). Va ANTES del router
+// del panel: aunque hoy ninguna ruta de allá atrapa "/:schoolId/metricas", si
+// alguien agrega un comodín ahí, este seguiría respondiendo. En la MISMA línea
+// y no en un app.use aparte: con dos, cada petición del panel pasaría dos veces
+// por generalLimiter y gastaría doble cupo.
+app.use('/api/v1/whatsapp', generalLimiter, whatsappMetricasRouter, whatsappAdminRouter);
 
 // Link público de agendamiento de instalaciones — sin requireAuth, rate-limit propio
 const publicBookingLimiter = rateLimit({

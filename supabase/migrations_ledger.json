@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 651,
-  "head": "20261004074523",
+  "count": 652,
+  "head": "20261004080918",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -654,6 +654,7 @@
     {"v":"20261003202434","file":"20261003202434_tienda_v2_products_guard.sql","sha256":"b879b7976e86421486e08cc1ca82040dcf163a2566c832eade9f79fcde664a0c","added":"2026-10-04","by":"Brayan Steven Lopez"},
     {"v":"20261003202436","file":"20261003202436_tienda_v2_orders_cerrar_escritura.sql","sha256":"49d1b16b255850d371a689c7e34bc6f6f14d8134f85f6fd7db9d5caa9055b64b","added":"2026-10-04","by":"Brayan Steven Lopez"},
     {"v":"20261003202439","file":"20261003202439_tienda_v2_refunds_reviews_rpc.sql","sha256":"61ca3c0e393b45a521e16e08bae9d4db80b4442a3a56fb3b9b8f2beb3ada3af0","added":"2026-10-04","by":"Brayan Steven Lopez"},
-    {"v":"20261004074523","file":"20261004074523_matricula_por_foto_desde_app.sql","sha256":"d609c0822abd77106984c0279b9c6298f7ad3b22cd248d13d9a3110ff3a80bd7","added":"2026-10-04","by":"Brayan Steven Lopez"}
+    {"v":"20261004074523","file":"20261004074523_matricula_por_foto_desde_app.sql","sha256":"d609c0822abd77106984c0279b9c6298f7ad3b22cd248d13d9a3110ff3a80bd7","added":"2026-10-04","by":"Brayan Steven Lopez"},
+    {"v":"20261004080918","file":"20261004080918_whatsapp_estado_de_plantillas_por_waba.sql","sha256":"2adcd1c3d6e619342cda8597128e45f905e3ce111231f260f8a356d175f68ee2","added":"2026-10-04","by":"Brayan Steven Lopez"}
   ]
 }

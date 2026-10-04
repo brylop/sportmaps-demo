@@ -16,7 +16,13 @@ type EmailType =
     | "coach_invitation"
     | "athlete_invitation"
     | "staff_invitation"
-    | "payment_reminder";
+    | "payment_reminder"
+    // Avisos del bot (WhatsApp y SportBot). Los arma bff/src/services/avisos-correo.service.ts
+    // y los jobs whatsapp-resumen-diario / bot-resumen-semanal.
+    | "wa_escalamiento"
+    | "wa_resumen_diario"
+    | "soporte_ticket_nuevo"
+    | "bot_resumen_semanal";
 
 interface EmailItem {
     type?: EmailType;
@@ -64,6 +70,52 @@ const wrapTemplate = (body: string): string => `
 
 const orangeButton = (href: string, text: string): string =>
     `<a href="${href}" style="display: inline-block; padding: 14px 30px; background-color: #FB9F1E; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 20px; box-shadow: 0 4px 10px rgba(251, 159, 30, 0.3);">${text}</a>`;
+
+// ─── Helpers de las plantillas del bot ───
+// Estas plantillas muestran texto que escribió una familia por WhatsApp o un
+// usuario en el chat de soporte: TODO lo que viene en `data` se escapa. Las
+// plantillas anteriores interpolan sin escapar porque sus datos los pone la
+// escuela; acá no.
+const esc = (v: unknown): string =>
+    String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+/** Las listas viajan como JSON en un string (`data` es Record<string,string>). */
+function parseLista<T>(raw: string | undefined): T[] {
+    try {
+        const v = JSON.parse(raw || "[]");
+        return Array.isArray(v) ? v : [];
+    } catch {
+        return [];
+    }
+}
+
+type MensajeCorto = { quien: string; texto: string; hora: string };
+
+const bloqueMensajes = (mensajes: MensajeCorto[]): string =>
+    mensajes.length
+        ? `<div style="text-align: left; margin: 20px 0;">${mensajes.map((m) => `
+            <div style="background: #f6f7f6; border-left: 3px solid #248223; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px;">
+              <div style="color: #888; font-size: 12px;">${esc(m.quien)} · ${esc(m.hora)}</div>
+              <div style="color: #4a4a4a; line-height: 1.5; white-space: pre-wrap;">${esc(m.texto)}</div>
+            </div>`).join("")}</div>`
+        : "";
+
+/** Fila etiqueta/valor como las de payment_confirmation. `valor` llega SIN escapar. */
+const filaDato = (label: string, valor: string, ultima = false): string => `
+            <tr>
+              <td style="padding: 10px; color: #888;${ultima ? "" : " border-bottom: 1px solid #eee;"}">${esc(label)}</td>
+              <td style="padding: 10px; font-weight: 600; text-align: right;${ultima ? "" : " border-bottom: 1px solid #eee;"}">${esc(valor)}</td>
+            </tr>`;
+
+const seccion = (titulo: string, total: string | undefined, filas: string[]): string => {
+    if (!filas.length) return "";
+    const n = Number(total || filas.length);
+    const extra = n > filas.length ? `<li style="color: #888;">y ${n - filas.length} más en la app</li>` : "";
+    return `
+          <h3 style="color: #248223; text-align: left; margin: 24px 0 8px;">${esc(titulo)} (${n})</h3>
+          <ul style="text-align: left; color: #4a4a4a; line-height: 1.6; padding-left: 18px; margin: 0;">${filas.join("")}${extra}</ul>`;
+};
 
 // ─── Templates ───
 function getSubjectAndHtml(type: EmailType, d: Record<string, string>): { subject: string; html: string } {
@@ -246,6 +298,120 @@ function getSubjectAndHtml(type: EmailType, d: Record<string, string>): { subjec
           ${orangeButton(d.paymentUrl || "https://app.sportmaps.co/my-payments", "Realizar Pago")}
         `),
             };
+
+        // Una conversación de WhatsApp pasó a una persona. A owner + admins.
+        case "wa_escalamiento":
+            return {
+                subject: `${d.titulo || "Te escribieron por WhatsApp"} — ${d.schoolName || "tu escuela"}`,
+                html: wrapTemplate(`
+          <h2 style="color: ${d.esProspecto === "true" ? "#FB9F1E" : "#248223"}; margin-top: 0;">${esc(d.titulo || "Alguien espera respuesta")}</h2>
+          <p style="color: #4a4a4a; line-height: 1.6;">
+            El asistente de WhatsApp de <strong>${esc(d.schoolName)}</strong> pasó esta conversación a una persona del equipo.
+          </p>
+          <table style="width: 100%; border-collapse: collapse; margin: 20px 0; text-align: left;">
+            ${filaDato("Contacto", d.contactLabel || "")}
+            ${filaDato("Motivo", d.motivo || "", true)}
+          </table>
+          ${bloqueMensajes(parseLista<MensajeCorto>(d.mensajesJson))}
+          ${orangeButton(esc(d.conversationUrl || "https://app.sportmaps.co/whatsapp"), "Responder en SportMaps")}
+          <p style="color: #888; font-size: 12px; margin-top: 20px;">
+            Si ya le respondiste desde el celular, no tienes que hacer nada más. Te avisamos máximo una vez cada 6 horas por la misma conversación.
+          </p>
+        `),
+            };
+
+        // Resumen de las 7 a. m. por escuela. El BFF solo lo manda si hay algo.
+        case "wa_resumen_diario": {
+            const familias = parseLista<{ contacto: string; esperaDesde: string; horas: number }>(d.familiasJson)
+                .map((f) => `<li><strong>${esc(f.contacto)}</strong> — escribió ${esc(f.esperaDesde)} (hace ${esc(f.horas)} h)</li>`);
+            const comprobantes = parseLista<{ contacto: string; estado: string; hora: string }>(d.comprobantesJson)
+                .map((c) => `<li><strong>${esc(c.contacto)}</strong> — ${esc(c.estado)} (${esc(c.hora)})</li>`);
+            const prospectos = parseLista<{ contacto: string; conEnlace: boolean; respondido: boolean; hora: string }>(d.prospectosJson)
+                .map((p) => `<li><strong>${esc(p.contacto)}</strong> — ${p.respondido ? "ya le respondieron" : "sin respuesta de la escuela"}${p.conEnlace ? "" : ", no había enlace de inscripción"} (${esc(p.hora)})</li>`);
+            return {
+                subject: `WhatsApp de ${d.schoolName || "tu escuela"}: ${d.resumen || "pendientes de hoy"}`,
+                html: wrapTemplate(`
+          <h2 style="color: #248223; margin-top: 0;">Lo que quedó esperando en WhatsApp</h2>
+          <p style="color: #4a4a4a; line-height: 1.6;">
+            Buenos días. Este es el resumen de <strong>${esc(d.schoolName)}</strong>: ${esc(d.resumen)}.
+          </p>
+          ${seccion("Familias sin respuesta", d.familiasTotal, familias)}
+          ${seccion("Comprobantes para revisar (últimas 24 h)", d.comprobantesTotal, comprobantes)}
+          ${seccion("Prospectos (últimas 24 h)", d.prospectosTotal, prospectos)}
+          ${orangeButton(esc(d.inboxUrl || "https://app.sportmaps.co/whatsapp"), "Abrir WhatsApp en SportMaps")}
+          <p style="color: #888; font-size: 12px; margin-top: 20px;">
+            Este correo solo llega los días en que hay algo pendiente.
+          </p>
+        `),
+            };
+        }
+
+        // Ticket de SportBot (nuevo, o escalado a una persona). A SportMaps.
+        case "soporte_ticket_nuevo":
+            return {
+                subject: `${d.titulo || "Nuevo caso en SportBot"}: ${d.requesterName || "un usuario"}`,
+                html: wrapTemplate(`
+          <h2 style="color: #248223; margin-top: 0;">${esc(d.titulo || "Nuevo caso en SportBot")}</h2>
+          <table style="width: 100%; border-collapse: collapse; margin: 20px 0; text-align: left;">
+            ${filaDato("Usuario", d.requesterName || "")}
+            ${d.requesterEmail ? filaDato("Correo", d.requesterEmail) : ""}
+            ${d.rol ? filaDato("Rol", d.rol) : ""}
+            ${filaDato("Escuela", d.escuela || "Sin escuela")}
+            ${d.motivo ? filaDato("Motivo", d.motivo) : ""}
+            ${filaDato("Estado", d.estado || "", true)}
+          </table>
+          ${bloqueMensajes(parseLista<MensajeCorto>(d.mensajesJson))}
+          ${orangeButton(esc(d.adminUrl || "https://app.sportmaps.co/admin/support"), "Abrir la bandeja de soporte")}
+        `),
+            };
+
+        // Lunes 7 a. m. a SportMaps: cómo les fue a los bots la semana anterior.
+        case "bot_resumen_semanal": {
+            const escuelas = parseLista<{
+                nombre: string; conversaciones: number; familias: number; pctSinHumano: number | null;
+                escaladas: number; medianaPrimeraRespuestaMin: number | null; sinResponder24h: number;
+            }>(d.escuelasJson);
+            let tk: Record<string, number | null> = {};
+            try { tk = JSON.parse(d.ticketsJson || "{}"); } catch { tk = {}; }
+            // Sin escapar: lo escapa filaDato, o se escapa abajo al pintar la celda.
+            const n = (v: unknown, suf = "") => (v === null || v === undefined ? "—" : `${v}${suf}`);
+            const th = `style="padding: 6px; color: #888; font-size: 12px; text-align: right; border-bottom: 1px solid #eee;"`;
+            const td = `style="padding: 6px; text-align: right; border-bottom: 1px solid #eee;"`;
+            const filas = escuelas.map((e) => `
+            <tr>
+              <td style="padding: 6px; text-align: left; font-weight: 600; border-bottom: 1px solid #eee;">${esc(e.nombre)}</td>
+              <td ${td}>${esc(n(e.conversaciones))}</td>
+              <td ${td}>${esc(n(e.pctSinHumano, "%"))}</td>
+              <td ${td}>${esc(n(e.escaladas))}</td>
+              <td ${td}>${esc(n(e.medianaPrimeraRespuestaMin, " min"))}</td>
+              <td ${td}>${esc(n(e.sinResponder24h))}</td>
+            </tr>`).join("");
+            return {
+                subject: `Resumen semanal de los bots (${d.semana || ""})`,
+                html: wrapTemplate(`
+          <h2 style="color: #248223; margin-top: 0;">Resumen semanal de los bots</h2>
+          <p style="color: #4a4a4a; line-height: 1.6;">Semana del <strong>${esc(d.semana)}</strong>.</p>
+          ${escuelas.length ? `
+          <h3 style="color: #248223; text-align: left; margin: 24px 0 8px;">WhatsApp por escuela</h3>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            <tr>
+              <td style="padding: 6px; color: #888; font-size: 12px; text-align: left; border-bottom: 1px solid #eee;">Escuela</td>
+              <td ${th}>Conv.</td><td ${th}>Familias sin humano</td><td ${th}>Escaladas</td>
+              <td ${th}>1.ª resp. humana (mediana)</td><td ${th}>Sin responder &gt; 24 h</td>
+            </tr>${filas}
+          </table>` : ""}
+          <h3 style="color: #248223; text-align: left; margin: 24px 0 8px;">SportBot (soporte in-app)</h3>
+          <table style="width: 100%; border-collapse: collapse; text-align: left;">
+            ${filaDato("Tickets nuevos", n(tk.total))}
+            ${filaDato("Resueltos por SportBot", n(tk.botHandled))}
+            ${filaDato("Esperando a una persona", n(tk.waitingHuman))}
+            ${filaDato("Con respuesta humana", n(tk.conRespuestaHumana))}
+            ${filaDato("Mediana a la primera respuesta", n(tk.medianaPrimeraRespuestaMin, " min"), true)}
+          </table>
+          ${orangeButton(esc(d.adminUrl || "https://app.sportmaps.co/admin/support"), "Abrir la bandeja de soporte")}
+        `),
+            };
+        }
 
         default:
             throw new Error(`Tipo de correo no soportado: ${type}`);

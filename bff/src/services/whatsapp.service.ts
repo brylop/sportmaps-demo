@@ -185,6 +185,23 @@ export async function sendTextMessage(
     toWaId: string,
     text: string,
 ): Promise<SendTextResult> {
+    return postearMensaje(integration, {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: toWaId,
+        type: 'text',
+        text: { preview_url: false, body: text },
+    });
+}
+
+/**
+ * El POST a /messages que comparten el texto y los botones: descifrar el
+ * token, mandar, y traducir la respuesta de Graph a `SendTextResult`. No lanza.
+ */
+async function postearMensaje(
+    integration: WhatsAppIntegration,
+    payload: Record<string, unknown>,
+): Promise<SendTextResult> {
     if (!integration.access_token_encrypted) {
         return { ok: false, error: 'integration_without_token' };
     }
@@ -202,13 +219,7 @@ export async function sendTextMessage(
                 Authorization: `Bearer ${token}`,
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                messaging_product: 'whatsapp',
-                recipient_type: 'individual',
-                to: toWaId,
-                type: 'text',
-                text: { preview_url: false, body: text },
-            }),
+            body: JSON.stringify(payload),
         });
 
         const json: any = await res.json().catch(() => ({}));
@@ -219,6 +230,82 @@ export async function sendTextMessage(
     } catch (err: any) {
         return { ok: false, error: err?.message || 'network_error' };
     }
+}
+
+// ─── Botones de respuesta rápida (interactive / button) ─────────────────────
+
+/**
+ * Un botón de respuesta rápida. Cuando el contacto lo toca, el webhook trae
+ * `interactive.button_reply.id` con este mismo `id`: es lo que el bot usa para
+ * decidir SIN modelo (ver `accionDeBoton` en whatsapp-bot.service).
+ */
+export interface BotonInteractivo {
+    id: string;
+    title: string;
+}
+
+/** Límites de Meta para `interactive.type='button'`. Pasarlos es un 400. */
+export const MAX_BOTONES = 3;
+export const MAX_TITULO_BOTON = 20;
+export const MAX_ID_BOTON = 256;
+export const MAX_CUERPO_INTERACTIVO = 1024;
+
+/**
+ * Arma el payload de Graph para un mensaje con botones. Pura, para poder
+ * probar la forma exacta sin red.
+ *
+ * Devuelve null si no se puede mandar como botones (sin botones o cuerpo de
+ * más de 1024 caracteres): quien llama cae al texto plano, que siempre sale.
+ * Lo que pasa de los límites se RECORTA en vez de fallar: un título de 21
+ * caracteres es un 400 de Meta y el acudiente se queda sin respuesta, y un
+ * título recortado se sigue entendiendo.
+ */
+export function payloadDeBotones(
+    toWaId: string,
+    body: string,
+    botones: BotonInteractivo[],
+): Record<string, unknown> | null {
+    const validos = botones
+        .filter((b) => b && b.id && b.title)
+        .slice(0, MAX_BOTONES)
+        .map((b) => ({
+            type: 'reply',
+            reply: {
+                id: b.id.slice(0, MAX_ID_BOTON),
+                title: Array.from(b.title.trim()).slice(0, MAX_TITULO_BOTON).join(''),
+            },
+        }));
+    if (!validos.length || !body || body.length > MAX_CUERPO_INTERACTIVO) return null;
+
+    return {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: toWaId,
+        type: 'interactive',
+        interactive: {
+            type: 'button',
+            body: { text: body },
+            action: { buttons: validos },
+        },
+    };
+}
+
+/**
+ * Envía un mensaje con hasta 3 botones de respuesta rápida.
+ *
+ * Igual que el texto libre, solo vale dentro de la ventana de 24 h. No lanza:
+ * si el mensaje no cabe como botones devuelve `{ ok: false }` y el que llama
+ * manda el texto plano.
+ */
+export async function sendInteractiveButtons(
+    integration: WhatsAppIntegration,
+    toWaId: string,
+    body: string,
+    botones: BotonInteractivo[],
+): Promise<SendTextResult> {
+    const payload = payloadDeBotones(toWaId, body, botones);
+    if (!payload) return { ok: false, error: 'no_cabe_como_botones' };
+    return postearMensaje(integration, payload);
 }
 
 /**
@@ -455,6 +542,13 @@ export interface ParsedInboundMessage {
     mediaMimeType: string | null;
     /** texto que el usuario escribió junto a la imagen, si lo hubo. */
     mediaCaption: string | null;
+    /**
+     * id del botón que tocó (`interactive.button_reply.id`, `list_reply.id`, o
+     * `button.payload` de una plantilla). `textBody` sigue siendo el TÍTULO
+     * —es lo que el buzón muestra—, pero la decisión se toma con el id: el
+     * título es texto para personas y puede cambiar; el id no.
+     */
+    botonId?: string | null;
     raw: any;
 }
 
@@ -480,11 +574,17 @@ export function parseInboundMessages(body: any): ParsedInboundMessage[] {
             for (const m of messages) {
                 const type: string = m?.type || 'unsupported';
                 let textBody: string | null = null;
+                let botonId: string | null = null;
                 if (type === 'text') textBody = m?.text?.body ?? null;
-                else if (type === 'button') textBody = m?.button?.text ?? null;
-                else if (type === 'interactive') {
+                else if (type === 'button') {
+                    textBody = m?.button?.text ?? null;
+                    botonId = m?.button?.payload ?? null;
+                } else if (type === 'interactive') {
                     textBody = m?.interactive?.button_reply?.title
                         || m?.interactive?.list_reply?.title
+                        || null;
+                    botonId = m?.interactive?.button_reply?.id
+                        || m?.interactive?.list_reply?.id
                         || null;
                 }
                 // Los tipos con archivo traen el id del media en su propio nodo
@@ -507,6 +607,7 @@ export function parseInboundMessages(body: any): ParsedInboundMessage[] {
                     mediaId,
                     mediaMimeType,
                     mediaCaption,
+                    botonId,
                     raw: m,
                 });
             }

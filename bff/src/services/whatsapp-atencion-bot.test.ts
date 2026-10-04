@@ -57,15 +57,19 @@ const h = vi.hoisted(() => {
 
 vi.mock('../config/supabase', () => ({ supabase: h.supabase }));
 // `temaEscolar` va REAL: es la regla que se está probando de punta a punta.
-vi.mock('./whatsapp-atencion.service', async () => ({
-    debeAtender: h.debeAtender,
-    botEncendido: h.botEncendido,
-    temaEscolar: (await vi.importActual<typeof import('./whatsapp-atencion.service')>(
-        './whatsapp-atencion.service')).temaEscolar,
-}));
+vi.mock('./whatsapp-atencion.service', async () => {
+    const real = await vi.importActual<typeof import('./whatsapp-atencion.service')>('./whatsapp-atencion.service');
+    return {
+        debeAtender: h.debeAtender,
+        botEncendido: h.botEncendido,
+        temaEscolar: real.temaEscolar,
+        preguntaPrecioComoProspecto: real.preguntaPrecioComoProspecto,
+    };
+});
 vi.mock('./llm.service', () => ({ chatWithTools: h.chatWithTools }));
 vi.mock('./whatsapp.service', () => ({
     sendTextMessage: h.sendTextMessage,
+    sendInteractiveButtons: vi.fn(async () => ({ ok: true, waMessageId: 'wamid.btn' })),
     aFormatoWhatsApp: (t: string) => t,
     verifyWebhookSignature: vi.fn(),
     resolveIntegration: vi.fn(),
@@ -86,6 +90,9 @@ vi.mock('./whatsapp-medios-de-pago.service', () => ({ mediosDePago: vi.fn() }));
 vi.mock('./whatsapp-info-escuela.service', () => ({ infoDeEscuela: vi.fn(), fallbackInfoEscuela: vi.fn() }));
 vi.mock('./whatsapp-respuesta-de-cobro.service', () => ({ resolverRespuestaDeCobro: vi.fn(async () => false) }));
 vi.mock('../utils/emailClient', () => ({ emailClient: { send: vi.fn() } }));
+// El correo de escalamiento es no bloqueante y lo prueba su propio archivo;
+// acá solo estorbaría con logs del agente de correo.
+vi.mock('./avisos-correo.service', () => ({ avisarEscalamientoPorCorreo: vi.fn(async () => {}) }));
 vi.mock('./whatsapp-queue.service', () => ({ encolarAdjunto: h.encolarAdjunto }));
 vi.mock('./whatsapp-coexistence.service', () => ({
     procesarEchos: vi.fn(), procesarHistorial: vi.fn(), registrarAppState: vi.fn(),

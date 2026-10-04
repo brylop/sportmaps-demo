@@ -33,14 +33,21 @@ import crypto from 'crypto';
 import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
 import { chatWithTools, type LlmTool, type LlmMessage } from './llm.service';
-import { sendTextMessage, aFormatoWhatsApp, type WhatsAppIntegration } from './whatsapp.service';
+import {
+    sendTextMessage, sendInteractiveButtons, aFormatoWhatsApp,
+    type WhatsAppIntegration, type BotonInteractivo,
+} from './whatsapp.service';
+import { esSalienteAutomatico } from './whatsapp-buzon';
+import { avisarEscalamientoPorCorreo } from './avisos-correo.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
 import { estadoDeHorario, mensajeDeEscalamiento } from './whatsapp-horario.service';
 import { sendToUser } from './push.service';
 import { mediosDePago } from './whatsapp-medios-de-pago.service';
 import { infoDeEscuela, fallbackInfoEscuela } from './whatsapp-info-escuela.service';
 import { resolverRespuestaDeCobro } from './whatsapp-respuesta-de-cobro.service';
-import { botEncendido, debeAtender, temaEscolar } from './whatsapp-atencion.service';
+import {
+    botEncendido, debeAtender, temaEscolar, preguntaPrecioComoProspecto,
+} from './whatsapp-atencion.service';
 import { conMarca, sufijoMarcaEscuela } from '../utils/tenantLink';
 
 const OTP_TTL_MIN = 10;
@@ -54,6 +61,7 @@ export async function runBotTurn(
     inboundText: string | null,
     waMessageId: string,
     optedOut = false,
+    botonId: string | null = null,
 ): Promise<void> {
     const text = (inboundText || '').trim();
 
@@ -115,7 +123,17 @@ export async function runBotTurn(
 
     // 2. Consentimiento: se pide UNA vez, después de identificarse.
     //    Si este turno lo resolvió (preguntó, o registró el sí/no), termina acá.
-    if (await handleConsent(integration, conversationId, contactWaId, conv.parent_id, text, waMessageId)) {
+    if (await handleConsent(integration, conversationId, contactWaId, conv.parent_id, text, waMessageId, botonId)) {
+        return;
+    }
+
+    // 2.4. ¿Tocó un botón (o escribió su título tal cual)? Acción determinista,
+    //      SIN modelo. Va antes de la pregunta de comprobante: tocar un botón es
+    //      una elección explícita, y leerlo como respuesta a «¿cuál de los dos
+    //      pagos?» sería no escucharla.
+    const accion = accionDeBoton(botonId, text);
+    if (accion) {
+        await ejecutarAccionDeBoton(integration, conversationId, contactWaId, conv.parent_id, accion);
         return;
     }
 
@@ -132,7 +150,258 @@ export async function runBotTurn(
     if (respondio) return;
 
     // 3. Identificado → intents con LLM.
-    await handleIntent(integration, conversationId, contactWaId, conv.parent_id, text);
+    await handleIntent(integration, conversationId, contactWaId, conv.parent_id, text, waMessageId);
+}
+
+// ─── Botones de respuesta rápida ─────────────────────────────────────────────
+//
+// Los ids son el contrato con el webhook: Meta devuelve el id del botón que se
+// tocó (`interactive.button_reply.id`). Se decide con el id y no con el título
+// porque el título es texto para personas y se puede reescribir mañana.
+//
+// Un botón NO pasa por el modelo. Quien toca «Ver mis pagos» ya dijo qué
+// quiere; pagar una llamada al LLM para que lo adivine es plata y latencia
+// tirada, y una puerta más para que conteste otra cosa.
+
+export const BOTON = {
+    VER_PAGOS: 'sm_ver_pagos',
+    COMO_PAGAR: 'sm_como_pagar',
+    HABLAR_CON_ESCUELA: 'sm_hablar_escuela',
+    CONSENTIR_SI: 'sm_consentir_si',
+    CONSENTIR_NO: 'sm_consentir_no',
+} as const;
+
+/** Tras «eso no lo tengo a la mano»: las tres cosas que SÍ sabe hacer. */
+export const BOTONES_SIN_DATO: BotonInteractivo[] = [
+    { id: BOTON.VER_PAGOS, title: 'Ver mis pagos' },
+    { id: BOTON.COMO_PAGAR, title: 'Cómo pagar' },
+    // «Hablar con la escuela» tiene 21 caracteres y Meta corta en 20: el
+    // título se recortaría a «Hablar con la escuel». Va «Hablar con alguien».
+    { id: BOTON.HABLAR_CON_ESCUELA, title: 'Hablar con alguien' },
+];
+const SIN_DATO_EN_TEXTO =
+    'Puedes escribirme *Ver mis pagos*, *Cómo pagar* o *Hablar con alguien*.';
+
+export const BOTONES_CONSENTIMIENTO: BotonInteractivo[] = [
+    { id: BOTON.CONSENTIR_SI, title: 'Sí, acepto' },
+    { id: BOTON.CONSENTIR_NO, title: 'No, gracias' },
+];
+
+export type AccionDeBoton = 'get_payment_status' | 'get_payment_methods' | 'escalate';
+
+const ACCION_POR_BOTON: Record<string, AccionDeBoton> = {
+    [BOTON.VER_PAGOS]: 'get_payment_status',
+    [BOTON.COMO_PAGAR]: 'get_payment_methods',
+    [BOTON.HABLAR_CON_ESCUELA]: 'escalate',
+};
+
+/**
+ * ¿Este turno es un botón de acción? Por id, o por el TÍTULO escrito tal cual.
+ *
+ * Lo segundo es por el modo asistido: el buzón aprueba el borrador como texto
+ * (`sendTextMessage` en whatsapp-admin.routes), así que la familia no ve
+ * botones sino «Puedes escribirme *Ver mis pagos*…». Si lo escribe, tiene que
+ * pasar lo mismo que si lo hubiera tocado. Comparación contra el mensaje
+ * COMPLETO, nunca por subcadena: «no quiero ver mis pagos todavía» no es un
+ * botón.
+ */
+export function accionDeBoton(botonId: string | null | undefined, texto: string): AccionDeBoton | null {
+    if (botonId && ACCION_POR_BOTON[botonId]) return ACCION_POR_BOTON[botonId];
+    const norm = normalizar(texto || '');
+    if (!norm) return null;
+    const porTitulo = BOTONES_SIN_DATO.find((b) => normalizar(b.title) === norm);
+    if (porTitulo) return ACCION_POR_BOTON[porTitulo.id];
+    return norm === 'hablar con la escuela' ? 'escalate' : null;
+}
+
+async function ejecutarAccionDeBoton(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    parentId: string | null,
+    accion: AccionDeBoton,
+): Promise<void> {
+    if (accion === 'escalate') {
+        await escalate(integration, conversationId, contactWaId, 'boton_hablar_con_la_escuela');
+        return;
+    }
+
+    if (accion === 'get_payment_methods') {
+        const medios = await mediosDePago(integration.school_id);
+        await deliver(integration, conversationId, contactWaId,
+            fallbackMediosDePago(medios), { step: 'get_payment_methods', via: 'boton' });
+        return;
+    }
+
+    // get_payment_status. Mismo contrato que con el modelo: si la consulta
+    // falla no se inventa nada, se escala.
+    const { data: payments, error } = await supabase.rpc('wa_get_payment_status', {
+        p_parent_id: parentId,
+        p_school_id: integration.school_id,
+    });
+    if (error) {
+        console.error('[whatsapp-bot] wa_get_payment_status error (boton):', error);
+        await escalate(integration, conversationId, contactWaId, 'tool_error');
+        return;
+    }
+    await deliver(integration, conversationId, contactWaId,
+        fallbackPaymentText(payments), { step: 'get_payment_status', via: 'boton', tool_result: payments });
+}
+
+/**
+ * ¿La respuesta del modelo es un «no lo tengo»? Es lo que el prompt le pide
+ * decir ante lo que no sabe. Ahí la conversación se muere si no se le ofrece
+ * a dónde ir, y los botones le muestran las tres cosas que sí se pueden hacer.
+ */
+const NO_LO_TENGO = /\bno (lo|la|los|las) tengo a la mano\b|\bno tengo (ese|esa|esos|esas|el|la) (dato|datos|informacion)\b/;
+export function respondioQueNoLoTiene(texto: string | null | undefined): boolean {
+    return NO_LO_TENGO.test(normalizar(texto || ''));
+}
+
+// ─── Memoria: los últimos mensajes de la conversación ────────────────────────
+//
+// Hasta el 2026-10-04 el modelo veía SOLO el mensaje actual. «¿Y el de mi otra
+// hija?», «sí, ese», «¿y a qué cuenta?» llegaban sin nada atrás y el bot
+// contestaba otra cosa o preguntaba de nuevo lo que ya le habían dicho.
+//
+// Lo que entra:
+//   - los últimos HISTORIAL_MAX_MENSAJES de las últimas 24 h (la misma ventana
+//     de servicio de Meta: pasada, la conversación ya es otra);
+//   - entrantes como `user`, salientes del bot como `assistant`;
+//   - lo que la escuela escribió desde su celular (echo de Coexistence, o una
+//     respuesta del buzón: `ai_generated=false`) como `assistant` con el prefijo
+//     «(la escuela escribió)». Se INCLUYE: si la dueña ya le contestó «el
+//     sábado no hay entreno», el bot no puede ofrecer otra cosa ni volver a
+//     preguntar lo que ella ya resolvió. El prefijo es para que el modelo no lo
+//     tome como dicho por él (no puede firmar ni hacerse pasar por ella) y el
+//     SYSTEM_PROMPT dice qué hacer con eso;
+//   - NO entran los automáticos de la app (`payload.automatico`: saludo y
+//     ausencia de WhatsApp Business): son la misma frase a todo el mundo y
+//     confunden al modelo, que cree que ya saludó o que la escuela está cerrada.
+//
+// Cada texto se recorta: un mensaje con la lista de cuentas o un estado de
+// pagos largo se come los tokens y no aporta más que su comienzo.
+
+export const HISTORIAL_MAX_MENSAJES = 8;
+const HISTORIAL_VENTANA_HORAS = 24;
+export const HISTORIAL_MAX_CARACTERES = 400;
+export const PREFIJO_ESCUELA = '(la escuela escribió) ';
+
+const TIPOS_CON_ARCHIVO: Record<string, string> = {
+    image: '[envió una imagen]',
+    document: '[envió un documento]',
+    audio: '[envió una nota de voz]',
+    video: '[envió un video]',
+};
+
+export interface FilaDeHistorial {
+    wa_message_id?: string | null;
+    direction: string;
+    type?: string | null;
+    text_body?: string | null;
+    payload?: any;
+    ai_generated?: boolean | null;
+    wa_timestamp?: string | null;
+    created_at?: string | null;
+}
+
+function recortar(t: string): string {
+    const limpio = t.trim();
+    return limpio.length > HISTORIAL_MAX_CARACTERES
+        ? limpio.slice(0, HISTORIAL_MAX_CARACTERES).trimEnd() + '…'
+        : limpio;
+}
+
+/**
+ * Filas de `whatsapp_messages` (en cualquier orden) → turnos para el modelo,
+ * del más viejo al más nuevo. Pura, para probarla sin base.
+ */
+export function historialDesdeFilas(
+    filas: FilaDeHistorial[],
+    excluirWaMessageId: string | null,
+    ahora = Date.now(),
+): LlmMessage[] {
+    const desde = ahora - HISTORIAL_VENTANA_HORAS * 3600_000;
+    const momento = (f: FilaDeHistorial) =>
+        new Date(f.wa_timestamp || f.created_at || 0).getTime();
+
+    const turnos: { t: number; m: LlmMessage }[] = [];
+    for (const f of filas) {
+        if (excluirWaMessageId && f.wa_message_id === excluirWaMessageId) continue;
+        // El historial que Meta sincroniza al conectar llega con `created_at` de
+        // hoy pero `wa_timestamp` de hace meses: manda la fecha del mensaje.
+        const t = momento(f);
+        if (!t || t < desde) continue;
+
+        const texto = f.text_body?.trim()
+            || (f.type ? TIPOS_CON_ARCHIVO[f.type] : undefined)
+            || '';
+        if (!texto) continue;   // stickers, reacciones, ubicaciones: nada que leer
+
+        if (f.direction === 'inbound') {
+            turnos.push({ t, m: { role: 'user', content: recortar(texto) } });
+        } else if (f.direction === 'outbound') {
+            if (esSalienteAutomatico(f)) continue;
+            const escuela = f.ai_generated === false;
+            turnos.push({ t, m: {
+                role: 'assistant',
+                content: (escuela ? PREFIJO_ESCUELA : '') + recortar(texto),
+            } });
+        }
+    }
+    turnos.sort((a, b) => a.t - b.t);
+    return turnos.slice(-HISTORIAL_MAX_MENSAJES).map((x) => x.m);
+}
+
+/**
+ * Historial + mensaje actual, en una forma que aceptan los tres proveedores.
+ *
+ * Gemini exige que los turnos alternen user/model y que el primero sea del
+ * usuario: dos `user` seguidos (el papá manda «hola», «una pregunta», «cuánto
+ * debo» en tres mensajes) es un 400. Así que:
+ *   - los consecutivos del mismo rol se FUSIONAN en uno (separados por salto
+ *     de línea), y
+ *   - se descartan los `assistant` del principio (la ventana cortó justo
+ *     después de un mensaje del papá).
+ * Groq (OpenAI-compatible) acepta cualquier orden, así que lo mismo le sirve.
+ */
+export function armarTurnos(historial: LlmMessage[], textoActual: string): LlmMessage[] {
+    const todos: LlmMessage[] = [...historial, { role: 'user', content: textoActual }];
+    const out: LlmMessage[] = [];
+    for (const m of todos) {
+        if (m.role === 'tool') continue;
+        if (!out.length && m.role !== 'user') continue;
+        const ultimo = out[out.length - 1];
+        if (ultimo && ultimo.role === m.role) {
+            ultimo.content = `${ultimo.content}\n${m.content}`;
+        } else {
+            out.push({ role: m.role, content: m.content });
+        }
+    }
+    return out;
+}
+
+/** Lee el historial. Nunca lanza: sin historial, el bot sigue como antes. */
+async function historialDeConversacion(
+    conversationId: string,
+    excluirWaMessageId: string | null,
+): Promise<LlmMessage[]> {
+    try {
+        const desde = new Date(Date.now() - HISTORIAL_VENTANA_HORAS * 3600_000).toISOString();
+        const { data, error } = await supabase
+            .from('whatsapp_messages')
+            .select('wa_message_id, direction, type, text_body, payload, ai_generated, wa_timestamp, created_at')
+            .eq('conversation_id', conversationId)
+            .gte('created_at', desde)
+            .order('created_at', { ascending: false })
+            // Holgura sobre el máximo: el actual, los automáticos y los
+            // stickers se descartan después.
+            .limit(HISTORIAL_MAX_MENSAJES + 8);
+        if (error || !Array.isArray(data)) return [];
+        return historialDesdeFilas(data as FilaDeHistorial[], excluirWaMessageId);
+    } catch {
+        return [];
+    }
 }
 
 // ─── 1. Identificación (OTP por email) ────────────────────────────────────────
@@ -226,7 +495,8 @@ async function identificarPorTelefono(
             `¿Quieres que la escuela te envíe por aquí los recordatorios de pago ` +
             'y los avisos de tu atleta? Responde *SÍ* para activarlos — puedes darte ' +
             'de baja cuando quieras escribiendo *STOP*.',
-            { step: 'ask_consent', identificado_por: 'telefono' });
+            { step: 'ask_consent', identificado_por: 'telefono' },
+            { botones: BOTONES_CONSENTIMIENTO });
         return true;
     }
 
@@ -393,8 +663,11 @@ async function abrirEnBuzon(
         await supabase.from('whatsapp_conversations')
             .update({ status: 'open', updated_at: new Date().toISOString() })
             .eq('id', conversationId);
+        // El prospecto sin enlace sí avisa por correo: es plata que se va.
+        // El «ask_email» del desconocido (sin `aviso`) solo deja push.
         await avisarQueEsperan(integration, conversationId, contactWaId,
-            (previa as any)?.contact_name ?? null, aviso);
+            (previa as any)?.contact_name ?? null, aviso,
+            aviso?.motivo === 'prospecto' ? 'prospecto' : undefined);
     }
 }
 
@@ -423,7 +696,8 @@ async function verificarCodigo(
             '✅ ¡Listo! Tu identidad quedó verificada. Te atiende el asistente automático de la escuela. 🤖\n\n' +
             `¿Quieres que *${escuela}* te envíe por aquí los recordatorios de pago y los avisos de tu atleta? ` +
             'Responde *SÍ* para activarlos — puedes darte de baja cuando quieras escribiendo *STOP*.',
-            { step: 'ask_consent', otp_verified: true });
+            { step: 'ask_consent', otp_verified: true },
+            { botones: BOTONES_CONSENTIMIENTO });
     } else {
         const reason = r?.reason;
         const msg = reason === 'expired'
@@ -505,6 +779,7 @@ const FRENO_DESCONOCIDO_DIAS = 30;
 
 export type ResultadoDesconocido =
     | 'otp_codigo' | 'otp_correo' | 'inscripcion' | 'inscripcion_sin_enlace' | 'pagos'
+    | 'pagos_y_precio' | 'pagos_y_precio_sin_enlace'
     | 'frenado' | 'silencio';
 
 export async function atenderDesconocido(
@@ -551,6 +826,35 @@ export async function atenderDesconocido(
 
     const escuela = await nombreDeEscuela(integration.school_id);
     const saludo = `Hola 👋 Soy el *asistente automático* de *${escuela}*. 🤖`;
+
+    // Pagos Y precio: «¿qué precio tiene la mensualidad?». Puede ser una
+    // familia desde otro celular o un prospecto, y no hay forma de saberlo sin
+    // preguntar. En vez de adivinar, UN mensaje con las dos salidas: el correo
+    // para quien ya es de la escuela, el enlace para quien no. Uno solo, no
+    // dos: es el mismo freno de 30 días y dos mensajes seguidos a un número
+    // desconocido ya parecen spam.
+    if (tema === 'pagos' && preguntaPrecioComoProspecto(text)) {
+        const enlaceCombinado = await enlaceDeInscripcion(integration.school_id);
+        const paraFamilias =
+            'Si ya eres familia de la escuela, escríbeme el *correo electrónico* con el que estás ' +
+            'registrado y te envío un código para verificarte; así te digo el valor de tu mensualidad.';
+        if (enlaceCombinado) {
+            await deliver(integration, conversationId, contactWaId,
+                saludo + '\n\n' + paraFamilias + '\n\n' +
+                'Si todavía no estás inscrito, en este enlace ves los grupos y los valores, y puedes ' +
+                `hacer la inscripción: ${enlaceCombinado}`,
+                { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'pagos_y_precio', con_enlace: true });
+            return 'pagos_y_precio';
+        }
+        // Sin enlace: mismo criterio que el prospecto de abajo, al buzón y push.
+        await deliver(integration, conversationId, contactWaId,
+            saludo + '\n\n' + paraFamilias + '\n\n' +
+            'Si todavía no estás inscrito, ya le avisé a la escuela y alguien te responde por aquí ' +
+            'con la información de inscripción y valores.',
+            { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'pagos_y_precio', con_enlace: false });
+        await abrirEnBuzon(integration, conversationId, contactWaId, { motivo: 'prospecto' });
+        return 'pagos_y_precio_sin_enlace';
+    }
 
     if (tema === 'pagos') {
         // El texto de 'ask_email' de base, más la frase que le quita el susto
@@ -721,8 +1025,15 @@ async function handleConsent(
     parentId: string | null,
     text: string,
     waMessageId: string,
+    botonId: string | null = null,
 ): Promise<boolean> {
-    const norm = normalizar(text);
+    // El botón «Sí, acepto» vale lo mismo que escribir «sí»: se traduce acá y
+    // el resto del flujo no se entera. El id manda sobre el título; el título
+    // («si acepto», «no gracias») igual ya está en AFIRMATIVAS/NEGATIVAS, por
+    // si el borrador salió como texto y lo escribió a mano.
+    const norm = botonId === BOTON.CONSENTIR_SI ? 'si'
+        : botonId === BOTON.CONSENTIR_NO ? 'no'
+        : normalizar(text);
 
     const { data: optin } = await supabase
         .from('whatsapp_optins')
@@ -769,7 +1080,8 @@ async function handleConsent(
             `¿Quieres que la escuela te envíe por aquí los recordatorios de pago ` +
             `y los avisos de tu atleta?\n\n` +
             `Responde *SÍ* para activarlos. Puedes darte de baja cuando quieras escribiendo *STOP*.`,
-            { step: 'ask_consent' });
+            { step: 'ask_consent' },
+            { botones: BOTONES_CONSENTIMIENTO });
         return true;
     }
 
@@ -853,12 +1165,14 @@ Reglas estrictas:
 - No ofrezcas nada que no puedas hacer. Sabes tres cosas: consultar los pagos del
   acudiente, decirle como pagar, y pasar la conversacion a un humano. No ofrezcas
   agendar, inscribir, enviar documentos ni cambiar nada en el sistema.
-- Lo que NO sabes y te van a preguntar igual: horarios de entrenamiento, categorias
-  por edad, precios de mensualidad o uniforme, sedes, entrenadores, competencias,
-  asistencia y rendimiento. No tienes esos datos. Dilo derecho —«eso no lo tengo a
-  la mano»— y ofrece pasarlo con la escuela. NUNCA los deduzcas ni los inventes:
-  suenan faciles de contestar y es justo ahi donde un asistente se inventa un horario
-  o un precio que la familia despues reclama.
+- Lo que NO sabes y te van a preguntar igual: edades de cada categoria, lista de
+  precios de la escuela (mensualidad de otros planes, uniforme, inscripcion nueva),
+  entrenadores, competencias, asistencia y rendimiento. No tienes esos datos. Dilo
+  derecho —«eso no lo tengo a la mano»— y ofrece pasarlo con la escuela. NUNCA los
+  deduzcas ni los inventes: suenan faciles de contestar y es justo ahi donde un
+  asistente se inventa un horario o un precio que la familia despues reclama.
+- Sedes, grupos y horarios de entrenamiento SI pueden estar: los trae
+  get_school_info (ver SOBRE LA ESCUELA). Solo lo que ella traiga.
 - Al listar pagos, mira SIEMPRE el campo debe_pagarse. Los que vienen en false YA
   ESTAN RESUELTOS: no los pongas bajo "pagos pendientes" ni menciones su saldo en $0.
   Si el acudiente pregunta por uno de esos, responde con su estado_legible
@@ -869,6 +1183,17 @@ Reglas estrictas:
   pregunta mas comun de todas y contestarle «no tengo ese dato» teniendolo delante es
   el peor no que puede dar. Solo si pregunta por precios de la escuela en general
   —otro plan, otra categoria, inscripcion nueva— no lo tienes.
+
+CONVERSACION PREVIA:
+- Antes del mensaje actual puede venir lo ultimo que se hablo (hasta 24 h). Usalo
+  para entender a que se refiere («y el de mi otra hija?», «si, ese»), no para
+  repetir lo que ya se dijo.
+- Los mensajes que empiezan con «(la escuela escribió)» los escribio una persona de
+  la escuela, no tu. No los contradigas ni los repitas como tuyos, y nunca firmes
+  por ella. Si lo que dijo la escuela choca con lo que te devuelve una herramienta,
+  no elijas tu: usa escalate_to_human.
+- Los montos y estados de pago de mensajes anteriores pueden haber cambiado: para
+  cualquier pregunta de pagos usa SIEMPRE get_payment_status de nuevo.
 
 QUIEN ERES:
 - Eres un asistente AUTOMATICO, y si te preguntan lo dices sin rodeos: «soy el
@@ -890,8 +1215,8 @@ FUERA DE TEMA:
   escales: escalar cada pregunta suelta le llena la bandeja a la escuela.
 
 SOBRE LA ESCUELA:
-- Para «donde queda», «que sedes tienen», «que deportes», «que categorias hay» o
-  «en que grupo va mi hijo» usa get_school_info.
+- Para «donde queda», «que sedes tienen», «que deportes», «que categorias hay»,
+  «en que grupo va mi hijo» o «a que hora entrena tal grupo» usa get_school_info.
 - Esa herramienta devuelve 'no_disponible': TODO lo que aparezca ahi lo dices como
   que no lo tienes, y ofreces que la escuela lo confirme. No lo deduzcas de ningun
   otro campo.
@@ -904,8 +1229,22 @@ SOBRE LA ESCUELA:
 - «No admite nuevos» NO es «esta lleno». No digas que se lleno ni que hay lista de
   espera si la escuela no lo dijo: quien oye «esta lleno» vuelve a preguntar en un
   mes, y eso le hace perder el tiempo a la familia y a la escuela.
-- Los horarios de entrenamiento casi nunca estan cargados. Si 'no_disponible' los
-  menciona, no inventes ni «suele ser por la tarde»: no lo sabes.
+- HORARIOS DE ENTRENAMIENTO: respondelos SOLO con el campo 'horario' del grupo por
+  el que preguntan, tal como viene en get_school_info. Algunos grupos lo tienen
+  cargado y otros no.
+  · Si ese grupo trae 'horario', dalo tal cual, sin agregar ni redondear, con la
+    cancha que trae cada franja entre parentesis. Si el texto trae subgrupos
+    separados por « || » (p.ej. «Origen: … || Evolucion: …»), muestralos como
+    lineas aparte y di el nombre de cada subgrupo.
+  · Si 'horario_fuente' viene en 'inferido', NO lo des como fijo: dilo con cautela
+    («segun las ultimas sesiones registradas, …») y ofrece que la escuela lo
+    confirme. Si viene en 'cargado', es el horario que la escuela publico.
+  · Si no lo trae, o aparece en 'no_disponible', di que ese horario no lo tienes a
+    la mano y ofrece que la escuela lo confirme.
+  · NUNCA uses el horario de otro grupo para completar, ni «suele ser por la
+    tarde», ni lo deduzcas del nombre del grupo.
+  · Si no sabes de que grupo habla, pregunta cual, o lista los que si tienen
+    horario cargado.
 
 COMO PAGAR:
 - Para «medios de pago», «como pago», «a que cuenta», «acepta Nequi» o «donde mando el
@@ -924,7 +1263,7 @@ export const TOOLS: LlmTool[] = [
     },
     {
         name: 'get_school_info',
-        description: 'Datos publicos de la escuela: donde queda, sus sedes, que deportes y que grupos o categorias tiene, y el horario de atencion. Usala cuando pregunten por la ubicacion, las sedes, los deportes, las categorias o los grupos. Devuelve tambien `no_disponible`: lo que la escuela NO tiene cargado, y eso se responde diciendo que no se tiene.',
+        description: 'Datos publicos de la escuela: donde queda, sus sedes, que deportes y que grupos o categorias tiene (con el horario de entrenamiento de cada grupo cuando esta cargado), y el horario de atencion. Usala cuando pregunten por la ubicacion, las sedes, los deportes, las categorias, los grupos o a que hora entrena un grupo. Devuelve tambien `no_disponible`: lo que la escuela NO tiene cargado, y eso se responde diciendo que no se tiene.',
         parameters: { type: 'object', properties: {}, required: [] },
     },
     {
@@ -949,10 +1288,16 @@ async function handleIntent(
     contactWaId: string,
     parentId: string | null,
     text: string,
+    waMessageId: string | null = null,
 ): Promise<void> {
     if (!text) return;
 
-    const messages: LlmMessage[] = [{ role: 'user', content: text }];
+    // Con memoria: los últimos mensajes de las 24 h + el actual (ver
+    // `historialDeConversacion`). El actual ya quedó guardado por la ingesta;
+    // se excluye por su wa_message_id y se agrega al final, para que sea
+    // siempre el último turno aunque los relojes de Meta y de la base difieran.
+    const historial = await historialDeConversacion(conversationId, waMessageId);
+    const messages: LlmMessage[] = armarTurnos(historial, text);
 
     let first;
     try {
@@ -965,9 +1310,11 @@ async function handleIntent(
 
     // Sin tool → responder texto directo (saludos, agradecimientos).
     if (!first.toolCalls?.length) {
+        const respuesta = first.text || 'Puedo ayudarte con el estado de tus pagos. ¿Qué necesitas?';
         await deliver(integration, conversationId, contactWaId,
-            first.text || 'Puedo ayudarte con el estado de tus pagos. ¿Qué necesitas?',
-            { step: 'llm_text', provider: first.provider });
+            respuesta,
+            { step: 'llm_text', provider: first.provider },
+            botonesSiNoLoTiene(respuesta));
         return;
     }
 
@@ -997,9 +1344,12 @@ async function handleIntent(
             console.warn('[whatsapp-bot] get_school_info: el modelo no devolvio texto',
                 { proveedor: final.provider });
         }
+        // «¿A qué hora entrena el sub 13?» con el horario sin cargar termina en
+        // «eso no lo tengo a la mano»: ahí también van los botones.
         await deliver(integration, conversationId, contactWaId,
             final.text || fallbackInfoEscuela(info),
-            { step: 'get_school_info', provider: final.provider });
+            { step: 'get_school_info', provider: final.provider },
+            botonesSiNoLoTiene(final.text));
         return;
     }
 
@@ -1117,6 +1467,7 @@ export async function deliver(
     contactWaId: string,
     proposedText: string,
     context: Record<string, unknown>,
+    conBotones?: ConBotones,
 ): Promise<void> {
     // ¿Modo auto vigente? (auto solo si mode='auto' y ya pasó assisted_until)
     const { data: settings } = await supabase
@@ -1171,15 +1522,39 @@ export async function deliver(
         texto += AVISO_DADO_DE_BAJA;
     }
 
+    const botones = conBotones?.botones?.length ? conBotones.botones : null;
+    // El mismo mensaje sin botones: lo que sale si Meta rechaza los botones, y
+    // lo que queda en el borrador del modo asistido.
+    const textoSinBotones = botones && conBotones?.enTexto
+        ? `${texto}\n\n${conBotones.enTexto}`
+        : texto;
+
     if (autoAllowed) {
-        const sent = await sendTextMessage(integration, contactWaId, texto);
+        let tipo = 'text';
+        let cuerpo = textoSinBotones;
+        let sent = botones
+            ? await sendInteractiveButtons(integration, contactWaId, texto, botones)
+            : null;
+        if (sent?.ok) {
+            tipo = 'interactive';
+            cuerpo = texto;
+        } else {
+            // Sin botones, o Meta los rechazó (cuerpo largo, error de red): el
+            // texto plano SIEMPRE sale. Una respuesta sin botones es peor que
+            // una con botones; ninguna respuesta es peor que las dos.
+            if (sent) {
+                console.warn('[whatsapp-bot] no salieron los botones; va como texto',
+                    { conversationId, error: sent.error });
+            }
+            sent = await sendTextMessage(integration, contactWaId, textoSinBotones);
+        }
         await supabase.rpc('wa_record_outbound_message', {
             p_conversation_id: conversationId,
             p_integration_id: integration.id,
             p_wa_message_id: sent.waMessageId || `local-${crypto.randomUUID()}`,
-            p_type: 'text',
-            p_text_body: texto,
-            p_payload: context,
+            p_type: tipo,
+            p_text_body: cuerpo,
+            p_payload: tipo === 'interactive' ? { ...context, botones } : context,
             p_ai_generated: true,
             p_to_wa_id: contactWaId,
         });
@@ -1187,14 +1562,37 @@ export async function deliver(
     }
 
     // Modo asistido → draft para aprobación (NO se envía).
+    //
+    // El buzón aprueba el borrador como TEXTO (`sendTextMessage` en
+    // whatsapp-admin.routes): no hay forma de mandar botones desde ahí. Por eso
+    // el borrador lleva el texto que se entiende sin botones (`enTexto`), y los
+    // botones quedan en `tool_context.botones` para que el buzón los muestre o,
+    // el día que sepa, los mande. Lo que la familia escriba con esas palabras
+    // se lee igual que el botón (`accionDeBoton` compara el título).
     await supabase.from('whatsapp_message_drafts').insert({
         conversation_id: conversationId,
         integration_id: integration.id,
-        proposed_text: texto,
-        tool_context: context,
+        proposed_text: textoSinBotones,
+        tool_context: botones ? { ...context, botones } : context,
         llm_provider: (context as any)?.provider ?? null,
         status: 'pending',
     });
+}
+
+/**
+ * Botones para `deliver`. `enTexto` es la línea que los reemplaza cuando el
+ * mensaje sale como texto (modo asistido, o Meta rechazó los botones). Si el
+ * cuerpo ya dice qué responder («Responde *SÍ*…») no hace falta.
+ */
+export interface ConBotones {
+    botones: BotonInteractivo[];
+    enTexto?: string;
+}
+
+function botonesSiNoLoTiene(texto: string | null | undefined): ConBotones | undefined {
+    return respondioQueNoLoTiene(texto)
+        ? { botones: BOTONES_SIN_DATO, enTexto: SIN_DATO_EN_TEXTO }
+        : undefined;
 }
 
 /**
@@ -1223,12 +1621,26 @@ export async function deliver(
  */
 type AvisoDeEspera = { motivo: 'prospecto' };
 
+/*
+ * Correo además del push (desde 2026-10-04). El push solo le llega a quien
+ * instaló la app y aceptó notificaciones; el correo llega igual. Se manda en
+ * los mismos casos que el push —transición a abierta, contacto que se
+ * atiende o prospecto— y SOLO cuando quien llama pasa `motivoCorreo`
+ * (escalamiento o prospecto sin enlace): el «ask_email» de `abrirEnBuzon` no
+ * es un escalamiento y no merece un correo.
+ *
+ * No bloqueante a propósito: el cuerpo lo implementa avisos-correo.service y
+ * un proveedor de correo lento o caído no puede demorar la respuesta a la
+ * familia ni tumbar el push.
+ */
+
 async function avisarQueEsperan(
     integration: WhatsAppIntegration,
     conversationId: string,
     contactWaId: string,
     nombreContacto: string | null,
     aviso?: AvisoDeEspera,
+    motivoCorreo?: string,
 ): Promise<void> {
     try {
         const esProspecto = aviso?.motivo === 'prospecto';
@@ -1239,6 +1651,18 @@ async function avisarQueEsperan(
                     { conversationId, tipo });
                 return;
             }
+        }
+
+        if (motivoCorreo) {
+            void Promise.resolve()
+                .then(() => avisarEscalamientoPorCorreo({
+                    schoolId: integration.school_id,
+                    conversationId,
+                    contactName: nombreContacto,
+                    contactWaId,
+                    motivo: motivoCorreo,
+                }))
+                .catch(() => {});
         }
 
         const [{ data: escuela }, { data: miembros }] = await Promise.all([
@@ -1286,7 +1710,8 @@ async function escalate(
         .eq('id', conversationId);
 
     if ((previa as any)?.status !== 'open') {
-        await avisarQueEsperan(integration, conversationId, contactWaId, (previa as any)?.contact_name ?? null);
+        await avisarQueEsperan(integration, conversationId, contactWaId,
+            (previa as any)?.contact_name ?? null, undefined, reason);
     }
 
     // El bot responde 24/7 — eso no cambia. Lo que cambia fuera de horario es lo
