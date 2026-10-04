@@ -20,6 +20,7 @@ import { runAccountDeletionCycle } from './account-deletion.job';
 import { runPostTrainingReminders } from './post-training-reminders.job';
 import { runWhatsAppQueue } from './whatsapp-queue.job';
 import { runWhatsAppPaymentOutcome } from './whatsapp-payment-outcome.job';
+import { runWhatsAppMantenimiento } from './whatsapp-mantenimiento.job';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -459,6 +460,27 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Aviso de desenlace de comprobantes registrado (cada minuto).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Buzón de WhatsApp (Fase A) — cada 15 min.
+    //
+    // Conversaciones 'open' sin actividad hace 48 h → 'closed', y borradores
+    // 'pending' de más de 24 h → 'expired' (la ventana de Meta ya cerró, no se
+    // pueden enviar como texto libre). Dynasty llegó a 55 conversaciones todas
+    // 'open' y 316 borradores colgados el 2026-10-03. Idempotente y en lotes.
+    // Mismo kill-switch que la cola de WhatsApp.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/15 * * * *', async () => {
+        if (process.env.DISABLE_WHATSAPP_QUEUE_CRON === 'true') return;
+        try {
+            await runWhatsAppMantenimiento();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en el mantenimiento del buzón de WhatsApp:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Mantenimiento del buzón de WhatsApp registrado (cada 15 min).');
 
     // ────────────────────────────────────────────────────────────────────────
     // Banco de horas por torniquete (F5) — auto-cierre de visitas 'open'.

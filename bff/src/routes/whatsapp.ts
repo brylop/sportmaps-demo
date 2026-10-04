@@ -32,7 +32,8 @@ import {
     type WhatsAppIntegration,
     type ParsedInboundMessage,
 } from '../services/whatsapp.service';
-import { runBotTurn, deliver } from '../services/whatsapp-bot.service';
+import { runBotTurn, deliver, atenderDesconocido } from '../services/whatsapp-bot.service';
+import { debeAtender } from '../services/whatsapp-atencion.service';
 import { encolarAdjunto } from '../services/whatsapp-queue.service';
 import { procesarEchos, procesarHistorial, registrarAppState }
     from '../services/whatsapp-coexistence.service';
@@ -338,8 +339,13 @@ async function processInboundMessage(req: Request, msg: ParsedInboundMessage): P
  *  - modo asistido (draft para aprobación) vs auto (envía directo)
  *
  * Los adjuntos (imagen, PDF) NO los atiende el bot: se encolan y los procesa el
- * worker. El resto de tipos ricos (audio, video, sticker) se ignoran en el bot
- * pero ya quedaron guardados por la ingesta.
+ * worker (que hace su propio filtro de atención). Audio y video reciben un aviso
+ * de que no se procesan; stickers y reacciones se ignoran.
+ *
+ * Todo lo que no es adjunto pasa antes por `debeAtender`: el asistente solo le
+ * contesta a familias, y con el bot apagado no le contesta a nadie. El
+ * desconocido con correo, código vigente o tema escolar va por
+ * `atenderDesconocido`, que no usa el modelo.
  */
 async function handleBotTurn(
     req: Request,
@@ -367,6 +373,68 @@ async function handleBotTurn(
         return;
     }
 
+    // Los stickers, las reacciones y demás tipos no conversacionales se ignoran
+    // como siempre (ya quedaron guardados por la ingesta).
+    const esConversacional = msg.type === 'text' || msg.type === 'interactive'
+        || msg.type === 'button' || msg.type === 'audio' || msg.type === 'video';
+    if (!esConversacional) {
+        req.log?.info({ conversationId, type: msg.type }, 'WhatsApp: tipo no textual, bot no responde');
+        return;
+    }
+
+    // ¿A este contacto el asistente le contesta? Se pregunta ANTES de cualquier
+    // respuesta, del modelo y de cualquier borrador.
+    //
+    // Medido en Dynasty el 2026-10-03, primer día por Coexistence: el número de
+    // la escuela es también el WhatsApp personal de la dueña, y de 55
+    // conversaciones solo 30 eran familias (21 desconocidos, 4 del equipo). Con
+    // el bot APAGADO igual se corrió el modelo en cada mensaje y quedaron 316
+    // borradores, 238 de ellos «escríbeme tu correo» a contactos personales. El
+    // asistente atiende familias; con el resto se calla, y la dueña los sigue
+    // viendo y contestando en su celular.
+    //
+    // Se llama aunque el bot esté apagado: `debeAtender` clasifica el contacto y
+    // lo guarda en la conversación, y eso es lo que deja al buzón separar las
+    // familias del resto. Lo que no se hace con el bot apagado es responder.
+    //
+    // Si la clasificación revienta, silencio: equivocarse callando le cuesta a
+    // la escuela una respuesta tardía; equivocarse hablando le escribe a la vida
+    // privada de la dueña.
+    const decision = await debeAtender(integration, conversationId, msg.contactWaId).catch((err) => {
+        req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: debeAtender falló; el bot se calla');
+        return null;
+    });
+    if (!decision?.atender) {
+        // El desconocido tiene una puerta angosta (opción «1C»): correo, código
+        // con OTP vigente, o tema escolar una vez cada 30 días. Sin modelo.
+        //
+        // Con «solo familias» se perdían la familia que escribe desde otro
+        // celular y el prospecto: en Dynasty, el 2026-10-02, «Quiero inscribir a
+        // mi hija a volleyball» desde un número que no estaba en ninguna ficha.
+        //
+        // Staff y personal NO pasan por acá, digan lo que digan («mensualidad»
+        // incluida): es el equipo o la vida privada de la dueña. Tampoco el que
+        // pidió la baja, ni un audio o video (no hay texto que leer).
+        const puertaDelDesconocido = decision?.botEncendido === true
+            && decision.tipo === 'desconocido'
+            && !optedOut
+            && msg.type !== 'audio' && msg.type !== 'video';
+        if (puertaDelDesconocido) {
+            const resultado = await atenderDesconocido(integration, conversationId, msg.contactWaId, msg.textBody)
+                .catch((err) => {
+                    req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: atenderDesconocido falló');
+                    return 'error' as const;
+                });
+            req.log?.info({ conversationId, resultado }, 'WhatsApp: desconocido');
+            return;
+        }
+        req.log?.info(
+            { conversationId, tipo: decision?.tipo ?? null, botEncendido: decision?.botEncendido ?? null, optedOut },
+            'WhatsApp: el asistente no atiende este contacto',
+        );
+        return;
+    }
+
     // Audio y video NO se pueden procesar, pero callarse es peor: el acudiente
     // manda una nota de voz preguntando algo y se queda esperando una respuesta
     // que nunca llega. Antes caían en el `return` de abajo, en silencio.
@@ -384,15 +452,23 @@ async function handleBotTurn(
         return;
     }
 
-    if (msg.type !== 'text' && msg.type !== 'interactive' && msg.type !== 'button') {
-        req.log?.info({ conversationId, type: msg.type }, 'WhatsApp: tipo no textual, bot no responde');
-        return;
-    }
+    // La confirmación de baja (optedOut) entra por acá, ya pasada por el filtro
+    // de arriba: con el bot apagado o ante un contacto que no se atiende no se
+    // confirma nada —la ingesta ya registró el STOP, que es lo que importa—; con
+    // una familia y el bot prendido, `runBotTurn` la confirma como siempre.
+    //
+    // Un audio o un video que llegue marcado como baja no puede pasar: la
+    // ingesta solo detecta las palabras de baja en texto.
     try {
         await runBotTurn(integration, conversationId, msg.contactWaId, msg.textBody, msg.waMessageId, optedOut);
     } catch (err: any) {
         req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: runBotTurn failed');
     }
 }
+
+// Exportada solo para la prueba del filtro de atención
+// (services/whatsapp-atencion-bot.test.ts): levantar el router entero exige
+// firmar el HMAC del webhook, y lo que se prueba es la decisión, no la firma.
+export { handleBotTurn };
 
 export default router;
