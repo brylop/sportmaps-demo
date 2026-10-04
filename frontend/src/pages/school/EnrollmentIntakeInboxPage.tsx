@@ -31,6 +31,7 @@ interface EnrollmentFormResult {
     ageOnForm: number | null;
     category: string | null;
     guardianFullName: string | null;
+    guardianDocType?: string | null;
     guardianDocNumber: string | null;
     guardianPhone: string | null;
     guardianEmail: string | null;
@@ -38,6 +39,8 @@ interface EnrollmentFormResult {
     athletePhone: string | null;
     epsName: string | null;
     bloodType: string | null;
+    formDate?: string | null;
+    authorizations?: Array<{ text: string; checked: boolean | null }>;
     isEnrollmentForm: boolean;
     missingFields: string[];
     provider: string;
@@ -236,6 +239,9 @@ function IntakeCard({ item, onDone }: { item: IntakeItem; onDone: () => void }) 
                         <Input type="date" value={form.dateOfBirth ?? ''} onChange={set('dateOfBirth')}
                             className={missing.has('date_of_birth') ? 'border-amber-400' : ''} />
                     </div>
+                    {item.extracted?.formDate && (
+                        <p className="text-sm text-muted-foreground">Hoja diligenciada el <strong>{item.extracted.formDate}</strong></p>
+                    )}
                     {item.extracted?.category && (
                         <p className="text-sm text-muted-foreground">Categoría en la hoja: <strong>{item.extracted.category}</strong> — se asigna a equipo aparte, esto no lo hace.</p>
                     )}
@@ -279,6 +285,12 @@ function IntakeCard({ item, onDone }: { item: IntakeItem; onDone: () => void }) 
                         </>
                     )}
 
+                    {!mayorDeEdad && item.extracted?.guardianDocNumber && (
+                        <p className="text-sm text-muted-foreground">
+                            Documento del acudiente: <strong>{item.extracted.guardianDocType ?? ''} {item.extracted.guardianDocNumber}</strong>
+                        </p>
+                    )}
+
                     <div className="grid grid-cols-2 gap-2">
                         <div>
                             <Label>EPS</Label>
@@ -289,6 +301,26 @@ function IntakeCard({ item, onDone }: { item: IntakeItem; onDone: () => void }) 
                             <Input value={form.bloodType ?? ''} onChange={set('bloodType')} />
                         </div>
                     </div>
+
+                    {(item.extracted?.authorizations?.length ?? 0) > 0 && (
+                        <div className="rounded border p-3 space-y-1">
+                            <p className="text-sm font-medium">Autorizaciones firmadas en la hoja</p>
+                            <ul className="space-y-1">
+                                {item.extracted!.authorizations!.map((a, i) => (
+                                    <li key={i} className="flex gap-2 text-sm">
+                                        <span aria-hidden className={a.checked ? 'text-green-600' : a.checked === false ? 'text-red-600' : 'text-amber-600'}>
+                                            {a.checked ? '☑' : a.checked === false ? '☐' : '?'}
+                                        </span>
+                                        <span className={a.checked ? '' : 'font-medium'}>
+                                            {a.text}
+                                            {a.checked === false && ' — SIN MARCAR'}
+                                            {a.checked === null && ' — no se distingue, revisa la foto'}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
 
                     {errorMsg && (
                         <Alert variant="destructive">
