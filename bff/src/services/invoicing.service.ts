@@ -1384,6 +1384,8 @@ export interface BackfillResult {
 
 const BACKFILL_LIMIT_DEFAULT = 200;
 const BACKFILL_LIMIT_MAX = 500;
+/** Candidatos que se leen del rango (≤92 días). El tope del admin se aplica después, al emitir. */
+const BACKFILL_SCAN_MAX = 5000;
 
 /**
  * Factura el rezago de un dueño en un rango de fechas EXPLÍCITO.
@@ -1445,8 +1447,13 @@ export async function backfillInvoices(params: {
     const fromTs = `${from}T00:00:00Z`;
     const toTs = `${diaSiguiente.toISOString().slice(0, 10)}T00:00:00Z`;
 
-    const { pending, yaFacturados, escaneados, truncado } = await recolectarPagosPendientes({
-        limit,
+    // El tope es de documentos que llegan al PAC, NO de candidatos: se recoge
+    // todo el rango y el presupuesto se gasta solo al emitir. Recortar los
+    // candidatos al tope dejaba la pasada entera en pagos que se saltan (sin
+    // datos fiscales, sin pagador): Dynasty, sept-2026, tope 26 con los 26
+    // emitibles a partir del puesto 30 → "no se emitió ninguna" dos veces.
+    const { pending, yaFacturados, escaneados, truncado: recoleccionTruncada } = await recolectarPagosPendientes({
+        limit: BACKFILL_SCAN_MAX,
         aplicarFiltros: (q) => q
             .eq('school_id', ownerId)
             .or(
@@ -1469,8 +1476,12 @@ export async function backfillInvoices(params: {
         });
     }
 
+    let truncado = recoleccionTruncada;
+    let consumidos = 0;
     for (const paymentId of pending) {
+        if (consumidos >= limit) { truncado = true; break; }
         if (dryRun) {
+            consumidos++;
             skipped++;
             details.push({ paymentId, outcome: 'skipped', reason: 'dry_run' });
             continue;
@@ -1478,6 +1489,7 @@ export async function backfillInvoices(params: {
         try {
             const r = await emitInvoiceForPayment(paymentId);
             if (r.ok) {
+                consumidos++;
                 emitted++;
                 details.push({
                     paymentId, outcome: 'emitted',
@@ -1485,9 +1497,11 @@ export async function backfillInvoices(params: {
                     ...(r.warnings ? { warnings: r.warnings } : {}),
                 });
             } else if (r.error && SKIP_ERRORS.has(r.error)) {
+                // Saltado = no tocó al PAC: no gasta tope.
                 skipped++;
                 details.push({ paymentId, outcome: 'skipped', reason: r.error });
             } else {
+                consumidos++;
                 failed++;
                 details.push({
                     paymentId, outcome: 'failed',
@@ -1497,6 +1511,7 @@ export async function backfillInvoices(params: {
                 });
             }
         } catch (e: any) {
+            consumidos++;
             failed++;
             details.push({ paymentId, outcome: 'failed', reason: e?.message ?? String(e) });
         }
