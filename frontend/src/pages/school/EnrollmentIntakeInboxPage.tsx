@@ -9,7 +9,7 @@
  * (duplicado o mayor de edad mal tipado), se muestra el motivo y no se
  * reintenta solo.
  */
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { bffClient, BFFError } from '@/lib/api/bffClient';
 import { Button } from '@/components/ui/button';
@@ -18,7 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, CheckCircle2, Link2, XCircle, AlertTriangle } from 'lucide-react';
+import { Loader2, CheckCircle2, Link2, XCircle, AlertTriangle, Camera } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { todayColombia } from '@/lib/dateUtils';
 
@@ -45,6 +45,7 @@ interface EnrollmentFormResult {
 
 interface IntakeItem {
     id: string;
+    source?: 'whatsapp' | 'app';
     status: string;
     extracted: EnrollmentFormResult | null;
     photoUrl: string | null;
@@ -200,6 +201,7 @@ function IntakeCard({ item, onDone }: { item: IntakeItem; onDone: () => void }) 
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                     <CardTitle className="text-base">{item.extracted?.athleteFullName || 'Sin nombre legible'}</CardTitle>
                     <div className="flex gap-2">
+                        <Badge variant="outline">{item.source === 'app' ? 'Subida en la app' : 'Por WhatsApp'}</Badge>
                         {mayorDeEdad && <Badge variant="secondary">Mayor de edad</Badge>}
                         {item.duplicateOfChildId && <Badge variant="destructive">Ya existe: {item.duplicateOfChildName}</Badge>}
                         {item.duplicateOfIntakeId && <Badge variant="outline">Duplicada con otra foto pendiente</Badge>}
@@ -315,6 +317,98 @@ function IntakeCard({ item, onDone }: { item: IntakeItem; onDone: () => void }) 
     );
 }
 
+/**
+ * Una foto de celular pesa 3–8 MB y el BFF acepta hasta 4 MB. Se reduce a
+ * 2000 px de lado mayor en JPEG: sobra para que el OCR lea la hoja.
+ * Un PDF se manda tal cual.
+ */
+async function prepararArchivo(file: File): Promise<{ imageBase64: string; mimeType: string }> {
+    const leerComoDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result as string);
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(blob);
+    });
+
+    if (file.type === 'application/pdf') {
+        return { imageBase64: await leerComoDataUrl(file), mimeType: 'application/pdf' };
+    }
+
+    const url = URL.createObjectURL(file);
+    try {
+        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const i = new Image();
+            i.onload = () => resolve(i);
+            i.onerror = () => reject(new Error('No se pudo abrir la imagen.'));
+            i.src = url;
+        });
+        const LADO_MAX = 2000;
+        const escala = Math.min(1, LADO_MAX / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * escala);
+        canvas.height = Math.round(img.height * escala);
+        canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        return { imageBase64: canvas.toDataURL('image/jpeg', 0.85), mimeType: 'image/jpeg' };
+    } finally {
+        URL.revokeObjectURL(url);
+    }
+}
+
+function SubirMatricula({ onSubida }: { onSubida: () => void }) {
+    const { toast } = useToast();
+    const inputRef = useRef<HTMLInputElement>(null);
+    const [subiendo, setSubiendo] = useState(false);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+    async function onArchivo(e: React.ChangeEvent<HTMLInputElement>) {
+        const file = e.target.files?.[0];
+        e.target.value = ''; // permite volver a elegir la misma foto
+        if (!file) return;
+        setSubiendo(true);
+        setErrorMsg(null);
+        try {
+            const body = await prepararArchivo(file);
+            const res = await bffClient.post<{ athleteFullName: string | null; duplicateOfChildId: string | null }>(
+                '/api/v1/enrollment-intake/upload', body,
+            );
+            toast({
+                title: 'Hoja leída',
+                description: res.duplicateOfChildId
+                    ? `${res.athleteFullName ?? 'El deportista'} ya existe en la escuela: revísala abajo antes de crear nada.`
+                    : `${res.athleteFullName ?? 'La ficha'} quedó lista para revisar abajo.`,
+            });
+            onSubida();
+        } catch (err) {
+            setErrorMsg(err instanceof BFFError ? err.message : 'No se pudo subir la foto.');
+        } finally {
+            setSubiendo(false);
+        }
+    }
+
+    return (
+        <div className="space-y-2">
+            <input
+                ref={inputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                capture="environment"
+                className="hidden"
+                onChange={onArchivo}
+            />
+            <Button onClick={() => inputRef.current?.click()} disabled={subiendo}>
+                {subiendo ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Camera className="h-4 w-4 mr-2" />}
+                {subiendo ? 'Leyendo la hoja…' : 'Subir hoja de matrícula'}
+            </Button>
+            {errorMsg && (
+                <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription>{errorMsg}</AlertDescription>
+                </Alert>
+            )}
+        </div>
+    );
+}
+
 export default function EnrollmentIntakeInboxPage() {
     const { schoolId } = useSchoolContext();
     const [items, setItems] = useState<IntakeItem[]>([]);
@@ -338,10 +432,12 @@ export default function EnrollmentIntakeInboxPage() {
             <div>
                 <h1 className="text-xl font-semibold">Matrículas por revisar</h1>
                 <p className="text-sm text-muted-foreground">
-                    Fotos de hojas de matrícula recibidas por WhatsApp. El OCR llenó el formulario;
-                    revisá y confirmá antes de crear el atleta — nunca se crea solo.
+                    Toma la foto de la hoja aquí o mándala por WhatsApp. El sistema llena el formulario;
+                    revisa y confirma antes de crear el atleta — nunca se crea solo.
                 </p>
             </div>
+
+            <SubirMatricula onSubida={load} />
 
             {loading && <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}
 

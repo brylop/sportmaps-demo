@@ -10,16 +10,142 @@
  * `enrollment_form_intake`: listar, marcar aprobada, vincular a un atleta
  * existente, o rechazar.
  */
+import crypto from 'node:crypto';
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { extractEnrollmentForm, type EnrollmentFormResult } from '../services/enrollment-ocr.service';
 
 const router = Router();
 const BUCKET = 'identity-documents';
+// Las fotos que llegan por WhatsApp las guarda el worker en el bucket de
+// comprobantes (`<escuela>/whatsapp/<fila>.<ext>`), no en identity-documents.
+const BUCKET_WHATSAPP = 'payment-receipts';
 const SIGNED_URL_TTL_SEG = 600; // 10 minutos — el inbox pide una URL fresca cada vez que se abre la lista.
 
 const ROLES_ADMIN = ['owner', 'admin', 'super_admin', 'school_admin', 'school'] as const;
+
+const MIMES_PERMITIDOS = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'] as const;
+const MAX_BYTES = 4 * 1024 * 1024; // el body JSON del BFF topa en 5 MB; en base64 eso es ~3,7 MB reales
+
+/**
+ * Mismo criterio que el worker de WhatsApp (buscarDuplicadoDeMatricula): el
+ * documento ya existe en `children` de la escuela, o en otra ficha todavía
+ * sin aprobar. Sin documento no hay llave confiable y decide el admin.
+ */
+async function buscarDuplicado(
+    schoolId: string,
+    docNumber: string | null,
+): Promise<{ duplicateOfChildId: string | null; duplicateOfIntakeId: string | null }> {
+    const docNorm = (docNumber ?? '').replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+    if (!docNorm) return { duplicateOfChildId: null, duplicateOfIntakeId: null };
+
+    const { data: existingChild } = await supabase
+        .from('children')
+        .select('id')
+        .eq('school_id', schoolId)
+        .eq('doc_number', docNorm)
+        .maybeSingle();
+    if (existingChild) return { duplicateOfChildId: existingChild.id as string, duplicateOfIntakeId: null };
+
+    const { data: abiertas } = await supabase
+        .from('enrollment_form_intake')
+        .select('id, extracted')
+        .eq('school_id', schoolId)
+        .in('status', ['pending', 'processing', 'waiting_review']);
+
+    const otra = (abiertas ?? []).find((row: any) => {
+        const otroDoc = (row.extracted as EnrollmentFormResult | null)?.docNumber;
+        return otroDoc && otroDoc.replace(/[^0-9A-Za-z]/g, '').toUpperCase() === docNorm;
+    });
+    return { duplicateOfChildId: null, duplicateOfIntakeId: (otra?.id as string) ?? null };
+}
+
+// ── POST /upload — subir la foto de la hoja desde la app ──────────────────────
+// F2 de docs/specs/fotos-de-planillas-y-autorregistro.md. Antes la única
+// entrada era WhatsApp desde el número de un admin, y la dueña de la escuela
+// no puede mandarse la foto a sí misma. Mismo OCR y mismo chequeo de
+// duplicados que el worker; la ficha cae en la bandeja de siempre.
+const UploadSchema = z.object({
+    imageBase64: z.string().min(100),
+    mimeType: z.enum(MIMES_PERMITIDOS),
+});
+
+router.post('/upload', requireAuth, requireRole(...ROLES_ADMIN), async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId } = req;
+    const userId = req.user?.id;
+    if (!schoolId || !userId) return res.status(400).json({ error: 'Falta la escuela activa.' });
+
+    const parsed = UploadSchema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: 'Sube una foto (JPG, PNG o WEBP) o un PDF.', details: parsed.error.issues });
+    }
+
+    const base64 = parsed.data.imageBase64.replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length === 0) return res.status(400).json({ error: 'El archivo llegó vacío.' });
+    if (buffer.length > MAX_BYTES) {
+        return res.status(413).json({ error: 'La foto pesa más de 4 MB. Tómala de nuevo o recórtala.' });
+    }
+
+    // Se guarda ANTES del OCR (misma regla que la cola de WhatsApp): si el OCR
+    // falla, la foto no se pierde y el admin puede reintentar.
+    const ext = parsed.data.mimeType === 'application/pdf' ? 'pdf' : parsed.data.mimeType.split('/')[1];
+    const storagePath = `enrollment_intake/${schoolId}/${crypto.randomUUID()}.${ext}`;
+    const { error: upErr } = await supabase.storage.from(BUCKET)
+        .upload(storagePath, buffer, { contentType: parsed.data.mimeType, upsert: false });
+    if (upErr) {
+        req.log?.error({ err: upErr }, '[enrollment-intake] no se pudo guardar la foto');
+        return res.status(500).json({ error: 'No se pudo guardar la foto. Intenta de nuevo.' });
+    }
+
+    let extracted: EnrollmentFormResult;
+    try {
+        extracted = await extractEnrollmentForm(base64, parsed.data.mimeType);
+    } catch (err: any) {
+        req.log?.error({ err: err?.message }, '[enrollment-intake] OCR no disponible');
+        await supabase.storage.from(BUCKET).remove([storagePath]);
+        return res.status(503).json({ error: 'No pudimos leer la foto en este momento. Intenta de nuevo en unos minutos.' });
+    }
+
+    if (!extracted.isEnrollmentForm) {
+        await supabase.storage.from(BUCKET).remove([storagePath]);
+        return res.status(422).json({
+            error: 'No reconocí la foto como una hoja de matrícula. Toma la hoja completa, de frente y con buena luz.',
+        });
+    }
+
+    const { duplicateOfChildId, duplicateOfIntakeId } = await buscarDuplicado(schoolId, extracted.docNumber);
+
+    const { data: intake, error: insErr } = await supabase
+        .from('enrollment_form_intake')
+        .insert({
+            school_id: schoolId,
+            source: 'app',
+            uploaded_by: userId,
+            storage_path: storagePath,
+            status: 'waiting_review',
+            extracted,
+            duplicate_of_child_id: duplicateOfChildId,
+            duplicate_of_intake_id: duplicateOfIntakeId,
+        })
+        .select('id')
+        .single();
+
+    if (insErr || !intake) {
+        req.log?.error({ err: insErr }, '[enrollment-intake] no se pudo crear la ficha');
+        return res.status(500).json({ error: 'Leímos la hoja pero no se pudo guardar la ficha. Intenta de nuevo.' });
+    }
+
+    return res.status(201).json({
+        id: intake.id,
+        athleteFullName: extracted.athleteFullName,
+        missingFields: extracted.missingFields,
+        duplicateOfChildId,
+        duplicateOfIntakeId,
+    });
+});
 
 // ── GET / — lista de fichas pendientes de revisión ────────────────────────────
 router.get('/', requireAuth, requireRole(...ROLES_ADMIN), async (req: AuthenticatedRequest, res: Response) => {
@@ -28,7 +154,7 @@ router.get('/', requireAuth, requireRole(...ROLES_ADMIN), async (req: Authentica
 
     const { data: rows, error } = await supabase
         .from('enrollment_form_intake')
-        .select('id, storage_path, status, extracted, duplicate_of_child_id, duplicate_of_intake_id, rejection_reason, created_at')
+        .select('id, storage_path, source, status, extracted, duplicate_of_child_id, duplicate_of_intake_id, rejection_reason, created_at')
         .eq('school_id', schoolId)
         .eq('status', status)
         .order('created_at', { ascending: true });
@@ -52,13 +178,15 @@ router.get('/', requireAuth, requireRole(...ROLES_ADMIN), async (req: Authentica
     const withUrls = await Promise.all((rows ?? []).map(async (row) => {
         let photoUrl: string | null = null;
         if (row.storage_path) {
+            const bucket = (row as any).source === 'whatsapp' ? BUCKET_WHATSAPP : BUCKET;
             const { data: signed } = await supabase.storage
-                .from(BUCKET)
+                .from(bucket)
                 .createSignedUrl(row.storage_path, SIGNED_URL_TTL_SEG);
             photoUrl = signed?.signedUrl ?? null;
         }
         return {
             id: row.id,
+            source: (row as any).source ?? 'whatsapp',
             status: row.status,
             extracted: row.extracted,
             photoUrl,
