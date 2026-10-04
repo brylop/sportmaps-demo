@@ -34,6 +34,7 @@
 
 import { supabase } from '../config/supabase';
 import { decryptToken } from './whatsapp.service';
+import { esFestivoColombia } from '../utils/festivos-colombia';
 
 const GRAPH_API_VERSION = process.env.WHATSAPP_GRAPH_VERSION || 'v21.0';
 const GRAPH = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
@@ -184,10 +185,12 @@ export function renderizarCuerpo(components: any[] | null | undefined, vars: str
 
 /**
  * Horario legal de cobranza en Colombia (Ley 2300 de 2023, "dejen de fregar"):
- * lunes a viernes 7:00–19:00, sábados 8:00–15:00, nunca domingos ni festivos.
- * Los festivos NO se descuentan aquí (no hay calendario en la base): queda como
- * riesgo anotado. El job de "pago vencido" corre a las 07:15 UTC = 02:15 COT,
- * así que sin este control mandaría la cobranza de madrugada.
+ * lunes a viernes 7:00–19:00, sábados 8:00–15:00, nunca domingos ni festivos
+ * (art. 3: "excluyendo cualquier tipo de contacto con el consumidor los domingos
+ * y días festivos"). Los festivos salen de un calendario calculado
+ * (utils/festivos-colombia) y no de la base, para que no dependa de cargar el
+ * año. El job de "pago vencido" corre a las 07:15 UTC = 02:15 COT, así que sin
+ * este control mandaría la cobranza de madrugada.
  */
 export function dentroDeHorarioDeCobranza(ahora: Date = new Date()): boolean {
     // Bogotá es UTC-5 todo el año (sin horario de verano).
@@ -195,6 +198,8 @@ export function dentroDeHorarioDeCobranza(ahora: Date = new Date()): boolean {
     const dia = cot.getUTCDay(); // 0 domingo
     const minutos = cot.getUTCHours() * 60 + cot.getUTCMinutes();
     if (dia === 0) return false;
+    // Festivo = domingo para la ley: ningún cobro, a ninguna hora.
+    if (esFestivoColombia(ahora)) return false;
     if (dia === 6) return minutos >= 8 * 60 && minutos < 15 * 60;
     return minutos >= 7 * 60 && minutos < 19 * 60;
 }

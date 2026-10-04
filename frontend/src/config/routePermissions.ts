@@ -40,6 +40,7 @@ export const PUBLIC_ROUTES: Record<string, RoutePermission> = {
     '/politica-de-privacidad': { public: true, description: 'Política de privacidad' },
     '/payment-result': { public: true, description: 'Resultado de pago (webhook)' },
     '/pagos/confirmacion': { public: true, description: 'Confirmación de pago' },
+    '/p/:token': { public: true, description: 'Enlace sin login de un cobro (botón de cobranza por WhatsApp)' },
     '/unauthorized': { public: true, description: 'Página de acceso denegado' },
     '/events': { public: true, description: 'Mapa de eventos públicos' },
     '/event/:slug': { public: true, description: 'Página pública de evento' },

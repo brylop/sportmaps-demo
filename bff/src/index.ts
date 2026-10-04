@@ -55,6 +55,7 @@ import whatsappWebhookRouter from './routes/whatsapp';
 import whatsappAdminRouter from './routes/whatsapp-admin.routes';
 import whatsappMetricasRouter from './routes/whatsapp-metricas.routes';
 import publicBookingRouter from './routes/public-booking.routes';
+import cobroEnlacePublicoRouter from './routes/cobro-enlace-publico.routes';
 import { initMaintenanceJobs } from './jobs/maintenance.job';
 import organizerRouter from './routes/organizers.route';
 import eventsRouter from './routes/events.route';
@@ -319,6 +320,10 @@ const publicBookingLimiter = rateLimit({
     message: { error: 'Demasiadas peticiones. Intenta de nuevo en unos minutos.' },
 });
 app.use('/api/v1/public/booking', publicBookingLimiter, publicBookingRouter);
+
+// Enlace público de un cobro (/p/:token, botón de las plantillas de cobranza de
+// WhatsApp). Sin requireAuth: el token es la credencial. Rate limit dentro del router.
+app.use('/api/v1/public/cobro', cobroEnlacePublicoRouter);
 
 app.use('/api/v1/webhooks/mercadopago', mpWebhookRouter);
 // /create y /save-card mutan tarjeta/cobro → requireAuth (dentro del router) +

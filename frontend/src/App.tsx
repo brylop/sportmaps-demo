@@ -181,6 +181,7 @@ const AdminActivityLogsPage = lazy(() => import("./pages/AdminActivityLogsPage")
 const PayrollConfigPage = lazy(() => import("./pages/admin/PayrollConfigPage"));
 const AdminAccessLogsPage = lazy(() => import("./pages/AdminAccessLogsPage"));
 const AthleteCardPublicPage = lazy(() => import("./pages/AthleteCardPublicPage"));
+const CobroPublicoPage = lazy(() => import("./pages/CobroPublicoPage"));
 const SchoolCardsAdminPage = lazy(() => import("./pages/SchoolCardsAdminPage"));
 const SchoolCertificatesAdminPage = lazy(() => import("./pages/SchoolCertificatesAdminPage"));
 const CertificateTemplatesPage = lazy(() => import("./pages/CertificateTemplatesPage"));
@@ -325,6 +326,9 @@ const App = () => (
                     <Route path="/join-team/:teamId" element={<JoinTeamPage />} />
                     <Route path="/join-plan/:planId" element={<JoinPlanPage />} />
                     <Route path="/c/:qrToken" element={<AthleteCardPublicPage />} />
+                    {/* Enlace sin login de UN cobro: botón de las plantillas de cobranza de WhatsApp
+                        (sportmaps.co/p/* redirige aquí desde la landing). El token es la credencial. */}
+                    <Route path="/p/:token" element={<CobroPublicoPage />} />
                     <Route path="/cert/:folio" element={<CertificateVerifyPublicPage />} />
                     <Route path="/join/:slug" element={<JoinSchoolPublicPage />} />
                     <Route path="/inscripcion/:slug" element={<SchoolLeadFormPage />} />

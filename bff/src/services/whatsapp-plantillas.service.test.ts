@@ -186,6 +186,12 @@ describe('enviarCobroPorPlantilla — controles', () => {
         expect(r).toMatchObject({ enviado: false, motivo: 'fuera_de_horario' });
     });
 
+    it('festivo → fuera_de_horario igual que domingo (lunes 12-oct-2026, Día de la Raza)', async () => {
+        const festivo = new Date('2026-10-12T15:00:00Z'); // lun 10:00 COT
+        const r = await enviarCobroPorPlantilla({ ...base, ahora: festivo, concepto: 'recordatorio_previo' });
+        expect(r).toMatchObject({ enviado: false, motivo: 'fuera_de_horario' });
+    });
+
     it('Graph rechaza → error_graph con el detalle, sin lanzar', async () => {
         fetchMock.mockResolvedValueOnce({ ok: false, status: 400, json: async () => ({ error: { message: '(#132001) Template name does not exist' } }) });
         const r = await enviarCobroPorPlantilla({ ...base, concepto: 'recordatorio_previo' });
@@ -275,6 +281,13 @@ describe('utilidades', () => {
         expect(svc.dentroDeHorarioDeCobranza(new Date('2026-10-10T19:30:00Z'))).toBe(true);  // sáb 14:30
         expect(svc.dentroDeHorarioDeCobranza(new Date('2026-10-10T20:00:00Z'))).toBe(false); // sáb 15:00
         expect(svc.dentroDeHorarioDeCobranza(new Date('2026-10-06T07:15:00Z'))).toBe(false); // 02:15, hora del job de vencidos
+    });
+
+    it('horario de cobranza: festivos nunca, ni en hora hábil (Ley 2300 art. 3)', () => {
+        expect(svc.dentroDeHorarioDeCobranza(new Date('2026-10-12T15:00:00Z'))).toBe(false); // lun festivo 10:00
+        expect(svc.dentroDeHorarioDeCobranza(new Date('2026-12-08T15:00:00Z'))).toBe(false); // mar 8-dic 10:00
+        expect(svc.dentroDeHorarioDeCobranza(new Date('2027-05-01T15:00:00Z'))).toBe(false); // sáb festivo 10:00
+        expect(svc.dentroDeHorarioDeCobranza(new Date('2026-10-13T15:00:00Z'))).toBe(true);  // mar siguiente 10:00
     });
 
     it('armarPayloadPlantilla sin token no agrega el botón', () => {

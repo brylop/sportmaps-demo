@@ -38,6 +38,7 @@ import { findDuplicatePaymentIds } from '../services/duplicatePayerGuard.service
 import {
     enviarCobroPorPlantilla, type ConceptoCobro, type MotivoNoEnvio,
 } from '../services/whatsapp-plantillas.service';
+import { emitirTokenCobro } from '../services/cobro-enlace-publico.service';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
 
@@ -91,15 +92,15 @@ export function fechaCorta(d?: string | null): string | null {
 /**
  * Token del botón https://sportmaps.co/p/{token}.
  *
- * Devuelve null A PROPÓSITO hasta que exista la ruta pública GET /p/:token
- * (whatsapp-templates/README.md, nota 3): al 2026-10-04 no existe ni en el
- * frontend ni en la landing, y una plantilla con botón a una página 404 es peor
- * que el correo. Con null, enviarCobroPorPlantilla responde 'sin_enlace' y cae
- * al correo. Cuando la ruta exista, aquí se emite el token del cobro y la
- * cobranza por WhatsApp queda viva sin tocar nada más.
+ * La ruta pública existe desde el 2026-10-04: GET /api/v1/public/cobro/:token
+ * (BFF) + página /p/:token (frontend) + redirect sportmaps.co/p/* → app (landing).
+ * El token lo emite/reusa la RPC cobro_enlace_publico_emitir (uno por cobro, 30
+ * días, se rota cuando le quedan < 7). Si la RPC falla —p.ej. la migración
+ * 20261004083707 aún no está aplicada— devuelve null y, como antes,
+ * enviarCobroPorPlantilla responde 'sin_enlace' y sale el correo.
  */
-async function tokenDelBoton(_paymentId: string): Promise<string | null> {
-    return null;
+async function tokenDelBoton(paymentId: string): Promise<string | null> {
+    return emitirTokenCobro(paymentId);
 }
 
 /** Nombres de escuela del lote (las variables {{2}}/{{3}} los necesitan). */
