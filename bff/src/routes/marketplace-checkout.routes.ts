@@ -23,12 +23,12 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireMarketplaceAuth, auditLog } from '../middlewares/authMiddleware';
-import { supabase } from '../config/supabase';
+import { createClient } from '@supabase/supabase-js';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../config/supabase';
 import { generateReference, copToCents, assertUserNotBlocked, UserPaymentBlockedError, voidTransaction } from '../services/wompi.service';
-import { generateMpReference } from '../services/mercadopago.service';
-import { resolveProvider, type PaymentProvider } from '../services/payment-provider.resolver';
 import { requireStoreEnabled } from '../services/store-flag.service';
-import { refundErrorStatus } from '../services/store-rpc-errors';
+import { refundErrorStatus, mapStoreRpcError } from '../services/store-rpc-errors';
+import { StoreCheckoutSchema, toCreateCartOrderArgs, gatewayPayloadForOrder, sellerWompiCredsForOrder, type GatewayPayload } from '../services/store-checkout';
 
 const router = Router();
 
@@ -76,30 +76,6 @@ const GenericPaySchema = z.object({
 const SessionBookingCheckoutSchema = z.object({
     bookingId: z.string().uuid(),
 });
-
-const CartCheckoutSchema = z.object({
-    items: z.array(
-        z.object({
-            productId: z.string().uuid(),
-            variantId: z.string().uuid().optional(),
-            quantity: z.number().int().positive(),
-        }),
-    ).min(1),
-    shippingAddress: z.object({
-        line1: z.string().min(1),
-        line2: z.string().optional(),
-        city: z.string().min(1),
-        department: z.string().min(1),
-        postalCode: z.string().optional(),
-    }),
-    contactPhone: z.string().min(7),
-    contactEmail: z.string().email(),
-    customerName: z.string().min(2),
-    customerDocument: z.string().optional(),
-    notes: z.string().optional(),
-    preferredProvider: z.enum(['wompi', 'mercadopago']).optional(),
-});
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /checkout/service
@@ -341,205 +317,136 @@ router.post('/checkout/session-booking', ensureUserNotBlocked, async (req: Reque
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /checkout/cart — Carrito de productos del shop
+// POST /checkout/cart — Carrito de la tienda (tienda v2 F0, M-F0-4)
 // ─────────────────────────────────────────────────────────────────────────────
-// Crea la order + order_items, calcula totales en server (incluye envio e IVA),
-// y devuelve la reference Wompi para abrir el Widget en el frontend.
+// La orden la crea la RPC create_cart_order en UNA transaccion: precio, IVA
+// incluido (spec 6.3), envio por zona, reserva de stock (FOR UPDATE) e
+// idempotency_key salen de la base. El BFF solo:
+//   - pasa el comprador de la sesion (p_buyer_id; service role);
+//   - para Wompi/MP arma el widget con las llaves PROPIAS del vendedor
+//     (orders.seller_gateway_id). Nunca llaves de ENV (D-5 = A);
+//   - para transferencia devuelve las cuentas reales del vendedor.
+// Contrato: docs/specs/tienda-v2-contrato-checkout.md.
 router.post('/checkout/cart', requireStoreEnabled, ensureUserNotBlocked, async (req: Request, res: Response) => {
     try {
-        const parsed = CartCheckoutSchema.safeParse(req.body);
+        const parsed = StoreCheckoutSchema.safeParse(req.body);
         if (!parsed.success) {
             return res.status(400).json({ ok: false, error: 'Datos invalidos', details: parsed.error.issues });
         }
 
-        const { items, shippingAddress, contactPhone, contactEmail, customerName, customerDocument, notes, preferredProvider } = parsed.data;
-
-        // 1. Obtener productos (precio + stock + vendor_id) desde la BD — NUNCA confiar en el cliente
-        const productIds = items.map(i => i.productId);
-        const { data: products, error: productsErr } = await supabase
-            .from('products')
-            .select('id, name, price, stock, vendor_id, vendor_profile_id, status, product_variants(id, sku, price_override, stock, is_active)')
-            .in('id', productIds);
-
-        if (productsErr || !products || products.length === 0) {
-            return res.status(400).json({ ok: false, error: 'Productos no encontrados.' });
-        }
-
-        // 2. Validar disponibilidad y construir line items
-        type LineItem = {
-            productId: string;
-            variantId: string | null;
-            quantity: number;
-            unitPrice: number;
-            subtotal: number;
-            taxAmount: number;
-            vendorId: string | null;
-            vendorProfileId: string | null;
-            name: string;
-        };
-        const lineItems: LineItem[] = [];
-        const TAX_RATE = 0.19; // IVA Colombia — calcular en server
-
-        for (const requested of items) {
-            const product: any = products.find(p => p.id === requested.productId);
-            if (!product) {
-                return res.status(400).json({ ok: false, error: `Producto ${requested.productId} no existe.` });
-            }
-            if (product.status && product.status !== 'active') {
-                return res.status(400).json({ ok: false, error: `${product.name}: producto inactivo.` });
-            }
-
-            let unitPrice = Number(product.price);
-            let availableStock = Number(product.stock);
-            let variantId: string | null = null;
-
-            if (requested.variantId) {
-                const variant = product.product_variants?.find((v: any) => v.id === requested.variantId);
-                if (!variant) {
-                    return res.status(400).json({ ok: false, error: `${product.name}: variante no encontrada.` });
-                }
-                if (!variant.is_active) {
-                    return res.status(400).json({ ok: false, error: `${product.name}: variante inactiva.` });
-                }
-                if (variant.price_override !== null && variant.price_override !== undefined) {
-                    unitPrice = Number(variant.price_override);
-                }
-                availableStock = Number(variant.stock);
-                variantId = variant.id;
-            }
-
-            if (availableStock < requested.quantity) {
-                return res.status(400).json({
-                    ok: false,
-                    error: `${product.name}: solo quedan ${availableStock} unidades.`,
-                });
-            }
-
-            const subtotal = unitPrice * requested.quantity;
-            const taxAmount = Math.round(subtotal * TAX_RATE);
-
-            lineItems.push({
-                productId: product.id,
-                variantId,
-                quantity: requested.quantity,
-                unitPrice,
-                subtotal,
-                taxAmount,
-                vendorId: product.vendor_id || null,
-                vendorProfileId: product.vendor_profile_id || null,
-                name: product.name,
+        const args = toCreateCartOrderArgs(parsed.data, req.user.id);
+        const { data: order, error } = await supabase.rpc('create_cart_order', args);
+        if (error) {
+            const mapped = mapStoreRpcError(error);
+            if (mapped.status >= 500) req.log?.error({ err: error }, 'create_cart_order failed');
+            return res.status(mapped.status).json({
+                ok: false, error: mapped.code, message: mapped.message,
+                ...(mapped.details !== undefined ? { details: mapped.details } : {}),
             });
         }
 
-        // 3. Calcular envio en server (tabla shipping_zones)
-        const { data: zone } = await supabase
-            .from('shipping_zones')
-            .select('costo_base')
-            .eq('departamento', shippingAddress.department)
-            .maybeSingle();
+        const summary = order as Record<string, any>;
+        let gateway: GatewayPayload | null = null;
+        let transfer: unknown = null;
 
-        const shippingCost = zone?.costo_base ? Number(zone.costo_base) : 18000; // fallback regional
-
-        // 4. Totales
-        const subtotalSum = lineItems.reduce((a, l) => a + l.subtotal, 0);
-        const taxTotal = lineItems.reduce((a, l) => a + l.taxAmount, 0);
-        const grossAmount = subtotalSum + taxTotal + shippingCost;
-
-        // 5. Resolver provider (per vendor); default marketplace global si no hay vendor.
-        const primaryVendorId = lineItems[0]?.vendorId || null;
-        const resolved = await resolveProvider({ vendorId: primaryVendorId, preferredProvider });
-        const provider: PaymentProvider = resolved?.provider ?? 'wompi';
-
-        // 6. Generar reference segun provider
-        const reference = provider === 'mercadopago'
-            ? generateMpReference('cart')
-            : generateReference('cart');
-
-        // 7. Crear order (vendor_id = primer vendor; multi-vendor split se hace en webhook)
-        const { data: order, error: orderErr } = await supabase
-            .from('orders')
-            .insert({
-                user_id: req.user.id,
-                vendor_id: primaryVendorId,
-                vendor_profile_id: lineItems[0]?.vendorProfileId ?? null,
-                total_amount: grossAmount,
-                tax_total: taxTotal,
-                shipping_cost: shippingCost,
-                // CHECK de orders.status (M-F0-3): 'pending' ya no es válido.
-                status: 'pending_payment',
-                payment_method: provider,
-                payment_provider: provider,
-                provider_reference: reference,
-                wompi_reference: provider === 'wompi' ? reference : null,
-                shipping_address: shippingAddress,
-                contact_phone: contactPhone,
-                contact_email: contactEmail,
-                customer_name: customerName,
-                customer_document: customerDocument || null,
-                notes: notes || null,
-            })
-            .select('id')
-            .single();
-
-        if (orderErr || !order) {
-            req.log?.error({ err: orderErr }, 'Error inserting order');
-            return res.status(500).json({ ok: false, error: 'Error creando la orden.' });
+        if (summary.payment_method === 'wompi' || summary.payment_method === 'mercadopago') {
+            try {
+                gateway = await gatewayPayloadForOrder({
+                    id: summary.order_id,
+                    reference: summary.reference,
+                    total_amount: summary.total,
+                    payment_method: summary.payment_method,
+                    seller_gateway_id: summary.seller_gateway_id,
+                    seller_gateway_kind: summary.seller_gateway_kind,
+                });
+            } catch (gwErr: any) {
+                // La base eligio la pasarela del vendedor pero sus secretos no se
+                // pueden usar: no se cobra (y jamas con las llaves de ENV). La
+                // reserva vence sola o el comprador cancela.
+                req.log?.warn({ orderId: summary.order_id, err: gwErr?.message }, 'seller gateway not usable');
+                return res.status(409).json({
+                    ok: false,
+                    error: 'SELLER_GATEWAY_NOT_CONFIGURED',
+                    message: 'La tienda no tiene su pasarela lista. Elige otro medio de pago.',
+                    orderId: summary.order_id,
+                });
+            }
+        } else if (summary.payment_method === 'transfer') {
+            const { data: accounts } = await supabase.rpc('store_transfer_accounts', {
+                p_order_id: summary.order_id,
+                p_actor: req.user.id,
+            });
+            transfer = accounts ?? null;
         }
 
-        // 7. Crear order_items
-        const orderItems = lineItems.map(l => ({
-            order_id: order.id,
-            product_id: l.productId,
-            variant_id: l.variantId,
-            vendor_id: l.vendorId,
-            vendor_profile_id: l.vendorProfileId,
-            quantity: l.quantity,
-            unit_price: l.unitPrice,
-            subtotal: l.subtotal,
-            tax_amount: l.taxAmount,
-        }));
-
-        const { error: itemsErr } = await supabase.from('order_items').insert(orderItems);
-
-        if (itemsErr) {
-            req.log?.error({ err: itemsErr }, 'Error inserting order_items');
-            // Rollback de la orden para evitar zombies
-            await supabase.from('orders').delete().eq('id', order.id);
-            return res.status(500).json({ ok: false, error: 'Error guardando los productos.' });
+        if (!summary.idempotent) {
+            await auditLog(req, 'cart_checkout', 'orders', summary.order_id, null, {
+                amount: summary.total,
+                items: Array.isArray(summary.items) ? summary.items.length : 0,
+                reference: summary.reference,
+                payment_method: summary.payment_method,
+            });
         }
 
-        await auditLog(req, 'cart_checkout', 'orders', order.id, null, {
-            amount: grossAmount,
-            items: lineItems.length,
-            reference,
-        });
-
-        return res.status(201).json({
+        return res.status(summary.idempotent ? 200 : 201).json({
             ok: true,
             data: {
-                orderId: order.id,
-                provider,
-                publicKey: resolved?.publicKey ?? null,
-                sandbox: resolved?.sandbox ?? true,
-                reference,
-                amountInCents: copToCents(grossAmount),
-                transactionAmount: grossAmount,
-                grossAmount,
-                subtotal: subtotalSum,
-                taxTotal,
-                shippingCost,
-                items: lineItems.map(l => ({
-                    productId: l.productId,
-                    variantId: l.variantId,
-                    name: l.name,
-                    quantity: l.quantity,
-                    unitPrice: l.unitPrice,
-                    subtotal: l.subtotal,
-                })),
+                // Compat con CartCheckoutModal / useWompiCheckout.startCartCheckout
+                orderId: summary.order_id,
+                reference: summary.reference,
+                provider: gateway?.provider ?? summary.payment_method,
+                publicKey: gateway?.publicKey ?? null,
+                sandbox: gateway?.sandbox ?? null,
+                signature: gateway?.signature ?? null,
+                amountInCents: Number(summary.amount_in_cents),
+                transactionAmount: Number(summary.total),
+                grossAmount: Number(summary.total),
+                subtotal: Number(summary.subtotal),
+                taxTotal: Number(summary.tax_total),
+                shippingCost: Number(summary.shipping),
+                // Contrato nuevo
+                status: summary.status,
+                paymentMethod: summary.payment_method,
+                expiresAt: summary.expires_at,
+                pickupCode: summary.pickup_code ?? null,
+                idempotent: !!summary.idempotent,
+                transfer,
+                items: summary.items,
             },
         });
     } catch (err: any) {
         req.log?.error({ err }, 'Error in cart checkout');
+        return res.status(500).json({ ok: false, error: err.message || 'Error interno.' });
+    }
+});
+
+// POST /checkout/cart/quote — cotizacion de solo lectura (quote_cart).
+router.post('/checkout/cart/quote', requireStoreEnabled, async (req: Request, res: Response) => {
+    try {
+        const parsed = StoreCheckoutSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Datos invalidos', details: parsed.error.issues });
+        }
+        const args = toCreateCartOrderArgs(parsed.data, req.user.id);
+        // quote_cart decide school_only con auth.uid(): con service role es NULL
+        // y un miembro de la escuela recibía PRODUCT_NOT_AVAILABLE. Se cotiza
+        // con el JWT del comprador (la RPC es de solo lectura y está GRANT a authenticated).
+        const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+            global: { headers: { Authorization: req.headers.authorization ?? '' } },
+            auth: { autoRefreshToken: false, persistSession: false },
+        });
+        const { data, error } = await userClient.rpc('quote_cart', {
+            p_items: args.p_items,
+            p_fulfillment: args.p_fulfillment,
+            p_address: args.p_address,
+            p_coupon_code: args.p_coupon_code,
+        });
+        if (error) {
+            const mapped = mapStoreRpcError(error);
+            return res.status(mapped.status).json({ ok: false, error: mapped.code, message: mapped.message });
+        }
+        return res.json({ ok: true, data });
+    } catch (err: any) {
         return res.status(500).json({ ok: false, error: err.message || 'Error interno.' });
     }
 });
@@ -704,17 +611,51 @@ router.post('/refund/:id/process', requireStoreEnabled, async (req: Request, res
             return res.status(status).json({ ok: false, error: code });
         }
 
-        // 3. Resolver wompi_transaction_id
-
-        let wompiTxId: string | null = null;
+        // 3. Órdenes de la tienda (tienda v2 F0, D-5 = A): el vendedor cobró con
+        //    SUS llaves, así que el void va con SUS llaves (nunca ENV).
+        //    Transferencia / efectivo: no hay pasarela; el vendedor devuelve la
+        //    plata por fuera y acá solo se completa el reembolso (stock,
+        //    settlements y evento contable los hace la base una sola vez).
         if (refund.order_id) {
-            const { data } = await supabase
+            const { data: ord } = await supabase
                 .from('orders')
-                .select('wompi_transaction_id')
+                .select('id, reference, total_amount, payment_method, seller_gateway_id, seller_gateway_kind, wompi_transaction_id, provider_transaction_id')
                 .eq('id', refund.order_id)
                 .single();
-            wompiTxId = data?.wompi_transaction_id || null;
-        } else if (refund.transaction_id) {
+            const o: any = ord;
+            let voidId = 'manual';
+            if (o?.payment_method === 'wompi') {
+                const creds = o ? await sellerWompiCredsForOrder(o) : null;
+                const txId = o?.wompi_transaction_id || o?.provider_transaction_id || null;
+                if (!creds || !txId) {
+                    await supabase.from('refunds').update({ status: 'failed', rejection_reason: 'seller_gateway_or_tx_missing' }).eq('id', refundId);
+                    return res.status(409).json({ ok: false, error: 'SELLER_GATEWAY_NOT_CONFIGURED' });
+                }
+                const voidRes = await voidTransaction(txId, creds);
+                if (!voidRes.ok) {
+                    await supabase.from('refunds').update({ status: 'failed', rejection_reason: voidRes.error }).eq('id', refundId);
+                    return res.status(502).json({ ok: false, error: voidRes.error });
+                }
+                voidId = txId;
+            } else if (o?.payment_method === 'mercadopago') {
+                // Reembolso MP con llaves del vendedor: pendiente (no hay void MP en el BFF).
+                return res.status(501).json({ ok: false, error: 'MP_REFUND_NOT_IMPLEMENTED' });
+            }
+            const { data: completion, error: compErr } = await supabase.rpc('complete_refund', {
+                p_refund_id: refundId,
+                p_wompi_void_id: voidId,
+                p_provider: o?.payment_method === 'wompi' ? 'wompi' : 'manual',
+            });
+            if (compErr) {
+                req.log?.error({ err: compErr, refundId }, 'complete_refund RPC failed');
+                return res.status(500).json({ ok: false, error: 'Error finalizando reembolso.' });
+            }
+            await auditLog(req, 'refund_processed', 'refunds', refundId as string, null, { void_id: voidId });
+            return res.json({ ok: true, data: { refundId, completion } });
+        }
+
+        let wompiTxId: string | null = null;
+        if (refund.transaction_id) {
             const { data } = await supabase
                 .from('marketplace_transactions')
                 .select('wompi_transaction_id')

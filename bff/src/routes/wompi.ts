@@ -19,14 +19,16 @@
  * Seguridad:
  *  - Valida checksum SHA256 con el events_secret del comercio dueño de la referencia
  *    (multi-tenant): se resuelve la escuela por payment_links y se usan SUS credenciales.
- *    Si la referencia no es de una escuela, cae a WOMPI_EVENTS_SECRET (legacy).
+ *    CART-* (tienda v2 F0, D-5 = A): SIEMPRE las llaves del vendedor de la orden
+ *    (orders.seller_gateway_id); si no se pueden resolver, 503 y NO se cae a ENV.
+ *    El resto sin escuela cae a WOMPI_EVENTS_SECRET (legacy).
  *  - Idempotencia por wompi_transaction_id (insercion unica).
  *  - Re-consulta el estado a Wompi para evitar webhook spoofing.
  */
 
 import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
-import { cartWebhookFailureStatus, isAwaitingPayment } from '../services/store-order-status';
+import { findStoreOrderByReference, sellerWompiCredsForOrder, amountMatchesOrder } from '../services/store-checkout';
 import { todayInZone } from '../utils/businessDate';
 import {
     validateWebhookChecksum,
@@ -108,6 +110,12 @@ async function credsForReference(reference: string): Promise<WompiCreds | null> 
     // antes de usarla en una query (PostgREST interpola los filtros como texto).
     if (!reference || !SAFE_REFERENCE.test(reference)) return null;
 
+    // Tienda: el vendedor cobró con SUS llaves → se valida con las suyas.
+    if (reference.startsWith('CART-')) {
+        const order = await findStoreOrderByReference(reference);
+        return order ? sellerWompiCredsForOrder(order) : null;
+    }
+
     let schoolId: string | null = null;
     for (const col of ['provider_reference', 'wompi_reference'] as const) {
         const { data } = await supabase
@@ -142,6 +150,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
         //    transacción contra la API de Wompi.
         const refFromBody: string = body?.data?.transaction?.reference || '';
         const creds = await credsForReference(refFromBody);
+
+        // Tienda (CART-*): sin las llaves del vendedor no hay con qué verificar, y
+        // caer a las globales es justo lo que D-5 = A prohíbe. 503 → Wompi reintenta.
+        if (refFromBody.startsWith('CART-') && !creds) {
+            req.log?.warn({ reference: refFromBody }, 'Wompi webhook: store order without resolvable seller gateway');
+            return res.status(503).json({ error: 'seller_gateway_unavailable' });
+        }
 
         if (!validateWebhookChecksum(body, creds ?? undefined)) {
             req.log?.warn(
@@ -604,112 +619,66 @@ async function handleMarketplaceTransaction({
 // ─── CART: ordenes del shop ────────────────────────────────────────────────
 
 async function handleCartOrder({
-    req, txId, txReference, internalStatus, txAmountCop, paymentMethodType,
+    req, txId, txReference, internalStatus, paymentMethodType, rawTransaction,
 }: HandlerArgs): Promise<HandlerResult> {
-    // 1. Buscar order
-    const { data: order, error: orderErr } = await supabase
-        .from('orders')
-        .select('id, total_amount, status, wompi_transaction_id')
-        .eq('wompi_reference', txReference)
-        .maybeSingle();
-
-    if (orderErr || !order) {
+    // 1. Orden por referencia (reference / wompi_reference / provider_reference).
+    const order = await findStoreOrderByReference(txReference);
+    if (!order) {
         req.log?.warn({ txReference }, 'Cart order not found');
         return { status: 200, body: { status: 'ignored', reason: 'order_not_found' } };
     }
 
-    // 2. Idempotencia ('pending' legacy y 'pending_payment' = todavía sin procesar)
-    if (order.wompi_transaction_id === txId && !isAwaitingPayment(order.status)) {
-        return { status: 200, body: { status: 'already_processed' } };
-    }
-
     if (internalStatus === 'paid') {
-        // 3. Verificar monto
-        if (Math.abs(txAmountCop - Number(order.total_amount)) > 1) {
+        // 2. Monto exacto contra orders.total_amount (centavos).
+        if (!amountMatchesOrder(order.total_amount, { cents: Number(rawTransaction?.amount_in_cents) })) {
             req.log?.error(
-                { expected: order.total_amount, received: txAmountCop, txReference },
+                { expected: order.total_amount, receivedCents: rawTransaction?.amount_in_cents, txReference },
                 'Cart order: amount mismatch',
             );
+            await supabase.rpc('flag_payment_for_review', {
+                p_kind: 'order', p_id: order.id, p_reason: `wompi_amount_mismatch (tx=${txId})`,
+            });
             return { status: 400, body: { error: 'Amount mismatch' } };
         }
 
-        // 4. Descuento de stock atomico via RPC (incluye order_status update)
-        const { data: stockResult, error: stockErr } = await supabase.rpc(
-            'confirm_order_payment',
-            {
-                p_order_id: order.id,
-                p_wompi_reference: txReference,
-                p_wompi_transaction_id: txId,
-                p_payment_method_type: paymentMethodType,
-            },
-        );
-
-        if (stockErr) {
-            req.log?.error({ err: stockErr, orderId: order.id }, 'confirm_order_payment failed');
-            // Marcar para revision manual sin fallar el webhook
-            await supabase
-                .from('orders')
-                .update({
-                    status: 'payment_review',
-                    wompi_transaction_id: txId,
-                    updated_at: new Date().toISOString(),
-                })
-                .eq('id', order.id);
-            return { status: 200, body: { status: 'review', error: stockErr.message } };
-        }
-
-        // 5. Multi-vendor split — crea vendor_payouts (idempotente)
-        const { error: splitErr } = await supabase.rpc('split_order_payment', {
+        // 3. Un solo camino (M-F0-4): consume reservas, descuenta stock, kardex,
+        //    settlements (un solo motor) y eventos contables, idempotente por tx.
+        const { data: result, error } = await supabase.rpc('confirm_order_payment', {
             p_order_id: order.id,
+            p_wompi_reference: txReference,
+            p_wompi_transaction_id: txId,
+            p_payment_method_type: paymentMethodType,
+            p_provider: 'wompi',
         });
-        if (splitErr) {
-            req.log?.warn({ err: splitErr, orderId: order.id }, 'split_order_payment failed (non-blocking)');
+        if (error) {
+            req.log?.error({ err: error, orderId: order.id }, 'confirm_order_payment failed');
+            await supabase.rpc('flag_payment_for_review', {
+                p_kind: 'order', p_id: order.id, p_reason: `wompi_confirm_failed (tx=${txId})`,
+            });
+            return { status: 200, body: { status: 'review', error: error.message } };
         }
-
-        // 6. Settlements R5 — crea settlements y acredita pending_balance (idempotente)
-        const { data: settleResult, error: settleErr } = await supabase.rpc(
-            'compute_settlements_for_order',
-            { p_order_id: order.id },
-        );
-        if (settleErr) {
-            req.log?.warn({ err: settleErr, orderId: order.id }, 'compute_settlements_for_order failed (non-blocking)');
-        } else {
-            req.log?.info({ orderId: order.id, settleResult }, 'Settlements computed');
+        if ((result as any)?.review) {
+            req.log?.warn({ orderId: order.id, result }, 'Cart order paid but sent to review');
+            return { status: 200, body: { status: 'review', kind: 'cart', result } };
         }
-
-        req.log?.info({ orderId: order.id, txReference }, 'Cart order paid + stock decremented + payouts split + settlements');
-        return { status: 200, body: { status: 'ok', kind: 'cart', result: stockResult } };
+        req.log?.info({ orderId: order.id, txReference }, 'Cart order paid');
+        return { status: 200, body: { status: 'ok', kind: 'cart', result } };
     }
 
-    // No aprobado. El estado sale del mapeo explícito (CHECK de orders.status,
-    // M-F0-3): rechazo/fallo → 'cancelled' (solo si la orden seguía sin pagar),
-    // anulación → 'refunded', pending → no se toca el estado.
-    const nextStatus = cartWebhookFailureStatus(order.status, internalStatus);
-    const failUpdate: Record<string, unknown> = {
-        wompi_transaction_id: txId,
-        updated_at: new Date().toISOString(),
-    };
-    if (nextStatus) failUpdate.status = nextStatus;
-    const { error: failErr } = await supabase
-        .from('orders')
-        .update(failUpdate)
-        .eq('id', order.id);
-    if (failErr) {
-        req.log?.error({ err: failErr, orderId: order.id, nextStatus }, 'Cart order: failure update failed');
-    }
-
-    if (internalStatus === 'pending') {
-        return { status: 200, body: { status: 'ok', kind: 'cart', internalStatus } };
-    }
-
-    await supabase.rpc('flag_payment_for_review', {
-        p_kind: 'order',
-        p_id: order.id,
-        p_reason: `wompi_${internalStatus} (tx=${txId})`,
+    // 4. No aprobado: la base libera la reserva y cancela (rechazo/fallo), o
+    //    marca revisión (anulación de una orden cobrada). Nunca un UPDATE suelto.
+    const { data: failRes, error: failErr } = await supabase.rpc('store_order_payment_failed', {
+        p_order_id: order.id,
+        p_provider: 'wompi',
+        p_tx_id: txId,
+        p_status: internalStatus,
+        p_reason: buildFailureReason('wompi', internalStatus, paymentMethodType, rawTransaction, txId),
     });
-
-    req.log?.warn({ orderId: order.id, internalStatus, nextStatus }, 'Cart order flagged for review');
-    return { status: 200, body: { status: 'ok', kind: 'cart', internalStatus, flagged_for_review: true } };
+    if (failErr) {
+        req.log?.error({ err: failErr, orderId: order.id }, 'store_order_payment_failed failed');
+        return { status: 500, body: { error: 'cart_failure_update_failed' } };
+    }
+    return { status: 200, body: { status: 'ok', kind: 'cart', internalStatus, result: failRes } };
 }
 
 // ─── BKG: reservas de cancha/sesion ─────────────────────────────────────────

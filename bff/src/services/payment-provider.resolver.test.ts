@@ -52,7 +52,7 @@ vi.mock('./mercadopago.service', () => ({
     esCredencialDePrueba: (t?: string) => !!t?.startsWith('TEST-'),
 }));
 
-import { resolveProvider, loadProviderConfig } from './payment-provider.resolver';
+import { resolveProvider, loadProviderConfig, resolveSellerGateway } from './payment-provider.resolver';
 
 const ESCUELA = 'aaaaaaaa-0000-4000-8000-000000000001';
 const VENDOR = 'bbbbbbbb-0000-4000-8000-000000000002';
@@ -205,5 +205,65 @@ describe('loadProviderConfig — mismas reglas que resolveProvider', () => {
         process.env.MP_ACCESS_TOKEN_DEFAULT = 'APP_USR-personal';
         process.env.MP_PUBLIC_KEY_DEFAULT = 'APP_USR-personal-pub';
         expect(await loadProviderConfig({ provider: 'mercadopago', schoolId: ESCUELA })).toBeNull();
+    });
+});
+
+// ─── Tienda v2 F0 (D-5 = A): la pasarela del VENDEDOR de la orden ───────────
+describe('resolveSellerGateway', () => {
+    it('escuela: secretos cifrados propios, aunque la escuela esté en aggregator (nunca ENV)', async () => {
+        conCuentaPropia('aggregator');
+        const r = await resolveSellerGateway({ gatewayId: 'prov-1', gatewayKind: 'school' });
+        expect(r?.source).toBe('school_direct');
+        expect(r?.accessToken).toBe('prv_prod_PROPIA');
+        expect(r?.integritySecret).toBe('integrity_PROPIA');
+        expect(r?.accessToken).not.toBe(process.env.WOMPI_PRIVATE_KEY);
+    });
+
+    it('escuela sin secretos cifrados → null (no ENV)', async () => {
+        conCuentaPropia('aggregator');
+        tablas.payment_provider_secrets = [];
+        expect(await resolveSellerGateway({ gatewayId: 'prov-1', gatewayKind: 'school' })).toBeNull();
+    });
+
+    it('fila deshabilitada o desconectada → null', async () => {
+        conCuentaPropia('direct', { enabled: false });
+        expect(await resolveSellerGateway({ gatewayId: 'prov-1', gatewayKind: 'school' })).toBeNull();
+        conCuentaPropia('direct', { connect_status: 'disconnected' });
+        expect(await resolveSellerGateway({ gatewayId: 'prov-1', gatewayKind: 'school' })).toBeNull();
+    });
+
+    it('vendedor externo: lee la tabla cifrada, no las columnas en claro', async () => {
+        tablas.vendor_payment_providers = [{
+            id: 'vpp-1', vendor_id: VENDOR, provider: 'wompi', public_key: 'pub_test_VEND',
+            access_token: 'EN_CLARO_VIEJO', integrity_secret: 'EN_CLARO_VIEJO', webhook_secret: null,
+            sandbox: true, is_default: true, enabled: true,
+        }];
+        tablas.vendor_payment_provider_secrets = [{
+            provider_id: 'vpp-1', private_key_enc: 'prv_test_VEND', integrity_secret_enc: 'int_VEND',
+            events_secret_enc: 'evt_VEND', access_token_enc: null,
+        }];
+        const r = await resolveSellerGateway({ gatewayId: 'vpp-1', gatewayKind: 'vendor' });
+        expect(r).toMatchObject({ source: 'vendor', accessToken: 'prv_test_VEND', integritySecret: 'int_VEND', webhookSecret: 'evt_VEND' });
+    });
+
+    it('vendedor Wompi sin integrity → null (no se puede firmar)', async () => {
+        tablas.vendor_payment_providers = [{ id: 'vpp-2', vendor_id: VENDOR, provider: 'wompi', public_key: 'pub', sandbox: true, is_default: true, enabled: true }];
+        tablas.vendor_payment_provider_secrets = [{ provider_id: 'vpp-2', private_key_enc: 'prv', integrity_secret_enc: null }];
+        expect(await resolveSellerGateway({ gatewayId: 'vpp-2', gatewayKind: 'vendor' })).toBeNull();
+    });
+
+    it('sin gateway o kind inválido → null sin consultar ENV', async () => {
+        expect(await resolveSellerGateway({ gatewayId: null, gatewayKind: 'school' })).toBeNull();
+        expect(await resolveSellerGateway({ gatewayId: 'x', gatewayKind: 'env' })).toBeNull();
+    });
+});
+
+describe('MP en direct: webhookSecret = events_secret_enc (fix del 503, plan M-F0-7)', () => {
+    it('loadProviderConfig devuelve el secreto de firma de MP', async () => {
+        conCuentaPropia('direct', { provider: 'mercadopago', public_key: 'APP_USR-pub' });
+        tablas.payment_provider_secrets = [{ provider_id: 'prov-1', access_token_enc: 'APP_USR-tok', events_secret_enc: 'mp_events_PROPIO' }];
+        const r = await loadProviderConfig({ provider: 'mercadopago', schoolId: ESCUELA });
+        expect(r?.webhookSecret).toBe('mp_events_PROPIO');
+        expect(r?.accessToken).toBe('APP_USR-tok');
     });
 });

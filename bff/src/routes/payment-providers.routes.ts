@@ -50,7 +50,12 @@ const SchoolProviderSchema = z.discriminatedUnion('provider', [
     }),
 ]);
 
-/** Schema legacy — solo el camino vendor, que sigue guardando en claro (fuera de F0). */
+/**
+ * Schema del camino vendor (externo). Mismo body de siempre; desde tienda v2 F0
+ * (M-F0-7) los secretos se CIFRAN y van a vendor_payment_provider_secrets por
+ * la RPC upsert_vendor_provider. Wompi: accessToken = private key,
+ * webhookSecret = events secret, integritySecret = integrity.
+ */
 const ProviderUpsertSchema = z.object({
     provider: z.enum(['wompi', 'mercadopago']),
     publicKey: z.string().min(10),
@@ -250,32 +255,64 @@ router.post('/vendor/:vendorId', requireAuth, async (req: AuthenticatedRequest, 
     }
 
     const p = parsed.data;
-    const { data, error } = await supabase
-        .from('vendor_payment_providers')
-        .upsert(
-            {
-                vendor_id: vendorId,
-                provider: p.provider,
-                public_key: p.publicKey,
-                access_token: p.accessToken,
-                webhook_secret: p.webhookSecret ?? null,
-                integrity_secret: p.integritySecret ?? null,
-                sandbox: p.sandbox ?? true,
-                is_default: p.isDefault ?? false,
-                enabled: p.enabled ?? true,
-                updated_at: new Date().toISOString(),
-            },
-            { onConflict: 'vendor_id,provider' },
-        )
-        .select('id, provider, public_key, sandbox, is_default, enabled')
-        .single();
+    let secretsEnc: Record<string, string | null>;
+    try {
+        secretsEnc = vendorSecretsEnc(p.provider, p);
+    } catch (err: any) {
+        console.error('[payment-providers] cifrado de secretos (vendor) falló:', err?.message);
+        return res.status(500).json({ error: 'cipher_unavailable', code: 'cipher_unavailable' });
+    }
+    if (p.provider === 'wompi' && !secretsEnc.integrity_secret_enc) {
+        return res.status(400).json({ error: 'Wompi necesita integritySecret para firmar el checkout.', code: 'integrity_required' });
+    }
+
+    const { data: providerId, error } = await supabase.rpc('upsert_vendor_provider', {
+        p_vendor_id: vendorId,
+        p_provider: p.provider,
+        p_public_key: p.publicKey,
+        p_secrets_enc: secretsEnc,
+        p_sandbox: p.sandbox ?? true,
+        p_enabled: p.enabled ?? true,
+        p_is_default: p.isDefault ?? false,
+    });
 
     if (error) {
         return res.status(500).json({ error: error.message });
     }
 
-    return res.status(200).json({ provider: data });
+    return res.status(200).json({
+        provider: {
+            id: providerId,
+            provider: p.provider,
+            public_key: p.publicKey,
+            sandbox: p.sandbox ?? true,
+            is_default: p.isDefault ?? false,
+            enabled: p.enabled ?? true,
+        },
+    });
 });
+
+/**
+ * Secretos del vendedor → columnas *_enc (AES-256-GCM, PAYMENT_TOKENS_ENC_KEY).
+ * Una clave ausente no se manda (la RPC no borra la existente). Lanza si falta
+ * la llave de cifrado.
+ */
+export function vendorSecretsEnc(
+    provider: 'wompi' | 'mercadopago',
+    p: { accessToken?: string; webhookSecret?: string; integritySecret?: string },
+): Record<string, string | null> {
+    const enc = (v?: string) => (v ? encryptSecret(v) : null);
+    return provider === 'wompi'
+        ? {
+            private_key_enc: enc(p.accessToken),
+            integrity_secret_enc: enc(p.integritySecret),
+            events_secret_enc: enc(p.webhookSecret),
+        }
+        : {
+            access_token_enc: enc(p.accessToken),
+            events_secret_enc: enc(p.webhookSecret),
+        };
+}
 
 // ─── Generic patch / delete by id ──────────────────────────────────────────
 
@@ -322,11 +359,33 @@ router.patch('/:id', requireAuth, async (req: AuthenticatedRequest, res: Respons
     if (parsed.data.isDefault !== undefined) updates.is_default = parsed.data.isDefault;
     if (parsed.data.enabled !== undefined) updates.enabled = parsed.data.enabled;
 
-    // Camino vendor: sigue en claro (fuera del alcance de F0, lo leen vendor/recurring).
-    if (target.kind === 'vendor') {
-        if (parsed.data.accessToken !== undefined) updates.access_token = parsed.data.accessToken;
-        if (parsed.data.webhookSecret !== undefined) updates.webhook_secret = parsed.data.webhookSecret;
-        if (parsed.data.integritySecret !== undefined) updates.integrity_secret = parsed.data.integritySecret;
+    // Camino vendor (tienda v2 F0, M-F0-7): los secretos también van cifrados
+    // y por la RPC transaccional; nunca más a las columnas en claro.
+    if (target.kind === 'vendor' && touchesSecrets) {
+        const { data: row } = await supabase
+            .from('vendor_payment_providers')
+            .select('vendor_id, provider, public_key, sandbox, enabled, is_default')
+            .eq('id', id)
+            .maybeSingle();
+        const r: any = row;
+        if (!r) return res.status(404).json({ error: 'not_found' });
+        let secretsEnc: Record<string, string | null>;
+        try {
+            secretsEnc = vendorSecretsEnc(r.provider, parsed.data);
+        } catch {
+            return res.status(500).json({ error: 'cipher_unavailable', code: 'cipher_unavailable' });
+        }
+        const { error: rpcErr } = await supabase.rpc('upsert_vendor_provider', {
+            p_vendor_id: r.vendor_id,
+            p_provider: r.provider,
+            p_public_key: parsed.data.publicKey ?? r.public_key,
+            p_secrets_enc: secretsEnc,
+            p_sandbox: parsed.data.sandbox ?? r.sandbox,
+            p_enabled: parsed.data.enabled ?? r.enabled,
+            p_is_default: parsed.data.isDefault ?? r.is_default,
+        });
+        if (rpcErr) return res.status(500).json({ error: rpcErr.message });
+        return res.status(200).json({ ok: true });
     }
 
     const tableName = target.kind === 'school' ? 'school_payment_providers' : 'vendor_payment_providers';

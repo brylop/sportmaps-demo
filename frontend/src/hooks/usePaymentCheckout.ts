@@ -55,6 +55,11 @@ export interface CheckoutSession {
     description?: string;
     /** Identificador de la entidad raiz (para tracking) */
     orderId?: string;
+    /**
+     * Firma de integridad Wompi calculada por el BFF con las llaves del VENDEDOR
+     * (tienda v2 F0). Si viene, el widget no le pide la firma a la Edge Function.
+     */
+    signature?: string | null;
 }
 
 export type CheckoutKind =
@@ -157,6 +162,7 @@ export function usePaymentCheckout({ onSuccess, onError, onClosed }: UseOpts = {
                 teamName: (payload.teamName as string) ?? undefined,
                 description: (payload.description as string) ?? undefined,
                 orderId: raw.orderId ?? raw.bookingId ?? raw.transactionId ?? undefined,
+                signature: raw.signature ?? null,
             };
 
             setSession(newSession);
@@ -188,6 +194,9 @@ export function usePaymentCheckout({ onSuccess, onError, onClosed }: UseOpts = {
             schoolName: session.schoolName,
             studentName: session.studentName,
             teamName: session.teamName,
+            // Tienda v2 F0: firma y llave pública del vendedor (no las globales).
+            signature: session.signature ?? undefined,
+            publicKey: session.publicKey ?? undefined,
         });
 
         if (tx?.status === 'APPROVED') {

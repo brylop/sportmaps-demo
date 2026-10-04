@@ -217,10 +217,10 @@ begin
 
   if (select count(*) from public.order_status_history
        where order_id = '00000000-0000-4000-c000-0000000000f1' and to_status = 'paid'
-         and from_status = 'pending_payment' and actor_role = 'system') <> 1 then
+         and from_status = 'pending_payment' and actor_role = 'webhook') <> 1 then
     raise exception 'FALLO: historial sin la transición pending_payment → paid';
   end if;
-  raise notice 'OK: historial registra pending_payment → paid (system)';
+  raise notice 'OK: historial registra pending_payment → paid (webhook, M-F0-4)';
 end $$;
 
 -- ── Tienda escolar: el admin (no dueño) ve los pedidos; el coach no ──────────

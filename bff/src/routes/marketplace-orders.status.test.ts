@@ -68,6 +68,7 @@ vi.mock('../config/supabase', () => {
             rpc: async (fn: string, args: any) => {
                 estado.rpcCalls.push([fn, args]);
                 if (fn === 'can_manage_store_as') return { data: estado.canManage, error: null };
+                if (fn === 'order_transition') return { data: { order_id: args.p_order_id, status: args.p_to }, error: null };
                 return { data: null, error: { code: 'PGRST202', message: 'not mocked' } };
             },
         },
@@ -141,13 +142,15 @@ describe('PATCH /orders/vendor/:id/status', () => {
         expect(estado.updates).toEqual([]);
     });
 
-    it("paid → 'processing' (legacy) escribe 'preparing' y valida dueño con p_user_id", async () => {
+    it("paid → 'processing' (legacy) va por order_transition('preparing') con el actor, sin UPDATE directo", async () => {
         const r = await patch('o-paid', { status: 'processing', tracking_number: 'G-1' });
         expect(r.status).toBe(200);
-        expect(estado.updates).toHaveLength(1);
-        expect(estado.updates[0].payload).toEqual({ status: 'preparing', tracking_number: 'G-1' });
-        expect(estado.updates[0].filters).toEqual({ id: 'o-paid', status: 'paid' });
+        expect(estado.updates).toEqual([]);
         expect(estado.rpcCalls).toContainEqual(['can_manage_store_as', { p_vendor_profile_id: 'vp1', p_user_id: 'u1' }]);
+        expect(estado.rpcCalls).toContainEqual(['order_transition', {
+            p_order_id: 'o-paid', p_to: 'preparing', p_note: null,
+            p_tracking: { tracking_number: 'G-1', carrier: undefined, pickup_code: undefined }, p_actor: 'u1',
+        }]);
     });
 
     it('sin permiso de tienda ni items propios → 404', async () => {

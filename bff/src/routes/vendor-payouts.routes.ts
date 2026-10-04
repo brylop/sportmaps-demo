@@ -213,22 +213,16 @@ vendorRouter.post('/payouts/request', async (req: AuthenticatedRequest, res: Res
 // ADMIN — POST /api/v1/admin/payouts/generate
 // Auto-crea payouts para vendors con available_balance >= min.
 // ─────────────────────────────────────────────────────────────────────────────
-adminRouter.post('/payouts/generate', async (req: AuthenticatedRequest, res: Response) => {
-    try {
-        const { data: actorProfile } = await supabase
-            .from('profiles').select('role').eq('id', req.user.id).single();
-        if (actorProfile?.role !== 'admin' && actorProfile?.role !== 'super_admin') {
-            return res.status(403).json({ ok: false, error: 'forbidden' });
-        }
-
-        const { data, error } = await supabase.rpc('admin_generate_pending_payouts');
-        if (error) {
-            return res.status(500).json({ ok: false, error: error.message });
-        }
-        return res.json({ ok: true, data });
-    } catch (err: any) {
-        return res.status(500).json({ ok: false, error: err.message || 'Error interno.' });
-    }
+// Tienda v2 F0 (M-F0-5, T7/T21): un solo motor de liquidación. Este endpoint
+// llamaba admin_generate_pending_payouts (tercer motor; con service role ya
+// fallaba con 42501). Con D-5 = A el vendedor cobra con sus llaves y no hay
+// payout que generar: la comisión queda adeudada (vendor_balances.commission_due).
+adminRouter.post('/payouts/generate', (_req: AuthenticatedRequest, res: Response) => {
+    return res.status(410).json({
+        ok: false,
+        error: 'PAYOUTS_GENERATE_GONE',
+        message: 'Los vendedores cobran con sus propias llaves (D-5 = A); no hay payouts que generar.',
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

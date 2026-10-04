@@ -73,8 +73,7 @@ router.get('/:id', async (req: Request, res: Response) => {
                 *,
                 order_items (
                     id, product_id, variant_id, vendor_id, quantity, unit_price, tax_amount,
-                    products (id, name, image_url, category, vendor_id),
-                    product_variants (id, name, attributes, image_url)
+                    products (id, name, image_url, category, vendor_id)
                 )
             `)
             .eq('id', id)
@@ -83,6 +82,20 @@ router.get('/:id', async (req: Request, res: Response) => {
 
         if (error || !data) {
             return res.status(404).json({ ok: false, error: 'Orden no encontrada.' });
+        }
+
+        // order_items.variant_id no tiene FK a product_variants en la base
+        // (PGRST200): el embed rompía TODO detalle con 404. La variante se
+        // trae aparte.
+        const items = ((data as any).order_items ?? []) as Array<{ variant_id: string | null }>;
+        const variantIds = [...new Set(items.map((i) => i.variant_id).filter(Boolean))] as string[];
+        if (variantIds.length) {
+            const { data: variants } = await supabase
+                .from('product_variants')
+                .select('id, name, attributes, image_url')
+                .in('id', variantIds);
+            const byId = new Map((variants ?? []).map((v: any) => [v.id, v]));
+            for (const it of items as any[]) it.product_variants = it.variant_id ? byId.get(it.variant_id) ?? null : null;
         }
 
         return res.json({ ok: true, data });
@@ -195,6 +208,33 @@ router.patch('/vendor/:id/status', async (req: Request, res: Response) => {
                 from: check.from,
                 to: check.to,
             });
+        }
+
+        // Órdenes del motor nuevo (con tienda): la transición la hace la base
+        // con la matriz por actor, el código de retiro y el historial
+        // (order_transition, M-F0-4). El UPDATE directo queda solo para las
+        // órdenes legacy sin vendor_profile_id.
+        if ((order as any).vendor_profile_id) {
+            const pickupCode = typeof req.body?.pickup_code === 'string' ? req.body.pickup_code : undefined;
+            const tracking = (tracking_number || shipping_carrier || pickupCode)
+                ? { tracking_number, carrier: shipping_carrier, pickup_code: pickupCode }
+                : null;
+            const { data, error } = await supabase.rpc('order_transition', {
+                p_order_id: id,
+                p_to: check.to,
+                p_note: vendor_notes ?? null,
+                p_tracking: tracking,
+                p_actor: req.user.id,
+            });
+            if (error) {
+                const mapped = mapStoreRpcError(error);
+                return res.status(mapped.status).json({ ok: false, error: mapped.code, message: mapped.message });
+            }
+            await auditLog(req, 'order_status_update', 'orders', id, null, {
+                from_status: (order as any).status,
+                new_status: check.to,
+            });
+            return res.json({ ok: true, data });
         }
 
         const updates: Record<string, unknown> = {};

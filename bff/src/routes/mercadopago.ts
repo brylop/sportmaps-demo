@@ -22,7 +22,14 @@
 
 import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
-import { cartWebhookFailureStatus, isAwaitingPayment } from '../services/store-order-status';
+import {
+    findStoreOrderByReference,
+    findStoreOrderById,
+    sellerGatewayForOrder,
+    amountMatchesOrder,
+    SellerGatewayError,
+} from '../services/store-checkout';
+import type { ResolvedProvider } from '../services/payment-provider.resolver';
 import { requireAuth, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { todayInZone } from '../utils/businessDate';
 import {
@@ -71,6 +78,7 @@ async function manejarWebhookMp(
     req: Request,
     res: Response,
     schoolIdDeLaRuta: string | null,
+    orderIdDeLaRuta: string | null = null,
 ) {
     try {
         const body = req.body ?? {};
@@ -107,7 +115,23 @@ async function manejarWebhookMp(
         // sea el mismo de antes). Sin escuela en la ruta, camino legacy.
         let tokenDeLectura: string | undefined;
 
-        if (schoolIdDeLaRuta) {
+        // Tienda (tienda v2 F0, D-5 = A): la URL trae la orden → se lee el pago
+        // con el token DEL VENDEDOR de esa orden. Nunca con el de ENV.
+        let sellerCfg: ResolvedProvider | null = null;
+        let storeOrder: Awaited<ReturnType<typeof findStoreOrderById>> = null;
+        if (orderIdDeLaRuta) {
+            storeOrder = await findStoreOrderById(orderIdDeLaRuta);
+            if (!storeOrder) {
+                return res.status(200).json({ status: 'ignored', reason: 'order_not_found' });
+            }
+            try {
+                sellerCfg = await sellerGatewayForOrder(storeOrder);
+            } catch {
+                req.log?.warn({ orderId: orderIdDeLaRuta }, 'MP webhook: store order without resolvable seller gateway');
+                return res.status(503).json({ error: 'seller_gateway_unavailable' });
+            }
+            tokenDeLectura = sellerCfg.accessToken;
+        } else if (schoolIdDeLaRuta) {
             const cfg = await loadProviderConfig({
                 provider: 'mercadopago',
                 schoolId: schoolIdDeLaRuta,
@@ -131,6 +155,10 @@ async function manejarWebhookMp(
             }
         }
 
+        if (!tokenDeLectura) {
+            return res.status(503).json({ error: 'seller_gateway_unavailable' });
+        }
+
         const payment = await fetchMpPayment(String(dataId), tokenDeLectura);
         if (!payment) {
             req.log?.warn({ dataId }, 'Cannot fetch MP payment');
@@ -144,12 +172,29 @@ async function manejarWebhookMp(
         }
 
         // Resolver merchant especifico desde external_reference para validar firma.
-        const merchantCtx = await locateMerchantContext(externalRef);
-        const merchantConfig = await loadProviderConfig({
-            provider: 'mercadopago',
-            schoolId: merchantCtx.schoolId,
-            vendorId: merchantCtx.vendorId,
-        });
+        // Tienda (CART-*): el comercio es el vendedor de la orden (seller_gateway_id),
+        // nunca ENV, aunque el evento haya llegado por la URL legacy.
+        let merchantCtx: { schoolId: string | null; vendorId: string | null } = { schoolId: null, vendorId: null };
+        let merchantConfig: ResolvedProvider | null = null;
+        if (externalRef.startsWith('CART-')) {
+            const order = storeOrder ?? await findStoreOrderByReference(externalRef);
+            if (!order || (storeOrder && order.reference !== externalRef)) {
+                req.log?.warn({ externalRef, orderIdDeLaRuta }, 'MP webhook: external_reference no corresponde a la orden');
+                return res.status(400).json({ error: 'reference_mismatch' });
+            }
+            try {
+                merchantConfig = sellerCfg ?? await sellerGatewayForOrder(order);
+            } catch {
+                return res.status(503).json({ error: 'seller_gateway_unavailable' });
+            }
+        } else {
+            merchantCtx = await locateMerchantContext(externalRef);
+            merchantConfig = await loadProviderConfig({
+                provider: 'mercadopago',
+                schoolId: merchantCtx.schoolId,
+                vendorId: merchantCtx.vendorId,
+            });
+        }
 
         // Cada merchant debe tener su propio webhookSecret: un secret compartido
         // entre escuelas permitiria que una merchant maliciosa forje webhooks de
@@ -251,6 +296,18 @@ webhookRouter.post('/webhook/:schoolId', (req: Request, res: Response) => {
     return manejarWebhookMp(req, res, schoolId ?? null);
 });
 
+// Por orden de tienda (tienda v2 F0). Es la notification_url de los cobros de
+// tienda: el pago está scopeado al comercio DEL VENDEDOR y solo se puede leer
+// con su token. Declarada antes que '/webhook/:schoolId' no hace falta: tiene
+// un segmento más.
+webhookRouter.post('/webhook/order/:orderId', (req: Request, res: Response) => {
+    const { orderId } = req.params as { orderId?: string };
+    if (!orderId || !/^[0-9a-f-]{36}$/i.test(orderId)) {
+        return res.status(400).json({ error: 'invalid_order_id' });
+    }
+    return manejarWebhookMp(req, res, null, orderId);
+});
+
 // ─── Locate merchant from external_reference ──────────────────────────────
 
 async function locateMerchantContext(externalRef: string): Promise<{
@@ -266,15 +323,6 @@ async function locateMerchantContext(externalRef: string): Promise<{
             .eq('provider_reference', externalRef)
             .maybeSingle();
         return { schoolId: data?.school_id ?? null, vendorId: null };
-    }
-
-    if (prefix === 'CART') {
-        const { data } = await supabase
-            .from('orders')
-            .select('vendor_id')
-            .eq('provider_reference', externalRef)
-            .maybeSingle();
-        return { schoolId: null, vendorId: data?.vendor_id ?? null };
     }
 
     if (['SVC', 'EVT', 'SUB', 'MKT'].includes(prefix)) {
@@ -571,104 +619,55 @@ async function handleMarketplaceTransaction(args: HandlerArgs): Promise<HandlerR
 }
 
 async function handleCartOrder(args: HandlerArgs): Promise<HandlerResult> {
-    const { req, paymentId, externalRef, internalStatus, amount, paymentTypeId } = args;
+    const { req, paymentId, externalRef, internalStatus, amount, paymentTypeId, payment } = args;
 
-    const { data: order, error: orderErr } = await supabase
-        .from('orders')
-        .select('id, total_amount, status, provider_transaction_id')
-        .eq('provider_reference', externalRef)
-        .maybeSingle();
-
-    if (orderErr || !order) {
+    const order = await findStoreOrderByReference(externalRef);
+    if (!order) {
         return { status: 200, body: { status: 'ignored', reason: 'order_not_found' } };
     }
 
-    // 'pending' legacy y 'pending_payment' = todavía sin procesar
-    if (order.provider_transaction_id === paymentId && !isAwaitingPayment(order.status)) {
-        return { status: 200, body: { status: 'already_processed' } };
-    }
-
     if (internalStatus === 'paid') {
-        if (Math.abs(amount - Number(order.total_amount)) > 1) {
+        if (!amountMatchesOrder(order.total_amount, { cop: amount })) {
+            req.log?.error({ expected: order.total_amount, received: amount, externalRef }, 'MP cart order: amount mismatch');
+            await supabase.rpc('flag_payment_for_review', {
+                p_kind: 'order', p_id: order.id, p_reason: `mp_amount_mismatch (payment_id=${paymentId})`,
+            });
             return { status: 400, body: { error: 'amount_mismatch' } };
         }
 
-        const { data: stockResult, error: stockErr } = await supabase.rpc('confirm_order_payment', {
+        // Un solo camino (M-F0-4): reservas, stock, kardex, settlements y eventos.
+        const { data: result, error } = await supabase.rpc('confirm_order_payment', {
             p_order_id: order.id,
             p_wompi_reference: externalRef,
             p_wompi_transaction_id: paymentId,
             p_payment_method_type: paymentTypeId,
             p_provider: 'mercadopago',
         });
-
-        if (stockErr) {
-            req.log?.error({ err: stockErr, orderId: order.id }, 'MP confirm_order_payment failed');
-            await supabase
-                .from('orders')
-                .update({
-                    status: 'payment_review',
-                    payment_provider: 'mercadopago',
-                    provider_transaction_id: paymentId,
-                    updated_at: new Date().toISOString(),
-                })
-                .eq('id', order.id);
-            return { status: 200, body: { status: 'review', error: stockErr.message } };
+        if (error) {
+            req.log?.error({ err: error, orderId: order.id }, 'MP confirm_order_payment failed');
+            await supabase.rpc('flag_payment_for_review', {
+                p_kind: 'order', p_id: order.id, p_reason: `mp_confirm_failed (payment_id=${paymentId})`,
+            });
+            return { status: 200, body: { status: 'review', error: error.message } };
         }
-
-        const { error: splitErr } = await supabase.rpc('split_order_payment', {
-            p_order_id: order.id,
-            p_provider: 'mercadopago',
-        });
-        if (splitErr) {
-            req.log?.warn({ err: splitErr, orderId: order.id }, 'split_order_payment failed (non-blocking)');
+        if ((result as any)?.review) {
+            return { status: 200, body: { status: 'review', kind: 'cart', result } };
         }
-
-        // Settlements R5 — crea settlements y acredita pending_balance (idempotente)
-        const { data: settleResult, error: settleErr } = await supabase.rpc(
-            'compute_settlements_for_order',
-            { p_order_id: order.id },
-        );
-        if (settleErr) {
-            req.log?.warn({ err: settleErr, orderId: order.id }, 'compute_settlements_for_order failed (non-blocking)');
-        } else {
-            req.log?.info({ orderId: order.id, settleResult }, 'Settlements computed');
-        }
-
-        return { status: 200, body: { status: 'ok', kind: 'cart', result: stockResult } };
+        return { status: 200, body: { status: 'ok', kind: 'cart', result } };
     }
 
-    // No aprobado. Estado por mapeo explícito (CHECK de orders.status, M-F0-3):
-    // rechazo/fallo → 'cancelled' (solo si seguía sin pagar), anulación →
-    // 'refunded', pending → no se toca el estado.
-    const nextStatus = cartWebhookFailureStatus(order.status, internalStatus);
-    const failUpdate: Record<string, unknown> = {
-        payment_provider: 'mercadopago',
-        provider_transaction_id: paymentId,
-        updated_at: new Date().toISOString(),
-    };
-    if (nextStatus) failUpdate.status = nextStatus;
-    const { error: failErr } = await supabase
-        .from('orders')
-        .update(failUpdate)
-        .eq('id', order.id);
-    if (failErr) {
-        req.log?.error({ err: failErr, orderId: order.id, nextStatus }, 'MP cart order: failure update failed');
-    }
-
-    if (internalStatus === 'pending') {
-        return { status: 200, body: { status: 'ok', kind: 'cart', internalStatus } };
-    }
-
-    await supabase.rpc('flag_payment_for_review', {
-        p_kind: 'order',
-        p_id: order.id,
-        p_reason: `mp_${internalStatus} (payment_id=${paymentId})`,
+    const { data: failRes, error: failErr } = await supabase.rpc('store_order_payment_failed', {
+        p_order_id: order.id,
+        p_provider: 'mercadopago',
+        p_tx_id: paymentId,
+        p_status: internalStatus,
+        p_reason: buildFailureReason('mp', internalStatus, paymentTypeId, payment, paymentId),
     });
-
-    return {
-        status: 200,
-        body: { status: 'ok', kind: 'cart', internalStatus, flagged_for_review: true },
-    };
+    if (failErr) {
+        req.log?.error({ err: failErr, orderId: order.id }, 'MP store_order_payment_failed failed');
+        return { status: 500, body: { error: 'cart_failure_update_failed' } };
+    }
+    return { status: 200, body: { status: 'ok', kind: 'cart', internalStatus, result: failRes } };
 }
 
 async function handleSessionBooking(args: HandlerArgs): Promise<HandlerResult> {
@@ -823,23 +822,49 @@ paymentsRouter.post('/create', requireAuth, async (req: AuthenticatedRequest, re
             return res.status(400).json({ error: 'missing_fields', missing });
         }
 
-        const config = await loadProviderConfig({
-            provider: 'mercadopago',
-            schoolId: schoolId ?? null,
-            vendorId: vendorId ?? null,
-        });
+        const baseUrl = process.env.PUBLIC_API_URL ?? `${req.protocol}://${req.get('host')}`;
+
+        // Tienda (tienda v2 F0, D-5 = A): la orden decide el comercio (el
+        // vendedor) y el monto (orders.total_amount). Se ignoran schoolId,
+        // vendorId y transactionAmount del body.
+        let config: ResolvedProvider | null;
+        let notificationUrl: string;
+        let amountToCharge = Number(transactionAmount);
+        if (String(externalReference).startsWith('CART-')) {
+            const order = await findStoreOrderByReference(String(externalReference));
+            if (!order || order.user_id !== req.user.id) {
+                return res.status(404).json({ error: 'order_not_found' });
+            }
+            if (order.status !== 'pending_payment' || order.payment_method !== 'mercadopago') {
+                return res.status(409).json({ error: 'order_not_payable', status: order.status });
+            }
+            try {
+                config = await sellerGatewayForOrder(order);
+            } catch (e) {
+                if (e instanceof SellerGatewayError) {
+                    return res.status(409).json({ error: 'SELLER_GATEWAY_NOT_CONFIGURED' });
+                }
+                throw e;
+            }
+            amountToCharge = Number(order.total_amount);
+            notificationUrl = `${baseUrl}/api/v1/webhooks/mercadopago/webhook/order/${order.id}`;
+        } else {
+            config = await loadProviderConfig({
+                provider: 'mercadopago',
+                schoolId: schoolId ?? null,
+                vendorId: vendorId ?? null,
+            });
+            // Con escuela conocida se manda la URL por escuela, para que el webhook
+            // sepa a qué comercio preguntarle sin usar la llave global. Sin escuela
+            // (vendor/marketplace) queda la legacy.
+            notificationUrl = schoolId
+                ? `${baseUrl}/api/v1/webhooks/mercadopago/webhook/${schoolId}`
+                : `${baseUrl}/api/v1/webhooks/mercadopago/webhook`;
+        }
 
         if (!config) {
             return res.status(500).json({ error: 'mp_provider_not_configured' });
         }
-
-        const baseUrl = process.env.PUBLIC_API_URL ?? `${req.protocol}://${req.get('host')}`;
-        // Con escuela conocida se manda la URL por escuela, para que el webhook
-        // sepa a qué comercio preguntarle sin usar la llave global. Sin escuela
-        // (vendor/marketplace) queda la legacy.
-        const notificationUrl = schoolId
-            ? `${baseUrl}/api/v1/webhooks/mercadopago/webhook/${schoolId}`
-            : `${baseUrl}/api/v1/webhooks/mercadopago/webhook`;
 
         const result = await createMpPayment({
             accessToken: config.accessToken!,
@@ -852,7 +877,7 @@ paymentsRouter.post('/create', requireAuth, async (req: AuthenticatedRequest, re
             payerIdentification: payerIdentification?.type && payerIdentification?.number
                 ? { type: String(payerIdentification.type), number: String(payerIdentification.number) }
                 : undefined,
-            transactionAmount: Number(transactionAmount),
+            transactionAmount: amountToCharge,
             description: description || `SportMaps ${externalReference}`,
             externalReference,
             notificationUrl,

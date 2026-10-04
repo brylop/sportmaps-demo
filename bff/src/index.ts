@@ -71,6 +71,7 @@ import vendorRouter from './routes/vendor.routes';
 import vendorProductsRouter from './routes/vendor-products.routes';
 import vendorServicesRouter from './routes/vendor-services.routes';
 import marketplaceOrdersRouter from './routes/marketplace-orders.routes';
+import storeOrdersRouter from './routes/store-orders.routes';
 import ogPreviewRouter from './routes/og-preview.routes';
 import certificatesRouter from './routes/certificates';
 import athleteReportsPdfRouter from './routes/athlete-reports-pdf';
@@ -410,6 +411,8 @@ app.use('/api/v1/vendor', generalLimiter, vendorRouter);
 app.use('/api/v1/vendor/products', generalLimiter, requireStoreEnabled, vendorProductsRouter);
 app.use('/api/v1/vendor/services', generalLimiter, vendorServicesRouter);
 app.use('/api/v1/marketplace/orders', paymentLimiter, requireStoreEnabled, marketplaceOrdersRouter);
+// Tienda v2 F0: comprobante, aprobación, efectivo, transiciones y medios del vendedor (RPC con actor).
+app.use('/api/v1/store', paymentLimiter, storeOrdersRouter);
 app.use('/api/v1/certificates', generalLimiter, certificatesRouter);
 app.use('/api/v1/athlete-reports', generalLimiter, athleteReportsPdfRouter);
 app.use('/api/v1/join-qr', generalLimiter, joinQrRouter);
