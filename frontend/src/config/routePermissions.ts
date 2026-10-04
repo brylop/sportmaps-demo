@@ -13,7 +13,7 @@ import { Permission } from '@/lib/permissions';
 type UserRole =
     | 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin'
     | 'super_admin' | 'wellness_professional' | 'store_owner'
-    | 'admin' | 'organizer' | 'reporter' | 'personal_trainer';
+    | 'admin' | 'organizer' | 'reporter' | 'personal_trainer' | 'accountant';
 
 export interface RoutePermission {
     /** Roles que pueden acceder. Si vacío, cualquier autenticado puede acceder. */
@@ -114,11 +114,11 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     '/attendance-history': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Histórico de asistencias' },
     '/results-overview': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Resumen de resultados' },
     '/finances': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Finanzas' },
-    '/accounting': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Contabilidad' },
-    '/accounting/suppliers': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Proveedores y cuentas por pagar' },
-    '/accounting/payroll': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Nómina' },
-    '/accounting/reports': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Estado de resultados' },
-    '/accounting/budget': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Presupuesto' },
+    '/accounting': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin', 'accountant'], requiredPermission: 'finances:view', description: 'Contabilidad' },
+    '/accounting/suppliers': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin', 'accountant'], requiredPermission: 'finances:view', description: 'Proveedores y cuentas por pagar' },
+    '/accounting/payroll': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin', 'accountant'], requiredPermission: 'finances:view', description: 'Nómina' },
+    '/accounting/reports': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin', 'accountant'], requiredPermission: 'finances:view', description: 'Estado de resultados' },
+    '/accounting/budget': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin', 'accountant'], requiredPermission: 'finances:view', description: 'Presupuesto' },
     '/facturacion-electronica': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Facturación electrónica' },
     '/payments-automation': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:manage', description: 'Automatización de pagos' },
     '/payment-reminders': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:manage', description: 'Recordatorios de pago' },

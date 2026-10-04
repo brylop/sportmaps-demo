@@ -1,89 +1,28 @@
 import { Router, Request, Response } from 'express';
 import { requireMarketplaceAuth, auditLog } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
+import { canManageStoreAs } from '../services/store-access';
+import { checkVendorTransition, normalizeOrderStatus, STORE_ORDER_STATUSES } from '../services/store-order-status';
+import { mapStoreRpcError } from '../services/store-rpc-errors';
 
 const router = Router();
 
 router.use(requireMarketplaceAuth);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/v1/marketplace/orders — Crear orden desde carrito
+// POST /api/v1/marketplace/orders — APAGADO (tienda v2 F0, M-F0-3 / T4)
+//
+// Creaba la orden con precios y vendor_id tomados del body, con service role
+// (la base no lo frenaba) y sin transacción. Las órdenes nacen solo en el
+// checkout del carrito (POST /api/v1/marketplace/checkout/cart).
+// No toca la base.
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/', async (req: Request, res: Response) => {
-    try {
-        const {
-            items, shipping_address, contact_phone, contact_email,
-            payment_method, fulfillment_type
-        } = req.body;
-
-        if (!items || items.length === 0) {
-            return res.status(400).json({ ok: false, error: 'Items requeridos.' });
-        }
-
-        // Calcular total
-        let totalAmount = 0;
-        let taxTotal = 0;
-
-        for (const item of items) {
-            const subtotal = item.unit_price * item.quantity;
-            const tax = subtotal * (item.tax_rate || 0);
-            totalAmount += subtotal + tax;
-            taxTotal += tax;
-        }
-
-        // Crear orden
-        const { data: order, error: orderError } = await supabase
-            .from('orders')
-            .insert({
-                user_id: req.user.id,
-                total_amount: totalAmount,
-                tax_total: taxTotal,
-                status: 'pending',
-                shipping_address: shipping_address || null,
-                contact_phone: contact_phone || null,
-                contact_email: contact_email || req.user.email,
-                payment_method: payment_method || null,
-                fulfillment_type: fulfillment_type || 'physical',
-            })
-            .select()
-            .single();
-
-        if (orderError) {
-            req.log?.error({ err: orderError }, 'Error creando orden');
-            return res.status(500).json({ ok: false, error: 'Error creando orden.' });
-        }
-
-        // Crear order_items
-        const orderItems = items.map((item: any) => ({
-            order_id: order.id,
-            product_id: item.product_id,
-            variant_id: item.variant_id || null,
-            vendor_id: item.vendor_id,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            tax_amount: (item.unit_price * item.quantity) * (item.tax_rate || 0),
-        }));
-
-        const { error: itemsError } = await supabase
-            .from('order_items')
-            .insert(orderItems);
-
-        if (itemsError) {
-            req.log?.error({ err: itemsError }, 'Error creando order_items');
-            // Rollback: eliminar la orden
-            await supabase.from('orders').delete().eq('id', order.id);
-            return res.status(500).json({ ok: false, error: 'Error procesando items de la orden.' });
-        }
-
-        await auditLog(req, 'order_create', 'orders', order.id, null, {
-            items_count: items.length,
-            total: totalAmount,
-        });
-
-        return res.status(201).json({ ok: true, data: { ...order, items: orderItems } });
-    } catch (err) {
-        return res.status(500).json({ ok: false, error: 'Error interno.' });
-    }
+router.post('/', (_req: Request, res: Response) => {
+    return res.status(410).json({
+        ok: false,
+        error: 'ORDER_ENDPOINT_GONE',
+        message: 'Usa el checkout del carrito',
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -187,45 +126,111 @@ router.get('/vendor/mine', async (req: Request, res: Response) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/v1/marketplace/orders/vendor/:id/status — Actualizar estado (vendedor)
+//
+// El estado ya no es libre: se normaliza (valores legacy) y tiene que ser una
+// transición permitida al vendedor desde el estado actual
+// (services/store-order-status.ts). Cancelar un pedido pagado NO va por acá:
+// es un reembolso.
+// Dueño: can_manage_store_as sobre orders.vendor_profile_id, o el legacy
+// (order_items.vendor_id = usuario).
 // ─────────────────────────────────────────────────────────────────────────────
 router.patch('/vendor/:id/status', async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
-        const { status, tracking_number, shipping_carrier, vendor_notes } = req.body;
+        const id = req.params.id as string;
+        const { status, tracking_number, shipping_carrier, vendor_notes } = req.body ?? {};
 
         if (!status) {
             return res.status(400).json({ ok: false, error: 'status es requerido.' });
         }
+        const requested = normalizeOrderStatus(status);
+        if (!requested) {
+            return res.status(400).json({
+                ok: false,
+                error: 'INVALID_STATUS',
+                message: `Estado inválido. Valores: ${STORE_ORDER_STATUSES.join(', ')}.`,
+            });
+        }
 
-        // Verificar que la orden contiene items del vendor
-        const { data: vendorItems } = await supabase
-            .from('order_items')
-            .select('id')
-            .eq('vendor_id', req.user.id)
-            .eq('order_id', id)
-            .limit(1);
+        let { data: order, error: orderErr } = await supabase
+            .from('orders')
+            .select('id, status, vendor_profile_id')
+            .eq('id', id)
+            .maybeSingle();
+        if (orderErr) {
+            // orders.vendor_profile_id llega con M-F0-3; sin la columna, solo la regla legacy.
+            ({ data: order } = await supabase
+                .from('orders')
+                .select('id, status')
+                .eq('id', id)
+                .maybeSingle() as any);
+        }
 
-        if (!vendorItems || vendorItems.length === 0) {
+        if (!order) {
             return res.status(404).json({ ok: false, error: 'Orden no encontrada para este vendedor.' });
         }
 
-        const updates: any = { status };
+        let allowed = false;
+        if ((order as any).vendor_profile_id) {
+            allowed = await canManageStoreAs((order as any).vendor_profile_id, req.user.id);
+        }
+        if (!allowed) {
+            const { data: vendorItems } = await supabase
+                .from('order_items')
+                .select('id')
+                .eq('vendor_id', req.user.id)
+                .eq('order_id', id)
+                .limit(1);
+            allowed = !!vendorItems && vendorItems.length > 0;
+        }
+        if (!allowed) {
+            return res.status(404).json({ ok: false, error: 'Orden no encontrada para este vendedor.' });
+        }
+
+        const check = checkVendorTransition((order as any).status, requested);
+        if (!check.ok) {
+            return res.status(check.http).json({
+                ok: false,
+                error: check.error,
+                message: `No se puede pasar de ${check.from ?? (order as any).status} a ${requested}.`,
+                from: check.from,
+                to: check.to,
+            });
+        }
+
+        const updates: Record<string, unknown> = {};
+        if (check.changed) updates.status = check.to;
         if (tracking_number) updates.tracking_number = tracking_number;
         if (shipping_carrier) updates.shipping_carrier = shipping_carrier;
         if (vendor_notes) updates.vendor_notes = vendor_notes;
 
+        if (Object.keys(updates).length === 0) {
+            return res.json({ ok: true, data: order, unchanged: true });
+        }
+
+        // Guard optimista: solo si el estado no cambió entre la lectura y la escritura.
         const { data, error } = await supabase
             .from('orders')
             .update(updates)
             .eq('id', id)
+            .eq('status', (order as any).status)
             .select()
-            .single();
+            .maybeSingle();
 
         if (error) {
+            const mapped = mapStoreRpcError(error);
+            if (mapped.status !== 500) {
+                return res.status(mapped.status).json({ ok: false, error: mapped.code, message: mapped.message });
+            }
             return res.status(500).json({ ok: false, error: 'Error actualizando orden.' });
         }
+        if (!data) {
+            return res.status(409).json({ ok: false, error: 'STATUS_CHANGED', message: 'La orden cambió de estado; recarga e intenta de nuevo.' });
+        }
 
-        await auditLog(req, 'order_status_update', 'orders', id as string, null, { new_status: status });
+        await auditLog(req, 'order_status_update', 'orders', id, null, {
+            from_status: (order as any).status,
+            new_status: check.to,
+        });
         return res.json({ ok: true, data });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });

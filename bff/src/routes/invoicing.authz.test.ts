@@ -578,3 +578,68 @@ describe('requireAuth — el escape hatch de plataforma sale de platform_admins'
         expect(status).toBe(401);
     });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Contabilidad v2 F0 (plan §4 F9): el contador ('accountant') LEE las facturas
+// de su escuela, pero no emite, no anula, no barre y no ve la configuración del
+// PAC. Dos listas: lectura (FINANCE_READ_MEMBER_ROLES) y escritura
+// (ADMIN_MEMBER_ROLES). Si alguien las vuelve a fusionar, el contador quema
+// numeración DIAN o pierde la lectura: cualquiera de los dos pone esto en rojo.
+describe('rol contador — lee facturas, no opera el facturador', () => {
+    const CONTADOR = 'u0000000-0000-4000-8000-000000000013';
+
+    beforeEach(() => {
+        estado.tablas.school_members.push({
+            school_id: ESCUELA, profile_id: CONTADOR, role: 'accountant', status: 'active', joined_at: '2026-10-04',
+        });
+    });
+
+    it('lista las facturas de su escuela', async () => {
+        const { status, body } = await como(CONTADOR, `/api/v1/invoicing/invoices/school/${ESCUELA}`);
+        expect(status).toBe(200);
+        expect(body.invoices.length).toBeGreaterThan(0);
+    });
+
+    it('ve la factura de un pago de su escuela', async () => {
+        const { status, body } = await como(CONTADOR, `/api/v1/invoicing/by-payment/${PAGO}`);
+        expect(status).toBe(200);
+        expect(body.invoice.payment_id).toBe(PAGO);
+    });
+
+    it('NO lista las facturas de otra escuela', async () => {
+        const { status } = await como(CONTADOR, `/api/v1/invoicing/invoices/school/${OTRA_ESCUELA}`);
+        expect(status).toBe(403);
+    });
+
+    it('NO ve la configuración del PAC', async () => {
+        const { status } = await como(CONTADOR, providersDeEstaEscuela);
+        expect(status).toBe(403);
+    });
+
+    it('NO emite', async () => {
+        const { status } = await como(CONTADOR, `/api/v1/invoicing/emit/${PAGO}`, { method: 'POST' });
+        expect(status).toBe(403);
+        expect(estado.llamadas.emit).toEqual([]);
+    });
+
+    it('NO barre la cartera', async () => {
+        const { status } = await como(CONTADOR, `/api/v1/invoicing/backfill/school/${ESCUELA}`,
+            { method: 'POST', body: JSON.stringify({ from: '2026-08-01', to: '2026-08-31' }) });
+        expect(status).toBe(403);
+        expect(estado.llamadas.backfill).toEqual([]);
+    });
+
+    it('NO anula (nota crédito)', async () => {
+        const { status } = await como(CONTADOR, `/api/v1/invoicing/credit-note/${FACTURA_ANULABLE}`,
+            { method: 'POST', body: JSON.stringify({ correctionConceptCode: '2', reason: 'prueba' }) });
+        expect(status).toBe(403);
+        expect(estado.llamadas.void).toEqual([]);
+    });
+
+    it('una membresía de contador INACTIVA no lee nada', async () => {
+        estado.tablas.school_members = estado.tablas.school_members.map((m: any) =>
+            m.profile_id === CONTADOR ? { ...m, status: 'inactive' } : m);
+        const { status } = await como(CONTADOR, `/api/v1/invoicing/invoices/school/${ESCUELA}`);
+        expect(status).toBe(403);
+    });
+});

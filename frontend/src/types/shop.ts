@@ -1,3 +1,5 @@
+import type { OrderStatus } from '@/lib/store/orderStatus';
+
 export interface Product {
   id: string;
   name: string;
@@ -21,7 +23,8 @@ export interface Order {
   id: string;
   user_id: string;
   total: number;
-  status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+  /** Estados vigentes (M-F0-3); `pending`/`processing` son legacy, ver lib/store/orderStatus. */
+  status: OrderStatus | 'pending' | 'processing';
   shipping_address: ShippingAddress;
   created_at: string;
   items: CartItem[];

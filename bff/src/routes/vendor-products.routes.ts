@@ -1,13 +1,125 @@
-import { Router, Request, Response } from 'express';
-import { requireMarketplaceAuth, requireVendorProfile, auditLog } from '../middlewares/authMiddleware';
+import { Router, Request, Response, NextFunction } from 'express';
+import { requireMarketplaceAuth, auditLog } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
+import {
+    canManageStoreAs,
+    resolveManagedVendorProfiles,
+    profileCanSellProducts,
+    type ManagedVendorProfile,
+} from '../services/store-access';
+import {
+    PRODUCT_EDITABLE_FIELDS,
+    VARIANT_EDITABLE_FIELDS,
+    parseStock,
+    pickEditable,
+    buildDuplicateRow,
+} from '../services/store-product-fields';
+import { mapStoreRpcError } from '../services/store-rpc-errors';
 
 const router = Router();
 
+const PRIVILEGED_ROLES = ['owner', 'super_admin', 'admin'];
+const INVENTORY_REASONS = ['manual_adjust', 'manual_restock'] as const;
+
 router.use(requireMarketplaceAuth);
-// Autoriza por capability de vendor_profile, no por role.
-// Coach/school/parent/athlete pueden vender si activaron Mi Tienda con can_sell_products.
-router.use(requireVendorProfile('can_sell_products'));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Gate de la tienda (tienda v2 F0, M-F0-1).
+//
+// Antes: requireVendorProfile('can_sell_products') → solo el DUEÑO del
+// vendor_profile. Ahora también entra el owner/admin (no coach) de la escuela
+// dueña de la tienda: la regla la decide can_manage_store_as en la base.
+// Las tiendas gestionables quedan en res.locals.managedVendorProfiles.
+// ─────────────────────────────────────────────────────────────────────────────
+router.use(async (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user?.id) {
+        return res.status(401).json({ error: 'No autenticado.' });
+    }
+    try {
+        const managed = await resolveManagedVendorProfiles(req.user.id);
+        res.locals.managedVendorProfiles = managed;
+
+        if (PRIVILEGED_ROLES.includes(req.role as string)) return next();
+
+        const { data, error } = await supabase.rpc('has_vendor_capability', {
+            p_user_id: req.user.id,
+            p_capability: 'can_sell_products',
+        });
+        if (error) {
+            req.log?.error({ err: error }, 'Error verificando capability de vendor');
+            return res.status(500).json({ error: 'Error interno verificando permisos de vendedor.' });
+        }
+        if (data === true) return next();
+
+        // Admin de la escuela que no es el dueño del perfil.
+        if (managed.some((vp) => vp.user_id !== req.user.id && profileCanSellProducts(vp))) {
+            return next();
+        }
+
+        return res.status(403).json({
+            error: 'Tu cuenta no tiene activada esta capacidad de venta.',
+            capability: 'can_sell_products',
+            hint: 'Activa Mi Tienda desde tu dashboard para empezar a vender.',
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
+function managedOf(res: Response): ManagedVendorProfile[] {
+    return (res.locals.managedVendorProfiles as ManagedVendorProfile[] | undefined) ?? [];
+}
+
+/**
+ * Carga el producto solo si el usuario puede gestionar su tienda.
+ * null = no existe o no es suyo (el llamador responde 404, sin distinguir).
+ */
+async function loadManagedProduct(req: Request, id: string, columns = 'id, vendor_id, vendor_profile_id'): Promise<any | null> {
+    const { data, error } = await supabase
+        .from('products')
+        .select(columns)
+        .eq('id', id)
+        .maybeSingle();
+    if (error || !data) return null;
+    const product = data as any;
+    if (product.vendor_profile_id) {
+        const ok = await canManageStoreAs(product.vendor_profile_id, req.user.id, product.vendor_id);
+        return ok ? product : null;
+    }
+    // Producto legacy sin vendor_profile_id: solo su vendor_id.
+    return product.vendor_id === req.user.id ? product : null;
+}
+
+async function vendorProfileOwner(vendorProfileId: string): Promise<string | null> {
+    const { data } = await supabase
+        .from('vendor_profiles')
+        .select('user_id')
+        .eq('id', vendorProfileId)
+        .maybeSingle();
+    return (data as any)?.user_id ?? null;
+}
+
+function sendRpcError(res: Response, err: any) {
+    const mapped = mapStoreRpcError(err);
+    return res.status(mapped.status).json({ ok: false, error: mapped.message, code: mapped.code });
+}
+
+async function adjustInventory(
+    req: Request,
+    target: { variantId: string } | { productId: string },
+    newStock: number,
+    reasonCode: string,
+    note: string | null,
+) {
+    return supabase.rpc('inventory_adjust', {
+        p_variant_id: 'variantId' in target ? target.variantId : null,
+        p_product_id: 'productId' in target ? target.productId : null,
+        p_new_stock: newStock,
+        p_reason_code: reasonCode,
+        p_note: note,
+        p_actor: req.user.id,
+    });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/vendor/products — Mis productos con variantes
@@ -16,6 +128,7 @@ router.get('/', async (req: Request, res: Response) => {
     try {
         const { status, category, page = '1', limit = '50' } = req.query;
         const offset = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
+        const managedIds = managedOf(res).map((vp) => vp.id);
 
         let query = supabase
             .from('products')
@@ -23,9 +136,12 @@ router.get('/', async (req: Request, res: Response) => {
                 *,
                 product_variants (id, sku, name, attributes, price_override, stock, image_url, is_active, sort_order)
             `, { count: 'exact' })
-            .eq('vendor_id', req.user.id)
             .order('created_at', { ascending: false })
             .range(offset, offset + parseInt(limit as string, 10) - 1);
+
+        query = managedIds.length > 0
+            ? query.or(`vendor_id.eq.${req.user.id},vendor_profile_id.in.(${managedIds.join(',')})`)
+            : query.eq('vendor_id', req.user.id);
 
         if (status) query = query.eq('status', status as string);
         if (category) query = query.eq('category', category as string);
@@ -47,35 +163,69 @@ router.get('/', async (req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/', async (req: Request, res: Response) => {
     try {
-        // Resolver vendor_profile del caller server-side. Asi un vendor no
-        // puede pasar vendor_profile_id arbitrario en el body y asociar
-        // productos al perfil de otro vendor.
-        const { data: vendor } = await supabase
-            .from('vendor_profiles')
-            .select('id')
-            .eq('user_id', req.user.id)
-            .maybeSingle();
-
         const {
-            name, description, price, stock, category, category_id, brand_id, image_url,
+            name, description, price, category, category_id, brand_id, image_url,
             visibility, sku, attributes, weight_grams, is_digital,
             min_stock_alert, tax_rate, status,
         } = req.body;
-        // school_id y vendor_profile_id NO se aceptan del body — se ignoran.
+        // vendor_id y school_id NO se aceptan del body: vendor_id sale del
+        // vendor_profile y school_id lo fija el trigger desde el perfil.
 
         if (!name || price === undefined) {
             return res.status(400).json({ ok: false, error: 'name y price son requeridos.' });
         }
 
+        const stock = parseStock(req.body);
+        if (stock.present && !stock.valid) {
+            return res.status(400).json({ ok: false, error: 'stock debe ser un entero mayor o igual a 0.' });
+        }
+
+        // Tienda destino: la del body solo si el usuario la puede gestionar;
+        // si no viene, la propia (o la única que gestiona).
+        const managed = managedOf(res);
+        const requestedVp = typeof req.body?.vendor_profile_id === 'string' && req.body.vendor_profile_id
+            ? req.body.vendor_profile_id as string
+            : null;
+
+        let vendorProfileId: string | null = null;
+        let vendorOwnerId: string | null = null;
+        if (requestedVp) {
+            const known = managed.find((vp) => vp.id === requestedVp);
+            if (known) {
+                vendorProfileId = known.id;
+                vendorOwnerId = known.user_id;
+            } else {
+                const owner = await vendorProfileOwner(requestedVp);
+                if (await canManageStoreAs(requestedVp, req.user.id, owner)) {
+                    vendorProfileId = requestedVp;
+                    vendorOwnerId = owner;
+                }
+            }
+            if (!vendorProfileId) {
+                return res.status(403).json({ ok: false, error: 'No puedes gestionar esta tienda.', code: 'NOT_OWNER' });
+            }
+        } else {
+            const own = managed.find((vp) => vp.user_id === req.user.id) ?? (managed.length === 1 ? managed[0] : undefined);
+            if (!own) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'Indica vendor_profile_id: no hay una tienda única asociada a tu cuenta.',
+                    code: 'VENDOR_PROFILE_REQUIRED',
+                });
+            }
+            vendorProfileId = own.id;
+            vendorOwnerId = own.user_id;
+        }
+
         const { data, error } = await supabase
             .from('products')
             .insert({
-                vendor_id: req.user.id,
-                vendor_profile_id: vendor?.id ?? null,
+                vendor_id: vendorOwnerId,
+                vendor_profile_id: vendorProfileId,
                 name,
                 description: description || null,
                 price,
-                stock: stock || 0,
+                stock: stock.present && stock.valid ? stock.value : 0,
                 category: category || null,            // legacy text
                 category_id: category_id || null,      // FK nuevo
                 brand_id: brand_id || null,
@@ -90,8 +240,6 @@ router.post('/', async (req: Request, res: Response) => {
                 is_digital: is_digital || false,
                 min_stock_alert: min_stock_alert || 5,
                 tax_rate: tax_rate || 0,
-                // school_id deliberadamente no se envia desde el cliente;
-                // el producto queda sin escuela hasta que admin lo asocie.
             })
             .select()
             .single();
@@ -114,31 +262,45 @@ router.post('/', async (req: Request, res: Response) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/v1/vendor/products/:id — Actualizar producto
+//
+// Lista blanca de campos (store-product-fields). `stock` no se escribe directo:
+// si viene y cambia, va por inventory_adjust (rastro en inventory_logs).
+// En un producto con variantes el stock es de cada variante: se ignora acá.
 // ─────────────────────────────────────────────────────────────────────────────
 router.patch('/:id', async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
-        const updates = req.body;
+        const id = req.params.id as string;
 
-        // Blacklist de campos que jamas se permiten desde el body — incluye
-        // las claves que enlazan el producto con su dueno/escuela. Sin esto
-        // un vendor podria reasignar su producto a otro vendor_profile_id
-        // o moverlo a otra escuela.
-        delete updates.vendor_id;
-        delete updates.vendor_profile_id;
-        delete updates.school_id;
-        delete updates.id;
-        delete updates.created_at;
+        const stock = parseStock(req.body);
+        if (stock.present && !stock.valid) {
+            return res.status(400).json({ ok: false, error: 'stock debe ser un entero mayor o igual a 0.' });
+        }
 
-        const { data, error } = await supabase
-            .from('products')
-            .update(updates)
-            .eq('id', id)
-            .eq('vendor_id', req.user.id)
-            .select()
-            .single();
+        const product = await loadManagedProduct(req, id, 'id, vendor_id, vendor_profile_id, stock, product_variants(id)');
+        if (!product) {
+            return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
+        }
+
+        let inventory: unknown = null;
+        const hasVariants = Array.isArray(product.product_variants) && product.product_variants.length > 0;
+        if (stock.present && stock.valid && !hasVariants && stock.value !== Number(product.stock ?? 0)) {
+            const { data: adj, error: adjErr } = await adjustInventory(
+                req, { productId: id }, stock.value, 'manual_adjust', 'Edición del producto',
+            );
+            if (adjErr) return sendRpcError(res, adjErr);
+            inventory = adj;
+        }
+
+        const updates = pickEditable(req.body, PRODUCT_EDITABLE_FIELDS);
+
+        const { data, error } = Object.keys(updates).length > 0
+            ? await supabase.from('products').update(updates).eq('id', id).select().single()
+            : await supabase.from('products').select().eq('id', id).single();
 
         if (error) {
+            if (error.code === '23514') {
+                return res.status(422).json({ ok: false, error: error.message, code: 'quality_check_failed' });
+            }
             return res.status(500).json({ ok: false, error: 'Error actualizando producto.' });
         }
 
@@ -146,6 +308,67 @@ router.patch('/:id', async (req: Request, res: Response) => {
             return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
         }
 
+        return res.json({ ok: true, data, inventory });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: 'Error interno.' });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/v1/vendor/products/:id/inventory — Ajuste de stock
+// body: { variant_id?, new_stock, reason_code?: 'manual_adjust'|'manual_restock', note? }
+// Sin variant_id ajusta el producto (solo si no tiene variantes).
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/:id/inventory', async (req: Request, res: Response) => {
+    try {
+        const id = req.params.id as string;
+        const { variant_id, reason_code, note } = req.body ?? {};
+
+        const stock = parseStock({ stock: req.body?.new_stock });
+        if (!stock.present || !stock.valid) {
+            return res.status(400).json({ ok: false, error: 'new_stock debe ser un entero mayor o igual a 0.', code: 'INVALID_QTY' });
+        }
+        const reason = reason_code ?? 'manual_adjust';
+        if (!(INVENTORY_REASONS as readonly string[]).includes(reason)) {
+            return res.status(400).json({ ok: false, error: `reason_code debe ser uno de: ${INVENTORY_REASONS.join(', ')}.` });
+        }
+        if (note !== undefined && note !== null && (typeof note !== 'string' || note.length > 500)) {
+            return res.status(400).json({ ok: false, error: 'note debe ser texto de hasta 500 caracteres.' });
+        }
+        if (variant_id !== undefined && variant_id !== null && typeof variant_id !== 'string') {
+            return res.status(400).json({ ok: false, error: 'variant_id inválido.' });
+        }
+
+        const product = await loadManagedProduct(req, id);
+        if (!product) {
+            return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
+        }
+
+        if (variant_id) {
+            const { data: variant } = await supabase
+                .from('product_variants')
+                .select('id')
+                .eq('id', variant_id)
+                .eq('product_id', id)
+                .maybeSingle();
+            if (!variant) {
+                return res.status(404).json({ ok: false, error: 'Variante no encontrada.' });
+            }
+        }
+
+        const { data, error } = await adjustInventory(
+            req,
+            variant_id ? { variantId: variant_id } : { productId: id },
+            stock.value,
+            reason,
+            note ?? null,
+        );
+        if (error) return sendRpcError(res, error);
+
+        await auditLog(req, 'inventory_adjust', variant_id ? 'product_variants' : 'products', (variant_id || id) as string, null, {
+            new_stock: stock.value,
+            reason_code: reason,
+        });
         return res.json({ ok: true, data });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });
@@ -157,13 +380,17 @@ router.patch('/:id', async (req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.delete('/:id', async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
+        const id = req.params.id as string;
+
+        const product = await loadManagedProduct(req, id);
+        if (!product) {
+            return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
+        }
 
         const { data, error } = await supabase
             .from('products')
             .update({ status: 'archived', active: false })
             .eq('id', id)
-            .eq('vendor_id', req.user.id)
             .select()
             .single();
 
@@ -171,7 +398,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
             return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
         }
 
-        await auditLog(req, 'product_archive', 'products', id as string);
+        await auditLog(req, 'product_archive', 'products', id);
         return res.json({ ok: true, message: 'Producto archivado.' });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });
@@ -183,23 +410,22 @@ router.delete('/:id', async (req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/:id/variants', async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
-        const { sku, name, attributes, price_override, stock, image_url } = req.body;
+        const id = req.params.id as string;
+        const { sku, name, attributes, price_override, image_url } = req.body;
 
-        // Verificar ownership del producto
-        const { data: product } = await supabase
-            .from('products')
-            .select('id')
-            .eq('id', id)
-            .eq('vendor_id', req.user.id)
-            .maybeSingle();
-
+        const product = await loadManagedProduct(req, id);
         if (!product) {
             return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
         }
 
         if (!name) {
             return res.status(400).json({ ok: false, error: 'name es requerido para la variante.' });
+        }
+
+        // Stock inicial: se permite en el alta (INSERT), no en la edición.
+        const stock = parseStock(req.body);
+        if (stock.present && !stock.valid) {
+            return res.status(400).json({ ok: false, error: 'stock debe ser un entero mayor o igual a 0.' });
         }
 
         const { data, error } = await supabase
@@ -210,7 +436,7 @@ router.post('/:id/variants', async (req: Request, res: Response) => {
                 name,
                 attributes: attributes || {},
                 price_override: price_override || null,
-                stock: stock || 0,
+                stock: stock.present && stock.valid ? stock.value : 0,
                 image_url: image_url || null,
             })
             .select()
@@ -229,41 +455,53 @@ router.post('/:id/variants', async (req: Request, res: Response) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/v1/vendor/products/:id/variants/:variantId — Actualizar variante
+// `stock` no se escribe directo: si viene y cambia, va por inventory_adjust.
 // ─────────────────────────────────────────────────────────────────────────────
 router.patch('/:id/variants/:variantId', async (req: Request, res: Response) => {
     try {
-        const { id, variantId } = req.params;
-        const updates = req.body;
+        const id = req.params.id as string;
+        const variantId = req.params.variantId as string;
 
-        delete updates.id;
-        delete updates.product_id;
-        delete updates.created_at;
+        const stock = parseStock(req.body);
+        if (stock.present && !stock.valid) {
+            return res.status(400).json({ ok: false, error: 'stock debe ser un entero mayor o igual a 0.' });
+        }
 
-        // Verificar ownership via product
-        const { data: product } = await supabase
-            .from('products')
-            .select('id')
-            .eq('id', id)
-            .eq('vendor_id', req.user.id)
-            .maybeSingle();
-
+        const product = await loadManagedProduct(req, id);
         if (!product) {
             return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
         }
 
-        const { data, error } = await supabase
+        const { data: current } = await supabase
             .from('product_variants')
-            .update(updates)
+            .select('id, stock')
             .eq('id', variantId)
             .eq('product_id', id)
-            .select()
-            .single();
+            .maybeSingle();
+        if (!current) {
+            return res.status(404).json({ ok: false, error: 'Variante no encontrada.' });
+        }
+
+        let inventory: unknown = null;
+        if (stock.present && stock.valid && stock.value !== Number((current as any).stock ?? 0)) {
+            const { data: adj, error: adjErr } = await adjustInventory(
+                req, { variantId }, stock.value, 'manual_adjust', 'Edición de la variante',
+            );
+            if (adjErr) return sendRpcError(res, adjErr);
+            inventory = adj;
+        }
+
+        const updates = pickEditable(req.body, VARIANT_EDITABLE_FIELDS);
+
+        const { data, error } = Object.keys(updates).length > 0
+            ? await supabase.from('product_variants').update(updates).eq('id', variantId).eq('product_id', id).select().single()
+            : await supabase.from('product_variants').select().eq('id', variantId).eq('product_id', id).single();
 
         if (error || !data) {
             return res.status(404).json({ ok: false, error: 'Variante no encontrada.' });
         }
 
-        return res.json({ ok: true, data });
+        return res.json({ ok: true, data, inventory });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });
     }
@@ -274,16 +512,10 @@ router.patch('/:id/variants/:variantId', async (req: Request, res: Response) => 
 // ─────────────────────────────────────────────────────────────────────────────
 router.delete('/:id/variants/:variantId', async (req: Request, res: Response) => {
     try {
-        const { id, variantId } = req.params;
+        const id = req.params.id as string;
+        const variantId = req.params.variantId as string;
 
-        // Verificar ownership via product
-        const { data: product } = await supabase
-            .from('products')
-            .select('id')
-            .eq('id', id)
-            .eq('vendor_id', req.user.id)
-            .maybeSingle();
-
+        const product = await loadManagedProduct(req, id);
         if (!product) {
             return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
         }
@@ -311,13 +543,17 @@ router.delete('/:id/variants/:variantId', async (req: Request, res: Response) =>
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/:id/publish', async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
+        const id = req.params.id as string;
+
+        const product = await loadManagedProduct(req, id);
+        if (!product) {
+            return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
+        }
 
         const { data, error } = await supabase
             .from('products')
             .update({ status: 'active' })
             .eq('id', id)
-            .eq('vendor_id', req.user.id)
             .select()
             .single();
 
@@ -332,7 +568,7 @@ router.post('/:id/publish', async (req: Request, res: Response) => {
             return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
         }
 
-        await auditLog(req, 'product_publish', 'products', id as string);
+        await auditLog(req, 'product_publish', 'products', id);
         return res.json({
             ok:      true,
             data,
@@ -350,19 +586,24 @@ router.post('/:id/publish', async (req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/:id/unpublish', async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
+        const id = req.params.id as string;
+
+        const product = await loadManagedProduct(req, id);
+        if (!product) {
+            return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
+        }
+
         const { data, error } = await supabase
             .from('products')
             .update({ status: 'draft' })
             .eq('id', id)
-            .eq('vendor_id', req.user.id)
             .select()
             .single();
 
         if (error || !data) {
             return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
         }
-        await auditLog(req, 'product_unpublish', 'products', id as string);
+        await auditLog(req, 'product_unpublish', 'products', id);
         return res.json({ ok: true, data });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });
@@ -371,36 +612,28 @@ router.post('/:id/unpublish', async (req: Request, res: Response) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/vendor/products/:id/duplicate — clona producto + sus variantes
+// No copia vendor_id / school_id del original: vendor_id sale del
+// vendor_profile (ya validado con can_manage_store_as) y school_id lo fija el
+// trigger. Stock en 0.
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/:id/duplicate', async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
+        const id = req.params.id as string;
 
-        const { data: original, error: e1 } = await supabase
-            .from('products')
-            .select('*, product_variants(*)')
-            .eq('id', id)
-            .eq('vendor_id', req.user.id)
-            .maybeSingle();
-
-        if (e1 || !original) {
+        const original = await loadManagedProduct(req, id, '*, product_variants(*)');
+        if (!original) {
             return res.status(404).json({ ok: false, error: 'Producto original no encontrado.' });
         }
 
-        const {
-            id: _omit_id, created_at: _omit_ca, updated_at: _omit_ua, sku: _omit_sku,
-            reviewed_at: _omit_rev, reviewed_by: _omit_revby, rejection_reason: _omit_rr,
-            product_variants: variants = [], ...rest
-        } = original as Record<string, any>;
+        const variants = (original as Record<string, any>).product_variants ?? [];
+        const row = buildDuplicateRow(original as Record<string, unknown>);
+        row.vendor_id = original.vendor_profile_id
+            ? await vendorProfileOwner(original.vendor_profile_id)
+            : req.user.id; // legacy sin perfil: loadManagedProduct ya exigió vendor_id = usuario
 
         const { data: clone, error: e2 } = await supabase
             .from('products')
-            .insert({
-                ...rest,
-                name:   `${rest.name} (copia)`,
-                status: 'draft',
-                stock:  0,
-            })
+            .insert(row)
             .select()
             .single();
 
@@ -438,7 +671,7 @@ router.post('/:id/duplicate', async (req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/:id/variants/bulk', async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
+        const id = req.params.id as string;
         const { matrix, defaults = {} } = req.body as {
             matrix:   Record<string, string[]>;
             defaults: { stock?: number; price_override?: number };
@@ -448,15 +681,14 @@ router.post('/:id/variants/bulk', async (req: Request, res: Response) => {
             return res.status(400).json({ ok: false, error: 'matrix es requerido y debe tener al menos 1 eje.' });
         }
 
-        // Ownership check
-        const { data: product, error: pe } = await supabase
-            .from('products')
-            .select('id, name, sku')
-            .eq('id', id)
-            .eq('vendor_id', req.user.id)
-            .maybeSingle();
+        // Stock inicial de cada variante (alta, no edición).
+        const initialStock = parseStock(defaults as Record<string, unknown>);
+        if (initialStock.present && !initialStock.valid) {
+            return res.status(400).json({ ok: false, error: 'defaults.stock debe ser un entero mayor o igual a 0.' });
+        }
 
-        if (pe || !product) {
+        const product = await loadManagedProduct(req, id, 'id, name, sku, vendor_id, vendor_profile_id');
+        if (!product) {
             return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
         }
 
@@ -484,14 +716,14 @@ router.post('/:id/variants/bulk', async (req: Request, res: Response) => {
         }
 
         // Build payload
-        const baseSku = (product.sku || product.name.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 20));
+        const baseSku = (product.sku || String(product.name).toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 20));
         const variantsToInsert = combinations.map((attrs, idx) => {
             const variantSuffix = Object.values(attrs).map(v => String(v).toUpperCase().replace(/\s+/g, '')).join('-');
             return {
                 product_id:     id,
                 name:           Object.entries(attrs).map(([k, v]) => `${k}: ${v}`).join(', '),
                 attributes:     attrs,
-                stock:          defaults.stock ?? 0,
+                stock:          initialStock.present && initialStock.valid ? initialStock.value : 0,
                 price_override: defaults.price_override ?? null,
                 sku:            `${baseSku}-${variantSuffix}-${idx + 1}`.toUpperCase(),
                 is_active:      true,
@@ -509,7 +741,7 @@ router.post('/:id/variants/bulk', async (req: Request, res: Response) => {
             return res.status(500).json({ ok: false, error: 'Error creando variantes.' });
         }
 
-        await auditLog(req, 'product_variants_bulk', 'product_variants', id as string, null, { count: inserted?.length });
+        await auditLog(req, 'product_variants_bulk', 'product_variants', id, null, { count: inserted?.length });
         return res.status(201).json({ ok: true, data: inserted, count: inserted?.length || 0 });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });
@@ -521,16 +753,9 @@ router.post('/:id/variants/bulk', async (req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/:id/quality', async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
+        const id = req.params.id as string;
 
-        // Ownership
-        const { data: product } = await supabase
-            .from('products')
-            .select('id')
-            .eq('id', id)
-            .eq('vendor_id', req.user.id)
-            .maybeSingle();
-
+        const product = await loadManagedProduct(req, id);
         if (!product) {
             return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
         }

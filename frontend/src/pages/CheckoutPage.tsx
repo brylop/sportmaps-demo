@@ -31,11 +31,12 @@ import { transactionsAPI, type ShippingInfo } from '@/lib/api/transactions';
 import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { ShippingSelector } from '@/components/checkout/ShippingSelector';
+import { PRODUCT_PURCHASE_UNAVAILABLE } from '@/lib/store/storeErrors';
 import type { QuoteOption } from '@/hooks/useShipping';
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
-  const { items, getTotal, clearCart } = useCart();
+  const { items, getTotal, clearCart, removeItem } = useCart();
   const { user } = useAuth();
   const { schoolBranding } = useSchoolContext();
   const { toast } = useToast();
@@ -343,6 +344,39 @@ export default function CheckoutPage() {
     );
   }
 
+  // Tienda v2 F0 (T15): la compra de productos por este checkout insertaba
+  // `orders`/`order_items`/`shipments` con el JWT del comprador, y eso ya no
+  // está permitido. No se intenta: se muestra el estado "no disponible" y se
+  // ofrece seguir solo con lo demás del carrito. Se borra en F3.
+  if (hasProducts) {
+    const otherItems = items.length - products.length;
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="max-w-md w-full">
+          <CardContent className="py-12 text-center">
+            <Package className="h-16 w-16 text-muted-foreground/50 mx-auto mb-4" />
+            <h2 className="text-xl font-bold mb-2">{PRODUCT_PURCHASE_UNAVAILABLE}</h2>
+            <p className="text-muted-foreground mb-6">
+              {otherItems > 0
+                ? 'Tu carrito tiene productos de la tienda. Quítalos para pagar lo demás.'
+                : 'Estamos renovando la tienda. Tus productos siguen en el carrito.'}
+            </p>
+            <div className="flex flex-col gap-3">
+              {otherItems > 0 && (
+                <Button onClick={() => products.forEach((p) => removeItem(p.id))}>
+                  Quitar productos y continuar
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => navigate(-1)}>
+                Volver
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-muted/30">
       {/* Header */}
@@ -529,8 +563,10 @@ export default function CheckoutPage() {
 
                 {paymentFlow === 'manual' && (
                   <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg text-sm space-y-1">
+                    {/* Antes mostraba una cuenta inventada ("Bancolombia 123-456789-00",
+                        hallazgo QA B2). Nunca se muestra una cuenta que no sea la real de la escuela. */}
                     <p className="font-medium text-foreground">Datos para transferencia:</p>
-                    <p className="text-muted-foreground">Banco: <strong>Bancolombia</strong> • Cuenta: <strong>123-456789-00</strong></p>
+                    <p className="text-muted-foreground">Pide a la escuela sus datos bancarios antes de transferir.</p>
                     <p className="text-xs text-muted-foreground">La escuela verificará y confirmará tu pago.</p>
                   </div>
                 )}

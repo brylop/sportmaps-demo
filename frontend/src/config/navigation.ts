@@ -772,6 +772,30 @@ export function getNavigationByRole(
       }
     ],
 
+    // Contabilidad v2 F0: contador de la escuela. Solo lectura de la
+    // contabilidad (la base le niega escribir, pagar y liquidar; las pantallas
+    // esconden esos botones). Sin "Registrar gasto"/"Pagar"/"Liquidar".
+    accountant: [
+      {
+        title: 'Contabilidad',
+        items: [
+          { title: 'Dashboard', href: '/dashboard', icon: Home },
+          { title: 'Libro de caja', href: '/accounting', icon: BookOpen },
+          { title: 'Proveedores', href: '/accounting/suppliers', icon: Truck },
+          { title: 'Nómina', href: '/accounting/payroll', icon: Landmark },
+          { title: 'Estado de resultados', href: '/accounting/reports', icon: TrendingUp },
+          { title: 'Presupuesto', href: '/accounting/budget', icon: PieChart },
+        ]
+      },
+      {
+        title: 'Cuenta',
+        items: [
+          { title: 'Notificaciones', href: '/notifications', icon: Bell },
+          { title: 'Configuración', href: '/settings', icon: Settings }
+        ]
+      }
+    ],
+
     reporter: [
       {
         title: 'Reportes',

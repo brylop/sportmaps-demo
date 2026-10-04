@@ -26,6 +26,7 @@
 
 import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
+import { cartWebhookFailureStatus, isAwaitingPayment } from '../services/store-order-status';
 import { todayInZone } from '../utils/businessDate';
 import {
     validateWebhookChecksum,
@@ -617,8 +618,8 @@ async function handleCartOrder({
         return { status: 200, body: { status: 'ignored', reason: 'order_not_found' } };
     }
 
-    // 2. Idempotencia
-    if (order.wompi_transaction_id === txId && order.status !== 'pending') {
+    // 2. Idempotencia ('pending' legacy y 'pending_payment' = todavía sin procesar)
+    if (order.wompi_transaction_id === txId && !isAwaitingPayment(order.status)) {
         return { status: 200, body: { status: 'already_processed' } };
     }
 
@@ -680,15 +681,26 @@ async function handleCartOrder({
         return { status: 200, body: { status: 'ok', kind: 'cart', result: stockResult } };
     }
 
-    // Failed/declined → flag para review
-    await supabase
+    // No aprobado. El estado sale del mapeo explícito (CHECK de orders.status,
+    // M-F0-3): rechazo/fallo → 'cancelled' (solo si la orden seguía sin pagar),
+    // anulación → 'refunded', pending → no se toca el estado.
+    const nextStatus = cartWebhookFailureStatus(order.status, internalStatus);
+    const failUpdate: Record<string, unknown> = {
+        wompi_transaction_id: txId,
+        updated_at: new Date().toISOString(),
+    };
+    if (nextStatus) failUpdate.status = nextStatus;
+    const { error: failErr } = await supabase
         .from('orders')
-        .update({
-            status: internalStatus === 'rejected' ? 'declined' : internalStatus,
-            wompi_transaction_id: txId,
-            updated_at: new Date().toISOString(),
-        })
+        .update(failUpdate)
         .eq('id', order.id);
+    if (failErr) {
+        req.log?.error({ err: failErr, orderId: order.id, nextStatus }, 'Cart order: failure update failed');
+    }
+
+    if (internalStatus === 'pending') {
+        return { status: 200, body: { status: 'ok', kind: 'cart', internalStatus } };
+    }
 
     await supabase.rpc('flag_payment_for_review', {
         p_kind: 'order',
@@ -696,7 +708,7 @@ async function handleCartOrder({
         p_reason: `wompi_${internalStatus} (tx=${txId})`,
     });
 
-    req.log?.warn({ orderId: order.id, internalStatus }, 'Cart order flagged for review');
+    req.log?.warn({ orderId: order.id, internalStatus, nextStatus }, 'Cart order flagged for review');
     return { status: 200, body: { status: 'ok', kind: 'cart', internalStatus, flagged_for_review: true } };
 }
 

@@ -25,7 +25,7 @@ export interface SchoolRole {
     schoolName: string;
     // `external_vendor` y `personal_trainer` ya se usan en AppSidebar y en los
     // guards, pero faltaban aca: el switch por rol no compilaba contra este union.
-    role: 'owner' | 'admin' | 'super_admin' | 'school_admin' | 'school' | 'coach' | 'staff' | 'parent' | 'athlete' | 'viewer' | 'wellness_professional' | 'store_owner' | 'external_vendor' | 'personal_trainer' | 'organizer' | 'reporter';
+    role: 'owner' | 'admin' | 'super_admin' | 'school_admin' | 'school' | 'coach' | 'staff' | 'parent' | 'athlete' | 'viewer' | 'wellness_professional' | 'store_owner' | 'external_vendor' | 'personal_trainer' | 'organizer' | 'reporter' | 'accountant';
     branchId: string | null;
     isGlobal?: boolean; // If true, the user has school-wide access
     onboardingStatus?: 'pending' | 'in_progress' | 'completed';
@@ -248,7 +248,7 @@ function useSchoolContextManager(): SchoolContext {
                         //  3) Nombre como desempate estable (determinista entre requests).
                         const ROLE_PRIORITY: Record<string, number> = {
                             owner: 0, super_admin: 1, school_admin: 2, admin: 3,
-                            coach: 4, reporter: 5, viewer: 6, parent: 7, athlete: 8,
+                            coach: 4, accountant: 5, reporter: 5, viewer: 6, parent: 7, athlete: 8,
                         };
                         const rank = (r: string) => ROLE_PRIORITY[r] ?? 99;
                         const preferredSchool =

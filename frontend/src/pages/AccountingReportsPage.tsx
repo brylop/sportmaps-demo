@@ -16,31 +16,37 @@ import { FileBarChart, TrendingUp, TrendingDown, Scale, Download, Loader2, Alert
 
 const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
-interface LedgerRow {
+/** Fila de finance_pnl_monthly: ya agregada en el servidor. month NULL = sin fecha. */
+interface PnlRow {
+    month: number | null;
     direction: 'income' | 'expense';
-    concept: string;
     category_id: string | null;
-    amount: number;
-    movement_date: string | null;
+    concept_key: string | null;
+    total: number | string;
+    n: number;
 }
 
 export default function AccountingReportsPage() {
-    const { schoolId } = useSchoolContext();
+    const { schoolId, activeBranchId } = useSchoolContext();
     const [year, setYear] = useState(new Date().getFullYear());
 
+    // Contabilidad v2 F0 (plan §4 F5): el EdR se agrega en el servidor
+    // (finance_pnl_monthly) en vez de bajar el libro crudo del año, que PostgREST
+    // cortaba en 1.000 filas. Misma fórmula de ingreso que el libro y los KPIs.
+    // Los movimientos sin fecha (month NULL) cuentan en el total del año pero en
+    // ningún mes, y la pantalla lo dice.
     const ledgerQuery = useQuery({
-        queryKey: ['acc-report-ledger', schoolId, year],
+        queryKey: ['acc-report-pnl', schoolId, year, activeBranchId],
         enabled: !!schoolId,
         queryFn: async () => {
-            const from = `${year}-01-01`;
-            const to = `${year}-12-31`;
-            const { data, error } = await supabase
-                .from('cash_ledger')
-                .select('direction, concept, category_id, amount, movement_date')
-                .eq('owner_type', 'school').eq('owner_id', schoolId)
-                .gte('movement_date', from).lte('movement_date', to);
+            const { data, error } = await (supabase as any).rpc('finance_pnl_monthly', {
+                p_owner_type: 'school',
+                p_owner_id: schoolId,
+                p_year: year,
+                p_branch_id: activeBranchId || null,
+            });
             if (error) throw error;
-            return (data ?? []) as LedgerRow[];
+            return (data ?? []) as PnlRow[];
         },
     });
 
@@ -61,12 +67,15 @@ export default function AccountingReportsPage() {
     const catMap = categoriesQuery.data ?? {};
 
     const report = useMemo(() => {
-        let income = 0, expense = 0;
+        let income = 0, expense = 0, undatedAmount = 0, undatedN = 0;
         const byCat: Record<string, number> = {};
         const monthly = MONTHS.map((m) => ({ month: m, ingresos: 0, egresos: 0 }));
         for (const r of rows) {
-            const amt = Number(r.amount);
-            const mi = r.movement_date ? new Date(r.movement_date).getUTCMonth() : null;
+            const amt = Number(r.total);
+            const mi = r.month != null ? r.month - 1 : null;
+            // Sin fecha (importaciones viejas, C8): no son de ningún año; no se
+            // suman al EdR pero se avisan para que no desaparezcan en silencio.
+            if (mi === null) { undatedAmount += amt; undatedN += Number(r.n); continue; }
             if (r.direction === 'income') {
                 income += amt;
                 if (mi !== null) monthly[mi].ingresos += amt;
@@ -78,7 +87,7 @@ export default function AccountingReportsPage() {
             }
         }
         const catRows = Object.entries(byCat).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-        return { income, expense, net: income - expense, catRows, monthly };
+        return { income, expense, net: income - expense, catRows, monthly, undatedAmount, undatedN };
     }, [rows, catMap]);
 
     const exportCSV = () => {
@@ -167,6 +176,17 @@ export default function AccountingReportsPage() {
                     <CardContent><div className={`text-2xl font-bold ${report.net >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(report.net)}</div></CardContent>
                 </Card>
             </div>
+
+            {report.undatedN > 0 && (
+                <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>{report.undatedN} movimiento(s) sin fecha</AlertTitle>
+                    <AlertDescription>
+                        Suman {formatCurrency(report.undatedAmount)} y no se incluyen en ningún mes ni en el total del año
+                        hasta que se les asigne una fecha.
+                    </AlertDescription>
+                </Alert>
+            )}
 
             {ledgerQuery.isLoading ? (
                 <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>

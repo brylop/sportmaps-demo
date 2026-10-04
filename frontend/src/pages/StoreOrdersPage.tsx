@@ -1,45 +1,89 @@
 import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ShoppingCart, Eye, Package, Truck, CheckCircle, Clock, Loader2, RefreshCw } from 'lucide-react';
+import {
+  ShoppingCart, Eye, Package, Truck, CheckCircle, Clock, Loader2, RefreshCw,
+  CreditCard, FileSearch, XCircle, Undo2, Store, HelpCircle,
+} from 'lucide-react';
 import { useStoreOrders } from '@/hooks/useStoreData';
+import { useToast } from '@/hooks/use-toast';
+import { bffClient } from '@/lib/api/bffClient';
 import { StatFilterBar } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
+import {
+  ORDER_STATUS_GROUPS,
+  VENDOR_ACTION_LABELS,
+  normalizeOrderStatus,
+  orderStatusGroup,
+  orderStatusLabel,
+  vendorNextStatuses,
+  type OrderStatus,
+  type OrderStatusGroup,
+} from '@/lib/store/orderStatus';
 
+type BadgeVariant = 'secondary' | 'default' | 'outline' | 'destructive';
 
-const statusConfig: Record<string, { label: string; variant: 'secondary' | 'default' | 'outline' | 'destructive'; icon: any }> = {
-  pending: { label: 'Pendiente', variant: 'secondary', icon: Clock },
-  processing: { label: 'Procesando', variant: 'default', icon: Package },
-  shipped: { label: 'Enviado', variant: 'outline', icon: Truck },
-  delivered: { label: 'Entregado', variant: 'secondary', icon: CheckCircle }
+// Estados de M-F0-3. Los legacy (`pending`, `processing`) se normalizan antes
+// de llegar aquí (lib/store/orderStatus).
+const statusVisual: Record<OrderStatus, { variant: BadgeVariant; icon: typeof Clock }> = {
+  pending_payment: { variant: 'secondary', icon: Clock },
+  awaiting_approval: { variant: 'secondary', icon: FileSearch },
+  payment_review: { variant: 'secondary', icon: FileSearch },
+  paid: { variant: 'default', icon: CreditCard },
+  preparing: { variant: 'default', icon: Package },
+  ready_for_pickup: { variant: 'outline', icon: Store },
+  shipped: { variant: 'outline', icon: Truck },
+  delivered: { variant: 'secondary', icon: CheckCircle },
+  expired: { variant: 'outline', icon: Clock },
+  cancelled: { variant: 'destructive', icon: XCircle },
+  refunded: { variant: 'outline', icon: Undo2 },
+  partially_refunded: { variant: 'outline', icon: Undo2 },
 };
 
 export default function StoreOrdersPage() {
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<OrderStatusGroup | 'all'>('all');
   const { data: orders, isLoading, isFetching, refetch } = useStoreOrders();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // El vendedor ya no escribe `orders` con su JWT (M-F0-3): las transiciones
+  // van por el BFF, que valida la matriz paid→preparing→ready_for_pickup|shipped→delivered.
+  // TODO(tienda v2 F3): revisar comprobante de transferencia y confirmar
+  // efectivo (`review_order_receipt` / `confirm_cash_pickup`) cuando el BFF
+  // exponga sus rutas; hoy no existen y no se inventan aquí.
+  const transition = useMutation({
+    mutationFn: async ({ orderId, to }: { orderId: string; to: OrderStatus }) =>
+      bffClient.patch(`/api/v1/marketplace/orders/vendor/${orderId}/status`, { status: to }),
+    onSuccess: (_data, { to }) => {
+      queryClient.invalidateQueries({ queryKey: ['store-orders'] });
+      toast({ title: 'Pedido actualizado', description: `Nuevo estado: ${orderStatusLabel(to)}` });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'No se pudo actualizar el pedido', description: error.message, variant: 'destructive' });
+    },
+  });
 
   // Clean MVP: Only real data
   const displayOrders = (orders || []).map(o => ({
+    orderId: o.id as string,
     id: o.id.substring(0, 8).toUpperCase(),
     customer_name: (o.shipping_address as any)?.name || 'Cliente',
     date: new Date(o.created_at).toLocaleDateString('es-CO'),
     total: Number(o.total_amount),
-    status: o.status as keyof typeof statusConfig,
+    rawStatus: o.status as string,
+    status: normalizeOrderStatus(o.status),
+    group: orderStatusGroup(o.status),
     items: 0
   }));
 
   const filteredOrders = statusFilter === 'all'
     ? displayOrders
-    : displayOrders.filter(o => o.status === statusFilter);
+    : displayOrders.filter(o => o.group === statusFilter);
 
-  const statusCounts = {
-    pending: displayOrders.filter(o => o.status === 'pending').length,
-    processing: displayOrders.filter(o => o.status === 'processing').length,
-    shipped: displayOrders.filter(o => o.status === 'shipped').length,
-    delivered: displayOrders.filter(o => o.status === 'delivered').length,
-  };
+  const countGroup = (g: OrderStatusGroup) => displayOrders.filter(o => o.group === g).length;
 
   if (isLoading) {
     return (
@@ -57,15 +101,16 @@ export default function StoreOrdersPage() {
       </div>
 
       <StatFilterBar
-        columns={5}
+        columns={6}
         value={statusFilter === 'all' ? null : statusFilter}
-        onChange={(v) => setStatusFilter(v ?? 'all')}
+        onChange={(v) => setStatusFilter((v as OrderStatusGroup | null) ?? 'all')}
         items={[
           { key: null, label: 'Todos', value: displayOrders.length, tone: 'neutral' },
-          { key: 'pending', label: 'Pendientes', value: statusCounts.pending, tone: 'yellow' },
-          { key: 'processing', label: 'En Proceso', value: statusCounts.processing, tone: 'blue' },
-          { key: 'shipped', label: 'Enviados', value: statusCounts.shipped, tone: 'violet' },
-          { key: 'delivered', label: 'Entregados', value: statusCounts.delivered, tone: 'emerald' },
+          { key: 'awaiting_payment', label: ORDER_STATUS_GROUPS.awaiting_payment.label, value: countGroup('awaiting_payment'), tone: 'yellow' },
+          { key: 'to_prepare', label: ORDER_STATUS_GROUPS.to_prepare.label, value: countGroup('to_prepare'), tone: 'blue' },
+          { key: 'in_progress', label: ORDER_STATUS_GROUPS.in_progress.label, value: countGroup('in_progress'), tone: 'violet' },
+          { key: 'delivered', label: ORDER_STATUS_GROUPS.delivered.label, value: countGroup('delivered'), tone: 'emerald' },
+          { key: 'closed', label: ORDER_STATUS_GROUPS.closed.label, value: countGroup('closed'), tone: 'rose' },
         ]}
       />
 
@@ -97,10 +142,14 @@ export default function StoreOrdersPage() {
             </TableHeader>
             <TableBody>
               {filteredOrders.map((order) => {
-                const status = statusConfig[order.status] || statusConfig.pending;
-                const StatusIcon = status.icon;
+                const visual = order.status
+                  ? statusVisual[order.status]
+                  : { variant: 'outline' as BadgeVariant, icon: HelpCircle };
+                const StatusIcon = visual.icon;
+                const nextStatuses = vendorNextStatuses(order.rawStatus);
+                const busy = transition.isPending && transition.variables?.orderId === order.orderId;
                 return (
-                  <TableRow key={order.id}>
+                  <TableRow key={order.orderId}>
                     <TableCell className="font-mono font-medium">
                       {typeof order.id === 'string' && order.id.startsWith('ORD') ? order.id : `ORD-${order.id}`}
                     </TableCell>
@@ -111,16 +160,32 @@ export default function StoreOrdersPage() {
                       ${order.total.toLocaleString('es-CO', { minimumFractionDigits: 0 })}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={status.variant} className="gap-1">
+                      <Badge variant={visual.variant} className="gap-1">
                         <StatusIcon className="h-3 w-3" />
-                        {status.label}
+                        {orderStatusLabel(order.rawStatus)}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" className="gap-1">
-                        <Eye className="h-4 w-4" />
-                        Ver
-                      </Button>
+                      <div className="flex justify-end gap-1 flex-wrap">
+                        {nextStatuses.map((to) => (
+                          <Button
+                            key={to}
+                            variant="outline"
+                            size="sm"
+                            disabled={transition.isPending}
+                            onClick={() => transition.mutate({ orderId: order.orderId, to })}
+                          >
+                            {busy && transition.variables?.to === to && (
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            )}
+                            {VENDOR_ACTION_LABELS[to] ?? orderStatusLabel(to)}
+                          </Button>
+                        ))}
+                        <Button variant="ghost" size="sm" className="gap-1">
+                          <Eye className="h-4 w-4" />
+                          Ver
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 );

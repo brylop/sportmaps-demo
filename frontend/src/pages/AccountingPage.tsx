@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
+import { useCanManageFinances } from '@/hooks/useCanManageFinances';
 import { formatCurrency } from '@/lib/utils';
-import { dayToLocalDate } from '@/lib/dateUtils';
+import { dayToLocalDate, todayColombia } from '@/lib/dateUtils';
+import { monthBounds } from '@/lib/accounting/income';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -53,6 +55,22 @@ interface LedgerRow {
     status: string;
 }
 
+interface LedgerTotalsRow {
+    direction: 'income' | 'expense';
+    total: number | string;
+    n: number;
+    undated_total: number | string;
+    undated_n: number;
+}
+
+/** Cursor keyset de finance_ledger_page: (fecha DESC NULLS LAST, id DESC). */
+interface LedgerCursor {
+    date: string | null;
+    id: string;
+}
+
+const LEDGER_PAGE_SIZE = 50;
+
 interface Category {
     id: string;
     name: string;
@@ -91,29 +109,73 @@ export default function AccountingPage() {
         }
     };
 
-    // ─── Libro de caja (ingresos + egresos) ───────────────────────────────────
-    const ledgerQuery = useQuery({
-        queryKey: ['cash-ledger', schoolId, activeBranchId],
+    // ─── Libro de caja (ingresos + egresos), paginado en el servidor ─────────
+    // Contabilidad v2 F0 (plan §4 F4): antes se leía cash_ledger ENTERO y
+    // PostgREST lo cortaba en 1.000 filas (H7); los totales se sumaban sobre lo
+    // que había llegado. Ahora: un mes a la vez, páginas por cursor
+    // (finance_ledger_page) y totales del servidor (finance_ledger_totals), que
+    // nunca son la suma de la página. La sede incluye los movimientos SIN sede
+    // (regla de la base). Los cobros sin fecha (importaciones viejas) se ven
+    // aparte y se pueden incluir en la lista.
+    const [month, setMonth] = useState(() => todayColombia().slice(0, 7));
+    const [includeUndated, setIncludeUndated] = useState(false);
+    const [directionFilter, setDirectionFilter] = useState<string | null>(null);
+    const range = useMemo(() => monthBounds(`${month}-01`), [month]);
+
+    const ledgerQuery = useInfiniteQuery({
+        queryKey: ['cash-ledger', schoolId, activeBranchId, month, directionFilter, includeUndated],
         enabled: !!schoolId,
-        queryFn: async () => {
-            // Contexto de entidad: esta página es la de la escuela (owner_type='school').
-            // Para vendor/organizer se reutiliza la misma lógica cambiando owner_*.
-            let q = supabase
-                .from('cash_ledger')
-                .select('*')
-                .eq('owner_type', 'school')
-                .eq('owner_id', schoolId)
-                .order('movement_date', { ascending: false });
-            // Un movimiento con `branch_id` NULL es uno SIN sede asignada, no de otra
-            // sede. La mayoría de los ingresos vienen de `payments`, y ahí 266 de 593
-            // filas de Dynasty no tienen sede: con `.eq()` el libro de caja escondía
-            // la mitad del ingreso al seleccionar una sede.
-            if (activeBranchId) q = q.or(`branch_id.is.null,branch_id.eq.${activeBranchId}`);
-            const { data, error } = await q;
+        initialPageParam: null as LedgerCursor | null,
+        queryFn: async ({ pageParam }) => {
+            const { data, error } = await (supabase as any).rpc('finance_ledger_page', {
+                p_owner_type: 'school',
+                p_owner_id: schoolId,
+                p_from: range.from,
+                p_to: range.to,
+                p_branch_id: activeBranchId || null,
+                p_direction: directionFilter,
+                p_cursor_date: pageParam?.date ?? null,
+                p_cursor_id: pageParam?.id ?? null,
+                p_limit: LEDGER_PAGE_SIZE,
+                p_include_undated: includeUndated,
+            });
             if (error) throw error;
             return (data ?? []) as LedgerRow[];
         },
+        getNextPageParam: (last: LedgerRow[]): LedgerCursor | undefined =>
+            last.length < LEDGER_PAGE_SIZE
+                ? undefined
+                : { date: last[last.length - 1].movement_date, id: last[last.length - 1].id },
     });
+
+    const totalsQuery = useQuery({
+        queryKey: ['cash-ledger', schoolId, activeBranchId, month, 'totals'],
+        enabled: !!schoolId,
+        queryFn: async () => {
+            const { data, error } = await (supabase as any).rpc('finance_ledger_totals', {
+                p_owner_type: 'school',
+                p_owner_id: schoolId,
+                p_from: range.from,
+                p_to: range.to,
+                p_branch_id: activeBranchId || null,
+            });
+            if (error) throw error;
+            const out = { income: 0, expense: 0, incomeN: 0, expenseN: 0, undatedIncome: 0, undatedExpense: 0, undatedN: 0 };
+            for (const t of (data ?? []) as LedgerTotalsRow[]) {
+                if (t.direction === 'income') {
+                    out.income = Number(t.total); out.incomeN = Number(t.n); out.undatedIncome = Number(t.undated_total);
+                } else {
+                    out.expense = Number(t.total); out.expenseN = Number(t.n); out.undatedExpense = Number(t.undated_total);
+                }
+                out.undatedN += Number(t.undated_n);
+            }
+            return out;
+        },
+    });
+
+    // ¿Puede registrar gastos? Lo decide la base (can_manage_finances, lo mismo
+    // que exige la policy de INSERT): el contador no ve el botón.
+    const canManage = useCanManageFinances(schoolId);
 
     // ─── Categorías (sistema + de la escuela) ──────────────────────────────────
     const categoriesQuery = useQuery({
@@ -131,23 +193,29 @@ export default function AccountingPage() {
         },
     });
 
-    const rows = ledgerQuery.data ?? [];
-    const [directionFilter, setDirectionFilter] = useState<string | null>(null);
-    const filteredRows = directionFilter ? rows.filter(r => r.direction === directionFilter) : rows;
-    const directionCounts = {
-        income: rows.filter(r => r.direction === 'income').length,
-        expense: rows.filter(r => r.direction === 'expense').length,
-    };
+    const rows = useMemo(() => (ledgerQuery.data?.pages ?? []).flat(), [ledgerQuery.data]);
+    const filteredRows = rows;
     const totals = useMemo(() => {
-        let income = 0, expense = 0;
-        for (const r of rows) {
-            if (r.direction === 'income') income += Number(r.amount);
-            else expense += Number(r.amount);
-        }
+        const t = totalsQuery.data;
+        if (!t) return null;
+        // Los sin fecha solo suman cuando el usuario los incluye en la lista.
+        const income = t.income + (includeUndated ? t.undatedIncome : 0);
+        const expense = t.expense + (includeUndated ? t.undatedExpense : 0);
         return { income, expense, net: income - expense };
-    }, [rows]);
+    }, [totalsQuery.data, includeUndated]);
+    const directionCounts = {
+        income: totalsQuery.data?.incomeN ?? 0,
+        expense: totalsQuery.data?.expenseN ?? 0,
+    };
+    const undatedN = totalsQuery.data?.undatedN ?? 0;
+    const undatedAmount = (totalsQuery.data?.undatedIncome ?? 0) + (totalsQuery.data?.undatedExpense ?? 0);
+    const expectedRows =
+        (directionFilter === 'income' ? directionCounts.income
+            : directionFilter === 'expense' ? directionCounts.expense
+                : directionCounts.income + directionCounts.expense)
+        + (includeUndated ? undatedN : 0);
 
-    if (ledgerQuery.isError) {
+    if (ledgerQuery.isError || totalsQuery.isError) {
         return (
             <div className="container mx-auto p-6 space-y-6">
                 <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
@@ -158,7 +226,7 @@ export default function AccountingPage() {
                     <AlertTitle>No se pudo cargar el libro de caja</AlertTitle>
                     <AlertDescription className="mt-1 flex flex-col items-start gap-3">
                         <span>Ocurrió un error de conexión. Esto <strong>no</strong> significa que no haya movimientos.</span>
-                        <Button size="sm" variant="outline" onClick={() => ledgerQuery.refetch()}>
+                        <Button size="sm" variant="outline" onClick={() => { ledgerQuery.refetch(); totalsQuery.refetch(); }}>
                             <RefreshCw className="mr-2 h-4 w-4" /> Reintentar
                         </Button>
                     </AlertDescription>
@@ -196,7 +264,7 @@ export default function AccountingPage() {
                     </h1>
                     <p className="text-muted-foreground">Libro de caja — ingresos y egresos</p>
                 </div>
-                <RegisterExpenseDialog
+                {canManage && <RegisterExpenseDialog
                     open={dialogOpen}
                     onOpenChange={setDialogOpen}
                     categories={categoriesQuery.data ?? []}
@@ -246,9 +314,10 @@ export default function AccountingPage() {
                         }
                         toast({ title: 'Gasto registrado', description: `${payload.concept} · ${formatCurrency(payload.amount)}` });
                         setDialogOpen(false);
-                        queryClient.invalidateQueries({ queryKey: ['cash-ledger', schoolId, activeBranchId] });
+                        // Prefijo: invalida todas las páginas, meses, sedes y los totales.
+                        queryClient.invalidateQueries({ queryKey: ['cash-ledger', schoolId] });
                     }}
-                />
+                />}
             </div>
 
             <Tabs defaultValue="ledger" className="space-y-6">
@@ -257,6 +326,29 @@ export default function AccountingPage() {
                     <TabsTrigger value="einvoicing">Facturación electrónica</TabsTrigger>
                 </TabsList>
                 <TabsContent value="ledger" className="space-y-6">
+            {/* Periodo */}
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+                <div className="grid gap-1">
+                    <Label htmlFor="ledger-month">Mes</Label>
+                    <Input
+                        id="ledger-month"
+                        type="month"
+                        className="w-full sm:w-48"
+                        value={month}
+                        onChange={(e) => { if (e.target.value) setMonth(e.target.value); }}
+                    />
+                </div>
+                {undatedN > 0 && (
+                    <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <input
+                            type="checkbox"
+                            checked={includeUndated}
+                            onChange={(e) => setIncludeUndated(e.target.checked)}
+                        />
+                        Incluir {undatedN} movimiento(s) sin fecha ({formatCurrency(undatedAmount)})
+                    </label>
+                )}
+            </div>
             {/* KPIs */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card>
@@ -265,7 +357,7 @@ export default function AccountingPage() {
                         <TrendingUp className="h-4 w-4 text-emerald-500" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-emerald-600">{formatCurrency(totals.income)}</div>
+                        <div className="text-2xl font-bold text-emerald-600">{totals ? formatCurrency(totals.income) : '—'}</div>
                     </CardContent>
                 </Card>
                 <Card>
@@ -274,7 +366,7 @@ export default function AccountingPage() {
                         <TrendingDown className="h-4 w-4 text-red-500" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-red-600">{formatCurrency(totals.expense)}</div>
+                        <div className="text-2xl font-bold text-red-600">{totals ? formatCurrency(totals.expense) : '—'}</div>
                     </CardContent>
                 </Card>
                 <Card>
@@ -283,8 +375,8 @@ export default function AccountingPage() {
                         <Scale className="h-4 w-4 text-primary" />
                     </CardHeader>
                     <CardContent>
-                        <div className={`text-2xl font-bold ${totals.net >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                            {formatCurrency(totals.net)}
+                        <div className={`text-2xl font-bold ${!totals || totals.net >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {totals ? formatCurrency(totals.net) : '—'}
                         </div>
                     </CardContent>
                 </Card>
@@ -302,7 +394,7 @@ export default function AccountingPage() {
                             value={directionFilter}
                             onChange={setDirectionFilter}
                             items={[
-                                { key: null, label: 'Todos', value: rows.length, tone: 'neutral' },
+                                { key: null, label: 'Todos', value: directionCounts.income + directionCounts.expense, tone: 'neutral' },
                                 { key: 'income', label: 'Ingresos', value: directionCounts.income, tone: 'emerald' },
                                 { key: 'expense', label: 'Egresos', value: directionCounts.expense, tone: 'rose' },
                             ]}
@@ -371,14 +463,23 @@ export default function AccountingPage() {
                             </TableBody>
                         </Table>
                     )}
+                    {ledgerQuery.hasNextPage && (
+                        <div className="flex justify-center py-3">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => ledgerQuery.fetchNextPage()}
+                                disabled={ledgerQuery.isFetchingNextPage}
+                            >
+                                {ledgerQuery.isFetchingNextPage && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Cargar más
+                            </Button>
+                        </div>
+                    )}
                     <TableRefreshBar
-                        onRefresh={() => ledgerQuery.refetch()}
-                        loading={ledgerQuery.isFetching}
-                        summary={
-                            filteredRows.length === rows.length
-                                ? `${rows.length} movimiento(s)`
-                                : `${filteredRows.length} de ${rows.length} movimiento(s)`
-                        }
+                        onRefresh={() => { ledgerQuery.refetch(); totalsQuery.refetch(); }}
+                        loading={ledgerQuery.isFetching || totalsQuery.isFetching}
+                        summary={`${rows.length} de ${expectedRows} movimiento(s)`}
                     />
                 </CardContent>
             </Card>

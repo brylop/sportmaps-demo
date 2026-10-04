@@ -3,12 +3,10 @@ import { optionalAuth } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
 import { todayInZone } from '../utils/businessDate';
 import { isStoreEnabled, requireStoreEnabled, STORE_DISABLED_BODY } from '../services/store-flag.service';
+import { VENDOR_PUBLIC_COLUMNS } from '../services/vendor-public-columns';
 
-// Columnas de vendor_profiles que se pueden mostrar a cualquiera (spec blindaje
-// §1.1 / T1). Fuera: bank_data, nit, verification_doc_url, commission_rate,
-// payment_methods, metadata, phone, email, address, capabilities.
-// Un solo literal (sin .join ni +) para que supabase-js infiera el tipo de la fila.
-const VENDOR_PUBLIC_COLUMNS = 'id, user_id, vendor_type, display_name, slug, description, logo_url, cover_image_url, city, website_url, verification_status, is_active, avg_rating, reviews_count, response_rate, avg_response_hours, created_at, updated_at';
+// Columnas públicas de vendor_profiles: services/vendor-public-columns.ts
+// (con test que vigila que no entre ninguna columna sensible).
 
 const router = Router();
 
@@ -255,7 +253,9 @@ router.get('/vendor/:slug', requireStoreEnabled, optionalAuth, async (req: Reque
 // GET /api/v1/marketplace/school-store/:schoolId
 // Resuelve el slug de la tienda (vendor_profile tipo 'school') de una escuela,
 // para que el padre entre a /tienda/:slug desde su app. La tienda de la escuela
-// es el vendor_profile con user_id = schools.owner_id y vendor_type='school'.
+// es el vendor_profile con school_id = la escuela (tienda v2 M-F0-1). Fallback
+// legacy: el perfil 'school' del dueño, solo si no está atado a OTRA escuela
+// (un dueño con dos escuelas no debe mostrar la misma tienda en las dos).
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/school-store/:schoolId', requireStoreEnabled, optionalAuth, async (req: Request, res: Response) => {
     try {
@@ -270,12 +270,22 @@ router.get('/school-store/:schoolId', requireStoreEnabled, optionalAuth, async (
             return res.status(404).json({ ok: false, error: 'Escuela no encontrada.' });
         }
 
-        const { data: vp } = await supabase
+        const { data: bySchool } = await supabase
             .from('vendor_profiles')
-            .select('slug, display_name, is_active')
-            .eq('user_id', school.owner_id)
-            .eq('vendor_type', 'school')
+            .select('slug, display_name, is_active, school_id')
+            .eq('school_id', schoolId)
             .maybeSingle();
+
+        let vp = bySchool;
+        if (!vp) {
+            const { data: byOwner } = await supabase
+                .from('vendor_profiles')
+                .select('slug, display_name, is_active, school_id')
+                .eq('user_id', school.owner_id)
+                .eq('vendor_type', 'school')
+                .maybeSingle();
+            vp = byOwner && (!byOwner.school_id || byOwner.school_id === schoolId) ? byOwner : null;
+        }
 
         return res.json({
             ok: true,

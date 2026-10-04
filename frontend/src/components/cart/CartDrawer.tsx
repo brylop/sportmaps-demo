@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,7 @@ import {
 import { useCart, CartItemType } from '@/contexts/CartContext';
 import { cn } from '@/lib/utils';
 import { NumberStepper } from '../ui/number-stepper';
+import { CartCheckoutModal } from '@/components/shop/CartCheckoutModal';
 
 const typeConfig: Record<CartItemType, { icon: typeof School; label: string; color: string }> = {
   enrollment: { icon: School, label: 'Inscripción', color: 'bg-primary/10 text-primary' },
@@ -30,6 +32,7 @@ const typeConfig: Record<CartItemType, { icon: typeof School; label: string; col
 export function CartDrawer() {
   const { items, isOpen, setIsOpen, removeItem, updateQuantity, getTotal, clearCart } = useCart();
   const navigate = useNavigate();
+  const [productCheckoutOpen, setProductCheckoutOpen] = useState(false);
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('es-CO', {
@@ -39,16 +42,26 @@ export function CartDrawer() {
     }).format(price);
   };
 
+  const enrollments = items.filter((i) => i.type === 'enrollment');
+  const products = items.filter((i) => i.type === 'product');
+  const appointments = items.filter((i) => i.type === 'appointment');
+  const nonProductCount = items.length - products.length;
+
+  // Inscripciones, citas y servicios siguen por /checkout.
   const handleCheckout = () => {
     setIsOpen(false);
     navigate('/checkout');
   };
 
-  const enrollments = items.filter((i) => i.type === 'enrollment');
-  const products = items.filter((i) => i.type === 'product');
-  const appointments = items.filter((i) => i.type === 'appointment');
+  // Tienda v2 F0 (T15): los productos ya NO van a /checkout (insertaba
+  // `orders` con el JWT, ahora prohibido). Van por el checkout del BFF.
+  const handleProductCheckout = () => {
+    setIsOpen(false);
+    setProductCheckoutOpen(true);
+  };
 
   return (
+    <>
     <Sheet open={isOpen} onOpenChange={setIsOpen}>
       <SheetContent className="w-full sm:max-w-lg flex flex-col">
         <SheetHeader>
@@ -169,16 +182,44 @@ export function CartDrawer() {
                   <Trash2 className="h-4 w-4 mr-2" />
                   Vaciar
                 </Button>
-                <Button className="flex-1" onClick={handleCheckout}>
-                  <CreditCard className="h-4 w-4 mr-2" />
-                  Pagar
-                </Button>
+                {products.length > 0 && (
+                  <Button className="flex-1" onClick={handleProductCheckout}>
+                    <CreditCard className="h-4 w-4 mr-2" />
+                    {nonProductCount > 0 ? 'Pagar productos' : 'Pagar'}
+                  </Button>
+                )}
+                {nonProductCount > 0 && (
+                  <Button className="flex-1" onClick={handleCheckout} variant={products.length > 0 ? 'secondary' : 'default'}>
+                    <CreditCard className="h-4 w-4 mr-2" />
+                    {products.length > 0 ? 'Pagar lo demás' : 'Pagar'}
+                  </Button>
+                )}
               </div>
+              {products.length > 0 && nonProductCount > 0 && (
+                <p className="text-xs text-center text-muted-foreground">
+                  Los productos de la tienda se pagan por separado.
+                </p>
+              )}
             </div>
           </>
         )}
       </SheetContent>
     </Sheet>
+    <CartCheckoutModal
+      open={productCheckoutOpen}
+      onOpenChange={setProductCheckoutOpen}
+      items={products.map((i) => ({
+        productId: i.metadata.productId ?? i.id,
+        variantId: i.metadata.variantId,
+        name: i.name,
+        quantity: i.quantity,
+        unitPrice: i.discount ? i.price * (1 - i.discount / 100) : i.price,
+      }))}
+      onSuccess={() => {
+        products.forEach((p) => removeItem(p.id));
+      }}
+    />
+    </>
   );
 }
 

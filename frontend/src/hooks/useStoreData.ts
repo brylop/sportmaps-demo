@@ -2,11 +2,17 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Tables, TablesInsert } from '@/integrations/supabase/types';
+import { Tables } from '@/integrations/supabase/types';
+import { isOrderPaidLike, isOrderPendingForVendor } from '@/lib/store/orderStatus';
+import { PRODUCT_DELETE_NOT_ALLOWED, productDeleteErrorMessage } from '@/lib/store/storeErrors';
 
 type Product = Tables<'products'>;
-type ProductInsert = TablesInsert<'products'>;
 
+// Tienda v2 F0 (M-F0-2): `createProduct`/`updateProduct` escribían `products`
+// directo con el JWT (incluido `stock`, que ya no es actualizable por
+// `authenticated`). No tenían llamadores: crear/editar va por el BFF
+// (`ProductWizard` → /api/v1/vendor/products) y el stock por
+// PATCH /api/v1/vendor/products/:id o POST /api/v1/vendor/products/:id/inventory.
 export function useStoreProducts() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -29,64 +35,26 @@ export function useStoreProducts() {
     enabled: !!user,
   });
 
-  const createProduct = useMutation({
-    mutationFn: async (product: Omit<ProductInsert, 'vendor_id'>) => {
-      if (!user) throw new Error('Usuario no autenticado');
-
-      const { data, error } = await supabase
-        .from('products')
-        .insert({ ...product, vendor_id: user.id })
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['store-products'] });
-      toast({ title: 'Producto creado', description: 'El producto se ha añadido correctamente' });
-    },
-    onError: (error: Error) => {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
-    },
-  });
-
-  const updateProduct = useMutation({
-    mutationFn: async ({ id, ...updates }: Partial<Product> & { id: string }) => {
-      const { data, error } = await supabase
-        .from('products')
-        .update(updates)
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['store-products'] });
-      toast({ title: 'Producto actualizado' });
-    },
-    onError: (error: Error) => {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
-    },
-  });
-
+  // El borrado directo solo procede para productos `draft`/`rejected` (M-F0-2).
+  // Para el resto la policy deja 0 filas sin error: se detecta y se avisa, en
+  // vez de mostrar "Producto eliminado" sobre algo que sigue publicado.
   const deleteProduct = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('products')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .select('id');
 
-      if (error) throw error;
+      if (error) throw new Error(productDeleteErrorMessage(error));
+      if (!data || data.length === 0) throw new Error(PRODUCT_DELETE_NOT_ALLOWED);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['store-products'] });
       toast({ title: 'Producto eliminado' });
     },
     onError: (error: Error) => {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      toast({ title: 'No se pudo eliminar', description: error.message, variant: 'destructive' });
     },
   });
 
@@ -94,8 +62,6 @@ export function useStoreProducts() {
     products: productsQuery.data ?? [],
     isLoading: productsQuery.isLoading,
     error: productsQuery.error,
-    createProduct,
-    updateProduct,
     deleteProduct,
   };
 }
@@ -127,17 +93,21 @@ export function useStoreStats() {
 
 
   const orders = ordersQuery.data || [];
+  // Ventas e ingresos: solo pedidos en los que el dinero entró (pagado en
+  // adelante). Antes sumaba también los pendientes de pago.
+  const paidOrders = orders.filter(o => isOrderPaidLike(o.status));
   const totalProducts = products.length;
   const lowStock = products.filter(p => p.stock < 20).length;
   const totalStock = products.reduce((acc, p) => acc + p.stock, 0);
-  const totalSales = orders.length;
-  const totalRevenue = orders.reduce((acc, order) => acc + (Number(order.total_amount) || 0), 0);
+  const totalSales = paidOrders.length;
+  const totalRevenue = paidOrders.reduce((acc, order) => acc + (Number(order.total_amount) || 0), 0);
 
   return {
     totalProducts,
     lowStock,
     totalStock,
-    pendingOrders: orders.filter(o => o.status === 'pending').length ?? 0,
+    // Pendientes para el vendedor: pagados o en curso, sin entregar.
+    pendingOrders: orders.filter(o => isOrderPendingForVendor(o.status)).length,
     totalSales,
     totalRevenue,
     isLoading: ordersQuery.isLoading,

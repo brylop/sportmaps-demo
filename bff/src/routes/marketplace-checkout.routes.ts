@@ -28,6 +28,7 @@ import { generateReference, copToCents, assertUserNotBlocked, UserPaymentBlocked
 import { generateMpReference } from '../services/mercadopago.service';
 import { resolveProvider, type PaymentProvider } from '../services/payment-provider.resolver';
 import { requireStoreEnabled } from '../services/store-flag.service';
+import { refundErrorStatus } from '../services/store-rpc-errors';
 
 const router = Router();
 
@@ -357,7 +358,7 @@ router.post('/checkout/cart', requireStoreEnabled, ensureUserNotBlocked, async (
         const productIds = items.map(i => i.productId);
         const { data: products, error: productsErr } = await supabase
             .from('products')
-            .select('id, name, price, stock, vendor_id, status, product_variants(id, sku, price_override, stock, is_active)')
+            .select('id, name, price, stock, vendor_id, vendor_profile_id, status, product_variants(id, sku, price_override, stock, is_active)')
             .in('id', productIds);
 
         if (productsErr || !products || products.length === 0) {
@@ -373,6 +374,7 @@ router.post('/checkout/cart', requireStoreEnabled, ensureUserNotBlocked, async (
             subtotal: number;
             taxAmount: number;
             vendorId: string | null;
+            vendorProfileId: string | null;
             name: string;
         };
         const lineItems: LineItem[] = [];
@@ -424,6 +426,7 @@ router.post('/checkout/cart', requireStoreEnabled, ensureUserNotBlocked, async (
                 subtotal,
                 taxAmount,
                 vendorId: product.vendor_id || null,
+                vendorProfileId: product.vendor_profile_id || null,
                 name: product.name,
             });
         }
@@ -458,10 +461,12 @@ router.post('/checkout/cart', requireStoreEnabled, ensureUserNotBlocked, async (
             .insert({
                 user_id: req.user.id,
                 vendor_id: primaryVendorId,
+                vendor_profile_id: lineItems[0]?.vendorProfileId ?? null,
                 total_amount: grossAmount,
                 tax_total: taxTotal,
                 shipping_cost: shippingCost,
-                status: 'pending',
+                // CHECK de orders.status (M-F0-3): 'pending' ya no es válido.
+                status: 'pending_payment',
                 payment_method: provider,
                 payment_provider: provider,
                 provider_reference: reference,
@@ -487,6 +492,7 @@ router.post('/checkout/cart', requireStoreEnabled, ensureUserNotBlocked, async (
             product_id: l.productId,
             variant_id: l.variantId,
             vendor_id: l.vendorId,
+            vendor_profile_id: l.vendorProfileId,
             quantity: l.quantity,
             unit_price: l.unitPrice,
             subtotal: l.subtotal,
@@ -611,20 +617,30 @@ router.post('/refund', requireStoreEnabled, async (req: Request, res: Response) 
 
         const { orderId, transactionId, paymentId, reason } = parsed.data;
 
-        const { data: result, error } = await supabase.rpc('request_refund', {
-            p_order_id: orderId || null,
-            p_transaction_id: transactionId || null,
-            p_payment_id: paymentId || null,
-            p_reason: reason,
-        });
+        // Órdenes de la tienda: RPC propia con actor explícito (tienda v2 F0,
+        // M-F0-6). El BFF usa service role → auth.uid() es NULL adentro.
+        // request_refund queda para marketplace_transactions y payments.
+        const { data: result, error } = orderId
+            ? await supabase.rpc('request_order_refund', {
+                p_order_id: orderId,
+                p_reason: reason,
+                p_actor: req.user.id,
+            })
+            : await supabase.rpc('request_refund', {
+                p_order_id: null,
+                p_transaction_id: transactionId || null,
+                p_payment_id: paymentId || null,
+                p_reason: reason,
+            });
 
         if (error) {
-            req.log?.error({ err: error }, 'request_refund RPC failed');
+            req.log?.error({ err: error, orderId }, 'refund request RPC failed');
             return res.status(500).json({ ok: false, error: 'Error solicitando reembolso.' });
         }
 
         if (!result?.ok) {
-            return res.status(400).json({ ok: false, error: result?.error || 'Error desconocido' });
+            const code = result?.error || 'Error desconocido';
+            return res.status(orderId ? refundErrorStatus(code) : 400).json({ ok: false, error: code });
         }
 
         await auditLog(req, 'refund_request', 'refunds', result.refund_id, null, {
@@ -643,7 +659,8 @@ router.post('/refund', requireStoreEnabled, async (req: Request, res: Response) 
 // POST /refund/:id/process — Vendor/admin/owner aprueba y ejecuta void en Wompi
 // ─────────────────────────────────────────────────────────────────────────────
 // Flujo:
-//  1. RPC approve_refund verifica permisos del actor
+//  1. RPC approve_order_refund (orden, con p_actor) o approve_refund (tx/payment)
+//     verifica permisos del actor
 //  2. Buscar el wompi_transaction_id del origen (order/tx/payment)
 //  3. Llamar voidTransaction(wompi_tx_id) en Wompi
 //  4. RPC complete_refund marca refunded + restituye stock si era cart
@@ -651,32 +668,43 @@ router.post('/refund/:id/process', requireStoreEnabled, async (req: Request, res
     try {
         const refundId = req.params.id;
 
-        // 1. Aprobar (verifica permisos via SECURITY DEFINER + auth.uid())
-        const { data: approval, error: approveErr } = await supabase.rpc('approve_refund', {
-            p_refund_id: refundId,
-        });
+        // 1. Leer el reembolso: el origen decide qué RPC aprueba.
+        const { data: refund } = await supabase
+            .from('refunds')
+            .select('id, order_id, transaction_id, payment_id')
+            .eq('id', refundId)
+            .maybeSingle();
+
+        if (!refund) {
+            return res.status(404).json({ ok: false, error: 'Reembolso no encontrado.' });
+        }
+
+        // 2. Aprobar. Orden de la tienda → approve_order_refund con actor
+        //    explícito (M-F0-6; con service role auth.uid() es NULL). El resto
+        //    (marketplace_transactions / payments) sigue con approve_refund.
+        const { data: approval, error: approveErr } = refund.order_id
+            ? await supabase.rpc('approve_order_refund', {
+                p_refund_id: refundId,
+                p_actor: req.user.id,
+            })
+            : await supabase.rpc('approve_refund', {
+                p_refund_id: refundId,
+            });
 
         if (approveErr) {
-            req.log?.error({ err: approveErr }, 'approve_refund RPC failed');
+            req.log?.error({ err: approveErr, refundId }, 'approve refund RPC failed');
             return res.status(500).json({ ok: false, error: 'Error aprobando reembolso.' });
         }
 
         if (!approval?.ok) {
             const code = approval?.error || 'unknown';
-            const status = code === 'forbidden' ? 403 : code === 'unauthenticated' ? 401 : 400;
+            const status = refund.order_id
+                ? refundErrorStatus(code)
+                : code === 'forbidden' ? 403 : code === 'unauthenticated' ? 401 : 400;
             return res.status(status).json({ ok: false, error: code });
         }
 
-        // 2. Resolver wompi_transaction_id
-        const { data: refund } = await supabase
-            .from('refunds')
-            .select('id, order_id, transaction_id, payment_id')
-            .eq('id', refundId)
-            .single();
-
-        if (!refund) {
-            return res.status(404).json({ ok: false, error: 'Reembolso no encontrado.' });
-        }
+        // 3. Resolver wompi_transaction_id
 
         let wompiTxId: string | null = null;
         if (refund.order_id) {
@@ -707,7 +735,7 @@ router.post('/refund/:id/process', requireStoreEnabled, async (req: Request, res
             return res.status(400).json({ ok: false, error: 'No hay transaccion Wompi asociada para reembolsar.' });
         }
 
-        // 3. Llamar void en Wompi
+        // 4. Llamar void en Wompi
         const voidRes = await voidTransaction(wompiTxId);
         if (!voidRes.ok) {
             await supabase.from('refunds').update({ status: 'failed', rejection_reason: voidRes.error }).eq('id', refundId);
@@ -715,7 +743,7 @@ router.post('/refund/:id/process', requireStoreEnabled, async (req: Request, res
             return res.status(502).json({ ok: false, error: voidRes.error });
         }
 
-        // 4. Completar (restitucion de stock atomica si aplica)
+        // 5. Completar (restitucion de stock atomica si aplica)
         const { data: completion, error: compErr } = await supabase.rpc('complete_refund', {
             p_refund_id: refundId,
             p_wompi_void_id: wompiTxId,  // Wompi reusa el id en void

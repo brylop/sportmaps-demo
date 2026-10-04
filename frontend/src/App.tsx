@@ -680,35 +680,35 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="accounting" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'accountant']}>
                           <ModuleGate moduleKey="finanzas_contabilidad">
                             <AccountingPage />
                           </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="accounting/suppliers" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'accountant']}>
                           <ModuleGate moduleKey="finanzas_contabilidad">
                             <AccountingSuppliersPage />
                           </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="accounting/payroll" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'accountant']}>
                           <ModuleGate moduleKey="finanzas_contabilidad">
                             <PayrollPage />
                           </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="accounting/reports" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'accountant']}>
                           <ModuleGate moduleKey="finanzas_contabilidad">
                             <AccountingReportsPage />
                           </ModuleGate>
                         </ProtectedRoute>
                       } />
                       <Route path="accounting/budget" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'accountant']}>
                           <ModuleGate moduleKey="finanzas_contabilidad">
                             <AccountingBudgetPage />
                           </ModuleGate>

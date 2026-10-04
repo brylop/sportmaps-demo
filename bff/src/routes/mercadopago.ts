@@ -22,6 +22,7 @@
 
 import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
+import { cartWebhookFailureStatus, isAwaitingPayment } from '../services/store-order-status';
 import { requireAuth, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { todayInZone } from '../utils/businessDate';
 import {
@@ -582,7 +583,8 @@ async function handleCartOrder(args: HandlerArgs): Promise<HandlerResult> {
         return { status: 200, body: { status: 'ignored', reason: 'order_not_found' } };
     }
 
-    if (order.provider_transaction_id === paymentId && order.status !== 'pending') {
+    // 'pending' legacy y 'pending_payment' = todavía sin procesar
+    if (order.provider_transaction_id === paymentId && !isAwaitingPayment(order.status)) {
         return { status: 200, body: { status: 'already_processed' } };
     }
 
@@ -635,15 +637,27 @@ async function handleCartOrder(args: HandlerArgs): Promise<HandlerResult> {
         return { status: 200, body: { status: 'ok', kind: 'cart', result: stockResult } };
     }
 
-    await supabase
+    // No aprobado. Estado por mapeo explícito (CHECK de orders.status, M-F0-3):
+    // rechazo/fallo → 'cancelled' (solo si seguía sin pagar), anulación →
+    // 'refunded', pending → no se toca el estado.
+    const nextStatus = cartWebhookFailureStatus(order.status, internalStatus);
+    const failUpdate: Record<string, unknown> = {
+        payment_provider: 'mercadopago',
+        provider_transaction_id: paymentId,
+        updated_at: new Date().toISOString(),
+    };
+    if (nextStatus) failUpdate.status = nextStatus;
+    const { error: failErr } = await supabase
         .from('orders')
-        .update({
-            status: internalStatus === 'rejected' ? 'declined' : internalStatus,
-            payment_provider: 'mercadopago',
-            provider_transaction_id: paymentId,
-            updated_at: new Date().toISOString(),
-        })
+        .update(failUpdate)
         .eq('id', order.id);
+    if (failErr) {
+        req.log?.error({ err: failErr, orderId: order.id, nextStatus }, 'MP cart order: failure update failed');
+    }
+
+    if (internalStatus === 'pending') {
+        return { status: 200, body: { status: 'ok', kind: 'cart', internalStatus } };
+    }
 
     await supabase.rpc('flag_payment_for_review', {
         p_kind: 'order',

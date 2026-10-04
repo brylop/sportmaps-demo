@@ -1,10 +1,17 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { useVendorProfile } from '@/hooks/useVendorProfile';
 import { useStoreEnabled } from '@/hooks/useStoreEnabled';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useEntitlements } from '@/hooks/useEntitlements';
+import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { enableSchoolStoreErrorMessage } from '@/lib/store/storeErrors';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Store, Sparkles, ArrowRight, X } from 'lucide-react';
+import { Store, Sparkles, ArrowRight, X, Loader2 } from 'lucide-react';
 
 // Roles a los que se les ofrece activar Mi Tienda explicitamente.
 // (external_vendor / wellness_professional / personal_trainer reciben
@@ -36,22 +43,71 @@ interface Props {
 
 export function ActivateStoreCTA({ compact = false, label = 'Activar Mi Tienda' }: Props) {
     const { profile, updateProfile } = useAuth();
-    const { hasVendorProfile, isInactive, isLoading } = useVendorProfile();
+    const { hasVendorProfile, canSellProducts, isInactive, isLoading } = useVendorProfile();
     const navigate = useNavigate();
     const { enabled: storeEnabled } = useStoreEnabled();
+    const { schoolId } = useSchoolContext();
+    const { hasAddon } = useEntitlements();
+    const { toast } = useToast();
+    const queryClient = useQueryClient();
+    const [activating, setActivating] = useState(false);
 
     // Tienda apagada a nivel plataforma: no se ofrece activarla.
     if (!storeEnabled) return null;
     if (isLoading) return null;
     if (!profile) return null;
     if (!ELIGIBLE_ROLES.has(profile.role as string)) return null;
-    if (hasVendorProfile) return null; // ya activa, no mostrar CTA
-    if (profile.preferences?.store_cta_dismissed) return null; // el usuario ya la cerró
-
     const isPaidStore = PAID_STORE_ROLES.has(profile.role as string);
+    // La escuela puede tener un vendor_profile creado por el onboarding con
+    // capacidades en false (SchoolOnboardingWizard): para ella "activa" es
+    // poder vender productos, no solo tener perfil.
+    if (isPaidStore ? canSellProducts : hasVendorProfile) return null; // ya activa
+    if (profile.preferences?.store_cta_dismissed) return null; // el usuario ya la cerró
     const ctaLabel = isInactive
         ? 'Reactivar Mi Tienda'
         : (isPaidStore ? 'Activar tienda escolar' : label);
+
+    // Escuela (Tienda v2 F0, M-F0-1): con el adicional `store` pagado, la
+    // tienda escolar se abre con `enable_school_store`, que crea (o reusa) el
+    // perfil de la escuela ya verificado y con `can_sell_products`. Sin el
+    // adicional, se lleva a Mi plan. `enable_vendor_profile` queda solo para
+    // vendedores que no son escuela (/vendor/onboarding).
+    const activateSchoolStore = async () => {
+        if (!schoolId) {
+            toast({ title: 'Elige una escuela', description: 'Selecciona la escuela antes de activar su tienda.', variant: 'destructive' });
+            return;
+        }
+        setActivating(true);
+        try {
+            const { error } = await (supabase.rpc as any)('enable_school_store', { p_school_id: schoolId });
+            if (error) {
+                const friendly = enableSchoolStoreErrorMessage(error);
+                toast({ title: friendly.title, description: friendly.description, variant: 'destructive' });
+                if (friendly.addonRequired) navigate('/mi-plan?upsell=store');
+                return;
+            }
+            await queryClient.invalidateQueries({ queryKey: ['vendor-profile'] });
+            toast({ title: 'Tienda escolar activada', description: 'Ya puedes cargar tus productos.' });
+            navigate('/vendor/products');
+        } catch (err) {
+            const friendly = enableSchoolStoreErrorMessage(err);
+            toast({ title: friendly.title, description: friendly.description, variant: 'destructive' });
+        } finally {
+            setActivating(false);
+        }
+    };
+
+    const handleActivate = () => {
+        if (!isPaidStore) {
+            navigate('/vendor/onboarding');
+            return;
+        }
+        if (hasAddon('store')) {
+            void activateSchoolStore();
+            return;
+        }
+        navigate('/mi-plan?upsell=store');
+    };
 
     // Merge sobre `preferences` completo (mismo jsonb de dashboard_quick_actions
     // y dashboard_welcome_seen) — nunca reemplazarlo entero.
@@ -82,10 +138,13 @@ export function ActivateStoreCTA({ compact = false, label = 'Activar Mi Tienda' 
                     size="sm"
                     variant="default"
                     className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-700 dark:hover:bg-purple-600 text-white shrink-0"
-                    onClick={() => navigate(PAID_STORE_ROLES.has(profile.role as string) ? '/mi-plan?upsell=store' : '/vendor/onboarding')}
+                    onClick={handleActivate}
+                    disabled={activating}
                 >
                     {ctaLabel}
-                    <ArrowRight className="ml-1.5 h-4 w-4" />
+                    {activating
+                        ? <Loader2 className="ml-1.5 h-4 w-4 animate-spin" />
+                        : <ArrowRight className="ml-1.5 h-4 w-4" />}
                 </Button>
                 <button
                     onClick={dismiss}
@@ -126,11 +185,14 @@ export function ActivateStoreCTA({ compact = false, label = 'Activar Mi Tienda' 
                             {(profile.role === 'school' || profile.role === 'school_admin') && ' Vende uniformes, kits y mercancía de tu escuela.'}
                         </p>
                         <Button
-                            onClick={() => navigate(PAID_STORE_ROLES.has(profile.role as string) ? '/mi-plan?upsell=store' : '/vendor/onboarding')}
+                            onClick={handleActivate}
+                            disabled={activating}
                             className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-700 dark:hover:bg-purple-600 text-white"
                         >
                             {ctaLabel}
-                            <ArrowRight className="ml-2 h-4 w-4" />
+                            {activating
+                                ? <Loader2 className="ml-2 h-4 w-4 animate-spin" />
+                                : <ArrowRight className="ml-2 h-4 w-4" />}
                         </Button>
                     </div>
                 </div>
