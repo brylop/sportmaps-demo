@@ -40,6 +40,8 @@ import { sendToUser } from './push.service';
 import { mediosDePago } from './whatsapp-medios-de-pago.service';
 import { infoDeEscuela, fallbackInfoEscuela } from './whatsapp-info-escuela.service';
 import { resolverRespuestaDeCobro } from './whatsapp-respuesta-de-cobro.service';
+import { botEncendido, debeAtender, temaEscolar } from './whatsapp-atencion.service';
+import { conMarca, sufijoMarcaEscuela } from '../utils/tenantLink';
 
 const OTP_TTL_MIN = 10;
 
@@ -54,6 +56,17 @@ export async function runBotTurn(
     optedOut = false,
 ): Promise<void> {
     const text = (inboundText || '').trim();
+
+    // -1. Apagado = apagado. El webhook ya filtra con `debeAtender` antes de
+    //     llegar acá; esto es la defensa para cualquier otro que llame a
+    //     `runBotTurn` directo. Va ANTES de todo porque lo caro no es lo que se
+    //     envía sino el modelo: el 2026-10-03, con `ai_enabled=false`, Dynasty
+    //     corrió el LLM en cada mensaje y juntó 316 borradores que nadie pidió.
+    //     `deliver` también se niega, pero para entonces el modelo ya se pagó.
+    if (!(await botEncendido(integration.id))) {
+        console.info('[whatsapp-bot] bot apagado: runBotTurn no hace nada', { conversationId });
+        return;
+    }
 
     // 0. Pidió la baja (la ingesta ya la registró) → confirmar y parar.
     //    A quien pide que no le escriban no se le sigue preguntando nada.
@@ -319,70 +332,13 @@ async function handleIdentification(
 
     // (a) Mandó un código de 6 dígitos → verificar.
     if (codeMatch) {
-        const otpHash = hashOtp(codeMatch[1]);
-        const { data: res } = await supabase.rpc('wa_verify_otp', {
-            p_integration_id: integration.id,
-            p_contact_wa_id: contactWaId,
-            p_otp_hash: otpHash,
-        });
-        const r = res as any;
-        if (r?.ok) {
-            // La pregunta de consentimiento va PEGADA a la verificación, no en un
-            // turno aparte: dos "responde SÍ" seguidos por motivos distintos es
-            // una experiencia mala y una fuente de respuestas ambiguas (§5 del
-            // spec). El step 'ask_consent' es lo que hace que handleConsent sepa
-            // que ya se preguntó y se limite a leer la respuesta.
-            const escuela = await nombreDeEscuela(integration.school_id);
-            await deliver(integration, conversationId, contactWaId,
-                '✅ ¡Listo! Tu identidad quedó verificada. Te atiende el asistente automático de la escuela. 🤖\n\n' +
-                `¿Quieres que *${escuela}* te envíe por aquí los recordatorios de pago y los avisos de tu atleta? ` +
-                'Responde *SÍ* para activarlos — puedes darte de baja cuando quieras escribiendo *STOP*.',
-                { step: 'ask_consent', otp_verified: true });
-        } else {
-            const reason = r?.reason;
-            const msg = reason === 'expired'
-                ? 'Ese código expiró. Escríbeme de nuevo tu email registrado y te envío uno nuevo.'
-                : reason === 'too_many_attempts'
-                ? 'Demasiados intentos. Escríbeme tu email registrado para reiniciar la verificación.'
-                : reason === 'wrong_code'
-                ? `Ese código no coincide. Te quedan ${r?.attempts_left ?? 0} intentos.`
-                : 'No tengo una verificación pendiente. Escríbeme tu email registrado para empezar.';
-            await deliver(integration, conversationId, contactWaId, msg, { step: 'otp_failed', reason });
-        }
+        await verificarCodigo(integration, conversationId, contactWaId, codeMatch[1]);
         return;
     }
 
     // (b) Mandó un email → arrancar OTP.
     if (emailMatch) {
-        const email = emailMatch[0].toLowerCase();
-        const code = String(Math.floor(100000 + Math.random() * 900000)); // 6 dígitos
-        const otpHash = hashOtp(code);
-        const expiresAt = new Date(Date.now() + OTP_TTL_MIN * 60_000).toISOString();
-
-        const { data: res } = await supabase.rpc('wa_start_identification', {
-            p_integration_id: integration.id,
-            p_contact_wa_id: contactWaId,
-            p_email: email,
-            p_otp_hash: otpHash,
-            p_expires_at: expiresAt,
-        });
-
-        // Solo enviamos el correo si el email corresponde a un usuario real,
-        // pero respondemos IGUAL en ambos casos (no permitir enumeración).
-        if ((res as any)?.email_matches_parent) {
-            await emailClient.send({
-                to: email,
-                subject: 'Tu código de verificación de SportMaps',
-                html: `<p>Tu código de verificación es:</p>
-                       <h2 style="letter-spacing:3px">${code}</h2>
-                       <p>Vence en ${OTP_TTL_MIN} minutos. Si no lo solicitaste, ignora este correo.</p>`,
-                text: `Tu código de verificación de SportMaps es ${code} (vence en ${OTP_TTL_MIN} min).`,
-            });
-        }
-
-        await deliver(integration, conversationId, contactWaId,
-            `Te envié un código de 6 dígitos al correo *${maskEmail(email)}*. Escríbemelo aquí para verificar tu identidad. 🔒`,
-            { step: 'otp_sent' });
+        await arrancarOtp(integration, conversationId, contactWaId, emailMatch[0]);
         return;
     }
 
@@ -398,6 +354,15 @@ async function handleIdentification(
     // Ahora se presenta y ofrece las dos salidas sin exigir ninguna, y la
     // conversacion escala al buzon para que un humano la vea. Quien sea de la
     // escuela sigue teniendo su camino; quien no, deja de sentirse interrogado.
+    //
+    // Desde 2026-10-03 a este punto SOLO llega un desconocido cuando la escuela
+    // activó `responder_desconocidos`: el webhook calla antes al resto (ver
+    // `debeAtender`), y el desconocido con correo o tema escolar va por
+    // `atenderDesconocido`, que no pasa por acá. Las familias no pasan por acá
+    // —o el teléfono las resuelve arriba, o ya están identificadas por OTP—.
+    // Antes de ese filtro este era el camino de 238 de los 316 borradores de
+    // Dynasty: «escríbeme tu correo» a la mamá, a proveedores y a amigos de la
+    // dueña.
     const nombreEscuela = await nombreDeEscuela(integration.school_id);
     await deliver(integration, conversationId, contactWaId,
         `Hola 👋 Soy el *asistente automático* de *${nombreEscuela}*. 🤖` + '\n\n' +
@@ -409,13 +374,309 @@ async function handleIdentification(
     // Escala, pero SIN el mensaje de escalamiento: `escalate` manda su propio
     // «en breve te contactan» y quedarian dos mensajes seguidos diciendo casi lo
     // mismo. Acá solo se marca para que aparezca en el buzón.
+    await abrirEnBuzon(integration, conversationId, contactWaId);
+}
+
+/**
+ * Deja la conversación 'open' en el buzón y avisa por push SOLO en la
+ * transición (si ya estaba abierta, la escuela ya fue avisada).
+ */
+async function abrirEnBuzon(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    aviso?: AvisoDeEspera,
+): Promise<void> {
     const { data: previa } = await supabase.from('whatsapp_conversations')
         .select('status, contact_name').eq('id', conversationId).maybeSingle();
     if ((previa as any)?.status !== 'open') {
         await supabase.from('whatsapp_conversations')
             .update({ status: 'open', updated_at: new Date().toISOString() })
             .eq('id', conversationId);
-        await avisarQueEsperan(integration, conversationId, (previa as any)?.contact_name ?? null);
+        await avisarQueEsperan(integration, conversationId, contactWaId,
+            (previa as any)?.contact_name ?? null, aviso);
+    }
+}
+
+/** (a) del flujo OTP: verifica el código y, si pasa, pide el consentimiento. */
+async function verificarCodigo(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    codigo: string,
+): Promise<void> {
+    const otpHash = hashOtp(codigo);
+    const { data: res } = await supabase.rpc('wa_verify_otp', {
+        p_integration_id: integration.id,
+        p_contact_wa_id: contactWaId,
+        p_otp_hash: otpHash,
+    });
+    const r = res as any;
+    if (r?.ok) {
+        // La pregunta de consentimiento va PEGADA a la verificación, no en un
+        // turno aparte: dos "responde SÍ" seguidos por motivos distintos es
+        // una experiencia mala y una fuente de respuestas ambiguas (§5 del
+        // spec). El step 'ask_consent' es lo que hace que handleConsent sepa
+        // que ya se preguntó y se limite a leer la respuesta.
+        const escuela = await nombreDeEscuela(integration.school_id);
+        await deliver(integration, conversationId, contactWaId,
+            '✅ ¡Listo! Tu identidad quedó verificada. Te atiende el asistente automático de la escuela. 🤖\n\n' +
+            `¿Quieres que *${escuela}* te envíe por aquí los recordatorios de pago y los avisos de tu atleta? ` +
+            'Responde *SÍ* para activarlos — puedes darte de baja cuando quieras escribiendo *STOP*.',
+            { step: 'ask_consent', otp_verified: true });
+    } else {
+        const reason = r?.reason;
+        const msg = reason === 'expired'
+            ? 'Ese código expiró. Escríbeme de nuevo tu email registrado y te envío uno nuevo.'
+            : reason === 'too_many_attempts'
+            ? 'Demasiados intentos. Escríbeme tu email registrado para reiniciar la verificación.'
+            : reason === 'wrong_code'
+            ? `Ese código no coincide. Te quedan ${r?.attempts_left ?? 0} intentos.`
+            : 'No tengo una verificación pendiente. Escríbeme tu email registrado para empezar.';
+        await deliver(integration, conversationId, contactWaId, msg, { step: 'otp_failed', reason });
+    }
+}
+
+/**
+ * (b) del flujo OTP: genera el código, lo manda al correo SOLO si el correo es
+ * de un usuario real, y responde igual en ambos casos (no permite enumerar
+ * quién está registrado).
+ */
+async function arrancarOtp(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    correo: string,
+): Promise<void> {
+    const email = correo.toLowerCase();
+    const code = String(Math.floor(100000 + Math.random() * 900000)); // 6 dígitos
+    const otpHash = hashOtp(code);
+    const expiresAt = new Date(Date.now() + OTP_TTL_MIN * 60_000).toISOString();
+
+    const { data: res } = await supabase.rpc('wa_start_identification', {
+        p_integration_id: integration.id,
+        p_contact_wa_id: contactWaId,
+        p_email: email,
+        p_otp_hash: otpHash,
+        p_expires_at: expiresAt,
+    });
+
+    if ((res as any)?.email_matches_parent) {
+        await emailClient.send({
+            to: email,
+            subject: 'Tu código de verificación de SportMaps',
+            html: `<p>Tu código de verificación es:</p>
+                   <h2 style="letter-spacing:3px">${code}</h2>
+                   <p>Vence en ${OTP_TTL_MIN} minutos. Si no lo solicitaste, ignora este correo.</p>`,
+            text: `Tu código de verificación de SportMaps es ${code} (vence en ${OTP_TTL_MIN} min).`,
+        });
+    }
+
+    await deliver(integration, conversationId, contactWaId,
+        `Te envié un código de 6 dígitos al correo *${maskEmail(email)}*. Escríbemelo aquí para verificar tu identidad. 🔒`,
+        { step: 'otp_sent' });
+}
+
+// ─── 1c. El desconocido que es de la escuela (opción «1C») ───────────────────
+//
+// Con el bot prendido y `responder_desconocidos=false`, el webhook calla a todo
+// número que no es familia (`debeAtender`). Medido en Dynasty el 2026-10-03: de
+// 55 conversaciones 25 no eran familias —amigos, proveedores, la mamá de la
+// dueña—, y callarse con ellas es lo correcto. Pero en esas 25 también estaban:
+//
+//   - familias escribiendo desde OTRO número, que antes se verificaban
+//     mandando el correo (OTP) y con el filtro quedaron sin camino, y
+//   - prospectos: «Quiero inscribir a mi hija a volleyball», «Me puedes
+//     compartir más información (Horarios, cursos, lugar de práctica, valor)».
+//
+// Esta es la única puerta del desconocido, y es angosta a propósito:
+//   1. trae un correo, o un código con un OTP VIGENTE → flujo OTP de siempre;
+//   2. es de tema escolar (`temaEscolar`, reglas sin LLM) → UNA respuesta cada
+//      30 días por conversación;
+//   3. todo lo demás → silencio.
+//
+// NUNCA se llama al modelo desde acá. El desconocido es, en su mayoría, la
+// vida privada de quien dirige la escuela: lo que se le diga tiene que salir de
+// una plantilla que alguien leyó, no de una redacción del momento.
+
+/** step del saliente que cuenta para el freno de 30 días. */
+export const PASO_DESCONOCIDO_ESCOLAR = 'desconocido_tema_escolar';
+const FRENO_DESCONOCIDO_DIAS = 30;
+
+export type ResultadoDesconocido =
+    | 'otp_codigo' | 'otp_correo' | 'inscripcion' | 'inscripcion_sin_enlace' | 'pagos'
+    | 'frenado' | 'silencio';
+
+export async function atenderDesconocido(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    inboundText: string | null,
+): Promise<ResultadoDesconocido> {
+    // Misma defensa que `runBotTurn`: si alguien llama directo con el bot
+    // apagado, no se habla.
+    if (!(await botEncendido(integration.id))) return 'silencio';
+
+    const text = (inboundText || '').trim();
+    if (!text) return 'silencio';
+
+    // 1a. Un código SOLO cuenta si hay un OTP vigente para este contacto. Seis
+    //     dígitos seguidos también son un monto («son 170000») o un pedazo de
+    //     teléfono; sin el filtro, a un amigo que manda una cifra el bot le
+    //     contestaría «no tengo una verificación pendiente».
+    const codeMatch = text.match(CODE_RE);
+    if (codeMatch && await hayOtpVigente(integration.id, contactWaId)) {
+        await verificarCodigo(integration, conversationId, contactWaId, codeMatch[1]);
+        return 'otp_codigo';
+    }
+
+    // 1b. Un correo arranca el OTP. Es el camino que la familia que escribe
+    //     desde otro celular ya conocía, y el que le pide el mensaje de pagos.
+    const emailMatch = text.match(EMAIL_RE);
+    if (emailMatch) {
+        await arrancarOtp(integration, conversationId, contactWaId, emailMatch[0]);
+        return 'otp_correo';
+    }
+
+    // 2. ¿Es de la escuela? Si no, silencio.
+    const tema = temaEscolar(text);
+    if (!tema) return 'silencio';
+
+    // Una vez cada 30 días, no en cada mensaje. Un prospecto escribe tres
+    // mensajes seguidos («Hola», «quiero inscribir a mi hija», «en qué grupo»)
+    // y el enlace se manda una vez; lo que siga lo ve la escuela. Es el mismo
+    // freno que el aviso de 'debe_registrarse', con ventana más larga: acá el
+    // riesgo de equivocarse es hablarle a alguien que no es de la escuela.
+    if (await yaSeLeContestoEscolar(conversationId)) return 'frenado';
+
+    const escuela = await nombreDeEscuela(integration.school_id);
+    const saludo = `Hola 👋 Soy el *asistente automático* de *${escuela}*. 🤖`;
+
+    if (tema === 'pagos') {
+        // El texto de 'ask_email' de base, más la frase que le quita el susto
+        // al papá que escribe desde el celular del trabajo: «no te reconozco»
+        // suena a que algo está mal, y no lo está.
+        await deliver(integration, conversationId, contactWaId,
+            saludo + '\n\n' +
+            'No reconozco este número entre las familias de la escuela. Si nos escribes desde un ' +
+            'celular distinto al que registraste, es normal. 🙌' + '\n\n' +
+            'Escríbeme el *correo electrónico* con el que estás registrado y te envío un código ' +
+            'para verificarte. Después te ayudo con tus pagos y comprobantes.',
+            { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'pagos' });
+        return 'pagos';
+    }
+
+    const enlace = await enlaceDeInscripcion(integration.school_id);
+    if (enlace) {
+        await deliver(integration, conversationId, contactWaId,
+            saludo + '\n\n' +
+            '¡Gracias por tu interés! 🙌 En este enlace ves los grupos y los valores, y puedes ' +
+            `hacer la inscripción: ${enlace}` + '\n\n' +
+            'Si te queda alguna duda, escríbela por acá y la escuela te responde.',
+            { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'inscripcion', con_enlace: true });
+        return 'inscripcion';
+    }
+
+    // Sin enlace no hay a dónde mandarlo, y un prospecto que nadie contesta se
+    // va a otra escuela. Va al buzón y suena el celular: es el único caso de un
+    // desconocido que avisa por push, porque es plata que se está yendo.
+    await deliver(integration, conversationId, contactWaId,
+        saludo + '\n\n' +
+        '¡Gracias por tu interés! 🙌 Ya le avisé a la escuela y alguien te responde por aquí ' +
+        'con la información de inscripción.',
+        { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'inscripcion', con_enlace: false });
+    await abrirEnBuzon(integration, conversationId, contactWaId, { motivo: 'prospecto' });
+    return 'inscripcion_sin_enlace';
+}
+
+/**
+ * ¿Hay una verificación por correo en curso, sin vencer ni agotar, para este
+ * contacto? Misma condición que `wa_verify_otp` usa para aceptar un código.
+ */
+async function hayOtpVigente(integrationId: string, contactWaId: string): Promise<boolean> {
+    const { data, error } = await supabase
+        .from('whatsapp_identifications')
+        .select('otp_hash, otp_expires_at, attempts, verified_at')
+        .eq('integration_id', integrationId)
+        .eq('contact_wa_id', contactWaId)
+        .maybeSingle();
+    if (error || !data) return false;
+    const d = data as any;
+    return Boolean(d.otp_hash)
+        && !d.verified_at
+        && Number(d.attempts ?? 0) < 5
+        && !!d.otp_expires_at && new Date(d.otp_expires_at).getTime() > Date.now();
+}
+
+/**
+ * Freno de 30 días. Cuenta salientes Y borradores: en modo asistido la
+ * respuesta queda como borrador, y si no contara cada mensaje del prospecto
+ * dejaría uno nuevo (lo mismo que `yaSePreguntoConsentimiento`).
+ */
+async function yaSeLeContestoEscolar(conversationId: string): Promise<boolean> {
+    const desde = new Date(Date.now() - FRENO_DESCONOCIDO_DIAS * 24 * 60 * 60 * 1000).toISOString();
+    const { count: enviados } = await supabase
+        .from('whatsapp_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversationId)
+        .eq('direction', 'outbound')
+        .eq('payload->>step', PASO_DESCONOCIDO_ESCOLAR)
+        .gte('created_at', desde);
+    if ((enviados ?? 0) > 0) return true;
+
+    const { count: borradores } = await supabase
+        .from('whatsapp_message_drafts')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversationId)
+        .eq('tool_context->>step', PASO_DESCONOCIDO_ESCOLAR)
+        .gte('created_at', desde);
+    return (borradores ?? 0) > 0;
+}
+
+/**
+ * El enlace público de inscripción de la escuela: su QR de inscripción
+ * (`school_join_qr_codes` → `/join/<slug>`), el mismo link que imprime el
+ * póster (`routes/join-qr.ts`) y con la misma marca (`conMarca`).
+ *
+ * Cuál, si hay varios: medido el 2026-10-03, 11 QR activos en 8 escuelas, y
+ * Dynasty tiene DOS abiertos («INSCRIPCION DYNASTY (sin pago)», 121 altas, y
+ * «PAGOS DYNASTY VOLLEY E INSCRIPCIONES», 66). Se elige:
+ *   - activo y sin vencer (lo mismo que exige `get_join_qr_public`; un QR
+ *     vencido abre una página de «expirado»);
+ *   - 'open' antes que 'branch'. Los de 'team' y 'plan' NO se usan: meten al
+ *     prospecto en un grupo o plan puntual que no eligió;
+ *   - el que más altas tiene (`signup_count`): es el que la escuela usa de
+ *     verdad. Empate → el más nuevo.
+ *
+ * No se usa el formulario de prospectos (`/inscripcion/<slug de escuela>`):
+ * en toda la base tiene 4 registros, todos de Dynasty, y la escuela no lo
+ * reparte; el QR es lo que ya conocen sus familias.
+ *
+ * Nunca lanza: sin enlace, quien llama manda el caso al buzón.
+ */
+async function enlaceDeInscripcion(schoolId: string): Promise<string | null> {
+    try {
+        const ahora = new Date().toISOString();
+        const { data, error } = await supabase
+            .from('school_join_qr_codes')
+            .select('slug, target_type, signup_count, created_at')
+            .eq('school_id', schoolId)
+            .eq('active', true)
+            .or(`expires_at.is.null,expires_at.gt.${ahora}`)
+            .order('signup_count', { ascending: false })
+            .order('created_at', { ascending: false })
+            .limit(20);
+        if (error || !Array.isArray(data)) return null;
+
+        const lista = data as { slug: string | null; target_type: string | null }[];
+        const elegido = lista.find((q) => q.target_type === 'open' && q.slug)
+            ?? lista.find((q) => q.target_type === 'branch' && q.slug);
+        if (!elegido?.slug) return null;
+
+        const marca = await sufijoMarcaEscuela(schoolId);
+        return conMarca(`${FRONTEND_URL.replace(/\/$/, '')}/join/${elegido.slug}`, marca);
+    } catch {
+        return null;
     }
 }
 
@@ -488,10 +749,24 @@ async function handleConsent(
     if (yaConsintio) return false;
 
     // La pregunta se hace una sola vez por conversación.
+    //
+    // Este camino ahora es, para una familia NUEVA, el PRIMER mensaje que recibe
+    // del bot. El webhook clasifica con `debeAtender` antes de correr el bot, y
+    // esa clasificación usa `wa_identify_by_phone`, que deja la conversación
+    // vinculada (identified=true) cuando reconoce al acudiente. Para cuando
+    // `runBotTurn` mira, ya no entra a `identificarPorTelefono` —que era donde
+    // se saludaba y se decía «soy el asistente automático»— y cae acá.
+    //
+    // Por eso el texto se presenta en vez de arrancar con «Una cosa más»: el
+    // primer contacto de un número que hasta ayer contestaba una persona tiene
+    // que decir que es un asistente (ver QUIEN ERES en SYSTEM_PROMPT). Para el
+    // acudiente que ya venía hablando con el bot de antes de existir el
+    // consentimiento, presentarse otra vez es redundante pero no falso.
     if (!(await yaSePreguntoConsentimiento(conversationId))) {
         const escuela = await nombreDeEscuela(integration.school_id);
         await deliver(integration, conversationId, contactWaId,
-            `Una cosa más: ¿quieres que *${escuela}* te envíe por aquí los recordatorios de pago ` +
+            `¡Hola! Soy el *asistente automático* de *${escuela}*. 🤖` + '\n\n' +
+            `¿Quieres que la escuela te envíe por aquí los recordatorios de pago ` +
             `y los avisos de tu atleta?\n\n` +
             `Responde *SÍ* para activarlos. Puedes darte de baja cuando quieras escribiendo *STOP*.`,
             { step: 'ask_consent' });
@@ -851,9 +1126,30 @@ export async function deliver(
         .maybeSingle();
 
     const s = settings as any;
+
+    // Apagado = apagado: ni envío NI borrador.
+    //
+    // Antes el modo apagado solo bloqueaba el envío y caía al camino del
+    // borrador. Medido en Dynasty el 2026-10-03, primer día por Coexistence con
+    // `ai_enabled=false`: 316 borradores pendientes que nadie pidió, 238 de ellos
+    // «escríbeme tu correo» a contactos personales de la dueña. Un borrador NO es
+    // inocuo: llena el buzón y basta un «aprobar todo» para que salga.
+    //
+    // Estricto con `=== true`, igual que `ajustesDeAtencion`: sin fila de ajustes
+    // la integración está a medio configurar, y ante la duda no se habla.
+    //
+    // Sirve como gate porque `deliver` solo lo usan caminos AUTOMÁTICOS (el bot,
+    // el webhook para audio/video y la respuesta de cobro vía callback). Las
+    // respuestas humanas del buzón no pasan por acá. Si algún día lo hacen, este
+    // gate tiene que moverse a quien llama.
+    if (s?.ai_enabled !== true) {
+        console.info('[whatsapp-bot] bot apagado: no se envía ni se deja borrador',
+            { conversationId, step: (context as any)?.step ?? null });
+        return;
+    }
+
     const now = Date.now();
     const autoAllowed =
-        s?.ai_enabled !== false &&
         s?.mode === 'auto' &&
         (!s?.assisted_until || new Date(s.assisted_until).getTime() < now);
 
@@ -911,13 +1207,40 @@ export async function deliver(
  * Nunca revienta el flujo del bot: si el aviso falla, el padre igual recibio su
  * respuesta y la conversacion igual quedo marcada como abierta. Un push caido
  * no puede dejar a la familia sin atencion.
+ *
+ * Solo se avisa por contactos que el asistente ATIENDE (`debeAtender`). Con
+ * Coexistence cada conversación nueva de un desconocido —la mamá de la dueña,
+ * un proveedor— quedaba 'open' y le sonaba el celular a la dueña por un
+ * mensaje que ella misma ya estaba viendo en su WhatsApp. Sobre 55
+ * conversaciones de Dynasty, 25 no eran familias. Se recalcula acá en vez de
+ * recibir el tipo para no depender de que la columna `contact_kind` ya exista:
+ * escalar es raro, el costo de tres consultas más no se nota.
+ *
+ * Única excepción: `motivo: 'prospecto'`. Es un desconocido por definición
+ * (su número no está en ninguna ficha), preguntó por inscripción y la escuela
+ * no tiene enlace activo para mandarle (ver `atenderDesconocido`). Ese sí
+ * avisa: un prospecto sin respuesta es una inscripción perdida.
  */
+type AvisoDeEspera = { motivo: 'prospecto' };
+
 async function avisarQueEsperan(
     integration: WhatsAppIntegration,
     conversationId: string,
+    contactWaId: string,
     nombreContacto: string | null,
+    aviso?: AvisoDeEspera,
 ): Promise<void> {
     try {
+        const esProspecto = aviso?.motivo === 'prospecto';
+        if (!esProspecto) {
+            const { atender, tipo } = await debeAtender(integration, conversationId, contactWaId);
+            if (!atender) {
+                console.info('[whatsapp-bot] escalado sin push: contacto que no se atiende',
+                    { conversationId, tipo });
+                return;
+            }
+        }
+
         const [{ data: escuela }, { data: miembros }] = await Promise.all([
             supabase.from('schools').select('name, owner_id').eq('id', integration.school_id).maybeSingle(),
             supabase.from('school_members').select('profile_id')
@@ -932,10 +1255,12 @@ async function avisarQueEsperan(
         if ((escuela as any)?.owner_id) destinos.add((escuela as any).owner_id);
         if (!destinos.size) return;
 
-        const quien = nombreContacto?.trim() || 'Una familia';
+        const quien = nombreContacto?.trim() || (esProspecto ? 'Un prospecto' : 'Una familia');
         await Promise.allSettled([...destinos].map((uid) => sendToUser(uid, {
-            title: `${quien} espera respuesta`,
-            body: 'El asistente no pudo resolverlo. Abre WhatsApp en SportMaps para responder.',
+            title: esProspecto ? `${quien} pregunta por inscripciones` : `${quien} espera respuesta`,
+            body: esProspecto
+                ? 'No tienes un enlace de inscripción activo para mandarle. Abre WhatsApp en SportMaps para responder.'
+                : 'El asistente no pudo resolverlo. Abre WhatsApp en SportMaps para responder.',
             data: { tipo: 'whatsapp_escalado', conversation_id: conversationId,
                     school_id: integration.school_id },
         })));
@@ -961,7 +1286,7 @@ async function escalate(
         .eq('id', conversationId);
 
     if ((previa as any)?.status !== 'open') {
-        await avisarQueEsperan(integration, conversationId, (previa as any)?.contact_name ?? null);
+        await avisarQueEsperan(integration, conversationId, contactWaId, (previa as any)?.contact_name ?? null);
     }
 
     // El bot responde 24/7 — eso no cambia. Lo que cambia fuera de horario es lo

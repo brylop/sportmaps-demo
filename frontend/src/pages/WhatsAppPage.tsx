@@ -41,6 +41,8 @@ interface Consumo {
 interface Ajustes {
     mode: 'auto' | 'assisted';
     ai_enabled: boolean;
+    /** Contestar también a números que no son familias. Ausente si el backend es viejo. */
+    responder_desconocidos?: boolean;
     business_hours: { tz: string; dias: Record<string, [string, string]> } | null;
     welcome_message: string | null;
 }
@@ -592,7 +594,7 @@ function PanelConfig({ ajustes, guardando, onGuardar }: {
                     <CardTitle className="text-base">Cómo responde el bot</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-start justify-between gap-4">
                         <div>
                             <Label>Responder automáticamente</Label>
                             <p className="text-sm text-muted-foreground">
@@ -601,22 +603,45 @@ function PanelConfig({ ajustes, guardando, onGuardar }: {
                             </p>
                         </div>
                         <Switch
+                            className="shrink-0"
                             checked={ajustes?.mode === 'auto'}
                             disabled={guardando}
                             onCheckedChange={(v) => onGuardar({ mode: v ? 'auto' : 'assisted' })}
                         />
                     </div>
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-start justify-between gap-4">
                         <div>
-                            <Label>Asistente con IA</Label>
+                            <Label htmlFor="wa-ai-enabled">Asistente encendido</Label>
                             <p className="text-sm text-muted-foreground">
-                                Apagarlo deja el canal solo para los avisos automáticos de pagos.
+                                Apagado, el asistente <strong>no responde nada automático</strong>: ningún
+                                mensaje recibe respuesta del bot y todo lo contesta una persona. Solo siguen
+                                saliendo los avisos automáticos de pagos.
                             </p>
                         </div>
                         <Switch
+                            id="wa-ai-enabled"
+                            className="shrink-0"
                             checked={ajustes?.ai_enabled !== false}
                             disabled={guardando}
                             onCheckedChange={(v) => onGuardar({ ai_enabled: v })}
+                        />
+                    </div>
+                    <div className="flex items-start justify-between gap-4">
+                        <div>
+                            <Label htmlFor="wa-responder-desconocidos">
+                                Responder también a números que no son familias
+                            </Label>
+                            <p className="text-sm text-muted-foreground">
+                                Si está apagado, el asistente solo contesta a acudientes de la escuela. Los
+                                demás mensajes los sigues viendo y respondiendo desde tu celular.
+                            </p>
+                        </div>
+                        <Switch
+                            id="wa-responder-desconocidos"
+                            className="shrink-0"
+                            checked={ajustes?.responder_desconocidos === true}
+                            disabled={guardando || ajustes?.ai_enabled === false}
+                            onCheckedChange={(v) => onGuardar({ responder_desconocidos: v })}
                         />
                     </div>
                 </CardContent>

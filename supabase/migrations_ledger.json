@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 636,
-  "head": "20261002130001",
+  "count": 638,
+  "head": "20261003195158",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -639,6 +639,8 @@
     {"v":"20261002125955","file":"20261002125955_vendor_profiles_columnas_publicas_anon.sql","sha256":"cf7ed225ed0f6583ba8c88eef3e2711dab5248d5dd562f4ec02af2cb06315278","added":"2026-10-02","by":"Brayan Steven Lopez"},
     {"v":"20261002125957","file":"20261002125957_guard_payments_escritura_cliente.sql","sha256":"67c5ab7c378a118ab719057b008158cfa97d45bd5447f568cc62166001efa834","added":"2026-10-02","by":"Brayan Steven Lopez"},
     {"v":"20261002125959","file":"20261002125959_tienda_apagada_y_guard_vendor_profiles.sql","sha256":"b7c95b44e55a425909cd6904dc58281e3965f5d6062401243909f74e602faa75","added":"2026-10-02","by":"Brayan Steven Lopez"},
-    {"v":"20261002130001","file":"20261002130001_nomina_egreso_bruto_e_intereses_cesantias.sql","sha256":"3218b88ac8687514ca892d2c6eb5d59b5591201a3d8300510e3ebf12aa0995ca","added":"2026-10-02","by":"Brayan Steven Lopez"}
+    {"v":"20261002130001","file":"20261002130001_nomina_egreso_bruto_e_intereses_cesantias.sql","sha256":"3218b88ac8687514ca892d2c6eb5d59b5591201a3d8300510e3ebf12aa0995ca","added":"2026-10-02","by":"Brayan Steven Lopez"},
+    {"v":"20261003193624","file":"20261003193624_whatsapp_atencion_solo_familias.sql","sha256":"9b682d567356f1f3867471c3870abafd396fbccc2e3abbe4f2ca350fb403f0a2","added":"2026-10-04","by":"Brayan Steven Lopez"},
+    {"v":"20261003195158","file":"20261003195158_fix_wa_identify_staff_admin_min_uuid.sql","sha256":"1c8eac82519561e0c64795125ca0237d8b609137e181daa4af2e719cf601aacb","added":"2026-10-04","by":"Brayan Steven Lopez"}
   ]
 }

@@ -28,6 +28,7 @@ import { extractEnrollmentForm, type EnrollmentFormResult } from '../services/en
 import { buildVerdictContext } from '../services/receipt-context.service';
 import { normalizeDestination, normalizeReference, evaluateVerdict } from '../services/receipt-verdict';
 import { evaluatePaymentReceipt, redRejectionMessage } from '../services/receipt-approval.service';
+import { debeAtender, type TipoDeContacto } from '../services/whatsapp-atencion.service';
 import {
     pagosPendientesDe, resolverPago, describirPago, mensajeElegirPago,
     type PagoPendiente,
@@ -61,9 +62,24 @@ interface FilaCola {
 // cómo seguir. Nunca «contáctanos».
 
 const M = {
-    noIdentificado:
-        'Recibí tu comprobante 📄 Para poder aplicarlo necesito saber quién eres. ' +
-        'Escríbeme el correo con el que estás registrado en la escuela y te mando un código.',
+    // Antes había acá un `noIdentificado` que pedía el correo para mandar un
+    // código. Se eliminó el 2026-10-03: con el bot APAGADO le salió de verdad a
+    // 17 familias de Dynasty, y a todas se las podía reconocer por el teléfono
+    // (`wa_identify_by_phone`), que este worker no consultaba. Un comprobante
+    // no es momento de pedir un trámite: o se sabe quién es, o lo ve la escuela.
+
+    sinCuenta:
+        'Recibí tu comprobante 📄 Como todavía no tienes tu cuenta creada, ' +
+        'se lo paso a la escuela para que lo aplique.',
+
+    numeroAmbiguo:
+        'Recibí tu comprobante 📄 Tu número está en más de una cuenta de la escuela, ' +
+        'así que se lo paso a la escuela para que lo aplique a la que corresponde.',
+
+    // Familia reconocida (por OTP) cuya conversación ya no tiene acudiente: no
+    // debería pasar, pero si pasa no se le pide nada — lo resuelve un humano.
+    escaladoSinAcudiente:
+        'Recibí tu comprobante 📄 Se lo paso a la escuela para que lo aplique.',
 
     sinPendientes:
         'Recibí tu comprobante, pero ahora mismo no tienes cobros pendientes ✅ ' +
@@ -120,9 +136,13 @@ async function cerrar(
     status: 'done' | 'ignored' | 'failed',
     extra: Record<string, unknown> = {},
 ) {
-    await supabase.from('whatsapp_inbound_queue')
+    const { error } = await supabase.from('whatsapp_inbound_queue')
         .update({ status, processed_at: new Date().toISOString(), locked_until: null, ...extra })
         .eq('id', id);
+    // Un cierre que falla deja la fila en 'processing' y se reprocesa cuando
+    // vence el lease. Que al menos quede en el log (así pasó con el
+    // result_type 'enrollment_form', que el CHECK rechaza).
+    if (error) console.error('[wa-queue] no se pudo cerrar la fila', { id, status, err: error.message });
 }
 
 /**
@@ -563,7 +583,13 @@ async function encolarMatricula(
         : 'Recibí la hoja de matrícula 📋 La dejé lista para que la revises y confirmes los datos antes de crear al atleta.';
 
     await responder(aviso, 'matricula_encolada');
-    await cerrar(fila.id, 'done', { result_type: 'enrollment_form', result_ref_id: intake.id });
+    // `result_type` NO puede ser 'enrollment_form': el CHECK `chk_wa_queue_result`
+    // (verificado en la base viva el 2026-10-03) solo admite payment_receipt,
+    // glosa, escalated y none. Con 'enrollment_form' el UPDATE fallaba en
+    // silencio, la fila quedaba en 'processing', el lease vencía y se volvía a
+    // procesar: otra fila en enrollment_form_intake por vuelta, hasta agotar
+    // los reintentos y terminar 'failed'. La matrícula se ubica por `result_ref_id`.
+    await cerrar(fila.id, 'done', { result_type: 'none', result_ref_id: intake.id });
     log?.info?.({ queueId: fila.id, intakeId: intake.id, duplicateOfChildId, duplicateOfIntakeId }, '[wa-queue] matrícula encolada');
 }
 
@@ -644,6 +670,99 @@ async function procesarComoStaffAdmin(
     }
 
     await encolarMatricula(fila, storagePath, enrollment, responder, log);
+}
+
+/**
+ * Qué hace el worker con un adjunto, según quién lo manda y si el bot está
+ * prendido. Función pura a propósito: es LA regla, y se prueba sin mocks.
+ *
+ * Medido el 2026-10-03 en Dynasty (Coexistence: el número de la escuela es
+ * también el WhatsApp personal de la dueña), con el bot APAGADO: el worker no
+ * miraba `ai_enabled` y le escribió de verdad a 17 familias pidiéndoles el
+ * correo. La decisión de producto que sale de ahí:
+ *
+ *  - Apagado es apagado. Ni comprobantes, ni la rama de staff-admin (alta por
+ *    foto de matrícula): con el bot apagado el worker no habla con nadie. La
+ *    dueña ve y contesta todo desde su celular.
+ *  - El asistente solo atiende familias. Desconocidos y contactos marcados
+ *    como personales → silencio, aunque la escuela haya pedido
+ *    `responder_desconocidos`: eso es para el texto del bot; a un comprobante
+ *    de alguien que no se sabe quién es no hay nada útil que contestarle sin
+ *    pedirle un trámite.
+ *  - Quien administra la escuela sigue por su rama (`procesarComoStaffAdmin`)
+ *    AUNQUE también sea familia: en una escuela chica el dueño suele tener
+ *    hijos entrenando, y `debeAtender` lo clasifica como 'familia' antes que
+ *    como 'staff'. Sin esto perdería el alta por foto de matrícula. Su rama ya
+ *    aplica el comprobante como acudiente cuando corresponde.
+ */
+export type DecisionDeAdjunto =
+    | 'bot_apagado'       // cerrar ignored, sin responder, sin bajar nada
+    | 'staff_admin'       // procesarComoStaffAdmin
+    | 'comprobante'       // camino de siempre, con el parent_id por teléfono u OTP
+    | 'escalar_sin_cuenta'
+    | 'escalar_ambiguo'
+    | 'silencio';         // cerrar ignored, sin responder
+
+export function decidirAdjunto(a: {
+    botEncendido: boolean;
+    tipo: TipoDeContacto;
+    /** Solo se consulta si el tipo lo amerita; para 'staff' es true por definición. */
+    esStaffAdmin: boolean;
+}): DecisionDeAdjunto {
+    if (!a.botEncendido) return 'bot_apagado';
+    // Lo marcado a mano como personal manda sobre todo, incluso sobre staff.
+    if (a.tipo === 'personal' || a.tipo === 'desconocido') return 'silencio';
+    if (a.tipo === 'staff' || a.esStaffAdmin) return 'staff_admin';
+    if (a.tipo === 'familia') return 'comprobante';
+    if (a.tipo === 'familia_sin_cuenta') return 'escalar_sin_cuenta';
+    if (a.tipo === 'ambiguo') return 'escalar_ambiguo';
+    return 'silencio';
+}
+
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
+
+/**
+ * Familia conocida por la escuela pero sin cuenta. El enlace es el de SU
+ * invitación (mismo criterio que whatsapp-bot.service): el registro normal no
+ * vincula `children`, solo `accept_invitation_pro` lo hace.
+ */
+async function mensajeSinCuenta(fila: FilaCola): Promise<string> {
+    const { data: inv } = await supabase.rpc('wa_invitacion_pendiente_por_telefono', {
+        p_integration_id: fila.integration_id,
+        p_contact_wa_id: fila.wa_phone_number,
+    });
+    const invitacion = inv as { invite_id?: string; email?: string } | null;
+    if (!invitacion?.invite_id) return M.sinCuenta;
+    const enlace = `${FRONTEND_URL}/register?invite=${invitacion.invite_id}` +
+        (invitacion.email ? `&email=${encodeURIComponent(invitacion.email)}` : '');
+    return `${M.sinCuenta}\n\nSi creas tu cuenta aquí, la próxima vez tu comprobante se aplica solo: ${enlace}`;
+}
+
+/**
+ * Familia que la escuela conoce pero a la que no se le puede aplicar el
+ * comprobante sola (sin cuenta, o número en dos cuentas). Se guarda el
+ * archivo —la URL de Meta expira en minutos y la escuela tiene que poder
+ * verlo para aplicarlo a mano—, se le avisa UNA vez y la fila queda en el
+ * buzón (`ignored` + `result_type='escalated'`; el buzón lista
+ * failed/ignored/waiting_user). Sin OCR: lo va a leer una persona.
+ *
+ * No va a `waiting_user`: ese estado significa «el bot preguntó a cuál cobro
+ * aplicar» y lo consume whatsapp-respuesta-de-cobro.service.
+ */
+async function escalarALaEscuela(
+    fila: FilaCola,
+    wa: WhatsAppIntegration,
+    responder: (texto: string, paso: string) => Promise<unknown>,
+    mensaje: string,
+    paso: string,
+    motivo: string,
+    log?: Logger,
+): Promise<void> {
+    const bajada = await bajarYGuardarArchivo(fila, wa, log);
+    if (!bajada.ok) return;
+    await responder(mensaje, paso);
+    await cerrar(fila.id, 'ignored', { result_type: 'escalated', error_message: motivo });
+    log?.info?.({ queueId: fila.id, motivo }, '[wa-queue] escalado a la escuela');
 }
 
 async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
@@ -733,25 +852,80 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
 
     conversationId = (conv?.id as string) ?? null;
 
-    // 2.5. ¿Es un admin de esta escuela? Va ANTES de exigir identificación de
-    // acudiente — ver §4.1/§4.2 de alta-atleta-por-foto-hoja-matricula.md.
-    const { data: staffCheck } = await supabase.rpc('wa_identify_staff_admin_by_phone', {
-        p_school_id: fila.school_id,
-        p_wa_phone_number: fila.wa_phone_number,
-    });
-    if ((staffCheck as any)?.estado === 'identificado') {
+    // 2.5. ¿Lo atiende el asistente? Va ANTES de bajar el archivo y del OCR:
+    // con el bot apagado no se gasta nada ni se le escribe a nadie. Medido el
+    // 2026-10-03 en Dynasty: sin esta puerta el worker le pidió el correo a 17
+    // familias con `ai_enabled=false`.
+    //
+    // `debeAtender` también deja `contact_kind` en la conversación (el buzón
+    // filtra por eso aunque el bot esté apagado) y, si reconoce al acudiente
+    // por teléfono, vincula la conversación (`wa_identify_by_phone`).
+    const atencion = await debeAtender(wa, conversationId, fila.wa_phone_number);
+
+    // Solo se pregunta si administra la escuela cuando la respuesta puede
+    // cambiar algo: familias que también son dueñas (ver `decidirAdjunto`).
+    let esStaffAdmin = atencion.tipo === 'staff';
+    if (atencion.botEncendido && ['familia', 'familia_sin_cuenta', 'ambiguo'].includes(atencion.tipo)) {
+        const { data: staffCheck } = await supabase.rpc('wa_identify_staff_admin_by_phone', {
+            p_school_id: fila.school_id,
+            p_wa_phone_number: fila.wa_phone_number,
+        });
+        esStaffAdmin = (staffCheck as any)?.estado === 'identificado';
+    }
+
+    const decision = decidirAdjunto({ botEncendido: atencion.botEncendido, tipo: atencion.tipo, esStaffAdmin });
+    log?.info?.({ queueId: fila.id, tipo: atencion.tipo, decision }, '[wa-queue] atención');
+
+    if (decision === 'bot_apagado') {
+        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'bot_apagado' });
+        return;
+    }
+    if (decision === 'silencio') {
+        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'contacto_no_atendido' });
+        return;
+    }
+    if (decision === 'staff_admin') {
+        // §4.1/§4.2 de alta-atleta-por-foto-hoja-matricula.md.
         await procesarComoStaffAdmin(fila, wa, conv, responder, log);
         return;
     }
-
-    // Un comprobante no identifica a nadie: primero OTP/teléfono (sin cambios
-    // respecto de hoy).
-    if (!conv?.identified || !conv.parent_id) {
-        await responder(M.noIdentificado, 'pide_identificacion');
-        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'contacto sin identificar' });
+    if (decision === 'escalar_sin_cuenta') {
+        await escalarALaEscuela(fila, wa, responder, await mensajeSinCuenta(fila),
+            'familia_sin_cuenta', 'familia_sin_cuenta', log);
         return;
     }
-    const parentId = conv.parent_id as string;
+    if (decision === 'escalar_ambiguo') {
+        await escalarALaEscuela(fila, wa, responder, M.numeroAmbiguo,
+            'numero_ambiguo', 'numero_ambiguo', log);
+        return;
+    }
+
+    // decision === 'comprobante'. ¿De qué acudiente? Primero el TELÉFONO, que es
+    // lo que usó `debeAtender` para decir «familia» (y la RPC ya dejó la
+    // conversación vinculada); si no, el OTP. Se pregunta de nuevo en vez de
+    // fiarse de `conv`, que se leyó ANTES de que la RPC la vinculara.
+    //
+    // Antes esto solo miraba `conv.identified`, que lo estampa el bot: en
+    // Dynasty, del 2 al 3 de octubre de 2026, 18 de 29 comprobantes se cerraron
+    // «contacto sin identificar»; contra `wa_identify_by_phone` 7 eran
+    // familias identificables que perdieron su comprobante por pedirles correo.
+    const { data: identificacion } = await supabase.rpc('wa_identify_by_phone', {
+        p_integration_id: fila.integration_id,
+        p_contact_wa_id: fila.wa_phone_number,
+    });
+    let parentId: string | null =
+        ((identificacion as any)?.estado === 'identificado' && (identificacion as any)?.parent_id)
+            ? (identificacion as any).parent_id as string
+            : null;
+    if (!parentId && conv?.identified && conv.parent_id) parentId = conv.parent_id as string;
+
+    if (!parentId) {
+        // 'familia' sin acudiente resoluble: no debería pasar. NO se pide el
+        // correo (ver `M`); lo resuelve la escuela.
+        await escalarALaEscuela(fila, wa, responder, M.escaladoSinAcudiente,
+            'familia_sin_acudiente', 'familia sin parent_id resoluble', log);
+        return;
+    }
 
     // 3. Bajar y GUARDAR antes de leer.
     const bajada = await bajarYGuardarArchivo(fila, wa, log);

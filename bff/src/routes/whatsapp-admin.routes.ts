@@ -5,6 +5,9 @@
  *   PATCH /api/v1/whatsapp/:schoolId/settings   → modo, IA, horario, saludo
  *   GET   /api/v1/whatsapp/:schoolId/bandeja    → comprobantes que quedaron sin resolver
  *   GET   /api/v1/whatsapp/:schoolId/eventos    → avisos de Meta (plantillas, calidad)
+ *   GET   /api/v1/whatsapp/:schoolId/conversaciones?vista=familias|otros|todas → buzón (Fase A)
+ *   PATCH /api/v1/whatsapp/:schoolId/conversaciones/:id/tipo   → marcar/desmarcar personal
+ *   POST  /api/v1/whatsapp/:schoolId/conversaciones/:id/cerrar → dar por atendida
  *
  * Sobre la autorización: NO se reusa el `isSchoolAuthorized` que hay en
  * payment-providers.routes y reconciliation.routes. Ese termina en
@@ -26,6 +29,8 @@ import { requireAuth, type AuthenticatedRequest } from '../middlewares/authMiddl
 import { decryptToken, sendTextMessage, aFormatoWhatsApp,
          type WhatsAppIntegration } from '../services/whatsapp.service';
 import { conectarEscuela } from '../services/whatsapp-onboarding.service';
+import { calcularPendientes, contarPorVista, esColumnaInexistente, estaPendiente, vistaDeTipo,
+         type VistaDelBuzon } from '../services/whatsapp-buzon';
 
 const router = Router();
 
@@ -66,6 +71,26 @@ async function administraEstaEscuela(userId: string, schoolId: string): Promise<
         && ['owner', 'admin', 'school_admin'].includes(String(miembro.data?.role));
 }
 
+/**
+ * Ajustes del canal, con `responder_desconocidos` si la columna ya existe.
+ *
+ * La columna llega con la migración 20261003193624 (Fase A), que se aplica a
+ * mano. Mientras no esté, pedirla rompe la consulta entera: se reintenta sin
+ * ella y se informa `false`, que es su default.
+ */
+const COLUMNAS_AJUSTES = 'mode, ai_enabled, assisted_until, business_hours, welcome_message';
+async function ajustesDe(integrationId: string) {
+    const con = await supabase.from('whatsapp_settings')
+        .select(`${COLUMNAS_AJUSTES}, responder_desconocidos`)
+        .eq('integration_id', integrationId).maybeSingle();
+    if (!con.error) return con;
+    if (!esColumnaInexistente(con.error)) return con;
+    const sin = await supabase.from('whatsapp_settings')
+        .select(COLUMNAS_AJUSTES)
+        .eq('integration_id', integrationId).maybeSingle();
+    return { ...sin, data: sin.data ? { ...(sin.data as any), responder_desconocidos: false } : sin.data };
+}
+
 async function integracionDe(schoolId: string) {
     const { data } = await supabase
         .from('school_whatsapp_integrations')
@@ -93,9 +118,7 @@ router.get('/:schoolId', requireAuth, async (req: AuthenticatedRequest, res: Res
     // eventos venian en endpoints aparte: eran dos verificaciones de permisos
     // mas y dos round-trips mas, para datos chicos de la misma consulta.
     const [ajustesR, consumoR, bandejaR, eventosR] = await Promise.all([
-        supabase.from('whatsapp_settings')
-            .select('mode, ai_enabled, assisted_until, business_hours, welcome_message')
-            .eq('integration_id', integracion.id).maybeSingle(),
+        ajustesDe(integracion.id),
         // OJO: aca NO va `wa_consumo_del_mes`. Ese RPC lleva su propio candado
         // (`is_school_admin`) pensado para que el navegador lo llame directo. El
         // BFF entra con service_role, que no tiene JWT, asi que el candado daba
@@ -149,7 +172,11 @@ router.get('/:schoolId', requireAuth, async (req: AuthenticatedRequest, res: Res
         // `mode` por defecto 'assisted' si no hay fila: es el default de la tabla,
         // y es importante que la UI lo muestre — una escuela en asistido tiene un
         // bot que responde y nada sale hasta que alguien aprueba.
-        ajustes: ajustes ?? { mode: 'assisted', ai_enabled: true, business_hours: null, welcome_message: null },
+        //
+        // Sin fila de ajustes el asistente está APAGADO: así lo trata
+        // whatsapp-atencion.service. La pantalla tiene que decir lo mismo que hace.
+        ajustes: ajustes ?? { mode: 'assisted', ai_enabled: false, business_hours: null, welcome_message: null,
+                              responder_desconocidos: false },
         consumo: {
             ...(consumo as object ?? {}),
             incluidos,
@@ -171,6 +198,9 @@ const HoraHHMM = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'usa HH:MM');
 const AjustesSchema = z.object({
     mode: z.enum(['auto', 'assisted']).optional(),
     ai_enabled: z.boolean().optional(),
+    // Fase A: el asistente atiende solo familias. Esto lo extiende a números
+    // desconocidos (prospectos). Staff y personal no se atienden nunca.
+    responder_desconocidos: z.boolean().optional(),
     welcome_message: z.string().max(1000).nullable().optional(),
     business_hours: z.object({
         tz: z.string().min(1).default('America/Bogota'),
@@ -207,12 +237,32 @@ router.patch('/:schoolId/settings', requireAuth, async (req: AuthenticatedReques
     const integracion = await integracionDe(schoolId);
     if (!integracion) return res.status(404).json({ error: 'sin_integracion' });
 
-    const { data, error } = await supabase
+    const conColumna = await supabase
         .from('whatsapp_settings')
         .upsert({ integration_id: integracion.id, ...parsed.data, updated_at: new Date().toISOString() },
             { onConflict: 'integration_id' })
-        .select('mode, ai_enabled, business_hours, welcome_message')
+        .select('mode, ai_enabled, business_hours, welcome_message, responder_desconocidos')
         .single();
+    let data: any = conColumna.data;
+    let error = conColumna.error;
+
+    // Sin la migración de Fase A, la columna no existe y la consulta falla
+    // (tanto por pedirla en el SELECT como por escribirla). Si la escuela no
+    // pidió cambiarla, se reintenta sin ella; si la pidió, se le dice claro.
+    if (error && esColumnaInexistente(error)) {
+        if (parsed.data.responder_desconocidos !== undefined) {
+            return res.status(409).json({ error: 'responder_desconocidos_no_disponible',
+                detalle: 'Falta aplicar la migración de Fase A (responder_desconocidos).' });
+        }
+        const sin = await supabase
+            .from('whatsapp_settings')
+            .upsert({ integration_id: integracion.id, ...parsed.data, updated_at: new Date().toISOString() },
+                { onConflict: 'integration_id' })
+            .select('mode, ai_enabled, business_hours, welcome_message')
+            .single();
+        data = sin.data ? { ...(sin.data as any), responder_desconocidos: false } : sin.data;
+        error = sin.error;
+    }
 
     if (error) return res.status(500).json({ error: error.message });
 
@@ -435,16 +485,51 @@ router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRe
         return res.status(403).json({ error: 'Sin permiso sobre esta escuela' });
     }
 
-    const { data, error } = await supabase
+    const vistaPedida = VistaSchema.safeParse(req.query.vista ?? 'familias');
+    if (!vistaPedida.success) {
+        return res.status(400).json({ error: 'vista_invalida', detalle: 'usa familias | otros | todas' });
+    }
+
+    // Fase A: con Coexistence el número es también el WhatsApp personal de
+    // quien dirige la escuela (Dynasty, 2026-10-03: 30 de 55 conversaciones
+    // eran familias). Por defecto se muestran solo familias; el resto va a
+    // "otros". Se trae la lista completa (hasta 500) para poder devolver los
+    // conteos de las tres pestañas en el mismo viaje, y se filtra acá.
+    const COLUMNAS = 'id, contact_wa_id, contact_name, identified, status, unread_count, '
+                   + 'last_message_at, last_inbound_at, parent_id';
+    const conTipo = await supabase
         .from('whatsapp_conversations')
-        .select('id, contact_wa_id, contact_name, identified, status, unread_count, '
-              + 'last_message_at, last_inbound_at, parent_id')
+        .select(`${COLUMNAS}, contact_kind`)
         .eq('school_id', schoolId)
         .order('last_message_at', { ascending: false, nullsFirst: false })
-        .limit(200);
-    if (error) return res.status(500).json({ error: error.message });
+        .limit(500);
 
-    const ids = (data ?? []).map((c: any) => c.id);
+    let todas: any[] = (conTipo.data as any[]) ?? [];
+    let clasificacionDisponible = true;
+    if (conTipo.error) {
+        // La migración 20261003193624 se aplica a mano. Mientras no esté, la
+        // columna no existe y la consulta falla: se degrada a la lista de
+        // siempre, sin filtrar, para que el buzón no se caiga.
+        if (!esColumnaInexistente(conTipo.error)) {
+            return res.status(500).json({ error: conTipo.error.message });
+        }
+        clasificacionDisponible = false;
+        const sinTipo = await supabase
+            .from('whatsapp_conversations')
+            .select(COLUMNAS)
+            .eq('school_id', schoolId)
+            .order('last_message_at', { ascending: false, nullsFirst: false })
+            .limit(500);
+        if (sinTipo.error) return res.status(500).json({ error: sinTipo.error.message });
+        todas = ((sinTipo.data as any[]) ?? []).map((c) => ({ ...c, contact_kind: null }));
+    }
+
+    const vista: VistaDelBuzon = clasificacionDisponible ? vistaPedida.data : 'todas';
+    const conteos = clasificacionDisponible ? contarPorVista(todas) : null;
+    const data = (vista === 'todas' ? todas : todas.filter((c) => vistaDeTipo(c.contact_kind) === vista))
+        .slice(0, 200);
+
+    const ids = data.map((c: any) => c.id);
 
     // El ultimo mensaje de cada hilo. Una sola consulta para las 200
     // conversaciones, no una por cada una.
@@ -474,14 +559,128 @@ router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRe
         }
     }
 
+    // ¿Espera respuesta? Último entrante vs. último saliente (bot, buzón o echo
+    // del celular). El entrante sale de `last_inbound_at`, que mantiene
+    // `wa_ingest_inbound_message` con GREATEST; los salientes se piden solo
+    // desde el entrante más viejo de la lista, porque uno anterior no puede
+    // haber respondido nada. Así la consulta no crece con el historial.
+    const tiempos = new Map<string, { ultimoEntrante: number; ultimoSaliente: number }>();
+    for (const c of data) {
+        if (c.last_inbound_at) {
+            tiempos.set(c.id, { ultimoEntrante: new Date(c.last_inbound_at).getTime(), ultimoSaliente: 0 });
+        }
+    }
+    const desde = [...tiempos.values()].reduce((min, t) => Math.min(min, t.ultimoEntrante), Infinity);
+    if (tiempos.size && Number.isFinite(desde)) {
+        // `automatico`: el saludo / mensaje de ausencia de la app WhatsApp
+        // Business llega como echo y NO es una respuesta (en Dynasty, 7 envíos
+        // de "Gracias por comunicarte…" el 2026-10-03). Lo marca procesarEchos
+        // al recibirlo; los echos anteriores a la regla los marca
+        // scripts/wa-fase-a-limpieza.ts --aplicar. No se recalcula la regla de
+        // repetición acá: pediría todos los echos de 7 días de la integración
+        // en cada carga del buzón para corregir un pasado que el script deja
+        // marcado una sola vez.
+        const { data: salientes } = await supabase
+            .from('whatsapp_messages')
+            .select('conversation_id, direction, wa_timestamp, created_at, automatico:payload->automatico')
+            .in('conversation_id', [...tiempos.keys()])
+            .eq('direction', 'outbound')
+            .gte('wa_timestamp', new Date(desde).toISOString())
+            .order('wa_timestamp', { ascending: false })
+            .limit(1000);
+        for (const [convId, t] of calcularPendientes((salientes ?? []) as any[])) {
+            const e = tiempos.get(convId);
+            if (e) e.ultimoSaliente = t.ultimoSaliente;
+        }
+    }
+
     return res.json({
-        conversaciones: (data ?? []).map((c: any) => ({
+        vista,
+        // false = la migración de Fase A aún no está aplicada: la lista viene
+        // sin filtrar y `conteos` en null. La pantalla debería ocultar las pestañas.
+        clasificacion_disponible: clasificacionDisponible,
+        conteos,
+        conversaciones: data.map((c: any) => ({
             ...c,
             ...estadoDeVentana(c.last_inbound_at),
+            pendiente: estaPendiente(c.status, tiempos.get(c.id)),
             ultimo_mensaje: ultimos.get(c.id) ?? null,
             borradores_pendientes: borradores.get(c.id) ?? 0,
         })),
     });
+});
+
+const VistaSchema = z.enum(['familias', 'otros', 'todas']);
+
+const TipoSchema = z.object({ personal: z.boolean() }).strict();
+
+/**
+ * PATCH /api/v1/whatsapp/:schoolId/conversaciones/:conversationId/tipo
+ *
+ * `{ personal: true }`  → contact_kind='personal': el asistente no le habla
+ *                          nunca y la conversación sale de la pestaña Familias.
+ * `{ personal: false }` → contact_kind=NULL: se reclasifica sola con el próximo
+ *                          mensaje entrante (clasificarContacto). No se adivina
+ *                          acá el tipo, porque eso exige `wa_identify_by_phone`,
+ *                          que además VINCULA la conversación.
+ */
+router.patch('/:schoolId/conversaciones/:conversationId/tipo', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId, conversationId } = req.params as { schoolId: string; conversationId: string };
+    if (!(await administraEstaEscuela(req.user.id, schoolId))) {
+        return res.status(403).json({ error: 'Sin permiso sobre esta escuela' });
+    }
+
+    const parsed = TipoSchema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: 'datos_invalidos', details: parsed.error.issues });
+    }
+
+    // El school_id en el FILTRO: un admin de A no marca conversaciones de B.
+    const { data, error } = await supabase
+        .from('whatsapp_conversations')
+        .update({ contact_kind: parsed.data.personal ? 'personal' : null, updated_at: new Date().toISOString() })
+        .eq('id', conversationId)
+        .eq('school_id', schoolId)
+        .select('id, contact_kind')
+        .maybeSingle();
+
+    if (error) {
+        if (esColumnaInexistente(error)) {
+            return res.status(409).json({ error: 'clasificacion_no_disponible',
+                detalle: 'Falta aplicar la migración de Fase A (contact_kind).' });
+        }
+        return res.status(500).json({ error: error.message });
+    }
+    if (!data) return res.status(404).json({ error: 'Conversacion no encontrada' });
+
+    req.log?.info({ schoolId, conversationId, personal: parsed.data.personal }, '[wa-admin] tipo de contacto marcado');
+    return res.json({ ok: true, id: (data as any).id, contact_kind: (data as any).contact_kind });
+});
+
+/**
+ * POST /api/v1/whatsapp/:schoolId/conversaciones/:conversationId/cerrar
+ *
+ * La escuela da la conversación por atendida sin responder (un "ok, gracias").
+ * Si la familia vuelve a escribir, `wa_ingest_inbound_message` la reabre.
+ * Idempotente: cerrar una ya cerrada devuelve 200.
+ */
+router.post('/:schoolId/conversaciones/:conversationId/cerrar', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId, conversationId } = req.params as { schoolId: string; conversationId: string };
+    if (!(await administraEstaEscuela(req.user.id, schoolId))) {
+        return res.status(403).json({ error: 'Sin permiso sobre esta escuela' });
+    }
+
+    const { data, error } = await supabase
+        .from('whatsapp_conversations')
+        .update({ status: 'closed', unread_count: 0, updated_at: new Date().toISOString() })
+        .eq('id', conversationId)
+        .eq('school_id', schoolId)
+        .select('id, status')
+        .maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: 'Conversacion no encontrada' });
+
+    return res.json({ ok: true, id: (data as any).id, status: 'closed' });
 });
 
 /** GET /api/v1/whatsapp/:schoolId/conversaciones/:conversationId */
@@ -583,10 +782,17 @@ router.post('/:schoolId/conversaciones/:conversationId/responder', requireAuth, 
         p_to_wa_id: (conv as any).contact_wa_id,
     });
 
-    // Atendida por una persona: deja de estar escalada.
-    await supabase.from('whatsapp_conversations')
-        .update({ status: 'active', assigned_to: userId, unread_count: 0, updated_at: new Date().toISOString() })
-        .eq('id', conversationId);
+    // Atendida por una persona: queda cerrada (= nada pendiente). Antes se
+    // escribía status='active', que el CHECK de la tabla NO admite
+    // (open|snoozed|closed): el UPDATE fallaba en silencio y por eso las 55
+    // conversaciones de Dynasty seguían 'open' el 2026-10-03 aunque se hubieran
+    // respondido. Si la familia vuelve a escribir, wa_ingest_inbound_message
+    // la reabre a 'open'.
+    const { error: errCierre } = await supabase.from('whatsapp_conversations')
+        .update({ status: 'closed', assigned_to: userId, unread_count: 0, updated_at: new Date().toISOString() })
+        .eq('id', conversationId)
+        .eq('school_id', schoolId);
+    if (errCierre) req.log?.warn({ conversationId, err: errCierre.message }, '[wa-admin] no se pudo cerrar tras responder');
 
     return res.status(201).json({ ok: true });
 });
@@ -672,9 +878,12 @@ router.post('/:schoolId/borradores/:draftId/aprobar', requireAuth, async (req: A
         p_to_wa_id: conv.contact_wa_id,
     });
 
-    await supabase.from('whatsapp_conversations')
-        .update({ status: 'active', unread_count: 0, updated_at: new Date().toISOString() })
-        .eq('id', (draft as any).conversation_id);
+    // Mismo arreglo que en /responder: 'active' violaba el CHECK y no cerraba nada.
+    const { error: errCierre } = await supabase.from('whatsapp_conversations')
+        .update({ status: 'closed', unread_count: 0, updated_at: new Date().toISOString() })
+        .eq('id', (draft as any).conversation_id)
+        .eq('school_id', schoolId);
+    if (errCierre) req.log?.warn({ draftId, err: errCierre.message }, '[wa-admin] no se pudo cerrar tras aprobar');
 
     return res.status(201).json({ ok: true });
 });
@@ -700,12 +909,17 @@ router.post('/:schoolId/borradores/:draftId/descartar', requireAuth, async (req:
 
     // No se borra: queda el rastro de que el modelo propuso algo y una persona
     // dijo que no. Es lo que permite medir cuanto se descarta.
-    await supabase.from('whatsapp_message_drafts').update({
-        status: 'discarded',
+    // 'rejected', no 'discarded': el CHECK de whatsapp_message_drafts solo
+    // admite pending|approved|rejected|sent|expired (verificado en la base el
+    // 2026-10-03). Con 'discarded' el UPDATE fallaba en silencio y el borrador
+    // seguía 'pending' — parte de los 316 que no bajaban.
+    const { error: errDescarte } = await supabase.from('whatsapp_message_drafts').update({
+        status: 'rejected',
         approved_by: userId,
         approved_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-    }).eq('id', draftId);
+    }).eq('id', draftId).eq('status', 'pending');
+    if (errDescarte) return res.status(500).json({ error: errDescarte.message });
 
     return res.json({ ok: true });
 });
