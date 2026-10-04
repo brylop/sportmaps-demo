@@ -59,7 +59,13 @@ export function MobileBottomNav() {
   if (
     ['/', '/login', '/register', '/demo-welcome', '/recepcion'].includes(location.pathname) ||
     location.pathname.includes('/onboarding') ||
-    location.pathname.includes('/setup')
+    location.pathname.includes('/setup') ||
+    // Tienda (vitrina, ficha, carrito, checkout): pantallas de compra con su
+    // propia barra fija abajo (carrito / Comprar / Pagar). La barra de la app
+    // encima tapaba el botón de pagar en móvil (informe tienda-baseline §1.5).
+    location.pathname.startsWith('/tienda/') ||
+    location.pathname.startsWith('/checkout') ||
+    location.pathname === '/carrito'
   ) {
     return null;
   }

@@ -128,7 +128,7 @@ function useSchoolContextManager(): SchoolContext {
     const previousSchoolIdRef = useRef<string | null>(null);
 
     // Reset all school state (called on sign-out or user change)
-    const resetState = useCallback(() => {
+    const resetState = useCallback((clearQueryCache: boolean = true) => {
         setActiveSchoolId(null);
         setActiveSchoolName('Escuela');
         setCurrentUserRole(null);
@@ -148,7 +148,7 @@ function useSchoolContextManager(): SchoolContext {
         // Defensive: clear module-level BFF header and query cache so
         // subsequent renders never hit the previous user's tenant.
         bffClient.setSchoolId(null);
-        queryClient.clear();
+        if (clearQueryCache) queryClient.clear();
     }, [queryClient]);
 
     // 1. Initial Load: Resolve User & Memberships
@@ -300,7 +300,12 @@ function useSchoolContextManager(): SchoolContext {
     useEffect(() => {
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
             if (event === 'SIGNED_OUT' || !session?.user) {
-                resetState();
+                // INITIAL_SESSION sin sesión = visitante anónimo que recién
+                // carga: no hay datos de otro usuario que borrar, y clear()
+                // destruía las queries EN VUELO (cancelación silenciosa) y
+                // dejaba colgado a quien ya las observaba: StoreGate quedaba
+                // en spinner para siempre en la vitrina pública /tienda/:slug.
+                resetState(event !== 'INITIAL_SESSION');
             } else if (event === 'SIGNED_IN' && session?.user) {
                 // Only re-resolve if the user actually changed
                 if (currentUserIdRef.current !== session.user.id) {

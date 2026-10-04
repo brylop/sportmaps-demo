@@ -4,6 +4,7 @@ import { supabase } from '../config/supabase';
 import { todayInZone } from '../utils/businessDate';
 import { isStoreEnabled, requireStoreEnabled, STORE_DISABLED_BODY } from '../services/store-flag.service';
 import { VENDOR_PUBLIC_COLUMNS } from '../services/vendor-public-columns';
+import { shapeStoreCatalog, type CatalogProductRow } from '../services/store-catalog';
 
 // Columnas públicas de vendor_profiles: services/vendor-public-columns.ts
 // (con test que vigila que no entre ninguna columna sensible).
@@ -205,27 +206,47 @@ router.get('/vendor/:slug', requireStoreEnabled, optionalAuth, async (req: Reque
     try {
         const { slug } = req.params;
 
+        // Tienda escolar: no pasa por la verificación de vendedor externo
+        // (store_seller_allowed la gatea por addon + escuela operativa).
         const { data: vendor, error } = await supabase
             .from('vendor_profiles')
             .select(VENDOR_PUBLIC_COLUMNS)
             .eq('slug', slug)
             .eq('is_active', true)
-            .eq('verification_status', 'verified')
+            .or('verification_status.eq.verified,vendor_type.eq.school')
             .maybeSingle();
 
         if (error || !vendor) {
             return res.status(404).json({ ok: false, error: 'Vendedor no encontrado.' });
         }
 
-        // Obtener productos del vendor
-        const { data: products } = await supabase
+        // Tienda v2 F0 (B3/B4): catálogo por vendor_profile_id con variantes y
+        // disponibilidad real (stock - reservado); school_only solo a miembros.
+        const [{ data: vpSchool }, { data: selling }] = await Promise.all([
+            supabase.from('vendor_profiles').select('school_id').eq('id', vendor.id).maybeSingle(),
+            supabase.rpc('store_seller_allowed', { p_vendor_profile_id: vendor.id }),
+        ]);
+        const storeSchoolId: string | null = (vpSchool as any)?.school_id ?? null;
+        let memberSchoolIds: string[] = [];
+        if (req.user?.id && storeSchoolId) {
+            const { data: ids } = await supabase.rpc('_store_user_school_ids', { p_user: req.user.id });
+            memberSchoolIds = Array.isArray(ids) ? (ids as string[]) : [];
+        }
+        const { data: productRows } = await supabase
             .from('products')
-            .select('id, name, description, price, image_url, category, stock')
-            .eq('vendor_id', vendor.user_id)
+            .select(`id, name, description, price, image_url, category, stock, reserved, visibility, school_id,
+                     tax_rate, min_stock_alert,
+                     product_variants (id, name, attributes, price_override, stock, reserved, image_url, is_active, sort_order),
+                     product_images (image_url, alt_text, sort_order, is_primary)`)
+            .or(`vendor_profile_id.eq.${vendor.id},and(vendor_profile_id.is.null,vendor_id.eq.${vendor.user_id})`)
             .eq('active', true)
-            .eq('visibility', 'public')
+            .in('visibility', ['public', 'school_only'])
             .eq('status', 'active')
             .order('created_at', { ascending: false });
+        const products = shapeStoreCatalog((productRows ?? []) as unknown as CatalogProductRow[], {
+            storeSchoolId,
+            memberSchoolIds,
+        });
 
         // Obtener servicios del vendor
         const { data: services } = await supabase
@@ -239,7 +260,9 @@ router.get('/vendor/:slug', requireStoreEnabled, optionalAuth, async (req: Reque
         return res.json({
             ok: true,
             data: {
-                vendor,
+                vendor: { ...vendor, school_id: storeSchoolId },
+                /** false = la tienda existe pero hoy no vende (allowlist, addon, escuela sin operar). */
+                selling: selling === true,
                 products: products || [],
                 services: services || [],
             },

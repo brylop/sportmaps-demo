@@ -61,7 +61,10 @@ export const COMMON_ROUTES: Record<string, RoutePermission> = {
     '/notifications': { description: 'Notificaciones' },
     '/settings': { description: 'Configuración', requiredPermission: 'settings:view' },
     '/messages': { description: 'Mensajes', requiredPermission: 'messages:view' },
-    '/checkout': { description: 'Checkout de compra' },
+    '/checkout': { description: 'Redirige al carrito (checkout viejo eliminado, tienda v2)' },
+    '/checkout/tienda/:vendorProfileId': { description: 'Checkout de una pantalla de la tienda (tienda v2)' },
+    '/mis-compras': { description: 'Mis compras en la tienda' },
+    '/mis-compras/:orderId': { description: 'Detalle de una compra' },
     '/setup/school': { description: 'Setup inicial de escuela' },
     '/parent-checkout': { description: 'Checkout de padre' },
 };

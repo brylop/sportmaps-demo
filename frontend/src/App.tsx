@@ -46,7 +46,11 @@ const AccountDeletionPage = lazy(() => import("./pages/AccountDeletionPage"));
 const SchoolDetailPage = lazy(() => import("./pages/SchoolDetailPage"));
 const UnauthorizedPage = lazy(() => import("./pages/UnauthorizedPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
-const CheckoutPage = lazy(() => import("./pages/CheckoutPage"));
+const StoreCheckoutPage = lazy(() => import("./pages/StoreCheckoutPage"));
+const CarritoPage = lazy(() => import("./pages/CarritoPage"));
+const TiendaProductoPage = lazy(() => import("./pages/TiendaProductoPage"));
+const MisComprasPage = lazy(() => import("./pages/MisComprasPage"));
+const MiCompraDetallePage = lazy(() => import("./pages/MiCompraDetallePage"));
 const ParentCheckoutPage = lazy(() => import("./pages/ParentCheckoutPage"));
 const PaymentResultPage = lazy(() => import("./pages/PaymentResultPage"));
 const PaymentConfirmationPage = lazy(() => import("./pages/PaymentConfirmationPage"));
@@ -343,8 +347,11 @@ const App = () => (
                         en Play Console -> Contenido de la app -> Eliminacion de datos. */}
                     <Route path="/eliminar-cuenta" element={<AccountDeletionPage />} />
                     <Route path="/delete-account" element={<Navigate to="/eliminar-cuenta" replace />} />
-                    <Route path="/checkout" element={
-                      <ProtectedRoute><StoreGate><CheckoutPage /></StoreGate></ProtectedRoute>
+                    {/* Tienda v2: el checkout viejo (/checkout) se eliminó; se paga una tienda a la vez. */}
+                    <Route path="/checkout" element={<Navigate to="/carrito" replace />} />
+                    <Route path="/carrito" element={<StoreGate><CarritoPage /></StoreGate>} />
+                    <Route path="/checkout/tienda/:vendorProfileId" element={
+                      <ProtectedRoute><StoreGate><StoreCheckoutPage /></StoreGate></ProtectedRoute>
                     } />
                     <Route path="/onboarding/school" element={
                       <ProtectedRoute><SchoolOnboardingPage /></ProtectedRoute>
@@ -393,6 +400,7 @@ const App = () => (
                     <Route path="/marketplace/product/:id" element={<StoreGate><MarketplaceDetailPage /></StoreGate>} />
                     <Route path="/marketplace/:type/:id" element={<MarketplaceDetailPage />} />
                     <Route path="/tienda/:slug" element={<StoreGate><TiendaPublicaPage /></StoreGate>} />
+                    <Route path="/tienda/:slug/p/:productId" element={<StoreGate><TiendaProductoPage /></StoreGate>} />
 
                     {/* Public trainer profile — no auth required */}
                     <Route path="/entrenador/:userId" element={<TrainerPublicProfile />} />
@@ -496,6 +504,13 @@ const App = () => (
                         <ProtectedRoute allowedRoles={['parent', 'athlete']}>
                           <StoreGate><MiTiendaPage /></StoreGate>
                         </ProtectedRoute>
+                      } />
+                      {/* Mis compras (tienda v2 §2.1): cualquier usuario con sesión que compre. */}
+                      <Route path="mis-compras" element={
+                        <ProtectedRoute><StoreGate><MisComprasPage /></StoreGate></ProtectedRoute>
+                      } />
+                      <Route path="mis-compras/:orderId" element={
+                        <ProtectedRoute><StoreGate><MiCompraDetallePage /></StoreGate></ProtectedRoute>
                       } />
 
                       <Route path="children/:id/progress" element={

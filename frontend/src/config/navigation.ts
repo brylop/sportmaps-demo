@@ -307,7 +307,8 @@ export function getNavigationByRole(
           { title: 'Progreso Deportivo', href: '/academic-progress', icon: BookOpen },
           { title: 'Asistencias', href: '/parent-attendance', icon: BarChart3 },
           { title: 'Pagos', href: '/my-payments', icon: DollarSign },
-          { title: 'Tienda', href: '/mi-tienda', icon: ShoppingBag, requiresStore: true }
+          { title: 'Tienda', href: '/mi-tienda', icon: ShoppingBag, requiresStore: true },
+          { title: 'Mis compras', href: '/mis-compras', icon: ClipboardList, requiresStore: true }
         ]
       },
       {

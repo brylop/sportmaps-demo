@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { CartCheckoutModal } from '@/components/shop/CartCheckoutModal';
+import { useCart } from '@/contexts/CartContext';
+import { productLineId } from '@/lib/store/cart';
 import {
   ShoppingCart,
   Search,
@@ -42,7 +43,7 @@ export default function ShopPage() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
-  const [showPayment, setShowPayment] = useState(false);
+  const { addItem, setIsOpen } = useCart();
 
   const { data: products, isLoading } = useQuery({
     queryKey: ['shop-products'],
@@ -136,16 +137,23 @@ export default function ShopPage() {
       });
       return;
     }
-    setShowPayment(true);
-  };
-
-  const handlePaymentSuccess = () => {
+    // Tienda v2: se paga por el carrito global (un checkout por tienda,
+    // precios de quote_cart). Este catálogo solo pasa los productos allá.
+    for (const item of cart) {
+      addItem({
+        id: productLineId(item.id),
+        type: 'product',
+        name: item.name,
+        description: item.description ?? '',
+        price: item.price,
+        image: item.image_url ?? undefined,
+        stock: item.stock,
+        metadata: { productId: item.id },
+      }, item.quantity);
+    }
     setCart([]);
     setShowCart(false);
-    toast({
-      title: '¡Compra exitosa!',
-      description: 'Tu pedido ha sido procesado correctamente',
-    });
+    setIsOpen(true);
   };
 
   if (isLoading) {
@@ -360,18 +368,6 @@ export default function ShopPage() {
         )}
       </div>
 
-      {/* Cart Checkout Modal — Wompi */}
-      <CartCheckoutModal
-        open={showPayment}
-        onOpenChange={setShowPayment}
-        items={cart.map((i) => ({
-          productId: i.id,
-          name: i.name,
-          quantity: i.quantity,
-          unitPrice: i.price,
-        }))}
-        onSuccess={handlePaymentSuccess}
-      />
     </div>
   );
 }
