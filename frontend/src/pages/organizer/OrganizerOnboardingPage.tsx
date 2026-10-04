@@ -16,6 +16,7 @@ import { OnboardingShell, type ShellStep } from '@/components/onboarding/Onboard
 import { CityCombobox } from '@/components/common/CityCombobox';
 import { BankCombobox } from '@/components/common/BankCombobox';
 import { PhoneInput } from '@/components/ui/phone-input';
+import { comprimirParaSubir } from '@/lib/imageCompression';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -119,9 +120,10 @@ export default function OrganizerOnboardingPage() {
     }
     setLoading(true);
     try {
-      const fileExt = docFile.name.split('.').pop();
+      const fileC = await comprimirParaSubir(docFile, 'documento');
+      const fileExt = fileC.name.split('.').pop();
       const fileName = `${session?.user.id}-${Date.now()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from('organizer-docs').upload(fileName, docFile);
+      const { error: uploadError } = await supabase.storage.from('organizer-docs').upload(fileName, fileC, { contentType: fileC.type || undefined });
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage.from('organizer-docs').getPublicUrl(fileName);

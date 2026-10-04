@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { BrandingSettingsForm } from '@/components/settings/BrandingSettingsForm';
 import { BrandingAuditLog } from '@/components/settings/BrandingAuditLog';
+import { comprimirParaSubir } from '@/lib/imageCompression';
 
 interface SchoolProfile {
     id: string;
@@ -86,11 +87,12 @@ export default function SchoolSettingsPage() {
         if (!schoolId) return;
         try {
             setUploadingLogo(true);
-            const ext = file.name.split('.').pop() || 'jpg';
+            const fileC = await comprimirParaSubir(file, 'logo');
+            const ext = fileC.name.split('.').pop() || 'jpg';
             const path = `schools/${schoolId}/logo.${ext}`;
             const { error: uploadError } = await supabase.storage
                 .from('avatars')
-                .upload(path, file, { upsert: true });
+                .upload(path, fileC, { upsert: true, contentType: fileC.type || undefined });
             if (uploadError) throw uploadError;
             const { data: { publicUrl } } = supabase.storage
                 .from('avatars')

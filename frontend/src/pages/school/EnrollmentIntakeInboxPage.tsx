@@ -350,9 +350,11 @@ function IntakeCard({ item, onDone }: { item: IntakeItem; onDone: () => void }) 
 }
 
 /**
- * Una foto de celular pesa 3–8 MB y el BFF acepta hasta 4 MB. Se reduce a
- * 2000 px de lado mayor en JPEG: sobra para que el OCR lea la hoja.
- * Un PDF se manda tal cual.
+ * Una foto de celular pesa 3–8 MB y el BFF acepta hasta 4 MB. Se pasa a JPEG
+ * 0,92 SIN achicar (tope 3.200 px de lado mayor). Medido el 2026-10-04 con una
+ * hoja real de Dynasty (1284×2778): a resolución completa el OCR leyó el
+ * documento bien 3/3; reducida a 2.200 px, 1/3 (invertía o agregaba dígitos).
+ * Lo que importa es la resolución, no el formato. Un PDF se manda tal cual.
  */
 async function prepararArchivo(file: File): Promise<{ imageBase64: string; mimeType: string }> {
     const leerComoDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
@@ -374,13 +376,16 @@ async function prepararArchivo(file: File): Promise<{ imageBase64: string; mimeT
             i.onerror = () => reject(new Error('No se pudo abrir la imagen.'));
             i.src = url;
         });
-        const LADO_MAX = 2000;
+        const LADO_MAX = 3200;
         const escala = Math.min(1, LADO_MAX / Math.max(img.width, img.height));
         const canvas = document.createElement('canvas');
         canvas.width = Math.round(img.width * escala);
         canvas.height = Math.round(img.height * escala);
-        canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
-        return { imageBase64: canvas.toDataURL('image/jpeg', 0.85), mimeType: 'image/jpeg' };
+        const ctx = canvas.getContext('2d')!;
+        ctx.fillStyle = '#ffffff'; // un PNG con transparencia saldría negro en JPEG
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        return { imageBase64: canvas.toDataURL('image/jpeg', 0.92), mimeType: 'image/jpeg' };
     } finally {
         URL.revokeObjectURL(url);
     }

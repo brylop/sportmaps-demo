@@ -24,6 +24,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { Upload, FileText, Loader2, ExternalLink, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { comprimirParaSubir } from '@/lib/imageCompression';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -74,12 +75,13 @@ export function VendorDocUploadModal({ open, onOpenChange, status, currentDocUrl
 
         setUploading(true);
         try {
-            const fileExt = file.name.split('.').pop();
+            const fileC = await comprimirParaSubir(file, 'documento');
+            const fileExt = fileC.name.split('.').pop();
             const fileName = `${session.user.id}-${Date.now()}.${fileExt}`;
 
             const { error: uploadError } = await supabase.storage
                 .from('vendor-docs')
-                .upload(fileName, file);
+                .upload(fileName, fileC, { contentType: fileC.type || undefined });
 
             if (uploadError) throw uploadError;
 

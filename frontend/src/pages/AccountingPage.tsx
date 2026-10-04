@@ -34,6 +34,7 @@ import { StatFilterBar } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { z } from 'zod';
 import { validate, zRequiredText, zAmountPositive } from '@/lib/formValidation';
+import { comprimirParaSubir } from '@/lib/imageCompression';
 
 const expenseSchema = z.object({
     category_id: zRequiredText('La categoría'),
@@ -294,11 +295,12 @@ export default function AccountingPage() {
                         }
                         // Fase 1: subir comprobante opcional y registrar el puntero.
                         if (payload.file) {
-                            const safeName = payload.file.name.replace(/[^\w.-]/g, '_');
+                            const fileC = await comprimirParaSubir(payload.file, 'documento');
+                            const safeName = fileC.name.replace(/[^\w.-]/g, '_');
                             const path = `${created.id}/${Date.now()}-${safeName}`;
                             const up = await supabase.storage
                                 .from('accounting-receipts')
-                                .upload(path, payload.file, { upsert: false });
+                                .upload(path, fileC, { upsert: false, contentType: fileC.type || undefined });
                             if (up.error) {
                                 toast({ title: 'Gasto guardado, pero el comprobante falló', description: up.error.message, variant: 'destructive' });
                             } else {
