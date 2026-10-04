@@ -95,6 +95,14 @@ vi.mock('../services/receipt-approval.service', () => ({
     redRejectionMessage: vi.fn(() => ''),
 }));
 
+// Desde 2026-10-03 el worker pregunta primero a `debeAtender` (bot prendido +
+// tipo de contacto). Esta suite prueba la rama de staff-admin, así que el
+// contacto es staff con el bot prendido; la puerta se prueba en
+// whatsapp-queue-atencion.test.ts.
+vi.mock('../services/whatsapp-atencion.service', () => ({
+    debeAtender: vi.fn(() => Promise.resolve({ atender: false, tipo: 'staff', botEncendido: true })),
+}));
+
 const pagosPendientesDeMock = vi.fn();
 const resolverPagoMock = vi.fn();
 vi.mock('../services/whatsapp-receipt-matching.service', () => ({

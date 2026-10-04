@@ -16,16 +16,29 @@
  *  - **Quién escribió cada mensaje.** El bot y una persona de la escuela salen
  *    por el mismo número. Si el hilo no los distingue, nadie sabe qué se
  *    prometió ni quién lo prometió.
+ *
+ *  - **El número también es el WhatsApp personal de la dueña** (Coexistence).
+ *    Por eso el buzón abre por defecto en "Familias": los mensajes de amigos,
+ *    proveedores o desconocidos van a "Otros", y una conversación se puede
+ *    marcar como personal para que salga de la vista y el asistente nunca le
+ *    conteste.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+    AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { bffClient } from '@/lib/api/bffClient';
 import { useToast } from '@/hooks/use-toast';
 import {
     MessageSquare, Send, Bot, User, Clock, Loader2, ChevronLeft, Sparkles, X,
+    EyeOff, Eye, CheckCircle2,
 } from 'lucide-react';
 
 interface UltimoMensaje {
@@ -45,7 +58,45 @@ export interface Conversacion {
     ventana_vence: string | null;
     ultimo_mensaje: UltimoMensaje | null;
     borradores_pendientes: number;
+    /** Quién es el contacto. null/ausente si el backend todavía no lo calcula. */
+    contact_kind?: TipoDeContacto | null;
+    /** El último mensaje entrante no tiene respuesta. Ausente en backends viejos. */
+    pendiente?: boolean;
 }
+
+export type TipoDeContacto =
+    | 'familia' | 'familia_sin_cuenta' | 'ambiguo' | 'staff' | 'desconocido' | 'personal';
+
+type Vista = 'familias' | 'otros' | 'todas';
+interface Conteos { familias: number; otros: number; todas: number }
+
+/** Etiqueta corta por tipo de contacto. */
+const ETIQUETA_TIPO: Record<TipoDeContacto, { texto: string; clase: string }> = {
+    familia:            { texto: 'Familia',     clase: 'border-green-300 text-green-700 dark:text-green-400' },
+    familia_sin_cuenta: { texto: 'Sin cuenta',  clase: 'border-sky-300 text-sky-700 dark:text-sky-400' },
+    ambiguo:            { texto: 'Revisar',     clase: 'border-amber-300 text-amber-700 dark:text-amber-400' },
+    staff:              { texto: 'Equipo',      clase: 'border-violet-300 text-violet-700 dark:text-violet-400' },
+    desconocido:        { texto: 'Desconocido', clase: 'text-muted-foreground' },
+    personal:           { texto: 'Personal',    clase: 'border-slate-400 text-slate-600 dark:text-slate-300' },
+};
+
+function EtiquetaTipo({ tipo }: { tipo?: TipoDeContacto | null }) {
+    if (!tipo || !ETIQUETA_TIPO[tipo]) return null;
+    const e = ETIQUETA_TIPO[tipo];
+    return (
+        <Badge variant="outline" className={`text-[10px] ${e.clase}`}
+               title={tipo === 'ambiguo' ? 'El número coincide con más de una persona: revísalo' : undefined}>
+            {e.texto}
+        </Badge>
+    );
+}
+
+/**
+ * ¿Está esperando respuesta? Si el backend manda `pendiente`, manda eso. Si no
+ * (versión vieja), se cae al `status === 'open'` de antes.
+ */
+const sinResponder = (c: Conversacion) =>
+    typeof c.pendiente === 'boolean' ? c.pendiente : c.status === 'open';
 interface Mensaje {
     id: string; direction: string; type: string; text_body: string | null;
     status: string | null; ai_generated: boolean | null; created_at: string;
@@ -68,8 +119,12 @@ function restante(vence: string | null): string {
     return h >= 1 ? `${h} h` : `${Math.max(1, Math.floor(ms / 60_000))} min`;
 }
 
-function quien(m: Mensaje): { texto: string; icono: JSX.Element } {
-    if (m.direction === 'inbound') return { texto: 'Familia', icono: <User className="h-3 w-3" /> };
+function quien(m: Mensaje, tipo?: TipoDeContacto | null): { texto: string; icono: JSX.Element } {
+    if (m.direction === 'inbound') {
+        // Sin tipo (backend viejo) se conserva el rótulo de siempre.
+        const familia = !tipo || tipo === 'familia' || tipo === 'familia_sin_cuenta';
+        return { texto: familia ? 'Familia' : 'Contacto', icono: <User className="h-3 w-3" /> };
+    }
     return m.ai_generated
         ? { texto: 'Asistente', icono: <Bot className="h-3 w-3" /> }
         : { texto: 'Escuela', icono: <User className="h-3 w-3" /> };
@@ -85,19 +140,48 @@ export function Conversaciones({ schoolId }: { schoolId: string }) {
     const [cargandoHilo, setCargandoHilo] = useState(false);
     const [texto, setTexto] = useState('');
     const [enviando, setEnviando] = useState(false);
+    const [vista, setVista] = useState<Vista>('familias');
+    const [conteos, setConteos] = useState<Conteos | null>(null);
+    // Sin la migración de Fase A el BFF devuelve todo junto: las pestañas mentirían.
+    const [clasificacion, setClasificacion] = useState(true);
+    const [sinResponderPrimero, setSinResponderPrimero] = useState(true);
+    const [confirmarPersonal, setConfirmarPersonal] = useState(false);
+    const [accionando, setAccionando] = useState(false);
 
     const cargarLista = useCallback(async () => {
         setCargandoLista(true);
         try {
-            const r = await bffClient.get<{ conversaciones: Conversacion[] }>(
-                `/api/v1/whatsapp/${schoolId}/conversaciones`);
+            const r = await bffClient.get<{ conversaciones: Conversacion[]; conteos?: Conteos | null; clasificacion_disponible?: boolean }>(
+                `/api/v1/whatsapp/${schoolId}/conversaciones?vista=${vista}`);
             setLista(r.conversaciones ?? []);
+            // Sin la migración aplicada no llegan conteos: no se pintan números.
+            setConteos(r.conteos ?? null);
+            setClasificacion(r.clasificacion_disponible !== false);
         } catch (e: any) {
             toast({ title: 'No se pudieron cargar las conversaciones', description: e?.message, variant: 'destructive' });
         } finally {
             setCargandoLista(false);
         }
-    }, [schoolId, toast]);
+    }, [schoolId, vista, toast]);
+
+    // Lo que espera respuesta, arriba. El orden por fecha se conserva dentro
+    // de cada grupo porque el sort es estable.
+    const visibles = useMemo(() => {
+        if (!sinResponderPrimero) return lista;
+        return [...lista].sort((a, b) => Number(sinResponder(b)) - Number(sinResponder(a)));
+    }, [lista, sinResponderPrimero]);
+    const cuantosSinResponder = useMemo(() => lista.filter(sinResponder).length, [lista]);
+
+    // El detalle no trae `contact_kind` ni `pendiente`: los toma de la lista
+    // cada vez que se recarga, para que el encabezado no quede viejo.
+    useEffect(() => {
+        setAbierta((a) => {
+            if (!a) return a;
+            const fresca = lista.find((c) => c.id === a.id);
+            if (!fresca) return a;
+            return { ...a, contact_kind: fresca.contact_kind, pendiente: fresca.pendiente, status: fresca.status };
+        });
+    }, [lista]);
 
     useEffect(() => { void cargarLista(); }, [cargarLista]);
 
@@ -150,24 +234,100 @@ export function Conversaciones({ schoolId }: { schoolId: string }) {
         }
     };
 
-    if (cargandoLista) {
-        return <div className="flex items-center gap-2 text-sm text-muted-foreground py-10 justify-center">
-            <Loader2 className="h-4 w-4 animate-spin" /> Cargando conversaciones…
-        </div>;
-    }
+    const esPersonal = abierta?.contact_kind === 'personal';
 
-    if (!lista.length) {
-        return <div className="text-center py-12 text-sm text-muted-foreground">
-            <MessageSquare className="h-8 w-8 mx-auto mb-3 opacity-40" />
-            Todavía no hay conversaciones.
-        </div>;
-    }
+    /** Marca o desmarca la conversación abierta como personal. */
+    const cambiarPersonal = async (personal: boolean) => {
+        if (!abierta) return;
+        setAccionando(true);
+        try {
+            await bffClient.patch(`/api/v1/whatsapp/${schoolId}/conversaciones/${abierta.id}/tipo`, { personal });
+            toast({
+                title: personal ? 'Marcada como personal' : 'Se quitó la marca de personal',
+                description: personal
+                    ? 'Ya no aparece en Familias y el asistente no le va a responder.'
+                    : 'Vuelve a clasificarse según el número.',
+            });
+            setConfirmarPersonal(false);
+            // Al marcarla sale de la vista en la que estaba: se cierra el hilo.
+            if (personal && vista !== 'todas') setAbierta(null);
+            // El tipo real al desmarcar lo recalcula el servidor; llega con la
+            // recarga de la lista (ver el efecto que sincroniza `abierta`).
+            else setAbierta({ ...abierta, contact_kind: personal ? 'personal' : null });
+            await cargarLista();
+        } catch (e: any) {
+            toast({ title: 'No se pudo cambiar', description: e?.message, variant: 'destructive' });
+        } finally {
+            setAccionando(false);
+        }
+    };
+
+    const cerrar = async () => {
+        if (!abierta) return;
+        setAccionando(true);
+        try {
+            await bffClient.post(`/api/v1/whatsapp/${schoolId}/conversaciones/${abierta.id}/cerrar`, {});
+            toast({ title: 'Conversación cerrada', description: 'Si la persona vuelve a escribir, se abre de nuevo.' });
+            setAbierta({ ...abierta, status: 'closed', pendiente: false });
+            await cargarLista();
+        } catch (e: any) {
+            toast({ title: 'No se pudo cerrar', description: e?.message, variant: 'destructive' });
+        } finally {
+            setAccionando(false);
+        }
+    };
+
+    const conteo = (v: Vista) =>
+        conteos && typeof conteos[v] === 'number'
+            ? <span className="ml-1.5 text-[11px] text-muted-foreground tabular-nums">{conteos[v]}</span>
+            : null;
+
+    const vacio = vista === 'familias'
+        ? 'No hay conversaciones con familias.'
+        : vista === 'otros'
+            ? 'No hay mensajes de números que no son familias.'
+            : 'Todavía no hay conversaciones.';
 
     return (
-        <div className="grid md:grid-cols-[320px_1fr] gap-4">
+        <div className="grid md:grid-cols-[340px_1fr] gap-4">
             {/* ── Lista ── */}
-            <div className={`space-y-1 ${abierta ? 'hidden md:block' : ''}`}>
-                {lista.map((c) => (
+            <div className={`space-y-2 min-w-0 ${abierta ? 'hidden md:block' : ''}`}>
+                {clasificacion && (<Tabs value={vista} onValueChange={(v) => { setVista(v as Vista); setAbierta(null); }}>
+                    <TabsList className="grid w-full grid-cols-3">
+                        <TabsTrigger value="familias">Familias{conteo('familias')}</TabsTrigger>
+                        <TabsTrigger value="otros">Otros{conteo('otros')}</TabsTrigger>
+                        <TabsTrigger value="todas">Todas{conteo('todas')}</TabsTrigger>
+                    </TabsList>
+                </Tabs>)}
+                {clasificacion && vista === 'otros' && (
+                    <p className="text-xs text-muted-foreground px-1">
+                        Números que no son de acudientes: personas del equipo, desconocidos y lo que
+                        marcaste como personal. El asistente no les responde salvo que lo actives en
+                        Configuración.
+                    </p>
+                )}
+                <label className="flex items-center justify-between gap-2 px-1 py-1 text-xs text-muted-foreground">
+                    <span>
+                        Sin responder primero
+                        {cuantosSinResponder > 0 && !cargandoLista && (
+                            <span className="ml-1 font-medium text-destructive">({cuantosSinResponder})</span>
+                        )}
+                    </span>
+                    <Switch checked={sinResponderPrimero} onCheckedChange={setSinResponderPrimero} />
+                </label>
+
+                {cargandoLista && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground py-10 justify-center">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Cargando conversaciones…
+                    </div>
+                )}
+                {!cargandoLista && !visibles.length && (
+                    <div className="text-center py-12 text-sm text-muted-foreground">
+                        <MessageSquare className="h-8 w-8 mx-auto mb-3 opacity-40" />
+                        {vacio}
+                    </div>
+                )}
+                {!cargandoLista && visibles.map((c) => (
                     <button
                         key={c.id}
                         onClick={() => void abrir(c)}
@@ -186,16 +346,18 @@ export function Conversaciones({ schoolId }: { schoolId: string }) {
                             {c.ultimo_mensaje?.text_body ?? `(${c.ultimo_mensaje?.type ?? 'sin mensajes'})`}
                         </p>
                         <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                            {sinResponder(c) && (
+                                <Badge variant="destructive" className="text-[10px]">Sin responder</Badge>
+                            )}
+                            <EtiquetaTipo tipo={c.contact_kind} />
                             {c.borradores_pendientes > 0 && (
                                 <Badge variant="secondary" className="text-[10px]">
                                     <Sparkles className="h-2.5 w-2.5 mr-1" />
                                     {c.borradores_pendientes} por aprobar
                                 </Badge>
                             )}
-                            {c.status === 'open' && (
-                                <Badge variant="destructive" className="text-[10px]">Esperando respuesta</Badge>
-                            )}
-                            {!c.identified && (
+                            {/* Con contact_kind ya se sabe quién es; "Sin identificar" sobra. */}
+                            {!c.identified && !c.contact_kind && (
                                 <Badge variant="outline" className="text-[10px]">Sin identificar</Badge>
                             )}
                             {c.ventana_abierta
@@ -211,16 +373,45 @@ export function Conversaciones({ schoolId }: { schoolId: string }) {
             {/* ── Hilo ── */}
             {abierta ? (
                 <div className="border rounded-lg flex flex-col min-h-[420px]">
-                    <div className="border-b p-3 flex items-center gap-2">
-                        <Button variant="ghost" size="sm" className="md:hidden" onClick={() => setAbierta(null)}>
-                            <ChevronLeft className="h-4 w-4" />
-                        </Button>
-                        <div className="min-w-0">
-                            <p className="font-medium text-sm truncate">
-                                {abierta.contact_name || abierta.contact_wa_id}
-                            </p>
-                            <p className="text-xs text-muted-foreground">{abierta.contact_wa_id}</p>
+                    <div className="border-b p-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                            <Button variant="ghost" size="sm" className="md:hidden" onClick={() => setAbierta(null)}>
+                                <ChevronLeft className="h-4 w-4" />
+                            </Button>
+                            <div className="min-w-0 flex-1">
+                                <p className="font-medium text-sm truncate">
+                                    {abierta.contact_name || abierta.contact_wa_id}
+                                </p>
+                                <p className="text-xs text-muted-foreground">{abierta.contact_wa_id}</p>
+                            </div>
+                            <EtiquetaTipo tipo={abierta.contact_kind} />
                         </div>
+                        {/* Acciones: botones anchos en el celular, que se tocan con el dedo. */}
+                        <div className="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
+                            <Button
+                                variant="outline" size="sm" disabled={accionando}
+                                onClick={() => esPersonal ? void cambiarPersonal(false) : setConfirmarPersonal(true)}
+                            >
+                                {esPersonal
+                                    ? <><Eye className="h-3.5 w-3.5 mr-1" /> Quitar marca de personal</>
+                                    : <><EyeOff className="h-3.5 w-3.5 mr-1" /> Marcar como personal</>}
+                            </Button>
+                            <Button
+                                variant="outline" size="sm"
+                                disabled={accionando || abierta.status === 'closed'}
+                                onClick={() => void cerrar()}
+                            >
+                                {accionando
+                                    ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                                    : <CheckCircle2 className="h-3.5 w-3.5 mr-1" />}
+                                {abierta.status === 'closed' ? 'Cerrada' : 'Cerrar conversación'}
+                            </Button>
+                        </div>
+                        {esPersonal && (
+                            <p className="text-xs text-muted-foreground">
+                                Conversación personal: el asistente no le responde. Contéstala desde tu celular.
+                            </p>
+                        )}
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-3 space-y-3 max-h-[52vh]">
@@ -230,7 +421,7 @@ export function Conversaciones({ schoolId }: { schoolId: string }) {
                             </p>
                         )}
                         {mensajes.map((m) => {
-                            const q = quien(m);
+                            const q = quien(m, abierta.contact_kind);
                             const mio = m.direction === 'outbound';
                             return (
                                 <div key={m.id} className={`flex ${mio ? 'justify-end' : 'justify-start'}`}>
@@ -313,6 +504,29 @@ export function Conversaciones({ schoolId }: { schoolId: string }) {
                     Elige una conversación
                 </div>
             )}
+
+            <AlertDialog open={confirmarPersonal} onOpenChange={(v) => { if (!accionando) setConfirmarPersonal(v); }}>
+                <AlertDialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>¿Marcar como personal?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Esta conversación sale de Familias y el asistente <strong>no le va a responder
+                            nunca</strong>. Los mensajes los sigues viendo y respondiendo desde tu celular, y
+                            puedes quitar la marca cuando quieras desde la pestaña Otros.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={accionando}>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={accionando}
+                            onClick={(e) => { e.preventDefault(); void cambiarPersonal(true); }}
+                        >
+                            {accionando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                            Marcar como personal
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }
