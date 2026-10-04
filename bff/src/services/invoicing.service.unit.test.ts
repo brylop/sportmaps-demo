@@ -713,6 +713,38 @@ describe('backfillInvoices', () => {
         expect(emit).not.toHaveBeenCalled();
     });
 
+    it('el tope cuenta documentos al PAC, no pagos saltados que van primero', async () => {
+        // Dynasty sept-2026: los pagos sin datos fiscales ocupaban los primeros
+        // puestos y con tope = emitibles la pasada se iba entera en saltos.
+        sembrarPago();
+        const SIN_DOC = 'cc000002-0000-4000-8000-000000000002';
+        tablas.payments.unshift(
+            { ...tablas.payments[0], id: PAGO2, parent_id: SIN_DOC },
+            { ...tablas.payments[0], id: PAGO3, parent_id: SIN_DOC },
+        );
+        tablas.profiles.push({ id: SIN_DOC, full_name: 'Sin Documento', document_number: null });
+        const emit = adaptadorQueDevuelve(ACUSE);
+
+        const r = await backfillInvoices({ ...RANGO, limit: 1 });
+
+        expect(r.emitted).toBe(1);
+        expect(r.skipped).toBe(2);
+        expect(r.truncated).toBe(false);
+        expect(emit).toHaveBeenCalledTimes(1);
+    });
+
+    it('el tope corta cuando ya se emitieron tantos documentos', async () => {
+        sembrarPago();
+        tablas.payments.push({ ...tablas.payments[0], id: PAGO2 });
+        const emit = adaptadorQueDevuelve(ACUSE);
+
+        const r = await backfillInvoices({ ...RANGO, limit: 1 });
+
+        expect(r.emitted).toBe(1);
+        expect(r.truncated).toBe(true);
+        expect(emit).toHaveBeenCalledTimes(1);
+    });
+
     it('sin dueño no barre nada', async () => {
         sembrarPago();
         const r = await backfillInvoices({ ...RANGO, ownerId: '' });
