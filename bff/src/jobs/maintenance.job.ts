@@ -10,6 +10,7 @@ import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPe
 import { runGlosaNotifications } from './glosa-notifications.job';
 import { isStoreEnabled } from '../services/store-flag.service';
 import { sendChargeCreatedEmails, sendOverdueNoticeEmails } from './payment-lifecycle-emails.job';
+import { runEstadoDeCuentaMensualJob } from './estado-de-cuenta-mensual.job';
 import { runNotificationDispatch } from './notifications-dispatch.job';
 import { runAthleteReportsCycle } from './athlete-reports.job';
 import { runTeamReportsCycle } from './team-reports.job';
@@ -347,6 +348,25 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Aviso de pago vencido registrado para las 12:15 UTC = 07:15 COT (tras apply_late_fees).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Estado de cuenta MENSUAL por familia (correo, o WhatsApp si la familia lo
+    // aceptó y la plantilla está aprobada). L-V 8:00-12:00 COT; el servicio
+    // decide si hoy toca (día hábil, festivos, cobros del mes ya creados) y la
+    // base garantiza uno por familia y mes entre los tres BFF. Mientras esté
+    // pendiente, los avisos por cobro de esa escuela esperan (ver el servicio).
+    // Kill-switch de este proceso: DISABLE_ESTADO_CUENTA_MENSUAL=true.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('0 8-12 * * 1-5', async () => {
+        try {
+            await runEstadoDeCuentaMensualJob();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en estado de cuenta mensual:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Estado de cuenta mensual registrado (L-V 8:00-12:00 COT).');
 
     // ────────────────────────────────────────────────────────────────────────
     // Ciclo diario del Informe Mensual (F5): genera borradores, publica lo que

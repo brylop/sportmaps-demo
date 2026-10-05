@@ -55,6 +55,7 @@ import {
 } from './wompi.service';
 import { mediosDePago } from './whatsapp-medios-de-pago.service';
 import { categoriaDeCobro } from './payment-accounts';
+import { findDuplicatePaymentIds } from './duplicatePayerGuard.service';
 
 /** Formato del token que emite la RPC: 18 bytes → 24 caracteres base64url. */
 export const TOKEN_COBRO_RE = /^[A-Za-z0-9_-]{24}$/;
@@ -89,7 +90,27 @@ export interface VistaCobroPublico {
         cuentas: { tipo: string; titular: string | null; numero: string }[];
         /** wa.me de la línea de WhatsApp de la escuela, con el texto prellenado. */
         whatsappComprobante: string | null;
+        /**
+         * Imagen del QR de pago que la escuela cargó (school_settings.payment_qr_url,
+         * p.ej. el QR Bre-B de Bancolombia). Solo https; null si no hay.
+         */
+        qrEscuelaUrl: string | null;
     };
+    /**
+     * Los OTROS cobros por pagar del mismo pagador en esta escuela, cada uno con
+     * su propio enlace. El botón de WhatsApp y el QR del estado de cuenta abren
+     * un solo cobro; sin esta lista la familia no vería el resto. Solo concepto,
+     * periodo, nombre corto, monto y vencimiento — lo mismo que ya dice el correo.
+     */
+    otrosPendientes: {
+        token: string;
+        concepto: string;
+        periodo: string | null;
+        deportista: string | null;
+        monto: number;
+        fechaVencimiento: string | null;
+        vencido: boolean;
+    }[];
 }
 
 export type ResultadoResolver =
@@ -272,7 +293,7 @@ async function feePctDe(schoolId: string): Promise<number> {
     return Number((data as any)?.online_fee_pct ?? 3);
 }
 
-async function whatsappDeLaEscuela(schoolId: string): Promise<string | null> {
+export async function whatsappDeLaEscuela(schoolId: string): Promise<string | null> {
     const { data } = await supabase
         .from('school_whatsapp_integrations')
         .select('display_phone_number, status')
@@ -280,6 +301,57 @@ async function whatsappDeLaEscuela(schoolId: string): Promise<string | null> {
         .eq('status', 'active')
         .maybeSingle();
     return (data as any)?.display_phone_number ?? null;
+}
+
+/** QR de pago cargado por la escuela; solo si es una URL https (no se sirve cualquier cosa). */
+export async function qrPagoDeLaEscuela(schoolId: string): Promise<string | null> {
+    const { data } = await supabase
+        .from('school_settings')
+        .select('payment_qr_url')
+        .eq('school_id', schoolId)
+        .maybeSingle();
+    const url = String((data as any)?.payment_qr_url ?? '').trim();
+    return /^https:\/\/[^\s"'<>]+$/i.test(url) ? url : null;
+}
+
+const MAX_OTROS = 10;
+
+/**
+ * Otros cobros vivos del MISMO pagador (parent_id, si no user_id, si no el
+ * atleta no registrado) en la misma escuela. Cada uno con su token: la RPC
+ * reusa el vigente, así que abrir la página no multiplica tokens.
+ */
+async function otrosPendientesDelPagador(p: any): Promise<VistaCobroPublico['otrosPendientes']> {
+    const col = p.parent_id ? 'parent_id' : p.user_id ? 'user_id' : p.unregistered_athlete_id ? 'unregistered_athlete_id' : null;
+    if (!col) return [];
+    const { data, error } = await supabase
+        .from('payments')
+        .select(COLS_COBRO)
+        .eq('school_id', p.school_id)
+        .eq(col, p[col])
+        .in('status', ['pending', 'overdue', 'partial'])
+        .order('due_date', { ascending: true })
+        .limit(MAX_OTROS + 1);
+    if (error || !data) return [];
+    const hoy = hoyBogota();
+    // Sin los que ya están pagados bajo una ficha gemela (mismo filtro que la cobranza).
+    const duplicados = await findDuplicatePaymentIds(p.school_id, data as any[]).catch(() => new Set<string>());
+    const filas = (data as any[]).filter((o) => o.id !== p.id && !duplicados.has(o.id)).slice(0, MAX_OTROS);
+    const out: VistaCobroPublico['otrosPendientes'] = [];
+    for (const o of filas) {
+        const token = await emitirTokenCobro(o.id);
+        if (!token) continue;
+        out.push({
+            token,
+            concepto: String(o.concept || 'Mensualidad'),
+            periodo: periodoDeCobro(o),
+            deportista: await nombreDelDeportista(o),
+            monto: Number(o.amount),
+            fechaVencimiento: o.due_date ? String(o.due_date).slice(0, 10) : null,
+            vencido: estadoPublico(o.status, o.due_date, hoy) === 'vencido',
+        });
+    }
+    return out;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -290,7 +362,7 @@ export async function vistaDelCobro(r: Extract<ResultadoResolver, { ok: true }>)
     const p = await leerCobro(r.paymentId, r.schoolId);
     if (!p) return null;
 
-    const [{ data: escuela }, deportista, pasarela, feePct, medios, waEscuela] = await Promise.all([
+    const [{ data: escuela }, deportista, pasarela, feePct, medios, waEscuela, qrEscuela, otros] = await Promise.all([
         supabase.from('schools').select('name, logo_url').eq('id', p.school_id).maybeSingle(),
         nombreDelDeportista(p),
         pasarelaParaCobro(p),
@@ -299,6 +371,8 @@ export async function vistaDelCobro(r: Extract<ResultadoResolver, { ok: true }>)
         // muestra en el cobro de su concepto.
         mediosDePago(p.school_id, { categoria: categoriaDeCobro(p.payment_category, p.concept) }),
         whatsappDeLaEscuela(p.school_id),
+        qrPagoDeLaEscuela(p.school_id),
+        otrosPendientesDelPagador(p),
     ]);
 
     const monto = Number(p.amount);
@@ -327,8 +401,9 @@ export async function vistaDelCobro(r: Extract<ResultadoResolver, { ok: true }>)
             ? { proveedor: 'wompi', recargoPct: feePct, ...montosEnLinea(monto, feePct) }
             : null,
         transferencia: pagable
-            ? { cuentas: medios.cuentas, whatsappComprobante: enlaceWhatsApp(waEscuela, textoWa) }
-            : { cuentas: [], whatsappComprobante: null },
+            ? { cuentas: medios.cuentas, whatsappComprobante: enlaceWhatsApp(waEscuela, textoWa), qrEscuelaUrl: qrEscuela }
+            : { cuentas: [], whatsappComprobante: null, qrEscuelaUrl: null },
+        otrosPendientes: otros,
     };
 }
 

@@ -10,12 +10,21 @@
  *     por el WhatsApp de la escuela (lo lee el bot de comprobantes).
  * Nada de lo que se muestra identifica al acudiente: solo escuela, concepto,
  * nombre corto del deportista y montos. Mobile first: se abre desde WhatsApp.
+ *
+ * Orden (2026-10-05, "todo es todo para facilitarles"): si hay pago en línea
+ * (Wompi; depende de PAGO_PUBLICO_PERMITE_LLAVES_ENV en el BFF) va PRIMERO,
+ * justo debajo del valor. Después la transferencia: cada llave con su botón de
+ * copiar, el QR de pago que cargó la escuela, el QR de este mismo enlace (para
+ * abrirlo en otro celular) y el WhatsApp para el comprobante. Al final, los
+ * otros cobros pendientes de la familia, cada uno con su enlace. Sin pago en
+ * línea la página funciona igual con transferencia y QR.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { QRCodeSVG } from 'qrcode.react';
 import {
-    AlertCircle, CheckCircle2, Clock, Copy, CreditCard, Loader2, MessageCircle, Landmark, XCircle,
+    AlertCircle, CheckCircle2, Clock, Copy, CreditCard, ListChecks, Loader2, MessageCircle, Landmark, QrCode, XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { BFFError } from '@/lib/api/bffClient';
@@ -260,6 +269,20 @@ export default function CobroPublicoPage() {
                             <p className="mt-2 text-sm text-gray-600">Pídele a la escuela los datos para transferir.</p>
                         )}
                         <p className="mt-3 text-xs text-gray-600">Valor a transferir: <strong>{cop(v.monto)}</strong></p>
+                        {v.transferencia.qrEscuelaUrl && (
+                            <div className="mt-4 text-center">
+                                <p className="flex items-center justify-center gap-1 text-xs font-medium text-gray-700">
+                                    <QrCode className="h-4 w-4" /> QR de pago de la escuela
+                                </p>
+                                <img
+                                    src={v.transferencia.qrEscuelaUrl}
+                                    alt={`QR de pago de ${v.escuela.nombre}`}
+                                    className="mx-auto mt-2 w-56 max-w-full rounded-lg border border-gray-100"
+                                    loading="lazy"
+                                />
+                                <p className="mt-1 text-xs text-gray-500">Escanéalo desde la app de tu banco.</p>
+                            </div>
+                        )}
                         {v.transferencia.whatsappComprobante && (
                             <Button asChild variant="outline" className="mt-4 h-12 w-full">
                                 <a href={v.transferencia.whatsappComprobante} target="_blank" rel="noopener noreferrer">
@@ -267,6 +290,47 @@ export default function CobroPublicoPage() {
                                 </a>
                             </Button>
                         )}
+                    </section>
+                )}
+
+                {v.otrosPendientes && v.otrosPendientes.length > 0 && (
+                    <section className="rounded-2xl bg-white p-5 shadow-sm">
+                        <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                            <ListChecks className="h-4 w-4" /> Otros cobros pendientes
+                        </h2>
+                        <ul className="mt-3 space-y-2">
+                            {v.otrosPendientes.map((o) => (
+                                <li key={o.token}>
+                                    <Link
+                                        to={`/p/${encodeURIComponent(o.token)}`}
+                                        className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 p-3 hover:bg-gray-50"
+                                    >
+                                        <div className="min-w-0">
+                                            <p className="truncate text-sm text-gray-900">
+                                                {o.concepto}{o.periodo ? ` · ${o.periodo}` : ''}
+                                            </p>
+                                            <p className="text-xs text-gray-500">
+                                                {o.deportista ?? ''}{o.fechaVencimiento ? `${o.deportista ? ' · ' : ''}vence ${fecha(o.fechaVencimiento)}` : ''}
+                                                {o.vencido && <span className="ml-1 text-red-700">· Vencido</span>}
+                                            </p>
+                                        </div>
+                                        <span className="shrink-0 text-sm font-semibold text-gray-900">{cop(o.monto)}</span>
+                                    </Link>
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
+                )}
+
+                {pagable && (
+                    <section className="rounded-2xl bg-white p-5 text-center shadow-sm">
+                        <h2 className="flex items-center justify-center gap-2 text-sm font-semibold text-gray-900">
+                            <QrCode className="h-4 w-4" /> Abre este cobro en otro celular
+                        </h2>
+                        <div className="mt-3 inline-block rounded-lg bg-white p-2">
+                            <QRCodeSVG value={`${window.location.origin}/p/${encodeURIComponent(token)}`} size={160} />
+                        </div>
+                        <p className="mt-1 text-xs text-gray-500">Escanéalo con la cámara.</p>
                     </section>
                 )}
 

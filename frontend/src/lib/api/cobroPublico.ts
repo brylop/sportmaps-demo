@@ -22,7 +22,19 @@ export interface VistaCobroPublico {
     transferencia: {
         cuentas: { tipo: string; titular: string | null; numero: string }[];
         whatsappComprobante: string | null;
+        /** Imagen del QR de pago que cargó la escuela (p.ej. Bre-B). */
+        qrEscuelaUrl?: string | null;
     };
+    /** Otros cobros por pagar del mismo pagador, cada uno con su enlace. */
+    otrosPendientes?: {
+        token: string;
+        concepto: string;
+        periodo: string | null;
+        deportista: string | null;
+        monto: number;
+        fechaVencimiento: string | null;
+        vencido: boolean;
+    }[];
 }
 
 export interface CheckoutCobroPublico {
