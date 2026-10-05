@@ -15,6 +15,10 @@
 
 export type PaymentAccountType = 'breb' | 'nequi' | 'daviplata' | 'transfer_key';
 
+/** Categorías de cobro (CHECK de payments.payment_category). */
+export type PaymentChargeCategory = 'mensualidad' | 'inscripcion' | 'articulos' | 'torneo' | 'otro';
+const CHARGE_CATEGORIES: PaymentChargeCategory[] = ['mensualidad', 'inscripcion', 'articulos', 'torneo', 'otro'];
+
 export interface PaymentAccount {
     id: string;
     type: PaymentAccountType;
@@ -23,6 +27,41 @@ export interface PaymentAccount {
     value: string;
     /** false = la escuela la conserva pero deja de mostrarla al acudiente. */
     active: boolean;
+    /**
+     * Si trae categorías, la llave SOLO vale para esos cobros: se muestra al
+     * acudiente únicamente al pagar uno de ellos, el bot de WhatsApp no la
+     * ofrece, y el verificador la acepta solo para ese concepto (para otro, el
+     * comprobante queda en revisión). Caso Dynasty 2026-10-05: Nequi personal de
+     * la dueña, solo para inscripciones. Ausente/vacía = vale para todo.
+     */
+    only_for?: PaymentChargeCategory[];
+}
+
+/** ¿La llave sirve para pagar un cobro de esta categoría? Desconocida = solo las generales. */
+export function accountAppliesTo(account: Pick<PaymentAccount, 'only_for'>, category: PaymentChargeCategory | null | undefined): boolean {
+    if (!account.only_for || account.only_for.length === 0) return true;
+    return !!category && account.only_for.includes(category);
+}
+
+/**
+ * Categoría de un cobro: `payment_category` si es específica; si falta o es
+ * 'otro', el texto del concepto (`payment_type` NO distingue matrícula de
+ * mensualidad). Misma regla que `categoriaDeCobro` del BFF.
+ */
+export function chargeCategoryOf(
+    paymentCategory: string | null | undefined,
+    concept: string | null | undefined,
+): PaymentChargeCategory | null {
+    const isCat = (v: unknown): v is PaymentChargeCategory => CHARGE_CATEGORIES.includes(v as PaymentChargeCategory);
+    if (isCat(paymentCategory) && paymentCategory !== 'otro') return paymentCategory;
+    const c = (concept ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    if (c) {
+        if (/matricul|inscrip/.test(c)) return 'inscripcion';
+        if (/mensualidad|mensual/.test(c)) return 'mensualidad';
+        if (/torneo/.test(c)) return 'torneo';
+        if (/uniforme|articulo|kit\b|dotacion/.test(c)) return 'articulos';
+    }
+    return paymentCategory === 'otro' ? 'otro' : null;
 }
 
 export const PAYMENT_ACCOUNT_TYPES: { value: PaymentAccountType; label: string; placeholder: string }[] = [
@@ -72,6 +111,11 @@ export function parsePaymentAccounts(raw: unknown): PaymentAccount[] {
         const type = String(row.type ?? '');
         const value = typeof row.value === 'string' ? row.value.trim() : '';
         if (!VALID_TYPES.has(type) || !value) continue;
+        // Se conserva `only_for`: si este parseo la descartara, guardar el panel
+        // borraría la restricción y la llave volvería a valer para todo.
+        const onlyFor = Array.isArray(row.only_for)
+            ? (row.only_for as unknown[]).filter((c): c is PaymentChargeCategory => CHARGE_CATEGORIES.includes(c as PaymentChargeCategory))
+            : [];
         out.push({
             id: typeof row.id === 'string' && row.id ? row.id : newAccountId(),
             type: type as PaymentAccountType,
@@ -79,6 +123,7 @@ export function parsePaymentAccounts(raw: unknown): PaymentAccount[] {
             value,
             // Solo `false` explícito oculta: un registro viejo sin la clave se muestra.
             active: row.active !== false,
+            ...(onlyFor.length > 0 ? { only_for: onlyFor } : {}),
         });
     }
     return out;
@@ -124,16 +169,18 @@ export function legacyColumnsToAccounts(source: LegacyAccountColumns | null | un
 /**
  * Llaves a mostrar al acudiente: la lista si existe, si no las columnas viejas.
  * `onlyActive` por defecto — el panel del admin pasa false para editar también
- * las que estan apagadas.
+ * las que estan apagadas (y entonces ve también las restringidas).
+ * `category`: el cobro que se va a pagar. Al acudiente solo se le muestran las
+ * llaves generales y las restringidas a esa categoría (`only_for`).
  */
 export function resolvePaymentAccounts(
     source: (LegacyAccountColumns & { payment_accounts?: unknown }) | null | undefined,
-    { onlyActive = true }: { onlyActive?: boolean } = {},
+    { onlyActive = true, category = null }: { onlyActive?: boolean; category?: PaymentChargeCategory | null } = {},
 ): PaymentAccount[] {
     if (!source) return [];
     const parsed = parsePaymentAccounts(source.payment_accounts);
     const accounts = parsed.length > 0 ? parsed : legacyColumnsToAccounts(source);
-    return onlyActive ? accounts.filter(a => a.active) : accounts;
+    return onlyActive ? accounts.filter(a => a.active && accountAppliesTo(a, category)) : accounts;
 }
 
 /**
@@ -142,8 +189,11 @@ export function resolvePaymentAccounts(
  * desplegados, el select de respaldo del BFF) que aun apuntan ahi.
  */
 export function accountsToLegacyColumns(accounts: PaymentAccount[]): Required<Omit<LegacyAccountColumns, 'breb_key'>> {
+    // Las restringidas (`only_for`) NO se espejan: las columnas sueltas las leen
+    // caminos que no conocen la restricción (bot, RPCs de pago) y la volverían
+    // una llave para todo.
     const firstOf = (type: PaymentAccountType) =>
-        accounts.find(a => a.active && a.type === type && a.value.trim())?.value.trim() ?? null;
+        accounts.find(a => a.active && !(a.only_for && a.only_for.length > 0) && a.type === type && a.value.trim())?.value.trim() ?? null;
     return {
         nequi_number:     firstOf('nequi'),
         daviplata_number: firstOf('daviplata'),

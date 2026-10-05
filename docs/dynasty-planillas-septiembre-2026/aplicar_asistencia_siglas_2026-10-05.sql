@@ -2,18 +2,20 @@
 -- Generado 2026-10-05 desde docs/dynasty-planillas-septiembre-2026/cruce_asistencia.json + respuestas de Milena (2026-10-05).
 -- Milena 2026-10-05: toda marca (✓, X, R, VR, ✓R) = asistio; en Infantil Masculino la X es asistencia;
 -- hojas sin titulo: grupo = inscripcion activa actual del atleta (enrollments.status = active).
--- Excluidas a proposito: R(tachada), X/✓ tachados, garabatos, "/", numeros, VA, C, Y, borrones, anotaciones
--- (Repetida/Incapacidad/Retirada), filas sin atleta identificado, y la hoja 32 (sin encabezado de dias:
--- va aparte en aplicar_asistencia_hoja32_OPCIONAL_2026-10-05.sql).
--- Correr en el SQL Editor de Supabase completo (BEGIN ... COMMIT).
+-- R tachada, "/" y VA van en el lote extra; hoja 32 en su propio archivo. Quedan fuera: garabatos, numeros,
+-- tachados de X/✓, C, Y, borrones, anotaciones (Repetida/Incapacidad/Retirada) y filas sin atleta identificado.
+-- ORDEN DE EJECUCION: 0) aplicar_asistencia_hoja32_OPCIONAL_2026-10-05.sql (YA APLICADO 2026-10-05 12:23, no re-correr)
+-- 1) aplicar_asistencia_siglas_2026-10-05.sql  2) aplicar_asistencia_siglas_extra_2026-10-05.sql
+-- 3) aplicar_asistencia_siglas_2026-10-05_verificacion.sql (solo lectura).
+-- Cualquier re-corrida es inocua: sesiones por NOT EXISTS equipo+fecha; registros por NOT EXISTS atleta+dia y sesion+atleta.
 -- Idempotente: re-correrlo no duplica (NOT EXISTS por equipo+fecha en sesiones; por atleta+fecha y por sesion+atleta en registros).
 -- No toca registros existentes (ni los 1.358 del 2026-10-03 ni los "absent" previos de la app).
 -- Sesiones se insertan YA finalized=true: deduccion y aviso post-entrenamiento solo disparan en UPDATE false->true.
 
 BEGIN;
 
--- 1) Sesiones (equipo, fecha) que necesitan los registros: 51 pares; solo se crean las que no existen.
---    Esperado al 2026-10-05: 14 nuevas (13 INFANTIL MASCULINO dias 8,9,13,15,16,18,20,22,23,25,27,29,30 + 1 INFANTIL FEMENINO 28-sep); las otras 37 ya existen.
+-- 1) Sesiones (equipo, fecha) que necesitan los registros: 50 pares; solo se crean las que no existen.
+--    Esperado contra la base al 2026-10-05 (hoja 32 ya aplicada): 2 nuevas (INFANTIL MASCULINO 15-sep, INFANTIL FEMENINO 28-sep); 48 ya existen.
 INSERT INTO public.attendance_sessions
   (school_id, team_id, session_date, title, finalized, finalized_at, finalized_by, created_by, coach_notes)
 SELECT '2d509571-3238-4c04-ac3f-6dfe20539226'::uuid, v.team_id, v.session_date, 'Entrenamiento', true, now(),
@@ -62,7 +64,6 @@ FROM (VALUES
   ('1bbdfadf-f60a-45cd-8751-d112bfc057a6'::uuid, date '2026-09-15'),  -- MENORES MASCULINO
   ('1bbdfadf-f60a-45cd-8751-d112bfc057a6'::uuid, date '2026-09-17'),  -- MENORES MASCULINO
   ('1bbdfadf-f60a-45cd-8751-d112bfc057a6'::uuid, date '2026-09-19'),  -- MENORES MASCULINO
-  ('1bbdfadf-f60a-45cd-8751-d112bfc057a6'::uuid, date '2026-09-20'),  -- MENORES MASCULINO
   ('1bbdfadf-f60a-45cd-8751-d112bfc057a6'::uuid, date '2026-09-22'),  -- MENORES MASCULINO
   ('1bbdfadf-f60a-45cd-8751-d112bfc057a6'::uuid, date '2026-09-24'),  -- MENORES MASCULINO
   ('1bbdfadf-f60a-45cd-8751-d112bfc057a6'::uuid, date '2026-09-26'),  -- MENORES MASCULINO
@@ -76,7 +77,7 @@ WHERE NOT EXISTS (
   SELECT 1 FROM public.attendance_sessions s
   WHERE s.school_id = '2d509571-3238-4c04-ac3f-6dfe20539226' AND s.team_id = v.team_id AND s.session_date = v.session_date);
 
--- 2) Registros present: 320 filas (equipo, fecha, child_id, hoja, marca del papel).
+-- 2) Registros present: 319 filas (equipo, fecha, child_id, hoja, marca del papel).
 INSERT INTO public.attendance_records
   (school_id, child_id, attendance_date, status, marked_by, notes, team_id, session_id, check_in_method)
 SELECT '2d509571-3238-4c04-ac3f-6dfe20539226'::uuid, v.child_id, v.fecha, 'present', '73adf4ca-51f5-4f4a-a6ca-1973c84e8151'::uuid,
@@ -394,7 +395,6 @@ FROM (VALUES
   ('1bbdfadf-f60a-45cd-8751-d112bfc057a6'::uuid, date '2026-09-15', '193e7f19-ecf1-45bb-853c-c07c5d0d875e'::uuid, 25, '✓'),  -- MENORES MASCULINO | MATIAS QUINTERO CASALLAS
   ('1bbdfadf-f60a-45cd-8751-d112bfc057a6'::uuid, date '2026-09-17', '193e7f19-ecf1-45bb-853c-c07c5d0d875e'::uuid, 25, '✓'),  -- MENORES MASCULINO | MATIAS QUINTERO CASALLAS
   ('1bbdfadf-f60a-45cd-8751-d112bfc057a6'::uuid, date '2026-09-19', '193e7f19-ecf1-45bb-853c-c07c5d0d875e'::uuid, 25, '✓'),  -- MENORES MASCULINO | MATIAS QUINTERO CASALLAS
-  ('1bbdfadf-f60a-45cd-8751-d112bfc057a6'::uuid, date '2026-09-20', '193e7f19-ecf1-45bb-853c-c07c5d0d875e'::uuid, 25, '✓'),  -- MENORES MASCULINO | MATIAS QUINTERO CASALLAS
   ('1bbdfadf-f60a-45cd-8751-d112bfc057a6'::uuid, date '2026-09-22', '193e7f19-ecf1-45bb-853c-c07c5d0d875e'::uuid, 25, '✓'),  -- MENORES MASCULINO | MATIAS QUINTERO CASALLAS
   ('1bbdfadf-f60a-45cd-8751-d112bfc057a6'::uuid, date '2026-09-24', '193e7f19-ecf1-45bb-853c-c07c5d0d875e'::uuid, 25, '✓'),  -- MENORES MASCULINO | MATIAS QUINTERO CASALLAS
   ('1bbdfadf-f60a-45cd-8751-d112bfc057a6'::uuid, date '2026-09-26', '193e7f19-ecf1-45bb-853c-c07c5d0d875e'::uuid, 25, '✓'),  -- MENORES MASCULINO | MATIAS QUINTERO CASALLAS
@@ -423,9 +423,9 @@ FROM (VALUES
   ('INTERMEDIO', 1),
   ('JUVENIL MAYORES MASCULINO', 1),
   ('MENORES FEMENINO', 15),
-  ('MENORES MASCULINO', 17),
+  ('MENORES MASCULINO', 16),
   ('NUEVA ERA', 3)
-  , ('TOTAL', 320)
+  , ('TOTAL', 319)
 ) AS x(grupo, registros_esperados)
 LEFT JOIN (SELECT coalesce(t.name, 'TOTAL') AS name, count(*) n FROM public.attendance_records ar JOIN public.teams t ON t.id = ar.team_id
            WHERE ar.school_id = '2d509571-3238-4c04-ac3f-6dfe20539226' AND ar.notes LIKE 'Planilla papel sep-2026 / siglas /%'

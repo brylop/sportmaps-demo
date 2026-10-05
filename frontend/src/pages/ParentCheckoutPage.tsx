@@ -23,7 +23,7 @@ import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { maskSensitive } from '@/lib/utils';
-import { resolvePaymentAccounts, accountDisplayLabel } from '@/lib/payment-accounts';
+import { resolvePaymentAccounts, accountDisplayLabel, chargeCategoryOf } from '@/lib/payment-accounts';
 import { FileUpload } from '@/components/common/FileUpload';
 import type { ReceiptValidationResult, ConceptKind } from '@/hooks/useReceiptValidator';
 import { blockPwaReload, unblockPwaReload } from '@/pwa/reloadGuard';
@@ -196,7 +196,13 @@ export default function ParentCheckoutPage() {
   const [bankDetails, setBankDetails] = useState<any>(null);
   // Llaves visibles de la escuela; si aún no guardó la lista, se arman desde las
   // columnas viejas para no dejar el bloque de transferencia vacío.
-  const payableAccounts = useMemo(() => resolvePaymentAccounts(bankDetails), [bankDetails]);
+  // Una llave restringida (`only_for`, p.ej. el Nequi de inscripciones de
+  // Dynasty) solo aparece si este cobro es de su concepto.
+  const chargeCategory = chargeCategoryOf(null, concept);
+  const payableAccounts = useMemo(
+    () => resolvePaymentAccounts(bankDetails, { category: chargeCategory }),
+    [bankDetails, chargeCategory],
+  );
 
   // Fetch School Settings (Feature Flag)
   useEffect(() => {
@@ -968,6 +974,7 @@ export default function ParentCheckoutPage() {
                               validateReceipt={true}
                               schoolId={resolvedSchoolId || undefined}
                               paymentId={paymentIdParam || undefined}
+                              paymentCategory={chargeCategory}
                               expectedAmount={chargeAmount}
                               conceptKind={conceptKind}
                               allowPartial={installmentCfg.allow_installments}

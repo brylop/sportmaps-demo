@@ -80,3 +80,20 @@ Efecto en dinero: entran $90.000 pagados (Vásquez) + $225.000 en abonos. Octubr
 8. Mateus: confirmar que recibió $150.000 en efectivo el 12-sep (el papel parece decir 180).
 9. Joven: ¿los $60.000 fueron un abono, o ella tiene otro valor acordado?
 10. Cuéllar Juan Sebastián: inscribirlo (no está en la app). Pagó $150.000 el 1-sep.
+
+---
+
+## Delta (2026-10-05, segunda respuesta de Milena)
+
+Este script (`aplicar_pagos_y_planes_2026-10-05.sql`, sin D1/D2) y `aplicar_matriculas_por_revisar_2026-10-05.sql` **ya están aplicados**. Lo que Milena confirmó después va en un archivo aparte: **`aplicar_delta_mora_nieto_nino_2026-10-05.sql`**. Es idempotente; lo verifiqué contra el estado actual con SELECT y EXPLAIN y todavía **no está aplicado**.
+
+| Atleta | Qué hace el delta | ¿Qué debe después? |
+|---|---|---|
+| Mora Duarte Andrés | Plan ELITE → **PRO $150.000**. El cobro de octubre pasa de 180.000 a **150.000** | **Agosto $180.000 vencido** (nunca pagó, sin comprobante ni WhatsApp) y octubre $150.000, que vence el 10-oct. Septiembre está pagado. Pendiente con Milena: ¿agosto se cobra a 180.000 (plan viejo) o a 150.000? En la misma familia, José Gabriel debe agosto ($150.000) y Sara Manuela debe agosto y septiembre ($150.000 c/u) |
+| Nieto Mia | **Anula** el cobro de sep (`57420b6d`) con `status='cancelled'`, el mismo mecanismo que usa la app (`set_school_athlete_status` / `cancelPendingPlanPayments`) | **No debe nada vencido.** El pago del 30-ago ($150.000, con comprobante) cubre septiembre. Le queda solo octubre $150.000, que vence el 10-oct. No hay comprobantes en revisión, ni mensajes de WhatsApp, ni glosas ni cuotas |
+| Niño Daniel = **Julián David Niño Ramírez** | Los $300.000 (foto 23, fila 25: "**2 MESES**", 21-sep, BC) = $150.000 por mes. **Agosto y septiembre quedan `paid`** con amount_paid 150.000 cada uno (ref. `PLANILLA-SEP26-41fa045d` / `-91752550`). La ficha "Daniel Niño" de Matrículas por revisar se **descarta** (`rejected` + motivo, igual que el botón Descartar: `POST /enrollment-intake/:id/reject`) | No debe nada vencido. Octubre $180.000 (ELITE), vence el 10-oct. **Pendiente con Milena:** el papel implica una cuota de $150.000. ¿Lo pasamos a PRO? Además, debajo del nombre hay una palabra borrada que empieza por "Ret…": ¿se retira? |
+
+Por qué los dos meses quedan `paid` y no "agosto pagado completo + septiembre abono de 120.000": la planilla dice explícitamente "2 MESES", así que la escuela dio por cubiertos los dos. Es el mismo criterio de las tandas anteriores (Luna, Elizalde, Mora): cuando el papel difiere del cobro, el mes queda `paid` con amount_paid igual al valor del papel.
+Al pasar a `paid`, el trigger `fn_extend_enrollment_on_payment_paid` extiende la vigencia del plan de Julián David, igual que en las tandas anteriores.
+
+García María Paula, Nigrinis y Hernández Gabriela siguen **pendientes**: no se tocaron.

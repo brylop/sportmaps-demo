@@ -11,6 +11,7 @@ import { Card } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import type { PaymentChargeCategory } from '@/lib/payment-accounts';
 
 interface FileUploadProps {
   bucket: BucketName;
@@ -36,6 +37,9 @@ interface FileUploadProps {
   schoolId?: string;
   /** Pago en edición (update flow), para excluirlo del dedup en el BFF. */
   paymentId?: string;
+  /** Categoría del cobro que se paga: decide qué llaves restringidas
+   *  (`payment_accounts[].only_for`) acepta el BFF como destino. */
+  paymentCategory?: PaymentChargeCategory | null;
   /** 'window' (default) acepta comprobantes de hoy o de los `dateWindowDays`
    *  dias anteriores. 'any' no valida la fecha: usar en el registro manual desde
    *  el panel de la escuela, donde el soporte llego por WhatsApp dias antes. */
@@ -66,6 +70,7 @@ export function FileUpload({
   minPartialAmount,
   schoolId,
   paymentId,
+  paymentCategory,
   dateMode = 'window',
   dateWindowDays,
   blockOnRedVerdict = true,
@@ -128,7 +133,7 @@ export function FileUpload({
     try {
       let result: ReceiptValidationResult;
       try {
-        result = await validate(toUse[0], { expectedAmount, conceptKind, allowPartial, minPartialAmount, schoolId, paymentId, dateMode, dateWindowDays, blockOnRedVerdict });
+        result = await validate(toUse[0], { expectedAmount, conceptKind, allowPartial, minPartialAmount, schoolId, paymentId, paymentCategory: paymentCategory ?? undefined, dateMode, dateWindowDays, blockOnRedVerdict });
       } catch (ocrErr) {
         // OCR NO disponible (BFF 502/caído/cold-start). NO bloquear: subir el
         // comprobante igual y que la escuela lo valide visualmente. El OCR es
@@ -361,4 +366,4 @@ export function FileUpload({
       </p>
     </div>
   );
-}
+}

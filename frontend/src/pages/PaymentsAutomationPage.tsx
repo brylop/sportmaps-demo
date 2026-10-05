@@ -61,6 +61,10 @@ interface BillingSettings {
   allow_coach_messaging: boolean;
   /** El entrenador puede inscribir en equipos con cobro (genera mensualidad). */
   coach_can_enroll_paid_teams: boolean;
+  /** El entrenador puede subir fotos de hojas de matrícula (las aprueba la escuela). */
+  coach_can_upload_enrollment_forms?: boolean;
+  /** El entrenador podrá subir fotos de planillas de asistencia (F1, aún sin construir). */
+  coach_can_upload_attendance_sheets?: boolean;
   require_payment_proof: boolean;
   bank_name?: string | null;
   bank_account_type?: string | null;
@@ -131,6 +135,8 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   allow_coach_messaging: true,
   // Default alineado con el de la columna en DB: es el comportamiento de siempre.
   coach_can_enroll_paid_teams: true,
+  coach_can_upload_enrollment_forms: false,
+  coach_can_upload_attendance_sheets: false,
   require_payment_proof: true,
   allow_installments: true,
   max_installments_per_payment: 3,
@@ -468,6 +474,7 @@ export default function PaymentsAutomationPage() {
   const [billing, setBilling] = useState<BillingSettings | null>(null);
   // ¿Este ambiente ya tiene la columna payment_accounts? Se resuelve al cargar.
   const accountsColumnReady = useRef(false);
+  const coachPhotoColumnsReady = useRef(false);
   const [billingSaving, setBillingSaving] = useState(false);
   const [showSensitive, setShowSensitive] = useState(false);
 
@@ -556,6 +563,8 @@ export default function PaymentsAutomationPage() {
     // ambiente. Si la columna no está, guardar mandándola tumbaría el upsert
     // completo y la escuela no podría salvar NINGÚN ajuste de cobro.
     accountsColumnReady.current = 'payment_accounts' in data;
+    // Mismo cuidado con los permisos de fotos del coach (mig 20261005120806).
+    coachPhotoColumnsReady.current = 'coach_can_upload_enrollment_forms' in data;
     // `onlyActive: false` porque el admin también edita las llaves apagadas. Si la
     // escuela nunca guardó la lista (deploy recién hecho), se arma desde las
     // columnas viejas para que no vea el formulario en blanco teniendo datos.
@@ -594,6 +603,12 @@ export default function PaymentsAutomationPage() {
         pause_parent_can_request: billing.pause_parent_can_request,
         allow_coach_messaging: billing.allow_coach_messaging,
         coach_can_enroll_paid_teams: billing.coach_can_enroll_paid_teams,
+        ...(coachPhotoColumnsReady.current
+            ? {
+                coach_can_upload_enrollment_forms: !!billing.coach_can_upload_enrollment_forms,
+                coach_can_upload_attendance_sheets: !!billing.coach_can_upload_attendance_sheets,
+              }
+            : {}),
         require_payment_proof: billing.require_payment_proof,
         bank_name: billing.bank_name,
         bank_account_type: billing.bank_account_type,
@@ -2603,6 +2618,34 @@ export default function PaymentsAutomationPage() {
                     <Switch
                       checked={billing.coach_can_enroll_paid_teams}
                       onCheckedChange={v => updateBilling('coach_can_enroll_paid_teams', v)}
+                    />
+                  </div>
+                  <Separator />
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <Label className="font-medium">Coaches pueden subir hojas de matrícula</Label>
+                      <p className="text-xs text-muted-foreground max-w-[46ch]">
+                        El entrenador toma la foto de la hoja en papel y la sube; la escuela revisa
+                        los datos y crea al deportista. El entrenador no ve la bandeja ni aprueba.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={!!billing.coach_can_upload_enrollment_forms}
+                      onCheckedChange={v => updateBilling('coach_can_upload_enrollment_forms', v)}
+                    />
+                  </div>
+                  <Separator />
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <Label className="font-medium">Coaches pueden subir planillas de asistencia</Label>
+                      <p className="text-xs text-muted-foreground max-w-[46ch]">
+                        Foto de la planilla en papel de sus equipos. La carga de asistencia por foto
+                        todavía está en construcción: este permiso queda listo para cuando salga.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={!!billing.coach_can_upload_attendance_sheets}
+                      onCheckedChange={v => updateBilling('coach_can_upload_attendance_sheets', v)}
                     />
                   </div>
                 </CardContent>

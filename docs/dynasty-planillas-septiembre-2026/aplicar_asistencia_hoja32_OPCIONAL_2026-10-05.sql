@@ -1,8 +1,12 @@
--- OPCIONAL - Dynasty hoja 32 (Infantil Masculino pag. 2, filas 21-35): DIAS INFERIDOS
+-- Dynasty hoja 32 (Infantil Masculino pag. 2, filas 21-35)
 -- Generado 2026-10-05 desde docs/dynasty-planillas-septiembre-2026/cruce_asistencia.json + respuestas de Milena (2026-10-05).
--- La foto no muestra el encabezado de dias: c1..c16 se asumieron = los 16 dias de la hoja 13 (pag. 1 de la
--- misma planilla: 4,6,8,9,11,13,15,16,18,20,22,23,25,27,29,30). Indicio: c1, c2 y c5 vacias en ambas hojas.
--- NO confirmado por Milena. Correr solo si se acepta la inferencia, y DESPUES del archivo principal.
+-- La foto no muestra el encabezado de dias: c1..c16 = los 16 dias de la hoja 13 (4,6,8,9,11,13,15,16,18,20,22,23,
+-- 25,27,29,30). CONFIRMADO por Milena 2026-10-05. Grupo = inscripcion activa actual de cada atleta.
+-- YA APLICADO en la base el 2026-10-05 12:23 (12 sesiones + 57 registros). Re-correrlo no inserta nada.
+-- ORDEN DE EJECUCION: 0) aplicar_asistencia_hoja32_OPCIONAL_2026-10-05.sql (YA APLICADO 2026-10-05 12:23, no re-correr)
+-- 1) aplicar_asistencia_siglas_2026-10-05.sql  2) aplicar_asistencia_siglas_extra_2026-10-05.sql
+-- 3) aplicar_asistencia_siglas_2026-10-05_verificacion.sql (solo lectura).
+-- Cualquier re-corrida es inocua: sesiones por NOT EXISTS equipo+fecha; registros por NOT EXISTS atleta+dia y sesion+atleta.
 -- Idempotente: re-correrlo no duplica (NOT EXISTS por equipo+fecha en sesiones; por atleta+fecha y por sesion+atleta en registros).
 -- No toca registros existentes (ni los 1.358 del 2026-10-03 ni los "absent" previos de la app).
 -- Sesiones se insertan YA finalized=true: deduccion y aviso post-entrenamiento solo disparan en UPDATE false->true.
@@ -10,7 +14,7 @@
 BEGIN;
 
 -- 1) Sesiones (equipo, fecha) que necesitan los registros: 13 pares; solo se crean las que no existen.
---    Si el archivo principal ya se corrio: 0 nuevas (las 13 ya existen). Si no: 12 nuevas.
+--    Ya aplicado 2026-10-05 12:23 (creo 12; la de MENORES MASCULINO 20-sep ya existia). Re-correrlo crea 0.
 INSERT INTO public.attendance_sessions
   (school_id, team_id, session_date, title, finalized, finalized_at, finalized_by, created_by, coach_notes)
 SELECT '2d509571-3238-4c04-ac3f-6dfe20539226'::uuid, v.team_id, v.session_date, 'Entrenamiento', true, now(),

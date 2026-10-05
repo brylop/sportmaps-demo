@@ -642,10 +642,12 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       {/* Inbox de revisión de hojas de matrícula por foto (WhatsApp + OCR).
-                          Mismos roles que students/bulk y create-one — nunca coach: dar de
-                          alta un atleta es decisión de admin, no de quien solo entrena. */}
+                          Revisar y dar de alta sigue siendo solo de admin. El coach entra
+                          SOLO a subir la foto, y solo si su escuela lo activó
+                          (school_settings.coach_can_upload_enrollment_forms; la página
+                          le muestra únicamente el botón y el BFF es el gate real). */}
                       <Route path="school/enrollment-intake" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
                           <EnrollmentIntakeInboxPage />
                         </ProtectedRoute>
                       } />
