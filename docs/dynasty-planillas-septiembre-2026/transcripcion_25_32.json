@@ -1,0 +1,2064 @@
+[
+ {
+  "idx": 25,
+  "file": "d8e90210-4b81-4900-ae76-fc45c17dec95.jpg",
+  "tipo": "asistencia",
+  "grupo": "(sin nombre de grupo impreso; varones nacidos 2008-2012, probablemente Juvenil/Mayores Masculino)",
+  "titulo": "ASISTENCIA DE SEPTIEMBRE",
+  "rotada": true,
+  "dias": [
+   1,
+   3,
+   5,
+   6,
+   8,
+   10,
+   12,
+   13,
+   15,
+   17,
+   19,
+   20,
+   22,
+   24,
+   26,
+   27,
+   29
+  ],
+  "filas": [
+   {
+    "n": 1,
+    "nombre": "ARDILA ALEJANDRO",
+    "marcas": {
+     "1": "✓",
+     "6": "✓",
+     "8": "✓",
+     "10": "✓",
+     "12": "✓",
+     "13": "✓",
+     "15": "✓",
+     "19": "✓",
+     "22": "✓",
+     "24": "✓",
+     "26": "✓",
+     "29": "✓"
+    },
+    "nota": "Fecha nac. manuscrita '27/01 2008'. Margen der.: 'MJS'. Margen izq.: '216 218/168'.",
+    "dudoso": false
+   },
+   {
+    "n": 2,
+    "nombre": "ARIAS QUITAMAURE ALEJANDRO",
+    "marcas": {
+     "5": "✓",
+     "12": "✓",
+     "19": "✓"
+    },
+    "nota": "Nac. '24/9 2010'.",
+    "dudoso": false
+   },
+   {
+    "n": 3,
+    "nombre": "CASTRO DAMIAN",
+    "marcas": {
+     "22": "✓",
+     "29": "✓"
+    },
+    "nota": "Margen der.: 'M'.",
+    "dudoso": false
+   },
+   {
+    "n": 4,
+    "nombre": "CORTES SAENZ JOSUE",
+    "marcas": {
+     "13": "✓",
+     "19": "✓"
+    },
+    "nota": "Año '2012'. Margen der.: '-'. Tambien aparece manuscrito en la hoja continuacion (img 31) como 'Cortes Saez Josue'.",
+    "dudoso": false
+   },
+   {
+    "n": 5,
+    "nombre": "DIAZ ANGEL",
+    "marcas": {
+     "3": "✓",
+     "8": "✓",
+     "13": "✓",
+     "15": "✓",
+     "19": "✓",
+     "20": "✓",
+     "22": "✓",
+     "24": "✓",
+     "26": "✓",
+     "27": "✓",
+     "29": "✓"
+    },
+    "nota": "Año '2009'. Margen der.: '-MJSD'. Margen izq.: '220 220/272' (dudoso si es de fila 5 o 6).",
+    "dudoso": true
+   },
+   {
+    "n": 6,
+    "nombre": "GALLO ESTEBAN",
+    "marcas": {
+     "6": "✓",
+     "10": "✓10 (✓ con '10'/'R0' pequeño al lado; literal dudoso)",
+     "17": "✓",
+     "20": "✓",
+     "29": "✓"
+    },
+    "nota": "",
+    "dudoso": true
+   },
+   {
+    "n": 7,
+    "nombre": "GARZON RODRIGUEZ ETHAN",
+    "marcas": {
+     "1": "✓",
+     "3": "✓",
+     "5": "✓",
+     "6": "✓",
+     "10": "✓",
+     "12": "✓",
+     "13": "✓",
+     "15": "✓",
+     "17": "✓",
+     "19": "✓",
+     "20": "✓",
+     "22": "✓",
+     "24": "✓",
+     "26": "✓",
+     "27": "✓",
+     "29": "✓"
+    },
+    "nota": "Nac. '17/07 2009'. Margen der.: '-MJSD'.",
+    "dudoso": false
+   },
+   {
+    "n": 8,
+    "nombre": "[tachado] ZABALETA CRISTIAN",
+    "marcas": {
+     "1": "✓",
+     "3": "✓",
+     "8": "✓",
+     "10": "✓",
+     "13": "✓",
+     "15": "✓",
+     "19": "✓",
+     "22": "✓",
+     "27": "✓"
+    },
+    "nota": "Primer apellido tachado/ilegible. Nac. '19/06 2009'. Margen der.: '-MJJD' (probable MJSD). Margen izq.: '214 215/167'. En img 31 aparece 'Zabaleta Cristian' manuscrito y TACHADO.",
+    "dudoso": true
+   },
+   {
+    "n": 9,
+    "nombre": "HERRERA KENETH ALEJANDRO",
+    "marcas": {
+     "6": "✓",
+     "13": "✓"
+    },
+    "nota": "Marca del 6 muy remarcada.",
+    "dudoso": false
+   },
+   {
+    "n": 10,
+    "nombre": "LIZARRALDE PEÑUELA GABRIEL EMMANUEL",
+    "marcas": {},
+    "nota": "Sin marcas; margen der.: '-'.",
+    "dudoso": false
+   },
+   {
+    "n": 11,
+    "nombre": "MARTIN MAYORGA",
+    "marcas": {
+     "1": "✓",
+     "3": "✓",
+     "10": "✓",
+     "15": "✓",
+     "24": "✓",
+     "29": "✓"
+    },
+    "nota": "Nac. '3/04 2009'. Margen der.: '-'.",
+    "dudoso": false
+   },
+   {
+    "n": 12,
+    "nombre": "MONDRAGON TORRES CHRISTOPHER SMITH",
+    "marcas": {
+     "12": "✓",
+     "13": "✓",
+     "15": "✓",
+     "19": "·",
+     "22": "✓",
+     "26": "✓",
+     "27": "✓",
+     "29": "✓"
+    },
+    "nota": "Nac. '18/07/2009'. Margen der.: '-MSD'. Dia 19 solo un punto.",
+    "dudoso": false
+   },
+   {
+    "n": 13,
+    "nombre": "MUÑOZ DANIEL",
+    "marcas": {
+     "1": "✓",
+     "3": "✓",
+     "5": "✓",
+     "8": "✓",
+     "10": "✓",
+     "12": "✓",
+     "13": "✓",
+     "22": "✓",
+     "24": "✓",
+     "29": "✓"
+    },
+    "nota": "Nac. '7/08 2008'. Margen der.: '-MJSD'. Margen izq.: '224 225/173' (con 'D' debajo).",
+    "dudoso": false
+   },
+   {
+    "n": 14,
+    "nombre": "NIÑO JULIAN",
+    "marcas": {
+     "1": "✓",
+     "3": "✓",
+     "8": "✓"
+    },
+    "nota": "Año '2009'. Margen izq.: '212 212/168'.",
+    "dudoso": false
+   },
+   {
+    "n": 15,
+    "nombre": "PARADA RIAÑO DAVID SANTIAGO",
+    "marcas": {
+     "8": "✓",
+     "12": "✓",
+     "13": "✓",
+     "15": "✓",
+     "19": "Y",
+     "22": "✓",
+     "26": "✓",
+     "27": "✓",
+     "29": "·"
+    },
+    "nota": "Nac. '9/02 2010'. Margen der.: '-SD'. Margen izq.: '221 221/168'. Dia 19 marca tipo 'Y'.",
+    "dudoso": true
+   },
+   {
+    "n": 16,
+    "nombre": "PARRA LUIS",
+    "marcas": {
+     "1": "✓",
+     "3": "✓",
+     "5": "✓",
+     "6": "✓",
+     "12": "✓",
+     "13": "✓",
+     "15": "✓",
+     "19": "✓",
+     "20": "✓",
+     "22": "✓",
+     "26": "✓",
+     "27": "✓",
+     "29": "✓"
+    },
+    "nota": "Nac. '01/06 2008'. Margen der.: 'MSD'. Marca del 6 rellena/borron.",
+    "dudoso": true
+   },
+   {
+    "n": 17,
+    "nombre": "PEÑA JUAN JOSE",
+    "marcas": {
+     "1": "✓",
+     "3": "✓",
+     "5": "✓",
+     "8": "✓",
+     "10": "·",
+     "12": "✓",
+     "13": "✓",
+     "15": "✓",
+     "19": "✓",
+     "20": "✓",
+     "22": "✓",
+     "24": "✓",
+     "26": "✓",
+     "27": "✓",
+     "29": "✓"
+    },
+    "nota": "Nac. '13/09 2010'. Margen der.: '-MJSD'. Margen izq.: '213 213/167'.",
+    "dudoso": false
+   },
+   {
+    "n": 18,
+    "nombre": "PRECIADO ROJAS JEFFERSON STIVEN",
+    "marcas": {
+     "1": "✓",
+     "3": "✓",
+     "5": "✓",
+     "8": "✓",
+     "10": "✓",
+     "12": "✓",
+     "13": "✓",
+     "15": "✓",
+     "17": "✓",
+     "19": "✓",
+     "22": "✓",
+     "24": "✓",
+     "27": "✓",
+     "29": "✓"
+    },
+    "nota": "Nac. '?/07 2009' (dia tachado). Margen der.: '-MJS'. Margen izq.: '239 236/186'.",
+    "dudoso": false
+   },
+   {
+    "n": 19,
+    "nombre": "QUINTERO CASALLAS MATTYAS",
+    "marcas": {
+     "1": "✓",
+     "3": "✓",
+     "5": "✓",
+     "6": "✓",
+     "8": "✓",
+     "10": "U",
+     "12": "✓",
+     "13": "✓",
+     "15": "✓",
+     "17": "✓",
+     "19": "✓",
+     "20": "✓",
+     "22": "✓",
+     "24": "✓",
+     "26": "✓",
+     "27": "✓",
+     "29": "✓"
+    },
+    "nota": "Nac. '01/03 2010'. Margen der.: '-MUSD' (probable MJSD). Margen izq.: '217 217/173'. Dia 10 marca tipo 'U' (probable ✓ mal trazado).",
+    "dudoso": false
+   }
+  ],
+  "observaciones": "Hoja 1 (filas 1-19); la img 31 es la CONTINUACION de esta misma planilla (filas 20+ bajo el subtitulo 'MENORES MASCULINO', mismas columnas de dias). Las marcas manuscritas quedan corridas hacia arriba respecto de la cuadricula; la asignacion por fila se hizo contando bloques de marcas fila por fila y cuadra con las 19 filas (verificado con la columna de margen), pero puede haber error de ±1 fila en filas 4-6 y 10-11. Columna 'AÑO' tiene fechas de nacimiento manuscritas (dd/mm aaaa). Margen derecho: siglas tipo 'MJS', 'MJSD', 'MSD', 'SD', 'M' (probablemente dias de entreno; no interpretado). Margen izquierdo: numeros tipo '216 218/168' en varias filas (parecen medidas: alcance/salto/estatura; no interpretado). Solo ✓, sin X ni marcas rojas."
+ },
+ {
+  "idx": 26,
+  "file": "e16961d4-22b8-40ad-8c30-452a25b0e957.jpg",
+  "tipo": "pagos",
+  "grupo": "(no indicado en la hoja)",
+  "titulo": "(sin titulo; encabezado Dynasty DC con columnas Valor / Fecha / Medio, todo manuscrito)",
+  "rotada": false,
+  "filas": [
+   {
+    "n": 1,
+    "nombre": "Saenz Rojas Ana Maria",
+    "valor": 150000,
+    "fecha_txt": "Sep 5",
+    "fecha": "2026-09-05",
+    "medio": "Efectivo",
+    "nota": "",
+    "resaltado": "amarillo",
+    "dudoso": false
+   },
+   {
+    "n": 2,
+    "nombre": "Saenz Rojas Sofia",
+    "valor": 150000,
+    "fecha_txt": "Sep 5",
+    "fecha": "2026-09-05",
+    "medio": "Efectivo",
+    "nota": "",
+    "resaltado": "amarillo",
+    "dudoso": false
+   },
+   {
+    "n": 3,
+    "nombre": "Rojas Valencia Antonella",
+    "valor": 210000,
+    "fecha_txt": "Sep 5",
+    "fecha": "2026-09-05",
+    "medio": "BC",
+    "nota": "Valor sobrescrito (parece '210.000' escrito encima de otro numero, posible 180.000). Flecha '→' en el margen derecho de esta fila.",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 4,
+    "nombre": "Posada Villamil Salome",
+    "valor": 90000,
+    "fecha_txt": "Sep 6",
+    "fecha": "2026-09-06",
+    "medio": "Efectivo",
+    "nota": "Nombre de pila dudoso: se lee 'Jabme'/'Sabme' (probable Salomé).",
+    "resaltado": "amarillo",
+    "dudoso": true
+   },
+   {
+    "n": 5,
+    "nombre": "Albarracin Arianny",
+    "valor": 150000,
+    "fecha_txt": "Sep 5",
+    "fecha": "2026-09-05",
+    "medio": "BC",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 6,
+    "nombre": "Montenegro Valentina",
+    "valor": 180000,
+    "fecha_txt": "Sep 7",
+    "fecha": "2026-09-07",
+    "medio": "QR",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 7,
+    "nombre": "Camas Moreno Sara Isa",
+    "valor": 90000,
+    "fecha_txt": "Sep 8",
+    "fecha": "2026-09-08",
+    "medio": "Llave",
+    "nota": "'Sara Isa' tal cual (abreviado, probable Sara Isabella). Primer apellido se lee 'Camas' (¿Cañas?).",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 8,
+    "nombre": "Vargas Vargas Korall Viviana",
+    "valor": 150000,
+    "fecha_txt": "Sep 8",
+    "fecha": "2026-09-08",
+    "medio": "Llave",
+    "nota": "Valor: segundo digito poco claro (150.000 vs 180.000). Nombre 'Korall' literal (¿Karol?).",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 9,
+    "nombre": "Prieto Alfonso Valeria",
+    "valor": 150000,
+    "fecha_txt": "Sep 9",
+    "fecha": "2026-09-09",
+    "medio": "Efectivo",
+    "nota": "",
+    "resaltado": "amarillo",
+    "dudoso": false
+   },
+   {
+    "n": 10,
+    "nombre": "Prieto Pedroza Salome",
+    "valor": 93000,
+    "fecha_txt": "Sep 12",
+    "fecha": "2026-09-12",
+    "medio": "Bancolombia",
+    "nota": "Medio escrito 'Bancolombia' completo. Valor 93.000 (atipico, pero se lee claro '93 000'). Nombre se lee 'Prieto Pedroza Jolomé' (probable Salomé).",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 11,
+    "nombre": "Garzon Jaraiba Maria Sofia",
+    "valor": 150000,
+    "fecha_txt": "Sep 18",
+    "fecha": "2026-09-18",
+    "medio": "BC",
+    "nota": "Apellidos dificiles: se lee 'Caron/Garzon Jodi?ba/Jaraiba'. Mismos apellidos que fila 12 (hermanos).",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 12,
+    "nombre": "Garzon Jaraiba Emanuel",
+    "valor": 150000,
+    "fecha_txt": "Sep 18",
+    "fecha": "2026-09-18",
+    "medio": "BC",
+    "nota": "Apellidos dificiles (ver fila 11). Fecha podria ser 'Sep 16'. OJO: en img 30 fila 46 aparece 'Emmanuel Garzon Jaraiza' con 1?0.000 Sep 20 BC: posible pago DUPLICADO o de otro grupo/concepto; verificar.",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 13,
+    "nombre": "Ballesteros Guevara Luciana",
+    "valor": 150000,
+    "fecha_txt": "Sep 19",
+    "fecha": "2026-09-19",
+    "medio": "BC",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 14,
+    "nombre": "Balaguera Barrera Jeronimo",
+    "valor": 90000,
+    "fecha_txt": "Sep 21",
+    "fecha": "2026-09-21",
+    "medio": "BC",
+    "nota": "Nombre de pila se lee 'Jenmmo' (probable Jerónimo).",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 15,
+    "nombre": "Sierra Fuentes Antonella",
+    "valor": 90000,
+    "fecha_txt": "Sep 23",
+    "fecha": "2026-09-23",
+    "medio": "BC",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   }
+  ],
+  "observaciones": "Hoja sin titulo ni nombre de grupo; nombres manuscritos (mayormente niñas). Numeros de fila cortados en el borde izquierdo; se numeraron 1-15 en orden. Los 'Efectivo' (filas 1, 2, 4, 9) estan resaltados en amarillo (parece marcar pagos en efectivo). Fila 3 tiene una flecha al margen derecho."
+ },
+ {
+  "idx": 27,
+  "file": "e9d2f5cf-eb8b-46f0-8bb0-f1a0fcb67c1d.jpg",
+  "tipo": "pagos",
+  "grupo": "MINI",
+  "titulo": "CONTROL PAGO - CATEGORIA MINI SEPTIEMBRE",
+  "rotada": false,
+  "filas": [
+   {
+    "n": 1,
+    "nombre": "Álvarez Arévalo Luciana",
+    "valor": 150000,
+    "fecha_txt": "Sep 7",
+    "fecha": "2026-09-07",
+    "medio": "Llave",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 2,
+    "nombre": "Anaya Sofía",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Fila completa resaltada en azul, sin pago.",
+    "resaltado": "azul",
+    "dudoso": false
+   },
+   {
+    "n": 3,
+    "nombre": "Barrera Valentina",
+    "valor": 150000,
+    "fecha_txt": "Sep 7.",
+    "fecha": "2026-09-07",
+    "medio": "Llave",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 4,
+    "nombre": "Bejarano Sara",
+    "valor": 180000,
+    "fecha_txt": "Sep 14",
+    "fecha": "2026-09-14",
+    "medio": "QR",
+    "nota": "Valor: segundo digito poco claro (180.000 vs 100.000/160.000).",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 5,
+    "nombre": "Caicedo Bayona Juan Felipe",
+    "valor": 90000,
+    "fecha_txt": "Sep 18",
+    "fecha": "2026-09-18",
+    "medio": "BC",
+    "nota": "Valor sobrescrito: '9?.000' (podria ser 97.000 o 90.000). En img 30 fila 45 aparece 'Caicedo Juan Felipe' sin pago.",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 6,
+    "nombre": "Campos Martín",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Anotacion manuscrita: 'BEBE Infantil Masculino' (primera palabra dudosa, podria ser 'DEBE'); parece que se paso a Infantil Masculino. En img 30 fila 44 'Campos Juan Martin 3 Meses'.",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 7,
+    "nombre": "Castelblanco Silvana",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Sin pago ni anotacion.",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 8,
+    "nombre": "Castillo Cabra Laura Sofía",
+    "valor": 150000,
+    "fecha_txt": "Sep 7",
+    "fecha": "2026-09-07",
+    "medio": "QR",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 9,
+    "nombre": "Castro Sofía",
+    "valor": 150000,
+    "fecha_txt": "Sep 5",
+    "fecha": "2026-09-05",
+    "medio": "BC",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 10,
+    "nombre": "Ceballos Velandia María José",
+    "valor": 180000,
+    "fecha_txt": "Sep 8.",
+    "fecha": "2026-09-08",
+    "medio": "BC",
+    "nota": "Valor: segundo digito poco claro (180.000 vs 150.000).",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 11,
+    "nombre": "Charry Juliana",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Fila resaltada en azul, sin pago.",
+    "resaltado": "azul",
+    "dudoso": false
+   },
+   {
+    "n": 12,
+    "nombre": "Charry Quintero Patrick",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Anotacion: 'No ha vuelto.'",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 13,
+    "nombre": "Díaz María José",
+    "valor": 90000,
+    "fecha_txt": "Sep 8",
+    "fecha": "2026-09-08",
+    "medio": "Llave",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 14,
+    "nombre": "Díaz Morales Gabriela",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Fila resaltada en azul, sin pago.",
+    "resaltado": "azul",
+    "dudoso": false
+   },
+   {
+    "n": 15,
+    "nombre": "Forero Garzón Ana Isabella",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Fila resaltada en azul; anotacion '2 Clases' en la columna valor (podria referirse a la fila siguiente, García María Paula, cuyo valor es 90.000).",
+    "resaltado": "azul",
+    "dudoso": true
+   },
+   {
+    "n": 16,
+    "nombre": "García María Paula",
+    "valor": 90000,
+    "fecha_txt": "Ag 31",
+    "fecha": "2026-08-31",
+    "medio": "BC",
+    "nota": "Ver nota '2 Clases' justo encima (fila 15).",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 17,
+    "nombre": "Giraldo Salomé",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Anotacion: '— Intermedio' (se paso a Intermedio).",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 18,
+    "nombre": "Goez Manuela",
+    "valor": 180000,
+    "fecha_txt": "Sep 01",
+    "fecha": "2026-09-01",
+    "medio": "BC",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 19,
+    "nombre": "Gómez Juan Fernando",
+    "valor": 150000,
+    "fecha_txt": "Ag. 31",
+    "fecha": "2026-08-31",
+    "medio": "BC",
+    "nota": "Medio escrito 'BC - NP.' (sigla NP sin interpretar).",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 20,
+    "nombre": "Granados Juliana",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Sin pago ni anotacion.",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 21,
+    "nombre": "Herrera Cucaita Luciana",
+    "valor": 150000,
+    "fecha_txt": "Ag 30",
+    "fecha": "2026-08-30",
+    "medio": "Llave",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 22,
+    "nombre": "Lemus María Nathalia",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Fila resaltada en azul, sin pago.",
+    "resaltado": "azul",
+    "dudoso": false
+   },
+   {
+    "n": 23,
+    "nombre": "Londoño Cubillos Valery",
+    "valor": 210000,
+    "fecha_txt": "Sep 9",
+    "fecha": "2026-09-09",
+    "medio": "Llave",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 24,
+    "nombre": "López Cortés Isabella",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Fila resaltada en azul, sin pago.",
+    "resaltado": "azul",
+    "dudoso": false
+   },
+   {
+    "n": 25,
+    "nombre": "López Mitary",
+    "valor": 150000,
+    "fecha_txt": "Sep. 7",
+    "fecha": "2026-09-07",
+    "medio": "Llave",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 26,
+    "nombre": "López Sara Sofía",
+    "valor": 210000,
+    "fecha_txt": "Sep 15",
+    "fecha": "2026-09-15",
+    "medio": "Llave",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 27,
+    "nombre": "Mahecha Mia Sofia",
+    "valor": 150000,
+    "fecha_txt": "Sep 10",
+    "fecha": "2026-09-10",
+    "medio": "Llave",
+    "nota": "Impreso 'Mahecha Mia' + 'Sofia' añadido a mano.",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 28,
+    "nombre": "Mancera Isabella",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Fila resaltada en azul, sin pago.",
+    "resaltado": "azul",
+    "dudoso": false
+   },
+   {
+    "n": 29,
+    "nombre": "Marín Castellanos Ana Sofía",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "'Retirada.' Fila resaltada en azul.",
+    "resaltado": "azul",
+    "dudoso": false
+   },
+   {
+    "n": 30,
+    "nombre": "Márquez Reyes Elizabeth Sofía",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Fila resaltada en azul, sin pago.",
+    "resaltado": "azul",
+    "dudoso": false
+   },
+   {
+    "n": 31,
+    "nombre": "Martínez Jiménez Oliver",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "'Retirado.' Fila resaltada en azul.",
+    "resaltado": "azul",
+    "dudoso": false
+   },
+   {
+    "n": 32,
+    "nombre": "Mateus León Isabella",
+    "valor": 180000,
+    "fecha_txt": "Sep 12",
+    "fecha": "2026-09-12",
+    "medio": "Efectivo",
+    "nota": "Valor: segundo digito poco claro (180.000 vs 150.000). 'Efectivo' resaltado en amarillo.",
+    "resaltado": "amarillo",
+    "dudoso": true
+   },
+   {
+    "n": 33,
+    "nombre": "Montenegro Piedrahita Salomé",
+    "valor": 90000,
+    "fecha_txt": "Sep 8",
+    "fecha": "2026-09-08",
+    "medio": "Llave",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 34,
+    "nombre": "Montoya Valeria",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "'Retirada' Fila resaltada en azul.",
+    "resaltado": "azul",
+    "dudoso": false
+   },
+   {
+    "n": 35,
+    "nombre": "Naranjo Sofía",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "'Retirada.' Fila resaltada en azul.",
+    "resaltado": "azul",
+    "dudoso": false
+   },
+   {
+    "n": 36,
+    "nombre": "Núñez Osorio Gabriela",
+    "valor": 180000,
+    "fecha_txt": "Sep 16",
+    "fecha": "2026-09-16",
+    "medio": "Llave",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 37,
+    "nombre": "Ocampo Contreras Martina",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Anotacion 'Pago Ant' (¿pago anticipado?). Resaltado azul parcial en la parte derecha de la fila (dudoso si es de esta fila o de la siguiente).",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 38,
+    "nombre": "Orozco Taliana Salomé",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "'Retirada.' Fila resaltada en azul.",
+    "resaltado": "azul",
+    "dudoso": false
+   },
+   {
+    "n": 39,
+    "nombre": "Ortiz Beltrán Mia",
+    "valor": 210000,
+    "fecha_txt": "Sep 9",
+    "fecha": "2026-09-09",
+    "medio": "Llave",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   }
+  ],
+  "observaciones": "Nombres impresos; numeros de fila cortados en el margen, se numero 1-39 en orden (coincide con el '0' visible en Ceballos=10). Resaltado AZUL de fila completa = sin pago / retiradas / inactivas (todas las 'Retirada/o' estan en azul; otras azules no tienen anotacion). Amarillo solo en el 'Efectivo' de Mateus. El escritor hace el 5 parecido a 'S' y el 8 a veces con un solo bucle: revisar los 150.000/180.000 marcados dudosos."
+ },
+ {
+  "idx": 28,
+  "file": "ec133384-865c-4147-a498-56c10c6f9879.jpg",
+  "tipo": "pagos",
+  "grupo": "INFANTIL FEMENINO",
+  "titulo": "CONTROL PAGOS INFANTIL FEMENINO",
+  "rotada": false,
+  "filas": [
+   {
+    "n": 75,
+    "nombre": "SABOGAL MARIANA",
+    "valor": 150000,
+    "fecha_txt": "Sep. 1",
+    "fecha": "2026-09-01",
+    "medio": "Llave",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 76,
+    "nombre": "SALAS MORENO MARIA JOSE",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Anotacion 'Repetida.' (registro duplicado). Fila resaltada en azul.",
+    "resaltado": "azul",
+    "dudoso": false
+   },
+   {
+    "n": 77,
+    "nombre": "SANCHEZ LINDA Ariana",
+    "valor": 210000,
+    "fecha_txt": "Sep 12",
+    "fecha": "2026-09-12",
+    "medio": "BC",
+    "nota": "'Ariana' añadido a mano al nombre impreso.",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 78,
+    "nombre": "SÁNCHEZ MARIANA",
+    "valor": 180000,
+    "fecha_txt": "Sep 21",
+    "fecha": "2026-09-21",
+    "medio": "Llave",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 79,
+    "nombre": "SANTACRUZ SILVA SOFIA",
+    "valor": 210000,
+    "fecha_txt": "Sep 30",
+    "fecha": "2026-09-30",
+    "medio": "TC",
+    "nota": "Valor y fecha algo sobrescritos, se leen 210.000 / Sep 30.",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 80,
+    "nombre": "SIERRA SILVANA",
+    "valor": 180000,
+    "fecha_txt": "Sep 2",
+    "fecha": "2026-09-02",
+    "medio": "Llave",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 81,
+    "nombre": "VANEGAS ISABELLA",
+    "valor": 180000,
+    "fecha_txt": "Sep 25",
+    "fecha": "2026-09-25",
+    "medio": "Llave",
+    "nota": "Valor algo emborronado (180.000 probable).",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 82,
+    "nombre": "VELANDIA MANRIQUE LINDA",
+    "valor": 180000,
+    "fecha_txt": "Sep 18",
+    "fecha": "2026-09-18",
+    "medio": "BC",
+    "nota": "Fecha sobrescrita: 'Sep 18' (podria ser 13).",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 83,
+    "nombre": "VELASQUEZ USECHE ISABELLA",
+    "valor": 150000,
+    "fecha_txt": "Sep 01",
+    "fecha": "2026-09-01",
+    "medio": "Llave",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 84,
+    "nombre": "VENEGAS VALERIA",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Sin pago.",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 85,
+    "nombre": "VILLAMIL SARA MARTINA",
+    "valor": 150000,
+    "fecha_txt": "Sep 16",
+    "fecha": "2026-09-16",
+    "medio": "BC",
+    "nota": "Valor sobrescrito ('1?0 000'): 150.000 o 180.000.",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 86,
+    "nombre": "Prieto, Laura",
+    "valor": 180000,
+    "fecha_txt": "Ag-31",
+    "fecha": "2026-08-31",
+    "medio": "BC",
+    "nota": "Manuscrito añadido al final.",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 87,
+    "nombre": "Cely Hernandez Maria Alejandra",
+    "valor": 168000,
+    "fecha_txt": "Sep 6",
+    "fecha": "2026-09-06",
+    "medio": "QR",
+    "nota": "Manuscrito. Valor '16&000': tercer digito parece 8 (168.000) pero podria ser 160.000; monto atipico.",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 88,
+    "nombre": "Malforga Julieta",
+    "valor": 150000,
+    "fecha_txt": "Sep 16",
+    "fecha": "2026-09-16",
+    "medio": "BC",
+    "nota": "Manuscrito; el numero escrito parece '86' (repetido), por secuencia es 88. Apellido se lee 'Malforga' (¿Mayorga?).",
+    "resaltado": null,
+    "dudoso": true
+   }
+  ],
+  "observaciones": "Hoja continuacion (filas 75-88) de Infantil Femenino; las filas 1-74 estarian en otras fotos. Filas 86-88 manuscritas al final."
+ },
+ {
+  "idx": 29,
+  "file": "ec56b572-4c9d-492e-a38b-a89f67c9bd6a.jpg",
+  "tipo": "asistencia",
+  "grupo": "INTERMEDIO",
+  "titulo": "CONTROL DE ASISTENCIA SEPTIEMBRE",
+  "rotada": true,
+  "dias": [
+   2,
+   4,
+   5,
+   6,
+   7,
+   9,
+   11,
+   12,
+   13,
+   14,
+   16,
+   18,
+   19,
+   20,
+   21,
+   22,
+   23,
+   24,
+   25,
+   26,
+   27,
+   28,
+   29,
+   30
+  ],
+  "filas": [
+   {
+    "n": 28,
+    "nombre": "GUERRERO MENDEZ SILVANA",
+    "marcas": {
+     "2": "✓",
+     "7": "✓",
+     "9": "✓",
+     "14": "✓",
+     "21": "✓",
+     "23": "✓",
+     "28": "✓",
+     "30": "✓"
+    },
+    "nota": "",
+    "dudoso": false
+   },
+   {
+    "n": 29,
+    "nombre": "GUEVARA AVILA MARIANA",
+    "marcas": {
+     "4": "✓",
+     "11": "✓",
+     "22": "✓ (gris/lapiz)",
+     "23": "✓ (gris/lapiz)"
+    },
+    "nota": "",
+    "dudoso": false
+   },
+   {
+    "n": 30,
+    "nombre": "GUTIERREZ MARIANA",
+    "marcas": {},
+    "nota": "Fila completa resaltada verde (nombre) + azul (toda la fila). Sin marcas.",
+    "dudoso": false
+   },
+   {
+    "n": 31,
+    "nombre": "GUZMAN DIAZ LUCIANA",
+    "marcas": {
+     "4": "✓",
+     "11": "✓",
+     "19": "✓"
+    },
+    "nota": "",
+    "dudoso": true
+   },
+   {
+    "n": 32,
+    "nombre": "LAMUS SANCLEMENTE JULIANA",
+    "marcas": {
+     "5": "✓",
+     "12": "✓",
+     "13": "✓",
+     "16": "✓",
+     "20": "✓",
+     "25": "✓",
+     "26": "✓",
+     "27": "✓"
+    },
+    "nota": "Marca del 20 con trazo largo.",
+    "dudoso": true
+   },
+   {
+    "n": 33,
+    "nombre": "LEGUIA ORIANA",
+    "marcas": {
+     "2": "✓",
+     "5": "✓",
+     "7": "✓",
+     "9": "✓",
+     "11": "✓",
+     "14": "✓",
+     "21": "✓",
+     "23": "✓",
+     "25": "✓",
+     "29": "borron azul",
+     "30": "✓ (azul)"
+    },
+    "nota": "Marcas de 29/30 en tinta azul (columnas añadidas a mano).",
+    "dudoso": true
+   },
+   {
+    "n": 34,
+    "nombre": "LEGUIZAMON RODRI ISABELLA",
+    "marcas": {
+     "9": "✓",
+     "13": "✓",
+     "16": "✓"
+    },
+    "nota": "",
+    "dudoso": true
+   },
+   {
+    "n": 35,
+    "nombre": "LIZARAZO ARIZA MARIA PAULA",
+    "marcas": {
+     "9": "✓",
+     "13": "✓",
+     "20": "✓",
+     "25": "✓ (azul)",
+     "26": "✓",
+     "27": "✓"
+    },
+    "nota": "Una linea azul une la marca del 25 con la fila siguiente.",
+    "dudoso": true
+   },
+   {
+    "n": 36,
+    "nombre": "LOPEZ ROMERO DANNA",
+    "marcas": {
+     "5": "✓",
+     "6": "✓",
+     "12": "✓",
+     "13": "✓",
+     "23": "✓ (gris)",
+     "27": "✓",
+     "29": "✓ (azul)",
+     "30": "x (azul)"
+    },
+    "nota": "Las marcas azules de 29/30 podrian estar corridas una columna.",
+    "dudoso": true
+   },
+   {
+    "n": 37,
+    "nombre": "LOPEZ SARA SOFIA",
+    "marcas": {},
+    "nota": "Fila completa resaltada verde + azul. Sin marcas.",
+    "dudoso": false
+   },
+   {
+    "n": 38,
+    "nombre": "MALAGON CORREAL SARA",
+    "marcas": {
+     "2": "✓",
+     "7": "✓",
+     "9": "✓",
+     "14": "✓",
+     "16": "✓",
+     "21": "✓",
+     "24": "✓ (azul)",
+     "28": "✓"
+    },
+    "nota": "",
+    "dudoso": true
+   },
+   {
+    "n": 39,
+    "nombre": "MANRIQUE JANAH EILEEN",
+    "marcas": {
+     "5": "✓",
+     "6": "✓",
+     "9": "✓ (tenue)",
+     "12": "✓",
+     "13": "✓",
+     "19": "✓ (tenue)",
+     "20": "✓",
+     "26": "✓",
+     "30": "✓ (azul)"
+    },
+    "nota": "",
+    "dudoso": true
+   },
+   {
+    "n": 40,
+    "nombre": "MEDINA IBAÑEZ MARIA GABRIELA",
+    "marcas": {
+     "2": "✓",
+     "5": "✓",
+     "6": "✓",
+     "9": "✓ (tenue)",
+     "13": "✓",
+     "16": "✓",
+     "19": "✓",
+     "20": "✓",
+     "23": "✓",
+     "26": "✓",
+     "27": "✓"
+    },
+    "nota": "",
+    "dudoso": true
+   },
+   {
+    "n": 41,
+    "nombre": "MEDINA MARIA PAULA",
+    "marcas": {
+     "9": "✓ (tenue)",
+     "11": "✓",
+     "25": "✓",
+     "30": "borron azul"
+    },
+    "nota": "",
+    "dudoso": true
+   },
+   {
+    "n": 42,
+    "nombre": "MENDOZA FLOREZ LINDA",
+    "marcas": {
+     "2": "✓",
+     "5": "✓",
+     "6": "✓",
+     "12": "✓",
+     "13": "✓",
+     "16": "✓",
+     "19": "✓",
+     "21": "✓ (tenue)",
+     "26": "✓",
+     "27": "✓",
+     "30": "✓ (azul)"
+    },
+    "nota": "",
+    "dudoso": true
+   },
+   {
+    "n": 43,
+    "nombre": "MOLANO LEON GABRIELA",
+    "marcas": {
+     "2": "✓",
+     "4": "✓",
+     "7": "✓",
+     "9": "✓",
+     "11": "✓",
+     "14": "✓",
+     "16": "✓",
+     "21": "✓",
+     "23": "✓ (gris)"
+    },
+    "nota": "",
+    "dudoso": true
+   },
+   {
+    "n": 44,
+    "nombre": "MONROY JULIANA",
+    "marcas": {},
+    "nota": "Fila completa resaltada verde + azul. Sin marcas propias (las marcas que tocan el resaltado se asignaron a la fila 45).",
+    "dudoso": true
+   },
+   {
+    "n": 45,
+    "nombre": "MONTENEGRO ISABELLA",
+    "marcas": {
+     "7": "✓",
+     "9": "✓",
+     "12": "✓",
+     "14": "✓",
+     "16": "✓",
+     "19": "✓",
+     "24": "✓",
+     "26": "✓"
+    },
+    "nota": "",
+    "dudoso": true
+   },
+   {
+    "n": 46,
+    "nombre": "MORALES LAURENT",
+    "marcas": {
+     "12": "✓",
+     "27": "✓"
+    },
+    "nota": "",
+    "dudoso": true
+   },
+   {
+    "n": 47,
+    "nombre": "MORENO TORRES ESTEFANIA",
+    "marcas": {
+     "12": "✓",
+     "13": "✓ tachado (parece X sobre ✓)",
+     "20": "✓",
+     "27": "✓",
+     "28": "✓"
+    },
+    "nota": "",
+    "dudoso": true
+   },
+   {
+    "n": 48,
+    "nombre": "NOVA ALEJANDRA",
+    "marcas": {
+     "11": "✓",
+     "29": "✓"
+    },
+    "nota": "Nombre resaltado en naranja.",
+    "dudoso": true
+   },
+   {
+    "n": 49,
+    "nombre": "NOVOA FORIGUA ALISSON",
+    "marcas": {
+     "2": "✓",
+     "7": "✓",
+     "9": "✓",
+     "14": "✓",
+     "16": "✓",
+     "20": "✓ (tenue)",
+     "21": "✓",
+     "22": "✓"
+    },
+    "nota": "",
+    "dudoso": true
+   },
+   {
+    "n": 50,
+    "nombre": "PALLARES LEIDY",
+    "marcas": {
+     "5": "✓",
+     "9": "✓",
+     "12": "✓",
+     "23": "✓",
+     "24": "✓ (gris)"
+    },
+    "nota": "",
+    "dudoso": true
+   },
+   {
+    "n": 51,
+    "nombre": "PARRA GUTIERREZ VALENTINA",
+    "marcas": {
+     "7": "✓",
+     "24": "✓"
+    },
+    "nota": "Nombre resaltado en naranja.",
+    "dudoso": true
+   },
+   {
+    "n": 52,
+    "nombre": "PARRA VILLADA SOFIA",
+    "marcas": {
+     "5": "✓",
+     "6": "✓",
+     "12": "✓",
+     "13": "✓",
+     "20": "✓ (posible tinta roja/oscura)",
+     "21": "✓",
+     "28": "✓"
+    },
+    "nota": "",
+    "dudoso": true
+   },
+   {
+    "n": 53,
+    "nombre": "PEÑA SAMANTHA",
+    "marcas": {
+     "12": "✓",
+     "13": "✓",
+     "21": "✓",
+     "22": "/ (tenue)",
+     "28": "✓",
+     "29": "✓."
+    },
+    "nota": "Nombre resaltado en naranja.",
+    "dudoso": true
+   },
+   {
+    "n": 54,
+    "nombre": "PEREA ISABELLA",
+    "marcas": {
+     "5": "✓",
+     "6": "✓",
+     "20": "✓ (tenue)",
+     "21": "✓ (tenue)"
+    },
+    "nota": "",
+    "dudoso": true
+   }
+  ],
+  "observaciones": "Filas 28-54 (continuacion; filas 1-27 en otra hoja). Encabezado de dias impreso 2,4,5,6,7,9,11,12,13,14,16,18 (sobrescrito sobre otro numero),19,20,21 y luego numeros SOBRESCRITOS a mano como 22,23,24,25; luego 'S','D' con '26 27' escrito encima, y tres columnas dibujadas a mano 'L','M','M' con '29 30' encima (se asumio L=28, M=29, M=30). Sobre 23-25 hay letras 'M J V' manuscritas. Resaltados: verde+azul de fila completa en 30, 37 y 44 (probablemente inactivas/retiradas, sin marcas); naranja solo en el nombre de 48, 51 y 53 (significado desconocido). Marcas en tinta azul en columnas 24-30 y algunas en gris/lapiz (anotado por celda). Trazos magenta sueltos en el margen derecho. Casi todo ✓ (un 'x' azul en fila 36). AVISO: la planilla esta inclinada y las marcas quedan corridas hacia arriba; la parte izquierda (dias 2-16) es fiable, pero en las columnas 18-30 la asignacion de columna puede estar corrida ±1 y la de fila ±1; por eso las filas con marcas a la derecha van como dudoso."
+ },
+ {
+  "idx": 30,
+  "file": "ee3c8ac2-4e6d-4ab2-98dc-5c25c0a547d2.jpg",
+  "tipo": "pagos",
+  "grupo": "(no indicado; probablemente Infantil Masculino por los varones y las referencias cruzadas desde Mini)",
+  "titulo": "CONTROL DE PAGOS SEPTIEMBRE",
+  "rotada": false,
+  "filas": [
+   {
+    "n": 39,
+    "nombre": "Torres Mendieta Juan Jose",
+    "valor": 90000,
+    "fecha_txt": "Sep 6.",
+    "fecha": "2026-09-06",
+    "medio": "Efectivo",
+    "nota": "Apellido se lee 'Menolieta' (probable Mendieta). 'Efectivo' resaltado en amarillo.",
+    "resaltado": "amarillo",
+    "dudoso": true
+   },
+   {
+    "n": 40,
+    "nombre": "Blanco Joseph Mateo",
+    "valor": 150000,
+    "fecha_txt": "Sep 8",
+    "fecha": "2026-09-08",
+    "medio": "Llave",
+    "nota": "",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 41,
+    "nombre": "Zorro Juan Andrés",
+    "valor": 150000,
+    "fecha_txt": "Sep 11",
+    "fecha": "2026-09-11",
+    "medio": "QR",
+    "nota": "La 'Z' esta sobrescrita.",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 42,
+    "nombre": "Vargas Saldaña Santiago",
+    "valor": 90000,
+    "fecha_txt": "Sep 12",
+    "fecha": "2026-09-12",
+    "medio": "Llave",
+    "nota": "Fecha corregida/sobrescrita (se lee 'Sep 1?': 12 o 17). Numero de fila escrito ilegible (42 por secuencia).",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 43,
+    "nombre": "Illera Echevarria Mattias",
+    "valor": 90000,
+    "fecha_txt": "Sep 17",
+    "fecha": "2026-09-17",
+    "medio": "Llave",
+    "nota": "Nombre se lee 'Illera Echevarrita Mattias'.",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 44,
+    "nombre": "Campos Juan Martin",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Anotacion '3 Meses.' sin valor/fecha/medio. (En img 27 Mini: 'Campos Martín — BEBE/DEBE Infantil Masculino'.)",
+    "resaltado": null,
+    "dudoso": true
+   },
+   {
+    "n": 45,
+    "nombre": "Caicedo Juan Felipe",
+    "valor": null,
+    "fecha_txt": null,
+    "fecha": null,
+    "medio": null,
+    "nota": "Sin pago en esta hoja. (En img 27 Mini figura 'Caicedo Bayona Juan Felipe' con 9?.000 Sep 18 BC.)",
+    "resaltado": null,
+    "dudoso": false
+   },
+   {
+    "n": 46,
+    "nombre": "Emmanuel Garzon Jaraiza",
+    "valor": 150000,
+    "fecha_txt": "Sep 20.",
+    "fecha": "2026-09-20",
+    "medio": "BC",
+    "nota": "Valor dudoso (150.000 vs 180.000). Apellidos dificiles ('Caron/Garzon Jaraiza'). OJO posible duplicado con img 26 fila 12 'Garzon Jaraiba Emanuel' 150.000 Sep 18 BC.",
+    "resaltado": null,
+    "dudoso": true
+   }
+  ],
+  "observaciones": "Hoja continuacion (filas 39-46), todo manuscrito. Varios nombres coinciden con la planilla de asistencia de la img 32 (Zorro Juan, Juan Jose Torres). Al fondo se ve otra hoja con pestaña 'NUEVA ERA' y una lista parcial '01 Oscar Gilberto, 02 Fady Beltran, 03 Ivan Cuervo / Efectivo, 04 Ivan Cuervo, 05 Wilson Beltran, 06 Fady B., 07 Ivan Cuervo, 08 = 20$ Fady Beltran' (cortada, no transcrita como datos)."
+ },
+ {
+  "idx": 31,
+  "file": "fb304b51-825c-49ed-9b09-aa6d3cf094d0.jpg",
+  "tipo": "asistencia",
+  "grupo": "MENORES MASCULINO",
+  "titulo": "ASISTENCIA DE SEPTIEMBRE",
+  "rotada": true,
+  "dias": [
+   1,
+   3,
+   5,
+   6,
+   8,
+   10,
+   12,
+   13,
+   15,
+   17,
+   19,
+   20,
+   22,
+   24,
+   26,
+   27,
+   29
+  ],
+  "filas": [
+   {
+    "n": 20,
+    "nombre": "QUINTERO SEBASTIÁN",
+    "marcas": {
+     "1": "✓",
+     "5": "✓",
+     "6": "✓ (con garabato)",
+     "8": "✓",
+     "12": "✓",
+     "13": "✓",
+     "15": "✓",
+     "19": "✓",
+     "20": "✓",
+     "22": "✓",
+     "26": "✓",
+     "27": "✓",
+     "29": "✓"
+    },
+    "nota": "Nac. '02/12 2008'. Margen izq.: '1 0 / 223 223/173'.",
+    "dudoso": false
+   },
+   {
+    "n": 21,
+    "nombre": "SALGADO ROMERO JUAN DAVID",
+    "marcas": {
+     "1": "✓",
+     "3": "✓",
+     "8": "✓",
+     "10": "✓",
+     "13": "✓",
+     "15": "✓",
+     "20": "✓",
+     "22": "✓",
+     "27": "✓",
+     "29": "✓ (tenue)"
+    },
+    "nota": "Nac. '24/09 2010'. Margen der.: '-MJD'. Margen izq.: '223 223/173'.",
+    "dudoso": false
+   },
+   {
+    "n": 22,
+    "nombre": "SANCHEZ MARTINEZ JUAN CARLOS",
+    "marcas": {
+     "8": "✓",
+     "10": "✓"
+    },
+    "nota": "Año '2008'. Margen der.: '-'. Margen izq.: '210 210/167'.",
+    "dudoso": false
+   },
+   {
+    "n": 23,
+    "nombre": "SERGIO SOLER SUAREZ",
+    "marcas": {
+     "5": "✓",
+     "6": "✓",
+     "12": "✓",
+     "13": "✓",
+     "15": "✓",
+     "20": "✓",
+     "26": "✓",
+     "27": "✓"
+    },
+    "nota": "Nac. '23/11 2009'. Posible misma persona que el manuscrito 'Soler Sabaté Sergio' mas abajo.",
+    "dudoso": true
+   },
+   {
+    "n": 24,
+    "nombre": "SOSA DANIEL",
+    "marcas": {
+     "5": "✓",
+     "8": "✓",
+     "19": "✓",
+     "22": "✓",
+     "24": "✓",
+     "29": "✓"
+    },
+    "nota": "Año '2011'. Margen der.: '-MJSD'. Margen izq.: '229 230/180'.",
+    "dudoso": true
+   },
+   {
+    "n": 25,
+    "nombre": "SUÁREZ SANTIAGO",
+    "marcas": {
+     "3": "✓",
+     "5": "✓",
+     "10": "✓",
+     "12": "✓",
+     "13": "✓",
+     "17": "✓",
+     "19": "✓",
+     "24": "✓",
+     "26": "✓",
+     "29": "✓"
+    },
+    "nota": "Nac. '12/08 2009'. Margen der.: '-MD40' (literal dudoso).",
+    "dudoso": true
+   },
+   {
+    "n": null,
+    "nombre": "Lizcano Alejandro",
+    "marcas": {
+     "1": "✓",
+     "3": "✓",
+     "8": "✓",
+     "15": "✓",
+     "19": "✓",
+     "22": "✓",
+     "24": "✓"
+    },
+    "nota": "Manuscrito (posicion 26). Nac. '8/12 2008'. Margen der.: '-MJ'. Margen izq.: '230 232/180'.",
+    "dudoso": true
+   },
+   {
+    "n": null,
+    "nombre": "Zabaleta Cristian [TACHADO]",
+    "marcas": {
+     "1": "✓",
+     "5": "✓",
+     "6": "✓",
+     "24": "✓",
+     "29": "✓"
+    },
+    "nota": "Manuscrito (posicion 27) y tachado con una linea, año '2009' tambien tachado (ya figura impreso en la hoja 1 fila 8). Margen der.: '-MJ'.",
+    "dudoso": true
+   },
+   {
+    "n": null,
+    "nombre": "Leal Delgadillo Gabriel",
+    "marcas": {
+     "1": "✓",
+     "3": "✓",
+     "8": "✓"
+    },
+    "nota": "Manuscrito (posicion 28). Año '2008'. Margen izq.: '233 235/184'.",
+    "dudoso": true
+   },
+   {
+    "n": null,
+    "nombre": "Soler Sabaté Sergio",
+    "marcas": {
+     "5": "✓",
+     "6": "✓",
+     "13": "✓",
+     "15": "✓",
+     "20": "✓"
+    },
+    "nota": "Manuscrito (posicion 29). Apellido 'Sabaté' dudoso. ¿Duplicado de fila 23 'SERGIO SOLER SUAREZ'?",
+    "dudoso": true
+   },
+   {
+    "n": null,
+    "nombre": "Torres Mondragon Cristofer",
+    "marcas": {
+     "5": "✓",
+     "6": "✓",
+     "12": "✓",
+     "13": "✓",
+     "15": "✓"
+    },
+    "nota": "Manuscrito (posicion 30). Se lee 'Cristonfer' (con tachon).",
+    "dudoso": true
+   },
+   {
+    "n": null,
+    "nombre": "Galindo Gabriel",
+    "marcas": {
+     "5": "✓",
+     "12": "✓",
+     "20": "✓"
+    },
+    "nota": "Manuscrito (posicion 31). Nac. '09/01 2009'. Margen der.: '-'.",
+    "dudoso": true
+   },
+   {
+    "n": null,
+    "nombre": "Cortes Saez Josue",
+    "marcas": {
+     "5": "✓"
+    },
+    "nota": "Manuscrito (posicion 32). Año '2012'. Ya figura impreso en la hoja 1 fila 4 'CORTES SAENZ JOSUE' (duplicado).",
+    "dudoso": true
+   },
+   {
+    "n": null,
+    "nombre": "Sanmiguel Linares",
+    "marcas": {
+     "6": "✓",
+     "13": "✓",
+     "20": "✓"
+    },
+    "nota": "Manuscrito (posicion 33). Sin nombre de pila.",
+    "dudoso": true
+   },
+   {
+    "n": null,
+    "nombre": "Reino Samuel",
+    "marcas": {
+     "19": "✓",
+     "20": "✓",
+     "24": "✓",
+     "27": "✓"
+    },
+    "nota": "Manuscrito (posicion 34). Nac. '28/09/2010'. Margen der.: '-'. Las marcas de esta fila y la anterior podrian estar intercambiadas.",
+    "dudoso": true
+   }
+  ],
+  "observaciones": "Es la HOJA 2 / continuacion de la img 25 (mismas columnas de dias 1..29; la numeracion sigue en 20; detras se trasluce la hoja 1 con ARDILA, ARIAS...). Filas 20-25 impresas bajo el subtitulo 'MENORES MASCULINO'; 9 filas manuscritas añadidas sin numero (n=null; posicion 26-34 en la nota). Las marcas quedan corridas hacia arriba: la asignacion de fila puede variar ±1 en las filas manuscritas. Solo ✓. Margen izq.: numeros tipo '223 223/173' (medidas, no interpretadas)."
+ },
+ {
+  "idx": 32,
+  "file": "fd0ec994-4d2d-4701-a48d-61a0464d4aed.jpg",
+  "tipo": "asistencia",
+  "grupo": "(no visible; varones, probablemente Infantil Masculino)",
+  "titulo": "(encabezado tapado por la pagina doblada)",
+  "rotada": true,
+  "dias": [],
+  "filas": [
+   {
+    "n": 21,
+    "nombre": "NIGRINIS SANTIAGO",
+    "marcas": {
+     "c4": "x",
+     "c6": "x",
+     "c8": ";",
+     "c10": "X",
+     "c12": "X",
+     "c13": "·",
+     "c14": "·",
+     "c15": "x (tenue)",
+     "c16": "x",
+     "c18": "·",
+     "c19": ","
+    },
+    "nota": "",
+    "dudoso": false
+   },
+   {
+    "n": 22,
+    "nombre": "ORTEGON JUAN DAVID",
+    "marcas": {},
+    "nota": "Marca grande tipo '✗' escrita junto al nombre, fuera de la cuadricula.",
+    "dudoso": false
+   },
+   {
+    "n": 23,
+    "nombre": "PARDO LLANOS SAMUEL",
+    "marcas": {
+     "c6": "x",
+     "c13": "X",
+     "c14": "x"
+    },
+    "nota": "",
+    "dudoso": false
+   },
+   {
+    "n": 24,
+    "nombre": "PASTOR ALDANA JULIAN SANTIAGO",
+    "marcas": {
+     "c3": "x",
+     "c4": "X",
+     "c6": "x",
+     "c8": "x",
+     "c11": "x",
+     "c12": "x (con tachon)",
+     "c13": "x",
+     "c14": "x",
+     "c15": "X"
+    },
+    "nota": "",
+    "dudoso": false
+   },
+   {
+    "n": 25,
+    "nombre": "PUENTES SAMUEL",
+    "marcas": {
+     "c6": "x",
+     "c10": "X",
+     "c13": "x",
+     "c15": "X"
+    },
+    "nota": "",
+    "dudoso": false
+   },
+   {
+    "n": 26,
+    "nombre": "QUINTERO CASALLAS MATTIAS",
+    "marcas": {
+     "c10": "X"
+    },
+    "nota": "Anotacion 'Mer' junto al nombre (sin interpretar). Mismo nombre que la fila 19 de la img 25 ('QUINTERO CASALLAS MATTYAS').",
+    "dudoso": false
+   },
+   {
+    "n": 27,
+    "nombre": "SILVA SOSA JUAN DANIEL",
+    "marcas": {
+     "c6": "x",
+     "c13": "x"
+    },
+    "nota": "",
+    "dudoso": false
+   },
+   {
+    "n": 28,
+    "nombre": "SUAREZ ALARCON JACOBO",
+    "marcas": {
+     "c3": "x",
+     "c8": "x",
+     "c10": "X",
+     "c13": "x",
+     "c14": "X",
+     "c15": "X"
+    },
+    "nota": "",
+    "dudoso": false
+   },
+   {
+    "n": 29,
+    "nombre": "TORRES DIAZ DYLAN SANTIAGO",
+    "marcas": {
+     "c3": "x",
+     "c4": "X",
+     "c6": "x",
+     "c8": "x",
+     "c10": "X",
+     "c11": "x",
+     "c12": "X",
+     "c13": "x",
+     "c14": "x",
+     "c15": "X",
+     "c16": "x"
+    },
+    "nota": "",
+    "dudoso": false
+   },
+   {
+    "n": 30,
+    "nombre": "PEREZ SEBASTIAN",
+    "marcas": {
+     "c6": "x",
+     "c8": "x",
+     "c10": "X",
+     "c11": "x",
+     "c13": "X",
+     "c14": "·",
+     "c15": "X"
+    },
+    "nota": "",
+    "dudoso": false
+   },
+   {
+    "n": null,
+    "nombre": "Zorro Juan",
+    "marcas": {
+     "c6": "X",
+     "c10": "X",
+     "c13": "x"
+    },
+    "nota": "Manuscrito (posicion 31). Probable 'Zorro Juan Andrés' de la img 30.",
+    "dudoso": false
+   },
+   {
+    "n": null,
+    "nombre": "Ubin Ian",
+    "marcas": {
+     "c6": "x",
+     "c8": "x",
+     "c10": "X",
+     "c13": "x",
+     "c14": "x"
+    },
+    "nota": "Manuscrito (posicion 32). Nombre dudoso ('Ubin Ian').",
+    "dudoso": true
+   },
+   {
+    "n": null,
+    "nombre": "Juan Jose Torres",
+    "marcas": {
+     "c3": "X",
+     "c4": "x",
+     "c6": "x",
+     "c8": "x",
+     "c15": "X",
+     "c16": "x"
+    },
+    "nota": "Manuscrito (posicion 33). Probable 'Torres Mendieta Juan Jose' de la img 30.",
+    "dudoso": false
+   },
+   {
+    "n": null,
+    "nombre": "Sebastian Romero",
+    "marcas": {
+     "c6": "x",
+     "c10": "X",
+     "c13": "x",
+     "c14": "x"
+    },
+    "nota": "Manuscrito (posicion 34).",
+    "dudoso": false
+   },
+   {
+    "n": null,
+    "nombre": "Juan (Mar) Angel Gonzalez",
+    "marcas": {
+     "c9": "x",
+     "c10": "X",
+     "c13": "x",
+     "c14": "X"
+    },
+    "nota": "Manuscrito (posicion 35). Se lee 'Juan (Mar) Angel Gonzalez' (¿Juan Manuel / Miguel Ángel?).",
+    "dudoso": true
+   }
+  ],
+  "observaciones": "Pagina 2 de una planilla de asistencia (filas 21-30 impresas + 5 manuscritas). La fila de encabezado con los dias NO es visible (tapada por la hoja de encima), asi que las marcas se dan por indice de columna 'c1'..'c20' contando desde la primera columna tras el nombre; NO se pueden convertir a dia sin otra foto de esta planilla. Las marcas son 'X'/'x' (literal; en esta planilla podrian significar presente, no interpretado) y algunos puntos '·'. A la izquierda asoma otra hoja con apellidos impresos cortados (ANGULO, AYCARDI, BALAGUE.., BECERRA, CALDERON, CASALLA.., CASTELL.., CUELLAR, GOMEZ C.., GUERRA, GUILLEN, HERRERA, HERRERA, ..MUS F.., ..RA DU.., ..ÑOZ A.., etc.), probablemente la hoja 1 (filas 1-20) de esta misma planilla; no transcrita. Detras se trasluce otra hoja con 'MENDIETA JUAN JOSE' y 'ACOSTA NICOLAS'."
+ }
+]
