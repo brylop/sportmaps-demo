@@ -4,6 +4,8 @@
  *   GET  /:token        → datos mínimos del cobro para la página /p/:token
  *   POST /:token/pagar  → sesión de checkout Wompi del cobro del token
  *   GET  /:token/qr.png → PNG con el QR del enlace https://app.sportmaps.co/p/<token>
+ *   GET  /:token/factura → ¿quiere factura electrónica? (resumen ENMASCARADO)
+ *   PUT  /:token/factura → guarda la preferencia y los datos de factura
  *
  * Montado bajo /api/v1/public: requireOperationalSchool lo deja pasar (está en
  * su allowlist), por eso el chequeo de escuela operativa vive en el servicio.
@@ -23,6 +25,10 @@ import {
     resolverToken, vistaDelCobro, iniciarPagoEnLinea,
 } from '../services/cobro-enlace-publico.service';
 import { appPublica, enlaceDeCobro } from '../utils/url-publica-familias';
+import {
+    resumenPorToken, guardarPorToken, MENSAJE_ERROR, type DatosFactura,
+} from '../services/factura-pagador.service';
+import { TOKEN_COBRO_RE } from '../services/cobro-enlace-publico.service';
 
 const router = Router();
 
@@ -66,6 +72,17 @@ const qrTokenLimiter = rateLimit({
     legacyHeaders: false,
     keyGenerator: (req) => `cobro-qr-tk-${String(req.params?.token ?? '').slice(0, 32)}`,
     message: { error: 'Demasiadas consultas.', code: 'rate_limited' },
+});
+
+// Guardar datos de factura: 10 por token cada 15 min (corregir un dígito un
+// par de veces es honesto; más que eso es alguien probando).
+const facturaLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `cobro-factura-${String(req.params?.token ?? '').slice(0, 32)}-${ipKeyGenerator(req.ip ?? '')}`,
+    message: { error: 'Demasiados intentos. Espera unos minutos.', code: 'rate_limited' },
 });
 
 function respuestaTokenInvalido(res: Response, motivo: 'no_existe' | 'vencido' | 'revocado') {
@@ -140,6 +157,55 @@ router.post('/:token/pagar', pagoLimiter, async (req: Request, res: Response) =>
     } catch (err: any) {
         (req as any).log?.error({ err: err?.message }, 'cobro-publico POST pagar falló');
         return res.status(500).json({ error: 'No pudimos iniciar el pago. Intenta de nuevo.' });
+    }
+});
+
+/**
+ * Factura electrónica del pagador de ESTE cobro. El token es la credencial y
+ * se puede haber reenviado: el GET solo devuelve un resumen enmascarado (tipo
+ * de documento, últimos 4 dígitos, correo con •••), nunca los datos completos.
+ * El PUT escribe por la RPC que recibe el token (factura_pagador_guardar_por_token),
+ * que resuelve el pagador sola: el cuerpo no puede elegir a quién se le guarda.
+ */
+router.get('/:token/factura', lecturaLimiter, async (req: Request, res: Response) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const token = String(req.params.token);
+        if (!TOKEN_COBRO_RE.test(token)) return respuestaTokenInvalido(res, 'no_existe');
+        const r = await resumenPorToken(token);
+        if (!r) return respuestaTokenInvalido(res, 'no_existe');
+        return res.json(r);
+    } catch (err: any) {
+        (req as any).log?.error({ err: err?.message }, 'cobro-publico GET factura falló');
+        return res.status(500).json({ error: 'No pudimos cargar tus datos de factura.' });
+    }
+});
+
+router.put('/:token/factura', facturaLimiter, async (req: Request, res: Response) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const token = String(req.params.token);
+        if (!TOKEN_COBRO_RE.test(token)) return respuestaTokenInvalido(res, 'no_existe');
+        const b = (req.body ?? {}) as Record<string, unknown>;
+        const texto = (v: unknown) => (typeof v === 'string' ? v.slice(0, 300) : null);
+        const datos: DatosFactura = {
+            preferencia: texto(b.preferencia) as DatosFactura['preferencia'],
+            tipoDocumento: texto(b.tipoDocumento),
+            numeroDocumento: texto(b.numeroDocumento),
+            nombre: texto(b.nombre),
+            correo: texto(b.correo),
+            direccion: texto(b.direccion),
+            ciudadDane: texto(b.ciudadDane),
+            departamento: texto(b.departamento),
+        };
+        const r = await guardarPorToken(token, datos);
+        if (r.ok) return res.json({ ok: true });
+        if (r.error === 'token_invalido') return respuestaTokenInvalido(res, 'no_existe');
+        const status = r.error === 'no_disponible' ? 503 : r.error === 'sin_pagador' ? 409 : 400;
+        return res.status(status).json({ code: r.error, error: MENSAJE_ERROR[r.error] ?? MENSAJE_ERROR.no_disponible });
+    } catch (err: any) {
+        (req as any).log?.error({ err: err?.message }, 'cobro-publico PUT factura falló');
+        return res.status(500).json({ error: MENSAJE_ERROR.no_disponible });
     }
 });
 

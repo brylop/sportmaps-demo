@@ -387,8 +387,10 @@ export const factusV2Adapter: InvoicingAdapter = {
             // Explícito y no por omisión: el default documentado es `true`, y no
             // queremos que Factus le escriba al acudiente por su cuenta con una
             // plantilla que no controlamos. Si algún día se quiere ese correo,
-            // es una decisión de producto, no un default heredado.
-            send_email: false,
+            // es una decisión de producto, no un default heredado. Esa decisión
+            // llega en `req.sendEmail` (flag de la escuela + el pagador pidió
+            // factura y dejó correo); solo `true` explícito la prende.
+            send_email: req.sendEmail === true,
             payment_details: paymentDetails(req.items, req.paymentMethod, cfg),
             customer: customerPayload(req.customer),
             items: mapItems(req.items),

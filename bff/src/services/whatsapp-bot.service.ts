@@ -49,6 +49,8 @@ import {
     botEncendido, debeAtender, temaEscolar, preguntaPrecioComoProspecto,
 } from './whatsapp-atencion.service';
 import { conMarca, sufijoMarcaEscuela } from '../utils/tenantLink';
+import { atenderTurnoFactura, enlaceFormularioFactura } from './whatsapp-factura.service';
+import { celular10, type DuenoFactura } from './factura-pagador.service';
 
 const OTP_TTL_MIN = 10;
 
@@ -97,7 +99,7 @@ export async function runBotTurn(
 
     // 1. No identificado → flujo OTP determinista.
     if (!conv.identified) {
-        await handleIdentification(integration, conversationId, contactWaId, text);
+        await handleIdentification(integration, conversationId, contactWaId, text, botonId);
         return;
     }
 
@@ -124,6 +126,16 @@ export async function runBotTurn(
     // 2. Consentimiento: se pide UNA vez, después de identificarse.
     //    Si este turno lo resolvió (preguntó, o registró el sí/no), termina acá.
     if (await handleConsent(integration, conversationId, contactWaId, conv.parent_id, text, waMessageId, botonId)) {
+        return;
+    }
+
+    // 2.3. Factura electrónica: flujo determinista (sin modelo) que pide los
+    //      datos uno por uno. Va ANTES de los botones porque, con un flujo
+    //      abierto, «CC» o un número de cédula son la respuesta a la pregunta
+    //      que se le hizo; el módulo suelta el turno (false) si no es suyo.
+    if (conv.parent_id && await atenderFacturaEnBot(
+        integration, conversationId, contactWaId,
+        { tipo: 'perfil', profileId: conv.parent_id }, true, text, botonId)) {
         return;
     }
 
@@ -467,10 +479,50 @@ async function revisarVinculoPorTelefono(
     return porTelefono;
 }
 
+/**
+ * Turno de factura electrónica (whatsapp-factura.service). Solo lo llaman los
+ * dos caminos de FAMILIA: conversación identificada (dueño = su perfil) y
+ * acudiente sin cuenta reconocido por el número (dueño = escuela + celular).
+ */
+async function atenderFacturaEnBot(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    dueno: DuenoFactura,
+    conCuenta: boolean,
+    text: string,
+    botonId: string | null,
+): Promise<boolean> {
+    try {
+        return await atenderTurnoFactura({
+            conversationId,
+            schoolId: integration.school_id,
+            dueno,
+            conCuenta,
+            enviar: (texto, paso, botones) => deliver(integration, conversationId, contactWaId, texto,
+                { step: paso, flujo: 'factura_electronica' },
+                botones ? {
+                    botones,
+                    // Modo asistido: el buzón aprueba como texto y los botones
+                    // no llegan. El flujo acepta el título escrito tal cual.
+                    enTexto: `Responde ${botones.map((b) => `*${b.title}*`).join(' o ')}.`,
+                } : undefined),
+            enlaceFormulario: () => enlaceFormularioFactura(dueno, integration.school_id),
+        }, text, botonId);
+    } catch (e: any) {
+        // Que una falla de este módulo no deje a la familia sin respuesta: se
+        // suelta el turno y lo atiende el bot normal.
+        console.warn('[whatsapp-bot] flujo de factura falló', { conversationId, err: e?.message });
+        return false;
+    }
+}
+
 async function identificarPorTelefono(
     integration: WhatsAppIntegration,
     conversationId: string,
     contactWaId: string,
+    text = '',
+    botonId: string | null = null,
 ): Promise<boolean> {
     const { data, error } = await supabase.rpc('wa_identify_by_phone', {
         p_integration_id: integration.id,
@@ -501,6 +553,16 @@ async function identificarPorTelefono(
     }
 
     if (estado === 'debe_registrarse') {
+        // Factura electrónica para la familia SIN cuenta: se guarda por escuela
+        // + celular (payer_billing_profiles), así la emisión la alcanza por
+        // children.parent_phone_temp. Va antes del aviso de registro porque si
+        // está en medio del flujo, su mensaje es la respuesta a una pregunta.
+        const tel = celular10(contactWaId);
+        if (tel && await atenderFacturaEnBot(integration, conversationId, contactWaId,
+            { tipo: 'telefono', schoolId: integration.school_id, phone10: tel }, false, text, botonId)) {
+            return true;
+        }
+
         // UNA VEZ POR DIA, no en cada mensaje.
         //
         // Esto corre mientras la conversacion siga sin identificar, que para
@@ -592,10 +654,11 @@ async function handleIdentification(
     conversationId: string,
     contactWaId: string,
     text: string,
+    botonId: string | null = null,
 ): Promise<void> {
     // El numero manda. Solo si no resuelve nada se cae al correo, que sigue
     // sirviendo para el acudiente que escribe desde OTRO telefono.
-    if (await identificarPorTelefono(integration, conversationId, contactWaId)) return;
+    if (await identificarPorTelefono(integration, conversationId, contactWaId, text, botonId)) return;
 
     const emailMatch = text.match(EMAIL_RE);
     const codeMatch = text.match(CODE_RE);

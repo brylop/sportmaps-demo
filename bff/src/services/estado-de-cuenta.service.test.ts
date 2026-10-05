@@ -346,6 +346,18 @@ describe('contenido del correo', () => {
         expect(html).not.toContain('<script>');
         expect(html).toContain('&lt;b&gt;Ana');
     });
+
+    it('ofrece completar los datos de factura (al mismo /p/<token>#factura) solo si la escuela factura', () => {
+        const f: Familia = {
+            clave: 'x@x.co', email: 'x@x.co', waId: null, nombre: 'X', perfilId: null, avisadaHoy: false,
+            filas: [{ paymentId: 'p', atleta: 'Ana', concepto: 'Mensualidad', vence: '2026-11-10', saldo: 1, vencido: false, delMes: true, status: 'pending', token: 'TokenAAAAAAAAAAAAAAAAAAA' }],
+        };
+        const base = { escuela: 'E', familia: f, appBase: 'https://app.sportmaps.co', bffBase: 'https://bffprod.sportmaps.co', medios: [], qrEscuelaUrl: null, whatsappComprobante: null };
+        expect(cuerpoCorreoEstado({ ...base, ofrecerFactura: true }))
+            .toContain('https://app.sportmaps.co/p/TokenAAAAAAAAAAAAAAAAAAA#factura');
+        expect(cuerpoCorreoEstado({ ...base, ofrecerFactura: false })).not.toContain('factura electrónica');
+        expect(cuerpoCorreoEstado(base)).not.toContain('#factura');
+    });
 });
 
 describe('ningún enlace a familias con localhost', () => {

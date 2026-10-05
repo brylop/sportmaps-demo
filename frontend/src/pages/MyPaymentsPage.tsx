@@ -20,6 +20,7 @@ import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { calcEarlyPaymentDiscount } from '@/lib/earlyPaymentDiscount';
+import { MiFacturaElectronicaCard } from '@/components/billing/MiFacturaElectronicaCard';
 
 interface Enrollment {
   id: string;
@@ -757,6 +758,9 @@ export default function MyPaymentsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* ¿Quiere factura electrónica a su nombre? Mismo bloque que /p/:token. */}
+      <MiFacturaElectronicaCard />
 
       <Tabs defaultValue="all" className="space-y-4">
         <TabsList>

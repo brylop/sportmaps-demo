@@ -69,6 +69,7 @@ import {
 import { cerrarEnvio, escaparHtml, fechaColombia, reservarEnvio, uuidDeClave } from './avisos-correo.service';
 import { emitirTokenCobro, enlaceWhatsApp, nombreCorto, whatsappDeLaEscuela } from './cobro-enlace-publico.service';
 import { mediosDePago, type MediosDePago } from './whatsapp-medios-de-pago.service';
+import { escuelaFacturaElectronicamente } from './factura-pagador.service';
 
 export const TIPO_ESTADO = 'estado_de_cuenta';
 export const TIPO_CORRIDA = 'estado_de_cuenta_corrida';
@@ -303,6 +304,8 @@ export interface ContenidoCorreo {
     qrEscuelaUrl: string | null;
     whatsappComprobante: string | null;
     nota?: string | null;
+    /** La escuela emite factura electrónica: se ofrece completar los datos (lleva a /p/<token>#factura). */
+    ofrecerFactura?: boolean;
 }
 
 /**
@@ -354,7 +357,10 @@ export function cuerpoCorreoEstado(c: ContenidoCorreo): string {
         ${qrs ? `<table cellpadding="0" cellspacing="0" border="0" style="margin:8px 0;"><tr>${qrs}</tr></table>` : ''}
         ${c.whatsappComprobante
             ? `<p>Después de pagar, <a href="${escaparHtml(c.whatsappComprobante)}">envía el comprobante por WhatsApp a la escuela</a>. Si pagas por el botón en línea, no tienes que enviar nada.</p>`
-            : '<p>Después de pagar, envía el comprobante a la escuela.</p>'}`;
+            : '<p>Después de pagar, envía el comprobante a la escuela.</p>'}
+        ${c.ofrecerFactura && tokenQr
+            ? `<p style="margin-top:16px;font-size:13px;color:#444;">¿Necesitas <strong>factura electrónica</strong> a tu nombre? <a href="${escaparHtml(`${enlaceDeCobro(c.appBase, tokenQr)}#factura`)}">Completa tus datos aquí</a>; quedan guardados para los próximos pagos.</p>`
+            : ''}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -570,6 +576,8 @@ export async function enviarEstadoDeCuenta(schoolId: string, o: OpcionesEnvio): 
         canalPedido === 'auto' ? whatsappDisponibleEnEscuela(schoolId) : Promise.resolve(false),
     ]);
     const escuela = branding.schoolName.replace(/&amp;/g, '&');
+    // Solo se ofrece la factura si la escuela la emite (facturador activo).
+    const ofrecerFactura = await escuelaFacturaElectronicamente(schoolId);
     const whatsappComprobante = enlaceWhatsApp(waEscuela, `Hola, envío el comprobante de pago de ${escuela}.`);
 
     const r: ResumenEnvio = {
@@ -636,7 +644,7 @@ export async function enviarEstadoDeCuenta(schoolId: string, o: OpcionesEnvio): 
                     greeting: `Hola ${f.nombre},`,
                     bodyHtml: cuerpoCorreoEstado({
                         escuela, familia: f, appBase, bffBase, medios: medios.cuentas,
-                        qrEscuelaUrl: qrEscuela, whatsappComprobante, nota: o.nota,
+                        qrEscuelaUrl: qrEscuela, whatsappComprobante, nota: o.nota, ofrecerFactura,
                     }),
                     cta: { label: 'Ver y pagar', url: f.filas.find((x) => x.token) ? enlaceDeCobro(appBase, f.filas.find((x) => x.token)!.token!) : `${appBase}/my-payments` },
                     closingHtml: 'Si ya pagaste, ignora este mensaje: la escuela lo está revisando.',

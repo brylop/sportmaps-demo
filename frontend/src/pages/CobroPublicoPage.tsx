@@ -18,6 +18,12 @@
  * abrirlo en otro celular) y el WhatsApp para el comprobante. Al final, los
  * otros cobros pendientes de la familia, cada uno con su enlace. Sin pago en
  * línea la página funciona igual con transferencia y QR.
+ *
+ * Factura electrónica (2026-10-05): bloque «¿Quieres factura electrónica?» con
+ * id="factura" — el correo del estado de cuenta enlaza a /p/<token>#factura.
+ * Solo aparece si el BFF dice que está disponible (migración aplicada y el
+ * cobro tiene a quién atribuirle la preferencia). Nunca muestra los datos
+ * guardados completos: el enlace se puede reenviar.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -29,9 +35,11 @@ import {
 import { Button } from '@/components/ui/button';
 import { BFFError } from '@/lib/api/bffClient';
 import {
-    abrirWidgetWompi, iniciarPagoCobroPublico, obtenerCobroPublico,
+    abrirWidgetWompi, guardarFacturaPublica, iniciarPagoCobroPublico, obtenerCobroPublico, obtenerFacturaPublica,
     type EstadoCobro, type VistaCobroPublico,
 } from '@/lib/api/cobroPublico';
+import { FacturaElectronicaPreferencia } from '@/components/billing/FacturaElectronicaPreferencia';
+import { ETIQUETA_TIPO, esTipoDocumento, type ResumenFacturaPublica } from '@/lib/facturaElectronica';
 
 const cop = (n: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
@@ -322,6 +330,8 @@ export default function CobroPublicoPage() {
                     </section>
                 )}
 
+                <BloqueFacturaPublica token={token} />
+
                 {pagable && (
                     <section className="rounded-2xl bg-white p-5 text-center shadow-sm">
                         <h2 className="flex items-center justify-center gap-2 text-sm font-semibold text-gray-900">
@@ -340,6 +350,55 @@ export default function CobroPublicoPage() {
                 <PieSportMaps />
             </div>
         </main>
+    );
+}
+
+/** Línea enmascarada: "Cédula de ciudadanía terminada en 4050, correo ju•••@gmail.com". */
+function resumenEnmascarado(r: ResumenFacturaPublica): string | null {
+    if (!r.tieneDatos) return null;
+    const tipo = esTipoDocumento(r.tipoDocumento) ? ETIQUETA_TIPO[r.tipoDocumento] : 'documento';
+    return `${tipo} terminada en ${r.documentoTermina ?? '••••'}${r.correoEnmascarado ? `, correo ${r.correoEnmascarado}` : ''}`;
+}
+
+function BloqueFacturaPublica({ token }: { token: string }) {
+    const [resumen, setResumen] = useState<ResumenFacturaPublica | null>(null);
+    const ref = useRef<HTMLElement | null>(null);
+    const desdeCorreo = typeof window !== 'undefined' && window.location.hash === '#factura';
+
+    const recargar = useCallback(async () => {
+        try {
+            setResumen(await obtenerFacturaPublica(token));
+        } catch {
+            setResumen(null);   // sin bloque: la página de pago no depende de esto
+        }
+    }, [token]);
+
+    useEffect(() => { void recargar(); }, [recargar]);
+
+    // Llegó desde el correo («Completa tus datos aquí»): llevarlo al bloque.
+    useEffect(() => {
+        if (resumen?.disponible && desdeCorreo) ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, [resumen, desdeCorreo]);
+
+    if (!resumen?.disponible || !resumen.pagador) return null;
+
+    return (
+        <section id="factura" ref={ref} className="rounded-2xl bg-white p-5 shadow-sm">
+            <FacturaElectronicaPreferencia
+                preferencia={resumen.preferencia}
+                resumenGuardado={resumenEnmascarado(resumen)}
+                abrirFormulario={desdeCorreo}
+                onGuardar={async (datos) => {
+                    try {
+                        await guardarFacturaPublica(token, datos);
+                        await recargar();
+                        return null;
+                    } catch (e) {
+                        return (e as Error).message || 'No pudimos guardar tus datos. Intenta de nuevo.';
+                    }
+                }}
+            />
+        </section>
     );
 }
 
