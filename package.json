@@ -318,6 +318,7 @@
     "migrations:list": "node scripts/migrations.mjs list",
     "seguridad:invariantes": "node scripts/invariantes-seguridad.mjs",
     "seguridad:rls-negativas": "node scripts/rls-pruebas-negativas.mjs",
+    "seguridad:blindaje-dinero": "node scripts/pruebas-blindaje-dinero.mjs",
     "verificar:runtime": "node scripts/verificar-nombres-sin-declarar.mjs",
     "migrations:pendientes": "node scripts/migraciones-pendientes.mjs",
     "migrations:check": "node scripts/migrations.mjs check",
@@ -325,7 +326,15 @@
     "migrations:next": "node scripts/migrations.mjs next",
     "migrations:new": "node scripts/migrations.mjs new",
     "migrations:drift": "node scripts/find_schema_drift.mjs --stats",
-    "check:migrations": "node scripts/migrations.mjs check"
+    "check:migrations": "node scripts/migrations.mjs check",
+    "qa:dump-schema": "node scripts/qa-twin/dump-schema.mjs",
+    "qa:twin:up": "node scripts/qa-twin/twin.mjs up",
+    "qa:twin:reset": "node scripts/qa-twin/twin.mjs reset",
+    "qa:twin:seed": "node scripts/qa-twin/twin.mjs seed",
+    "qa:twin:status": "node scripts/qa-twin/twin.mjs status",
+    "qa:twin:verify": "node scripts/qa-twin/twin.mjs verify",
+    "qa:twin:down": "node scripts/qa-twin/twin.mjs down",
+    "qa:sql": "node scripts/qa-twin/sql-runner.mjs"
   },
   "repository": {
     "type": "git",

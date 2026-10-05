@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Upload, FileText, ShieldCheck, Trash2, Eye } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { comprimirParaSubir, perfilPorBucket } from '@/lib/imageCompression';
 
 /**
  * Dialog para que el padre suba documento de identidad (TI/RC/CC) + certificado EPS
@@ -107,11 +108,13 @@ export function UploadChildDocumentsDialog({ open, onOpenChange, child }: Props)
 
     setUploading(type);
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const fileC = await comprimirParaSubir(file, perfilPorBucket(bucket));
+    const safeName = fileC.name.replace(/[^a-zA-Z0-9._-]/g, '_');
     const newName = `${type}-${timestamp}-${safeName}`;
     const path = `${folder}/${newName}`;
 
-    const { error } = await supabase.storage.from(bucket).upload(path, file, {
+    const { error } = await supabase.storage.from(bucket).upload(path, fileC, {
+      contentType: fileC.type || undefined,
       cacheControl: '3600',
       upsert: false,
     });

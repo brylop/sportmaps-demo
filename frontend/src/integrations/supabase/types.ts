@@ -28350,6 +28350,116 @@ export type Database = {
         Args: { p_owner_id: string; p_owner_type: string }
         Returns: boolean
       }
+      finance_income_lines: {
+        Args: {
+          p_branch_id?: string
+          p_from: string
+          p_include_undated?: boolean
+          p_owner_id: string
+          p_owner_type: string
+          p_to: string
+        }
+        Returns: {
+          amount_charged: number
+          amount_paid: number | null
+          branch_id: string | null
+          concept: string | null
+          concept_key: string
+          electronic_invoice_id: string | null
+          excess_amount: number
+          income_amount: number
+          payment_date: string | null
+          payment_id: string
+          payment_method: string | null
+          payment_provider: string | null
+          period_month: number | null
+          period_year: number | null
+          school_id: string
+          status: string
+        }[]
+      }
+      finance_income_summary: {
+        Args: {
+          p_branch_id?: string
+          p_from: string
+          p_group?: string
+          p_owner_id: string
+          p_owner_type: string
+          p_to: string
+        }
+        Returns: {
+          bucket: string
+          excess_amount: number
+          income_amount: number
+          tx_count: number
+        }[]
+      }
+      finance_ledger_page: {
+        Args: {
+          p_branch_id?: string
+          p_cursor_date?: string
+          p_cursor_id?: string
+          p_direction?: string
+          p_from: string
+          p_include_undated?: boolean
+          p_limit?: number
+          p_owner_id: string
+          p_owner_type: string
+          p_to: string
+        }
+        Returns: {
+            amount: number | null
+            branch_id: string | null
+            category_id: string | null
+            concept: string | null
+            direction: string | null
+            id: string | null
+            movement_date: string | null
+            owner_id: string | null
+            owner_type: string | null
+            payment_category: string | null
+            school_id: string | null
+            source: string | null
+            status: string | null
+          }[]
+      }
+      finance_ledger_totals: {
+        Args: {
+          p_branch_id?: string
+          p_from: string
+          p_owner_id: string
+          p_owner_type: string
+          p_to: string
+        }
+        Returns: {
+          direction: string
+          n: number
+          total: number
+          undated_n: number
+          undated_total: number
+        }[]
+      }
+      finance_permission: {
+        Args: { p_action: string; p_owner_id: string; p_owner_type: string }
+        Returns: boolean
+      }
+      finance_pnl_monthly: {
+        Args: {
+          p_branch_id?: string
+          p_owner_id: string
+          p_owner_type: string
+          p_year: number
+        }
+        Returns: {
+          category_id: string | null
+          concept_key: string | null
+          direction: string
+          month: number | null
+          n: number
+          total: number
+        }[]
+      }
+      finance_read_school_ids: { Args: never; Returns: string[] }
       can_manage_reports: { Args: { p_school_id: string }; Returns: boolean }
       can_review_product: { Args: { p_product_id: string }; Returns: Json }
       can_view_enrollment: {
@@ -30265,6 +30375,14 @@ export type Database = {
         Args: { p_branch_id?: string; p_school_id: string }
         Returns: Json
       }
+      school_has_addon: {
+        Args: { p_key: string; p_school_id: string }
+        Returns: boolean
+      }
+      admin_unpay_invoiced_payment: {
+        Args: { p_new_status: string; p_payment_id: string; p_reason: string }
+        Returns: Json
+      }
       school_set_membership: {
         Args: {
           p_child_id?: string
@@ -31157,6 +31275,7 @@ export type Database = {
         | "reporter"
         | "personal_trainer"
         | "external_vendor"
+        | "accountant"
       vendor_type:
         | "store"
         | "wellness"
@@ -31389,6 +31508,7 @@ export const Constants = {
         "reporter",
         "personal_trainer",
         "external_vendor",
+        "accountant",
       ],
       vendor_type: ["store", "wellness", "school", "personal_trainer", "coach"],
     },

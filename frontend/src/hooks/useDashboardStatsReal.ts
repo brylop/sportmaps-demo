@@ -6,6 +6,7 @@ import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
 import { todayColombia } from '@/lib/dateUtils';
+import { fetchMonthlyRevenue, roleRequestsSchoolRevenue } from '@/lib/accounting/income';
 
 export interface DashboardStats {
   // School stats
@@ -14,7 +15,13 @@ export interface DashboardStats {
   classes_count?: number;
   active_classes?: number;
   total_enrolled?: number;
-  monthly_revenue?: number;
+  /**
+   * Ingreso cobrado del mes (fórmula única de la base). `null` = no disponible:
+   * ver `revenue_state` — 'forbidden' oculta la tarjeta, 'error' muestra "—".
+   * Nunca se rellena con 0 cuando no se pudo leer.
+   */
+  monthly_revenue?: number | null;
+  revenue_state?: 'ok' | 'forbidden' | 'error' | 'not_requested';
   pending_payments?: number;
   coaches_count?: number;
   plans_count?: number;
@@ -93,43 +100,29 @@ export function useDashboardStatsReal() {
       setLoading(true);
 
       if (profile?.role === 'school' || (profile?.role as any) === 'school_admin' || profile?.role === 'admin' || (profile?.role as any) === 'super_admin' || profile?.role === 'coach') {
-        // Primer día del mes en curso, hora Colombia. `new Date()` local sirve en
-        // un navegador colombiano, pero el mes se compara contra `payment_date`,
-        // que es una columna `date`: se arma como string para no meter husos.
-        const startOfMonth = `${todayColombia().slice(0, 7)}-01`;
-
-        // Revenue query with branch filter - only if schoolId exists
-        let monthlyRevenue = 0;
+        // Revenue: only if schoolId exists and the role asks for it
+        let monthlyRevenue: number | null = null;
+        let revenueState: DashboardStats['revenue_state'] = 'not_requested';
         let pendingCount = 0;
         let coachesCount = 0;
         let plansCount = 0;
 
         if (schoolId) {
-          // "Ingresos del Mes" = plata que ENTRÓ este mes, así que el eje es
-          // `payment_date` (cuándo se pagó), no `created_at` (cuándo se emitió
-          // el cobro). Con `created_at` agosto de Dynasty mostraba $6.660.000 en
-          // vez de $13.900.000: se caían los 48 pagos de agosto sobre cobros
-          // generados en julio, que es el caso NORMAL de una mensualidad.
-          // `partial` cuenta por lo abonado, no por el total del cobro.
-          let revenueQuery = supabase
-            .from('payments')
-            .select('amount, amount_paid, status')
-            .eq('school_id', schoolId)
-            .in('status', ['paid', 'partial'])
-            .gte('payment_date', startOfMonth);
-
-          // Un pago sin sede asignada no es "de otra sede": con `.eq()` se caían
-          // 44 de los 89 pagos de agosto al seleccionar sede. Mismo criterio que
-          // Finanzas y Gestión de Pagos.
-          if (activeBranchId) {
-            revenueQuery = revenueQuery.or(`branch_id.is.null,branch_id.eq.${activeBranchId}`);
+          // "Ingresos del Mes" = plata que ENTRÓ este mes (eje `payment_date`,
+          // mes Bogotá con límite superior). Contabilidad v2 F0: ya no se suma
+          // en el cliente; la base aplica la fórmula única (D-ING), la regla de
+          // sede (los cobros sin sede cuentan en todas) y el permiso: el coach
+          // ni siquiera la pide (la base le respondería 42501, C4).
+          if (roleRequestsSchoolRevenue(profile?.role)) {
+            const rev = await fetchMonthlyRevenue(supabase as any, {
+              schoolId,
+              branchId: activeBranchId,
+              todayIso: todayColombia(),
+            });
+            revenueState = rev.kind;
+            monthlyRevenue = rev.kind === 'ok' ? rev.amount : null;
+            if (rev.kind === 'error') console.error('[dashboard] ingresos del mes:', rev.message);
           }
-
-          const { data: revenueData } = await (revenueQuery as any);
-          monthlyRevenue = revenueData?.reduce(
-            (sum: number, p: any) => sum + Number(p.status === 'partial' ? (p.amount_paid ?? 0) : p.amount),
-            0,
-          ) || 0;
 
           // Pending payments query with branch filter
           let pendingQuery = supabase
@@ -272,6 +265,7 @@ export function useDashboardStatsReal() {
           active_classes: classStats.active,
           total_enrolled: classStats.total_enrolled,
           monthly_revenue: monthlyRevenue,
+          revenue_state: revenueState,
           pending_payments: pendingCount || 0,
           coaches_count: coachesCount,
           plans_count: plansCount,

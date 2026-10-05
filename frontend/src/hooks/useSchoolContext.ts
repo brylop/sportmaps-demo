@@ -25,7 +25,7 @@ export interface SchoolRole {
     schoolName: string;
     // `external_vendor` y `personal_trainer` ya se usan en AppSidebar y en los
     // guards, pero faltaban aca: el switch por rol no compilaba contra este union.
-    role: 'owner' | 'admin' | 'super_admin' | 'school_admin' | 'school' | 'coach' | 'staff' | 'parent' | 'athlete' | 'viewer' | 'wellness_professional' | 'store_owner' | 'external_vendor' | 'personal_trainer' | 'organizer' | 'reporter';
+    role: 'owner' | 'admin' | 'super_admin' | 'school_admin' | 'school' | 'coach' | 'staff' | 'parent' | 'athlete' | 'viewer' | 'wellness_professional' | 'store_owner' | 'external_vendor' | 'personal_trainer' | 'organizer' | 'reporter' | 'accountant';
     branchId: string | null;
     isGlobal?: boolean; // If true, the user has school-wide access
     onboardingStatus?: 'pending' | 'in_progress' | 'completed';
@@ -128,7 +128,7 @@ function useSchoolContextManager(): SchoolContext {
     const previousSchoolIdRef = useRef<string | null>(null);
 
     // Reset all school state (called on sign-out or user change)
-    const resetState = useCallback(() => {
+    const resetState = useCallback((clearQueryCache: boolean = true) => {
         setActiveSchoolId(null);
         setActiveSchoolName('Escuela');
         setCurrentUserRole(null);
@@ -148,7 +148,7 @@ function useSchoolContextManager(): SchoolContext {
         // Defensive: clear module-level BFF header and query cache so
         // subsequent renders never hit the previous user's tenant.
         bffClient.setSchoolId(null);
-        queryClient.clear();
+        if (clearQueryCache) queryClient.clear();
     }, [queryClient]);
 
     // 1. Initial Load: Resolve User & Memberships
@@ -248,7 +248,7 @@ function useSchoolContextManager(): SchoolContext {
                         //  3) Nombre como desempate estable (determinista entre requests).
                         const ROLE_PRIORITY: Record<string, number> = {
                             owner: 0, super_admin: 1, school_admin: 2, admin: 3,
-                            coach: 4, reporter: 5, viewer: 6, parent: 7, athlete: 8,
+                            coach: 4, accountant: 5, reporter: 5, viewer: 6, parent: 7, athlete: 8,
                         };
                         const rank = (r: string) => ROLE_PRIORITY[r] ?? 99;
                         const preferredSchool =
@@ -300,7 +300,12 @@ function useSchoolContextManager(): SchoolContext {
     useEffect(() => {
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
             if (event === 'SIGNED_OUT' || !session?.user) {
-                resetState();
+                // INITIAL_SESSION sin sesión = visitante anónimo que recién
+                // carga: no hay datos de otro usuario que borrar, y clear()
+                // destruía las queries EN VUELO (cancelación silenciosa) y
+                // dejaba colgado a quien ya las observaba: StoreGate quedaba
+                // en spinner para siempre en la vitrina pública /tienda/:slug.
+                resetState(event !== 'INITIAL_SESSION');
             } else if (event === 'SIGNED_IN' && session?.user) {
                 // Only re-resolve if the user actually changed
                 if (currentUserIdRef.current !== session.user.id) {

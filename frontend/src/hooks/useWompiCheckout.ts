@@ -399,6 +399,9 @@ export function useWompiCheckout({ onSuccess, onError, onClosed }: UseWompiCheck
                     subtotal: number;
                     taxTotal: number;
                     shippingCost: number;
+                    /** Tienda v2 F0: firma y llave pública DEL VENDEDOR (null si no es Wompi). */
+                    signature?: string | null;
+                    publicKey?: string | null;
                 };
                 error?: string;
             }>('/api/v1/marketplace/checkout/cart', payload);
@@ -413,6 +416,8 @@ export function useWompiCheckout({ onSuccess, onError, onClosed }: UseWompiCheck
                 customerEmail: payload.contactEmail,
                 customerName: payload.customerName,
                 customerPhone: payload.contactPhone,
+                signature: res.data.signature ?? null,
+                publicKey: res.data.publicKey ?? null,
             });
         } catch (err: any) {
             const msg = err?.message || 'Error iniciando el pago de la orden.';

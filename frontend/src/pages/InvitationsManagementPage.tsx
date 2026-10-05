@@ -75,7 +75,7 @@ export default function InvitationsManagementPage() {
     teamId: '',          // → p_team_id  (equipo/grupo)
     offeringPlanId: '',  // → p_offering_plan_id (plan de sesiones)
     monthlyFee: defaultMonthlyFee,
-    role: 'parent' as 'parent' | 'coach' | 'athlete' | 'referral' | 'school_admin' | 'reporter',
+    role: 'parent' as 'parent' | 'coach' | 'athlete' | 'referral' | 'school_admin' | 'reporter' | 'accountant',
     unregisteredAthleteId: '',  // ← PATCH: ID del unregistered_athlete del bulk upload
   });
 
@@ -444,6 +444,7 @@ export default function InvitationsManagementPage() {
       athlete: `¡Hola! Te invitamos a unirte como atleta a ${schoolName}. Este registro es para ti (atleta mayor de edad), no para un acudiente: ${link}`,
       school_admin: `¡Hola! Te invitamos a administrar una sede en ${schoolName}. Completa tu registro aquí: ${link}`,
       reporter: `¡Hola! Te invitamos a acceder como súper usuario en ${schoolName}. Completa tu registro aquí: ${link}`,
+      accountant: `¡Hola! Te invitamos como contador de ${schoolName}, con acceso de solo lectura a la contabilidad. Completa tu registro aquí: ${link}`,
       guest: `¡Hola! Te invitamos a conocer ${schoolName}. Completa tu registro aquí: ${link}`,
     };
 
@@ -554,6 +555,7 @@ export default function InvitationsManagementPage() {
             athlete: `¡Hola! Te invitamos como atleta (mayor de edad) a ${schoolName}. Regístrate tú mismo aquí: ${result.registration_link}`,
             school_admin: `¡Hola! Te invitamos a administrar una sede en ${schoolName}: ${result.registration_link}`,
             reporter: `¡Hola! Te invitamos como súper usuario en ${schoolName}: ${result.registration_link}`,
+            accountant: `¡Hola! Te invitamos como contador de ${schoolName}: ${result.registration_link}`,
           };
           const msg = messages[role] ?? `¡Hola! Únete a ${schoolName}: ${result.registration_link}`;
 
@@ -981,7 +983,8 @@ export default function InvitationsManagementPage() {
                             inv.role_to_assign === 'coach' ? 'Entrenador' :
                               inv.role_to_assign === 'athlete' ? 'Atleta 18+' :
                                 inv.role_to_assign === 'school_admin' ? 'Admin Sede' :
-                                  inv.role_to_assign === 'reporter' ? 'Súper Usuario' : 'Invitado'}
+                                  inv.role_to_assign === 'reporter' ? 'Súper Usuario' :
+                                    inv.role_to_assign === 'accountant' ? 'Contador' : 'Invitado'}
                         </Badge>
                         {inv.parent_phone && (
                           <div className="flex items-center gap-1 mt-0.5">
@@ -1118,6 +1121,8 @@ export default function InvitationsManagementPage() {
                       ? 'Invita un administrador que gestionará su propia sede.'
                       : formData.role === 'reporter'
                         ? 'Invita un súper usuario con acceso de solo lectura a reportes.'
+                      : formData.role === 'accountant'
+                        ? 'Invita a tu contador: ve la contabilidad completa (ingresos, gastos, nómina, facturas) sin poder registrar ni pagar nada.'
                         : formData.role === 'referral'
                           ? 'Comparte un link de registro para que otra academia se una a SportMaps.'
                           : 'Genera un link de registro personalizado.'}
@@ -1139,6 +1144,7 @@ export default function InvitationsManagementPage() {
                   { id: 'athlete', label: '⚽ Atleta 18+' },
                   { id: 'school_admin', label: '🔑 Administrador' },
                   { id: 'reporter', label: '📊 Súper Usuario' },
+                  { id: 'accountant', label: '🧾 Contador' },
                   { id: 'referral', label: '🏫 Referencia' },
                 ].map(role => (
                   <Button key={role.id} type="button"
@@ -1148,7 +1154,7 @@ export default function InvitationsManagementPage() {
                       ...formData,
                       role: role.id as typeof formData.role,
                       ...(role.id !== 'parent' ? { childName: '' } : {}),
-                      ...(['school_admin', 'reporter', 'referral'].includes(role.id)
+                      ...(['school_admin', 'reporter', 'accountant', 'referral'].includes(role.id)
                         ? { teamId: '', offeringPlanId: '', monthlyFee: defaultMonthlyFee }
                         : {}),
                     })}>

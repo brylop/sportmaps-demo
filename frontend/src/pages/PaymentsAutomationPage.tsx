@@ -998,8 +998,25 @@ export default function PaymentsAutomationPage() {
     const payment = payments.find(p => p.id === paymentId);
 
     try {
-      const { error: updateError } = await supabase.from('payments').update({ status: 'rejected' }).eq('id', paymentId);
+      // Contabilidad v2 F0 (plan §4 F7): rechazar es para comprobantes EN
+      // REVISIÓN. Un cobro ya pagado no se "rechaza" (si tiene factura
+      // electrónica, la base lo frena con PAYMENT_INVOICED y pide nota crédito).
+      const { data: updated, error: updateError } = await supabase
+        .from('payments')
+        .update({ status: 'rejected' })
+        .eq('id', paymentId)
+        .in('status', ['awaiting_approval', 'pending'])
+        .select('id');
       if (updateError) throw updateError;
+      if (!updated || updated.length === 0) {
+        toast({
+          title: 'No se rechazó',
+          description: 'Este cobro ya no está en revisión (pudo aprobarse o cambiar mientras tanto). Actualiza la lista.',
+          variant: 'destructive',
+        });
+        await fetchPayments();
+        return;
+      }
 
       if (payment?.parent_id) {
         await supabase.rpc('notify_user', {

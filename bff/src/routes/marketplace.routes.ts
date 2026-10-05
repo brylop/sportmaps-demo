@@ -2,6 +2,12 @@ import { Router, Request, Response } from 'express';
 import { optionalAuth } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
 import { todayInZone } from '../utils/businessDate';
+import { isStoreEnabled, requireStoreEnabled, STORE_DISABLED_BODY } from '../services/store-flag.service';
+import { VENDOR_PUBLIC_COLUMNS } from '../services/vendor-public-columns';
+import { shapeStoreCatalog, type CatalogProductRow } from '../services/store-catalog';
+
+// Columnas públicas de vendor_profiles: services/vendor-public-columns.ts
+// (con test que vigila que no entre ninguna columna sensible).
 
 const router = Router();
 
@@ -16,6 +22,17 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
             service_type, modality, page = '1', limit = '24', order_by = 'newest'
         } = req.query;
 
+        // Tienda apagada (spec blindaje §1.3): Explorar sigue mostrando servicios,
+        // pero no productos. 'products' -> 503; 'all' -> se piden solo servicios
+        // (asi el total y la paginacion salen bien, en vez de filtrar despues).
+        let effectiveType = type as string;
+        if (effectiveType !== 'services' && !(await isStoreEnabled())) {
+            if (effectiveType === 'products') {
+                return res.status(503).json(STORE_DISABLED_BODY);
+            }
+            effectiveType = 'services';
+        }
+
         const VALID_MODALITIES = ['presencial', 'virtual', 'domicilio', 'hibrido'];
         const modalityParam = typeof modality === 'string' && VALID_MODALITIES.includes(modality)
             ? modality
@@ -23,7 +40,7 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
 
         const { data, error } = await supabase.rpc('search_marketplace', {
             p_query: (q as string) || null,
-            p_type: type as string,
+            p_type: effectiveType,
             p_category: (category as string) || null,
             p_city: (city as string) || null,
             p_price_max: price_max ? parseFloat(price_max as string) : null,
@@ -49,7 +66,7 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
 // GET /api/v1/marketplace/products/:id
 // Detalle de producto con variantes e info de vendor
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/products/:id', optionalAuth, async (req: Request, res: Response) => {
+router.get('/products/:id', requireStoreEnabled, optionalAuth, async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -185,30 +202,51 @@ router.get('/categories-legacy', async (_req: Request, res: Response) => {
 // GET /api/v1/marketplace/vendor/:slug
 // Perfil publico del vendedor con su catalogo
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/vendor/:slug', optionalAuth, async (req: Request, res: Response) => {
+router.get('/vendor/:slug', requireStoreEnabled, optionalAuth, async (req: Request, res: Response) => {
     try {
         const { slug } = req.params;
 
+        // Tienda escolar: no pasa por la verificación de vendedor externo
+        // (store_seller_allowed la gatea por addon + escuela operativa).
         const { data: vendor, error } = await supabase
             .from('vendor_profiles')
-            .select('*')
+            .select(VENDOR_PUBLIC_COLUMNS)
             .eq('slug', slug)
             .eq('is_active', true)
+            .or('verification_status.eq.verified,vendor_type.eq.school')
             .maybeSingle();
 
         if (error || !vendor) {
             return res.status(404).json({ ok: false, error: 'Vendedor no encontrado.' });
         }
 
-        // Obtener productos del vendor
-        const { data: products } = await supabase
+        // Tienda v2 F0 (B3/B4): catálogo por vendor_profile_id con variantes y
+        // disponibilidad real (stock - reservado); school_only solo a miembros.
+        const [{ data: vpSchool }, { data: selling }] = await Promise.all([
+            supabase.from('vendor_profiles').select('school_id').eq('id', vendor.id).maybeSingle(),
+            supabase.rpc('store_seller_allowed', { p_vendor_profile_id: vendor.id }),
+        ]);
+        const storeSchoolId: string | null = (vpSchool as any)?.school_id ?? null;
+        let memberSchoolIds: string[] = [];
+        if (req.user?.id && storeSchoolId) {
+            const { data: ids } = await supabase.rpc('_store_user_school_ids', { p_user: req.user.id });
+            memberSchoolIds = Array.isArray(ids) ? (ids as string[]) : [];
+        }
+        const { data: productRows } = await supabase
             .from('products')
-            .select('id, name, description, price, image_url, category, stock')
-            .eq('vendor_id', vendor.user_id)
+            .select(`id, name, description, price, image_url, category, stock, reserved, visibility, school_id,
+                     tax_rate, min_stock_alert,
+                     product_variants (id, name, attributes, price_override, stock, reserved, image_url, is_active, sort_order),
+                     product_images (image_url, alt_text, sort_order, is_primary)`)
+            .or(`vendor_profile_id.eq.${vendor.id},and(vendor_profile_id.is.null,vendor_id.eq.${vendor.user_id})`)
             .eq('active', true)
-            .eq('visibility', 'public')
+            .in('visibility', ['public', 'school_only'])
             .eq('status', 'active')
             .order('created_at', { ascending: false });
+        const products = shapeStoreCatalog((productRows ?? []) as unknown as CatalogProductRow[], {
+            storeSchoolId,
+            memberSchoolIds,
+        });
 
         // Obtener servicios del vendor
         const { data: services } = await supabase
@@ -222,7 +260,9 @@ router.get('/vendor/:slug', optionalAuth, async (req: Request, res: Response) =>
         return res.json({
             ok: true,
             data: {
-                vendor,
+                vendor: { ...vendor, school_id: storeSchoolId },
+                /** false = la tienda existe pero hoy no vende (allowlist, addon, escuela sin operar). */
+                selling: selling === true,
                 products: products || [],
                 services: services || [],
             },
@@ -236,9 +276,11 @@ router.get('/vendor/:slug', optionalAuth, async (req: Request, res: Response) =>
 // GET /api/v1/marketplace/school-store/:schoolId
 // Resuelve el slug de la tienda (vendor_profile tipo 'school') de una escuela,
 // para que el padre entre a /tienda/:slug desde su app. La tienda de la escuela
-// es el vendor_profile con user_id = schools.owner_id y vendor_type='school'.
+// es el vendor_profile con school_id = la escuela (tienda v2 M-F0-1). Fallback
+// legacy: el perfil 'school' del dueño, solo si no está atado a OTRA escuela
+// (un dueño con dos escuelas no debe mostrar la misma tienda en las dos).
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/school-store/:schoolId', optionalAuth, async (req: Request, res: Response) => {
+router.get('/school-store/:schoolId', requireStoreEnabled, optionalAuth, async (req: Request, res: Response) => {
     try {
         const { schoolId } = req.params;
 
@@ -251,12 +293,22 @@ router.get('/school-store/:schoolId', optionalAuth, async (req: Request, res: Re
             return res.status(404).json({ ok: false, error: 'Escuela no encontrada.' });
         }
 
-        const { data: vp } = await supabase
+        const { data: bySchool } = await supabase
             .from('vendor_profiles')
-            .select('slug, display_name, is_active')
-            .eq('user_id', school.owner_id)
-            .eq('vendor_type', 'school')
+            .select('slug, display_name, is_active, school_id')
+            .eq('school_id', schoolId)
             .maybeSingle();
+
+        let vp = bySchool;
+        if (!vp) {
+            const { data: byOwner } = await supabase
+                .from('vendor_profiles')
+                .select('slug, display_name, is_active, school_id')
+                .eq('user_id', school.owner_id)
+                .eq('vendor_type', 'school')
+                .maybeSingle();
+            vp = byOwner && (!byOwner.school_id || byOwner.school_id === schoolId) ? byOwner : null;
+        }
 
         return res.json({
             ok: true,

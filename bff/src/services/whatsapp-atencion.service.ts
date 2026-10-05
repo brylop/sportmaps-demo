@@ -339,3 +339,47 @@ export function temaEscolar(texto: string | null | undefined): TemaEscolar | nul
 
     return null;
 }
+
+/**
+ * Señales de que ya le paga a la escuela: hay un cobro suyo de por medio.
+ * Con alguna de estas, «valor» o «cuánto» es SU cobro, no la lista de precios.
+ */
+const YA_LE_PAGA: RegExp[] = [
+    /\bcomprobantes?\b/,
+    /\bconsign\w*/,
+    /\btransfer\w*/,
+    /\brecibo de (pago|caja)\b/,
+    /\bsoportes?\b/,
+    /\bpendientes?\b/,
+    /\bcuanto debo\b/,
+    /\bpaz y salvo\b/,
+    /\bacudiente\b/,
+    /\bdel mes\b/,
+    new RegExp(`\\b${MESES}\\b`),
+];
+
+/**
+ * Cuando `temaEscolar` dice 'pagos', ¿el mensaje TAMBIÉN puede ser de alguien
+ * que todavía no está inscrito y pregunta el precio?
+ *
+ * «¿Qué precio tiene la mensualidad?» o «¿cuánto vale la mensualidad de 2
+ * clases?» dicen «mensualidad» —término fuerte de pagos, por eso ganan pagos—
+ * pero los escribe igual una familia desde otro celular que un prospecto. Con
+ * solo pagos, al prospecto se le pedía el correo de una cuenta que no tiene y
+ * se quedaba sin el enlace de inscripción. Con estas señales el bot manda UN
+ * mensaje con las dos salidas.
+ *
+ * NO dispara si el mensaje trae señales de un cobro que ya existe
+ * (`YA_LE_PAGA`): «me confirmas el valor para el pago del mes de septiembre» o
+ * «el valor pendiente» son de familia, y mandarles el enlace de inscripción es
+ * ruido. Pura y determinista, como `temaEscolar`.
+ */
+export function preguntaPrecioComoProspecto(texto: string | null | undefined): boolean {
+    if (!texto) return false;
+    const t = normalizarTexto(texto);
+    if (!t) return false;
+    if (YA_LE_PAGA.some((re) => re.test(t))) return false;
+    return INSCRIPCION_FUERTES.some((re) => re.test(t))
+        || CONCEPTOS_GENERICOS.precio.test(t)
+        || /\bcuanto (es|son|sale)\b/.test(t);
+}

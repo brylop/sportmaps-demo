@@ -459,8 +459,11 @@ async function handleBotTurn(
     //
     // Un audio o un video que llegue marcado como baja no puede pasar: la
     // ingesta solo detecta las palabras de baja en texto.
+    // `botonId`: si tocó un botón, el id viaja aparte del título. El bot decide
+    // con el id, sin modelo (ver `accionDeBoton`).
     try {
-        await runBotTurn(integration, conversationId, msg.contactWaId, msg.textBody, msg.waMessageId, optedOut);
+        await runBotTurn(integration, conversationId, msg.contactWaId, msg.textBody, msg.waMessageId,
+            optedOut, msg.botonId ?? null);
     } catch (err: any) {
         req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: runBotTurn failed');
     }

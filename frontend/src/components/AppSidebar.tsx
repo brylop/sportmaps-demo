@@ -32,6 +32,7 @@ import { UserRole } from '@/types/dashboard';
 import { useVendorProfile } from '@/hooks/useVendorProfile';
 import { useIsMultiSport } from '@/hooks/useSportVisual';
 import { useEntitlements } from '@/hooks/useEntitlements';
+import { useStoreEnabled } from '@/hooks/useStoreEnabled';
 // NOTE: SchoolSwitcher esta desactivado hasta que el schema soporte sede
 // end-to-end (falta enrollments.branch_id y varios enrollments no tienen
 // team asociado, asi que no se puede scopear fiablemente). El componente
@@ -49,6 +50,8 @@ export function AppSidebar() {
   const [openSubmenus, setOpenSubmenus] = useState<Record<string, boolean>>({});
   const { hasVendorProfile, canSellProducts, canSellServices, verificationStatus } = useVendorProfile();
   const { hasAddon, hasBilling, isModuleEnabled } = useEntitlements();
+  // Flag global de la tienda (fail-closed: false mientras carga o si falla).
+  const { enabled: storeEnabled } = useStoreEnabled();
 
   // En mobile el sidebar siempre muestra contenido expandido (nunca collapsed)
   const isCollapsed = !isMobile && state === 'collapsed';
@@ -110,7 +113,7 @@ export function AppSidebar() {
     }
   }
 
-  const baseNavigationGroups = getNavigationByRole(navigationRole, hasAddon, isModuleEnabled);
+  const baseNavigationGroups = getNavigationByRole(navigationRole, hasAddon, isModuleEnabled, storeEnabled);
 
   // Mi Tienda: grupo ADICIONAL para roles que NO son primariamente vendor
   // pero que decidieron sumarle marketplace a su cuenta.
@@ -133,9 +136,12 @@ export function AppSidebar() {
     effectiveRole === 'store_owner'
   );
   const schoolGateOk = !isSchoolRole || hasAddon('store');
-  const showVendorGroup = hasVendorProfile && schoolGateOk && !isVendorPrimaryRole;
+  // Con la tienda apagada el grupo solo sobrevive si vende servicios (queda
+  // como "Mis Servicios": panel, servicios, agenda, verificación).
+  const showVendorGroup = hasVendorProfile && schoolGateOk && !isVendorPrimaryRole
+    && (storeEnabled || canSellServices);
   const navigationGroupsBase = showVendorGroup
-    ? [...baseNavigationGroups, getVendorNavGroup({ canSellProducts, canSellServices, verificationStatus })]
+    ? [...baseNavigationGroups, getVendorNavGroup({ canSellProducts, canSellServices, verificationStatus, storeEnabled })]
     : baseNavigationGroups;
 
   // ── Escuelas que no cobran por SportMaps (CAR-2) ──────────────────────────

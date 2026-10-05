@@ -87,6 +87,12 @@ const welcomeConfig: Record<UserRole, {
     icon: Trophy,
     gradient: 'from-primary/20 to-accent/10',
   },
+  accountant: {
+    title: '¡Bienvenido!',
+    message: 'Consulta la contabilidad de la escuela: libro de caja, nómina, proveedores y estado de resultados.',
+    icon: Shield,
+    gradient: 'from-primary/20 to-accent/10',
+  },
   personal_trainer: {
     title: '¡Bienvenido, Entrenador Personal!',
     message: 'Gestiona tus clientes, rutinas y sesiones desde un solo panel.',

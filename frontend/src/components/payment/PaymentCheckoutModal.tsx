@@ -35,7 +35,6 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
-import { emailClient } from '@/lib/email-client';
 import { getPaymentPayload, SchoolAthlete } from '@/lib/athleteUtils';
 import { useWompiCheckout, type ServerQuote } from '@/hooks/useWompiCheckout';
 import { blockPwaReload, unblockPwaReload } from '@/pwa/reloadGuard';
@@ -634,10 +633,14 @@ export function PaymentCheckoutModal({
       //              cuando MP confirme. NO va a 'awaiting_approval' porque eso es
       //              para comprobantes manuales que la escuela debe validar)
       //   rejected → declined
-      const internalStatus =
-        result.internalStatus === 'paid' ? 'paid'
-          : result.internalStatus === 'rejected' ? 'declined'
-            : 'pending';
+      // El navegador nunca marca 'paid' (lo rechaza trg_zz_guard_payments_client,
+      // spec blindaje-dinero §1.2): el cobro queda 'pending' y el webhook de
+      // MercadoPago, que verifica el monto con la pasarela, lo pasa a pagado.
+      // Un pago rechazado no deja fila.
+      if (result.internalStatus === 'rejected') {
+        throw new Error(`Pago rechazado por MercadoPago: ${result.statusDetail}`);
+      }
+      const internalStatus = 'pending' as const;
 
       if (mode === 'update' && paymentId) {
         // NUNCA se reescribe period_year/period_month de un cobro que YA
@@ -689,11 +692,11 @@ export function PaymentCheckoutModal({
         if (insertError) throw insertError;
       }
 
-      setPaymentStatus(internalStatus === 'paid' ? 'success' : 'awaiting_approval');
+      setPaymentStatus('awaiting_approval');
       toast({
-        title: internalStatus === 'paid' ? '¡Pago exitoso!' : 'Pago en proceso',
-        description: internalStatus === 'paid'
-          ? `Procesado con MercadoPago — ${formatCurrency(chargeAmount)}`
+        title: result.internalStatus === 'paid' ? '¡Pago recibido!' : 'Pago en proceso',
+        description: result.internalStatus === 'paid'
+          ? `MercadoPago aprobó ${formatCurrency(chargeAmount)}. En unos segundos queda confirmado en tu cuenta.`
           : `Estado: ${result.statusDetail}. Te notificaremos cuando se confirme.`,
       });
       setTimeout(() => { onSuccess?.(); onOpenChange(false); }, 2500);
@@ -910,62 +913,11 @@ export function PaymentCheckoutModal({
         return;
       }
 
-      const receiptNumber = `MAN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
-      let error = null;
-      if (targetId) {
-        const { error: updateError } = await supabase.from('payments').update({
-          status: 'paid',
-          payment_method: selectedMethod,
-          payment_date: todayColombia(),
-          receipt_number: receiptNumber,
-          ...(isExplicitPaymentUpdate ? {} : { period_year: periodYear, period_month: periodMonth }),
-          early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
-          updated_at: new Date().toISOString()
-        }).eq('id', targetId);
-        error = updateError;
-      } else {
-        const { error: insertError } = await supabase.from('payments').insert({
-          parent_id: user?.id,
-          child_id: payloadChildId,
-          team_id: (teamId && teamId !== '') ? teamId : null,
-          school_id: (schoolId && schoolId !== '') ? schoolId : null,
-          branch_id: payloadBranchId,
-          amount: finalAmount,
-          concept: finalConcept,
-          status: 'paid',
-          payment_method: selectedMethod,
-          payment_type: 'one_time',
-          payment_date: todayColombia(),
-          due_date: todayColombia(),
-          receipt_number: receiptNumber,
-          period_year: periodYear,
-          period_month: periodMonth,
-          early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
-          payment_category: paymentCategory,
-          period_uniqueness_exempt: periodUniquenessExempt,
-        } as any);
-        error = insertError;
-      }
-      if (error) throw error;
-
-      // Notificar al padre/atleta por email (fire-and-forget)
-      const parentEmail = user?.email;
-      if (parentEmail) {
-        emailClient.send({
-          type: 'payment_confirmation',
-          to: parentEmail,
-          data: {
-            studentName: childName || (childId ? 'tu hijo' : 'tu cuenta'),
-            amount: formatCurrency(chargeAmount),
-            concept: finalConcept,
-            paymentMethod: selectedMethod === 'pse' ? 'PSE' : (selectedMethod === 'card' ? 'Tarjeta' : 'Transferencia'),
-          },
-        }).catch(() => {/* silencio — no interrumpir flujo si email falla */ });
-      }
-
-      setPaymentStatus('success');
-      toast({ title: "¡Pago exitoso!", description: `Tu pago de ${formatCurrency(chargeAmount)} fue procesado correctamente` });
-      setTimeout(() => { onSuccess?.(); onOpenChange(false); setPaymentStatus('idle'); setSelectedMethod(null); }, 2000);
+      // Ningún otro método registra el pago desde el navegador: en línea lo
+      // confirma el webhook de la pasarela, en efectivo lo registra la escuela.
+      // (Antes había aquí un camino que escribía status 'paid' directo; era
+      // inalcanzable y la base ya no lo acepta — spec blindaje-dinero §1.2.)
+      throw new Error('Este método de pago no está disponible.');
     } catch (error: unknown) {
       const err = error as { message?: string; code?: string };
       setPaymentStatus('error');

@@ -33,6 +33,7 @@ import {
   Ticket,
   Clock,
 } from 'lucide-react';
+import { comprimirParaSubir } from '@/lib/imageCompression';
 
 interface DelegationDetail {
   id: string;
@@ -118,13 +119,14 @@ export default function SchoolDelegationDetailPage() {
     }
     setUploadingFor(athleteId);
     try {
-      const ext = file.name.split('.').pop();
+      const fileC = await comprimirParaSubir(file, 'documento');
+      const ext = fileC.name.split('.').pop();
       const fileName = `${Date.now()}.${ext}`;
       const path = `children/${athleteId}/docs/${fileName}`;
 
       const { error } = await supabase.storage
         .from('identity-documents')
-        .upload(path, file);
+        .upload(path, fileC, { contentType: fileC.type || undefined });
 
       if (error) throw error;
 
@@ -145,9 +147,10 @@ export default function SchoolDelegationDetailPage() {
     try {
       let proof_url: string | null = null;
       if (payFile) {
-        const ext = payFile.name.split('.').pop();
+        const payC = await comprimirParaSubir(payFile, 'documento');
+        const ext = payC.name.split('.').pop();
         const path = `delegations/${delegation.id}/proof-${Date.now()}.${ext}`;
-        const { error } = await supabase.storage.from('identity-documents').upload(path, payFile);
+        const { error } = await supabase.storage.from('identity-documents').upload(path, payC, { contentType: payC.type || undefined });
         if (error) throw error;
         proof_url = supabase.storage.from('identity-documents').getPublicUrl(path).data.publicUrl;
       }

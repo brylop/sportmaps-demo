@@ -12,12 +12,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { bffClient } from '@/lib/api/bffClient';
 import { type ResultadoDelAlta } from '@/components/whatsapp/ConectarNumero';
 import { AltaDelCanal } from '@/components/whatsapp/AltaDelCanal';
 import { Conversaciones } from '@/components/whatsapp/Conversaciones';
 import { HorariosDeEntrenamiento } from '@/components/whatsapp/HorariosDeEntrenamiento';
+import { Metricas } from '@/components/whatsapp/Metricas';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -28,7 +30,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import {
-    MessageSquare, RefreshCw, AlertTriangle, Clock, FileText, Inbox, Settings, Plus, Loader2, Power,
+    MessageSquare, RefreshCw, AlertTriangle, Clock, FileText, Inbox, Settings, Plus, Loader2, Power, BarChart3,
 } from 'lucide-react';
 
 // ─── Tipos que devuelve el BFF ──────────────────────────────────────────────
@@ -80,6 +82,11 @@ function tonoDeEstado(estado: string): string {
 
 export default function WhatsAppPage() {
     const { schoolId } = useSchoolContext();
+    // El correo de escalamiento enlaza a ?tab=conversaciones&conversacion=<id>:
+    // abre la pestaña y la conversación directo, sin buscarla en la lista.
+    const [searchParams] = useSearchParams();
+    const conversacionInicial = searchParams.get('conversacion');
+    const pestanaInicial = searchParams.get('tab') || (conversacionInicial ? 'conversaciones' : 'resumen');
     const { toast } = useToast();
 
     const [estado, setEstado] = useState<Estado | null>(null);
@@ -302,9 +309,13 @@ export default function WhatsAppPage() {
                 </Card>
             )}
 
-            <Tabs defaultValue="resumen">
-                <TabsList>
+            <Tabs defaultValue={pestanaInicial}>
+                {/* Con siete pestañas la fila no cabe en un celular: se desliza de lado. */}
+                <TabsList className="w-full justify-start overflow-x-auto">
                     <TabsTrigger value="resumen">Resumen</TabsTrigger>
+                    <TabsTrigger value="metricas">
+                        <BarChart3 className="h-4 w-4 mr-1" /> Métricas
+                    </TabsTrigger>
                     <TabsTrigger value="conversaciones">
                         <MessageSquare className="h-4 w-4 mr-1.5" /> Conversaciones
                     </TabsTrigger>
@@ -386,9 +397,14 @@ export default function WhatsAppPage() {
                     )}
                 </TabsContent>
 
+                {/* ── Métricas: si el asistente resuelve o solo reparte trabajo ── */}
+                <TabsContent value="metricas">
+                    {schoolId && <Metricas schoolId={schoolId} />}
+                </TabsContent>
+
                 {/* ── Plantillas ── */}
                 <TabsContent value="conversaciones">
-                    <Conversaciones schoolId={schoolId!} />
+                    <Conversaciones schoolId={schoolId!} conversacionInicial={conversacionInicial} />
                 </TabsContent>
 
                 <TabsContent value="plantillas">

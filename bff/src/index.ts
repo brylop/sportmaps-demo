@@ -53,7 +53,9 @@ import { requireOperationalSchool } from './middlewares/requireOperationalSchool
 import systemRouter from './routes/system';
 import whatsappWebhookRouter from './routes/whatsapp';
 import whatsappAdminRouter from './routes/whatsapp-admin.routes';
+import whatsappMetricasRouter from './routes/whatsapp-metricas.routes';
 import publicBookingRouter from './routes/public-booking.routes';
+import cobroEnlacePublicoRouter from './routes/cobro-enlace-publico.routes';
 import { initMaintenanceJobs } from './jobs/maintenance.job';
 import organizerRouter from './routes/organizers.route';
 import eventsRouter from './routes/events.route';
@@ -69,6 +71,7 @@ import vendorRouter from './routes/vendor.routes';
 import vendorProductsRouter from './routes/vendor-products.routes';
 import vendorServicesRouter from './routes/vendor-services.routes';
 import marketplaceOrdersRouter from './routes/marketplace-orders.routes';
+import storeOrdersRouter from './routes/store-orders.routes';
 import ogPreviewRouter from './routes/og-preview.routes';
 import certificatesRouter from './routes/certificates';
 import athleteReportsPdfRouter from './routes/athlete-reports-pdf';
@@ -110,6 +113,7 @@ import devicesRouter from './routes/devices.routes';
 import pwaRouter from './routes/pwa.routes';
 import mobileRouter from './routes/mobile.routes';
 import internalNotificationsRouter from './routes/internal-notifications.routes';
+import { requireStoreEnabled } from './services/store-flag.service';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -304,7 +308,12 @@ app.use('/api/v1/webhooks/whatsapp', whatsappWebhookRouter);
 // Panel de la escuela sobre su canal de WhatsApp: ajustes, horario, consumo del
 // mes, bandeja de comprobantes sin resolver y avisos de Meta. Lleva requireAuth
 // dentro del router, con verificacion de membresia REAL en esa escuela.
-app.use('/api/v1/whatsapp', generalLimiter, whatsappAdminRouter);
+// Tablero de métricas del bot (GET /:schoolId/metricas). Va ANTES del router
+// del panel: aunque hoy ninguna ruta de allá atrapa "/:schoolId/metricas", si
+// alguien agrega un comodín ahí, este seguiría respondiendo. En la MISMA línea
+// y no en un app.use aparte: con dos, cada petición del panel pasaría dos veces
+// por generalLimiter y gastaría doble cupo.
+app.use('/api/v1/whatsapp', generalLimiter, whatsappMetricasRouter, whatsappAdminRouter);
 
 // Link público de agendamiento de instalaciones — sin requireAuth, rate-limit propio
 const publicBookingLimiter = rateLimit({
@@ -312,6 +321,10 @@ const publicBookingLimiter = rateLimit({
     message: { error: 'Demasiadas peticiones. Intenta de nuevo en unos minutos.' },
 });
 app.use('/api/v1/public/booking', publicBookingLimiter, publicBookingRouter);
+
+// Enlace público de un cobro (/p/:token, botón de las plantillas de cobranza de
+// WhatsApp). Sin requireAuth: el token es la credencial. Rate limit dentro del router.
+app.use('/api/v1/public/cobro', cobroEnlacePublicoRouter);
 
 app.use('/api/v1/webhooks/mercadopago', mpWebhookRouter);
 // /create y /save-card mutan tarjeta/cobro → requireAuth (dentro del router) +
@@ -368,7 +381,8 @@ app.use('/api/v1/recurring', paymentLimiter, requireCsrfHeader, recurringRouter)
 app.use('/api/v1/vendor', generalLimiter, vendorPayoutsRouter);
 app.use('/api/v1/vendor/bank-accounts', generalLimiter, vendorBankAccountsRouter);
 // Shipping publico: /api/v1/shipping/{quote,carriers,tracking/:n}
-app.use('/api/v1/shipping', generalLimiter, shippingRouter);
+// Tienda apagada (spec blindaje §1.3): 503 STORE_DISABLED si store_enabled() = false.
+app.use('/api/v1/shipping', generalLimiter, requireStoreEnabled, shippingRouter);
 // Shipping vendor: /api/v1/vendor/shipping/settings y /api/v1/vendor/shipments
 app.use('/api/v1', generalLimiter, vendorShippingRouter);
 // Webhook publico del provider de envios
@@ -394,9 +408,11 @@ app.use('/api/v1/admin', generalLimiter, marketplaceAdminRouter);
 app.use('/api/v1', generalLimiter, reviewsRouter);
 app.use('/api/v1/marketplace', paymentLimiter, marketplaceCheckoutRouter);
 app.use('/api/v1/vendor', generalLimiter, vendorRouter);
-app.use('/api/v1/vendor/products', generalLimiter, vendorProductsRouter);
+app.use('/api/v1/vendor/products', generalLimiter, requireStoreEnabled, vendorProductsRouter);
 app.use('/api/v1/vendor/services', generalLimiter, vendorServicesRouter);
-app.use('/api/v1/marketplace/orders', paymentLimiter, marketplaceOrdersRouter);
+app.use('/api/v1/marketplace/orders', paymentLimiter, requireStoreEnabled, marketplaceOrdersRouter);
+// Tienda v2 F0: comprobante, aprobación, efectivo, transiciones y medios del vendedor (RPC con actor).
+app.use('/api/v1/store', paymentLimiter, storeOrdersRouter);
 app.use('/api/v1/certificates', generalLimiter, certificatesRouter);
 app.use('/api/v1/athlete-reports', generalLimiter, athleteReportsPdfRouter);
 app.use('/api/v1/join-qr', generalLimiter, joinQrRouter);

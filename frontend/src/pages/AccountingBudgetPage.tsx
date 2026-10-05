@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { useCanManageFinances } from '@/hooks/useCanManageFinances';
 import { formatCurrency } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,6 +25,8 @@ export default function AccountingBudgetPage() {
     const queryClient = useQueryClient();
     const [year, setYear] = useState(new Date().getFullYear());
     const [amounts, setAmounts] = useState<Record<string, string>>({});
+    // Contador = solo lectura (la base le rechaza guardar presupuestos).
+    const canManage = useCanManageFinances(schoolId);
 
     const categoriesQuery = useQuery({
         queryKey: ['expense-categories', schoolId],
@@ -147,9 +150,9 @@ export default function AccountingBudgetPage() {
                         <Label className="text-xs">Año</Label>
                         <Input type="number" className="w-28" value={year} onChange={(e) => setYear(Number(e.target.value))} />
                     </div>
-                    <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+                    {canManage && <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
                         {saveMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />} Guardar
-                    </Button>
+                    </Button>}
                 </div>
             </div>
 

@@ -61,6 +61,7 @@ import { studentsAPI, StudentViewRow } from '@/lib/api/students';
 import { daysDiffFromToday } from '@/lib/dateUtils';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { useNavigate } from 'react-router-dom';
+import { comprimirParaSubir } from '@/lib/imageCompression';
 
 const studentSchema = z.object({
   full_name:        z.string().min(2, 'Nombre completo es requerido').max(100),
@@ -411,13 +412,14 @@ export default function SchoolStudentsManagementPage() {
       }
 
       const timestamp = Date.now();
-      const ext = file.name.split('.').pop()?.toLowerCase() || 'bin';
+      const docC = await comprimirParaSubir(file, documentType === 'athlete_photo' ? 'foto' : 'documento');
+      const ext = docC.name.split('.').pop()?.toLowerCase() || 'bin';
       const safeName = file.name.replace(/\.[a-zA-Z0-9]{2,5}$/, '').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 60);
       const storagePath = `unregistered_athletes/${athleteId}/docs/${documentType}-${timestamp}-${safeName}.${ext}`;
 
       const { error: uploadError } = await supabase.storage
         .from('identity-documents')
-        .upload(storagePath, file, { cacheControl: '3600', upsert: false });
+        .upload(storagePath, docC, { cacheControl: '3600', upsert: false, contentType: docC.type || undefined });
       if (uploadError) throw uploadError;
 
       const { error: insertError } = await (supabase as any).from('athlete_documents').insert({
@@ -429,10 +431,12 @@ export default function SchoolStudentsManagementPage() {
       if (insertError) throw insertError;
 
       if (documentType === 'athlete_photo') {
-        const avatarPath = `unregistered_athletes/${athleteId}/${timestamp}.${ext}`;
+        const avatarC = await comprimirParaSubir(file, 'avatar');
+        const avatarExt = avatarC.name.split('.').pop()?.toLowerCase() || ext;
+        const avatarPath = `unregistered_athletes/${athleteId}/${timestamp}.${avatarExt}`;
         const { error: avatarUploadError } = await supabase.storage
           .from('avatars')
-          .upload(avatarPath, file, { cacheControl: '3600', upsert: true });
+          .upload(avatarPath, avatarC, { cacheControl: '3600', upsert: true, contentType: avatarC.type || undefined });
         if (!avatarUploadError) {
           const { data: pub } = supabase.storage.from('avatars').getPublicUrl(avatarPath);
           await (supabase as any)

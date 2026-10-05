@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Upload, Image as ImageIcon, X, Star, StarOff, Loader2 } from 'lucide-react';
+import { comprimirParaSubir } from '@/lib/imageCompression';
 
 const STORAGE_BUCKET = 'product-images';
 const MAX_IMAGES = 8;
@@ -61,12 +62,13 @@ export function ProductGalleryUploader({ images, onChange, vendorId }: Props) {
                 }
 
                 const namespace = vendorId || user?.id || 'anon';
-                const ext = file.name.split('.').pop() || 'jpg';
+                const fileC = await comprimirParaSubir(file, 'foto');
+                const ext = fileC.name.split('.').pop() || 'jpg';
                 const path = `${namespace}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
                 const { error: uploadErr } = await supabase.storage
                     .from(STORAGE_BUCKET)
-                    .upload(path, file, { upsert: false, contentType: file.type });
+                    .upload(path, fileC, { upsert: false, contentType: fileC.type });
 
                 if (uploadErr) {
                     console.error('upload error', uploadErr);

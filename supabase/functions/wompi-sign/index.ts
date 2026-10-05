@@ -83,19 +83,10 @@ async function resolveReference(
         }
     }
 
-    if (prefix === 'CART') {
-        const { data, error } = await supabaseAdmin
-            .from('orders')
-            .select('user_id, total_amount')
-            .eq('wompi_reference', reference)
-            .maybeSingle()
-        if (error || !data || !(data as any).user_id) return null
-        return {
-            ownerId: (data as any).user_id as string,
-            amountCop: Number((data as any).total_amount),
-            source: 'orders',
-        }
-    }
+    // CART (tienda v2 F0, D-5 = A): NO se firma acá. Esta función firma con
+    // WOMPI_INTEGRITY_SECRET (global = cuenta de una escuela real); la venta de
+    // tienda se firma en el BFF (/marketplace/checkout/cart) con el integrity
+    // secret DEL VENDEDOR. Ver el 410 en serve().
 
     return null
 }
@@ -145,6 +136,13 @@ serve(async (req: Request) => {
         Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
         { auth: { autoRefreshToken: false, persistSession: false } },
     )
+
+    if (reference.split('-')[0] === 'CART') {
+        return jsonResponse({
+            error: 'Las compras de la tienda se firman en el BFF con las llaves del vendedor.',
+            code: 'STORE_SIGNED_BY_BFF',
+        }, 410)
+    }
 
     const resolved = await resolveReference(supabaseAdmin, reference)
     if (!resolved) {

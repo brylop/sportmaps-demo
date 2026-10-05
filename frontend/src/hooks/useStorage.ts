@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { getStoragePath } from '@/lib/utils';
+import { comprimirParaSubir, perfilPorBucket } from '@/lib/imageCompression';
 
 export type BucketName = 'avatars' | 'medical-documents' | 'payment-receipts' | 'facility-photos' | 'identity-documents' | 'coach-certificates' | 'school-assets' | 'equipment-photos';
 
@@ -20,16 +21,20 @@ export function useStorage() {
   const { toast } = useToast();
 
   const uploadFile = async (
-    file: File,
+    original: File,
     bucket: BucketName,
     path?: string
   ): Promise<string | null> => {
     try {
       setUploading(true);
 
-      if (!file || !file.name) {
+      if (!original || !original.name) {
         throw new Error('No se ha seleccionado ningún archivo válido');
       }
+
+      // INF-13: el plan Free de Supabase se llenó de fotos de celular sin
+      // reducir. Si no aplica (PDF, SVG, ya liviano), devuelve el original.
+      const file = await comprimirParaSubir(original, perfilPorBucket(bucket));
 
       // Generar nombre único
       const fileExt = file.name.split('.').pop();
@@ -54,6 +59,7 @@ export function useStorage() {
         .upload(filePath, file, {
           cacheControl: '3600',
           upsert: true,
+          contentType: file.type || undefined,
         });
 
       if (uploadError) throw uploadError;

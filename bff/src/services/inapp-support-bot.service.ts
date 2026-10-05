@@ -29,6 +29,7 @@ import { supabase } from '../config/supabase';
 import { chatWithTools, type LlmMessage, type LlmTool } from './llm.service';
 import { buildUserState } from './support-diagnosis.service';
 import { helpArticles, type HelpArticle, type ContentBlock } from '../data/help-articles';
+import { avisarTicketSoportePorCorreo } from './avisos-correo.service';
 
 // ─── Tools (spec §5) ────────────────────────────────────────────────────────
 
@@ -235,6 +236,12 @@ async function postBotMessageAndEscalate(ticketId: string, reason: string): Prom
     );
     await setStatus(ticketId, 'waiting_human');
     console.info('[inapp-support-bot] escalado', { ticketId, reason });
+    // Correo a SportMaps: el push al super_admin solo sale en el primer
+    // mensaje del ticket, así que un caso que SportBot suelta en el tercer
+    // mensaje no le avisaba a nadie. Sin await: el usuario está esperando la
+    // respuesta del chat y Resend no puede demorarla. Si es el primer mensaje,
+    // el servicio no manda nada (lo cubre el correo de ticket nuevo).
+    void avisarTicketSoportePorCorreo({ ticketId, origen: 'escalado', motivo: reason }).catch(() => {});
 }
 
 // ─── search_help_articles ───────────────────────────────────────────────────

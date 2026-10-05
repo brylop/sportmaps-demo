@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useMarketplace, MarketplaceItem } from '@/hooks/useMarketplace';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCart } from '@/contexts/CartContext';
+import { useStoreEnabled } from '@/hooks/useStoreEnabled';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -125,6 +126,7 @@ export default function MarketplacePage() {
   const { addItem } = useCart();
   const navigate = useNavigate();
   const [searchInput, setSearchInput] = useState('');
+  const { enabled: storeEnabled } = useStoreEnabled();
   const { data, isLoading, filters, updateFilters, nextPage, prevPage } = useMarketplace();
 
   const handleSearch = () => {
@@ -184,8 +186,8 @@ export default function MarketplacePage() {
             onValueChange={(v) => updateFilters({ type: v as any })}
           >
             <TabsList>
-              <TabsTrigger value="all">Todo</TabsTrigger>
-              <TabsTrigger value="products">Productos</TabsTrigger>
+              {storeEnabled && <TabsTrigger value="all">Todo</TabsTrigger>}
+              {storeEnabled && <TabsTrigger value="products">Productos</TabsTrigger>}
               <TabsTrigger value="services">Servicios</TabsTrigger>
             </TabsList>
           </Tabs>

@@ -207,6 +207,14 @@ const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, 
     'settings:edit'
   ],
 
+  // Contabilidad v2 F0: el contador LEE finanzas y reportes; no gestiona nada.
+  accountant: [
+    'dashboard:view',
+    'finances:view',
+    'reports:view',
+    'settings:view',
+  ],
+
   reporter: [
     'dashboard:view',
     'calendar:view',

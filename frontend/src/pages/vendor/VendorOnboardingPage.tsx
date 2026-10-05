@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { enableSchoolStoreErrorMessage } from '@/lib/store/storeErrors';
 import { useVendorProfile } from '@/hooks/useVendorProfile';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +17,7 @@ import { CityCombobox } from '@/components/common/CityCombobox';
 import { BankCombobox } from '@/components/common/BankCombobox';
 import { PhoneInput } from '@/components/ui/phone-input';
 import { Store, Upload, CreditCard, CheckCircle2, Loader2, Package, Wrench, ShieldCheck, ChevronLeft, ChevronRight } from 'lucide-react';
+import { comprimirParaSubir } from '@/lib/imageCompression';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -64,6 +67,7 @@ export default function VendorOnboardingPage() {
     const navigate = useNavigate();
     const { toast } = useToast();
     const { data: existingProfile, isLoading: vpLoading, refetch } = useVendorProfile();
+    const { schoolId } = useSchoolContext();
 
     const [step, setStep] = useState(1);
     const [saving, setSaving] = useState(false);
@@ -142,20 +146,37 @@ export default function VendorOnboardingPage() {
                 ? existingProfile!.vendor_type
                 : defaultVendorTypeForRole(profile?.role as string);
 
-            // RPC enable_vendor_profile — crea o reactiva + setea capabilities
-            const { error: rpcError } = await (supabase.rpc as any)('enable_vendor_profile', {
-                p_vendor_type:       vendorType,
-                p_can_sell_products: capabilitiesFromSelection.can_sell_products,
-                p_can_sell_services: capabilitiesFromSelection.can_sell_services,
-                p_display_name:      formData.display_name,
-                p_description:       formData.description || null,
-                p_city:              formData.city || null,
-                p_phone:             formData.phone || null,
-            });
+            if (vendorType === 'school') {
+                // Tienda escolar (Tienda v2 F0, M-F0-1): la abre `enable_school_store`,
+                // que exige dueño/admin + adicional `store` y deja el perfil ya
+                // verificado con `can_sell_products`. Nombre y datos de la tienda
+                // salen de la escuela; aquí solo se guardan los medios de pago.
+                if (!schoolId) throw new Error('Selecciona la escuela antes de activar su tienda.');
+                const { error: schoolErr } = await (supabase.rpc as any)('enable_school_store', {
+                    p_school_id: schoolId,
+                });
+                if (schoolErr) {
+                    const friendly = enableSchoolStoreErrorMessage(schoolErr);
+                    toast({ title: friendly.title, description: friendly.description, variant: 'destructive' });
+                    if (friendly.addonRequired) navigate('/mi-plan?upsell=store');
+                    return;
+                }
+            } else {
+                // RPC enable_vendor_profile — crea o reactiva + setea capabilities
+                const { error: rpcError } = await (supabase.rpc as any)('enable_vendor_profile', {
+                    p_vendor_type:       vendorType,
+                    p_can_sell_products: capabilitiesFromSelection.can_sell_products,
+                    p_can_sell_services: capabilitiesFromSelection.can_sell_services,
+                    p_display_name:      formData.display_name,
+                    p_description:       formData.description || null,
+                    p_city:              formData.city || null,
+                    p_phone:             formData.phone || null,
+                });
 
-            if (rpcError) {
-                console.error('enable_vendor_profile error', rpcError);
-                throw new Error(rpcError.message || 'No se pudo activar Mi Tienda.');
+                if (rpcError) {
+                    console.error('enable_vendor_profile error', rpcError);
+                    throw new Error(rpcError.message || 'No se pudo activar Mi Tienda.');
+                }
             }
 
             // Persistir métodos de pago vía BFF (mismo endpoint que ya existía)
@@ -198,12 +219,13 @@ export default function VendorOnboardingPage() {
 
         setSaving(true);
         try {
-            const fileExt = docFile.name.split('.').pop();
+            const fileC = await comprimirParaSubir(docFile, 'documento');
+            const fileExt = fileC.name.split('.').pop();
             const fileName = `${session?.user.id}-${Date.now()}.${fileExt}`;
 
             const { error: uploadError } = await supabase.storage
                 .from('vendor-docs')
-                .upload(fileName, docFile);
+                .upload(fileName, fileC, { contentType: fileC.type || undefined });
 
             if (uploadError) throw uploadError;
 
