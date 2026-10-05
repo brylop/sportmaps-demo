@@ -605,3 +605,23 @@ se decide si F1-F3 siguen en ese orden.
 8. ¿Nequi pide aprobación del padre **en cada cobro** recurrente o solo al tokenizar? ¿Y Bancolombia?
 9. Contracargos y devoluciones de transacciones con fuente de pago: cómo funcionan, plazos, si se puede reversar una transacción aprobada de Nequi o Bancolombia, y quién la ejecuta cuando el comercio es de la escuela.
 10. Si la tarjeta se tokeniza en un formulario propio con `/v1/tokens/cards`, ¿qué exige Wompi en cumplimiento PCI? ¿Recomiendan otro método de captura?
+
+### 17.1 Lo que respondió el sandbox (2026-10-05)
+
+Probado con las llaves `pub_test_`/`prv_test_` del comercio de pruebas, de punta a punta: tokenizar → fuente de pago → dos cobros seguidos sin el usuario presente. **El sandbox no prueba el comportamiento de producción** (sobre todo la pregunta 8), pero deja cerrado lo siguiente:
+
+| Medio | Token | Fuente de pago | Cobro con la fuente |
+|---|---|---|---|
+| Tarjeta (`4242…`) | `/tokens/cards` 201; el token vale ~2 días (`validity_ends_at`) | 201 `AVAILABLE`; vigente 6 años | APPROVED, sin pasar por PENDING visible |
+| Nequi `3991111111` | APPROVED al instante | 201 `AVAILABLE` | **Dos cobros seguidos APPROVED, sin aprobación en la app** (en sandbox) |
+| Nequi `3992222222` | APPROVED | 201 | Cada cobro DECLINED ("Pago automático DECLINADO en Sandbox"). Sirve para probar fallos |
+| Bancolombia | PENDING → APPROVED al simular el clic (`POST /webhook_events/bancolombia_transfer_response/sandbox`, form `code` + `token_id`). El clic "Rechazar" **también** lo deja APPROVED | **500 "Error desconocido"**, repetible | No se pudo probar |
+| Daviplata | `/tokens/daviplata` exige `product_number` (10 dígitos) además del documento → PENDING y URLs para enviar y validar el OTP | No probado | No probado |
+
+Respuestas para §17:
+- **Pregunta 4:** el `acceptance_token` vence a la **hora** de emitido y **sirve una sola vez**: un segundo `POST /payment_sources` con el mismo da 422 "El token de aceptación ya fue usado". Hay que pedir uno nuevo por cada fuente.
+- **Pregunta 5:** Nequi `3991111111` (aprueba) y `3992222222` (rechaza los cobros); Bancolombia con el endpoint de simulación de arriba.
+- **Pregunta 7:** con tarjeta, el cobro con `payment_source_id` sale APPROVED **con y sin** `acceptance_token`.
+- **`/merchants/info`** exige el header `X-Merchant-Public-Key: <pub>`; sin él da 400. Devuelve los mismos `presigned_acceptance` y `presigned_personal_data_auth` que el endpoint que se apaga el 31-oct.
+
+Quedan abiertas para Wompi: **1** (activación comercial), **8** (aprobación por cobro **en producción**; el sandbox no la exige), **2**, **3**, **6**, **9**, **10**, y una nueva: **11.** en sandbox, `POST /payment_sources` con `BANCOLOMBIA_TRANSFER` y un token APPROVED da 500 siempre, y el clic de rechazo deja el token APPROVED. ¿Es una falla del sandbox o falta algún campo?
