@@ -586,3 +586,47 @@ decisión de producto), los helpers que usan las policies (revocarlos da 403 a
 todos), las 47 policies I3, SEG-7 (`v_school_entitlements` fail-open), los 4
 buckets públicos que permiten listar (`avatars`, `facility-photos`, `school-assets`,
 `product-images`), el toggle de contraseñas filtradas y `pg_net` en `public`.
+
+---
+
+## Adenda 2026-10-05 (2) — SEG-26: barrido de autorización del BFF
+
+En paralelo al cierre de las RPC, se barrió `bff/src/routes/` con dos ejes: (1)
+rutas que toman un id de la URL sin correlacionarlo con el actor (IDOR/BOLA), y
+(2) gates que leen `profiles.role` — columna que el propio usuario puede
+autoasignar (la policy UPDATE de `profiles` es `USING(auth.uid()=id)` y RLS no
+distingue columnas). El BFF entra con `service_role`, que salta la RLS, así que
+cada ruta es su propio portero. Cerrado en el commit `344f2f34`:
+
+| Ruta | Sev | Hueco | Fix |
+|---|---|---|---|
+| `reconciliation.routes.ts` | ALTA | **Clon exacto de SEG-25.** `isSchoolAuthorized` devolvía `true` por `profiles.role` sin mirar el `:schoolId`. Un school_admin de A mandaba `schoolId=B` y leía la conciliación financiera de B (`/dashboard`) o subía un extracto falso de B y disparaba `reconcile_statement` (`/upload`). | `platform_admins` + correlación con la escuela (patrón de SEG-25 / `invoicing.financeAccess`). |
+| `vendor-payouts.routes.ts` | ALTA | 4 handlers de plataforma gateaban por `profiles.role==='admin'`: un rol autoasignado marcaba cualquier payout como pagado o liberaba todos los settlements; y el super_admin real (en `platform_admins`) recibía 403. | Helper `esAdminPlataforma` → `platform_admins`. |
+| `marketplace-admin.routes.ts` | MEDIA | La moderación colgaba de `requireRole` sobre `req.role` tomado de `profiles.role`: aprobar/rechazar productos, verificar vendors, bajar signed URLs de documentos (PII). | `requirePlatformAdmin` → `platform_admins`. |
+| `admin-payments.routes.ts`, `whatsapp-admin.routes.ts`, `whatsapp-metricas.routes.ts` | MEDIA-BAJA | Atajo de plataforma por `profiles.role`. | → `platform_admins`. |
+| `payments.routes.ts` `/extract-receipt` | ALTA | BOLA + LLM02: valida solo el JWT, acepta cualquier `schoolId`, y `DESTINO_NO_COINCIDE.detail.comparedAgainst` devolvía **todas las cuentas bancarias** de esa escuela. | Se poda `comparedAgainst` del response (existe solo para calibrar server-side). Regresión en `seguridad-llm-extract-receipt.poc.test.ts`. |
+
+`tsc` del BFF limpio; suite completa 983 passed.
+
+### Capa de IA — verificado por dos pasadas, lo que queda es decisión de producto
+
+Dos revisiones independientes coinciden en que **la decisión de mover plata NO
+vive en el LLM**: la toman reglas deterministas (`receipt-verdict.ts`), un
+trigger de BD (`trg_zz_guard_payments_client`, mig `20261002125957`) y una
+re-extracción server-authoritative con dos proveedores (`receipt-approval.service.ts`).
+La inyección de prompt corrompe la *extracción*, no la aprobación. Pendientes que
+**requieren criterio de producto** (no se tocaron):
+
+- **auto_approve sobre imagen de la familia:** blindado por reglas + trigger +
+  doble proveedor, pero el PNG falso de Nequi que pasó 9 controles sigue siendo
+  el residual. Conectar el correo del banco (DKIM) o un webhook de pasarela lo
+  cerraría; mientras tanto, es la pieza de mayor riesgo.
+- **destino opcional / enmascarado para VERDE** (`CRITICAL_FIELDS` sin `destination`;
+  match por 4 dígitos): subirlo a obligatorio/amarillo puede rechazar comprobantes
+  legítimos sin destino legible.
+- **`amount` del INSERT lo pone el cliente** (residual ya reconocido en `20261002125957` A2).
+- **identificación del bot solo por teléfono, sin OTP** (SIM-swap / número reasignado).
+- **denial-of-wallet:** sin rate-limit por número/escuela en el worker de WhatsApp.
+- **edge `analyze-receipt`:** default `verify_jwt=true` (no es anónima), muerta en
+  el fuente, pero **la invocan APKs viejos** horneados — retirarla rompería el OCR
+  de abonos en esos teléfonos. Retiro cuando los APK se actualicen.
