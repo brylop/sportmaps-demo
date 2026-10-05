@@ -39,7 +39,7 @@ import { getPaymentPayload, SchoolAthlete } from '@/lib/athleteUtils';
 import { useWompiCheckout, type ServerQuote } from '@/hooks/useWompiCheckout';
 import { blockPwaReload, unblockPwaReload } from '@/pwa/reloadGuard';
 import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
-import { resolvePaymentAccounts, accountDisplayLabel } from '@/lib/payment-accounts';
+import { resolvePaymentAccounts, accountDisplayLabel, chargeCategoryOf, type PaymentChargeCategory } from '@/lib/payment-accounts';
 import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
 import { autoEvaluate as autoEvaluateGlosa } from '@/lib/api/glosas';
 import {
@@ -281,7 +281,21 @@ export function PaymentCheckoutModal({
   // Llaves que la escuela dejó visibles. Es la misma lista contra la que el BFF
   // valida el destino del comprobante, así que lo que no aparezca acá tampoco se
   // acepta como pago válido.
-  const payableAccounts = useMemo(() => resolvePaymentAccounts(bankDetails), [bankDetails]);
+  //
+  // Categoría del cobro que se paga: una llave restringida (`only_for`, p.ej. el
+  // Nequi de inscripciones de Dynasty) solo se muestra al pagar ese concepto.
+  // En 'create' la decide el selector; en 'update' sale del concepto del cobro.
+  const accountsCategory: PaymentChargeCategory | null = mode === 'create'
+    ? (conceptType === 'articulos' ? 'articulos'
+      : conceptType === 'torneo' ? 'torneo'
+      : conceptType === 'mensualidad' ? 'mensualidad'
+      : conceptType.startsWith('inscripcion') ? 'inscripcion'
+      : 'otro')
+    : chargeCategoryOf(null, concept);
+  const payableAccounts = useMemo(
+    () => resolvePaymentAccounts(bankDetails, { category: accountsCategory }),
+    [bankDetails, accountsCategory],
+  );
 
   useEffect(() => {
     if (!open || !schoolId) return;
@@ -1367,6 +1381,7 @@ export function PaymentCheckoutModal({
                       validateReceipt={true}
                       schoolId={schoolId || undefined}
                       paymentId={mode === 'update' ? (paymentId || undefined) : undefined}
+                      paymentCategory={accountsCategory}
                       onUploadComplete={(url) => setProofUrl(url)}
                       onValidationResult={(r) => setOcrResult(r)}
                       expectedAmount={chargeAmount}

@@ -11,6 +11,8 @@
  */
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { bffClient, BFFError } from '@/lib/api/bffClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -391,7 +393,7 @@ async function prepararArchivo(file: File): Promise<{ imageBase64: string; mimeT
     }
 }
 
-function SubirMatricula({ onSubida }: { onSubida: () => void }) {
+function SubirMatricula({ onSubida, modoCoach = false }: { onSubida: () => void; modoCoach?: boolean }) {
     const { toast } = useToast();
     const inputRef = useRef<HTMLInputElement>(null);
     const [subiendo, setSubiendo] = useState(false);
@@ -410,9 +412,12 @@ function SubirMatricula({ onSubida }: { onSubida: () => void }) {
             );
             toast({
                 title: 'Hoja leída',
-                description: res.duplicateOfChildId
-                    ? `${res.athleteFullName ?? 'El deportista'} ya existe en la escuela: revísala abajo antes de crear nada.`
-                    : `${res.athleteFullName ?? 'La ficha'} quedó lista para revisar abajo.`,
+                description: modoCoach
+                    // El coach sube; la escuela revisa y aprueba (D2 del spec).
+                    ? `${res.athleteFullName ?? 'La ficha'} quedó en la bandeja de la escuela para que la revisen y la aprueben.`
+                    : res.duplicateOfChildId
+                        ? `${res.athleteFullName ?? 'El deportista'} ya existe en la escuela: revísala abajo antes de crear nada.`
+                        : `${res.athleteFullName ?? 'La ficha'} quedó lista para revisar abajo.`,
             });
             onSubida();
         } catch (err) {
@@ -448,11 +453,18 @@ function SubirMatricula({ onSubida }: { onSubida: () => void }) {
 
 export default function EnrollmentIntakeInboxPage() {
     const { schoolId } = useSchoolContext();
+    const { profile } = useAuth();
+    const { coachCanUploadEnrollmentForms, isLoading: entLoading } = useEntitlements();
     const [items, setItems] = useState<IntakeItem[]>([]);
     const [loading, setLoading] = useState(true);
 
+    // Coach (si la escuela lo activó, school_settings.coach_can_upload_enrollment_forms):
+    // solo SUBE la foto. La bandeja con los datos de cada ficha y la aprobación
+    // siguen siendo del admin — el BFF tampoco le deja listar.
+    const esCoach = profile?.role === 'coach';
+
     const load = useCallback(async () => {
-        if (!schoolId) return;
+        if (!schoolId || esCoach) { setLoading(false); return; }
         setLoading(true);
         try {
             const res = await bffClient.get<{ items: IntakeItem[] }>('/api/v1/enrollment-intake');
@@ -460,9 +472,34 @@ export default function EnrollmentIntakeInboxPage() {
         } finally {
             setLoading(false);
         }
-    }, [schoolId]);
+    }, [schoolId, esCoach]);
 
     useEffect(() => { load(); }, [load]);
+
+    if (esCoach) {
+        return (
+            <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-4">
+                <div>
+                    <h1 className="text-xl font-semibold">Subir hoja de matrícula</h1>
+                    <p className="text-sm text-muted-foreground">
+                        Toma la foto de la hoja completa, de frente y con buena luz. La escuela revisa los datos
+                        y crea al deportista — nada se crea solo.
+                    </p>
+                </div>
+                {entLoading ? (
+                    <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
+                ) : coachCanUploadEnrollmentForms ? (
+                    <SubirMatricula onSubida={() => undefined} modoCoach />
+                ) : (
+                    <Alert>
+                        <AlertDescription>
+                            Tu escuela no tiene habilitado que los entrenadores suban hojas de matrícula. Pídeselo a la escuela.
+                        </AlertDescription>
+                    </Alert>
+                )}
+            </div>
+        );
+    }
 
     return (
         <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-4">

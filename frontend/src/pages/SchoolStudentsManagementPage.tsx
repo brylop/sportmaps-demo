@@ -229,7 +229,7 @@ export default function SchoolStudentsManagementPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { coachCanCreateAthletes, coachHideFinancialInfo, coachCanEditCategories, militaryDiscountEnabled } = useEntitlements();
+  const { coachCanCreateAthletes, coachHideFinancialInfo, coachCanEditCategories, militaryDiscountEnabled, coachCanUploadEnrollmentForms } = useEntitlements();
 
   // Alta de deportistas: SOLO admin/owner. El coach de escuela es solo lectura
   // (ve/gestiona los atletas de sus equipos, pero no los da de alta) — esto NO
@@ -252,6 +252,10 @@ export default function SchoolStudentsManagementPage() {
   // coach_can_create_athletes, esa excepción más amplia manda y el formulario
   // se muestra completo, igual que hoy para Carmel.
   const isCategoryOnlyCoach = profile?.role === 'coach' && !coachCanCreateAthletes && coachCanEditCategories;
+
+  // Coach que SUBE la foto de la hoja de matrícula (school_settings.coach_can_upload_enrollment_forms,
+  // Dynasty 2026-10-05). Solo sube: la ficha la revisa y aprueba el admin.
+  const coachUploadsEnrollmentForms = profile?.role === 'coach' && coachCanUploadEnrollmentForms;
 
   // Besser: el coach no ve mensualidad ni estado de pago en ninguna pantalla.
   const hideFinancials = profile?.role === 'coach' && coachHideFinancialInfo;
@@ -1246,7 +1250,7 @@ export default function SchoolStudentsManagementPage() {
             {filteredStudents.length !== tabStudents.length && ` de ${tabStudents.length}`} en <strong>{schoolName}</strong>
           </p>
         </div>
-        {(canManageStudents || canCreateOrEditStudents) && (
+        {(canManageStudents || canCreateOrEditStudents || coachUploadsEnrollmentForms) && (
           <div className="flex gap-2 flex-wrap">
             <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
               <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
@@ -1258,6 +1262,13 @@ export default function SchoolStudentsManagementPage() {
                 <FileUp className="mr-2 h-4 w-4" />
                 <span className="hidden sm:inline">Importar CSV</span>
                 <span className="sm:hidden">CSV</span>
+              </Button>
+            )}
+            {coachUploadsEnrollmentForms && (
+              <Button variant="outline" size="sm" onClick={() => navigate('/school/enrollment-intake')}>
+                <Upload className="mr-2 h-4 w-4" />
+                <span className="hidden sm:inline">Subir hoja de matrícula</span>
+                <span className="sm:hidden">Hoja</span>
               </Button>
             )}
             {canCreateStudents && (
