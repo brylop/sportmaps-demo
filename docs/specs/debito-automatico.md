@@ -621,7 +621,8 @@ Probado con las llaves `pub_test_`/`prv_test_` del comercio de pruebas, de punta
 Respuestas para §17:
 - **Pregunta 4:** el `acceptance_token` vence a la **hora** de emitido y **sirve una sola vez**: un segundo `POST /payment_sources` con el mismo da 422 "El token de aceptación ya fue usado". Hay que pedir uno nuevo por cada fuente.
 - **Pregunta 5:** Nequi `3991111111` (aprueba) y `3992222222` (rechaza los cobros); Bancolombia con el endpoint de simulación de arriba.
-- **Pregunta 7:** con tarjeta, el cobro con `payment_source_id` sale APPROVED **con y sin** `acceptance_token`.
+- **Pregunta 7:** con tarjeta, el cobro con `payment_source_id` sale APPROVED **con y sin** `acceptance_token`, y también con tokens ya usados: el cobro con fuente no los valida. El consentimiento queda atado a la fuente.
+- **Regla completa (probada):** pago normal y `POST /payment_sources` **exigen** `acceptance_token` + `accept_personal_auth` y son de **un solo uso**; el cobro con fuente no los pide. La [documentación](https://docs.wompi.co/docs/colombia/tokens-de-aceptacion/) dice que son obligatorios en `/transactions` y no menciona el uso único: preguntarle a Wompi si en producción el cobro con fuente sigue sin exigirlos. Corregido en `wompi.service.ts` (commit `6e9ac286`): sin caché compartido y con `/merchants/info`.
 - **`/merchants/info`** exige el header `X-Merchant-Public-Key: <pub>`; sin él da 400. Devuelve los mismos `presigned_acceptance` y `presigned_personal_data_auth` que el endpoint que se apaga el 31-oct.
 
 Quedan abiertas para Wompi: **1** (activación comercial), **8** (aprobación por cobro **en producción**; el sandbox no la exige), **2**, **3**, **6**, **9**, **10**, y una nueva: **11.** en sandbox, `POST /payment_sources` con `BANCOLOMBIA_TRANSFER` y un token APPROVED da 500 siempre, y el clic de rechazo deja el token APPROVED. ¿Es una falla del sandbox o falta algún campo?
