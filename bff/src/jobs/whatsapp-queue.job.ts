@@ -45,7 +45,7 @@ const MAX_REINTENTOS = 5;
 /** Minutos en los que NO se repite un mensaje idéntico al mismo contacto. */
 const VENTANA_ANTI_REPETICION_MIN = 10;
 
-interface FilaCola {
+export interface FilaCola {
     id: string;
     integration_id: string;
     school_id: string;
@@ -119,7 +119,7 @@ const cop = (n: number) =>
  * muy grande, token que no desencripta, media que ya expiró (4xx)— no mejora
  * reintentando.
  */
-function esTransitorio(error: string): boolean {
+export function esTransitorio(error: string): boolean {
     if (error === 'network_error' || error === '') return true;
     const m = error.match(/_(\d{3})(?::|$)/);
     if (m) {
@@ -228,12 +228,29 @@ export interface ContextoAplicacion {
  * es la mitad de la regla de la escuela y lo único que evita que el padre crea
  * que quedó al día cuando solo pagó el atrasado.
  */
-export async function aplicarComprobante(
-    ctx: ContextoAplicacion,
-    pago: PagoPendiente,
-    restantes: PagoPendiente[],
-): Promise<void> {
+/** Resultado de estampar un comprobante en un cobro, sin hablar con nadie. */
+export type ResultadoEstampado =
+    | { ok: true; veredicto: ReturnType<typeof evaluateVerdict>; actualizado: boolean }
+    /** 23505: esa referencia de banco ya está en otro pago de la escuela. */
+    | { ok: false; duplicado: true; yaAplicado: { id: string; concept: string | null; amount: number; status: string } | null }
+    | { ok: false; duplicado: false; error: string };
 
+/**
+ * Deja el comprobante en el cobro: archivo, lectura, veredicto y
+ * `awaiting_approval`. NADA más — ni aprueba, ni responde, ni cierra la fila.
+ *
+ * Se separó de `aplicarComprobante` el 2026-10-05 para la recuperación en lote
+ * (scripts/wa-recuperar-comprobantes.ts y el importador de chats exportados):
+ * esos caminos tienen que dejar el comprobante EXACTAMENTE como lo deja el
+ * worker —mismas columnas, mismo veredicto, misma defensa antiduplicado— pero
+ * sin `evaluatePaymentReceipt` (que con auto-aprobación prendida aprobaría
+ * solo) y sin escribirle al acudiente. Un solo estampado para los tres caminos
+ * evita que diverjan en qué columnas llenan.
+ */
+export async function estamparComprobante(
+    ctx: Pick<ContextoAplicacion, 'schoolId' | 'storagePath' | 'sha' | 'ocr' | 'log' | 'queueId'>,
+    pago: PagoPendiente,
+): Promise<ResultadoEstampado> {
     /**
      * El veredicto se calcula ACÁ y se persiste. No es opcional.
      *
@@ -263,7 +280,7 @@ export async function aplicarComprobante(
         '[wa-queue] veredicto',
     );
 
-    const { error: stampErr } = await supabase.from('payments').update({
+    const { data: estampados, error: stampErr } = await supabase.from('payments').update({
         receipt_url: ctx.storagePath,
         receipt_storage_bucket: BUCKET,
         receipt_image_sha256: ctx.sha,
@@ -275,7 +292,7 @@ export async function aplicarComprobante(
         receipt_verdict_reasons: veredicto.reasons,
         receipt_verdict_at: new Date().toISOString(),
         status: 'awaiting_approval',
-    }).eq('id', pago.id).in('status', ['pending', 'overdue']);
+    }).eq('id', pago.id).in('status', ['pending', 'overdue']).select('id');
 
     if (stampErr) {
         // 23505 sobre `uq_payments_school_ocr_reference` NO es un fallo: es la
@@ -289,11 +306,40 @@ export async function aplicarComprobante(
         if (stampErr.code === '23505') {
             const { data: yaAplicado } = await supabase
                 .from('payments')
-                .select('concept, amount, status')
+                .select('id, concept, amount, status')
                 .eq('school_id', ctx.schoolId)
                 .eq('ocr_reference', ctx.ocr.reference)
                 .maybeSingle();
+            return {
+                ok: false,
+                duplicado: true,
+                yaAplicado: yaAplicado
+                    ? { id: yaAplicado.id as string, concept: (yaAplicado.concept as string) ?? null,
+                        amount: Number(yaAplicado.amount), status: yaAplicado.status as string }
+                    : null,
+            };
+        }
+        return { ok: false, duplicado: false, error: `no se pudo estampar el pago: ${stampErr.message}` };
+    }
+    // `actualizado` = false si el cobro dejó de estar pendiente entre la
+    // búsqueda y el estampado (la escuela lo registró en el medio). El worker
+    // no lo mira —conserva su comportamiento—; la recuperación sí, para no
+    // reportar «en revisión» un comprobante que no quedó en ningún cobro.
+    return { ok: true, veredicto, actualizado: Array.isArray(estampados) ? estampados.length > 0 : true };
+}
 
+export async function aplicarComprobante(
+    ctx: ContextoAplicacion,
+    pago: PagoPendiente,
+    restantes: PagoPendiente[],
+): Promise<void> {
+    const estampado = await estamparComprobante(ctx, pago);
+
+    if (!estampado.ok) {
+        // 23505 sobre `uq_payments_school_ocr_reference` NO es un fallo: ver
+        // el comentario en `estamparComprobante`.
+        if (estampado.duplicado) {
+            const yaAplicado = estampado.yaAplicado;
             const donde = yaAplicado
                 ? ` Ya está aplicado a *${yaAplicado.concept}* por ${cop(Number(yaAplicado.amount))}.`
                 : '';
@@ -310,7 +356,7 @@ export async function aplicarComprobante(
             ctx.log?.info?.({ queueId: ctx.queueId, referencia: ctx.ocr.reference }, '[wa-queue] comprobante repetido');
             return;
         }
-        await ctx.alFallar(`no se pudo estampar el pago: ${stampErr.message}`);
+        await ctx.alFallar(estampado.error);
         return;
     }
 
@@ -356,55 +402,57 @@ type ArchivoBajado =
     | { ok: true; base64: string; mime: string; storagePath: string }
     | { ok: false };
 
+/** Lo que devuelve `obtenerArchivoDeFila`, SIN haber tocado el estado de la fila. */
+export type ArchivoObtenido =
+    | { ok: true; base64: string; mime: string; storagePath: string | null }
+    | { ok: false; error: string; transitorio: boolean };
+
 /**
- * Bajar y GUARDAR antes de leer. La URL de media de Meta expira en minutos;
- * si se baja, se pasa al OCR y el OCR falla, un reintento veinte minutos
- * después ya no puede bajar nada y el archivo se pierde sin dejar rastro.
+ * Baja (o relee) el archivo de una fila y, si `guardar`, lo sube al bucket y
+ * estampa `storage_path` en la fila. NO cierra ni reintenta la fila: decide el
+ * llamador.
  *
- * Idempotente por FILA: si `fila.storage_path` ya está estampado (reintento,
- * o una rama anterior del mismo procesamiento ya lo bajó), relee del bucket
- * en vez de volver a pedirle el archivo a Meta y volver a subirlo. Esto
- * importa para la rama de staff-admin (§3 de
- * alta-atleta-por-foto-hoja-matricula.md): si termina resolviendo que
- * también es acudiente y sigue por `continuarComoComprobante`, NO vuelve a
- * bajar el mismo archivo.
+ * Existe aparte de `bajarYGuardarArchivo` para la recuperación en lote
+ * (scripts/wa-recuperar-comprobantes.ts): esa ruta procesa filas `ignored`, y
+ * el `reintentar` del worker las devolvería a `pending` — donde el cron las
+ * tomaría y le respondería al acudiente. Y en simulación necesita el archivo
+ * en memoria para el OCR sin subir nada (`guardar: false`).
+ *
+ * Misma ruta en el bucket que siempre: `{school}/whatsapp/{fila}.{ext}`.
  */
-async function bajarYGuardarArchivo(fila: FilaCola, wa: WhatsAppIntegration, log?: Logger): Promise<ArchivoBajado> {
+export async function obtenerArchivoDeFila(
+    fila: FilaCola,
+    wa: WhatsAppIntegration,
+    opciones: { guardar: boolean },
+): Promise<ArchivoObtenido> {
     let mime = fila.media_mime_type ?? 'image/jpeg';
-    let storagePath = fila.storage_path;
 
-    if (storagePath) {
-        const { data: blob, error } = await supabase.storage.from(BUCKET).download(storagePath);
-        if (error || !blob) { await reintentar(fila, `no se pudo releer del bucket: ${error?.message}`, log); return { ok: false }; }
+    if (fila.storage_path) {
+        const { data: blob, error } = await supabase.storage.from(BUCKET).download(fila.storage_path);
+        if (error || !blob) return { ok: false, error: `no se pudo releer del bucket: ${error?.message}`, transitorio: true };
         const base64 = Buffer.from(await blob.arrayBuffer()).toString('base64');
-        return { ok: true, base64, mime, storagePath };
+        return { ok: true, base64, mime, storagePath: fila.storage_path };
     }
 
-    if (!fila.media_id) {
-        await cerrar(fila.id, 'failed', { error_message: 'fila sin media_id' });
-        return { ok: false };
-    }
+    if (!fila.media_id) return { ok: false, error: 'fila sin media_id', transitorio: false };
+
     const bajada = await downloadMedia(wa, fila.media_id);
     if (!bajada.ok || !bajada.base64) {
-        if (!esTransitorio(bajada.error ?? '')) {
-            await cerrar(fila.id, 'failed', { error_message: bajada.error ?? 'no se pudo bajar' });
-        } else {
-            await reintentar(fila, bajada.error ?? 'fallo al bajar', log);
-        }
-        return { ok: false };
+        const error = bajada.error ?? '';
+        return { ok: false, error: error || 'fallo al bajar', transitorio: esTransitorio(error) };
     }
     const base64 = bajada.base64;
     mime = bajada.mimeType ?? mime;
+    if (!opciones.guardar) return { ok: true, base64, mime, storagePath: null };
 
     const ext = mime === 'application/pdf' ? 'pdf' : (mime.split('/')[1] ?? 'jpg');
-    storagePath = `${fila.school_id}/whatsapp/${fila.id}.${ext}`;
+    const storagePath = `${fila.school_id}/whatsapp/${fila.id}.${ext}`;
     const { error: upErr } = await supabase.storage.from(BUCKET)
         .upload(storagePath, Buffer.from(base64, 'base64'), { contentType: mime, upsert: true });
     if (upErr) {
         const detalle = [upErr.message, (upErr as { statusCode?: string }).statusCode, upErr.name]
             .filter(Boolean).join(' · ') || JSON.stringify(upErr).slice(0, 200);
-        await reintentar(fila, `no se pudo guardar en el bucket: ${detalle}`, log);
-        return { ok: false };
+        return { ok: false, error: `no se pudo guardar en el bucket: ${detalle}`, transitorio: true };
     }
 
     // Se estampa YA, antes del OCR: si el OCR falla, el reintento (o la rama
@@ -420,6 +468,60 @@ async function bajarYGuardarArchivo(fila: FilaCola, wa: WhatsAppIntegration, log
     fila.media_mime_type = mime;
 
     return { ok: true, base64, mime, storagePath };
+}
+
+/**
+ * Bajar y GUARDAR antes de leer. La URL de media de Meta expira en minutos;
+ * si se baja, se pasa al OCR y el OCR falla, un reintento veinte minutos
+ * después ya no puede bajar nada y el archivo se pierde sin dejar rastro.
+ *
+ * Idempotente por FILA: si `fila.storage_path` ya está estampado (reintento,
+ * o una rama anterior del mismo procesamiento ya lo bajó), relee del bucket
+ * en vez de volver a pedirle el archivo a Meta y volver a subirlo. Esto
+ * importa para la rama de staff-admin (§3 de
+ * alta-atleta-por-foto-hoja-matricula.md): si termina resolviendo que
+ * también es acudiente y sigue por `continuarComoComprobante`, NO vuelve a
+ * bajar el mismo archivo.
+ *
+ * Lo transitorio (red, 429, 5xx, bucket) reintenta; lo permanente (mime,
+ * tamaño, media vencida, sin media_id) cierra la fila en `failed`.
+ */
+async function bajarYGuardarArchivo(fila: FilaCola, wa: WhatsAppIntegration, log?: Logger): Promise<ArchivoBajado> {
+    const r = await obtenerArchivoDeFila(fila, wa, { guardar: true });
+    if (!r.ok) {
+        if (r.transitorio) await reintentar(fila, r.error, log);
+        else await cerrar(fila.id, 'failed', { error_message: r.error });
+        return { ok: false };
+    }
+    return { ok: true, base64: r.base64, mime: r.mime, storagePath: r.storagePath as string };
+}
+
+/**
+ * ¿El dinero fue a una cuenta de la escuela?
+ *
+ * Aquí todavía no se sabe a qué cobro va, así que valen TODAS las llaves de
+ * la escuela, también las restringidas a un concepto (el Nequi de
+ * inscripciones de Dynasty): el dinero sí llegó a la escuela. Si el cobro
+ * resulta ser de otro concepto, lo marca el veredicto de aplicarComprobante
+ * (amarillo → revisión), no este portero. Antes comparaba con igualdad
+ * exacta y sin las restringidas: rechazaba inscripciones legítimas
+ * (2026-10-03) y los destinos enmascarados ("**** 6942") que el check 4 ya
+ * aceptaba.
+ *
+ * Sin destino leído o sin cuentas registradas → true: no hay con qué cruzar.
+ * Exportada para que la recuperación en lote decida con la misma regla.
+ */
+export async function destinoEsDeLaEscuela(
+    schoolId: string,
+    ocr: Awaited<ReturnType<typeof extractReceipt>>,
+): Promise<boolean> {
+    const ctx = await buildVerdictContext(schoolId, { referenceNorm: null, imageSha256: null });
+    const cuentas = [
+        ...(ctx.registeredAccounts ?? []),
+        ...(ctx.restrictedAccounts ?? []).map((r) => r.value),
+    ];
+    const destino = normalizeDestination(ocr.destination);
+    return !(destino && cuentas.length > 0 && !destinationMatchesRegistered(destino, cuentas));
 }
 
 /**
@@ -447,24 +549,9 @@ async function continuarComoComprobante(
     }
 
     // ¿El dinero fue siquiera a la escuela? Va ANTES de mirar los pendientes
-    // (ver comentario original: decirle "no tienes pendientes" a quien mandó
-    // el comprobante de otra cuenta es cierto pero inútil).
-    //
-    // Aquí todavía no se sabe a qué cobro va, así que valen TODAS las llaves de
-    // la escuela, también las restringidas a un concepto (el Nequi de
-    // inscripciones de Dynasty): el dinero sí llegó a la escuela. Si el cobro
-    // resulta ser de otro concepto, lo marca el veredicto de aplicarComprobante
-    // (amarillo → revisión), no este portero. Antes comparaba con igualdad
-    // exacta y sin las restringidas: rechazaba inscripciones legítimas
-    // (2026-10-03) y los destinos enmascarados ("**** 6942") que el check 4 ya
-    // aceptaba.
-    const ctx = await buildVerdictContext(fila.school_id, { referenceNorm: null, imageSha256: null });
-    const cuentas = [
-        ...(ctx.registeredAccounts ?? []),
-        ...(ctx.restrictedAccounts ?? []).map((r) => r.value),
-    ];
-    const destino = normalizeDestination(ocr.destination);
-    if (destino && cuentas.length > 0 && !destinationMatchesRegistered(destino, cuentas)) {
+    // (decirle "no tienes pendientes" a quien mandó el comprobante de otra
+    // cuenta es cierto pero inútil). La regla vive en `destinoEsDeLaEscuela`.
+    if (!(await destinoEsDeLaEscuela(fila.school_id, ocr))) {
         await responder(
             `Revisé tu comprobante y el dinero se envió a la cuenta *${ocr.destination}*, ` +
             'que no es ninguna de las cuentas registradas por la escuela.\n\n' +
