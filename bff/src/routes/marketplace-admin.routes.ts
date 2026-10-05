@@ -9,14 +9,34 @@
  * Requiere rol admin/super_admin/owner via requireRole.
  */
 
-import { Router, Request, Response } from 'express';
-import { requireMarketplaceAuth, requireRole, auditLog } from '../middlewares/authMiddleware';
+import { Router, Request, Response, NextFunction } from 'express';
+import { requireMarketplaceAuth, auditLog } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
 
 const router = Router();
 
+// SEG-26 (2026-10-05): la moderación colgaba de `requireRole('admin')` sobre un
+// `req.role` que requireMarketplaceAuth toma de `profiles.role` — columna que el
+// propio usuario puede autoasignar. Con eso, cualquiera aprobaba/rechazaba
+// productos, verificaba vendors y obtenía signed URLs de documentos de verificación
+// (PII). El gate de plataforma va contra platform_admins, misma fuente que
+// is_super_admin(). requireMarketplaceAuth se queda solo para poblar req.user.
+async function requirePlatformAdmin(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { data } = await supabase
+            .from('platform_admins').select('profile_id')
+            .eq('profile_id', req.user.id).eq('is_active', true).limit(1);
+        if ((data ?? []).length === 0) {
+            return res.status(403).json({ error: 'Requiere administrador de plataforma.' });
+        }
+        next();
+    } catch (err) {
+        next(err);
+    }
+}
+
 router.use(requireMarketplaceAuth);
-router.use(requireRole('admin'));
+router.use(requirePlatformAdmin);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/admin/marketplace/moderation-queue

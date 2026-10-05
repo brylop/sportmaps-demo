@@ -118,14 +118,17 @@ router.get('/status/:userId', async (req: AuthenticatedRequest, res: Response) =
     try {
         const { userId } = req.params;
 
-        const { data: actorProfile } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', req.user.id)
-            .single();
+        // SEG-26: admin global por platform_admins, no profiles.role (autoasignable).
+        let esPlataforma = false;
+        if (req.user.id !== userId) {
+            const { data: pa } = await supabase
+                .from('platform_admins').select('profile_id')
+                .eq('profile_id', req.user.id).eq('is_active', true).limit(1);
+            esPlataforma = (pa ?? []).length > 0;
+        }
 
-        // Cualquiera puede ver su propio estado; admin global ve todos.
-        if (req.user.id !== userId && actorProfile?.role !== 'admin') {
+        // Cualquiera puede ver su propio estado; admin de plataforma ve todos.
+        if (req.user.id !== userId && !esPlataforma) {
             return res.status(403).json({ ok: false, error: 'forbidden' });
         }
 
