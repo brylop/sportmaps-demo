@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Upload, Image as ImageIcon, X, Loader2 } from 'lucide-react';
+import { comprimirParaSubir } from '@/lib/imageCompression';
 
 // Reusa el bucket de productos (ya configurado con politicas publicas)
 // para no requerir una nueva migracion de storage.
@@ -37,12 +38,13 @@ export function ServiceImageUploader({ value, onChange, vendorId }: Props) {
         setUploading(true);
         try {
             const namespace = vendorId || user?.id || 'anon';
-            const ext = file.name.split('.').pop() || 'jpg';
+            const fileC = await comprimirParaSubir(file, 'foto');
+            const ext = fileC.name.split('.').pop() || 'jpg';
             const path = `${namespace}/services/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
             const { error: uploadErr } = await supabase.storage
                 .from(STORAGE_BUCKET)
-                .upload(path, file, { upsert: false, contentType: file.type });
+                .upload(path, fileC, { upsert: false, contentType: fileC.type });
 
             if (uploadErr) {
                 toast({ title: 'Error subiendo imagen', description: uploadErr.message, variant: 'destructive' });

@@ -384,12 +384,19 @@ export default function DashboardPage() {
           if (profile.role === 'coach') {
             value = `${realStats.attendanceRate || 0}%`;
             description = 'Promedio general';
+          } else if (realStats.revenue_state === 'forbidden') {
+            // Sin permiso de lectura financiera: la tarjeta no se muestra
+            // (nunca un $0 que parezca un dato). Se filtra abajo.
+            return { ...stat, hidden: true };
+          } else if (realStats.monthly_revenue == null) {
+            // Falló la lectura: "—", no $0.
+            value = '—';
+            description = 'No se pudo cargar';
           } else {
-            value = formatCurrency(realStats.monthly_revenue || 0);
-            // El dato es: cobros EMITIDOS este mes que ya están pagados
-            // (`created_at >= día 1` + status paid). No es la caja del mes ni el
-            // acumulado: un cobro del mes pasado que se pague hoy no entra acá.
-            description = 'Cobros de este mes ya pagados';
+            value = formatCurrency(realStats.monthly_revenue);
+            // Ingreso cobrado este mes (Bogotá) por fecha de pago, con la misma
+            // fórmula que Contabilidad y Gestión de Pagos (finance_income_summary).
+            description = 'Cobrado este mes';
           }
 
           return {
@@ -638,7 +645,7 @@ export default function DashboardPage() {
 
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {dynamicStats.map((stat, index) => (
+        {dynamicStats.map((stat, index) => (stat as { hidden?: boolean }).hidden ? null : (
           <div key={index} data-tour={
             index === 0 ? 'revenue-card' :
               index === 1 ? 'students-card' :

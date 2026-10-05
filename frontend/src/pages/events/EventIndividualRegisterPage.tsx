@@ -30,6 +30,7 @@ import {
   Baby,
 } from 'lucide-react';
 import { sanitizeText, sanitizeDigits } from '@/lib/inputSanitizers';
+import { comprimirParaSubir, perfilPorBucket } from '@/lib/imageCompression';
 
 export default function EventIndividualRegisterPage() {
   const { eventId } = useParams<{ eventId: string }>();
@@ -123,9 +124,10 @@ export default function EventIndividualRegisterPage() {
     }
     setUploading(true);
     try {
-      const ext = file.name.split('.').pop();
+      const fileC = await comprimirParaSubir(file, perfilPorBucket('payment-receipts')); // comprobante: se sube tal cual
+      const ext = fileC.name.split('.').pop();
       const path = `event-payments/${user?.id}/${Date.now()}.${ext}`;
-      const { error } = await supabase.storage.from('payment-receipts').upload(path, file);
+      const { error } = await supabase.storage.from('payment-receipts').upload(path, fileC, { contentType: fileC.type || undefined });
       if (error) throw error;
       const { data: urlData } = supabase.storage.from('payment-receipts').getPublicUrl(path);
       setPaymentProofUrl(urlData.publicUrl);

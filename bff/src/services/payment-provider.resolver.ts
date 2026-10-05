@@ -114,7 +114,11 @@ function toResolved(
         provider,
         publicKey: row.public_key,
         accessToken,
-        webhookSecret: isWompi ? secrets.eventsSecret : null,
+        // Wompi: events secret. MP: el secreto de firma de webhooks que guarda
+        // POST /payment-providers/school en events_secret_enc. Antes era null para
+        // MP y toda escuela MP en 'direct' recibia 503 en el webhook (tienda v2
+        // F0, plan M-F0-7 "fix de :117").
+        webhookSecret: secrets.eventsSecret,
         integritySecret: isWompi ? secrets.integritySecret : null,
         sandbox: row.sandbox,
         isDefault: row.is_default,
@@ -152,6 +156,103 @@ async function leerModoDePago(
     }
 
     return { modo: ((data as any)?.payment_mode ?? null), falloLectura: false };
+}
+
+/**
+ * Secretos de un provider de VENDEDOR externo. Tienda v2 F0 (M-F0-7): viven
+ * cifrados en vendor_payment_provider_secrets; las columnas en claro de
+ * vendor_payment_providers quedan DEPRECATED y solo se leen si no hay fila
+ * cifrada (legacy, 0 filas en la viva al 2026-10-03). Nunca lanza.
+ */
+async function loadVendorSecrets(row: {
+    id?: string | null;
+    access_token?: string | null;
+    webhook_secret?: string | null;
+    integrity_secret?: string | null;
+}): Promise<{ accessToken: string | null; integritySecret: string | null; eventsSecret: string | null }> {
+    if (row.id) {
+        try {
+            const { data } = await supabase
+                .from('vendor_payment_provider_secrets')
+                .select('access_token_enc, private_key_enc, integrity_secret_enc, events_secret_enc')
+                .eq('provider_id', row.id)
+                .maybeSingle();
+            if (data) {
+                const d = data as any;
+                return {
+                    accessToken: decryptSecretOrNull(d.private_key_enc) ?? decryptSecretOrNull(d.access_token_enc),
+                    integritySecret: decryptSecretOrNull(d.integrity_secret_enc),
+                    eventsSecret: decryptSecretOrNull(d.events_secret_enc),
+                };
+            }
+        } catch (e: any) {
+            console.error('[payment-provider.resolver] loadVendorSecrets:', e?.message);
+            return { accessToken: null, integritySecret: null, eventsSecret: null };
+        }
+    }
+    return {
+        accessToken: row.access_token ?? null,
+        integritySecret: row.integrity_secret ?? null,
+        eventsSecret: row.webhook_secret ?? null,
+    };
+}
+
+/** Pasarela con que se cobra una orden de tienda (orders.seller_gateway_id / _kind). */
+export interface SellerGatewayRef {
+    gatewayId: string | null | undefined;
+    gatewayKind: string | null | undefined;
+}
+
+/**
+ * Credenciales de la pasarela PROPIA del vendedor de una orden de tienda
+ * (tienda v2 F0, D-5 = A). La fila la eligio la base en create_cart_order.
+ *
+ * NUNCA cae a las llaves de ENV ni mira schools.payment_mode: las llaves de ENV
+ * son de una escuela real (Dynasty) y una venta de tienda cobrada con ellas le
+ * caeria en su cuenta. Sin fila habilitada o sin secretos descifrables → null
+ * (el caller responde 409 SELLER_GATEWAY_NOT_CONFIGURED o ignora el webhook).
+ */
+export async function resolveSellerGateway(ref: SellerGatewayRef): Promise<ResolvedProvider | null> {
+    const { gatewayId, gatewayKind } = ref;
+    if (!gatewayId || (gatewayKind !== 'school' && gatewayKind !== 'vendor')) return null;
+
+    if (gatewayKind === 'school') {
+        const { data, error } = await supabase
+            .from('school_payment_providers')
+            .select('id, provider, public_key, sandbox, is_default, enabled, connect_status')
+            .eq('id', gatewayId)
+            .maybeSingle();
+        const row = data as any;
+        if (error || !row || row.enabled !== true) return null;
+        if (row.connect_status !== 'connected' && row.connect_status !== 'connected_pending_webhook') return null;
+        const secrets = await loadDecryptedSecrets(row.id);
+        const resolved = secrets && toResolved(row.provider as PaymentProvider, row, secrets);
+        if (!resolved) return null;
+        if (resolved.provider === 'wompi' && !resolved.integritySecret) return null;
+        return resolved;
+    }
+
+    const { data, error } = await supabase
+        .from('vendor_payment_providers')
+        .select('id, provider, public_key, access_token, webhook_secret, integrity_secret, sandbox, is_default, enabled')
+        .eq('id', gatewayId)
+        .maybeSingle();
+    const row = data as any;
+    if (error || !row || row.enabled !== true) return null;
+    const secrets = await loadVendorSecrets(row);
+    if (!secrets.accessToken) return null;
+    const isWompi = row.provider === 'wompi';
+    if (isWompi && !secrets.integritySecret) return null;
+    return {
+        provider: row.provider as PaymentProvider,
+        publicKey: row.public_key,
+        accessToken: secrets.accessToken,
+        webhookSecret: secrets.eventsSecret,
+        integritySecret: isWompi ? secrets.integritySecret : null,
+        sandbox: row.sandbox,
+        isDefault: row.is_default,
+        source: 'vendor',
+    };
 }
 
 // ─── Listado publico (frontend pide al BFF) ────────────────────────────────
@@ -306,7 +407,7 @@ export async function resolveProvider(
     if (vendorId) {
         const { data, error } = await supabase
             .from('vendor_payment_providers')
-            .select('provider, public_key, access_token, webhook_secret, integrity_secret, sandbox, is_default')
+            .select('id, provider, public_key, access_token, webhook_secret, integrity_secret, sandbox, is_default')
             .eq('vendor_id', vendorId)
             .eq('enabled', true)
             .order('is_default', { ascending: false });
@@ -315,22 +416,26 @@ export async function resolveProvider(
             console.error('[payment-provider.resolver] resolveProvider vendor:', error.message);
         }
 
-        const rows = data ?? [];
+        const rows = (data ?? []) as any[];
         const chosen =
             (preferredProvider && rows.find(r => r.provider === preferredProvider)) ||
             rows[0];
 
         if (chosen) {
-            return {
-                provider: chosen.provider as PaymentProvider,
-                publicKey: chosen.public_key,
-                accessToken: chosen.access_token,
-                webhookSecret: chosen.webhook_secret,
-                integritySecret: chosen.integrity_secret,
-                sandbox: chosen.sandbox,
-                isDefault: chosen.is_default,
-                source: 'vendor',
-            };
+            // Secretos cifrados (M-F0-7); en claro solo si no hay fila cifrada.
+            const secrets = await loadVendorSecrets(chosen);
+            if (secrets.accessToken) {
+                return {
+                    provider: chosen.provider as PaymentProvider,
+                    publicKey: chosen.public_key,
+                    accessToken: secrets.accessToken,
+                    webhookSecret: secrets.eventsSecret,
+                    integritySecret: secrets.integritySecret,
+                    sandbox: chosen.sandbox,
+                    isDefault: chosen.is_default,
+                    source: 'vendor',
+                };
+            }
         }
 
         // Vendor sin credenciales propias → BLOQUEADO. No hay fallback a ENV: esas llaves
@@ -465,22 +570,27 @@ export async function loadProviderConfig(params: {
     if (vendorId) {
         const { data } = await supabase
             .from('vendor_payment_providers')
-            .select('public_key, access_token, webhook_secret, integrity_secret, sandbox, is_default')
+            .select('id, public_key, access_token, webhook_secret, integrity_secret, sandbox, is_default')
             .eq('vendor_id', vendorId)
             .eq('provider', provider)
             .eq('enabled', true)
             .maybeSingle();
 
         if (data) {
-            return {
-                provider,
-                publicKey: data.public_key,
-                accessToken: data.access_token,
-                webhookSecret: data.webhook_secret,
-                integritySecret: data.integrity_secret,
-                sandbox: data.sandbox,
-                isDefault: data.is_default,
-            };
+            const row = data as any;
+            const secrets = await loadVendorSecrets(row);
+            if (secrets.accessToken) {
+                return {
+                    provider,
+                    publicKey: row.public_key,
+                    accessToken: secrets.accessToken,
+                    webhookSecret: secrets.eventsSecret,
+                    integritySecret: secrets.integritySecret,
+                    sandbox: row.sandbox,
+                    isDefault: row.is_default,
+                    source: 'vendor',
+                };
+            }
         }
 
         // Vendor identificado pero sin credenciales propias → null, igual que en

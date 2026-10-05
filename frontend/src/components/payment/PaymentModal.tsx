@@ -37,7 +37,9 @@ import { resolvePaymentAccounts, accountDisplayLabel } from '@/lib/payment-accou
 import { Eye, EyeOff, Copy } from 'lucide-react';
 
 export interface PaymentItem {
-  type: 'enrollment' | 'product' | 'appointment' | 'reservation';
+  // Sin 'product' desde Tienda v2 F0 (T15): la rama de producto insertaba
+  // `orders` con el JWT y nadie la usaba (los llamadores pasan 'enrollment').
+  type: 'enrollment' | 'appointment' | 'reservation';
   id: string; // The ID of the item being paid for (e.g. program ID)
   name: string;
   description?: string;
@@ -283,7 +285,7 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
                     {item.description && <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>}
                   </div>
                   <Badge variant="secondary" className="font-poppins">
-                    {item.type === 'enrollment' ? 'Inscripción' : 'Producto'}
+                    {item.type === 'enrollment' ? 'Inscripción' : item.type === 'appointment' ? 'Cita' : 'Reserva'}
                   </Badge>
                 </div>
                 <Separator />

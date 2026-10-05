@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { useCanManageFinances } from '@/hooks/useCanManageFinances';
 import { formatCurrency } from '@/lib/utils';
 import { dayToLocalDate } from '@/lib/dateUtils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -55,6 +56,8 @@ export default function AccountingSuppliersPage() {
     const [payBill, setPayBill] = useState<Bill | null>(null);
 
     const owner = { owner_type: 'school', owner_id: schoolId };
+    // Contador = solo lectura (la base le rechaza registrar y pagar).
+    const canManage = useCanManageFinances(schoolId);
 
     const suppliersQuery = useQuery({
         queryKey: ['suppliers', schoolId],
@@ -141,14 +144,14 @@ export default function AccountingSuppliersPage() {
                     </h1>
                     <p className="text-muted-foreground">Registra proveedores, facturas y sus pagos.</p>
                 </div>
-                <div className="flex gap-2">
+                {canManage && <div className="flex gap-2">
                     <Button variant="outline" disabled={!schoolId} onClick={() => setSupplierOpen(true)}>
                         <Plus className="mr-2 h-4 w-4" /> Proveedor
                     </Button>
                     <Button disabled={!schoolId || (suppliersQuery.data ?? []).length === 0} onClick={() => setBillOpen(true)}>
                         <Plus className="mr-2 h-4 w-4" /> Factura
                     </Button>
-                </div>
+                </div>}
             </div>
 
             {/* KPIs */}
@@ -212,7 +215,7 @@ export default function AccountingSuppliersPage() {
                                                     : <Badge variant="secondary">Abierta</Badge>}
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                {b.status !== 'paid' && b.status !== 'void' && (
+                                                {canManage && b.status !== 'paid' && b.status !== 'void' && (
                                                     <Button size="sm" variant="outline" onClick={() => setPayBill(b)}>
                                                         <DollarSign className="mr-1 h-3.5 w-3.5" /> Pagar
                                                     </Button>

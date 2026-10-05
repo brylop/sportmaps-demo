@@ -13,7 +13,7 @@ export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: product, isLoading, error } = useProduct(id!);
-  const { addItem } = useCart();
+  const { addItem, setIsOpen } = useCart();
   const [quantity, setQuantity] = useState(1);
 
   if (isLoading) return <LoadingSpinner fullScreen text="Cargando producto..." />;
@@ -39,7 +39,9 @@ export default function ProductDetailPage() {
       discount: product.discount ?? undefined,
       metadata: { productId: product.id },
     }, quantity);
-    navigate('/cart');
+    // `/cart` no es una ruta de la app (caía en 404): se abre el carrito lateral,
+    // que lleva los productos al checkout del BFF.
+    setIsOpen(true);
   };
 
   return (

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
+import { useCanManageFinances } from '@/hooks/useCanManageFinances';
 import { formatCurrency } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -53,6 +54,8 @@ interface Item {
 
 export default function PayrollPage() {
     const { schoolId } = useSchoolContext();
+    // Contador = solo lectura: ve nómina y desprendibles, no liquida ni paga.
+    const canManage = useCanManageFinances(schoolId);
     const { toast } = useToast();
     const queryClient = useQueryClient();
     const [empOpen, setEmpOpen] = useState(false);
@@ -122,7 +125,7 @@ export default function PayrollPage() {
             th{background:#f5f5f5} .r{text-align:right}
             tfoot td{font-weight:bold;border-top:2px solid #333}</style></head>
             <body><h1>${title}</h1>
-            <div class="sub">${run.employee_count} empleados · Neto ${formatCurrency(Number(run.total_net))} · Aportes ${formatCurrency(Number(run.total_employer))} · Costo caja ${formatCurrency(Number(run.total_net) + Number(run.total_employer))}</div>
+            <div class="sub">${run.employee_count} empleados · Neto ${formatCurrency(Number(run.total_net))} · Aportes ${formatCurrency(Number(run.total_employer))} · Costo caja ${formatCurrency(Number(run.total_gross) + Number(run.total_employer))}</div>
             <table><thead><tr><th>Empleado</th><th class="r">Salario</th><th class="r">Auxilio</th><th class="r">Deducciones</th><th class="r">Aportes patr.</th><th class="r">Provisiones</th><th class="r">Neto</th></tr></thead>
             <tbody>${body}</tbody></table></body></html>`;
         const w = window.open('', '_blank');
@@ -150,7 +153,7 @@ export default function PayrollPage() {
             if (error) throw error;
             const res = data as any;
             if (res?.ok === false) throw new Error(res.error === 'no_config_for_year'
-                ? `No hay parámetros de nómina para ${year} (pídele al super admin que los agregue).`
+                ? `Faltan los parámetros de nómina de ${year} (salario mínimo, auxilio, UVT). Los carga SportMaps: escríbenos por soporte.`
                 : res.error === 'run_locked' ? 'Ese período ya está pagado/cerrado.'
                 : res.error);
             return res;
@@ -239,10 +242,10 @@ export default function PayrollPage() {
                                 <Label className="text-xs">Año</Label>
                                 <Input type="number" className="w-28" value={year} onChange={(e) => setYear(Number(e.target.value))} />
                             </div>
-                            <Button onClick={() => runMutation.mutate()} disabled={runMutation.isPending || (employeesQuery.data ?? []).length === 0}>
+                            {canManage && <Button onClick={() => runMutation.mutate()} disabled={runMutation.isPending || (employeesQuery.data ?? []).length === 0}>
                                 {runMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
                                 Calcular nómina
-                            </Button>
+                            </Button>}
                             {(employeesQuery.data ?? []).length === 0 && (
                                 <span className="text-xs text-muted-foreground">Agrega empleados primero (pestaña Empleados).</span>
                             )}
@@ -264,10 +267,10 @@ export default function PayrollPage() {
                                     <Button size="sm" variant="outline" onClick={printPayslip}>
                                         <FileText className="mr-2 h-4 w-4" /> PDF
                                     </Button>
-                                    {selected.status !== 'paid' && (
+                                    {canManage && selected.status !== 'paid' && (
                                         <Button size="sm" onClick={() => payMutation.mutate(selected.id)} disabled={payMutation.isPending}>
                                             {payMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DollarSign className="mr-2 h-4 w-4" />}
-                                            Pagar (caja {formatCurrency(selected.total_net + selected.total_employer)})
+                                            Pagar (caja {formatCurrency(Number(selected.total_gross) + Number(selected.total_employer))})
                                         </Button>
                                     )}
                                 </div>
@@ -350,7 +353,7 @@ export default function PayrollPage() {
                                                 <TableCell className="font-medium">{MONTHS[r.period_month - 1]} {r.period_year}</TableCell>
                                                 <TableCell className="text-right">{r.employee_count}</TableCell>
                                                 <TableCell className="text-right">{formatCurrency(Number(r.total_net))}</TableCell>
-                                                <TableCell className="text-right">{formatCurrency(Number(r.total_net) + Number(r.total_employer))}</TableCell>
+                                                <TableCell className="text-right">{formatCurrency(Number(r.total_gross) + Number(r.total_employer))}</TableCell>
                                                 <TableCell>{r.status === 'paid' ? <Badge className="bg-emerald-500 text-white">Pagada</Badge> : <Badge variant="secondary">Borrador</Badge>}</TableCell>
                                                 <TableCell className="text-right">
                                                     <Button size="sm" variant="ghost" onClick={() => setSelectedRun(r.id)}>Ver</Button>
@@ -375,9 +378,9 @@ export default function PayrollPage() {
 
                 {/* ── Empleados ── */}
                 <TabsContent value="empleados" className="space-y-4">
-                    <div className="flex justify-end">
+                    {canManage && <div className="flex justify-end">
                         <Button disabled={!schoolId} onClick={() => setEmpOpen(true)}><Plus className="mr-2 h-4 w-4" /> Empleado</Button>
-                    </div>
+                    </div>}
                     <Card>
                         <CardContent className="p-0">
                             {employeesQuery.isLoading ? (
@@ -405,8 +408,10 @@ export default function PayrollPage() {
                                                 <TableCell className="text-right">{formatCurrency(Number(e.base_salary))}</TableCell>
                                                 <TableCell className="text-sm">{e.arl_class ? `Clase ${e.arl_class}` : '—'}</TableCell>
                                                 <TableCell className="text-right whitespace-nowrap">
-                                                    <Button size="sm" variant="ghost" onClick={() => setEditEmp(e)}>Editar</Button>
-                                                    <Button size="sm" variant="ghost" className="text-red-600" onClick={() => inactivateMutation.mutate(e.id)} disabled={inactivateMutation.isPending}>Inactivar</Button>
+                                                    {canManage && <>
+                                                        <Button size="sm" variant="ghost" onClick={() => setEditEmp(e)}>Editar</Button>
+                                                        <Button size="sm" variant="ghost" className="text-red-600" onClick={() => inactivateMutation.mutate(e.id)} disabled={inactivateMutation.isPending}>Inactivar</Button>
+                                                    </>}
                                                 </TableCell>
                                             </TableRow>
                                         ))}

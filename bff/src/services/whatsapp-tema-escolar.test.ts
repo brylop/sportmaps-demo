@@ -14,7 +14,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('../config/supabase', () => ({ supabase: {} }));
 
-import { temaEscolar } from './whatsapp-atencion.service';
+import { temaEscolar, preguntaPrecioComoProspecto } from './whatsapp-atencion.service';
 
 describe('charla personal → null (silencio)', () => {
     it.each([
@@ -100,5 +100,32 @@ describe('ruido que podría confundir', () => {
 
     it('«pagar» sin mensualidad no cuenta', () => {
         expect(temaEscolar('Ya te voy a pagar lo que te debo')).toBeNull();
+    });
+});
+
+describe('preguntaPrecioComoProspecto: pagos que también puede ser un prospecto', () => {
+    it.each([
+        '¿Qué precio tiene la mensualidad?',
+        'Cuánto vale la mensualidad de 2 clases',
+        'Voy a hacer el pago de la matrícula, ¿cuánto es?',
+    ])('«%s» → sí (temaEscolar dice pagos, y además pregunta precio)', (frase) => {
+        expect(temaEscolar(frase)).toBe('pagos');
+        expect(preguntaPrecioComoProspecto(frase)).toBe(true);
+    });
+
+    it.each([
+        'envío comprobante de la mensualidad',
+        'Me confirmas el valor para el pago del mes de septiembre',
+        'Quisiera saber el valor pendiente del mes',
+        'Ya hice la transferencia',
+        '¿Cuánto debo?',
+        'Mi hija no va a ir al entrenamiento hoy',
+    ])('«%s» → no (es SU cobro, no la lista de precios)', (frase) => {
+        expect(preguntaPrecioComoProspecto(frase)).toBe(false);
+    });
+
+    it('vacío → no', () => {
+        expect(preguntaPrecioComoProspecto(null)).toBe(false);
+        expect(preguntaPrecioComoProspecto('')).toBe(false);
     });
 });

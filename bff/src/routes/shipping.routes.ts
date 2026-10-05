@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { requireMarketplaceAuth, optionalAuth, auditLog } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
 import { getShippingProvider, QuoteRequest } from '../services/shipping';
+import { requireStoreEnabled } from '../services/store-flag.service';
 
 const router = Router();
 
@@ -171,6 +172,9 @@ router.get('/tracking/:number', async (req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const auth = Router();
 auth.use('/vendor', requireMarketplaceAuth);
+// Tienda apagada (spec blindaje §1.3). Este router se monta en /api/v1, asi que
+// el gate va por prefijo exacto: NO puede cubrir todo /vendor (wellness vive ahi).
+auth.use(['/vendor/shipping', '/vendor/shipments'], requireStoreEnabled);
 
 async function getVendorProfileId(userId: string): Promise<string | null> {
     const { data } = await supabase.from('vendor_profiles').select('id').eq('user_id', userId).maybeSingle();

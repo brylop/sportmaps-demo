@@ -4,6 +4,11 @@
  */
 
 export const ERROR_MAPPINGS: Record<string, string> = {
+    // Contabilidad v2 F0 — guards de la base (van primero: son específicos)
+    'PAYMENT_INVOICED': 'Este pago tiene factura electrónica vigente. Emite la nota crédito desde Contabilidad › Facturación electrónica antes de anularlo o rechazarlo.',
+    'INVOICE_PAYMENT_NOT_PAID': 'Solo se puede facturar un pago que esté aprobado (pagado).',
+    'FINANCE_FORBIDDEN': 'No tienes permiso para ver la información financiera de esta escuela.',
+
     // Errores de Row Level Security (RLS)
     'new row violates row-level security policy': 'No tienes permisos suficientes para realizar esta acción o no eres el propietario del registro.',
     'row-level security policy': 'Acceso denegado por políticas de seguridad. Contacta al administrador si crees que es un error.',

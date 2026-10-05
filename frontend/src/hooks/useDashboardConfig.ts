@@ -435,6 +435,26 @@ export function useDashboardConfig(
           onboardingSteps: onboardingConfigs.organizer
         };
 
+      case 'accountant':
+        return {
+          role: 'accountant' as UserRole,
+          title: 'Panel del Contador',
+          description: 'Contabilidad de la escuela — solo lectura',
+          stats: [
+            { title: 'Libro de caja', value: '→', description: 'Ingresos y egresos del mes', icon: DollarSign },
+            { title: 'Estado de resultados', value: '→', description: 'Resultado del año', icon: BarChart3 },
+            { title: 'Acceso', value: 'Solo Lectura', description: 'Sin registrar ni pagar', icon: Shield },
+            { title: 'Notificaciones', value: stats.unreadNotifications, description: 'Sin leer', icon: Bell },
+          ],
+          activities: [],
+          quickActions: [
+            { label: 'Libro de caja', icon: DollarSign, href: '/accounting', variant: 'default' },
+            { label: 'Estado de resultados', icon: BarChart3, href: '/accounting/reports', variant: 'outline' },
+            { label: 'Nómina', icon: Users, href: '/accounting/payroll', variant: 'outline' },
+          ],
+          onboardingSteps: []
+        };
+
       case 'reporter':
         return {
           role: 'reporter' as UserRole,

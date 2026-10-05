@@ -326,7 +326,8 @@ export default function ParentCheckoutPage() {
   const periodAlreadyCovered =
     !!nextPeriod && isPeriodActive(nextPeriod.current_status as PeriodStatus);
 
-  const recordPaymentWithTraceability = async (reference: string) => {
+  /** Devuelve true si el cobro quedó registrado; false si falló (ya avisó con toast). */
+  const recordPaymentWithTraceability = async (reference: string): Promise<boolean> => {
     // Multi-tenant safe: resolve schoolId from URL or derive from team_id.
     // Never fall back to "any school" - would attach the payment to the wrong tenant.
     let schoolId: string | null = schoolIdParam;
@@ -352,7 +353,7 @@ export default function ParentCheckoutPage() {
 
     if (!schoolId) {
       toast({ title: 'Error', description: 'Falta school_id en el checkout', variant: 'destructive' });
-      return;
+      return false;
     }
 
     // Period explicito solo cuando es mensualidad y la RPC nos dio un mes
@@ -367,9 +368,13 @@ export default function ParentCheckoutPage() {
     // uniq_payment_active_period_per_child cuando hay otros cobros activos del
     // mismo hijo → "Pago rechazado / duplicate key". Solo se setea en INSERT.
     const mutableFields = {
-      // Manual paga "awaiting_approval" (admin valida); Wompi paga "paid" directo
-      status: paymentFlow === 'manual' ? 'awaiting_approval' : 'paid',
-      payment_date: todayColombia(),
+      // Manual queda "awaiting_approval" (la escuela valida). En línea (Wompi/MP)
+      // el navegador NO toca status ni payment_date: el webhook del BFF verifica
+      // el monto con la pasarela y es el único que marca 'paid'. Además la base
+      // lo rechaza (trg_zz_guard_payments_client, spec blindaje-dinero §1.2).
+      ...(paymentFlow === 'manual'
+        ? { status: 'awaiting_approval', payment_date: todayColombia() }
+        : {}),
       receipt_number: reference,
       payment_method: paymentFlow === 'wompi' ? 'card' : 'transfer',
       receipt_url: manualReceiptUrl,
@@ -401,9 +406,12 @@ export default function ParentCheckoutPage() {
     if (paymentIdParam) {
       // Vino del QR: ACTUALIZA el pago ya creado (no duplicar). Conserva
       // amount/concept/child/school del pago original.
+      // Solo cobros abiertos: un pago ya aprobado (o que el webhook acaba de
+      // marcar 'paid') no se reabre desde el navegador.
       ({ error: insertError } = await supabase.from('payments')
         .update({ ...mutableFields, updated_at: new Date().toISOString() } as any)
-        .eq('id', paymentIdParam));
+        .eq('id', paymentIdParam)
+        .in('status', ['pending', 'overdue', 'partial', 'rejected', 'failed', 'awaiting_approval']));
     } else {
       const ins = await supabase.from('payments').insert({
         parent_id: user?.id,
@@ -444,7 +452,7 @@ export default function ParentCheckoutPage() {
           : 'No se pudo registrar el pago en la base de datos',
         variant: 'destructive',
       });
-      return;
+      return false;
     }
 
     // Evaluación post-insert (Fase 5). Fire-and-forget: el BFF decide server-side
@@ -471,6 +479,7 @@ export default function ParentCheckoutPage() {
       });
     }
 
+    return true;
   };
 
   const handleWompiPayment = async () => {
@@ -556,9 +565,10 @@ export default function ParentCheckoutPage() {
       if (transaction && transaction.status === 'APPROVED') {
         setWompiTxId(transaction.id);
         setPaymentMethodUsed(transaction.paymentMethodType || 'CARD');
+        // Wompi ya aprobó; el webhook es quien marca el cobro como pagado.
         await recordPaymentWithTraceability(reference);
         setSuccess(true);
-        toast({ title: '¡Pago exitoso!', description: 'Procesado con Wompi' });
+        toast({ title: '¡Pago exitoso!', description: 'Procesado con Wompi. En unos segundos queda confirmado en tu cuenta.' });
       } else if (transaction && transaction.status === 'PENDING') {
         setWompiTxId(transaction.id);
         toast({ title: 'Pago pendiente', description: 'Te notificaremos cuando se confirme.' });
@@ -597,7 +607,7 @@ export default function ParentCheckoutPage() {
     try {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       setPaymentMethodUsed('Transferencia manual');
-      await recordPaymentWithTraceability(reference);
+      if (!(await recordPaymentWithTraceability(reference))) return;
       setSuccess(true);
       toast({ title: '¡Pago registrado!', description: 'La escuela confirmará tu pago' });
     } catch (error) {
@@ -616,7 +626,7 @@ export default function ParentCheckoutPage() {
       setPaymentMethodUsed('MercadoPago');
       const ref = mpReference || `SCH-MP-${Date.now().toString(36).toUpperCase()}`;
       setReceiptNumber(ref);
-      await recordPaymentWithTraceability(ref);
+      if (!(await recordPaymentWithTraceability(ref))) return;
       setSuccess(true);
 
       if (result.internalStatus === 'paid') {

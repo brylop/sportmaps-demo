@@ -6,7 +6,9 @@
  *  - GET  /api/v1/marketplace/products/:id/questions
  *  - GET  /api/v1/marketplace/vendors/:profileId/reviews
  *
- * Autenticado (verified purchase via RLS):
+ * Autenticado. El BFF usa service role (RLS no aplica): la compra verificada
+ * y el dueño de la tienda los deciden las RPC create_review / respond_review /
+ * answer_question con p_actor = req.user.id (tienda v2 F0, M-F0-6).
  *  - POST  /api/v1/reviews/products/:id      (crear review producto)
  *  - PATCH /api/v1/reviews/:id               (editar dentro de 24h)
  *  - DELETE /api/v1/reviews/:id              (autor o admin)
@@ -31,6 +33,7 @@ import {
     auditLog,
 } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
+import { mapStoreRpcError } from '../services/store-rpc-errors';
 
 const router = Router();
 
@@ -190,7 +193,11 @@ authRouter.use(requireMarketplaceAuth);
 authRouter.get('/reviews/products/:id/can-review', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { data, error } = await supabase.rpc('can_review_product', { p_product_id: id });
+        // Con service role auth.uid() es NULL: el usuario va explícito.
+        const { data, error } = await supabase.rpc('can_review_product', {
+            p_product_id: id,
+            p_user_id: req.user.id,
+        });
         if (error) {
             return res.status(500).json({ ok: false, error: 'Error verificando elegibilidad.' });
         }
@@ -210,28 +217,24 @@ authRouter.post('/reviews/products/:id', async (req: Request, res: Response) => 
         }
         const { media_urls, ...reviewData } = parsed.data;
 
-        const { data, error } = await supabase
-            .from('product_reviews')
-            .insert({
-                product_id: id,
-                user_id:    req.user.id,
-                ...reviewData,
-            })
-            .select()
-            .single();
+        // El BFF usa service role: RLS NO verifica la compra. Lo hace la RPC
+        // create_review (orden 'delivered' del actor con ese producto).
+        const { data: created, error } = await supabase.rpc('create_review', {
+            p_product_id: id,
+            p_review:     reviewData,
+            p_actor:      req.user.id,
+        });
 
         if (error) {
-            // RLS niega si no es verified purchase
-            if (error.code === '42501') {
-                return res.status(403).json({ ok: false, error: 'Solo compradores con orden entregada pueden reseñar este producto.' });
+            // NOT_DELIVERED → 403, ALREADY_REVIEWED / 23505 → 409, CHECK → 400
+            const mapped = mapStoreRpcError(error);
+            if (mapped.status === 500) {
+                req.log?.error({ err: error }, 'Error creando review');
+                return res.status(500).json({ ok: false, error: 'Error creando review.' });
             }
-            // 1 review por user/product
-            if (error.code === '23505') {
-                return res.status(409).json({ ok: false, error: 'Ya dejaste una review para este producto.' });
-            }
-            req.log?.error({ err: error }, 'Error creando review');
-            return res.status(500).json({ ok: false, error: 'Error creando review.' });
+            return res.status(mapped.status).json({ ok: false, error: mapped.message, code: mapped.code });
         }
+        const data = created as any;
 
         // Insertar media si vino
         if (media_urls && media_urls.length > 0) {
@@ -271,7 +274,8 @@ authRouter.patch('/reviews/:id', async (req: Request, res: Response) => {
             .single();
 
         if (error || !data) {
-            // RLS bloquea si pasaron 24h
+            // Ojo: con service role RLS no aplica; la ventana de 24h solo la
+            // haría cumplir un trigger en la base, no este filtro.
             return res.status(403).json({ ok: false, error: 'No puedes editar esta review (puede que hayan pasado más de 24h).' });
         }
 
@@ -359,34 +363,23 @@ authRouter.post('/reviews/:id/respond', async (req: Request, res: Response) => {
             return res.status(400).json({ ok: false, error: 'response es requerida.' });
         }
 
-        // El error de abajo ya decía "o no eres el vendor" pero nunca se
-        // verificaba — cualquier usuario autenticado podía responder como
-        // si fuera el vendor de CUALQUIER producto. Se verifica antes de
-        // mutar (mismo dueño que usa /vendor/inbox: products.vendor_id).
-        const { data: review } = await supabase
-            .from('product_reviews')
-            .select('id, product_id, products!inner(vendor_id)')
-            .eq('id', id)
-            .single();
-
-        const ownerVendorId = (review as any)?.products?.vendor_id;
-        if (!review || ownerVendorId !== req.user.id) {
-            return res.status(404).json({ ok: false, error: 'Review no encontrada o no eres el vendor.' });
-        }
-
-        const { data, error } = await supabase
-            .from('product_reviews')
-            .update({
-                vendor_response:     parsed.data.response,
-                vendor_responded_at: new Date().toISOString(),
-                vendor_responded_by: req.user.id,
-            })
-            .eq('id', id)
-            .select(`id, product_id, products!inner(vendor_id)`)
-            .single();
+        // La RPC decide quién responde (can_manage_store_as: dueño de la
+        // tienda o admin de la escuela dueña) y escribe la respuesta.
+        const { data, error } = await supabase.rpc('respond_review', {
+            p_review_id: id,
+            p_text:      parsed.data.response,
+            p_actor:     req.user.id,
+        });
 
         if (error || !data) {
-            return res.status(404).json({ ok: false, error: 'Review no encontrada o no eres el vendor.' });
+            const mapped = mapStoreRpcError(error);
+            if (mapped.status === 403 || mapped.status === 404) {
+                return res.status(404).json({ ok: false, error: 'Review no encontrada o no eres el vendor.' });
+            }
+            if (mapped.status === 500) {
+                req.log?.error({ err: error }, 'respond_review falló');
+            }
+            return res.status(mapped.status).json({ ok: false, error: mapped.message, code: mapped.code });
         }
 
         await auditLog(req, 'review_respond', 'product_reviews', id as string);
@@ -437,31 +430,23 @@ authRouter.post('/questions/:id/answer', async (req: Request, res: Response) => 
             return res.status(400).json({ ok: false, error: 'answer es requerida.' });
         }
 
-        // Mismo fix que /reviews/:id/respond: verificar dueño antes de mutar.
-        const { data: question } = await supabase
-            .from('product_questions')
-            .select('id, product_id, products!inner(vendor_id)')
-            .eq('id', id)
-            .single();
-
-        const ownerVendorId = (question as any)?.products?.vendor_id;
-        if (!question || ownerVendorId !== req.user.id) {
-            return res.status(404).json({ ok: false, error: 'Pregunta no encontrada o no tienes permiso.' });
-        }
-
-        const { data, error } = await supabase
-            .from('product_questions')
-            .update({
-                vendor_answer:      parsed.data.answer,
-                vendor_answered_at: new Date().toISOString(),
-                vendor_answered_by: req.user.id,
-            })
-            .eq('id', id)
-            .select()
-            .single();
+        // Igual que /reviews/:id/respond: la RPC decide el dueño
+        // (can_manage_store_as) y escribe la respuesta.
+        const { data, error } = await supabase.rpc('answer_question', {
+            p_question_id: id,
+            p_text:        parsed.data.answer,
+            p_actor:       req.user.id,
+        });
 
         if (error || !data) {
-            return res.status(404).json({ ok: false, error: 'Pregunta no encontrada o no tienes permiso.' });
+            const mapped = mapStoreRpcError(error);
+            if (mapped.status === 403 || mapped.status === 404) {
+                return res.status(404).json({ ok: false, error: 'Pregunta no encontrada o no tienes permiso.' });
+            }
+            if (mapped.status === 500) {
+                req.log?.error({ err: error }, 'answer_question falló');
+            }
+            return res.status(mapped.status).json({ ok: false, error: mapped.message, code: mapped.code });
         }
         await auditLog(req, 'question_answer', 'product_questions', id as string);
         return res.json({ ok: true, data });

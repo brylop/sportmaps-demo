@@ -1,7 +1,6 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Product } from '@/types/shop';
-import { toast } from 'sonner';
 
 export function useProducts(filters?: { category?: string; minPrice?: number; maxPrice?: number }) {
   return useQuery({
@@ -44,69 +43,8 @@ export function useProduct(id: string) {
   });
 }
 
-export function useCreateProduct() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (product: Omit<Product, 'id' | 'created_at'>) => {
-      const { data, error } = await supabase
-        .from('products')
-        .insert([product])
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-      toast.success('Producto creado exitosamente');
-    },
-    onError: (error) => {
-      toast.error('Error al crear producto: ' + error.message);
-    },
-  });
-}
-
-export function useUpdateProduct() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ id, ...updates }: Partial<Product> & { id: string }) => {
-      const { data, error } = await supabase
-        .from('products')
-        .update(updates)
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-      toast.success('Producto actualizado exitosamente');
-    },
-    onError: (error) => {
-      toast.error('Error al actualizar producto: ' + error.message);
-    },
-  });
-}
-
-export function useDeleteProduct() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from('products').delete().eq('id', id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-      toast.success('Producto eliminado exitosamente');
-    },
-    onError: (error) => {
-      toast.error('Error al eliminar producto: ' + error.message);
-    },
-  });
-}
+// Tienda v2 F0 (M-F0-2): se borraron `useCreateProduct`, `useUpdateProduct` y
+// `useDeleteProduct`, que escribían `products` directo con el JWT y no tenían
+// llamadores. Crear/editar productos va por el BFF (/api/v1/vendor/products);
+// el stock, por PATCH /api/v1/vendor/products/:id o
+// POST /api/v1/vendor/products/:id/inventory.

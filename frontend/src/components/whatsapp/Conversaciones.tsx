@@ -130,7 +130,7 @@ function quien(m: Mensaje, tipo?: TipoDeContacto | null): { texto: string; icono
         : { texto: 'Escuela', icono: <User className="h-3 w-3" /> };
 }
 
-export function Conversaciones({ schoolId }: { schoolId: string }) {
+export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: string; conversacionInicial?: string | null }) {
     const { toast } = useToast();
     const [lista, setLista] = useState<Conversacion[]>([]);
     const [cargandoLista, setCargandoLista] = useState(true);
@@ -203,6 +203,17 @@ export function Conversaciones({ schoolId }: { schoolId: string }) {
             setCargandoHilo(false);
         }
     }, [schoolId, toast]);
+
+    // Llegada desde el correo de escalamiento: abrir esa conversación una sola
+    // vez. Si no está en la vista actual (p. ej. es de «Otros»), se abre igual
+    // por id: el detalle lo trae el servidor.
+    const [inicialAbierta, setInicialAbierta] = useState(false);
+    useEffect(() => {
+        if (!conversacionInicial || inicialAbierta || cargandoLista) return;
+        setInicialAbierta(true);
+        const c = lista.find((x) => x.id === conversacionInicial) ?? ({ id: conversacionInicial } as Conversacion);
+        void abrir(c);
+    }, [conversacionInicial, inicialAbierta, cargandoLista, lista, abrir]);
 
     const responder = async () => {
         if (!abierta || !texto.trim()) return;

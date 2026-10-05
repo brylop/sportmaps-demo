@@ -24,6 +24,8 @@ export interface EnrollmentFormResult {
     ageOnForm: number | null;
     category: string | null;       // texto libre tal como aparece en la hoja
     guardianFullName: string | null;
+    /** Tipo de documento del acudiente ("CC", "CE", "PA"…), tal como aparece. */
+    guardianDocType: string | null;
     guardianDocNumber: string | null;
     guardianPhone: string | null;
     guardianEmail: string | null;
@@ -32,6 +34,15 @@ export interface EnrollmentFormResult {
     athletePhone: string | null;
     epsName: string | null;
     bloodType: string | null;      // "O+" | "O-" | "A+" | ... | null
+    /** Fecha de diligenciamiento de la hoja, ISO yyyy-mm-dd. */
+    formDate: string | null;
+    /**
+     * Autorizaciones/consentimientos de la hoja, una por casilla, con el texto
+     * tal como está impreso y si la casilla está marcada. Es el consentimiento
+     * firmado en papel (participación, primeros auxilios, datos personales,
+     * imagen…): se guarda tal cual en `extracted`, no se interpreta.
+     */
+    authorizations: Array<{ text: string; checked: boolean | null }>;
     /** false si la imagen no es una hoja de matricula/afiliacion deportiva. */
     isEnrollmentForm: boolean;
     /** Campos del schema que el modelo NO pudo ver/leer en la imagen. */
@@ -56,13 +67,16 @@ Devuelve UNICAMENTE un JSON valido con este schema, sin texto adicional:
   "age_on_form": <numero entero, la edad tal como aparece escrita en la hoja> | null,
   "category": "<categoria/division tal como aparece en la hoja, texto libre>" | null,
   "guardian_full_name": "<nombre completo del padre/madre/acudiente>" | null,
-  "guardian_doc_number": "<documento del acudiente>" | null,
+  "guardian_doc_type": "CC"|"CE"|"PA"|"TI"|"PPT" | null,
+  "guardian_doc_number": "<documento del acudiente, solo el numero>" | null,
   "guardian_phone": "<telefono de contacto del acudiente>" | null,
   "guardian_email": "<correo del acudiente>" | null,
   "athlete_email": "<correo PROPIO del deportista, SOLO si la hoja trae uno distinto al del acudiente>" | null,
   "athlete_phone": "<telefono PROPIO del deportista, SOLO si la hoja trae uno distinto al del acudiente>" | null,
   "eps_name": "<nombre de la EPS>" | null,
   "blood_type": "O+"|"O-"|"A+"|"A-"|"B+"|"B-"|"AB+"|"AB-" | null,
+  "form_date": "YYYY-MM-DD" | null,
+  "authorizations": [{"text": "<texto de la autorizacion tal como esta impreso>", "checked": true|false|null}],
   "is_enrollment_form": true | false,
   "missing_fields": ["<campos que NO son visibles o legibles en la imagen>"]
 }
@@ -79,7 +93,14 @@ Reglas:
   traen esto — en ese caso, null.
 - is_enrollment_form: false si la imagen no es una hoja de matricula/afiliacion deportiva (por
   ejemplo, si es un comprobante de pago, un carnet, o cualquier otro documento).
-- missing_fields: lista todo campo del schema que no aparece o no es legible en la imagen.
+- form_date: la fecha de diligenciamiento/inscripcion de la hoja (no la de nacimiento), en ISO.
+- authorizations: una entrada por cada casilla de autorizacion o consentimiento que tenga la hoja
+  (participacion, primeros auxilios, tratamiento de datos, uso de imagen, etc.). "checked" = true si
+  la casilla esta marcada (X, chulo, relleno), false si esta vacia, null si no se distingue. Copia el
+  texto impreso, resumido si es muy largo. Si la hoja no trae autorizaciones, [].
+- Si la foto muestra mas de una hoja (una encima de otra), extrae SOLO la que se ve completa.
+- missing_fields: lista los campos que la hoja SI tiene pero que no se pueden leer (borrosos,
+  tapados, vacios). Si el formato de la hoja simplemente no trae ese campo, NO lo listes.
   Reporta lo que VES; no juzgues si el dato es valido o completo.
 - NUNCA inventes datos. Campo no legible = null + entrada en missing_fields.`;
 
@@ -104,7 +125,7 @@ async function extractWithGroq(base64Image: string, mimeType: string): Promise<E
         body: JSON.stringify({
             model: process.env.GROQ_OCR_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct',
             temperature: 0,
-            max_tokens: 800,
+            max_tokens: 1400,
             response_format: { type: 'json_object' },
             messages: [
                 { role: 'system', content: SYSTEM_PROMPT },
@@ -186,7 +207,7 @@ async function extractWithOpenAI(base64Image: string, mimeType: string): Promise
         body: JSON.stringify({
             model: 'gpt-4o-mini',
             temperature: 0,
-            max_tokens: 800,
+            max_tokens: 1400,
             response_format: { type: 'json_object' },
             messages: [
                 { role: 'system', content: SYSTEM_PROMPT },
@@ -246,7 +267,7 @@ async function extractWithGemini(base64Image: string, mimeType: string): Promise
                 // matricula tiene mas campos que el de comprobantes, por eso
                 // el margen es mayor (1536 vs 1024).
                 thinkingConfig: { thinkingBudget: 0 },
-                maxOutputTokens: 1536,
+                maxOutputTokens: 2048,
                 responseMimeType: 'application/json',
             },
         }),
@@ -281,6 +302,7 @@ function parseLlmJson(content: string, provider: string): EnrollmentFormResult {
             ageOnForm: asInt(data.age_on_form),
             category: asStr(data.category),
             guardianFullName: asStr(data.guardian_full_name),
+            guardianDocType: asStr(data.guardian_doc_type),
             guardianDocNumber: asStr(data.guardian_doc_number),
             guardianPhone: asStr(data.guardian_phone),
             guardianEmail: asStr(data.guardian_email),
@@ -288,6 +310,12 @@ function parseLlmJson(content: string, provider: string): EnrollmentFormResult {
             athletePhone: asStr(data.athlete_phone),
             epsName: asStr(data.eps_name),
             bloodType: asStr(data.blood_type),
+            formDate: asStr(data.form_date),
+            authorizations: Array.isArray(data.authorizations)
+                ? data.authorizations
+                    .filter((a: any) => a && typeof a.text === 'string' && a.text.trim())
+                    .map((a: any) => ({ text: a.text.trim(), checked: typeof a.checked === 'boolean' ? a.checked : null }))
+                : [],
             // Default true: solo marcamos "no es hoja de matricula" si el
             // modelo lo afirma explicitamente. Un campo omitido no debe
             // disparar un rechazo falso (mismo criterio que ocr.service.ts).
@@ -308,8 +336,9 @@ function parseLlmJson(content: string, provider: string): EnrollmentFormResult {
         return {
             athleteFullName: null, docType: null, docNumber: null,
             dateOfBirth: null, dateOfBirthRaw: null, ageOnForm: null, category: null,
-            guardianFullName: null, guardianDocNumber: null, guardianPhone: null, guardianEmail: null,
+            guardianFullName: null, guardianDocType: null, guardianDocNumber: null, guardianPhone: null, guardianEmail: null,
             athleteEmail: null, athletePhone: null, epsName: null, bloodType: null,
+            formDate: null, authorizations: [],
             isEnrollmentForm: true,
             missingFields: [
                 'athlete_full_name', 'doc_number', 'date_of_birth',

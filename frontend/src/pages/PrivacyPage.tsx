@@ -17,7 +17,7 @@ export default function PrivacyPage() {
             </div>
             <h1 className="text-3xl font-bold tracking-tight">Politica de Privacidad y Aviso de Privacidad</h1>
           </div>
-          <p className="text-muted-foreground text-sm">Tratamiento de Datos Personales · Ultima actualizacion: septiembre de 2026 · Version 2.1 · Ley 1581 de 2012 (Colombia)</p>
+          <p className="text-muted-foreground text-sm">Tratamiento de Datos Personales · Ultima actualizacion: 4 de octubre de 2026 · Version 2.2 · Ley 1581 de 2012 (Colombia)</p>
         </div>
       </div>
 
@@ -326,7 +326,7 @@ export default function PrivacyPage() {
                 <li><strong className="text-foreground">Render:</strong> alojamiento de nuestros servicios de backend.</li>
                 <li><strong className="text-foreground">Google Firebase:</strong> notificaciones push a la aplicación móvil.</li>
                 <li><strong className="text-foreground">Meta Platforms:</strong> mensajería a través de la WhatsApp Business Platform, cuando la escuela habilita ese canal.</li>
-                <li><strong className="text-foreground">Google (Gemini), Groq y OpenAI:</strong> lectura automática de comprobantes de pago y asistencia conversacional en los canales de atención. Usamos varios proveedores con conmutación automática para garantizar la disponibilidad del servicio.</li>
+                <li><strong className="text-foreground">Google (Gemini), Groq y OpenAI:</strong> proveedores de inteligencia artificial para la lectura automática de comprobantes de pago y hojas de matrícula, y para el asistente automático de los canales de atención. Usamos varios proveedores con conmutación automática para garantizar la disponibilidad del servicio. El detalle de qué datos reciben está en la Sección 8.2.</li>
               </ul>
             </div>
 
@@ -368,9 +368,9 @@ export default function PrivacyPage() {
               <li>
                 <strong className="text-foreground">Lectura automatizada.</strong> Los comprobantes se procesan con los proveedores de
                 inteligencia artificial indicados en esta sección, con la única finalidad de extraer el monto,
-                la fecha y el número de referencia y contrastarlos contra el cobro correspondiente. La
-                aprobación final del pago siempre la realiza una persona de la escuela; no se adoptan
-                decisiones con efectos jurídicos basadas exclusivamente en el tratamiento automatizado.
+                la fecha y el número de referencia y contrastarlos contra el cobro correspondiente. El
+                detalle, incluida la aprobación automática que una escuela puede activar, está en la
+                Sección 8.2.
               </li>
               <li>
                 <strong className="text-foreground">Revocatoria del consentimiento.</strong> El titular puede escribir
@@ -381,6 +381,126 @@ export default function PrivacyPage() {
               <li>
                 <strong className="text-foreground">Costos.</strong> El costo de los mensajes corre por cuenta de la escuela y de su
                 operador. SportMaps no cobra al titular por mensaje enviado o recibido.
+              </li>
+            </ul>
+          </div>
+
+          {/* 8.2 Asistente con IA — agregado en la v2.2 (2026-10-04) porque el bot
+              empezó a enviar al proveedor de IA el historial reciente de la
+              conversación, incluido lo que la escuela escribió desde su celular.
+              Eso es una transmisión de datos a un encargado fuera de Colombia y la
+              Ley 1581 exige informarla de forma previa y expresa.
+              Fuente de verdad técnica: bff/src/services/llm.service.ts (chat),
+              ocr.service.ts (comprobantes) y enrollment-ocr.service.ts (matrículas).
+              Si cambia un proveedor allá, cambia este texto.
+              Lo de "no entrenar" se afirma SOLO de Groq y OpenAI porque sus términos
+              de API lo garantizan (verificado 2026-10-04). De Google NO se afirma: sus
+              términos solo lo garantizan en la modalidad PAGA de la API de Gemini y,
+              al redactar esto, no estaba confirmado que la cuenta de SportMaps lo sea. */}
+          <h3 className="text-base font-semibold text-foreground mt-6 mb-2">8.2. Asistente Automático con Inteligencia Artificial</h3>
+          <div className="space-y-3">
+            <p>
+              Cuando una escuela activa el asistente automático en su WhatsApp, algunas respuestas las
+              redacta un sistema de <strong className="text-foreground">inteligencia artificial (IA)</strong> y no una persona.
+              El asistente se presenta siempre como <strong className="text-foreground">«asistente automático»</strong> de la
+              escuela al iniciar la conversación. La IA también se usa para leer los comprobantes de pago y,
+              cuando la escuela lo utiliza, las fotos de hojas de matrícula.
+            </p>
+
+            <p className="font-medium text-foreground">Qué datos recibe el proveedor de IA</p>
+            <ul className="list-disc list-inside space-y-1">
+              <li>
+                <strong className="text-foreground">Tu mensaje y el contexto de la conversación:</strong> el mensaje que
+                escribes y hasta los ocho mensajes anteriores de esa misma conversación en las últimas 24 horas,
+                incluidos los que la escuela te haya escrito desde su propio teléfono. Se incluyen para que la
+                respuesta no contradiga lo que la escuela ya te dijo.
+              </li>
+              <li>
+                <strong className="text-foreground">La información que el asistente consulta para responderte:</strong> el
+                nombre de los deportistas a tu cargo, el estado de sus cobros (concepto, periodo, valor, fecha de
+                vencimiento y pagos registrados), la información de la escuela (sedes, horarios, contacto) y los
+                medios de pago que la escuela publicó. Solo se consultan los datos asociados al número de
+                teléfono verificado con el que escribes.
+              </li>
+              <li>
+                <strong className="text-foreground">Comprobantes de pago:</strong> la imagen o el PDF que envías, para extraer
+                el valor, la fecha, el banco, la referencia y la cuenta de destino.
+              </li>
+              <li>
+                <strong className="text-foreground">Hojas de matrícula:</strong> cuando la escuela inscribe deportistas a
+                partir de la foto de su formato de matrícula, la imagen se procesa para leer los datos del
+                deportista y del acudiente. Esa hoja puede contener <strong className="text-foreground">datos de menores de
+                edad y datos sensibles de salud</strong> (EPS y tipo de sangre), que se tratan conforme a las
+                Secciones 4 y 6.
+              </li>
+            </ul>
+
+            <p className="font-medium text-foreground">Para qué se usan</p>
+            <ul className="list-disc list-inside space-y-1">
+              <li>Responder tus consultas sobre pagos, horarios y medios de pago de la escuela.</li>
+              <li>Leer los comprobantes y aplicarlos al cobro que corresponde.</li>
+              <li>Prellenar la inscripción del deportista a partir de la hoja de matrícula, para que la escuela la revise.</li>
+              <li>Enviarte avisos relacionados con tus cobros y pagos.</li>
+            </ul>
+            <p>
+              Estos datos no se usan para publicidad, no se venden y no se usan para crear perfiles distintos
+              de la relación que tienes con tu escuela.
+            </p>
+
+            <p className="font-medium text-foreground">Proveedores de IA y procesamiento fuera de Colombia</p>
+            <p>
+              Usamos <strong className="text-foreground">Google (Gemini)</strong>, <strong className="text-foreground">Groq</strong> y{' '}
+              <strong className="text-foreground">OpenAI</strong>, con conmutación automática: si uno no está disponible, la
+              solicitud pasa al siguiente. Estos proveedores actúan como <strong className="text-foreground">Encargados del
+              Tratamiento</strong> y procesan los datos en servidores ubicados <strong className="text-foreground">fuera de
+              Colombia</strong>, principalmente en los Estados Unidos. Esto constituye una transmisión internacional
+              de datos, regulada en la Sección 14.
+            </p>
+            <p>
+              Groq y OpenAI establecen en los términos de sus servicios de API que no usan los datos que reciben
+              para entrenar ni mejorar sus modelos, salvo que el cliente lo autorice; SportMaps no ha dado esa
+              autorización. Cada proveedor puede conservar temporalmente las solicitudes según sus propios
+              términos para detectar abusos y garantizar la operación del servicio (Groq y OpenAI declaran hasta
+              30 días).
+            </p>
+
+            <p className="font-medium text-foreground">Decisiones automatizadas</p>
+            <p>
+              Si la escuela activó la <strong className="text-foreground">aprobación automática de comprobantes</strong>, un
+              comprobante cuyo valor no supere el tope que la escuela definió puede quedar aprobado sin revisión
+              de una persona, siempre que la lectura coincida con el cobro. Cuando la lectura no coincide o hay
+              dudas, el comprobante queda para revisión de la escuela. Puedes pedir en cualquier momento que una
+              persona de la escuela revise un pago o una respuesta del asistente.
+            </p>
+            <p>
+              Las respuestas del asistente son informativas y pueden contener errores. El estado de cuenta que
+              registra la escuela es el que vale.
+            </p>
+
+            <p className="font-medium text-foreground">Cuánto tiempo se conservan</p>
+            <p>
+              Dentro de SportMaps, los mensajes, comprobantes y hojas de matrícula se conservan junto con la
+              conversación y el pago, para que la escuela tenga trazabilidad, durante los plazos de la Sección 12.
+              En los proveedores de IA se aplican los plazos descritos arriba.
+            </p>
+
+            <p className="font-medium text-foreground">Cómo hablar con una persona y ejercer tus derechos</p>
+            <ul className="list-disc list-inside space-y-1">
+              <li>
+                Toca el botón <strong className="text-foreground">«Hablar con alguien»</strong> o escribe que quieres hablar con una
+                persona: la conversación pasa al equipo de la escuela.
+              </li>
+              <li>
+                Escribe <strong className="text-foreground">STOP</strong> para dejar de recibir mensajes automatizados.
+              </li>
+              <li>
+                Si no quieres que tus comprobantes pasen por la lectura automática, puedes pedirle a la escuela que
+                registre tu pago de forma manual.
+              </li>
+              <li>
+                Para conocer, actualizar, rectificar o suprimir tus datos, o revocar la autorización, escribe a{' '}
+                <a href="mailto:privacidad@sportmaps.co" className="text-[#248223] hover:underline">privacidad@sportmaps.co</a>{' '}
+                siguiendo el procedimiento de la Sección 11.
               </li>
             </ul>
           </div>
@@ -502,7 +622,7 @@ export default function PrivacyPage() {
             Los proveedores de infraestructura y de procesamiento de SportMaps (Supabase, Vercel, Render, Resend, Sentry, Google, Meta Platforms, OpenAI y Groq) tienen servidores ubicados fuera del territorio colombiano. Los datos se tratan en los <strong className="text-foreground">Estados Unidos</strong> y en la <strong className="text-foreground">Unión Europea</strong>. Al aceptar esta Política, el Usuario autoriza expresamente la <strong className="text-foreground">transferencia y/o transmisión internacional</strong> de sus datos personales a estos proveedores, para las finalidades descritas en la Sección 8.
           </p>
           <p className="mt-2">
-            De conformidad con el artículo 26 del Decreto 1377 de 2013, SportMaps garantiza que los países de destino cuentan con niveles adecuados de protección de datos o, en su defecto, suscribe acuerdos contractuales que aseguran estándares equivalentes a los exigidos por la legislación colombiana. Cuando el país de destino no figura entre los declarados con nivel adecuado de protección por la Superintendencia de Industria y Comercio, la transferencia se ampara en la autorización expresa e informada del titular y en las cláusulas contractuales suscritas con el encargado, que restringen el uso de los datos a la prestación del servicio contratado y prohíben su uso para entrenamiento de modelos, publicidad o cualquier finalidad distinta.
+            De conformidad con el artículo 26 del Decreto 1377 de 2013, SportMaps garantiza que los países de destino cuentan con niveles adecuados de protección de datos o, en su defecto, suscribe acuerdos contractuales que aseguran estándares equivalentes a los exigidos por la legislación colombiana. Cuando el país de destino no figura entre los declarados con nivel adecuado de protección por la Superintendencia de Industria y Comercio, la transferencia se ampara en la autorización expresa e informada del titular y en los términos contractuales aceptados con cada encargado, que restringen el uso de los datos a la prestación del servicio contratado. Lo que cada proveedor de inteligencia artificial garantiza sobre el entrenamiento de modelos y la conservación de los datos se detalla en la Sección 8.2.
           </p>
         </section>
 
@@ -543,7 +663,7 @@ export default function PrivacyPage() {
 
         <div className="border-t pt-6 text-center text-xs text-muted-foreground">
           © {new Date().getFullYear()} SportMaps Technology S.A.S. · Política de Privacidad conforme a la Ley 1581 de 2012 · Colombia<br />
-          Versión 2.0 · Abril de 2026
+          Versión 2.2 · 4 de octubre de 2026
         </div>
       </div>
     </div>

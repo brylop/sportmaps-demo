@@ -560,68 +560,35 @@ export async function emitInvoiceForOrder(orderId: string): Promise<EmitResult> 
         .maybeSingle();
     if (existing) return { ok: true, invoiceId: existing.id, status: existing.status };
 
-    const { data: order } = await supabase
-        .from('orders')
-        .select('id, user_id, status, payment_method')
-        .eq('id', orderId)
-        .maybeSingle();
-    if (!order) return { ok: false, error: 'order_not_found' };
-    if (order.status !== 'paid') return { ok: false, error: 'order_not_paid' };
-    if (!order.user_id) return { ok: false, error: 'order_without_buyer' };
+    // Tienda v2 F0 (M-F0-8): la base arma el documento. Solo factura una orden
+    // cobrada CON prueba de pago (pasarela o aprobación del vendedor), con el
+    // emisor = dueño de la venta (escuela por su tienda; externo por sí mismo,
+    // nunca la escuela por un externo), líneas con el IVA de cada producto
+    // (incluido, spec 6.3) y una línea de ENVÍO aparte. El trigger
+    // trg_guard_factura_orden_pagada repite el control al insertar.
+    const { data: payload, error: payloadErr } = await supabase.rpc('order_invoice_payload', { p_order_id: orderId });
+    if (payloadErr || !payload) return { ok: false, error: 'order_payload_unavailable' };
+    const pl = payload as any;
+    if (!pl.invoiceable) return { ok: false, error: String(pl.reason ?? 'order_not_paid') };
 
-    const { data: oi } = await supabase
-        .from('order_items')
-        .select('quantity, unit_price, product:products(name, school_id, vendor_profile_id)')
-        .eq('order_id', orderId);
-    if (!oi || oi.length === 0) return { ok: false, error: 'order_without_items' };
-
-    // Emisor: tienda escolar (school_id del producto) o vendor externo (vendor_profile_id).
-    let schoolId: string | null = null;
-    let vendorProfileId: string | null = null;
-    type RawLine = { name: string; quantity: number; unitPrice: number };
-    const rawLines: RawLine[] = [];
-    for (const row of oi) {
-        const p: any = Array.isArray((row as any).product) ? (row as any).product[0] : (row as any).product;
-        if (p?.school_id && !schoolId) schoolId = p.school_id;
-        if (p?.vendor_profile_id && !vendorProfileId) vendorProfileId = p.vendor_profile_id;
-        rawLines.push({
-            name: p?.name || 'Producto',
-            quantity: Number((row as any).quantity) || 1,
-            unitPrice: Number((row as any).unit_price) || 0,
-        });
-    }
-
-    let ownerType: OwnerType;
-    let ownerId: string;
-    if (schoolId) {
-        ownerType = 'school';
-        ownerId = schoolId;
-    } else if (vendorProfileId) {
-        ownerType = 'vendor';
-        ownerId = vendorProfileId;
-    } else {
-        return { ok: false, error: 'cannot_resolve_owner' };
-    }
+    const ownerType = pl.owner_type as OwnerType;
+    const ownerId = String(pl.owner_id);
 
     const cfg = await resolveInvoiceProvider(ownerType, ownerId);
     if (!cfg) return { ok: false, error: 'no_invoice_provider' };
 
-    const customer = await loadCustomer(order.user_id);
+    const customer = await loadCustomer(String(pl.buyer_id));
     if (!customer) return { ok: false, error: 'customer_missing_fiscal_data' };
 
-    // Productos físicos: GRAVADOS por defecto (IVA 19%), a diferencia de
-    // mensualidades/servicios (excluidos). Configurable por el dueño con
-    // products_tax_excluded / products_tax_rate.
-    const isExcluded = cfg.config.products_tax_excluded === true;
-    const taxRate = Number(cfg.config.products_tax_rate ?? 19);
-    const items: InvoiceLine[] = rawLines.map((l, idx) => ({
-        codeReference: `ORD-${orderId.slice(0, 8)}-${idx + 1}`,
-        name: l.name,
-        quantity: l.quantity,
-        unitPrice: l.unitPrice,
-        taxRate,
-        isExcluded,
+    const items: InvoiceLine[] = (Array.isArray(pl.lines) ? pl.lines : []).map((l: any) => ({
+        codeReference: String(l.code),
+        name: String(l.name || 'Producto'),
+        quantity: Number(l.quantity) || 1,
+        unitPrice: Number(l.unit_price) || 0,          // IVA incluido
+        taxRate: Number(l.tax_rate_pct) || 0,
+        isExcluded: l.is_excluded === true,
     }));
+    if (items.length === 0) return { ok: false, error: 'order_without_items' };
 
     const request: InvoiceRequest = {
         // Sufijo de intento: ver referenciaDelProximoIntento.
@@ -629,11 +596,9 @@ export async function emitInvoiceForOrder(orderId: string): Promise<EmitResult> 
         documentType: 'invoice',
         customer,
         items,
-        observation: 'Compra tienda SportMaps',
-        // `orders` guarda su propio medio de pago, con los mismos valores que
-        // payments. Sin esto, la venta de tienda también se declaraba en
-        // efectivo.
-        paymentMethod: (order as any).payment_method,
+        observation: `Compra tienda SportMaps ${pl.reference ?? ''}`.trim(),
+        // Canal de la orden (wompi / mercadopago / transfer / cash_pickup).
+        paymentMethod: pl.payment_method,
     };
 
     return runEmission({ ownerType, ownerId, cfg, request, link: { order_id: orderId } });
@@ -1179,6 +1144,9 @@ const SKIP_ERRORS = new Set([
     'payment_without_payer',
     'payment_without_school',
     'payment_not_found',
+    'order_not_paid',
+    'order_without_buyer',
+    'order_not_found',
 ]);
 
 /**
@@ -1702,14 +1670,10 @@ export async function autoEmitPendingOrders(
     const limit = opts?.limit ?? 100;
     const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString();
 
-    const { data: orders } = await supabase
-        .from('orders')
-        .select('id')
-        .eq('status', 'paid')
-        .gte('created_at', since)
-        .order('created_at', { ascending: false })
-        .limit(limit);
-    const ids = (orders ?? []).map((o) => o.id);
+    // Tienda v2 F0 (M-F0-8): candidatas = tienda prendida + cobradas con prueba
+    // de pago (no solo status='paid', que antes un comprador podía escribir).
+    const { data: orders } = await supabase.rpc('orders_pending_invoice', { p_since: since, p_limit: limit });
+    const ids = ((orders ?? []) as any[]).map((o) => (typeof o === 'string' ? o : o?.orders_pending_invoice ?? o?.id)).filter(Boolean) as string[];
     if (ids.length === 0) return AUTO_EMPTY;
 
     // Mismo criterio que el barrido de pagos (ver esFacturaEfectiva).

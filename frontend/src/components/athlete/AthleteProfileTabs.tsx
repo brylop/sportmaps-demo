@@ -19,6 +19,7 @@ import { User, Shield, Activity, Heart, Save, Loader2, Camera, Lock } from 'luci
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { getAgeCategory } from '@/lib/athlete/queries';
+import { comprimirParaSubir } from '@/lib/imageCompression';
 
 export function AthleteProfileTabs() {
   const { user, profile, updateProfile } = useAuth();
@@ -125,12 +126,13 @@ export function AthleteProfileTabs() {
 
     try {
       setUploading(true);
-      const fileExt = file.name.split('.').pop();
+      const fileC = await comprimirParaSubir(file, 'avatar');
+      const fileExt = fileC.name.split('.').pop();
       const fileName = `${user.id}-${Date.now()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(fileName, file, { upsert: true });
+        .upload(fileName, fileC, { upsert: true, contentType: fileC.type });
 
       if (uploadError) throw uploadError;
 

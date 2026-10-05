@@ -59,6 +59,14 @@ const ProviderUpsertSchema = z.object({
 const ADMIN_MEMBER_ROLES: string[] = ['owner', 'admin', 'school_admin', 'super_admin'];
 
 /**
+ * Roles que LEEN las finanzas de la escuela (Contabilidad v2 F0, plan §4 F9).
+ * Es la misma lista que finance_read_school_ids() en la base: los admins más
+ * el contador ('accountant'), que lee facturas pero NO emite, ni anula, ni
+ * configura el PAC (eso sigue en ADMIN_MEMBER_ROLES / canManageFinances).
+ */
+const FINANCE_READ_MEMBER_ROLES: string[] = [...ADMIN_MEMBER_ROLES, 'accountant'];
+
+/**
  * ¿Es admin de plataforma? Se pregunta a platform_admins, la misma fuente que
  * is_platform_admin()/is_super_admin() en la base.
  *
@@ -80,6 +88,21 @@ async function isPlatformAdmin(userId: string): Promise<boolean> {
 
 /** ¿El usuario puede gestionar las finanzas del dueño? (espejo de can_manage_finances) */
 async function canManageFinances(userId: string, ownerType: OwnerType, ownerId: string): Promise<boolean> {
+    return financeAccess(userId, ownerType, ownerId, ADMIN_MEMBER_ROLES);
+}
+
+/**
+ * ¿El usuario puede LEER las finanzas del dueño? (espejo de
+ * finance_permission(owner, 'read')). Igual que canManageFinances, más el
+ * contador de la escuela. Solo para rutas GET: nada que escriba usa esto.
+ */
+async function canReadFinances(userId: string, ownerType: OwnerType, ownerId: string): Promise<boolean> {
+    return financeAccess(userId, ownerType, ownerId, FINANCE_READ_MEMBER_ROLES);
+}
+
+async function financeAccess(
+    userId: string, ownerType: OwnerType, ownerId: string, memberRoles: string[],
+): Promise<boolean> {
     if (await isPlatformAdmin(userId)) return true;
 
     if (ownerType === 'school') {
@@ -103,7 +126,7 @@ async function canManageFinances(userId: string, ownerType: OwnerType, ownerId: 
             .eq('school_id', ownerId)
             .eq('profile_id', userId)
             .eq('status', 'active')
-            .in('role', ADMIN_MEMBER_ROLES)
+            .in('role', memberRoles)
             .limit(1);
         return (members ?? []).length > 0;
     }
@@ -433,7 +456,7 @@ router.get('/invoices/:ownerType/:ownerId', requireAuth, async (req: Authenticat
     const { ownerType: ownerTypeRaw, ownerId } = req.params as { ownerType: string; ownerId: string };
     const ownerType = parseOwnerType(ownerTypeRaw);
     if (!ownerType) return res.status(400).json({ error: 'invalid_owner_type' });
-    if (!(await canManageFinances(req.user.id, ownerType, ownerId))) {
+    if (!(await canReadFinances(req.user.id, ownerType, ownerId))) {
         return res.status(403).json({ error: 'forbidden' });
     }
 
@@ -501,8 +524,9 @@ router.get('/by-payment/:paymentId', requireAuth, async (req: AuthenticatedReque
     if (error) return res.status(500).json({ error: error.message });
     if (!invoice) return res.status(404).json({ error: 'not_found' });
 
-    // Autorizado si administra el dueño, o si es el pagador del pago.
-    const owns = await canManageFinances(req.user.id, invoice.owner_type as OwnerType, invoice.owner_id);
+    // Autorizado si lee las finanzas del dueño (admin o contador), o si es el
+    // pagador del pago.
+    const owns = await canReadFinances(req.user.id, invoice.owner_type as OwnerType, invoice.owner_id);
     let isPayer = false;
     if (!owns) {
         const { data: pay } = await supabase

@@ -20,6 +20,7 @@ import { requireAuth, AuthenticatedRequest } from '../middlewares/authMiddleware
 import { userClient } from '../utils/userClient';
 import { supabase } from '../config/supabase';
 import { runSupportBotTurn } from '../services/inapp-support-bot.service';
+import { avisarTicketSoportePorCorreo } from '../services/avisos-correo.service';
 
 const router = Router();
 
@@ -170,6 +171,14 @@ router.post('/messages', async (req: AuthenticatedRequest, res: Response) => {
             // El mensaje del usuario ya quedó guardado (S0 no depende del bot);
             // un fallo acá no debe tumbar la respuesta HTTP.
             req.log?.error({ err }, 'support/messages: el turno del bot falló');
+        }
+
+        // Correo a SportMaps por ticket nuevo. Va DESPUÉS del turno del bot a
+        // propósito: así el correo ya dice si SportBot lo resolvió o lo pasó a
+        // una persona, y un caso que escala en el primer mensaje genera UN
+        // correo y no dos. El push de arriba no alcanza: nadie lo ve.
+        if (userMsgCount === 1) {
+            void avisarTicketSoportePorCorreo({ ticketId, origen: 'nuevo' }).catch(() => {});
         }
     }
 
