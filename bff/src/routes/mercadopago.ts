@@ -770,18 +770,21 @@ async function maybeCaptureMpCard(
     // metadata si la card aparece en el payment.
     if (!payment.card?.last_four_digits) return;
 
+    // Firma nueva (12 args, p_payment_provider enum). La vieja de 11 args con
+    // p_wompi_token/p_provider se elimina en F2 del débito automático.
     await supabase.rpc('save_payment_token', {
         p_user_id: userId,
-        p_wompi_token: `mp_${payment.id}`,                  // sintetico: marca que fue MP
+        p_payment_provider: 'mercadopago',
+        p_provider_token: `mp_${payment.id}`,               // sintetico: marca que fue MP
+        p_provider_customer_id: null,
+        p_provider_card_id: null,
+        p_provider_payment_source_id: null,
         p_payment_method_type: payment.payment_method_id || 'CARD',
         p_last_four: payment.card.last_four_digits,
-        p_brand: payment.card.first_six_digits ? null : null,
+        p_brand: null,
         p_holder_name: payment.card.cardholder?.name ?? null,
         p_expires_at: null,
         p_set_default: false,
-        p_provider: 'mercadopago',
-        p_provider_customer_id: null,
-        p_provider_card_id: null,
     });
 
     req.log?.info({ userId, externalRef }, 'MP card metadata captured');
@@ -941,16 +944,17 @@ paymentsRouter.post('/save-card', requireAuth, async (req: AuthenticatedRequest,
 
         const { data: rpcResult, error: rpcErr } = await supabase.rpc('save_payment_token', {
             p_user_id: userId,
-            p_wompi_token: syntheticToken,
+            p_payment_provider: 'mercadopago',
+            p_provider_token: syntheticToken,
+            p_provider_customer_id: result.customerId,
+            p_provider_card_id: result.cardId,
+            p_provider_payment_source_id: null,
             p_payment_method_type: 'CARD',
             p_last_four: result.lastFour ?? null,
             p_brand: result.brand ?? null,
             p_holder_name: null,
             p_expires_at: null,
             p_set_default: !!setDefault,
-            p_provider: 'mercadopago',
-            p_provider_customer_id: result.customerId,
-            p_provider_card_id: result.cardId,
         });
 
         if (rpcErr) {

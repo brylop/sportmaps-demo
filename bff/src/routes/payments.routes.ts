@@ -456,6 +456,11 @@ const ExtractSchema = z.object({
     imageSha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
     // En el flujo de update: pago a excluir del dedup.
     paymentId: z.string().uuid().optional(),
+    // Categoría del cobro que se está pagando: decide qué llaves restringidas
+    // (`payment_accounts[].only_for`) valen como destino. Con paymentId se lee
+    // del pago; sin ninguno de los dos, las llaves restringidas dan amarillo.
+    paymentCategory: z.enum(['mensualidad', 'inscripcion', 'articulos', 'torneo', 'otro']).optional(),
+    concept: z.string().max(300).optional(),
 });
 
 const ocrLimiter = rateLimit({
@@ -502,7 +507,7 @@ router.post(
                     details: parsed.error.issues,
                 });
             }
-            const { imageBase64, mimeType, schoolId, expectedAmount, imageSha256, paymentId } = parsed.data;
+            const { imageBase64, mimeType, schoolId, expectedAmount, imageSha256, paymentId, paymentCategory, concept } = parsed.data;
 
             const result = await extractReceipt(imageBase64, mimeType || 'image/png');
 
@@ -528,6 +533,8 @@ router.post(
                         imageSha256: hash,
                         expectedAmount,
                         paymentId,
+                        paymentCategory,
+                        concept,
                     });
                     verdict = evaluateVerdict(result, ctx);
                 } catch (err) {

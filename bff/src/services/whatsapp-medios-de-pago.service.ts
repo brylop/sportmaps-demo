@@ -16,8 +16,17 @@
  */
 
 import { supabase } from '../config/supabase';
+import { normalizeDestination } from './receipt-verdict';
+import { cuentaAplicaA, parseCuentasDePago, type CategoriaCobro } from './payment-accounts';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
+
+const TIPO_LEGIBLE: Record<string, string> = {
+    breb: 'Bre-B',
+    nequi: 'Nequi',
+    daviplata: 'Daviplata',
+    transfer_key: 'Llave de transferencia',
+};
 
 export interface MediosDePago {
     cuentas: { tipo: string; titular: string | null; numero: string }[];
@@ -32,7 +41,17 @@ export interface MediosDePago {
 // un dato a proteger — es la cuenta de la escuela, que ella publica para que
 // le paguen. Enmascararla seria confundir "dato de pago" con "dato sensible".
 
-export async function mediosDePago(schoolId: string): Promise<MediosDePago> {
+/**
+ * `categoria`: el cobro que se va a pagar, si se sabe. El bot NO lo sabe (le
+ * preguntan «cómo pago» en general), así que no lo pasa y solo recibe las
+ * llaves generales: una llave restringida (`only_for`, p.ej. el Nequi personal
+ * de la dueña de Dynasty, solo para inscripciones) nunca se ofrece para pagar
+ * la mensualidad. La página pública del cobro (/p/:token) sí lo sabe y lo pasa.
+ */
+export async function mediosDePago(
+    schoolId: string,
+    opts: { categoria?: CategoriaCobro | null } = {},
+): Promise<MediosDePago> {
     const cuentas: MediosDePago['cuentas'] = [];
 
     // `account_holder` NO existe (la columna es `bank_account_holder`). Con ella
@@ -56,15 +75,28 @@ export async function mediosDePago(schoolId: string): Promise<MediosDePago> {
         const vistos = new Set<string>();
         const agregar = (tipo: string, numero: unknown, titular?: unknown) => {
             const n = String(numero ?? '').trim();
-            if (!n || vistos.has(n)) return;
-            vistos.add(n);
+            const clave = normalizeDestination(n);
+            if (!n || !clave || vistos.has(clave)) return;
+            vistos.add(clave);
             cuentas.push({ tipo, titular: (titular as string) ?? c.account_holder ?? null, numero: n });
         };
 
-        for (const a of (Array.isArray(c.payment_accounts) ? c.payment_accounts : [])) {
+        const lista = parseCuentasDePago(c.payment_accounts);
+        // Las restringidas que no aplican se marcan como vistas ANTES de leer las
+        // columnas sueltas: si alguna espejara esa llave, no se cuela por ahí.
+        for (const a of lista) {
+            if (!cuentaAplicaA(a, opts.categoria ?? null)) {
+                const clave = normalizeDestination(a.value);
+                if (clave) vistos.add(clave);
+            }
+        }
+        for (const a of lista) {
             // `active: false` solo oculta la cuenta, no la borra.
-            if (a?.active === false) continue;
-            agregar(String(a?.type ?? a?.tipo ?? 'Cuenta'), a?.number ?? a?.numero, a?.holder ?? a?.titular);
+            if (!a.active || !cuentaAplicaA(a, opts.categoria ?? null)) continue;
+            // La clave del valor es `value` (mig 20260809095613). Antes se leía
+            // `number`/`numero`, que no existen: ninguna llave de la lista llegaba
+            // al bot y solo salían las columnas sueltas.
+            agregar(TIPO_LEGIBLE[a.type] ?? (a.label || 'Cuenta'), a.value);
         }
         agregar('Nequi', c.nequi_number);
         agregar(c.bank_name ? String(c.bank_name) : 'Cuenta bancaria', c.bank_account_number);

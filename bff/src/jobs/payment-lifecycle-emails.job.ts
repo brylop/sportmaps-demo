@@ -36,7 +36,7 @@ import { emailClient } from '../utils/emailClient';
 import { BrandedEmailTemplates } from '../utils/emailTemplates';
 import { findDuplicatePaymentIds } from '../services/duplicatePayerGuard.service';
 import {
-    enviarCobroPorPlantilla, type ConceptoCobro, type MotivoNoEnvio,
+    enviarCobroPorPlantilla, dentroDeHorarioDeCobranza, type ConceptoCobro, type MotivoNoEnvio,
 } from '../services/whatsapp-plantillas.service';
 import { emitirTokenCobro } from '../services/cobro-enlace-publico.service';
 
@@ -218,7 +218,21 @@ async function filterOutDuplicates(payments: PaymentRow[]): Promise<PaymentRow[]
     return payments.filter(p => !excluded.has(p.id));
 }
 
-export async function sendChargeCreatedEmails(): Promise<{ sent: number; whatsapp: number }> {
+/**
+ * Horario de cobranza (Ley 2300 de 2023) también para el CORREO, no solo para
+ * WhatsApp. Antes solo la plantilla lo respetaba y el correo de respaldo salía
+ * a cualquier hora: con `auto_generate_payments` el cron abre el mes a las
+ * 01:30 COT del día 1 (el 1-nov-2026 es domingo y el 2 es festivo), y el tick
+ * de las 01:45 mandaba el correo de madrugada a toda familia sin WhatsApp.
+ * Fuera de horario no se reclama nada: el primer tick dentro del horario
+ * procesa la cola completa, así que nada se pierde, solo se corre.
+ */
+export function puedeAvisarCobranzaAhora(ahora: Date = new Date()): boolean {
+    return dentroDeHorarioDeCobranza(ahora);
+}
+
+export async function sendChargeCreatedEmails(ahora: Date = new Date()): Promise<{ sent: number; whatsapp: number }> {
+    if (!puedeAvisarCobranzaAhora(ahora)) return { sent: 0, whatsapp: 0 };
     let sent = 0;
     let whatsapp = 0;
     const motivos: Record<string, number> = {};
@@ -283,7 +297,11 @@ export async function sendChargeCreatedEmails(): Promise<{ sent: number; whatsap
     return { sent, whatsapp };
 }
 
-export async function sendOverdueNoticeEmails(): Promise<{ sent: number; whatsapp: number }> {
+export async function sendOverdueNoticeEmails(ahora: Date = new Date()): Promise<{ sent: number; whatsapp: number }> {
+    // Corre una vez al día (07:15 COT). Domingo, festivo o sábado antes de las
+    // 8:00 queda fuera de horario: no se reclama nada y lo toma la corrida del
+    // siguiente día hábil (los avisos siguen con overdue_notice_sent_at NULL).
+    if (!puedeAvisarCobranzaAhora(ahora)) return { sent: 0, whatsapp: 0 };
     let sent = 0;
     let whatsapp = 0;
     const motivos: Record<string, number> = {};
