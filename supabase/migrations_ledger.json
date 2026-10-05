@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 660,
-  "head": "20261005130019",
+  "count": 662,
+  "head": "20261005131059",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -663,6 +663,8 @@
     {"v":"20261004083707","file":"20261004083707_cobro_enlace_publico.sql","sha256":"234b3ee705050d3f9a266438db35fba5ec20c4b68744871d850e604e86679a24","added":"2026-10-04","by":"Brayan Steven Lopez"},
     {"v":"20261005112635","file":"20261005112635_autopay_f0_cerrar_payment_tokens.sql","sha256":"23afdcf5fc94925644914a5a33c2d6e28315d889663a2263a8002352665aa94a","added":"2026-10-05","by":"Brayan Steven Lopez"},
     {"v":"20261005120806","file":"20261005120806_coach_sube_fotos_matricula_y_asistencia.sql","sha256":"1fe79bf61ca0e501ea23d05fdb55190682e27162c37039d357f2b416482011cc","added":"2026-10-05","by":"Brayan Steven Lopez"},
-    {"v":"20261005130019","file":"20261005130019_estado_de_cuenta_mensual_flag.sql","sha256":"a3ae1d2439fbd98a7681882663cdbfeb51de5045758b53cc5c7a37729bd09329","added":"2026-10-05","by":"Brayan Steven Lopez"}
+    {"v":"20261005130019","file":"20261005130019_estado_de_cuenta_mensual_flag.sql","sha256":"a3ae1d2439fbd98a7681882663cdbfeb51de5045758b53cc5c7a37729bd09329","added":"2026-10-05","by":"Brayan Steven Lopez"},
+    {"v":"20261005131057","file":"20261005131057_cerrar_rpc_sin_gate_linter_2026_10_05.sql","sha256":"b17405a0d0eeb69772b1a1bd535c0784d697afd0ca5a2bddf83e3abe561007fb","added":"2026-10-05","by":"Brayan Steven Lopez"},
+    {"v":"20261005131059","file":"20261005131059_invariante_i7_rpc_sin_gate_y_fix_i6.sql","sha256":"468ce0e2e648752ee8d53f67a6d4191135ee488ec2fe216ef292653f5a3b6940","added":"2026-10-05","by":"Brayan Steven Lopez"}
   ]
 }

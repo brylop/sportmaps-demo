@@ -531,3 +531,58 @@ corregidos en la misma migración (`20260922224730_barrido_profiles_role_admin_r
 Reconfirmado tras el barrido: `select proname from pg_proc where
 pg_get_functiondef(oid) ~* 'profiles\.role\s*=\s*''admin'''` — **cero
 resultados** en todo `public`. `seguridad:invariantes` sigue sin CRÍTICAS.
+
+---
+
+## Adenda 2026-10-05 — cruce del linter contra las auditorías: 5 RPC sin gate, cerradas y aplicadas
+
+Pedido explícito de cerrar "en serio". Se sacó el reporte COMPLETO de
+`get_advisors(security)` de la base viva (el export que circulaba venía
+truncado) y se cruzó contra este documento, `plan-qa-exploratorio-y-cierre-seguridad-2026-09-18.md`,
+`seguridad-escritura-rls-registro.md`, `auditoria-contabilidad-tienda-2026-10-02.md`
+y los `SEG-*` del ROADMAP. La mayoría del linter era ruido o ya estaba cubierto;
+quedaron **cinco huecos reales que ninguna auditoría tenía**, verificados en vivo.
+
+El origen es la adenda del 2026-09-17 (2): el default privilege de funciones se
+cerró ese día pero **no es retroactivo**. Las RPC creadas antes conservaban
+`EXECUTE` para `anon`/`authenticated`, y ahí seguían las que nunca tuvieron gate
+propio. Se leyeron cuerpo por cuerpo (no por nombre) las que reciben identidad,
+escuela o monto como parámetro.
+
+| | Hallazgo | Verificado | Fix |
+|---|---|---|---|
+| **N1** 🔴 | `process_enrollment_checkout` (2 firmas): cualquier autenticado creaba inscripción + pago `status='completed'` con el `p_amount` del cliente, en cualquier escuela, a nombre de cualquier acudiente. El pago previo era simulado (`PaymentModal`). | 0 pagos en toda la historia por este camino → nadie dependía de él | REVOKE a anon/authenticated; el cliente (`checkout.ts`) ya no la llama y devuelve mensaje claro; test de regresión `checkoutNoClientPayment.test.ts` |
+| **N2** 🔴 | `get_school_athletes(p_school_id)` (firma de 1 arg): `SELECT *` de `school_athletes` (médico + contacto del acudiente) de cualquier escuela. La de 2 args sí tenía gate. | — | REVOKE (sin llamador en front/BFF) |
+| **N3** 🔴 | `buscar_menor_por_documento_publico`: exigía `p_school_id` pero **nunca filtraba por él** → búsqueda nacional para cualquier anónimo con un documento; devolvía nombre/correo/teléfono del acudiente en claro. | 343 menores + 148 atletas sin registro expuestos | Acota por la escuela recibida + enmascara contacto (`bl***@gmail.com`, `*** *** 1490`). El front ya no precarga el dato, solo muestra la pista |
+| **N4** 🟠 | `get_athletes_without_payment`: contacto de acudientes de cualquier escuela. | — | Envoltorio con `is_school_admin()` |
+| **N5** 🟠 | `_equipment_notify_admins`: anon inyectaba notificaciones con **link arbitrario** a los admins de cualquier escuela (phishing in-app). | — | REVOKE a anon/authenticated |
+
+Mismo barrido, menor riesgo (todas tratadas): `_equipment_set_acta_fields`,
+`get_trainer_athlete_ids`, `_report_attended_subjects`, `has_role`,
+`is_school_member`, `is_personal_trainer`, estadísticas de ejercicio por
+menor/atleta, `next_unpaid_period`/`period_payment_status` (ahora gatean por
+`_puede_ver_menor`), y ~20 escrituras/lecturas sin llamador en el cliente.
+
+**Aplicado por `apply_migration`** (deja rastro), no pegado en el editor:
+- `20261005131057` — REVOKE / envoltorios con gate / enmascarado. Patrón de
+  envoltorio: la original pasa a `*_impl` (solo `service_role`) y un envoltorio
+  con la misma firma valida al llamador, sin reescribir la lógica de negocio.
+- `20261005131059` — `invariantes_seguridad()`: **nuevo I7** (RPC `SECURITY
+  DEFINER` ejecutable por anon/authenticated sin gate en el cuerpo; anon+escribe
+  = CRÍTICA) y **fix de I6** (comparaba contra el literal `'true'` pero Postgres
+  guarda `'on'` → 8 falsos positivos que tapaban los reales).
+
+**Verificado contra la base ya aplicada** (sesión simulada):
+- I7 pasó de **45 a 0**; I6 de 8 (falsos) a **0**. Queda I3 (47, deuda conocida).
+  **Sin ninguna CRÍTICA.**
+- Padre atacando: su propio hijo OK; hijo ajeno / `mark_overdue` / `checkout` →
+  `42501`; `get_school_athletes(escuela)` → `42725` (ya no existe para él).
+- Anónimo: buscar en otra escuela → 0 filas; contacto enmascarado; `_equipment_notify_admins`
+  → `42501`.
+
+**Lo que NO cambió** (residual consciente, documentado en la allowlist de I7):
+`get_school_payment_info` (cuenta bancaria si la escuela activó perfil público —
+decisión de producto), los helpers que usan las policies (revocarlos da 403 a
+todos), las 47 policies I3, SEG-7 (`v_school_entitlements` fail-open), los 4
+buckets públicos que permiten listar (`avatars`, `facility-photos`, `school-assets`,
+`product-images`), el toggle de contraseñas filtradas y `pg_net` en `public`.

@@ -138,6 +138,8 @@ export default function JoinSchoolPublicPage() {
   // sentido el tapado + el botón de ojo); `revealed` es el toggle del ojo.
   const [prefilled, setPrefilled] = useState<{ name: boolean; email: boolean; phone: boolean }>({ name: false, email: false, phone: false });
   const [revealed, setRevealed] = useState<{ name: boolean; email: boolean; phone: boolean }>({ name: false, email: false, phone: false });
+  // Pista enmascarada de lo que la escuela tiene registrado del acudiente.
+  const [contactHint, setContactHint] = useState<string | null>(null);
 
   // Solo cuentan las fichas de ESTA escuela y sin acudiente todavía: el match
   // con otra escuela no lo adopta `submit_qr_signup` (compara school_id), así
@@ -174,17 +176,14 @@ export default function JoinSchoolPublicPage() {
   function selectPreloadedMatch(m: AthleteMatch) {
     setPreloadedMatch(m);
     setChildDocNumber(docSearch);
-    // Precarga el formulario del acudiente con lo que la escuela ya tenía.
-    // Solo se marca "prefilled" (tapado + botón de ojo) el campo que en
-    // efecto llegó con dato — uno vacío se deja en blanco, editable normal.
-    if (m.parent_name_temp) setParentName(m.parent_name_temp);
-    if (m.parent_email_temp) setEmail(m.parent_email_temp);
-    if (m.parent_phone_temp) setParentPhone(m.parent_phone_temp);
-    setPrefilled({
-      name: !!m.parent_name_temp,
-      email: !!m.parent_email_temp,
-      phone: !!m.parent_phone_temp,
-    });
+    // La RPC es pública (anon): desde 20261005131057 devuelve el contacto del
+    // acudiente ENMASCARADO (bl***@gmail.com, *** *** 1490). Antes viajaba en
+    // claro a cualquiera con un número de documento. Ya no se precarga nada:
+    // el acudiente escribe sus datos y la máscara solo le sirve de pista.
+    setContactHint(
+      [m.parent_email_temp, m.parent_phone_temp].filter(Boolean).join(' · ') || null,
+    );
+    setPrefilled({ name: false, email: false, phone: false });
     setRevealed({ name: false, email: false, phone: false });
     continueAfterChoose();
   }
@@ -192,6 +191,7 @@ export default function JoinSchoolPublicPage() {
   function skipSearchAndRegisterNew() {
     setPreloadedMatch(null);
     setPrefilled({ name: false, email: false, phone: false });
+    setContactHint(null);
     setStep('choose');
   }
 
@@ -704,6 +704,12 @@ export default function JoinSchoolPublicPage() {
                       Tus datos, no los del menor. Esta cuenta queda como responsable del pago.
                     </p>
                   </div>
+                  {contactHint && (
+                    <p className="text-[11px] text-muted-foreground -mt-1 flex items-center gap-1">
+                      <ShieldCheck className="h-3 w-3 shrink-0" />
+                      {data.school?.name} tiene registrado: {contactHint}. Escribe tus datos completos.
+                    </p>
+                  )}
                   {(prefilled.name || prefilled.email || prefilled.phone) && (
                     <p className="text-[11px] text-muted-foreground -mt-1 flex items-center gap-1">
                       <ShieldCheck className="h-3 w-3 shrink-0" />
