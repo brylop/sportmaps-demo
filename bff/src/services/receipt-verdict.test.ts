@@ -114,3 +114,62 @@ describe('evaluateVerdict · check 4 con el comprobante real de Besser', () => {
         expect(codigos(comprobante({ destination: '**** 1234' }), [])).not.toContain('DESTINO_NO_COINCIDE');
     });
 });
+
+/**
+ * Llaves restringidas a un concepto (payment_accounts[].only_for).
+ *
+ * Dynasty, 2026-10-05: el Nequi 320 429 8969 es de la dueña y SOLO recibe
+ * inscripciones. Para una mensualidad el dinero sí llegó a la escuela, pero por
+ * el canal de otro concepto: amarillo (revisión), nunca rojo — rechazarlo haría
+ * que la familia pagara dos veces. Caso real del 2026-09-03: mensualidad de
+ * septiembre pagada a ese Nequi, que la escuela terminó aprobando a mano.
+ */
+describe('check 4 con llaves restringidas a un concepto', () => {
+    const DYNASTY_BREB = normalizeDestination('0092231411')!;
+    const NEQUI_INSCRIPCIONES = normalizeDestination('320 429 8969')!;
+    const base = { today: TODAY, expectedAmount: 210000 };
+
+    it('mensualidad pagada al Nequi de inscripciones → amarillo con el motivo, no rojo', () => {
+        const r = evaluateVerdict(comprobante({ destination: '320 429 8969' }), {
+            ...base,
+            registeredAccounts: [DYNASTY_BREB],
+            restrictedAccounts: [{ value: NEQUI_INSCRIPCIONES, onlyFor: ['inscripcion'] }],
+            paymentCategory: 'mensualidad',
+        });
+        const motivo = r.reasons.find((x) => x.code === 'DESTINO_NO_COINCIDE');
+        expect(motivo?.level).toBe('amarillo');
+        expect(motivo?.message).toContain('inscripciones');
+        expect(motivo?.detail).toMatchObject({ cuentaRestringida: true, soloPara: ['inscripcion'], categoriaDelCobro: 'mensualidad' });
+        expect(r.verdict).not.toBe('rojo');
+    });
+
+    it('inscripción al mismo Nequi (el caller ya la puso en registeredAccounts) → sin motivo de destino', () => {
+        const r = evaluateVerdict(comprobante({ destination: '3204298969' }), {
+            ...base,
+            registeredAccounts: [DYNASTY_BREB, NEQUI_INSCRIPCIONES],
+            restrictedAccounts: [],
+            paymentCategory: 'inscripcion',
+        });
+        expect(r.reasons.map((x) => x.code)).not.toContain('DESTINO_NO_COINCIDE');
+    });
+
+    it('un destino que no es de la escuela sigue siendo rojo aunque haya llaves restringidas', () => {
+        const r = evaluateVerdict(comprobante({ destination: '3001112233' }), {
+            ...base,
+            registeredAccounts: [DYNASTY_BREB],
+            restrictedAccounts: [{ value: NEQUI_INSCRIPCIONES, onlyFor: ['inscripcion'] }],
+        });
+        const motivo = r.reasons.find((x) => x.code === 'DESTINO_NO_COINCIDE');
+        expect(motivo?.level).toBe('rojo');
+        expect(r.verdict).toBe('rojo');
+    });
+
+    it('con solo llaves restringidas cargadas el check 4 igual se evalúa', () => {
+        const r = evaluateVerdict(comprobante({ destination: '3001112233' }), {
+            ...base,
+            registeredAccounts: [],
+            restrictedAccounts: [{ value: NEQUI_INSCRIPCIONES, onlyFor: ['inscripcion'] }],
+        });
+        expect(r.reasons.find((x) => x.code === 'DESTINO_NO_COINCIDE')?.level).toBe('rojo');
+    });
+});

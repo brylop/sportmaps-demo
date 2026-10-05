@@ -26,7 +26,7 @@ import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from '../services/whatsapp-optin.s
 import { extractReceipt } from '../services/ocr.service';
 import { extractEnrollmentForm, type EnrollmentFormResult } from '../services/enrollment-ocr.service';
 import { buildVerdictContext } from '../services/receipt-context.service';
-import { normalizeDestination, normalizeReference, evaluateVerdict } from '../services/receipt-verdict';
+import { normalizeDestination, normalizeReference, evaluateVerdict, destinationMatchesRegistered } from '../services/receipt-verdict';
 import { evaluatePaymentReceipt, redRejectionMessage } from '../services/receipt-approval.service';
 import { debeAtender, type TipoDeContacto } from '../services/whatsapp-atencion.service';
 import {
@@ -449,10 +449,22 @@ async function continuarComoComprobante(
     // ¿El dinero fue siquiera a la escuela? Va ANTES de mirar los pendientes
     // (ver comentario original: decirle "no tienes pendientes" a quien mandó
     // el comprobante de otra cuenta es cierto pero inútil).
+    //
+    // Aquí todavía no se sabe a qué cobro va, así que valen TODAS las llaves de
+    // la escuela, también las restringidas a un concepto (el Nequi de
+    // inscripciones de Dynasty): el dinero sí llegó a la escuela. Si el cobro
+    // resulta ser de otro concepto, lo marca el veredicto de aplicarComprobante
+    // (amarillo → revisión), no este portero. Antes comparaba con igualdad
+    // exacta y sin las restringidas: rechazaba inscripciones legítimas
+    // (2026-10-03) y los destinos enmascarados ("**** 6942") que el check 4 ya
+    // aceptaba.
     const ctx = await buildVerdictContext(fila.school_id, { referenceNorm: null, imageSha256: null });
-    const cuentas = ctx.registeredAccounts ?? [];
+    const cuentas = [
+        ...(ctx.registeredAccounts ?? []),
+        ...(ctx.restrictedAccounts ?? []).map((r) => r.value),
+    ];
     const destino = normalizeDestination(ocr.destination);
-    if (destino && cuentas.length > 0 && !cuentas.includes(destino)) {
+    if (destino && cuentas.length > 0 && !destinationMatchesRegistered(destino, cuentas)) {
         await responder(
             `Revisé tu comprobante y el dinero se envió a la cuenta *${ocr.destination}*, ` +
             'que no es ninguna de las cuentas registradas por la escuela.\n\n' +

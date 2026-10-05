@@ -54,6 +54,7 @@ import {
     signIntegrity, wompiCredsFrom,
 } from './wompi.service';
 import { mediosDePago } from './whatsapp-medios-de-pago.service';
+import { categoriaDeCobro } from './payment-accounts';
 
 /** Formato del token que emite la RPC: 18 bytes → 24 caracteres base64url. */
 export const TOKEN_COBRO_RE = /^[A-Za-z0-9_-]{24}$/;
@@ -200,7 +201,7 @@ const permiteSandbox = () => process.env.PAGO_PUBLICO_PERMITE_SANDBOX === 'true'
 // Lecturas
 // ─────────────────────────────────────────────────────────────────────────────
 
-const COLS_COBRO = 'id, school_id, amount, status, concept, due_date, payment_date, period_year, period_month, '
+const COLS_COBRO = 'id, school_id, amount, status, concept, payment_category, due_date, payment_date, period_year, period_month, '
     + 'child_id, user_id, parent_id, unregistered_athlete_id, requires_review';
 
 async function leerCobro(paymentId: string, schoolId: string) {
@@ -294,7 +295,9 @@ export async function vistaDelCobro(r: Extract<ResultadoResolver, { ok: true }>)
         nombreDelDeportista(p),
         pasarelaParaCobro(p),
         feePctDe(p.school_id),
-        mediosDePago(p.school_id),
+        // Con la categoría del cobro: una llave restringida (only_for) solo se
+        // muestra en el cobro de su concepto.
+        mediosDePago(p.school_id, { categoria: categoriaDeCobro(p.payment_category, p.concept) }),
         whatsappDeLaEscuela(p.school_id),
     ]);
 
