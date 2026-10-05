@@ -1,3 +1,5 @@
+import Anthropic from '@anthropic-ai/sdk';
+
 /**
  * ocr.service — Extraccion estructurada de comprobantes de pago colombianos.
  *
@@ -218,6 +220,50 @@ async function extractWithOpenAI(base64Image: string, mimeType: string): Promise
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CLAUDE — Anthropic (SDK oficial). Lee imagen y PDF de forma nativa.
+//
+// Se agregó el 2026-10-05 al recuperar los comprobantes de Dynasty: Gemini
+// respondía 503 y OpenAI chocaba con su tope de tokens por minuto, y entre
+// corridas el OCR cambiaba la lectura de la misma foto (la misma imagen salía
+// «en revisión» en una y «destino ajeno» en otra). Para leer plata de familias
+// vale más una lectura estable que una barata.
+// ─────────────────────────────────────────────────────────────────────────────
+let anthropicClient: Anthropic | null = null;
+function clienteClaude(): Anthropic {
+    if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY no configurada');
+    anthropicClient ??= new Anthropic({ timeout: 60_000, maxRetries: 2 });
+    return anthropicClient;
+}
+
+async function extractWithClaude(base64Image: string, mimeType: string): Promise<OcrResult> {
+    const client = clienteClaude();
+    const archivo: any = mimeType === 'application/pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64Image } }
+        : {
+            type: 'image',
+            source: {
+                type: 'base64',
+                media_type: (['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mimeType)
+                    ? mimeType : 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+                data: base64Image,
+            },
+        };
+
+    const res = await client.messages.create({
+        model: process.env.CLAUDE_OCR_MODEL || 'claude-opus-5-5',
+        max_tokens: 4000,
+        // Extracción de campos: esfuerzo bajo alcanza y abarata.
+        output_config: { effort: 'low' },
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: [archivo, { type: 'text', text: USER_PROMPT }] }],
+    } as any);
+
+    if (res.stop_reason === 'refusal') throw new Error('Claude rechazó leer el comprobante');
+    const texto = (res.content as any[]).map((b) => (b.type === 'text' ? b.text : '')).join('').trim();
+    return parseLlmJson(texto, 'claude');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GEMINI — Google Gemini Flash (fallback 2)
 // ─────────────────────────────────────────────────────────────────────────────
 async function extractWithGemini(base64Image: string, mimeType: string): Promise<OcrResult> {
@@ -351,7 +397,7 @@ function groqPuedeVer(): boolean {
  */
 function proveedorSoportaMime(provider: string, mimeType: string): boolean {
     if (mimeType !== 'application/pdf') return true;
-    return provider === 'gemini' || provider === 'openai';
+    return provider === 'gemini' || provider === 'openai' || provider === 'claude';
 }
 
 export async function extractReceipt(base64Image: string, mimeType: string = 'image/png'): Promise<OcrResult> {
@@ -362,11 +408,13 @@ export async function extractReceipt(base64Image: string, mimeType: string = 'im
         groq:   () => extractWithGroq(base64Image, mimeType),
         openai: () => extractWithOpenAI(base64Image, mimeType),
         gemini: () => extractWithGemini(base64Image, mimeType),
+        claude: () => extractWithClaude(base64Image, mimeType),
     };
 
-    const tryOrder = [order, 'gemini', 'openai', 'groq']
+    const tryOrder = [order, 'gemini', 'openai', 'claude', 'groq']
         .filter((v, i, a) => a.indexOf(v) === i && providers[v])
         .filter((v) => v !== 'groq' || groqPuedeVer())
+        .filter((v) => v !== 'claude' || !!process.env.ANTHROPIC_API_KEY)
         .filter((v) => proveedorSoportaMime(v, mimeType));
     // (el orden de respaldo ya tenia gemini primero; solo cambio el default de `order`)
 
@@ -392,7 +440,7 @@ export async function extractReceipt(base64Image: string, mimeType: string = 'im
 // Extracción por proveedor explícito — para la DOBLE extracción de Fase 5
 // (cross-check con dos providers DISTINTOS). Cada uno ya tiene AbortSignal.timeout.
 // ─────────────────────────────────────────────────────────────────────────────
-export type OcrProvider = 'groq' | 'gemini' | 'openai';
+export type OcrProvider = 'groq' | 'gemini' | 'openai' | 'claude';
 
 /**
  * Providers con API key configurada, en orden de preferencia.
@@ -419,6 +467,7 @@ export function extractReceiptWith(
         case 'groq': return extractWithGroq(base64Image, mimeType);
         case 'gemini': return extractWithGemini(base64Image, mimeType);
         case 'openai': return extractWithOpenAI(base64Image, mimeType);
+        case 'claude': return extractWithClaude(base64Image, mimeType);
     }
 }
 

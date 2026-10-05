@@ -98,6 +98,9 @@ export interface ValidationOptions {
     schoolId?: string;
     /** Pago en edición (update flow), para excluirlo del dedup en el BFF. */
     paymentId?: string;
+    /** Categoría del cobro (mensualidad/inscripcion/...): el BFF solo acepta una
+     *  llave restringida (`only_for`) como destino del cobro de su concepto. */
+    paymentCategory?: 'mensualidad' | 'inscripcion' | 'articulos' | 'torneo' | 'otro';
     /** Ver DateMode. Default 'window' (flujo del acudiente). */
     dateMode?: DateMode;
     /**
@@ -309,6 +312,7 @@ export function useReceiptValidator() {
                     conceptKind: opts.conceptKind ?? 'lenient',
                     imageSha256: imageSha256 ?? undefined,
                     paymentId: opts.paymentId,
+                    paymentCategory: opts.paymentCategory,
                 });
             } catch (err: any) {
                 console.error('[OCR] error llamando al BFF:', err);

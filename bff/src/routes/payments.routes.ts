@@ -542,13 +542,29 @@ router.post(
                 }
             }
 
+            // SEG-26 (2026-10-05): el endpoint valida solo el JWT y acepta
+            // cualquier `schoolId`. `DESTINO_NO_COINCIDE.detail.comparedAgainst`
+            // traía TODAS las cuentas bancarias de la escuela del `schoolId`, así
+            // que cualquier autenticado leía las cuentas de cualquier escuela
+            // mandando su id. `comparedAgainst` existe solo para calibrar el modo
+            // sombra server-side; no tiene por qué viajar al cliente. Se poda del
+            // detail antes de responder (se conserva el resto: expected/extracted,
+            // destination, etc. — nada de otra escuela).
+            const safeReasons = verdict?.reasons?.map((r) => {
+                if (r.detail && typeof r.detail === 'object' && 'comparedAgainst' in r.detail) {
+                    const { comparedAgainst: _omit, ...restDetail } = r.detail as Record<string, unknown>;
+                    return { ...r, detail: restDetail };
+                }
+                return r;
+            }) ?? null;
+
             return res.json({
                 ...result,
                 referenceNorm,
                 imageSha256: hash,
                 imageSha256Source: hashSource,
                 verdict: verdict?.verdict ?? null,
-                verdictReasons: verdict?.reasons ?? null,
+                verdictReasons: safeReasons,
             });
         } catch (err: any) {
             req.log?.error({ err }, 'Error extracting receipt with LLM Vision');

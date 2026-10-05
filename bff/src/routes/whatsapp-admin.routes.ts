@@ -52,19 +52,22 @@ function inicioDelMesBogota(): string {
     return new Date(Date.UTC(bogota.getFullYear(), bogota.getMonth(), 1, 5, 0, 0)).toISOString();
 }
 
-async function administraEstaEscuela(userId: string, schoolId: string): Promise<boolean> {
+export async function administraEstaEscuela(userId: string, schoolId: string): Promise<boolean> {
     // Las tres preguntas van EN PARALELO. Encadenadas costaban ~1,6 s, y como
     // este chequeo corre en cada endpoint, la pantalla gastaba unos 6 segundos
     // verificando cuatro veces lo mismo. Cada consulta contra esta Supabase
     // ronda el medio segundo, asi que lo que se paga es el viaje, no el trabajo.
-    const [perfil, escuela, miembro] = await Promise.all([
-        supabase.from('profiles').select('role').eq('id', userId).maybeSingle(),
+    const [plataforma, escuela, miembro] = await Promise.all([
+        // SEG-26: el atajo de plataforma preguntaba a profiles.role (autoasignable).
+        // Ahora a platform_admins, misma fuente que is_super_admin().
+        supabase.from('platform_admins').select('profile_id')
+            .eq('profile_id', userId).eq('is_active', true).limit(1),
         supabase.from('schools').select('owner_id').eq('id', schoolId).maybeSingle(),
         supabase.from('school_members').select('role, status')
             .eq('school_id', schoolId).eq('profile_id', userId).maybeSingle(),
     ]);
 
-    if (perfil.data?.role === 'super_admin' || perfil.data?.role === 'admin') return true;
+    if ((plataforma.data ?? []).length > 0) return true;
     if (escuela.data?.owner_id === userId) return true;
 
     return miembro.data?.status === 'active'

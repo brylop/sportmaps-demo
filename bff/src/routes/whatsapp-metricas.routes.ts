@@ -40,13 +40,15 @@ const TIPOS_CONOCIDOS = ['familia', 'familia_sin_cuenta', 'ambiguo', 'staff', 'd
 
 async function administraEstaEscuela(userId: string, schoolId: string): Promise<boolean> {
     // Copia fiel de whatsapp-admin.routes: las tres preguntas en paralelo.
-    const [perfil, escuela, miembro] = await Promise.all([
-        supabase.from('profiles').select('role').eq('id', userId).maybeSingle(),
+    const [plataforma, escuela, miembro] = await Promise.all([
+        // SEG-26: atajo de plataforma por platform_admins, no profiles.role.
+        supabase.from('platform_admins').select('profile_id')
+            .eq('profile_id', userId).eq('is_active', true).limit(1),
         supabase.from('schools').select('owner_id').eq('id', schoolId).maybeSingle(),
         supabase.from('school_members').select('role, status')
             .eq('school_id', schoolId).eq('profile_id', userId).maybeSingle(),
     ]);
-    if (perfil.data?.role === 'super_admin' || perfil.data?.role === 'admin') return true;
+    if ((plataforma.data ?? []).length > 0) return true;
     if (escuela.data?.owner_id === userId) return true;
     return miembro.data?.status === 'active'
         && ['owner', 'admin', 'school_admin'].includes(String(miembro.data?.role));

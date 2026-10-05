@@ -25,6 +25,19 @@ import { requireStoreEnabled } from '../services/store-flag.service';
 const vendorRouter = Router();
 const adminRouter = Router();
 
+// SEG-26 (2026-10-05): el gate de estas rutas de plataforma leía
+// `profiles.role === 'admin'`, una columna que el propio usuario puede
+// autoasignar (policy UPDATE de profiles es USING(auth.uid()=id), RLS no
+// distingue columnas). Peor: ningún admin real tiene ese rol — el super_admin
+// de plataforma vive en `platform_admins` y recibía 403 en mark-paid/hold.
+// Se pregunta a platform_admins, misma fuente que is_super_admin().
+async function esAdminPlataforma(userId: string): Promise<boolean> {
+    const { data } = await supabase
+        .from('platform_admins').select('profile_id')
+        .eq('profile_id', userId).eq('is_active', true).limit(1);
+    return (data ?? []).length > 0;
+}
+
 vendorRouter.use(requireAuth);
 adminRouter.use(requireAuth);
 // Tienda apagada (spec blindaje §1.3). Los routers se montan en /api/v1/vendor y
@@ -60,13 +73,7 @@ vendorRouter.get('/payouts', async (req: AuthenticatedRequest, res: Response) =>
 
 adminRouter.get('/payouts', async (req: AuthenticatedRequest, res: Response) => {
     try {
-        const { data: actorProfile } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', req.user.id)
-            .single();
-
-        if (actorProfile?.role !== 'admin') {
+        if (!(await esAdminPlataforma(req.user.id))) {
             return res.status(403).json({ ok: false, error: 'forbidden' });
         }
 
@@ -100,9 +107,7 @@ const MarkPaidSchema = z.object({
 
 adminRouter.post('/payouts/:id/mark-paid', async (req: AuthenticatedRequest, res: Response) => {
     try {
-        const { data: actorProfile } = await supabase
-            .from('profiles').select('role').eq('id', req.user.id).single();
-        if (actorProfile?.role !== 'admin') {
+        if (!(await esAdminPlataforma(req.user.id))) {
             return res.status(403).json({ ok: false, error: 'forbidden' });
         }
 
@@ -138,9 +143,7 @@ adminRouter.post('/payouts/:id/mark-paid', async (req: AuthenticatedRequest, res
 
 adminRouter.post('/payouts/:id/hold', async (req: AuthenticatedRequest, res: Response) => {
     try {
-        const { data: actorProfile } = await supabase
-            .from('profiles').select('role').eq('id', req.user.id).single();
-        if (actorProfile?.role !== 'admin') {
+        if (!(await esAdminPlataforma(req.user.id))) {
             return res.status(403).json({ ok: false, error: 'forbidden' });
         }
 
@@ -231,9 +234,7 @@ adminRouter.post('/payouts/generate', (_req: AuthenticatedRequest, res: Response
 // ─────────────────────────────────────────────────────────────────────────────
 adminRouter.post('/payouts/release-all', async (req: AuthenticatedRequest, res: Response) => {
     try {
-        const { data: actorProfile } = await supabase
-            .from('profiles').select('role').eq('id', req.user.id).single();
-        if (actorProfile?.role !== 'admin' && actorProfile?.role !== 'super_admin') {
+        if (!(await esAdminPlataforma(req.user.id))) {
             return res.status(403).json({ ok: false, error: 'forbidden' });
         }
 

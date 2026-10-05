@@ -40,6 +40,10 @@ import {
     isRetryablePacError,
     TRANSPORT_ERROR_PREFIX,
 } from './invoicing/types';
+import {
+    duenoDelCobro, filaDe, decidirClienteDeFactura, consumidorFinalHabilitado,
+    envioPorCorreoHabilitado, type FilaFactura,
+} from './factura-pagador.service';
 
 export interface EmitResult {
     ok: boolean;
@@ -370,7 +374,7 @@ export async function emitInvoiceForPayment(paymentId: string): Promise<EmitResu
 
     const { data: payment } = await supabase
         .from('payments')
-        .select('id, amount, gross_amount, payment_method, status, concept, school_id, parent_id, user_id')
+        .select('id, amount, gross_amount, payment_method, status, concept, school_id, parent_id, user_id, child_id, unregistered_athlete_id')
         .eq('id', paymentId)
         .maybeSingle();
     if (!payment) return { ok: false, error: 'payment_not_found' };
@@ -384,20 +388,38 @@ export async function emitInvoiceForPayment(paymentId: string): Promise<EmitResu
     // NULL para athlete_type='adult'; antes esto dejaba sus pagos sin
     // facturar en TODOS los canales, no solo efectivo).
     const payerId = payment.parent_id || payment.user_id;
-    if (!payerId) return { ok: false, error: 'payment_without_payer' };
 
     const ownerType: OwnerType = 'school';
     const ownerId: string = payment.school_id;
 
+    // Preferencia de factura del pagador (payer_billing_profiles, spec
+    // factura-electronica-preferencia-y-datos-del-pagador). Alcanza también al
+    // acudiente SIN cuenta, por el celular de la ficha: antes ese pago se
+    // descartaba siempre como 'payment_without_payer'. Sin fila (o sin la
+    // migración aplicada) todo sigue exactamente como antes.
+    const dueno = await duenoDelCobro(payment);
+    const fila: FilaFactura | null = dueno ? await filaDe(dueno) : null;
+    if (!payerId && fila?.preference !== 'quiere') return { ok: false, error: 'payment_without_payer' };
+
     // Los datos del cliente se revisan ANTES del facturador a propósito: con el
-    // facturador apagado (Dynasty hoy) todos los pagos reportarían
-    // 'no_invoice_provider' y se perdería el diagnóstico útil —quién no tiene
-    // pagador y quién no tiene documento—, que es justamente la lista de
-    // trabajo que hay que resolver antes de prenderlo.
-    const customer = await loadCustomer(payerId);
+    // facturador apagado todos los pagos reportarían 'no_invoice_provider' y se
+    // perdería el diagnóstico útil —quién no tiene pagador y quién no tiene
+    // documento—, que es justamente la lista de trabajo que hay que resolver
+    // antes de prenderlo. El facturador solo se consulta antes si hace falta
+    // para decidir (consumidor final es un flag SUYO).
+    const clientePerfil = payerId ? await loadCustomer(payerId) : null;
+    let decision = decidirClienteDeFactura({ fila, clientePerfil, consumidorFinal: false });
+    let cfgPrevio: Awaited<ReturnType<typeof resolveInvoiceProvider>> | undefined;
+    if (fila?.preference === 'no_quiere' || !decision.customer) {
+        cfgPrevio = await resolveInvoiceProvider(ownerType, ownerId);
+        if (consumidorFinalHabilitado(cfgPrevio)) {
+            decision = decidirClienteDeFactura({ fila, clientePerfil, consumidorFinal: true });
+        }
+    }
+    const customer = decision.customer;
     if (!customer) return { ok: false, error: 'customer_missing_fiscal_data' };
 
-    const cfg = await resolveInvoiceProvider(ownerType, ownerId);
+    const cfg = cfgPrevio !== undefined ? cfgPrevio : await resolveInvoiceProvider(ownerType, ownerId);
     if (!cfg) return { ok: false, error: 'no_invoice_provider' };
 
     const { isExcluded, taxRate } = taxDefaults(cfg);
@@ -445,6 +467,11 @@ export async function emitInvoiceForPayment(paymentId: string): Promise<EmitResu
         // Medio de pago real ('transfer' | 'cash' | 'pse' | 'card' | 'other' |
         // null); el adaptador lo traduce al código de la DIAN.
         paymentMethod: payment.payment_method,
+        // Que Factus le mande la factura por correo SOLO a quien la pidió y
+        // dejó correo, y solo si la escuela lo activó en su facturador
+        // (`enviar_factura_por_correo`). Apagado = como hoy (send_email false).
+        ...(decision.origen === 'preferencia' && customer.email && envioPorCorreoHabilitado(cfg)
+            ? { sendEmail: true } : {}),
     };
 
     return runEmission({ ownerType, ownerId, cfg, request, link: { payment_id: paymentId } });

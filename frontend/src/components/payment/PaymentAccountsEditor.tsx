@@ -127,6 +127,24 @@ export function PaymentAccountsEditor({ accounts, onChange, showSensitive, onRev
                                 >
                                     <Trash2 className="h-4 w-4" />
                                 </Button>
+
+                                {/* Llave solo para inscripciones (only_for). Caso Dynasty
+                                    2026-10-05: Nequi personal de la dueña donde se pagan
+                                    SOLO las inscripciones. Con esto el acudiente no la ve al
+                                    pagar la mensualidad, el bot no la ofrece y un comprobante
+                                    de mensualidad girado ahí queda en revisión. */}
+                                <label className="md:col-span-5 flex items-start gap-2 px-1 text-xs text-muted-foreground cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        className="mt-0.5 h-3.5 w-3.5 accent-primary"
+                                        checked={!!account.only_for?.includes('inscripcion')}
+                                        onChange={e => patch(account.id, { only_for: e.target.checked ? ['inscripcion'] : undefined })}
+                                    />
+                                    <span>
+                                        Solo para inscripciones: no se muestra para pagar mensualidades ni la ofrece el
+                                        asistente de WhatsApp.
+                                    </span>
+                                </label>
                             </div>
                         ))}
                     </div>

@@ -95,6 +95,12 @@ interface EntitlementsResponse {
      * gateado por `coach_can_create_athletes`. Default false.
      */
     coach_can_edit_categories?: boolean;
+    /** true → el coach puede SUBIR fotos de hojas de matrícula (las aprueba el
+     *  admin). `school_settings.coach_can_upload_enrollment_forms`, Dynasty. */
+    coach_can_upload_enrollment_forms?: boolean;
+    /** true → el coach podrá subir fotos de planillas de asistencia (F1 aún sin
+     *  construir). `school_settings.coach_can_upload_attendance_sheets`. */
+    coach_can_upload_attendance_sheets?: boolean;
     /**
      * true → esta escuela ofrece el descuento "Fuerza Militar 10%" al editar
      * un atleta (`school_settings.military_discount_enabled`, caso Besser).
@@ -211,6 +217,12 @@ export interface Entitlements {
      *  false: no cambia nada para el resto. */
     coachCanEditCategories: boolean;
 
+    /** El coach puede subir fotos de hojas de matrícula (`coach_can_upload_enrollment_forms`). Default false. */
+    coachCanUploadEnrollmentForms: boolean;
+
+    /** El coach podrá subir fotos de planillas de asistencia (`coach_can_upload_attendance_sheets`). Default false. */
+    coachCanUploadAttendanceSheets: boolean;
+
     /** Esta escuela ofrece el descuento "Fuerza Militar 10%" al editar un
      *  atleta (`military_discount_enabled`, caso Besser). Default false. */
     militaryDiscountEnabled: boolean;
@@ -295,6 +307,8 @@ const EMPTY_ENTITLEMENTS: Entitlements = {
     parentEmailOptional: false,
     coachHideFinancialInfo: false,
     coachCanEditCategories: false,
+    coachCanUploadEnrollmentForms: false,
+    coachCanUploadAttendanceSheets: false,
     militaryDiscountEnabled: false,
     allowSecondaryTeamEnrollment: false,
     coachAttendanceRetroDays: 7,
@@ -412,6 +426,8 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
             parentEmailOptional: data.parent_email_optional === true,
             coachHideFinancialInfo: data.coach_hide_financial_info === true,
             coachCanEditCategories: data.coach_can_edit_categories === true,
+            coachCanUploadEnrollmentForms: data.coach_can_upload_enrollment_forms === true,
+            coachCanUploadAttendanceSheets: data.coach_can_upload_attendance_sheets === true,
             militaryDiscountEnabled: data.military_discount_enabled === true,
             allowSecondaryTeamEnrollment: data.allow_secondary_team_enrollment === true,
             // Un BFF viejo no manda el campo: se queda en el default de siempre.

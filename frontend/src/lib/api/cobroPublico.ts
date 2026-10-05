@@ -5,6 +5,7 @@
  */
 
 import { bffClient } from '@/lib/api/bffClient';
+import type { DatosFactura, ResumenFacturaPublica } from '@/lib/facturaElectronica';
 
 export type EstadoCobro = 'pendiente' | 'vencido' | 'en_revision' | 'pagado' | 'abono' | 'anulado' | 'rechazado';
 
@@ -22,7 +23,19 @@ export interface VistaCobroPublico {
     transferencia: {
         cuentas: { tipo: string; titular: string | null; numero: string }[];
         whatsappComprobante: string | null;
+        /** Imagen del QR de pago que cargó la escuela (p.ej. Bre-B). */
+        qrEscuelaUrl?: string | null;
     };
+    /** Otros cobros por pagar del mismo pagador, cada uno con su enlace. */
+    otrosPendientes?: {
+        token: string;
+        concepto: string;
+        periodo: string | null;
+        deportista: string | null;
+        monto: number;
+        fechaVencimiento: string | null;
+        vencido: boolean;
+    }[];
 }
 
 export interface CheckoutCobroPublico {
@@ -79,3 +92,13 @@ export function abrirWidgetWompi(
         checkout.open((r) => resolve(r?.transaction ?? null));
     });
 }
+
+// ─── Factura electrónica del pagador de este cobro ──────────────────────────
+// Resumen SIEMPRE enmascarado; guardar va por el token (el cuerpo no puede
+// elegir a quién se le guardan los datos).
+
+export const obtenerFacturaPublica = (token: string) =>
+    bffClient.get<ResumenFacturaPublica>(`/api/v1/public/cobro/${enc(token)}/factura`, undefined, 'public');
+
+export const guardarFacturaPublica = (token: string, datos: DatosFactura) =>
+    bffClient.put<{ ok: true }>(`/api/v1/public/cobro/${enc(token)}/factura`, datos, undefined, 'public');
