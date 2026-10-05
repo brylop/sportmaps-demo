@@ -16,7 +16,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Truck, Plus, Loader2, AlertCircle, RefreshCw, Wallet, CalendarClock, DollarSign } from 'lucide-react';
+import { Truck, Plus, Loader2, AlertCircle, RefreshCw, Wallet, CalendarClock, DollarSign, Pencil, Ban } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
 import { z } from 'zod';
 import { validate, zRequiredText, zOptionalText, zEmailOptional, zPhoneOptional, zAmountPositive } from '@/lib/formValidation';
 
@@ -41,8 +42,13 @@ interface Supplier { id: string; name: string; nit: string | null; contact_name:
 interface Bill {
     id: string; supplier_id: string; invoice_no: string | null; amount: number; amount_paid: number;
     issue_date: string; due_date: string; status: string; category_id: string | null;
+    notes?: string | null; void_reason?: string | null;
     suppliers?: { name: string } | null;
 }
+
+const MIN_VOID_REASON = 10;
+/** Se edita o anula directo solo si no tiene pagos (la base lo vuelve a exigir). */
+const sinPagos = (b: Bill) => Number(b.amount_paid) === 0 && (b.status === 'open' || b.status === 'overdue');
 interface Category { id: string; name: string; }
 
 export default function AccountingSuppliersPage() {
@@ -54,6 +60,8 @@ export default function AccountingSuppliersPage() {
     const [supplierOpen, setSupplierOpen] = useState(false);
     const [billOpen, setBillOpen] = useState(false);
     const [payBill, setPayBill] = useState<Bill | null>(null);
+    const [editBill, setEditBill] = useState<Bill | null>(null);
+    const [voidBill, setVoidBill] = useState<Bill | null>(null);
 
     const owner = { owner_type: 'school', owner_id: schoolId };
     // Contador = solo lectura (la base le rechaza registrar y pagar).
@@ -77,11 +85,12 @@ export default function AccountingSuppliersPage() {
         enabled: !!schoolId,
         queryFn: async () => {
             const { data, error } = await supabase.from('supplier_bills')
-                .select('id, supplier_id, invoice_no, amount, amount_paid, issue_date, due_date, status, category_id, suppliers(name)')
+                .select('id, supplier_id, invoice_no, amount, amount_paid, issue_date, due_date, status, category_id, notes, void_reason, suppliers(name)')
                 .eq('owner_type', 'school').eq('owner_id', schoolId)
                 .order('due_date', { ascending: true });
             if (error) throw error;
-            return (data ?? []) as Bill[];
+            // void_reason nace en 20261005133939: types.ts se regenera al aplicarla.
+            return (data ?? []) as unknown as Bill[];
         },
     });
 
@@ -209,17 +218,34 @@ export default function AccountingSuppliersPage() {
                                             <TableCell className="text-right">{formatCurrency(Number(b.amount))}</TableCell>
                                             <TableCell className="text-right font-medium">{formatCurrency(saldo)}</TableCell>
                                             <TableCell>
-                                                {b.status === 'paid' ? <Badge className="bg-emerald-500 text-white">Pagada</Badge>
+                                                {b.status === 'void' ? <Badge variant="outline" title={b.void_reason ?? undefined}>Anulada</Badge>
+                                                    : b.status === 'paid' ? <Badge className="bg-emerald-500 text-white">Pagada</Badge>
                                                     : overdue ? <Badge variant="destructive">Vencida</Badge>
                                                     : b.status === 'partially_paid' ? <Badge className="bg-amber-500 text-white">Abonada</Badge>
                                                     : <Badge variant="secondary">Abierta</Badge>}
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                {canManage && b.status !== 'paid' && b.status !== 'void' && (
-                                                    <Button size="sm" variant="outline" onClick={() => setPayBill(b)}>
-                                                        <DollarSign className="mr-1 h-3.5 w-3.5" /> Pagar
-                                                    </Button>
-                                                )}
+                                                <div className="flex justify-end gap-1">
+                                                    {canManage && b.status !== 'paid' && b.status !== 'void' && (
+                                                        <Button size="sm" variant="outline" onClick={() => setPayBill(b)}>
+                                                            <DollarSign className="mr-1 h-3.5 w-3.5" /> Pagar
+                                                        </Button>
+                                                    )}
+                                                    {/* Con pagos no se edita ni se anula: primero se anulan los
+                                                        pagos desde Contabilidad (eso devuelve el saldo). */}
+                                                    {canManage && sinPagos(b) && (
+                                                        <>
+                                                            <Button size="sm" variant="ghost" title="Editar factura" onClick={() => setEditBill(b)}>
+                                                                <Pencil className="h-3.5 w-3.5" />
+                                                            </Button>
+                                                            <Button size="sm" variant="ghost" title="Anular factura"
+                                                                className="text-muted-foreground hover:text-destructive"
+                                                                onClick={() => setVoidBill(b)}>
+                                                                <Ban className="h-3.5 w-3.5" />
+                                                            </Button>
+                                                        </>
+                                                    )}
+                                                </div>
                                             </TableCell>
                                         </TableRow>
                                     );
@@ -277,6 +303,15 @@ export default function AccountingSuppliersPage() {
                 userId={user?.id} owner={owner} onSaved={invalidate}
             />
             <PayBillDialog bill={payBill} onOpenChange={(v) => !v && setPayBill(null)} onPaid={invalidate} />
+            {editBill && (
+                <EditBillDialog
+                    key={editBill.id}
+                    bill={editBill}
+                    suppliers={suppliersQuery.data ?? []} categories={categoriesQuery.data ?? []}
+                    onClose={() => setEditBill(null)} onSaved={invalidate}
+                />
+            )}
+            <VoidBillDialog bill={voidBill} onClose={() => setVoidBill(null)} onVoided={invalidate} />
         </div>
     );
 }
@@ -498,6 +533,134 @@ function PayBillDialog({ bill, onOpenChange, onPaid }: {
                     <Button variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.isPending}>Cancelar</Button>
                     <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
                         {mutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DollarSign className="mr-2 h-4 w-4" />} Pagar
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+// Editar una factura SIN pagos (update_supplier_bill). Con pagos, la base lo
+// rechaza (BILL_NOT_EDITABLE): primero se anulan los pagos.
+function EditBillDialog({ bill, suppliers, categories, onClose, onSaved }: {
+    bill: Bill; suppliers: Supplier[]; categories: Category[];
+    onClose: () => void; onSaved: () => void;
+}) {
+    const { toast } = useToast();
+    const [supplierId, setSupplierId] = useState(bill.supplier_id);
+    const [categoryId, setCategoryId] = useState(bill.category_id ?? '');
+    const [invoiceNo, setInvoiceNo] = useState(bill.invoice_no ?? '');
+    const [amount, setAmount] = useState(String(Number(bill.amount)));
+    const [issueDate, setIssueDate] = useState(bill.issue_date);
+    const [dueDate, setDueDate] = useState(bill.due_date);
+    const [notes, setNotes] = useState(bill.notes ?? '');
+    const [errors, setErrors] = useState<Record<string, string>>({});
+
+    const mutation = useMutation({
+        mutationFn: async () => {
+            const { error } = await (supabase as any).rpc('update_supplier_bill', {
+                p_bill_id: bill.id, p_supplier_id: supplierId, p_invoice_no: invoiceNo || null,
+                p_amount: Number(amount), p_issue_date: issueDate, p_due_date: dueDate,
+                p_category_id: categoryId || null, p_notes: notes || null,
+            });
+            if (error) throw error;
+        },
+        onError: (e: any) => toast({ title: 'No se pudo editar', description: e.message, variant: 'destructive' }),
+        onSuccess: () => { toast({ title: 'Factura actualizada' }); onClose(); onSaved(); },
+    });
+
+    const handleSubmit = () => {
+        const base = validate(billSchema, { supplier_id: supplierId, invoice_no: invoiceNo, amount });
+        const errs = base.errors ?? {};
+        if (dueDate < issueDate) errs.dueDate = 'El vencimiento no puede ser antes de la emisión';
+        if (Object.keys(errs).length) { setErrors(errs); return; }
+        setErrors({}); mutation.mutate();
+    };
+
+    return (
+        <Dialog open onOpenChange={(v) => !v && onClose()}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Editar factura</DialogTitle>
+                    <DialogDescription>Solo se puede editar mientras no tenga pagos registrados.</DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-2">
+                    <div className="grid gap-2">
+                        <Label>Proveedor <span className="text-destructive">*</span></Label>
+                        <Select value={supplierId} onValueChange={setSupplierId}>
+                            <SelectTrigger aria-invalid={!!errors.supplier_id}><SelectValue placeholder="Selecciona proveedor" /></SelectTrigger>
+                            <SelectContent>{suppliers.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                        <Err msg={errors.supplier_id} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2"><Label># Factura</Label><Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} /></div>
+                        <div className="grid gap-2"><Label>Monto (COP) <span className="text-destructive">*</span></Label><Input type="number" min="1" value={amount} onChange={(e) => setAmount(e.target.value)} aria-invalid={!!errors.amount} /><Err msg={errors.amount} /></div>
+                    </div>
+                    <div className="grid gap-2">
+                        <Label>Categoría (opcional)</Label>
+                        <Select value={categoryId} onValueChange={setCategoryId}>
+                            <SelectTrigger><SelectValue placeholder="Sin categoría" /></SelectTrigger>
+                            <SelectContent>{categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2"><Label>Emisión</Label><Input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} /></div>
+                        <div className="grid gap-2"><Label>Vence</Label><Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} aria-invalid={!!errors.dueDate} /><Err msg={errors.dueDate} /></div>
+                    </div>
+                    <div className="grid gap-2"><Label>Notas</Label><Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>Cancelar</Button>
+                    <Button onClick={handleSubmit} disabled={mutation.isPending}>
+                        {mutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Pencil className="mr-2 h-4 w-4" />} Guardar cambios
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+// Anular una factura SIN pagos (void_supplier_bill), con motivo ≥ 10 caracteres.
+function VoidBillDialog({ bill, onClose, onVoided }: {
+    bill: Bill | null; onClose: () => void; onVoided: () => void;
+}) {
+    const { toast } = useToast();
+    const [reason, setReason] = useState('');
+    const mutation = useMutation({
+        mutationFn: async () => {
+            if (!bill) return;
+            const { error } = await (supabase as any).rpc('void_supplier_bill', {
+                p_bill_id: bill.id, p_reason: reason.trim(),
+            });
+            if (error) throw error;
+        },
+        onError: (e: any) => toast({ title: 'No se pudo anular', description: e.message, variant: 'destructive' }),
+        onSuccess: () => { toast({ title: 'Factura anulada' }); setReason(''); onClose(); onVoided(); },
+    });
+    const ok = reason.trim().length >= MIN_VOID_REASON;
+    return (
+        <Dialog open={!!bill} onOpenChange={(v) => { if (!v) { setReason(''); onClose(); } }}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Anular factura</DialogTitle>
+                    <DialogDescription>
+                        {bill?.suppliers?.name} · {bill?.invoice_no || 'sin número'} · {bill ? formatCurrency(Number(bill.amount)) : ''}.
+                        La factura no se borra: queda como anulada, con su motivo.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-2 py-2">
+                    <Label htmlFor="bill-void-reason">Motivo <span className="text-destructive">*</span></Label>
+                    <Textarea id="bill-void-reason" rows={3} value={reason} onChange={(e) => setReason(e.target.value)}
+                        placeholder="Ej. El proveedor anuló la factura y emitió otra" />
+                    <p className={`text-xs ${ok ? 'text-muted-foreground' : 'text-destructive'}`}>
+                        Mínimo {MIN_VOID_REASON} caracteres ({reason.trim().length}/{MIN_VOID_REASON}).
+                    </p>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>Cancelar</Button>
+                    <Button variant="destructive" onClick={() => mutation.mutate()} disabled={mutation.isPending || !ok}>
+                        {mutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Ban className="mr-2 h-4 w-4" />} Anular factura
                     </Button>
                 </DialogFooter>
             </DialogContent>

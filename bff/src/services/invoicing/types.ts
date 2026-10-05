@@ -201,6 +201,14 @@ export interface ProviderConfig {
 
 export interface InvoicingAdapter {
     readonly provider: string;
+    /**
+     * ¿El PAC acepta un adquiriente SIN correo? Solo `true` si está
+     * VERIFICADO contra el PAC. Ausente = no sabemos = se exige el correo
+     * (ver `resolveCustomerEmail`). Factus V1/V2 no lo declaran: las 242
+     * facturas aceptadas de Dynasty salieron todas con correo, así que no hay
+     * evidencia de que sin él valide.
+     */
+    readonly allowsCustomerWithoutEmail?: boolean;
     emit(req: InvoiceRequest, cfg: ProviderConfig): Promise<InvoiceResult>;
     /**
      * Consulta el estado real del documento en el PAC a partir del
@@ -373,6 +381,84 @@ export function resolveCustomerMunicipality(
     return { code: fallback, reject: null, usedOwnerFallback: fallback != null };
 }
 
+// ─── Correo del adquiriente ───────────────────────────────────────────────────
+
+/** Mismo patrón que el CHECK de payer_billing_profiles.invoice_email. */
+const CUSTOMER_EMAIL_RE = /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i;
+
+/** Identificación del adquiriente genérico de la DIAN («consumidor final»). */
+export const CONSUMIDOR_FINAL_ID = '222222222222';
+
+/** Correo normalizado (trim + minúsculas) o null si falta o no es un correo. */
+export function normalizeCustomerEmail(raw: string | null | undefined): string | null {
+    const v = String(raw ?? '').trim().toLowerCase();
+    if (!v || v.length > 254) return null;
+    return CUSTOMER_EMAIL_RE.test(v) ? v : null;
+}
+
+export type CustomerEmailPolicy = 'require' | 'optional';
+
+/**
+ * Política del correo del adquiriente, en `config.customer_email_policy`:
+ *
+ *   'require' — sin correo válido NO se emite: la emisión corta ANTES de crear
+ *       la fila y antes del PAC con 'customer_missing_email', que es un motivo
+ *       de SALTO (SKIP_ERRORS) y el pago aparece en «Datos fiscales faltantes».
+ *   'optional' — se emite sin correo (el campo viaja vacío) y queda el aviso
+ *       'cliente_sin_correo' en el resultado.
+ *
+ * Default: 'optional' SOLO si el adaptador declara
+ * `allowsCustomerWithoutEmail` (verificado contra el PAC); si no, 'require'.
+ * La escuela (o el equipo) puede fijar 'optional' en la config cuando su PAC
+ * lo acepta y lo confirmó: esa es la vía de «no bloquear cuando el PAC lo
+ * permite» sin que lo decida una suposición nuestra.
+ */
+export function customerEmailPolicy(
+    cfg: ProviderConfig,
+    adapter?: Pick<InvoicingAdapter, 'allowsCustomerWithoutEmail'> | null,
+): CustomerEmailPolicy {
+    const raw = String(cfg.config?.customer_email_policy ?? '').trim().toLowerCase();
+    if (raw === 'require' || raw === 'optional') return raw;
+    return adapter?.allowsCustomerWithoutEmail === true ? 'optional' : 'require';
+}
+
+export interface EmailResolution {
+    /** Correo a enviar (normalizado) o null = el campo viaja vacío. */
+    email: string | null;
+    /** Motivo de rechazo. Si viene, NO se emite. */
+    reject: string | null;
+    /** Aviso para el resultado cuando se emite sin correo. */
+    warning: string | null;
+}
+
+/**
+ * Regla del correo del adquiriente (se aplica en runEmission, igual que el
+ * municipio, antes de crear la fila):
+ *
+ *   1. Correo válido → se usa normalizado.
+ *   2. Consumidor final (222222222222) → sin correo y sin aviso: es el
+ *      adquiriente genérico, por definición no tiene buzón.
+ *   3. Falta o es inválido ('juan@', 'n/a', 'sin correo'):
+ *        policy 'require'  → rechazo 'customer_missing_email' (no sale).
+ *        policy 'optional' → sale sin correo + aviso 'cliente_sin_correo'.
+ *      Un correo inválido NUNCA viaja al PAC: o se manda vacío o no se emite.
+ */
+export function resolveCustomerEmail(
+    customer: InvoiceCustomer,
+    cfg: ProviderConfig,
+    adapter?: Pick<InvoicingAdapter, 'allowsCustomerWithoutEmail'> | null,
+): EmailResolution {
+    const email = normalizeCustomerEmail(customer.email);
+    if (email) return { email, reject: null, warning: null };
+    if (String(customer.identification ?? '').trim() === CONSUMIDOR_FINAL_ID) {
+        return { email: null, reject: null, warning: null };
+    }
+    if (customerEmailPolicy(cfg, adapter) === 'require') {
+        return { email: null, reject: 'customer_missing_email', warning: null };
+    }
+    return { email: null, reject: null, warning: 'cliente_sin_correo' };
+}
+
 // ─── Medios de pago (códigos DIAN vía Factus) ─────────────────────────────────
 
 /**
@@ -400,27 +486,40 @@ export const PAYMENT_METHOD_UNDEFINED = '1';
 /**
  * Medio de pago de SportMaps → código de la tabla oficial.
  *
- * Solo entran los que se pueden AFIRMAR leyendo la tabla:
- *   cash     → 10  Efectivo
- *   transfer → 47  Transferencia
- *   check    → 20  Cheque          (no lo usa la base hoy, queda listo)
- *   deposit  → 42  Consignación    (idem)
+ * TABLA DE MAPEO (fuente de verdad; el manual la copia):
  *
- * Los que NO se pueden confirmar quedan deliberadamente FUERA y caen en
- * '1' = «Medio de pago no definido», que también es un código oficial:
+ *   SportMaps (`payments.payment_method`)          Código  Nombre DIAN
+ *   ─────────────────────────────────────────────  ──────  ─────────────────────
+ *   cash                                           10      Efectivo
+ *   transfer                                       47      Transferencia
+ *   check / cheque                                 20      Cheque
+ *   deposit / consignacion                         42      Consignación
+ *   card_credit / credit_card                      48      Tarjeta Crédito
+ *   card_debit / debit_card                        49      Tarjeta Débito
+ *   card (sin saber si es crédito o débito)        48      Tarjeta Crédito (*)
+ *   pse, other, NULL, cualquier otro               1       Medio de pago no definido
+ *
+ * (*) `payments` guarda solo 'card'. El servicio intenta precisarlo ANTES de
+ * llegar acá (`refinarMedioDeTarjeta` en invoicing.service: lee
+ * `payment_method.extra.card_type` del webhook de Wompi en `webhook_events`,
+ * o `payment_type_id` de MercadoPago) y manda 'card_credit' / 'card_debit'.
+ * Cuando no hay dato (pago manual con datáfono, webhook no guardado: hoy 63
+ * de 87 pagos con tarjeta por Wompi), se usa 48 porque es el caso dominante
+ * medido (34 crédito vs 1 débito en los webhooks de Wompi) y porque «1 no
+ * definido» decía menos de lo que sí sabemos: que fue con TARJETA. Quien
+ * quiera otro default lo fija con `config.payment_method_codes.card`.
+ *
  *   - 'pse': PSE no figura en la tabla. Es un débito a cuenta bancaria y
  *     parecería un 47, pero eso es una inferencia nuestra, no la fuente.
- *   - 'card': la tabla separa Tarjeta Crédito (48) de Tarjeta Débito (49) y
- *     `payments` guarda solo 'card' — no hay dónde distinguirlas (se revisó
- *     payment_method, payment_channel y payment_provider).
  *   - 'other' y NULL: por definición no se sabe.
  *
  * Antes TODO iba con '10' = efectivo clavado, que no es un genérico: es una
- * afirmación falsa sobre plata que entró por el banco. '1' no afirma nada.
+ * afirmación falsa sobre plata que entró por el banco.
  *
  * Quien SÍ sepa (el contador de la escuela) lo fija sin deploy con
- * `config.payment_method_codes`, p. ej. { "pse": "47", "card": "48" }. Se
- * valida contra el catálogo para no mandarle al PAC un código inventado.
+ * `config.payment_method_codes`, p. ej. { "pse": "47", "card": "49" }. Se
+ * valida contra el catálogo para no mandarle al PAC un código inventado. El
+ * override de 'card' NO pisa un 'card_credit'/'card_debit' ya precisado.
  */
 const CONFIRMED_PAYMENT_METHOD_CODES: Record<string, string> = {
     cash: '10',
@@ -429,7 +528,34 @@ const CONFIRMED_PAYMENT_METHOD_CODES: Record<string, string> = {
     cheque: '20',
     deposit: '42',
     consignacion: '42',
+    card_credit: '48',
+    credit_card: '48',
+    card_debit: '49',
+    debit_card: '49',
+    card: '48',
 };
+
+/**
+ * Tipo de tarjeta desde el payload que guardó la pasarela, o null si no lo
+ * dice. Wompi: `data.transaction.payment_method.extra.card_type` =
+ * 'CREDIT' | 'DEBIT' (solo cuando payment_method_type = 'CARD').
+ * MercadoPago: `payment_type_id` = 'credit_card' | 'debit_card' (suelto o
+ * dentro de `data`).
+ */
+export function cardTypeFromGatewayPayload(payload: unknown): 'credit' | 'debit' | null {
+    if (!payload || typeof payload !== 'object') return null;
+    const p = payload as Record<string, any>;
+    const wompi = p?.data?.transaction?.payment_method?.extra?.card_type
+        ?? p?.transaction?.payment_method?.extra?.card_type;
+    const mp = p?.payment_type_id ?? p?.data?.payment_type_id;
+    const raw = String(wompi ?? mp ?? '').trim().toLowerCase();
+    if (raw === 'credit' || raw === 'credit_card' || raw === 'prepaid_card') {
+        // Prepagada: la DIAN no tiene código propio; en la red es crédito.
+        return 'credit';
+    }
+    if (raw === 'debit' || raw === 'debit_card') return 'debit';
+    return null;
+}
 
 export function resolvePaymentMethodCode(
     method: string | null | undefined,

@@ -62,6 +62,7 @@ import { daysDiffFromToday } from '@/lib/dateUtils';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { useNavigate } from 'react-router-dom';
 import { comprimirParaSubir } from '@/lib/imageCompression';
+import { fichaVaAlAcudiente, invitacionParaAtleta } from '@/lib/invitations/contactoFicha';
 
 const studentSchema = z.object({
   full_name:        z.string().min(2, 'Nombre completo es requerido').max(100),
@@ -611,8 +612,15 @@ export default function SchoolStudentsManagementPage() {
         data = await studentsAPI.getSchoolView(schoolId, { branchId: activeBranchId, includeInactive: true });
       }
 
-      // school_athletes no trae guardian_full_name de unregistered_athletes —
+      // school_athletes no trae los datos del acudiente de unregistered_athletes —
       // se completa acá con un solo query bulk (no se toca la vista).
+      //
+      // En la vista, parent_email/parent_phone de una ficha son los del ATLETA
+      // (unregistered_athletes.email/phone). Se conservan aparte en
+      // athlete_email/athlete_phone y, si la ficha es de un MENOR, la columna
+      // "acudiente" pasa a ser el acudiente de verdad (guardian_*), sin caer al
+      // contacto del niño. De esto depende a quién se invita (H-03/H-04 del
+      // informe Monster) y a dónde se le escribe a la familia (H-06).
       const unregisteredIds = (data as any[])
         .filter(s => s.athlete_type === 'unregistered')
         .map(s => s.id);
@@ -623,13 +631,22 @@ export default function SchoolStudentsManagementPage() {
           .in('id', unregisteredIds);
         const guardianMap = Object.fromEntries((guardians || []).map((g: any) => [g.id, g]));
         data = (data as any[]).map(s => {
-          const g = guardianMap[s.id];
-          if (s.athlete_type !== 'unregistered' || !g) return s;
-          return {
+          if (s.athlete_type !== 'unregistered') return s;
+          const g = guardianMap[s.id] || {};
+          const conAcudiente = {
             ...s,
+            athlete_email: s.parent_email ?? null,
+            athlete_phone: s.parent_phone ?? null,
+            guardian_full_name: g.guardian_full_name ?? null,
+            guardian_email: g.guardian_email ?? null,
+            guardian_phone: g.guardian_phone ?? null,
+          };
+          if (!fichaVaAlAcudiente(conAcudiente)) return conAcudiente;
+          return {
+            ...conAcudiente,
             parent_name: g.guardian_full_name || s.parent_name,
-            parent_phone: g.guardian_phone || s.parent_phone,
-            parent_email: g.guardian_email || s.parent_email,
+            parent_phone: g.guardian_phone || '',
+            parent_email: g.guardian_email || '',
           };
         });
       }
@@ -861,15 +878,27 @@ export default function SchoolStudentsManagementPage() {
       const inviteIds: string[] = [];
 
       // 1. Crear/refrescar las invitaciones (sin mandar correo todavía)
+      //
+      // FIX 2026-10-05 (informe Monster H-03/H-04): de una ficha sin cuenta se
+      // manda SIEMPRE su id (p_unregistered_athlete_id): al aceptar, la ficha se
+      // adopta —misma inscripción, mismos cobros— en vez de nacer un hijo nuevo
+      // que se cobra aparte. Ficha de MENOR → se invita a su acudiente (rol
+      // parent, guardian_email); ficha de ADULTO → al propio atleta (rol
+      // athlete). Quien ya tiene cuenta no se reinvita. Los argumentos van
+      // todos con nombre e incluyen el id: con los 7 de antes la llamada era
+      // ambigua (42725) contra la sobrecarga vieja y la masiva fallaba entera.
       for (const student of selectedStudents) {
-        if (!student.parent_email) { results.skipped++; continue; }
+        const inv = invitacionParaAtleta({ ...(student as any), athlete_type: getAthleteType(student) });
+        if (!inv || !inv.email) { results.skipped++; continue; }
         try {
           const { data: inviteId, error } = await (supabase.rpc as any)('create_invitation', {
-            p_email: student.parent_email, p_role: 'parent', p_child_name: student.full_name,
-            p_team_id: student.team_id || null,
+            p_email: inv.email, p_role: inv.role, p_child_name: inv.childName,
+            p_team_id: (student as any).enrolled_team_id || student.team_id || null,
             p_monthly_fee: student.price_monthly || Number(defaultMonthlyFee) || 0,
-            p_parent_phone: student.parent_phone || null,
-            p_branch_id: student.branch_id || activeBranchId || null
+            p_parent_phone: inv.phone,
+            p_branch_id: student.branch_id || activeBranchId || null,
+            p_offering_plan_id: (student as any).offering_plan_id || null,
+            p_unregistered_athlete_id: inv.unregisteredId,
           });
           if (error) throw error;
           if (inviteId) inviteIds.push(inviteId as string);
@@ -978,23 +1007,38 @@ export default function SchoolStudentsManagementPage() {
 
 
   // ── Helper: construye los params de navegación a /invitations ─────────────
-  // PATCH: para atletas unregistered se agrega role=athlete y unregisteredId
+  // FIX 2026-10-05 (informe Monster H-04): antes TODA ficha sin cuenta iba con
+  // role=athlete, aunque fuera de una niña de 9 años, y al aceptarla el perfil
+  // de la mamá quedaba "atleta" y las hermanas se fundían en un solo cobro.
+  // Ahora: ficha de MENOR → se invita al acudiente (role=parent + id de la
+  // ficha, que se adopta como su hijo); ficha de ADULTO → role=athlete + id.
+  // El equipo va en `program`, que es lo que lee InvitationsManagementPage
+  // (`team` nunca llegaba precargado).
   const buildInviteParams = (student: any) => {
     const athleteType = getAthleteType(student);
+    const inv = invitacionParaAtleta({ ...student, athlete_type: athleteType });
     const params = new URLSearchParams({
-      email:      student.parent_email    || '',
+      email:      inv?.email ?? (student.parent_email || ''),
       child:      student.full_name       || '',
-      team:       student.team_id         || '',
-      phone:      student.parent_phone    || '',
+      program:    student.enrolled_team_id || student.team_id || '',
+      phone:      inv?.phone ?? (student.parent_phone || ''),
       branch:     student.branch_id       || '',
       planId:     student.offering_plan_id || '',
     });
     if (athleteType === 'unregistered') {
-      params.set('role', 'athlete');
+      params.set('role', inv?.role ?? (fichaVaAlAcudiente(student) ? 'parent' : 'athlete'));
       params.set('unregisteredId', student.id);
+    } else {
+      params.set('role', 'parent');
     }
     return params.toString();
   };
+
+  /** Rótulo del botón de invitar: a quién le llega de verdad la invitación. */
+  const inviteLabel = (student: any) =>
+    getAthleteType(student) === 'unregistered' && !fichaVaAlAcudiente(student)
+      ? 'Invitar Atleta'
+      : 'Invitar Acudiente';
 
   // Estado de Cuenta: misma identidad desarmada que el resto de las RPCs de
   // pagos (child_id / user_id / unregistered_athlete_id).
@@ -1222,7 +1266,7 @@ export default function SchoolStudentsManagementPage() {
         )}
         {/* PATCH: label y params según tipo de atleta */}
         <DropdownMenuItem onClick={() => navigate(`/invitations?${buildInviteParams(student)}`)}>
-          {getAthleteType(student) === 'unregistered' ? 'Invitar Atleta' : 'Invitar Acudiente'}
+          {inviteLabel(student)}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => navigate(`/estado-cuenta?${buildAccountStatementParams(student)}`)}>
           Ver estado de cuenta
@@ -1595,7 +1639,7 @@ export default function SchoolStudentsManagementPage() {
                               onClick={() => navigate(`/invitations?${buildInviteParams(student)}`)}
                             >
                               <Send className="w-3 h-3 mr-1" />
-                              {getAthleteType(student) === 'unregistered' ? 'Invitar' : 'Invitar'}
+                              Invitar
                             </Button>
                           </div>
                         </TableCell>

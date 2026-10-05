@@ -37,6 +37,8 @@ import {
     creditNoteNumberingRangeId,
     normalizeDaneMunicipality,
     resolveCustomerMunicipality,
+    resolveCustomerEmail,
+    cardTypeFromGatewayPayload,
     isRetryablePacError,
     TRANSPORT_ERROR_PREFIX,
 } from './invoicing/types';
@@ -254,9 +256,22 @@ async function runEmission(params: {
             `Para cortar la emisión en estos casos, config.customer_municipality_policy='require'.`,
         );
     }
+    // ── Correo del adquiriente ────────────────────────────────────────────────
+    // Misma lógica que el municipio y por la misma razón va ANTES de la fila:
+    // sin correo válido y con política 'require' (el default mientras el PAC
+    // no declare que acepta sin correo) el pago vuelve como
+    // 'customer_missing_email' —un SALTO, no un fallo— y queda en «Datos
+    // fiscales faltantes». Un correo inválido nunca viaja al PAC. Regla
+    // completa en resolveCustomerEmail (invoicing/types.ts).
+    const correo = resolveCustomerEmail(request.customer, cfg, adapter);
+    if (correo.reject) return { ok: false, error: correo.reject };
+    if (correo.warning) warnings.push(correo.warning);
+
     const requestConMunicipio: InvoiceRequest = {
         ...request,
-        customer: { ...request.customer, municipalityCode: muni.code },
+        customer: { ...request.customer, municipalityCode: muni.code, email: correo.email },
+        // Sin correo no hay a quién mandarle la factura: no se le pide al PAC.
+        ...(correo.email ? {} : { sendEmail: false }),
     };
 
     const { data: draft, error: draftErr } = await supabase
@@ -349,6 +364,51 @@ async function runEmission(params: {
 }
 
 // ─── Origen 1: pagos de escuela (tabla payments) ───────────────────────────────
+
+/**
+ * 'card' → 'card_credit' | 'card_debit' cuando la pasarela guardó el tipo de
+ * tarjeta; si no, devuelve el medio tal cual. `payments` solo guarda 'card',
+ * pero el webhook de Wompi trae `payment_method.extra.card_type` y queda en
+ * `webhook_events.payload` (hoy 24 de 87 pagos con tarjeta lo tienen). Se
+ * cruza por la referencia de la pasarela o por el id de la transacción.
+ * Nunca rompe la emisión: ante cualquier error devuelve 'card' (→ 48).
+ */
+export async function refinarMedioDeTarjeta(
+    paymentId: string,
+    method: string | null | undefined,
+): Promise<string | null | undefined> {
+    if (String(method ?? '').trim().toLowerCase() !== 'card') return method;
+    try {
+        const { data: p } = await supabase
+            .from('payments')
+            .select('wompi_reference, provider_reference, wompi_transaction_id, provider_transaction_id')
+            .eq('id', paymentId)
+            .maybeSingle();
+        const refs = [p?.wompi_reference, p?.provider_reference].filter((v): v is string => !!v);
+        const txIds = [p?.wompi_transaction_id, p?.provider_transaction_id].filter((v): v is string => !!v);
+        if (!refs.length && !txIds.length) return method;
+
+        // Comillas dobles: una referencia con coma o paréntesis no rompe el or().
+        const q = (v: string) => `"${v.replace(/"/g, '')}"`;
+        const filtros = [
+            ...refs.map((r) => `reference.eq.${q(r)}`),
+            ...txIds.map((t) => `payload->data->transaction->>id.eq.${q(t)}`),
+        ].join(',');
+        const { data: eventos } = await supabase
+            .from('webhook_events')
+            .select('payload, created_at')
+            .or(filtros)
+            .order('created_at', { ascending: false })
+            .limit(10);
+        for (const ev of eventos ?? []) {
+            const tipo = cardTypeFromGatewayPayload((ev as any).payload);
+            if (tipo) return tipo === 'credit' ? 'card_credit' : 'card_debit';
+        }
+    } catch {
+        /* sin dato: queda 'card' */
+    }
+    return method;
+}
 
 export async function emitInvoiceForPayment(paymentId: string): Promise<EmitResult> {
     // Un pago puede tener VARIAS filas desde que se pueden anular facturas
@@ -465,8 +525,10 @@ export async function emitInvoiceForPayment(paymentId: string): Promise<EmitResu
         }],
         observation: `Pago SportMaps: ${payment.concept ?? ''}`.trim(),
         // Medio de pago real ('transfer' | 'cash' | 'pse' | 'card' | 'other' |
-        // null); el adaptador lo traduce al código de la DIAN.
-        paymentMethod: payment.payment_method,
+        // null); el adaptador lo traduce al código de la DIAN. 'card' se
+        // precisa a crédito/débito cuando la pasarela lo dijo (ver la tabla
+        // de mapeo en resolvePaymentMethodCode).
+        paymentMethod: await refinarMedioDeTarjeta(paymentId, payment.payment_method),
         // Que Factus le mande la factura por correo SOLO a quien la pidió y
         // dejó correo, y solo si la escuela lo activó en su facturador
         // (`enviar_factura_por_correo`). Apagado = como hoy (send_email false).
@@ -1164,6 +1226,7 @@ const AUTO_EMPTY = { scanned: 0, emitted: 0, failed: 0, skipped: 0 };
  */
 const SKIP_ERRORS = new Set([
     'customer_missing_fiscal_data',
+    'customer_missing_email',
     'customer_missing_municipality',
     'no_invoice_provider',
     'cannot_resolve_owner',

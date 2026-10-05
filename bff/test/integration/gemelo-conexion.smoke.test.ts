@@ -24,6 +24,8 @@ describe('gemelo local', () => {
         const meta = await db.query('select count(*)::int n from qa_twin.meta');
         expect(meta.rows[0].n).toBeGreaterThan(0);
         const actores = await db.query('select count(*)::int n from qa_twin.actores');
-        expect(actores.rows[0].n).toBe(10);
+        // 10 de la semilla base; las semillas adicionales (p. ej. qa_twin_monster_seed.sql)
+        // suman actores propios, así que se exige la base, no el total exacto.
+        expect(actores.rows[0].n).toBeGreaterThanOrEqual(10);
     });
 });

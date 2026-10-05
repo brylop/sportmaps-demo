@@ -214,6 +214,31 @@ export async function emitPlanCharge(
     });
 }
 
+/**
+ * Qué hacer con los cobros al guardar el PLAN de una inscripción desde el editor
+ * de atletas (PUT /students/:id).
+ *
+ *   - 'cambio': el plan es otro que el que había —incluido pasar de NINGUNO a
+ *     uno, el caso de las 125 inscripciones solo-de-equipo de Monster—. Se anulan
+ *     los pendientes del plan anterior (si había) y se emite la mensualidad del
+ *     plan nuevo.
+ *   - 'sin_cobro': mismo plan con cuota 0 → se anulan los pendientes.
+ *   - 'mismo_plan': mismo plan → solo se actualiza el monto de los pendientes.
+ *
+ * Antes la condición era `oldPlanId && oldPlanId !== nuevo`: con oldPlanId NULL
+ * (inscripción de solo equipo) caía en 'mismo_plan' y el plan quedaba asignado
+ * SIN cobro (H-08 de docs/qa/monster-prelanzamiento-2026-10-05.md).
+ */
+export function accionCobroDePlan(
+    oldPlanId: string | null,
+    newPlanId: string | null,
+    planFee: number | null,
+): 'cambio' | 'sin_cobro' | 'mismo_plan' {
+    if ((oldPlanId || null) !== (newPlanId || null)) return 'cambio';
+    if (planFee !== null && planFee <= 0) return 'sin_cobro';
+    return 'mismo_plan';
+}
+
 /** Anula los cobros pendientes de un plan concreto (cambio o baja de plan). */
 export async function cancelPendingPlanPayments(opts: {
     schoolId: string;

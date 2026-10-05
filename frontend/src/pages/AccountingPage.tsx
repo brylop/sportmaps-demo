@@ -28,6 +28,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
     BookOpen, TrendingUp, TrendingDown, Scale, Plus, Loader2, AlertCircle, RefreshCw, Paperclip, Lock,
+    Download, Ban,
 } from 'lucide-react';
 import { InvoicingTab } from '@/components/accounting/InvoicingTab';
 import { StatFilterBar } from '@/components/common/StatFilterBar';
@@ -35,6 +36,7 @@ import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { z } from 'zod';
 import { validate, zRequiredText, zAmountPositive } from '@/lib/formValidation';
 import { comprimirParaSubir } from '@/lib/imageCompression';
+import { downloadCsv, ledgerCsvRows, INCOME_CATEGORY_LABEL, type LedgerExportLine } from '@/lib/accounting/csv';
 
 const expenseSchema = z.object({
     category_id: zRequiredText('La categoría'),
@@ -54,6 +56,7 @@ interface LedgerRow {
     movement_date: string | null;
     source: string;
     status: string;
+    payment_category?: string | null;
 }
 
 interface LedgerTotalsRow {
@@ -71,6 +74,9 @@ interface LedgerCursor {
 }
 
 const LEDGER_PAGE_SIZE = 50;
+/** Export: finance_ledger_page devuelve hasta 200 filas por llamada. */
+const EXPORT_PAGE_SIZE = 200;
+const MIN_VOID_REASON = 10;
 
 interface Category {
     id: string;
@@ -196,6 +202,139 @@ export default function AccountingPage() {
 
     const rows = useMemo(() => (ledgerQuery.data?.pages ?? []).flat(), [ledgerQuery.data]);
     const filteredRows = rows;
+
+    // El clip solo aparece si el gasto TIENE comprobante: una consulta por las
+    // filas cargadas, no una por clic (antes salía en todos los gastos y la
+    // mayoría respondía "Sin comprobante").
+    const expenseIds = useMemo(
+        () => rows.filter((r) => r.direction === 'expense').map((r) => r.id).sort(),
+        [rows],
+    );
+    const attachmentsQuery = useQuery({
+        queryKey: ['expense-attachments-exist', schoolId, expenseIds],
+        enabled: !!schoolId && expenseIds.length > 0,
+        queryFn: async () => {
+            const withFile = new Set<string>();
+            for (let i = 0; i < expenseIds.length; i += 100) {
+                const { data, error } = await supabase
+                    .from('expense_attachments')
+                    .select('expense_id')
+                    .in('expense_id', expenseIds.slice(i, i + 100));
+                if (error) throw error;
+                (data ?? []).forEach((a: { expense_id: string }) => withFile.add(a.expense_id));
+            }
+            return withFile;
+        },
+    });
+    const hasReceipt = (id: string) => attachmentsQuery.data?.has(id) ?? false;
+
+    // ─── Anular gasto (void_expense: motivo ≥ 10, permiso 'void') ───────────
+    // Lo decide la base; el contador no ve el botón (canManage) y si lo forzara,
+    // la RPC le responde 42501.
+    const [voidTarget, setVoidTarget] = useState<LedgerRow | null>(null);
+    const [voidReason, setVoidReason] = useState('');
+    const voidMutation = useMutation({
+        mutationFn: async () => {
+            if (!voidTarget) return;
+            const { error } = await (supabase as any).rpc('void_expense', {
+                p_expense_id: voidTarget.id,
+                p_reason: voidReason.trim(),
+            });
+            if (error) throw error;
+        },
+        onError: (e: any) => toast({ title: 'No se pudo anular', description: e.message, variant: 'destructive' }),
+        onSuccess: () => {
+            toast({ title: 'Gasto anulado', description: 'Salió del libro de caja y quedó registrado con su motivo.' });
+            setVoidTarget(null);
+            setVoidReason('');
+            queryClient.invalidateQueries({ queryKey: ['cash-ledger', schoolId] });
+            queryClient.invalidateQueries({ queryKey: ['supplier-bills', schoolId] });
+        },
+    });
+
+    // ─── Exportar el libro del mes, línea por línea ─────────────────────────
+    // Mismo filtro que la pantalla (mes, sede, sin fecha si se incluyen), todas
+    // las páginas de finance_ledger_page. Tercero/método/referencia no están en
+    // cash_ledger: se completan desde la fila de origen con la misma RLS de
+    // lectura financiera (si algo no se puede leer, la celda queda vacía).
+    const [exporting, setExporting] = useState(false);
+    const exportLedger = async () => {
+        if (!schoolId) return;
+        setExporting(true);
+        try {
+            const all: LedgerRow[] = [];
+            let cursor: LedgerCursor | null = null;
+            for (;;) {
+                const { data, error } = await (supabase as any).rpc('finance_ledger_page', {
+                    p_owner_type: 'school',
+                    p_owner_id: schoolId,
+                    p_from: range.from,
+                    p_to: range.to,
+                    p_branch_id: activeBranchId || null,
+                    p_direction: null,
+                    p_cursor_date: cursor?.date ?? null,
+                    p_cursor_id: cursor?.id ?? null,
+                    p_limit: EXPORT_PAGE_SIZE,
+                    p_include_undated: includeUndated,
+                });
+                if (error) throw error;
+                const page = (data ?? []) as LedgerRow[];
+                all.push(...page);
+                if (page.length < EXPORT_PAGE_SIZE) break;
+                cursor = { date: page[page.length - 1].movement_date, id: page[page.length - 1].id };
+            }
+
+            const extra = new Map<string, { tercero: string | null; method: string | null; reference: string | null }>();
+            const expIds = all.filter((r) => r.source === 'expense').map((r) => r.id);
+            const payIds = all.filter((r) => r.source === 'payment').map((r) => r.id);
+            for (let i = 0; i < expIds.length; i += 100) {
+                const { data, error } = await (supabase as any).from('expenses')
+                    .select('id, payment_method, reference, suppliers(name)')
+                    .in('id', expIds.slice(i, i + 100));
+                if (error) throw error;
+                for (const e of data ?? []) {
+                    extra.set(e.id, { tercero: e.suppliers?.name ?? null, method: e.payment_method, reference: e.reference });
+                }
+            }
+            for (let i = 0; i < payIds.length; i += 100) {
+                const { data, error } = await (supabase as any).from('payments')
+                    .select('id, payment_method, reference, children(full_name), unregistered_athletes(full_name), '
+                        + 'payer:profiles!payments_parent_id_fkey(full_name), athlete:profiles!payments_user_id_fkey(full_name)')
+                    .in('id', payIds.slice(i, i + 100));
+                if (error) throw error;
+                for (const p of data ?? []) {
+                    extra.set(p.id, {
+                        tercero: p.payer?.full_name ?? p.athlete?.full_name ?? p.children?.full_name
+                            ?? p.unregistered_athletes?.full_name ?? null,
+                        method: p.payment_method,
+                        reference: p.reference,
+                    });
+                }
+            }
+            const catName = new Map((categoriesQuery.data ?? []).map((c) => [c.id, c.name]));
+            const lines: LedgerExportLine[] = all.map((r) => {
+                const x = extra.get(r.id);
+                return {
+                    date: r.movement_date,
+                    tercero: x?.tercero ?? null,
+                    concept: r.concept,
+                    category: r.direction === 'income'
+                        ? (r.payment_category ? (INCOME_CATEGORY_LABEL[r.payment_category] ?? r.payment_category) : null)
+                        : (r.category_id ? (catName.get(r.category_id) ?? null) : null),
+                    method: x?.method ?? null,
+                    reference: x?.reference ?? null,
+                    direction: r.direction,
+                    amount: Number(r.amount),
+                };
+            });
+            downloadCsv(`libro-caja-${month}.csv`, ledgerCsvRows(lines));
+            toast({ title: 'Libro exportado', description: `${lines.length} movimiento(s) de ${month}.` });
+        } catch (e: any) {
+            toast({ title: 'No se pudo exportar', description: e?.message ?? String(e), variant: 'destructive' });
+        } finally {
+            setExporting(false);
+        }
+    };
     const totals = useMemo(() => {
         const t = totalsQuery.data;
         if (!t) return null;
@@ -340,6 +479,10 @@ export default function AccountingPage() {
                         onChange={(e) => { if (e.target.value) setMonth(e.target.value); }}
                     />
                 </div>
+                <Button variant="outline" onClick={exportLedger} disabled={exporting || !schoolId}>
+                    {exporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                    Exportar libro (CSV)
+                </Button>
                 {undatedN > 0 && (
                     <label className="flex items-center gap-2 text-sm text-muted-foreground">
                         <input
@@ -424,6 +567,7 @@ export default function AccountingPage() {
                                     <TableHead>Concepto</TableHead>
                                     <TableHead>Origen</TableHead>
                                     <TableHead className="text-right">Monto</TableHead>
+                                    {canManage && <TableHead className="w-10" />}
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -443,7 +587,7 @@ export default function AccountingPage() {
                                         </TableCell>
                                         <TableCell className="font-medium">
                                             {r.concept}
-                                            {r.direction === 'expense' && (
+                                            {r.direction === 'expense' && hasReceipt(r.id) && (
                                                 <button
                                                     type="button"
                                                     onClick={() => viewReceipts(r.id)}
@@ -460,6 +604,20 @@ export default function AccountingPage() {
                                         <TableCell className={`text-right font-bold ${r.direction === 'income' ? 'text-emerald-600' : 'text-red-600'}`}>
                                             {r.direction === 'income' ? '+' : '−'}{formatCurrency(Number(r.amount))}
                                         </TableCell>
+                                        {canManage && (
+                                            <TableCell className="text-right">
+                                                {r.source === 'expense' && (
+                                                    <Button
+                                                        size="sm" variant="ghost"
+                                                        className="h-7 px-2 text-muted-foreground hover:text-destructive"
+                                                        title="Anular gasto"
+                                                        onClick={() => { setVoidTarget(r); setVoidReason(''); }}
+                                                    >
+                                                        <Ban className="h-3.5 w-3.5 mr-1" /> Anular
+                                                    </Button>
+                                                )}
+                                            </TableCell>
+                                        )}
                                     </TableRow>
                                 ))}
                             </TableBody>
@@ -506,6 +664,42 @@ export default function AccountingPage() {
                         : <p className="text-sm text-muted-foreground">Selecciona una escuela para configurar la facturación.</p>}
                 </TabsContent>
             </Tabs>
+
+            <Dialog open={!!voidTarget} onOpenChange={(v) => { if (!v) { setVoidTarget(null); setVoidReason(''); } }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Anular gasto</DialogTitle>
+                        <DialogDescription>
+                            {voidTarget?.concept} · {voidTarget ? formatCurrency(Number(voidTarget.amount)) : ''}.
+                            El gasto no se borra: sale del libro y queda registrado quién lo anuló y por qué.
+                            Si es un pago a proveedor, ese saldo de la factura vuelve a quedar pendiente; si es
+                            una nómina, se anula la liquidación del mes completa (se puede volver a liquidar).
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-2 py-2">
+                        <Label htmlFor="void-reason">Motivo <span className="text-destructive">*</span></Label>
+                        <Textarea
+                            id="void-reason" rows={3} value={voidReason}
+                            onChange={(e) => setVoidReason(e.target.value)}
+                            placeholder="Ej. Se registró dos veces el arriendo de octubre"
+                        />
+                        <p className={`text-xs ${voidReason.trim().length >= MIN_VOID_REASON ? 'text-muted-foreground' : 'text-destructive'}`}>
+                            Mínimo {MIN_VOID_REASON} caracteres ({voidReason.trim().length}/{MIN_VOID_REASON}).
+                        </p>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setVoidTarget(null)} disabled={voidMutation.isPending}>Cancelar</Button>
+                        <Button
+                            variant="destructive"
+                            onClick={() => voidMutation.mutate()}
+                            disabled={voidMutation.isPending || voidReason.trim().length < MIN_VOID_REASON}
+                        >
+                            {voidMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Ban className="mr-2 h-4 w-4" />}
+                            Anular gasto
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { formatCurrency } from '@/lib/utils';
+import { downloadCsv, type CsvCell } from '@/lib/accounting/csv';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -90,30 +91,27 @@ export default function AccountingReportsPage() {
         return { income, expense, net: income - expense, catRows, monthly, undatedAmount, undatedN };
     }, [rows, catMap]);
 
+    // CSV para Excel en español: BOM UTF-8, separador ';', comillas correctas
+    // (lib/accounting/csv). Antes iba con ',' y sin BOM: todo en la columna A y
+    // los acentos rotos, y una categoría con coma partía la fila.
     const exportCSV = () => {
-        const lines: string[] = [
-            `Estado de resultados ${year}`,
-            '',
-            'RESUMEN',
-            `Ingresos,${report.income}`,
-            `Egresos,${report.expense}`,
-            `Neto,${report.net}`,
-            '',
-            'EGRESOS POR CATEGORÍA',
-            'Categoría,Monto',
-            ...report.catRows.map((c) => `${c.name},${c.value}`),
-            '',
-            'FLUJO MENSUAL',
-            'Mes,Ingresos,Egresos,Neto',
-            ...report.monthly.map((m) => `${m.month},${m.ingresos},${m.egresos},${m.ingresos - m.egresos}`),
+        const rowsCsv: CsvCell[][] = [
+            [`Estado de resultados ${year}`],
+            [],
+            ['RESUMEN'],
+            ['Ingresos', report.income],
+            ['Egresos', report.expense],
+            ['Neto', report.net],
+            [],
+            ['EGRESOS POR CATEGORÍA'],
+            ['Categoría', 'Monto'],
+            ...report.catRows.map((c): CsvCell[] => [c.name, c.value]),
+            [],
+            ['FLUJO MENSUAL'],
+            ['Mes', 'Ingresos', 'Egresos', 'Neto'],
+            ...report.monthly.map((m): CsvCell[] => [m.month, m.ingresos, m.egresos, m.ingresos - m.egresos]),
         ];
-        const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `estado-resultados-${year}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
+        downloadCsv(`estado-resultados-${year}.csv`, rowsCsv);
     };
 
     if (ledgerQuery.isError) {

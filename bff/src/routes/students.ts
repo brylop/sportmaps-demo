@@ -4,9 +4,11 @@ import { supabase } from '../config/supabase';
 import { todayInZone } from '../utils/businessDate';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { normalizeSchoolName } from '../utils/brandingUtils';
+import { esMenorDeEdad } from '../services/contacto-acudiente';
 import {
     createPendingPayment as createPendingPaymentShared,
     cancelPendingPlanPayments,
+    accionCobroDePlan,
     INACTIVE_ATHLETE_ERROR,
 } from '../services/enrollmentBilling';
 
@@ -698,6 +700,8 @@ router.put(
       // corregir. Antes el chequeo del adulto exigía status='active' y devolvía
       // un 403 "Acceso denegado" opaco al editar a un inactivo.
       let athleteIsActive = true;
+      // Ficha sin cuenta: ¿el contacto del formulario es del ACUDIENTE? (ver PASO 2)
+      let fichaGuardada: { date_of_birth?: string | null; guardian_email?: string | null; guardian_phone?: string | null; guardian_full_name?: string | null } | null = null;
 
       if (athlete_type === 'child') {
         const { data: owned } = await supabase
@@ -723,12 +727,13 @@ router.put(
       } else if (athlete_type === 'unregistered') {
         const { data: owned } = await supabase
           .from('unregistered_athletes')
-          .select('id, is_active')
+          .select('id, is_active, date_of_birth, guardian_email, guardian_phone, guardian_full_name')
           .eq('id', id)
           .eq('school_id', schoolId)
           .maybeSingle();
         if (!owned) return res.status(403).json({ error: 'Acceso denegado.' });
         athleteIsActive = (owned as any).is_active !== false;
+        fichaGuardada = owned as any;
 
       } else {
         return res.status(400).json({ error: 'athlete_type inválido.' });
@@ -816,11 +821,19 @@ router.put(
           }
 
         } else if (athlete_type === 'unregistered') {
+          // FIX 2026-10-05 (H-06): en el editor, "correo/teléfono del acudiente"
+          // de una ficha MENOR es el del acudiente (guardian_*). Antes se escribía
+          // en email/phone —el contacto DEL NIÑO—, así que cada edición pisaba el
+          // correo del atleta con el del acudiente (o al revés) y los avisos de
+          // cobro terminaban en el teléfono del menor. Adulto: su propio contacto.
+          const esMenor = esMenorDeEdad(profile.date_of_birth ?? fichaGuardada?.date_of_birth ?? null)
+            ?? !!(fichaGuardada?.guardian_email || fichaGuardada?.guardian_phone || fichaGuardada?.guardian_full_name);
           const unregUpdate: any = {
             ...profileUpdate,
             dorsal: profile.dorsal ?? undefined,
-            email: profile.parent_email ?? undefined,
-            phone: profile.parent_phone ?? undefined,
+            ...(esMenor
+              ? { guardian_email: profile.parent_email ?? undefined, guardian_phone: profile.parent_phone ?? undefined }
+              : { email: profile.parent_email ?? undefined, phone: profile.parent_phone ?? undefined }),
           };
           Object.keys(unregUpdate).forEach(k => unregUpdate[k] === undefined && delete unregUpdate[k]);
 
@@ -1164,9 +1177,14 @@ router.put(
         if (enrollment.offering_plan_id !== undefined) {
           const planStartDate: string = enrollment.plan_start_date || todayInZone();
           const planFee: number | null = enrollment.plan_monthly_fee ?? null;
-          const expiresAt = new Date(planStartDate);
-          expiresAt.setDate(expiresAt.getDate() + 30);
-          const expiresAtStr = expiresAt.toISOString().split('T')[0];
+          // FIX 2026-10-05 (H-08, informe Monster): asignar un plan ya NO escribe
+          // `expires_at = inicio + 30`. Ese vencimiento regalado, sin que nadie
+          // hubiera pagado, ponía a correr fn_expire_overdue_enrollments, que
+          // CANCELA la inscripción a los 30 + gracia + 7 días aunque la escuela
+          // siga cobrando el mes con open_month. La vigencia la otorga el PAGO
+          // (fn_extend_enrollment_on_payment_paid: GREATEST(expires_at, hoy) +
+          // duration_days), que es la decisión de producto "un pago = un periodo"
+          // (docs/plan-vigencia-por-periodo-pagado.md). Sin pago, NULL = no vence.
 
           const { survivor: existingPlan, extras: extraPlans } = await readActiveEnrollments('plan');
           await cancelExtraEnrollments(extraPlans);
@@ -1186,16 +1204,24 @@ router.put(
           if (existingPlan) {
             const activatePending = existingPlan.status === 'pending' && !!enrollment.offering_plan_id;
             await supabase.from('enrollments')
-              .update({ offering_plan_id: enrollment.offering_plan_id || null, start_date: planStartDate, expires_at: expiresAtStr, monthly_fee: planFee, updated_at: new Date().toISOString(), ...feeManualPatch, ...(activatePending ? { status: 'active' } : {}) })
+              .update({ offering_plan_id: enrollment.offering_plan_id || null, start_date: planStartDate, monthly_fee: planFee, updated_at: new Date().toISOString(), ...feeManualPatch, ...(activatePending ? { status: 'active' } : {}) })
               .eq('id', existingPlan.id).eq('school_id', schoolId);
             if (activatePending) notePendingActivated();
 
-            if (oldPlanId && oldPlanId !== enrollment.offering_plan_id) {
-              // Plan cambió: cancelar pagos pending del plan anterior
-              await applyAthleteFilter(
-                supabase.from('payments').update({ status: 'cancelled', updated_at: new Date().toISOString() })
-                  .eq('school_id', schoolId).eq('offering_plan_id', oldPlanId).eq('status', 'pending')
-              );
+            const accionPlan = accionCobroDePlan(oldPlanId, enrollment.offering_plan_id || null, planFee);
+            if (accionPlan === 'cambio') {
+              // Plan cambió —o se ASIGNA por primera vez a una inscripción que
+              // solo tenía equipo (FIX 2026-10-05, H-08): antes ese caso caía en
+              // "mismo plan", solo actualizaba montos de cobros que no existían y
+              // el atleta quedaba con plan y sin mensualidad (la de equipo ya la
+              // había anulado el bloque de arriba).
+              if (oldPlanId) {
+                // Cancelar pagos pending del plan anterior
+                await applyAthleteFilter(
+                  supabase.from('payments').update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                    .eq('school_id', schoolId).eq('offering_plan_id', oldPlanId).eq('status', 'pending')
+                );
+              }
               if (enrollment.offering_plan_id) {
                 const { data: planData } = await supabase.from('offering_plans').select('name, price').eq('id', enrollment.offering_plan_id).maybeSingle();
                 const amount = planFee ?? planData?.price ?? 0;
@@ -1205,7 +1231,7 @@ router.put(
                   billingStartForChange(planStartDate),
                 );
               }
-            } else if (planFee !== null && planFee <= 0) {
+            } else if (accionPlan === 'sin_cobro') {
               // Plan sin cobro: cancelar pendientes (amount = 0 rompe el
               // constraint payments_amount_positive).
               await applyAthleteFilter(
@@ -1228,7 +1254,7 @@ router.put(
               }
             }
           } else if (enrollment.offering_plan_id) {
-            const row: any = { school_id: schoolId, status: 'active', offering_plan_id: enrollment.offering_plan_id, start_date: planStartDate, expires_at: expiresAtStr, monthly_fee: planFee, ...feeManualPatch };
+            const row: any = { school_id: schoolId, status: 'active', offering_plan_id: enrollment.offering_plan_id, start_date: planStartDate, monthly_fee: planFee, ...feeManualPatch };
             row[athleteCol] = id;
             const { error } = await supabase.from('enrollments').insert(row);
             if (error) throw new Error(`Error creando enrollment plan: ${error.message}`);

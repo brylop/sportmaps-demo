@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
 import { daysDiffFromToday, formatDayCO } from '@/lib/dateUtils';
+import { COLUMNAS_CONTACTO_FICHA, contactoDeFicha, correoValido, telefonoValido } from '@/lib/invitations/contactoFicha';
 
 /**
  * Cleans raw payment concept strings like:
@@ -175,12 +176,12 @@ class PaymentRemindersAPI {
 
         // Fetch children
         const { data: children } = childIds.length > 0
-            ? await supabase.from('children').select('id, full_name, parent_phone_temp').in('id', childIds)
+            ? await supabase.from('children').select('id, full_name, parent_name_temp, parent_email_temp, parent_phone_temp').in('id', childIds)
             : { data: [] };
 
         // Fetch unregistered athletes (adult self-enrolled)
         const { data: unregisteredAthletes } = unregisteredIds.length > 0
-            ? await supabase.from('unregistered_athletes').select('id, full_name, email, phone').in('id', unregisteredIds)
+            ? await supabase.from('unregistered_athletes').select(`id, ${COLUMNAS_CONTACTO_FICHA}`).in('id', unregisteredIds)
             : { data: [] };
 
         // Fetch teams
@@ -305,10 +306,14 @@ class PaymentRemindersAPI {
                 ? Math.max(0, daysDiffFromToday(payment.due_date))
                 : 0;
 
-            // For unregistered athletes, the athlete IS the contact person
-            const contactName = parent?.full_name || unregistered?.full_name || 'Sin nombre';
-            const contactEmail = (parent as any)?.email || unregistered?.email || '';
-            const contactPhone = (parent as any)?.phone || (child as any)?.parent_phone_temp || unregistered?.phone || '';
+            // Contacto: cuenta del acudiente → contacto que cargó la escuela para
+            // el menor (parent_*_temp) → ficha sin cuenta. De una ficha MENOR se
+            // usa el ACUDIENTE (guardian_*), nunca el correo/teléfono del niño
+            // (H-06, docs/qa/monster-prelanzamiento-2026-10-05.md).
+            const ficha = unregistered ? contactoDeFicha(unregistered as any) : null;
+            const contactName = parent?.full_name || (child as any)?.parent_name_temp || ficha?.nombre || unregistered?.full_name || 'Sin nombre';
+            const contactEmail = (parent as any)?.email || correoValido((child as any)?.parent_email_temp) || ficha?.email || '';
+            const contactPhone = (parent as any)?.phone || telefonoValido((child as any)?.parent_phone_temp) || ficha?.phone || '';
             const athleteName = child?.full_name || unregistered?.full_name || 'Sin asignar';
 
             // Show plan name > cleaned concept

@@ -65,7 +65,7 @@ export default function FinancesPage() {
           student:children(full_name, parent_name_temp, parent_phone_temp),
           parent:profiles!payments_parent_id_fkey(full_name, phone),
           athlete:profiles!payments_user_id_fkey(full_name, phone),
-          unregistered:unregistered_athletes(full_name, phone)
+          unregistered:unregistered_athletes(full_name, phone, date_of_birth, guardian_full_name, guardian_phone)
         `)
         .in('status', USED_STATUSES as unknown as string[])
         // `id` como último criterio: sin un desempate determinista, dos cargas

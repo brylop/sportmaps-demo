@@ -69,6 +69,7 @@ import {
 import { cerrarEnvio, escaparHtml, fechaColombia, reservarEnvio, uuidDeClave } from './avisos-correo.service';
 import { emitirTokenCobro, enlaceWhatsApp, nombreCorto, whatsappDeLaEscuela } from './cobro-enlace-publico.service';
 import { mediosDePago, type MediosDePago } from './whatsapp-medios-de-pago.service';
+import { COLUMNAS_CONTACTO_FICHA, COLUMNAS_CONTACTO_HIJO, contactoDeFicha, contactoDeHijoSinCuenta, type FichaContacto } from './contacto-acudiente';
 import { escuelaFacturaElectronicamente } from './factura-pagador.service';
 
 export const TIPO_ESTADO = 'estado_de_cuenta';
@@ -211,15 +212,17 @@ const saldoDe = (p: PagoEstado) =>
 
 /**
  * Agrupa los cobros vivos por familia. Contacto: mismo criterio que
- * payment-lifecycle-emails (perfil del pagador → teléfono temporal del menor →
- * no registrado). Dos perfiles con el mismo correo son UNA familia.
+ * payment-lifecycle-emails (perfil del pagador → contacto temporal del menor →
+ * ficha sin cuenta vía contactoDeFicha: si es MENOR, el ACUDIENTE, nunca el niño
+ * — H-06). Dos perfiles con el mismo correo son UNA familia: dos hermanas con
+ * ficha y el mismo acudiente reciben UN solo estado de cuenta.
  */
 export function agruparPorFamilia(
     pagos: PagoEstado[],
     datos: {
         perfiles: Map<string, { id: string; full_name?: string | null; email?: string | null; phone?: string | null }>;
-        hijos: Map<string, { full_name?: string | null; parent_phone_temp?: string | null }>;
-        noRegistrados: Map<string, { full_name?: string | null; email?: string | null; phone?: string | null }>;
+        hijos: Map<string, { full_name?: string | null; parent_name_temp?: string | null; parent_email_temp?: string | null; parent_phone_temp?: string | null }>;
+        noRegistrados: Map<string, FichaContacto>;
     },
     ahora: Date,
     mes: string,
@@ -234,8 +237,10 @@ export function agruparPorFamilia(
         const perfil = datos.perfiles.get(p.parent_id || p.user_id || '');
         const hijo = datos.hijos.get(p.child_id || '');
         const nr = datos.noRegistrados.get(p.unregistered_athlete_id || '');
-        const email = String(perfil?.email || nr?.email || '').trim().toLowerCase();
-        const waId = aWaId(perfil?.phone || hijo?.parent_phone_temp || nr?.phone || null);
+        const cHijo = hijo ? contactoDeHijoSinCuenta(hijo) : null;
+        const cFicha = nr ? contactoDeFicha(nr, hoy) : null;
+        const email = String(perfil?.email || cHijo?.email || cFicha?.email || '').trim().toLowerCase();
+        const waId = aWaId(perfil?.phone || cHijo?.phone || cFicha?.phone || null);
         const clave = email.includes('@') ? email : (waId ? `wa:${waId}` : null);
         if (!clave) { sinContacto++; continue; }
 
@@ -246,7 +251,7 @@ export function agruparPorFamilia(
             clave,
             email: email.includes('@') ? email : null,
             waId,
-            nombre: perfil?.full_name || nr?.full_name || 'Familia',
+            nombre: perfil?.full_name || cHijo?.nombre || cFicha?.nombre || 'Familia',
             perfilId: perfil?.id ?? null,
             filas: [],
             avisadaHoy: false,
@@ -397,8 +402,8 @@ export async function familiasConDeuda(schoolId: string, ahora: Date, mes = mesC
     const ids = (f: (p: PagoEstado) => string | null) => [...new Set(vivos.map(f).filter(Boolean))] as string[];
     const [perfiles, hijos, noReg] = await Promise.all([
         leerPorIds('profiles', 'id, full_name, email, phone', ids((p) => p.parent_id || p.user_id)),
-        leerPorIds('children', 'id, full_name, parent_phone_temp', ids((p) => p.child_id)),
-        leerPorIds('unregistered_athletes', 'id, full_name, email, phone', ids((p) => p.unregistered_athlete_id)),
+        leerPorIds('children', `id, ${COLUMNAS_CONTACTO_HIJO}`, ids((p) => p.child_id)),
+        leerPorIds('unregistered_athletes', `id, ${COLUMNAS_CONTACTO_FICHA}`, ids((p) => p.unregistered_athlete_id)),
     ]);
     const { familias, sinContacto } = agruparPorFamilia(vivos, {
         perfiles: new Map(perfiles.map((x) => [x.id, x])),

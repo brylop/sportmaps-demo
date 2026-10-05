@@ -51,11 +51,11 @@ type AthleteMatch = {
   branch_name: string | null;
   already_linked: boolean;
   /**
-   * Contacto del acudiente que la escuela ya había capturado al pre-cargar la
-   * ficha (`children.parent_*_temp`). Viene en NULL si `already_linked` — ese
-   * contacto es de otra persona. Valor real, no enmascarado por el servidor:
-   * el enmascarado es solo visual, en esta pantalla (decisión de producto
-   * 2026-09-18, mismo criterio de acceso que ya rige `nombre`).
+   * Contacto del acudiente que la escuela precargó. Desde 20261005133932 (H-12)
+   * la RPC pública lo devuelve SIEMPRE en NULL —ni enmascarado—: con el
+   * school_id público y un documento, cualquiera lo leía. Las columnas siguen
+   * en el contrato por compatibilidad; si algún día vuelven a llegar, la
+   * pantalla solo las usa como pista, nunca para precargar.
    */
   parent_name_temp?: string | null;
   parent_email_temp?: string | null;
@@ -176,10 +176,9 @@ export default function JoinSchoolPublicPage() {
   function selectPreloadedMatch(m: AthleteMatch) {
     setPreloadedMatch(m);
     setChildDocNumber(docSearch);
-    // La RPC es pública (anon): desde 20261005131057 devuelve el contacto del
-    // acudiente ENMASCARADO (bl***@gmail.com, *** *** 1490). Antes viajaba en
-    // claro a cualquiera con un número de documento. Ya no se precarga nada:
-    // el acudiente escribe sus datos y la máscara solo le sirve de pista.
+    // La RPC es pública (anon). Desde 20261005133932 ya no devuelve el contacto
+    // del acudiente (antes: en claro hasta 131057, enmascarado después). Nada se
+    // precarga: el acudiente escribe sus datos. La pista queda en null.
     setContactHint(
       [m.parent_email_temp, m.parent_phone_temp].filter(Boolean).join(' · ') || null,
     );

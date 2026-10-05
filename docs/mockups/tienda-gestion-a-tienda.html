@@ -1,0 +1,749 @@
+<title>Tienda dentro de Gestión</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap">
+<style>
+/* Layout: documento de propuesta en una columna. Cada vista va en un marco (navegador o teléfono) y sigue la base aprobada del mockup F–K (ROADMAP UX-14/UX-15). Solo tokens (MOV-4): un BrandingScope que reasigne --primary recolorea todo. */
+:root {
+  --bg: hsl(140 18% 97%);
+  --surface: hsl(0 0% 100%);
+  --fg: hsl(142 36% 11%);
+  --fg-soft: hsl(140 8% 39%);
+  --fg-mid: hsl(140 12% 27%);
+  --muted: hsl(140 16% 93%);
+  --line: hsl(137 15% 89%);
+  --line-strong: hsl(137 14% 83%);
+  --primary: hsl(119 60% 32%);
+  --primary-soft: hsl(140 38% 93%);
+  --on-primary: hsl(0 0% 100%);
+  --accent: hsl(35 97% 55%);
+  --on-accent: hsl(142 36% 11%);
+  --attn-bg: hsl(36 100% 97%);
+  --attn-line: hsl(36 77% 80%);
+  --attn-fg: hsl(26 84% 31%);
+  --late-bg: hsl(0 67% 97%);
+  --late-line: hsl(0 63% 86%);
+  --late-fg: hsl(0 74% 42%);
+  --store-bg: hsl(35 97% 95%);
+  --store-fg: hsl(30 85% 33%);
+  --frame: hsl(140 10% 82%);
+  --shadow: 0 1px 2px hsl(140 30% 10% / .06), 0 10px 28px hsl(140 30% 10% / .07);
+  --font: 'Poppins', ui-sans-serif, system-ui, 'Segoe UI', Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: hsl(119 45% 5%);
+    --surface: hsl(119 38% 10%);
+    --fg: hsl(0 0% 96%);
+    --fg-soft: hsl(119 12% 66%);
+    --fg-mid: hsl(119 10% 80%);
+    --muted: hsl(119 30% 14%);
+    --line: hsl(119 28% 19%);
+    --line-strong: hsl(119 24% 26%);
+    --primary: hsl(119 55% 45%);
+    --primary-soft: hsl(119 35% 16%);
+    --on-primary: hsl(0 0% 100%);
+    --accent: hsl(35 97% 58%);
+    --attn-bg: hsl(32 45% 13%);
+    --attn-line: hsl(32 55% 30%);
+    --attn-fg: hsl(38 95% 68%);
+    --late-bg: hsl(0 40% 14%);
+    --late-line: hsl(0 45% 32%);
+    --late-fg: hsl(0 85% 72%);
+    --store-bg: hsl(32 50% 15%);
+    --store-fg: hsl(36 97% 66%);
+    --frame: hsl(119 22% 20%);
+    --shadow: 0 1px 2px hsl(0 0% 0% / .4), 0 10px 28px hsl(0 0% 0% / .35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: hsl(119 45% 5%);
+  --surface: hsl(119 38% 10%);
+  --fg: hsl(0 0% 96%);
+  --fg-soft: hsl(119 12% 66%);
+  --fg-mid: hsl(119 10% 80%);
+  --muted: hsl(119 30% 14%);
+  --line: hsl(119 28% 19%);
+  --line-strong: hsl(119 24% 26%);
+  --primary: hsl(119 55% 45%);
+  --primary-soft: hsl(119 35% 16%);
+  --on-primary: hsl(0 0% 100%);
+  --accent: hsl(35 97% 58%);
+  --attn-bg: hsl(32 45% 13%);
+  --attn-line: hsl(32 55% 30%);
+  --attn-fg: hsl(38 95% 68%);
+  --late-bg: hsl(0 40% 14%);
+  --late-line: hsl(0 45% 32%);
+  --late-fg: hsl(0 85% 72%);
+  --store-bg: hsl(32 50% 15%);
+  --store-fg: hsl(36 97% 66%);
+  --frame: hsl(119 22% 20%);
+  --shadow: 0 1px 2px hsl(0 0% 0% / .4), 0 10px 28px hsl(0 0% 0% / .35);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 15px; line-height: 1.55; margin: 0; }
+.page { max-width: 1200px; margin: 0 auto; padding-inline: 16px; padding-block: 40px 72px; display: grid; gap: 60px; }
+.page > * { min-width: 0; }
+h1, h2, h3, h4 { margin: 0; text-wrap: balance; line-height: 1.2; }
+h1 { font-size: clamp(1.8rem, 1.2rem + 2.4vw, 2.6rem); font-weight: 800; letter-spacing: -.02em; }
+h2 { font-size: 1.4rem; font-weight: 700; letter-spacing: -.01em; }
+h3 { font-size: 1rem; font-weight: 600; }
+p { margin: 0; }
+code { font-size: .85em; background: var(--muted); border-radius: 4px; padding: 1px 5px; }
+.eyebrow { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .14em; color: var(--primary); }
+.lead { color: var(--fg-soft); max-width: 70ch; }
+.num { font-variant-numeric: tabular-nums; }
+.section-head { display: grid; gap: 8px; margin-bottom: 20px; }
+.section-head p { color: var(--fg-soft); max-width: 72ch; }
+svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ux { font-size: .66rem; font-weight: 700; letter-spacing: .04em; padding: 2px 7px; border-radius: 6px; background: var(--muted); color: var(--fg-mid); white-space: nowrap; }
+
+/* Encabezado */
+.hero { display: grid; gap: 14px; }
+.deltas { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-top: 8px; }
+.delta { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 6px; align-content: start; }
+.delta .what { font-size: .82rem; color: var(--fg-soft); }
+.delta .before { color: var(--fg-soft); text-decoration: line-through; text-decoration-color: var(--late-fg); font-size: .9rem; }
+.delta .after { font-weight: 700; font-size: 1.05rem; color: var(--primary); }
+
+/* Encaje */
+.fit-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.fit { width: 100%; border-collapse: collapse; font-size: .86rem; min-width: 720px; }
+.fit th { text-align: left; font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: var(--fg-soft); font-weight: 600; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.fit td { padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.fit tr:last-child td { border-bottom: 0; }
+
+/* Alternativas */
+.alts { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 14px; }
+.alt { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: grid; gap: 10px; align-content: start; }
+.alt.pick { border: 2px solid var(--primary); }
+.alt-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.alt-letter { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-weight: 800; background: var(--muted); }
+.alt.pick .alt-letter { background: var(--primary); color: var(--on-primary); }
+.tag { font-size: .7rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: var(--primary-soft); color: var(--primary); white-space: nowrap; }
+.tag.attn { background: var(--attn-bg); color: var(--attn-fg); }
+.tag.grey { background: var(--muted); color: var(--fg-soft); }
+.alt ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: .86rem; }
+.alt .lbl { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--fg-soft); }
+
+/* Navegador */
+.scroll-x { overflow-x: auto; border-radius: 16px; }
+.browser { min-width: 1040px; background: var(--bg); border: 1px solid var(--frame); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+.chrome { display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: var(--muted); border-bottom: 1px solid var(--line); }
+.dots { display: flex; gap: 6px; } .dots span { width: 10px; height: 10px; border-radius: 50%; background: var(--frame); }
+.url { flex: 1; font-size: .75rem; color: var(--fg-soft); background: var(--surface); border-radius: 6px; padding: 4px 10px; border: 1px solid var(--line); }
+.app { display: grid; grid-template-columns: 236px 1fr; min-height: 600px; }
+.side { background: var(--surface); border-right: 1px solid var(--line); padding: 18px 12px; display: flex; flex-direction: column; gap: 2px; font-size: .86rem; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 14px; }
+.brand-mark { width: 36px; height: 36px; border-radius: 10px; background: var(--primary-soft); color: var(--primary); display: grid; place-items: center; font-weight: 700; font-size: .8rem; flex: none; }
+.brand b { display: block; font-size: .86rem; } .brand span { font-size: .74rem; color: var(--fg-soft); }
+.grp { font-size: .64rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-soft); padding: 12px 10px 4px; display: flex; justify-content: space-between; }
+.nav { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 0 10px; border-radius: 10px; color: var(--fg); }
+.nav.on { background: var(--primary-soft); color: var(--primary); font-weight: 600; }
+.nav.new { outline: 1.5px dashed var(--accent); outline-offset: -2px; }
+.nav .badge { margin-left: auto; }
+.badge { font-size: .68rem; font-weight: 700; min-width: 22px; padding: 1px 7px; border-radius: 999px; background: var(--accent); color: var(--on-accent); text-align: center; }
+.side-foot { margin-top: auto; padding: 14px 10px 0; font-size: .76rem; color: var(--fg-soft); display: flex; align-items: center; gap: 8px; }
+.main { padding: 22px 30px 28px; display: grid; gap: 20px; align-content: start; min-width: 0; }
+.ph { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; min-height: 56px; }
+.ph small { font-size: .8rem; color: var(--fg-soft); display: block; }
+.ph h2 { font-size: 1.55rem; }
+.actions { display: flex; gap: 8px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font: inherit; font-size: .82rem; font-weight: 600; height: 40px; padding: 0 14px; border-radius: 11px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--fg); cursor: pointer; white-space: nowrap; }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.btn.danger { color: var(--late-fg); }
+.btn.sm { height: 34px; font-size: .76rem; padding: 0 11px; border-radius: 9px; }
+.btn:focus-visible, .tab:focus-visible, .chipbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h3.sec { font-size: .95rem; }
+.todo { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.card { border-radius: 16px; padding: 15px; display: flex; flex-direction: column; gap: 5px; border: 1px solid var(--line); background: var(--surface); }
+.card.attn { background: var(--attn-bg); border-color: var(--attn-line); }
+.card.late { background: var(--late-bg); border-color: var(--late-line); }
+.card.store { background: var(--store-bg); border: 1.5px dashed var(--accent); }
+.card .k { font-size: .78rem; font-weight: 600; color: var(--primary); }
+.card.attn .k { color: var(--attn-fg); } .card.late .k { color: var(--late-fg); } .card.store .k { color: var(--store-fg); }
+.card .n { font-size: 1.8rem; font-weight: 700; line-height: 1.1; }
+.card .t { font-size: .78rem; color: var(--fg-mid); min-height: 40px; }
+.card .btn { margin-top: auto; }
+.row3 { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.trow { display: flex; align-items: center; gap: 14px; padding: 9px 0; border-top: 1px solid var(--line); font-size: .84rem; }
+.trow b { width: 74px; } .trow .grow { flex: 1; display: grid; } .trow .grow span { font-size: .74rem; color: var(--fg-soft); }
+.st-attn { color: var(--attn-fg); font-weight: 600; font-size: .76rem; } .st-ok { color: var(--primary); font-weight: 600; font-size: .76rem; } .st-soft { color: var(--fg-soft); font-size: .76rem; }
+.bar { height: 8px; border-radius: 999px; background: var(--muted); display: flex; overflow: hidden; }
+.bar .a { background: var(--primary); } .bar .b { background: var(--accent); }
+.legend { display: grid; gap: 3px; font-size: .74rem; color: var(--fg-mid); }
+.legend span { display: flex; justify-content: space-between; gap: 8px; }
+.legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+.big { font-size: 1.35rem; font-weight: 700; }
+.note { font-size: .78rem; color: var(--fg-soft); }
+
+/* Pagos */
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 13px 15px; display: grid; gap: 2px; }
+.kpi.attn { background: var(--attn-bg); border: 2px solid var(--accent); }
+.kpi .k { font-size: .78rem; color: var(--fg-soft); font-weight: 500; } .kpi.attn .k { color: var(--attn-fg); font-weight: 600; }
+.kpi .v { font-size: 1.3rem; font-weight: 700; }
+.kpi .s { font-size: .7rem; color: var(--fg-soft); }
+.tabsline { display: flex; gap: 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.tabsline span { padding: 9px 13px; font-size: .84rem; color: var(--fg-mid); }
+.tabsline span.on { color: var(--primary); font-weight: 600; box-shadow: inset 0 -2px 0 var(--primary); }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.chipbtn { font: inherit; font-size: .76rem; font-weight: 600; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--fg-mid); cursor: pointer; }
+.chipbtn[aria-pressed="true"] { background: var(--fg); color: var(--surface); border-color: var(--fg); }
+.tblbox { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.tbl { width: 100%; border-collapse: collapse; font-size: .84rem; }
+.tbl th { text-align: left; font-size: .72rem; font-weight: 600; color: var(--fg-soft); padding: 10px 16px; background: var(--bg); }
+.tbl td { padding: 13px 16px; border-top: 1px solid var(--line); vertical-align: middle; }
+.tbl .who { display: grid; } .tbl .who b { font-size: .86rem; } .tbl .who span { font-size: .74rem; color: var(--fg-soft); }
+.tbl .pay b { font-weight: 700; } .tbl .pay span { display: block; font-size: .74rem; color: var(--attn-fg); }
+.tbl .acts { display: flex; gap: 8px; justify-content: flex-end; }
+.chip { font-size: .66rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; display: inline-block; }
+.chip.mens { background: var(--primary-soft); color: var(--primary); }
+.chip.tienda { background: var(--store-bg); color: var(--store-fg); }
+.chip.attn { background: var(--attn-bg); color: var(--attn-fg); }
+.chip.ok { background: var(--primary-soft); color: var(--primary); }
+.chip.grey { background: var(--muted); color: var(--fg-soft); }
+.link { color: var(--primary); font-weight: 600; }
+
+/* Tienda */
+.board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.lane { background: var(--muted); border-radius: 14px; padding: 10px; display: grid; gap: 8px; align-content: start; }
+.lane h4 { font-size: .72rem; font-weight: 700; display: flex; justify-content: space-between; color: var(--fg-soft); text-transform: uppercase; letter-spacing: .06em; padding: 2px 4px; }
+.ord { background: var(--surface); border: 1px solid var(--line); border-radius: 11px; padding: 10px; display: grid; gap: 3px; font-size: .78rem; }
+.ord b { font-size: .82rem; } .ord .s { color: var(--fg-soft); font-size: .74rem; }
+.ord .btn { justify-self: start; margin-top: 5px; }
+.mapping { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 14px; }
+.mapbox { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; font-size: .84rem; display: grid; gap: 6px; align-content: start; }
+.mapbox ul { margin: 0; padding-left: 18px; display: grid; gap: 3px; }
+.strike { text-decoration: line-through; color: var(--fg-soft); }
+
+/* Teléfonos */
+.phones { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px 20px; justify-items: center; }
+.phone-wrap { display: grid; gap: 10px; justify-items: center; width: 100%; max-width: 300px; align-content: start; }
+.phone-cap { font-size: .8rem; color: var(--fg-soft); text-align: center; max-width: 290px; }
+.phone-cap b { color: var(--fg); display: block; font-size: .88rem; }
+.phone { width: 100%; max-width: 292px; aspect-ratio: 390 / 820; border-radius: 34px; border: 8px solid var(--fg); background: var(--bg); overflow: hidden; display: grid; grid-template-rows: 1fr auto; box-shadow: var(--shadow); }
+.ph-body { overflow: hidden; padding: 16px 12px 8px; display: grid; gap: 9px; align-content: start; font-size: .74rem; min-height: 0; }
+.ph-hello span { font-size: .68rem; color: var(--fg-soft); display: block; } .ph-hello b { font-size: 1.1rem; font-weight: 700; letter-spacing: -.01em; }
+.pc { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px; display: grid; gap: 7px; }
+.pc.attn { background: var(--attn-bg); border-color: var(--attn-line); }
+.pc.store { border: 1.5px dashed var(--accent); }
+.pc .k { font-size: .66rem; font-weight: 600; color: var(--attn-fg); }
+.pc .lr { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+.pc .lr > div { display: grid; min-width: 0; } .pc .lr span { font-size: .64rem; color: var(--fg-soft); }
+.pbtn { font: inherit; border: 0; border-radius: 11px; height: 36px; font-weight: 600; font-size: .76rem; background: var(--primary); color: var(--on-primary); width: 100%; }
+.pbtn.ghost { background: var(--surface); border: 1px solid var(--line-strong); color: var(--fg); }
+.plink { font-size: .7rem; font-weight: 600; color: var(--primary); text-align: center; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.mini { background: var(--bg); border-radius: 9px; padding: 6px 8px; display: grid; } .mini span { font-size: .6rem; color: var(--fg-soft); } .mini b { font-size: .72rem; }
+.sec-t { font-size: .78rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+.sec-t a, .sec-t span.more { font-size: .66rem; color: var(--primary); }
+.rowi { display: flex; gap: 8px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); }
+.rowi:first-child { border-top: 0; }
+.ic { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; flex: none; }
+.ic.m { background: var(--primary-soft); color: var(--primary); } .ic.t { background: var(--store-bg); color: var(--store-fg); }
+.ic svg { width: 15px; height: 15px; }
+.rowi .tx { flex: 1; min-width: 0; display: grid; font-size: .7rem; } .rowi .tx span { color: var(--fg-soft); font-size: .62rem; }
+.rowi .am { font-weight: 600; font-size: .72rem; display: grid; justify-items: end; gap: 2px; white-space: nowrap; }
+.strip { display: flex; gap: 6px; }
+.prod { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: grid; flex: 1; min-width: 0; }
+.prod .img { aspect-ratio: 1; display: grid; place-items: center; background: var(--muted); color: var(--primary); }
+.prod .img svg { width: 44%; height: 44%; stroke-width: 1.4; }
+.prod .info { padding: 5px 7px 7px; display: grid; gap: 1px; }
+.prod .n { font-size: .62rem; line-height: 1.25; } .prod .p { font-weight: 700; font-size: .74rem; }
+.prod .add { font: inherit; font-size: .62rem; font-weight: 700; border: 0; border-radius: 6px; height: 24px; background: var(--primary-soft); color: var(--primary); margin-top: 3px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.pill { background: var(--store-bg); color: var(--store-fg); border-radius: 9px; padding: 6px 8px; font-size: .64rem; font-weight: 600; }
+.crumb { font-size: .64rem; color: var(--fg-soft); display: flex; align-items: center; gap: 4px; }
+.menu-list { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.menu-list div { display: flex; align-items: center; gap: 10px; padding: 0 12px; min-height: 46px; border-top: 1px solid var(--line); }
+.menu-list div:first-child { border-top: 0; }
+.menu-list .tx { flex: 1; display: grid; } .menu-list .tx b { font-size: .76rem; font-weight: 500; } .menu-list .tx span { font-size: .6rem; color: var(--fg-soft); }
+.menu-list .new { background: var(--store-bg); }
+.grp-t { font-size: .6rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-soft); }
+.line { display: flex; gap: 8px; align-items: center; }
+.line .th { width: 38px; height: 38px; border-radius: 8px; background: var(--muted); display: grid; place-items: center; color: var(--primary); flex: none; }
+.line .th svg { width: 20px; height: 20px; }
+.line .tx { flex: 1; min-width: 0; display: grid; } .line .tx span { color: var(--fg-soft); font-size: .62rem; }
+.sum { display: grid; gap: 3px; font-size: .7rem; }
+.sum div { display: flex; justify-content: space-between; }
+.sum .tot { font-weight: 700; font-size: .82rem; border-top: 1px solid var(--line); padding-top: 5px; }
+.radio { display: flex; gap: 7px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 7px 8px; font-size: .68rem; background: var(--surface); }
+.radio.on { border-color: var(--primary); background: var(--primary-soft); }
+.radio .dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--fg-soft); flex: none; }
+.radio.on .dot { border: 4px solid var(--primary); }
+.tabbar { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--line); background: var(--surface); padding: 7px 2px 11px; }
+.tabbar span { display: grid; justify-items: center; gap: 2px; font-size: .56rem; color: var(--fg-soft); position: relative; }
+.tabbar span.on { color: var(--primary); font-weight: 700; }
+.tabbar svg { width: 19px; height: 19px; }
+.tabbar b { position: absolute; top: -4px; right: 20%; background: var(--accent); color: var(--on-accent); font-size: .5rem; border-radius: 999px; padding: 0 4px; }
+.row-a { display: flex; gap: 10px; align-items: center; padding: 10px 11px; border-radius: 13px; border: 1px solid var(--line); background: var(--surface); }
+.row-a.attn { background: var(--attn-bg); border-color: var(--attn-line); }
+.row-a.late { background: var(--late-bg); border-color: var(--late-line); }
+.row-a.store { background: var(--store-bg); border: 1.5px dashed var(--accent); }
+.row-a .n { font-size: 1.2rem; font-weight: 700; width: 30px; text-align: center; flex: none; }
+.row-a .tx { flex: 1; display: grid; min-width: 0; } .row-a .tx b { font-size: .74rem; } .row-a .tx span { font-size: .62rem; color: var(--fg-mid); }
+
+/* Contabilidad */
+.flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.step { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: grid; gap: 6px; align-content: start; }
+.step .n { font-size: .7rem; font-weight: 700; color: var(--store-fg); }
+.step p { font-size: .84rem; color: var(--fg-soft); }
+.rule { background: var(--primary-soft); color: var(--fg); border-radius: 12px; padding: 12px 14px; font-size: .86rem; margin-top: 12px; }
+.key { display: flex; gap: 14px; flex-wrap: wrap; font-size: .8rem; color: var(--fg-soft); }
+.key span { display: inline-flex; align-items: center; gap: 6px; }
+.key i { width: 14px; height: 14px; border-radius: 4px; border: 1.5px dashed var(--accent); background: var(--store-bg); }
+footer { font-size: .8rem; color: var(--fg-soft); border-top: 1px solid var(--line); padding-top: 18px; }
+@media (max-width: 700px) { .page { gap: 46px; padding-block: 28px 56px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.3c2.2.6 3.5 2.6 3.5 5.7"/></symbol>
+  <symbol id="person" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></symbol>
+  <symbol id="dollar" viewBox="0 0 24 24"><path d="M12 2v20M17 6.5c-.8-1.5-2.7-2.5-5-2.5-2.8 0-5 1.5-5 3.7 0 5 10 2.6 10 7.6 0 2.2-2.2 3.7-5 3.7-2.4 0-4.3-1-5.1-2.6"/></symbol>
+  <symbol id="bag" viewBox="0 0 24 24"><path d="M5 8h14l-1 13H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></symbol>
+  <symbol id="cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol>
+  <symbol id="menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+  <symbol id="help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.5V14M12 17.5v.01"/></symbol>
+  <symbol id="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="cart" viewBox="0 0 24 24"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a1 1 0 0 0 1 .8h9.6a1 1 0 0 0 1-.8L21 7H6"/></symbol>
+  <symbol id="ball" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3c-2 3-2 6 0 9s2 6 0 9M3.5 9.5c3.5-.5 6.5.5 8.5 2.5s5 3 8.5 2.5M5.5 18c1-3.5 3.5-5.5 6.5-6"/></symbol>
+  <symbol id="shirt" viewBox="0 0 24 24"><path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3c0 1.7-1.3 3-4 3S8 4.7 8 3z"/></symbol>
+  <symbol id="knee" viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="5"/><ellipse cx="12" cy="12" rx="3.5" ry="4"/></symbol>
+  <symbol id="bottle" viewBox="0 0 24 24"><path d="M10 2h4v3l2 3v13a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V8l2-3z"/><path d="M8 12h8"/></symbol>
+  <symbol id="sock" viewBox="0 0 24 24"><path d="M9 2h6v10l3 4a3 3 0 0 1-5 3.5L9 15z"/><path d="M9 6h6"/></symbol>
+  <symbol id="arrow" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+</svg>
+
+<main class="page">
+
+  <header class="hero">
+    <span class="eyebrow">Tienda v2 · encaje con el rediseño del ROADMAP · 2026-10-05</span>
+    <h1>La tienda entra en las pantallas del rediseño</h1>
+    <p class="lead">Hoy la escuela abre la tienda como si fuera un vendedor externo: un panel aparte, colgado al fondo del menú, con su propio inicio y su propia bandeja de comprobantes. El padre sale de la app para comprar. Esta versión no inventa navegación nueva: mete la tienda en lo que el rediseño ya aprobó (Hoy en tu escuela, Pagos, Más, la barra del acudiente) y en el menú de <code>UX-4</code> + <code>ERP-6</code>. Datos de ejemplo de Monster´s Volley Club.</p>
+    <div class="deltas">
+      <div class="delta"><span class="what">Revisar todos los comprobantes (admin)</span><span class="before num">7+ clics, 2 pantallas</span><span class="after">Hoy → Revisar (1 clic)</span></div>
+      <div class="delta"><span class="what">Destinos que agrega la tienda al menú</span><span class="before num">9 ítems de "Mi Tienda"</span><span class="after">1 ítem con 5 pestañas</span></div>
+      <div class="delta"><span class="what">Barra inferior del acudiente</span><span class="before">Se agregaba "Tienda"</span><span class="after">Intacta: Inicio · Calendario · Hijos · Pagos · Más</span></div>
+      <div class="delta"><span class="what">Administrador que no es dueño</span><span class="before">Bucle al alta de vendedor</span><span class="after">Mismo menú que el dueño</span></div>
+    </div>
+  </header>
+
+  <section>
+    <div class="section-head">
+      <span class="eyebrow">Encaje</span>
+      <h2>Qué ítem del ROADMAP absorbe cada cambio</h2>
+      <p>La tienda no abre un frente propio de navegación. Cada pieza se monta sobre un ítem que ya está en el tablero, y se construye cuando ese ítem se construya.</p>
+    </div>
+    <div class="fit-wrap">
+      <table class="fit">
+        <thead><tr><th>Cambio de tienda</th><th>Lo absorbe</th><th>Dónde en la cola</th></tr></thead>
+        <tbody>
+          <tr><td>Páginas de tienda con <code>PageShell</code>/<code>PageHeader</code> compacto; "Mi Tienda" con gating por adicional como el resto de ítems</td><td><span class="ux">UX-1</span> <span class="ux">UX-3</span></td><td>§4 #12 (con ERP-1 y MOV-3)</td></tr>
+          <tr><td>Tienda = 1 destino en el grupo de dinero, 5 pestañas adentro; "Mi Tienda" desaparece para la escuela</td><td><span class="ux">UX-4</span> <span class="ux">ERP-6</span></td><td>§3.3 #13, en P3 de §4 (juntos)</td></tr>
+          <tr><td>Comprobantes de tienda en la bandeja de Hoy y en Pagos → Por aprobar; tarjeta "Pedidos por entregar"; recaudo con desglose</td><td><span class="ux">UX-14</span></td><td>Sin número en la cola; va detrás de §4 #12</td></tr>
+          <tr><td>Acudiente: compras dentro de Pagos, tarjeta discreta en Inicio, "Tienda del club" en Más</td><td><span class="ux">UX-15</span></td><td>Sin número en la cola; va detrás de §4 #12</td></tr>
+          <tr><td>Soporte en Más, sin botón flotante sobre la vitrina ni el carrito</td><td><span class="ux">UX-16</span></td><td>Con UX-14/15</td></tr>
+          <tr><td>Unos 74 colores escritos a mano en las pantallas de tienda pasan a tokens</td><td><span class="ux">MOV-4</span></td><td>Emparejado con BLQ-6</td></tr>
+          <tr><td>El administrador que no es dueño entra a la tienda (bug de <code>useVendorProfile</code>/<code>VendorGuard</code>)</td><td>Propio (N0)</td><td>Ya, no espera: es un bug</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="eyebrow">Alternativas</span>
+      <h2>Tres maneras de resolver el cambio</h2>
+    </div>
+    <div class="alts">
+      <article class="alt pick">
+        <div class="alt-top"><div class="alt-letter">A</div><span class="tag">Recomendada</span></div>
+        <h3>Tienda como un destino más del menú de la escuela</h3>
+        <span class="lbl">A favor</span>
+        <ul><li>Sin cambio de modo: lo pendiente de la tienda aparece en Hoy y en Pagos, donde el admin ya mira.</li><li>Cabe en el presupuesto de UX-4: un destino, grupos de 5 como máximo.</li><li>Arregla al administrador sin migraciones.</li></ul>
+        <span class="lbl">En contra</span>
+        <ul><li>Espera a UX-4/ERP-6 para el menú definitivo (N1 puede adelantar el ítem con el menú actual).</li></ul>
+      </article>
+      <article class="alt">
+        <div class="alt-top"><div class="alt-letter">B</div><span class="tag attn">Descartada</span></div>
+        <h3>Selector "Gestión | Tienda"</h3>
+        <span class="lbl">Por qué no</span>
+        <ul><li>Vuelve oficial el cambio de modo y esconde lo pendiente del otro lado.</li><li>Choca con UX-14: Hoy tiene que mostrar todo lo que necesita atención, tienda incluida.</li></ul>
+      </article>
+      <article class="alt">
+        <div class="alt-top"><div class="alt-letter">C</div><span class="tag grey">Parche</span></div>
+        <h3>Panel aparte con mejores accesos</h3>
+        <span class="lbl">Por qué no</span>
+        <ul><li>Mantiene 9 ítems de vendedor contra el objetivo de 24 destinos en total.</li><li>Dos inicios y dos bandejas: lo contrario de UX-14.</li></ul>
+      </article>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="eyebrow">F · Admin en escritorio · base UX-14</span>
+      <h2>Hoy en tu escuela, con la tienda como un tipo más de acción</h2>
+      <p>La bandeja aprobada tiene cuatro tarjetas. La tienda no agrega pantalla: suma sus comprobantes a "Pagos por aprobar" y agrega una quinta tarjeta, "Pedidos por entregar", que solo aparece con la tienda abierta. El menú es el objetivo de UX-4 + ERP-6: sin "Finanzas" ni "Proveedores", y ningún grupo con más de 5 ítems.</p>
+      <div class="key"><span><i></i>Lo que agrega la tienda</span></div>
+    </div>
+    <div class="scroll-x">
+      <div class="browser">
+        <div class="chrome"><div class="dots"><span></span><span></span><span></span></div><div class="url">app.sportmaps.co/hoy</div></div>
+        <div class="app">
+          <nav class="side" aria-label="Menú de la escuela (maqueta)">
+            <div class="brand"><div class="brand-mark">MV</div><div><b>Monster´s Volley Club</b><span>Administración</span></div></div>
+            <div class="grp">Escuela</div>
+            <div class="nav on"><svg class="i"><use href="#sun"/></svg>Hoy</div>
+            <div class="nav"><svg class="i"><use href="#person"/></svg>Deportistas</div>
+            <div class="nav"><svg class="i"><use href="#users"/></svg>Equipos</div>
+            <div class="nav"><svg class="i"><use href="#users"/></svg>Entrenadores</div>
+            <div class="nav"><svg class="i"><use href="#cal"/></svg>Calendario</div>
+            <div class="grp">Dinero</div>
+            <div class="nav"><svg class="i"><use href="#dollar"/></svg>Pagos<span class="badge num">4</span></div>
+            <div class="nav new"><svg class="i"><use href="#bag"/></svg>Tienda<span class="badge num">3</span></div>
+            <div class="nav">Pendientes</div>
+            <div class="nav">Movimientos</div>
+            <div class="nav">Contabilidad</div>
+            <div class="grp">Comunicación</div>
+            <div class="nav">WhatsApp</div>
+            <div class="nav">Reportes</div>
+            <div class="grp">Cuenta</div>
+            <div class="nav">Configuración</div>
+            <div class="side-foot"><svg class="i"><use href="#help"/></svg>Ayuda y soporte</div>
+          </nav>
+          <div class="main">
+            <div class="ph">
+              <div><small>Lunes 5 de octubre</small><h2>Hoy en tu escuela</h2></div>
+              <div class="actions"><button class="btn" type="button">Registrar pago</button><button class="btn primary" type="button">Agregar deportista</button></div>
+            </div>
+            <h3 class="sec">Necesita tu atención</h3>
+            <div class="todo">
+              <article class="card attn"><span class="k">Pagos por aprobar</span><span class="n num">4</span><span class="t">3 mensualidades y 1 compra de la tienda</span><button class="btn sm" type="button">Revisar</button></article>
+              <article class="card attn"><span class="k">Nuevas esperando pago</span><span class="n num">1</span><span class="t">Valentina Cruz · se inscribió por QR</span><button class="btn sm" type="button">Ver inscripción</button></article>
+              <article class="card late"><span class="k">Mensualidades vencidas</span><span class="n num">7</span><span class="t num">$ 980.000 sin pagar</span><button class="btn sm" type="button">Enviar recordatorios</button></article>
+              <article class="card"><span class="k">Matrículas por revisar</span><span class="n num">0</span><span class="t">Fichas recibidas por WhatsApp</span><button class="btn sm" type="button">Abrir</button></article>
+              <article class="card store"><span class="k">Pedidos por entregar</span><span class="n num">3</span><span class="t">1 lleva más de 48 h pagado</span><button class="btn sm" type="button">Ver pedidos</button></article>
+            </div>
+            <div class="row3">
+              <section class="panel">
+                <h3 class="sec">Entrenos de hoy</h3>
+                <div class="trow"><b class="num">4:00 p. m.</b><span class="grow"><strong>Sub-14 Femenino</strong><span>Coliseo Norte · Andrea Salcedo</span></span><span class="st-attn">Lista pendiente</span></div>
+                <div class="trow"><b class="num">5:30 p. m.</b><span class="grow"><strong>Sub-16 Masculino</strong><span>Sede Salitre · Camilo Rueda</span></span><span class="st-ok num">Lista tomada · 14/16</span></div>
+                <div class="trow"><b class="num">7:00 p. m.</b><span class="grow"><strong>Mayores Mixto</strong><span>Coliseo Norte · Andrea Salcedo</span></span><span class="st-soft">Más tarde</span></div>
+              </section>
+              <section class="panel">
+                <h3 class="sec">Octubre</h3>
+                <div><span class="note">Recaudado</span><div class="big num">$ 21.480.000</div></div>
+                <div class="bar" aria-hidden="true"><span class="a" style="width:66%"></span><span class="b" style="width:5%"></span></div>
+                <div class="legend num">
+                  <span><span><i style="background:var(--primary)"></i>Mensualidades e inscripciones</span>$ 19.860.000</span>
+                  <span><span><i style="background:var(--accent)"></i>Tienda</span>$ 1.620.000</span>
+                </div>
+                <span class="note num">72 % de lo facturado en mensualidades · faltan $ 7.740.000</span>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="eyebrow">G · Admin: Pagos → Por aprobar · base UX-14</span>
+      <h2>Una sola lista de comprobantes, con el origen marcado</h2>
+      <p>Es la pestaña "Por aprobar" que ya trae la vista G. Los comprobantes de la tienda entran como un tipo más, con su chip. Cada botón llama a la función de su origen, así que mensualidades y pedidos no se mezclan en la base. El indicador de arriba cuenta lo mismo que la lista (UX-14 a). Prueba los filtros.</p>
+    </div>
+    <div class="scroll-x">
+      <div class="browser">
+        <div class="chrome"><div class="dots"><span></span><span></span><span></span></div><div class="url">app.sportmaps.co/pagos?tab=por-aprobar</div></div>
+        <div class="app">
+          <nav class="side" aria-label="Menú (maqueta)">
+            <div class="brand"><div class="brand-mark">MV</div><div><b>Monster´s Volley Club</b><span>Administración</span></div></div>
+            <div class="grp">Escuela</div>
+            <div class="nav"><svg class="i"><use href="#sun"/></svg>Hoy</div>
+            <div class="nav"><svg class="i"><use href="#person"/></svg>Deportistas</div>
+            <div class="grp">Dinero</div>
+            <div class="nav on"><svg class="i"><use href="#dollar"/></svg>Pagos<span class="badge num">4</span></div>
+            <div class="nav new"><svg class="i"><use href="#bag"/></svg>Tienda<span class="badge num">3</span></div>
+            <div class="nav">Pendientes</div>
+            <div class="nav">Movimientos</div>
+            <div class="nav">Contabilidad</div>
+            <div class="side-foot"><svg class="i"><use href="#help"/></svg>Ayuda y soporte</div>
+          </nav>
+          <div class="main">
+            <div class="ph"><div><h2>Pagos</h2></div><div class="actions"><button class="btn" type="button">Exportar</button><button class="btn primary" type="button">Registrar pago</button></div></div>
+            <div class="kpis">
+              <div class="kpi attn"><span class="k">Por aprobar</span><span class="v num">4 pagos</span><span class="s">3 de mensualidad · 1 de tienda</span></div>
+              <div class="kpi"><span class="k">Vencido</span><span class="v num">$ 980.000</span></div>
+              <div class="kpi"><span class="k">Recaudado en octubre</span><span class="v num">$ 21.480.000</span><span class="s num">incluye tienda $ 1.620.000</span></div>
+              <div class="kpi"><span class="k">Histórico</span><span class="v num">$ 184.320.000</span></div>
+            </div>
+            <div class="tabsline"><span class="on">Por aprobar (4)</span><span>Cartera (7)</span><span>Historial</span><span>Conciliación</span><span>Cierre de mes</span><span>Configuración</span></div>
+            <div class="filters" role="group" aria-label="Filtrar por origen">
+              <button class="chipbtn" type="button" data-f="all" aria-pressed="true">Todo 4</button>
+              <button class="chipbtn" type="button" data-f="mens" aria-pressed="false">Mensualidades e inscripciones 3</button>
+              <button class="chipbtn" type="button" data-f="tienda" aria-pressed="false">Tienda 1</button>
+            </div>
+            <div class="tblbox">
+              <table class="tbl" id="inbox">
+                <thead><tr><th>Fecha</th><th>Origen</th><th>Quién</th><th>Pago</th><th></th></tr></thead>
+                <tbody>
+                  <tr data-o="mens"><td class="num">5 oct</td><td><span class="chip mens">Mensualidad</span></td><td><div class="who"><b>Sofía Ramírez</b><span>Sub-14 F · octubre · acudiente Mauricio Herrera</span></div></td><td class="pay num"><b>$ 140.000</b><span>Transferencia · <a class="link" href="#inbox">ver comprobante</a></span></td><td><div class="acts"><button class="btn sm danger" type="button">Rechazar</button><button class="btn sm primary" type="button">Aprobar</button></div></td></tr>
+                  <tr data-o="tienda"><td class="num">5 oct</td><td><span class="chip tienda">Tienda</span></td><td><div class="who"><b>Pedido MV-0142 · Mauricio Herrera</b><span>Camiseta de juego M ×1 · Medias largas ×2</span></div></td><td class="pay num"><b>$ 121.000</b><span>Nequi · <a class="link" href="#inbox">ver comprobante</a></span></td><td><div class="acts"><button class="btn sm danger" type="button">Rechazar</button><button class="btn sm primary" type="button">Aprobar</button></div></td></tr>
+                  <tr data-o="mens"><td class="num">4 oct</td><td><span class="chip mens">Mensualidad</span></td><td><div class="who"><b>Juan Pablo Ortiz</b><span>Sub-16 M · octubre · acudiente Luz Ortiz</span></div></td><td class="pay num"><b>$ 140.000</b><span>Transferencia · <a class="link" href="#inbox">ver comprobante</a></span></td><td><div class="acts"><button class="btn sm danger" type="button">Rechazar</button><button class="btn sm primary" type="button">Aprobar</button></div></td></tr>
+                  <tr data-o="mens"><td class="num">3 oct</td><td><span class="chip mens">Mensualidad</span></td><td><div class="who"><b>Mateo Rojas</b><span>Sub-18 M · octubre · acudiente Ana Rojas</span></div></td><td class="pay num"><b>$ 40.000 <span style="display:inline;color:var(--fg-soft);font-weight:500">de $ 140.000</span></b><span>Abono por transferencia · <a class="link" href="#inbox">ver comprobante</a></span></td><td><div class="acts"><button class="btn sm danger" type="button">Rechazar</button><button class="btn sm primary" type="button">Aprobar abono</button></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="note">El efectivo de la tienda (pedido pagado al retirar) no pasa por aquí: se confirma en Tienda → Pedidos al entregar, con el código de retiro.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="eyebrow">Tienda · un destino, cinco pestañas · base UX-4</span>
+      <h2>Tienda → Pedidos</h2>
+      <p>Lo que hoy son 9 ítems del grupo "Mi Tienda" queda en un solo destino del menú. Pedidos es la pestaña por defecto porque es lo que se opera a diario; el resto es configuración y consulta.</p>
+    </div>
+    <div class="scroll-x">
+      <div class="browser">
+        <div class="chrome"><div class="dots"><span></span><span></span><span></span></div><div class="url">app.sportmaps.co/tienda</div></div>
+        <div class="main">
+          <div class="ph"><div><small>Tienda de Monster´s Volley Club · retiro gratis en sede</small><h2>Tienda</h2></div><div class="actions"><button class="btn" type="button">Compartir tienda</button><button class="btn primary" type="button">Nuevo producto</button></div></div>
+          <div class="tabsline"><span class="on">Pedidos (3)</span><span>Productos</span><span>Inventario (2 bajos)</span><span>Ventas</span><span>Ajustes</span></div>
+          <div class="board">
+            <div class="lane"><h4>Por preparar <span class="num">3</span></h4>
+              <div class="ord"><b>MV-0139 · Paula Vargas</b><span>Termo Monster 750 ml</span><span class="s num">$ 42.000 · pagado en línea</span><button class="btn sm primary" type="button">Empezar a preparar</button></div>
+              <div class="ord"><b>MV-0140 · Diego León</b><span>Maleta deportiva</span><span class="s num">$ 120.000 · pagado en línea</span><span class="chip attn">Pagado hace 50 h</span></div>
+              <div class="ord"><b>MV-0141 · Carolina Díaz</b><span>Rodilleras S</span><span class="s num">$ 68.000 · efectivo al retirar</span><button class="btn sm" type="button">Empezar a preparar</button></div>
+            </div>
+            <div class="lane"><h4>Listos para retirar <span class="num">2</span></h4>
+              <div class="ord"><b>MV-0136 · Laura Pineda</b><span>Rodilleras M</span><span class="s">Coliseo Norte</span><button class="btn sm" type="button">Entregar con código</button></div>
+              <div class="ord"><b>MV-0134 · Familia Suárez</b><span>Camiseta S ×2</span><span class="s">Sede Salitre</span><button class="btn sm" type="button">Entregar con código</button></div>
+            </div>
+            <div class="lane"><h4>En camino <span class="num">1</span></h4>
+              <div class="ord"><b>MV-0131 · Tomás Arango</b><span>Balón de voleibol oficial</span><span class="s">Envío a Chía · guía 7781 2203</span></div>
+            </div>
+            <div class="lane"><h4>Entregados <span class="num">17</span></h4>
+              <div class="ord"><b>MV-0128 · Sara Medina</b><span>Medias largas ×3</span><span class="chip ok">Entregado 3 oct</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="mapping">
+      <div class="mapbox"><b>Pasan a pestañas de Tienda</b><ul><li>Pedidos ← Pedidos</li><li>Productos ← Panel Tienda, Productos</li><li>Inventario ← Inventario</li><li>Ventas ← lo que el panel mostraba en $ 0</li><li>Ajustes ← Envíos, medios de pago, compartir</li></ul></div>
+      <div class="mapbox"><b>Salen para la escuela</b><ul><li><span class="strike">Liquidaciones</span>: la escuela cobra con su pasarela (D-5), no hay pago de SportMaps</li><li><span class="strike">Verificación</span>: la tienda escolar no se verifica (D-4)</li><li><span class="strike">Promociones</span>: los códigos de descuento llegan en su fase propia (F3b) y entran como pestaña de Ajustes</li><li><span class="strike">Inbox</span>: vuelve con el chat de pedidos en F5</li></ul></div>
+      <div class="mapbox"><b>Se quedan en <code>/vendor/*</code></b><ul><li>Vendedor externo y profesional con tienda propia</li><li>Coach que vende servicios por su cuenta (texto propio en su CTA)</li></ul></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="eyebrow">H · Admin en celular · base UX-14 e</span>
+      <h2>La barra del admin no cambia; la tienda vive en Hoy y en Más</h2>
+      <p>Barra Hoy · Deportistas · Pagos · Calendario · Más. Los pedidos aparecen como una fila más de la bandeja; el destino Tienda está en Más con su contador.</p>
+    </div>
+    <div class="phones">
+      <div class="phone-wrap">
+        <div class="phone">
+          <div class="ph-body">
+            <div class="ph-hello"><span>Monster´s Volley Club · lunes 5</span><b>Hoy en tu escuela</b></div>
+            <div class="row-a attn"><span class="n num">4</span><span class="tx"><b>Pagos por aprobar</b><span>3 mensualidades · 1 de tienda</span></span><svg class="i"><use href="#chev"/></svg></div>
+            <div class="row-a attn"><span class="n num">1</span><span class="tx"><b>Nueva esperando pago</b><span>Valentina Cruz · QR</span></span><svg class="i"><use href="#chev"/></svg></div>
+            <div class="row-a late"><span class="n num">7</span><span class="tx"><b>Mensualidades vencidas</b><span>$ 980.000 · enviar recordatorios</span></span><svg class="i"><use href="#chev"/></svg></div>
+            <div class="row-a"><span class="n num">0</span><span class="tx"><b>Matrículas por revisar</b><span>Fichas por WhatsApp</span></span><svg class="i"><use href="#chev"/></svg></div>
+            <div class="row-a store"><span class="n num">3</span><span class="tx"><b>Pedidos por entregar</b><span>Tienda · 1 con más de 48 h</span></span><svg class="i"><use href="#chev"/></svg></div>
+            <div class="pc"><span class="sec-t">Octubre</span><div class="bar"><span class="a" style="width:66%"></span><span class="b" style="width:5%"></span></div><span class="note num" style="font-size:.64rem">$ 19.860.000 mensualidades · $ 1.620.000 tienda</span></div>
+          </div>
+          <div class="tabbar"><span class="on"><svg class="i"><use href="#sun"/></svg>Hoy</span><span><svg class="i"><use href="#person"/></svg>Deportistas</span><span><svg class="i"><use href="#dollar"/></svg>Pagos<b>4</b></span><span><svg class="i"><use href="#cal"/></svg>Calendario</span><span><svg class="i"><use href="#menu"/></svg>Más</span></div>
+        </div>
+        <p class="phone-cap"><b>Hoy</b>La quinta fila solo existe con la tienda abierta.</p>
+      </div>
+      <div class="phone-wrap">
+        <div class="phone">
+          <div class="ph-body">
+            <div class="ph-hello"><span>Laura Gómez · Administradora</span><b>Más</b></div>
+            <span class="grp-t">Dinero</span>
+            <div class="menu-list">
+              <div class="new"><svg class="i"><use href="#bag"/></svg><span class="tx"><b>Tienda</b><span>Pedidos, productos e inventario</span></span><span class="badge num">3</span></div>
+              <div><span class="tx"><b>Pendientes</b><span>Por cobrar, por pagar, nómina</span></span><svg class="i"><use href="#chev"/></svg></div>
+              <div><span class="tx"><b>Movimientos</b><span>Entradas y salidas de caja</span></span><svg class="i"><use href="#chev"/></svg></div>
+              <div><span class="tx"><b>Contabilidad</b><span>Libro y estado de resultados</span></span><svg class="i"><use href="#chev"/></svg></div>
+            </div>
+            <span class="grp-t">Escuela</span>
+            <div class="menu-list">
+              <div><span class="tx"><b>Equipos</b><span>Planes y horarios</span></span><svg class="i"><use href="#chev"/></svg></div>
+              <div><span class="tx"><b>Entrenadores</b><span>Equipo técnico</span></span><svg class="i"><use href="#chev"/></svg></div>
+            </div>
+            <span class="grp-t">Cuenta</span>
+            <div class="menu-list">
+              <div><svg class="i"><use href="#help"/></svg><span class="tx"><b>Ayuda y soporte</b><span>Escríbenos si algo no funciona</span></span></div>
+              <div><span class="tx"><b>Configuración</b><span>Notificaciones y tema</span></span><svg class="i"><use href="#chev"/></svg></div>
+            </div>
+          </div>
+          <div class="tabbar"><span><svg class="i"><use href="#sun"/></svg>Hoy</span><span><svg class="i"><use href="#person"/></svg>Deportistas</span><span><svg class="i"><use href="#dollar"/></svg>Pagos<b>4</b></span><span><svg class="i"><use href="#cal"/></svg>Calendario</span><span class="on"><svg class="i"><use href="#menu"/></svg>Más</span></div>
+        </div>
+        <p class="phone-cap"><b>Más</b>Tienda arriba en Dinero, con contador. Ayuda y soporte reemplaza al botón flotante (UX-16).</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="eyebrow">I · J · Más · acudiente · base UX-15</span>
+      <h2>El acudiente compra sin perder su barra</h2>
+      <p>La barra aprobada se queda tal cual: Inicio · Calendario · Hijos · Pagos · Más. La tienda no gana pestaña porque el acudiente entra sobre todo a pagar y a ver a su hijo, y una sexta pestaña o un reemplazo rompería eso. Las compras viven donde vive el dinero (Pagos), la vitrina se abre desde Más o desde una tarjeta discreta al final de Inicio, y todo se ve dentro de la app.</p>
+    </div>
+    <div class="phones">
+
+      <div class="phone-wrap">
+        <div class="phone">
+          <div class="ph-body">
+            <div class="ph-hello"><span>Monster´s Volley Club</span><b>Hola, Mauricio</b></div>
+            <div class="pc attn">
+              <div class="lr"><div><span class="k">Por pagar</span><b>Mensualidad de octubre</b><span>Sofía · vence el 10</span></div><b class="num" style="font-size:.95rem">$ 140.000</b></div>
+              <button class="pbtn" type="button">Pagar ahora</button>
+              <span class="plink">Ya pagué: subir comprobante</span>
+            </div>
+            <div class="pc">
+              <b>Sofía Ramírez</b><span class="crumb">Sub-14 Femenino · Andrea Salcedo</span>
+              <div class="two"><div class="mini"><span>Próximo entreno</span><b>Hoy · 4:00 p. m.</b></div><div class="mini"><span>Asistencia de oct</span><b class="num">2 de 2</b></div></div>
+            </div>
+            <span class="sec-t">Avisos del club</span>
+            <div class="pc"><div class="rowi"><span class="tx"><b>Sáb 11 · Festival Sub-14</b><span>Coliseo Norte</span></span></div></div>
+            <div class="pc store"><div class="lr"><div><b>Tienda del club</b><span>Camiseta 2026 y rodilleras ya disponibles</span></div><span class="sec-t"><span class="more">Ver</span></span></div></div>
+          </div>
+          <div class="tabbar"><span class="on"><svg class="i"><use href="#home"/></svg>Inicio</span><span><svg class="i"><use href="#cal"/></svg>Calendario</span><span><svg class="i"><use href="#users"/></svg>Hijos</span><span><svg class="i"><use href="#dollar"/></svg>Pagos<b>1</b></span><span><svg class="i"><use href="#menu"/></svg>Más</span></div>
+        </div>
+        <p class="phone-cap"><b>Inicio</b>Por pagar sigue primero. La tienda es una tarjeta de una línea al final, y solo si el club tiene tienda publicada.</p>
+      </div>
+
+      <div class="phone-wrap">
+        <div class="phone">
+          <div class="ph-body">
+            <div class="ph-hello"><b>Pagos y compras</b><span>Debes <strong class="num">$ 140.000</strong> · tienes 2 productos en el carrito</span></div>
+            <span class="sec-t">Por pagar</span>
+            <div class="pc attn"><div class="lr"><div><b>Mensualidad de octubre</b><span>Sofía · vence el 10</span></div><b class="num">$ 140.000</b></div><div class="two"><button class="pbtn ghost" type="button">Subir comprobante</button><button class="pbtn" type="button">Pagar en línea</button></div></div>
+            <div class="pc store"><div class="lr"><div><b>Carrito de la tienda</b><span>Camiseta M · Medias ×2</span></div><b class="num">$ 121.000</b></div><button class="pbtn ghost" type="button">Revisar y pagar</button></div>
+            <span class="sec-t">En revisión del club</span>
+            <div class="pc"><div class="rowi"><span class="ic t"><svg class="i"><use href="#bag"/></svg></span><span class="tx"><b>Compra MV-0142</b><span>Comprobante enviado hoy</span></span><span class="am num">$ 121.000<span class="chip attn">En revisión</span></span></div></div>
+            <span class="sec-t">Pagados <span class="more">Estado de cuenta</span></span>
+            <div class="pc" style="padding-block:4px">
+              <div class="rowi"><span class="ic m"><svg class="i"><use href="#dollar"/></svg></span><span class="tx"><b>Mensualidad septiembre</b><span>3 sep · transferencia</span></span><span class="am num">$ 140.000</span></div>
+              <div class="rowi"><span class="ic t"><svg class="i"><use href="#bag"/></svg></span><span class="tx"><b>Compra MV-0118</b><span>Rodilleras S · entregada</span></span><span class="am num">$ 68.000</span></div>
+            </div>
+          </div>
+          <div class="tabbar"><span><svg class="i"><use href="#home"/></svg>Inicio</span><span><svg class="i"><use href="#cal"/></svg>Calendario</span><span><svg class="i"><use href="#users"/></svg>Hijos</span><span class="on"><svg class="i"><use href="#dollar"/></svg>Pagos<b>1</b></span><span><svg class="i"><use href="#menu"/></svg>Más</span></div>
+        </div>
+        <p class="phone-cap"><b>Pagos (vista J ampliada)</b>Mismas secciones aprobadas: Por pagar, En revisión del club, Pagados. Las compras entran en cada una; el carrito aparece solo si tiene algo.</p>
+      </div>
+
+      <div class="phone-wrap">
+        <div class="phone">
+          <div class="ph-body">
+            <div class="ph-hello"><span>Mauricio Herrera · acudiente</span><b>Más</b></div>
+            <div class="menu-list">
+              <div class="new"><svg class="i"><use href="#bag"/></svg><span class="tx"><b>Tienda del club</b><span>Uniformes, protección y balones</span></span><svg class="i"><use href="#chev"/></svg></div>
+              <div><span class="tx"><b>Mis inscripciones</b><span>Planes y horarios de Sofía</span></span><svg class="i"><use href="#chev"/></svg></div>
+              <div><span class="tx"><b>Carnets</b><span>Carnet digital de Sofía</span></span><svg class="i"><use href="#chev"/></svg></div>
+              <div><span class="tx"><b>Mensajes del club</b><span>Avisos y comunicados</span></span><svg class="i"><use href="#chev"/></svg></div>
+            </div>
+            <div class="menu-list">
+              <div><svg class="i"><use href="#help"/></svg><span class="tx"><b>Ayuda y soporte</b><span>Escríbenos si algo no funciona</span></span></div>
+              <div><span class="tx"><b>Configuración</b><span>Notificaciones y tema</span></span><svg class="i"><use href="#chev"/></svg></div>
+            </div>
+          </div>
+          <div class="tabbar"><span><svg class="i"><use href="#home"/></svg>Inicio</span><span><svg class="i"><use href="#cal"/></svg>Calendario</span><span><svg class="i"><use href="#users"/></svg>Hijos</span><span><svg class="i"><use href="#dollar"/></svg>Pagos<b>1</b></span><span class="on"><svg class="i"><use href="#menu"/></svg>Más</span></div>
+        </div>
+        <p class="phone-cap"><b>Más</b>"Tienda del club" encabeza la lista. "Mis compras" no está: vive en Pagos.</p>
+      </div>
+
+      <div class="phone-wrap">
+        <div class="phone">
+          <div class="ph-body">
+            <span class="crumb"><svg class="i" style="width:12px;height:12px"><use href="#arrow"/></svg>Más</span>
+            <div class="ph-hello"><b>Tienda del club</b><span>Monster´s Volley Club</span></div>
+            <div class="pill">Retiro gratis en Coliseo Norte o Sede Salitre</div>
+            <div class="grid2">
+              <div class="prod"><div class="img"><svg class="i"><use href="#shirt"/></svg></div><div class="info"><span class="n">Camiseta de juego 2026</span><span class="p num">$ 85.000</span><button class="add" type="button">Elegir talla</button></div></div>
+              <div class="prod"><div class="img"><svg class="i"><use href="#knee"/></svg></div><div class="info"><span class="n">Rodilleras acolchadas</span><span class="p num">$ 68.000</span><button class="add" type="button">Elegir talla</button></div></div>
+              <div class="prod"><div class="img"><svg class="i"><use href="#bottle"/></svg></div><div class="info"><span class="n">Termo 750 ml · solo socios</span><span class="p num">$ 42.000</span><button class="add" type="button">Agregar</button></div></div>
+              <div class="prod"><div class="img"><svg class="i"><use href="#sock"/></svg></div><div class="info"><span class="n">Medias largas</span><span class="p num">$ 18.000</span><button class="add" type="button">Agregar</button></div></div>
+            </div>
+            <div class="pc store"><div class="lr"><div><b>2 productos</b><span>Camiseta M · Medias ×2</span></div><b class="num">$ 121.000</b></div></div>
+          </div>
+          <div class="tabbar"><span><svg class="i"><use href="#home"/></svg>Inicio</span><span><svg class="i"><use href="#cal"/></svg>Calendario</span><span><svg class="i"><use href="#users"/></svg>Hijos</span><span><svg class="i"><use href="#dollar"/></svg>Pagos<b>1</b></span><span class="on"><svg class="i"><use href="#menu"/></svg>Más</span></div>
+        </div>
+        <p class="phone-cap"><b>Vitrina</b>Dentro de la app, con la barra visible y Más marcado. Hoy esta ruta es pública y saca al padre del menú.</p>
+      </div>
+
+      <div class="phone-wrap">
+        <div class="phone">
+          <div class="ph-body">
+            <span class="crumb"><svg class="i" style="width:12px;height:12px"><use href="#arrow"/></svg>Tienda del club</span>
+            <div class="ph-hello"><b>Tu carrito</b></div>
+            <div class="pc">
+              <div class="line"><div class="th"><svg class="i"><use href="#shirt"/></svg></div><div class="tx"><b>Camiseta de juego 2026</b><span>Talla M</span></div><b class="num">$ 85.000</b></div>
+              <div class="line"><div class="th"><svg class="i"><use href="#sock"/></svg></div><div class="tx"><b>Medias largas ×2</b><span>Única</span></div><b class="num">$ 36.000</b></div>
+            </div>
+            <div class="radio on"><span class="dot"></span>Retiro en Coliseo Norte · gratis</div>
+            <div class="radio on"><span class="dot"></span>Nequi o transferencia (subes el comprobante)</div>
+            <div class="radio"><span class="dot"></span>Tarjeta o PSE</div>
+            <div class="sum num"><div><span>Incluye IVA</span><span>$ 19.319</span></div><div class="tot"><span>Total</span><span>$ 121.000</span></div></div>
+            <button class="pbtn" type="button">Pagar $ 121.000</button>
+          </div>
+          <div class="tabbar"><span><svg class="i"><use href="#home"/></svg>Inicio</span><span><svg class="i"><use href="#cal"/></svg>Calendario</span><span><svg class="i"><use href="#users"/></svg>Hijos</span><span><svg class="i"><use href="#dollar"/></svg>Pagos<b>1</b></span><span class="on"><svg class="i"><use href="#menu"/></svg>Más</span></div>
+        </div>
+        <p class="phone-cap"><b>Carrito y pago</b>Una pantalla, IVA incluido, retiro por defecto (spec tienda v2 §2.5). La compra queda en Pagos → En revisión.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="eyebrow">Contabilidad · ERP-6</span>
+      <h2>Cómo llega una venta a los números de la escuela</h2>
+      <p>Hoy la venta solo llega a Contabilidad v2. El recaudo de Hoy y de Pagos lee únicamente los cobros de mensualidad.</p>
+    </div>
+    <div class="flow">
+      <div class="step"><span class="n">Pedido cobrado</span><h3>MV-0142 · $ 121.000</h3><p>Aprobado en Pagos → Por aprobar, o pagado en línea.</p></div>
+      <div class="step"><span class="n">Hoy y Pagos</span><h3>Recaudo con desglose</h3><p>Mensualidades / Tienda, leyendo los pedidos cobrados del mes.</p></div>
+      <div class="step"><span class="n">Tienda → Ventas</span><h3>Detalle</h3><p>Por día y por producto, ticket promedio.</p></div>
+      <div class="step"><span class="n">Movimientos · Contabilidad</span><h3>Asiento automático</h3><p>Evento <code>commerce_sale</code> al outbox contable (ya construido); reembolsos como <code>commerce_refund</code>.</p></div>
+      <div class="step"><span class="n">Facturación</span><h3>Factura de la orden</h3><p>Emisor: la escuela, solo con prueba de pago.</p></div>
+    </div>
+    <p class="rule">La tienda no se copia a los cobros de mensualidad ni abre otra rama en el libro de caja. El desglose es lectura de pedidos; el asiento sale del outbox.</p>
+  </section>
+
+  <footer>Análisis, cambios por archivo y fases en <code>docs/specs/tienda-cambio-gestion-a-tienda.md</code> (sección "Encaje con el rediseño del ROADMAP"). Base visual: mockup aprobado F–K. Datos inventados de ejemplo.</footer>
+</main>
+
+<script>
+(function () {
+  var btns = document.querySelectorAll('.chipbtn[data-f]');
+  var rows = document.querySelectorAll('#inbox tbody tr');
+  btns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var f = b.getAttribute('data-f');
+      btns.forEach(function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+      rows.forEach(function (r) { r.hidden = !(f === 'all' || r.getAttribute('data-o') === f); });
+    });
+  });
+})();
+</script>

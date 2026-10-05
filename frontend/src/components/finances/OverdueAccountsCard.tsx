@@ -10,6 +10,7 @@ import { FailedAttemptChip } from '@/components/payment/FailedAttemptChip';
 import { StatFilterBar } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { isOverdueCharge, remainingBalance, type ChargeState } from '@/lib/paymentCartera';
+import { contactoDeFicha, type FichaContacto } from '@/lib/invitations/contactoFicha';
 
 /** Una fila embebida de PostgREST llega como objeto o como array de un elemento. */
 const embedded = <T,>(v: unknown): T | null =>
@@ -58,7 +59,7 @@ const resolvePayer = (p: PayableRow): { name: string | null; phone: string | nul
   const child = embedded<ChildRef>(p.student);
   const account = embedded<PersonRef>(p.parent);
   const adult = embedded<PersonRef>(p.athlete);
-  const unreg = embedded<PersonRef>(p.unregistered);
+  const unreg = embedded<FichaContacto>(p.unregistered);
 
   const fromAccount = clean(account?.full_name);
   if (fromAccount) return { name: fromAccount, phone: clean(account?.phone), source: 'account' };
@@ -69,8 +70,14 @@ const resolvePayer = (p: PayableRow): { name: string | null; phone: string | nul
   const fromAdult = clean(adult?.full_name);
   if (fromAdult) return { name: fromAdult, phone: clean(adult?.phone), source: 'self' };
 
-  const fromUnreg = clean(unreg?.full_name);
-  if (fromUnreg) return { name: fromUnreg, phone: clean(unreg?.phone), source: 'unregistered' };
+  // Ficha sin cuenta: si es de un MENOR, el WhatsApp de cobranza va al
+  // ACUDIENTE (guardian_*), nunca al celular del niño (H-06 del informe Monster:
+  // 76 de 87 menores tienen otro teléfono que su acudiente).
+  if (unreg) {
+    const c = contactoDeFicha(unreg);
+    const name = clean(c.nombre) ?? clean(unreg.full_name);
+    if (name) return { name, phone: clean(c.phone), source: 'unregistered' };
+  }
 
   return { name: null, phone: null, source: 'none' };
 };

@@ -48,6 +48,7 @@ import { formatCurrency } from '@/lib/utils';
 import {
     invoicingApi, OwnerType, InvoiceProviderRow, InvoiceRow, BackfillInvoicesResult,
     BACKFILL_MAX_LIMIT, BACKFILL_MAX_DAYS, CREDIT_NOTE_RANGE_KEY, creditNoteRangeId,
+    INVOICE_PAGE_SIZE, InvoiceStatusFilter,
 } from '@/lib/api/invoicing';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -78,6 +79,8 @@ import {
 import type { MissingBillingData, RangeSummary } from '@/components/accounting/MissingBillingDataPanel';
 import { CopyButton, CufeLine } from '@/components/accounting/InvoiceIdentifiers';
 import { VoidInvoiceDialog } from '@/components/accounting/VoidInvoiceDialog';
+import { EmitPaymentInvoiceButton } from '@/components/accounting/EmitPaymentInvoiceButton';
+import { reasonLabel } from '@/components/accounting/invoiceReasons';
 import {
     FileText, Loader2, Plus, AlertCircle, RefreshCw, ExternalLink, CheckCircle2, Settings2,
     Clock, Hourglass, XCircle, Ban, Send, ShieldAlert, MapPin, FileMinus2, CornerUpLeft,
@@ -183,48 +186,8 @@ function mesEnCurso(hoy = new Date()) {
 
 // ─── Traducción de los códigos de error del motor ───────────────────────────
 
-/**
- * Los códigos que devuelve `emitInvoiceForPayment`. Se traducen acá porque un
- * `customer_missing_fiscal_data` en pantalla no le dice a nadie qué hacer, y el
- * resultado del backfill tiene que ser accionable o no sirve de nada.
- */
-const REASON_LABEL: Record<string, string> = {
-    customer_missing_fiscal_data: 'Al pagador le falta documento o dirección',
-    customer_missing_municipality: 'Al pagador le falta el municipio (código DANE)',
-    payment_without_payer: 'El cobro no tiene pagador vinculado',
-    payment_without_school: 'El cobro no tiene escuela',
-    payment_not_found: 'El cobro ya no existe',
-    payment_not_paid: 'El cobro no está cobrado',
-    no_invoice_provider: 'No hay facturador activo configurado',
-    cannot_resolve_owner: 'No se pudo resolver a nombre de quién factura',
-    provider_missing_numbering_range: 'Al facturador le falta el rango de numeración',
-    draft_failed: 'No se pudo preparar el documento',
-    emit_threw: 'El proveedor falló al recibir el documento',
-    pac_transport_error: 'No se pudo confirmar con el proveedor (queda en cola para reintentar)',
-    already_invoiced: 'Ya tenía factura viva',
-    dry_run: 'Solo simulación: no se emitió',
-    date_range_invalid: 'El rango de fechas no es válido',
-};
-
-/**
- * Prefijo con el que el motor marca un fallo de TRANSPORTE (red, timeout, 5xx).
- * No es un rechazo: el documento pudo quedar creado en el PAC, así que la fila
- * se queda 'queued' para que la reconciliación la complete. Decirle "rechazada"
- * a esto es lo que quemaba un número y lo dejaba perdido.
- */
-const TRANSPORT_PREFIX = 'transporte:';
-
-function reasonLabel(reason: string | null | undefined): string {
-    if (!reason) return 'Sin motivo reportado';
-    if (REASON_LABEL[reason]) return REASON_LABEL[reason];
-    if (reason.startsWith(TRANSPORT_PREFIX)) {
-        return `Fallo de comunicación con el proveedor: ${reason.slice(TRANSPORT_PREFIX.length).trim()}`;
-    }
-    const conPrefijo = Object.keys(REASON_LABEL).find((k) => reason.startsWith(`${k}:`));
-    if (conPrefijo) return REASON_LABEL[conPrefijo];
-    // Lo que no está en el mapa es el mensaje crudo del PAC: se muestra tal cual.
-    return reason;
-}
+// Los códigos del motor se traducen en ./invoiceReasons (compartido con el
+// panel de datos faltantes y el botón de emitir un pago).
 
 /**
  * Cuántos pagos representa una línea de `details`.
@@ -274,11 +237,56 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
         queryFn: () => invoicingApi.listProviders(ownerType, ownerId),
     });
 
+    // Paginación y filtros DEL SERVIDOR. Antes se traían las 200 más recientes
+    // y lo demás desaparecía sin aviso (Dynasty ya pasa de 240 documentos).
+    const [page, setPage] = useState(1);
+    const [estadoFiltro, setEstadoFiltro] = useState<'todos' | InvoiceStatusFilter>('todos');
+    const [desdeFiltro, setDesdeFiltro] = useState('');
+    const [hastaFiltro, setHastaFiltro] = useState('');
+    const fechasInvertidas = !!desdeFiltro && !!hastaFiltro && desdeFiltro > hastaFiltro;
+    const filtros = {
+        page,
+        pageSize: INVOICE_PAGE_SIZE,
+        status: estadoFiltro === 'todos' ? [] : [estadoFiltro],
+        from: desdeFiltro || null,
+        to: hastaFiltro || null,
+    };
+    const hayFiltros = estadoFiltro !== 'todos' || !!desdeFiltro || !!hastaFiltro;
+    const cambiarFiltro = (fn: () => void) => { fn(); setPage(1); };
+
     const invoicesQuery = useQuery({
-        queryKey: ['einv-invoices', ownerType, ownerId],
-        enabled: !!ownerId,
-        queryFn: () => invoicingApi.listInvoices(ownerType, ownerId),
+        // El prefijo ['einv-invoices', ownerType, ownerId] se mantiene: las
+        // invalidaciones de abajo lo usan y alcanzan a todas las páginas.
+        queryKey: ['einv-invoices', ownerType, ownerId, filtros],
+        enabled: !!ownerId && !fechasInvertidas,
+        placeholderData: (prev) => prev,
+        queryFn: () => invoicingApi.listInvoices(ownerType, ownerId, filtros),
     });
+    const canEmit = invoicesQuery.data?.canEmit === true;
+    const refrescarFacturas = () => {
+        queryClient.invalidateQueries({ queryKey: ['einv-invoices', ownerType, ownerId] });
+        queryClient.invalidateQueries({ queryKey: ['einv-missing-billing', ownerId] });
+    };
+
+    const [cambiandoEstado, setCambiandoEstado] = useState(false);
+    const cambiarActivo = async (enabled: boolean) => {
+        if (!provider) return;
+        setCambiandoEstado(true);
+        try {
+            await invoicingApi.setProviderEnabled(provider.id, enabled);
+            toast({
+                title: enabled ? 'Facturador activado' : 'Facturador desactivado',
+                description: enabled
+                    ? 'Los pagos cobrados de los últimos días se facturan solos en los próximos 15 minutos.'
+                    : 'No se emite nada más, ni automático ni por rango, hasta que lo vuelvas a activar.',
+            });
+            queryClient.invalidateQueries({ queryKey: ['einv-providers', ownerType, ownerId] });
+        } catch (err: any) {
+            toast({ title: 'No se pudo cambiar', description: err?.message ?? 'Error desconocido', variant: 'destructive' });
+        } finally {
+            setCambiandoEstado(false);
+        }
+    };
 
     const provider = providersQuery.data?.providers?.[0] ?? null;
     const supported = providersQuery.data?.supported ?? ['factus'];
@@ -287,6 +295,11 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
     // índice factura ↔ nota crédito) se recalculaban siempre y la memoización
     // era decorativa.
     const invoices = useMemo(() => invoicesQuery.data?.invoices ?? [], [invoicesQuery.data]);
+    // Notas crédito de facturas de esta página que quedaron en otra: solo
+    // alimentan el cruce, no se pintan como filas.
+    const linked = useMemo(() => invoicesQuery.data?.linked ?? [], [invoicesQuery.data]);
+    const totalDocs = invoicesQuery.data?.total ?? 0;
+    const totalPaginas = invoicesQuery.data?.totalPages ?? 1;
 
     // Los datos fiscales faltantes solo aplican al dueño 'school': la lista se
     // arma sobre `payments.school_id` y el formulario del admin pasa por
@@ -308,12 +321,18 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
         });
     };
 
-    const rechazadas = useMemo(() => invoices.filter((i) => i.status === 'rejected'), [invoices]);
-    const enCola = useMemo(() => invoices.filter((i) => i.status === 'queued'), [invoices]);
-    const anuladas = useMemo(
-        () => invoices.filter((i) => i.status === 'void' && i.document_type !== 'credit_note'),
-        [invoices],
-    );
+    // Los avisos cuentan TODO el dueño (summary del BFF, sin filtros ni
+    // paginación): una rechazada en la página 4 tiene que verse igual. Si el
+    // BFF es viejo y no manda summary, se cae a contar la página visible.
+    const summary = invoicesQuery.data?.summary ?? null;
+    const resumenDe = (status: 'rejected' | 'queued' | 'void') => {
+        if (summary) return summary[status];
+        const filas = invoices.filter((i) => i.status === status && !(status === 'void' && i.document_type === 'credit_note'));
+        return { count: filas.length, total: filas.reduce((a, i) => a + (Number(i.total) || 0), 0) };
+    };
+    const rechazadas = resumenDe('rejected');
+    const enCola = resumenDe('queued');
+    const anuladas = resumenDe('void');
 
     /**
      * Índice de las dos direcciones del enlace factura ↔ nota crédito.
@@ -326,10 +345,12 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
      * pasa cuando hay algo que anular.
      */
     const { notaDeFactura, facturaDeNota } = useMemo(() => {
-        const porId = new Map(invoices.map((i) => [i.id, i]));
+        const porId = new Map([...linked, ...invoices].map((i) => [i.id, i]));
         const notaDeFactura = new Map<string, InvoiceRow>();
         const facturaDeNota = new Map<string, InvoiceRow>();
-        for (const inv of invoices) {
+        // `linked` trae lo que vive en OTRA página: notas crédito de facturas de
+        // esta, y facturas anuladas por notas crédito de esta.
+        for (const inv of [...invoices, ...linked]) {
             const ncId = inv.voided_by_invoice_id;
             if (!ncId) continue;
             const nc = porId.get(ncId);
@@ -341,7 +362,7 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
             facturaDeNota.set(nc.id, inv);
         }
         return { notaDeFactura, facturaDeNota };
-    }, [invoices]);
+    }, [invoices, linked]);
 
     // La factura que el admin pidió anular. Una sola a la vez y en estado del
     // padre: un diálogo por fila multiplicaría por 200 el formulario de una
@@ -352,10 +373,121 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
     // (dueño 'school') y el de una sola sección (vendor/organizer).
     const facturasEmitidasCard = (
         <Card>
-            <CardHeader>
+            <CardHeader className="space-y-3">
                 <CardTitle>Facturas emitidas</CardTitle>
+                {/* Filtros del lado del servidor: estado y fecha de creación
+                    (día de Colombia, inclusivo). Cambiar un filtro vuelve a la
+                    página 1. */}
+                <div className="flex flex-wrap items-end gap-3">
+                    <div className="grid gap-1">
+                        <Label className="text-xs">Estado</Label>
+                        <Select
+                            value={estadoFiltro}
+                            onValueChange={(v) => cambiarFiltro(() => setEstadoFiltro(v as typeof estadoFiltro))}
+                        >
+                            <SelectTrigger className="h-8 w-[13rem]"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="todos">Todos</SelectItem>
+                                <SelectItem value="accepted">Validadas por la DIAN</SelectItem>
+                                <SelectItem value="sent">Emitidas · esperando DIAN</SelectItem>
+                                <SelectItem value="queued">En cola</SelectItem>
+                                <SelectItem value="rejected">Rechazadas</SelectItem>
+                                <SelectItem value="void">Anuladas</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="grid gap-1">
+                        <Label className="text-xs" htmlFor="einv-desde">Desde</Label>
+                        <Input
+                            id="einv-desde"
+                            type="date"
+                            className="h-8 w-[10rem]"
+                            value={desdeFiltro}
+                            onChange={(e) => cambiarFiltro(() => setDesdeFiltro(e.target.value))}
+                        />
+                    </div>
+                    <div className="grid gap-1">
+                        <Label className="text-xs" htmlFor="einv-hasta">Hasta</Label>
+                        <Input
+                            id="einv-hasta"
+                            type="date"
+                            className="h-8 w-[10rem]"
+                            value={hastaFiltro}
+                            onChange={(e) => cambiarFiltro(() => setHastaFiltro(e.target.value))}
+                        />
+                    </div>
+                    {hayFiltros && (
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => cambiarFiltro(() => { setEstadoFiltro('todos'); setDesdeFiltro(''); setHastaFiltro(''); })}
+                        >
+                            Quitar filtros
+                        </Button>
+                    )}
+                </div>
+                {fechasInvertidas && (
+                    <p className="text-xs text-destructive">La fecha «desde» es posterior a «hasta».</p>
+                )}
             </CardHeader>
             <CardContent className="space-y-4 p-0">
+                {/* Resumen de lo que está roto, ARRIBA de la tabla y contado
+                    sobre TODAS las facturas (no solo la página ni el filtro):
+                    una rechazada en la página 4 no se encuentra, y así es como
+                    se acumularon sin que nadie se enterara. */}
+                {rechazadas.count > 0 && (
+                    <div className="px-6 pt-4">
+                        <Alert variant="destructive">
+                            <ShieldAlert className="h-4 w-4" />
+                            <AlertDescription className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                                {/* «documento(s)» y no «factura(s)»: desde que existen las
+                                    notas crédito, la tabla tiene dos tipos de documento y una
+                                    nota crédito rechazada significa que la factura que iba a
+                                    anular SIGUE vigente. */}
+                                <span>
+                                    <strong>{rechazadas.count} documento(s) rechazado(s)</strong> por{' '}
+                                    {formatCurrency(rechazadas.total)}.
+                                    Ninguno se reemite solo: el motivo de cada uno está en su fila, y hay que
+                                    corregir ese dato antes de volver a emitir.
+                                </span>
+                                {estadoFiltro !== 'rejected' && (
+                                    <Button size="sm" variant="outline" onClick={() => cambiarFiltro(() => setEstadoFiltro('rejected'))}>
+                                        Ver rechazadas
+                                    </Button>
+                                )}
+                            </AlertDescription>
+                        </Alert>
+                    </div>
+                )}
+                {enCola.count > 0 && (
+                    <div className="px-6 pt-2">
+                        <Alert>
+                            <Hourglass className="h-4 w-4" />
+                            <AlertDescription className="text-xs">
+                                <strong>{enCola.count} en cola nuestra:</strong> se prepararon pero no
+                                llegaron al proveedor, así que no consumieron número de la resolución.
+                                Se pueden reintentar sin costo.
+                            </AlertDescription>
+                        </Alert>
+                    </div>
+                )}
+                {/* Las anuladas se cuentan aparte y en tono neutro: no
+                    hay nada roto, pero dejaron de sumar al total
+                    facturado y su número sigue consumido. */}
+                {anuladas.count > 0 && (
+                    <div className="px-6 pt-2">
+                        <Alert>
+                            <Ban className="h-4 w-4" />
+                            <AlertDescription className="text-xs">
+                                <strong>{anuladas.count} factura(s) anulada(s)</strong> por{' '}
+                                {formatCurrency(anuladas.total)}.
+                                Ya no tienen efecto, pero <strong>siguen existiendo</strong> ante la DIAN con
+                                su número consumido: la nota crédito que anuló a cada una está en su fila.
+                            </AlertDescription>
+                        </Alert>
+                    </div>
+                )}
+
                 {invoicesQuery.isError ? (
                     <div className="p-6">
                         <div className="flex items-start gap-2 text-sm text-muted-foreground">
@@ -373,60 +505,12 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
                 ) : invoices.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
                         <FileText className="h-10 w-10 opacity-30" />
-                        <p className="text-sm">Aún no hay facturas emitidas.</p>
+                        <p className="text-sm">
+                            {hayFiltros ? 'Ningún documento coincide con los filtros.' : 'Aún no hay facturas emitidas.'}
+                        </p>
                     </div>
                 ) : (
                     <>
-                        {/* Resumen de lo que está roto, ARRIBA de la tabla. Una
-                            rechazada perdida entre 200 filas no se encuentra:
-                            así es como se acumularon sin que nadie se enterara. */}
-                        {rechazadas.length > 0 && (
-                            <div className="px-6 pt-4">
-                                <Alert variant="destructive">
-                                    <ShieldAlert className="h-4 w-4" />
-                                    <AlertDescription className="text-xs">
-                                        {/* «documento(s)» y no «factura(s)»: desde que existen las
-                                            notas crédito, la tabla tiene dos tipos de documento y una
-                                            nota crédito rechazada significa que la factura que iba a
-                                            anular SIGUE vigente. */}
-                                        <strong>{rechazadas.length} documento(s) rechazado(s)</strong> por{' '}
-                                        {formatCurrency(rechazadas.reduce((a, i) => a + (Number(i.total) || 0), 0))}.
-                                        Ninguno se reemite solo: el motivo de cada uno está en su fila, y hay que
-                                        corregir ese dato antes de volver a emitir.
-                                    </AlertDescription>
-                                </Alert>
-                            </div>
-                        )}
-                        {enCola.length > 0 && (
-                            <div className="px-6 pt-2">
-                                <Alert>
-                                    <Hourglass className="h-4 w-4" />
-                                    <AlertDescription className="text-xs">
-                                        <strong>{enCola.length} en cola nuestra:</strong> se prepararon pero no
-                                        llegaron al proveedor, así que no consumieron número de la resolución.
-                                        Se pueden reintentar sin costo.
-                                    </AlertDescription>
-                                </Alert>
-                            </div>
-                        )}
-                        {/* Las anuladas se cuentan aparte y en tono neutro: no
-                            hay nada roto, pero dejaron de sumar al total
-                            facturado y su número sigue consumido. Sin este
-                            renglón, un mes que cuadraba deja de cuadrar y no hay
-                            dónde ver por qué. */}
-                        {anuladas.length > 0 && (
-                            <div className="px-6 pt-2">
-                                <Alert>
-                                    <Ban className="h-4 w-4" />
-                                    <AlertDescription className="text-xs">
-                                        <strong>{anuladas.length} factura(s) anulada(s)</strong> por{' '}
-                                        {formatCurrency(anuladas.reduce((a, i) => a + (Number(i.total) || 0), 0))}.
-                                        Ya no tienen efecto, pero <strong>siguen existiendo</strong> ante la DIAN con
-                                        su número consumido: la nota crédito que anuló a cada una está en su fila.
-                                    </AlertDescription>
-                                </Alert>
-                            </div>
-                        )}
                         <div className="overflow-x-auto">
                             <Table>
                                 <TableHeader>
@@ -446,10 +530,36 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
                                             notaCredito={notaDeFactura.get(inv.id) ?? null}
                                             facturaAnulada={facturaDeNota.get(inv.id) ?? null}
                                             onAnular={() => setAAnular(inv)}
+                                            canEmit={canEmit}
+                                            onEmitted={refrescarFacturas}
                                         />
                                     ))}
                                 </TableBody>
                             </Table>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2 px-6 pb-4 text-xs text-muted-foreground">
+                            <span>
+                                {totalDocs} documento(s){hayFiltros ? ' con estos filtros' : ''} · página {page} de {totalPaginas}
+                                {invoicesQuery.isFetching ? <Loader2 className="ml-2 inline h-3 w-3 animate-spin" /> : null}
+                            </span>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={page <= 1 || invoicesQuery.isFetching}
+                                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                >
+                                    Anterior
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={page >= totalPaginas || invoicesQuery.isFetching}
+                                    onClick={() => setPage((p) => p + 1)}
+                                >
+                                    Siguiente
+                                </Button>
+                            </div>
                         </div>
                     </>
                 )}
@@ -487,9 +597,26 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
                             <Badge variant={provider.sandbox ? 'secondary' : 'default'}>
                                 {provider.sandbox ? 'Pruebas (sandbox)' : 'Producción'}
                             </Badge>
-                            {provider.enabled
-                                ? <span className="flex items-center gap-1 text-sm text-emerald-600"><CheckCircle2 className="h-4 w-4" /> Activo</span>
-                                : <span className="text-sm text-muted-foreground">Deshabilitado</span>}
+                            {/* Interruptor Activo / Inactivo. Apagado = no se emite
+                                nada (ni el cron ni la emisión por rango). No pide
+                                credenciales: es la palanca de emergencia. Solo quien
+                                administra finanzas llega a ver esta tarjeta (el
+                                listado de proveedores ya exige ese permiso). */}
+                            <div className="flex items-center gap-2 rounded-md border px-2 py-1">
+                                <Switch
+                                    id="einv-activo"
+                                    checked={provider.enabled}
+                                    disabled={cambiandoEstado}
+                                    onCheckedChange={(v) => cambiarActivo(v)}
+                                    aria-label="Facturador activo"
+                                />
+                                <Label htmlFor="einv-activo" className="cursor-pointer text-sm">
+                                    {provider.enabled
+                                        ? <span className="flex items-center gap-1 text-emerald-600"><CheckCircle2 className="h-4 w-4" /> Activo</span>
+                                        : <span className="text-muted-foreground">Inactivo: no emite</span>}
+                                </Label>
+                                {cambiandoEstado && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+                            </div>
                             {provider.config?.numbering_range_id != null && (
                                 <span className="text-xs text-muted-foreground">Rango #{String(provider.config.numbering_range_id)}</span>
                             )}
@@ -563,20 +690,22 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
                                 ownerType={ownerType}
                                 ownerId={ownerId}
                                 provider={provider}
-                                anuladas={anuladas.length}
+                                anuladas={anuladas.count}
                                 missing={missingQuery.data}
                                 missingLoading={missingQuery.isLoading}
                                 missingError={missingQuery.isError}
-                                onEmitted={() => {
-                                    queryClient.invalidateQueries({ queryKey: ['einv-invoices', ownerType, ownerId] });
-                                    queryClient.invalidateQueries({ queryKey: ['einv-missing-billing', ownerId] });
-                                }}
+                                onEmitted={refrescarFacturas}
                             />
                         </div>
                         {facturasEmitidasCard}
                     </TabsContent>
                     <TabsContent value="faltantes">
-                        <MissingBillingDataPanel schoolId={ownerId} onIrABackfill={irABackfill} />
+                        <MissingBillingDataPanel
+                            schoolId={ownerId}
+                            onIrABackfill={irABackfill}
+                            canEmit={canEmit && !!provider?.enabled}
+                            onEmitted={refrescarFacturas}
+                        />
                     </TabsContent>
                 </Tabs>
             ) : facturasEmitidasCard}
@@ -650,7 +779,7 @@ export function InvoicingTab({ ownerType, ownerId }: { ownerType: OwnerType; own
  * filas que nadie relaciona.
  */
 function InvoiceRows({
-    inv, notaCredito, facturaAnulada, onAnular,
+    inv, notaCredito, facturaAnulada, onAnular, canEmit = false, onEmitted,
 }: {
     inv: InvoiceRow;
     /** Si `inv` es una factura anulada: la nota crédito que la anuló. */
@@ -658,6 +787,9 @@ function InvoiceRows({
     /** Si `inv` es una nota crédito: la factura que anuló. */
     facturaAnulada: InvoiceRow | null;
     onAnular: () => void;
+    /** Quien mira puede emitir (admin de finanzas; el contador no). */
+    canEmit?: boolean;
+    onEmitted?: () => void;
 }) {
     const st = statusMeta(inv.status);
     const esRechazada = inv.status === 'rejected';
@@ -682,6 +814,15 @@ function InvoiceRows({
      *   · una nota crédito no se anula con otra nota crédito.
      */
     const puedeAnular = inv.status === 'accepted' && !esNotaCredito;
+
+    /**
+     * Reintentar = volver a emitir el PAGO de esta fila (POST /emit/:paymentId).
+     * Solo en 'rejected' (después de corregir el dato del motivo) y 'queued'
+     * (nunca llegó al proveedor). No en 'sent' (ya consumió número; lo completa
+     * la reconciliación) ni en notas crédito.
+     */
+    const puedeReintentar = canEmit && !!inv.payment_id && !esNotaCredito
+        && (inv.status === 'rejected' || inv.status === 'queued');
 
     return (
         <>
@@ -738,7 +879,17 @@ function InvoiceRows({
                                 <Ban className="h-4 w-4 mr-1" /> Anular
                             </Button>
                         )}
-                        {!inv.public_url && !puedeAnular && <span className="text-muted-foreground">—</span>}
+                        {puedeReintentar && inv.payment_id && (
+                            <EmitPaymentInvoiceButton
+                                paymentId={inv.payment_id}
+                                amount={inv.total != null ? Number(inv.total) : null}
+                                detail={inv.reference_code ? `Ref. ${inv.reference_code}` : null}
+                                label="Reintentar"
+                                variant="ghost"
+                                onEmitted={onEmitted}
+                            />
+                        )}
+                        {!inv.public_url && !puedeAnular && !puedeReintentar && <span className="text-muted-foreground">—</span>}
                     </div>
                 </TableCell>
             </TableRow>
@@ -1350,6 +1501,17 @@ function BackfillResultado({ r }: { r: BackfillInvoicesResult }) {
 
 // ─── Dialog de configuración del facturador ─────────────────────────────────
 
+/**
+ * La config existente sin las claves que el formulario maneja. Las que el
+ * formulario deja vacías (rango de notas crédito, municipio) tienen que poder
+ * BORRARSE, así que no se arrastran: se vuelven a poner solo si tienen valor.
+ */
+function configSinCamposDelFormulario(config: Record<string, any> | null | undefined): Record<string, any> {
+    const { numbering_range_id: _r, default_municipality_id: _m, tax_excluded: _t, ...resto } = config ?? {};
+    delete (resto as Record<string, any>)[CREDIT_NOTE_RANGE_KEY];
+    return resto;
+}
+
 function ProviderConfigDialog({
     open, onOpenChange, supported, existing, onSave,
 }: {
@@ -1369,6 +1531,10 @@ function ProviderConfigDialog({
     const { toast } = useToast();
     const [provider, setProvider] = useState(existing?.provider ?? supported[0] ?? 'factus');
     const [sandbox, setSandbox] = useState(existing?.sandbox ?? true);
+    // Activo / Inactivo. Antes el formulario mandaba SIEMPRE enabled:true, así
+    // que editar cualquier dato reactivaba un facturador apagado a propósito.
+    // Un facturador nuevo nace activo; uno existente conserva su estado.
+    const [enabled, setEnabled] = useState(existing?.enabled ?? true);
     // Credenciales (write-only: nunca vienen del backend; al editar se re-ingresan)
     const [clientId, setClientId] = useState('');
     const [clientSecret, setClientSecret] = useState('');
@@ -1414,6 +1580,12 @@ function ProviderConfigDialog({
                     password,
                 },
                 config: {
+                    // Se parte de la config que YA tiene el facturador: el
+                    // formulario solo edita algunas claves, y mandar un objeto
+                    // nuevo borraba las demás (customer_municipality_policy,
+                    // customer_email_policy, payment_method_codes,
+                    // products_tax_*, consumidor_final, …) que fija el equipo.
+                    ...configSinCamposDelFormulario(existing?.config),
                     numbering_range_id: Number(numberingRangeId),
                     // Se omite la clave si el campo está vacío en vez de mandar
                     // '' o 0: el BFF descarta lo que no sean dígitos, y un valor
@@ -1431,7 +1603,7 @@ function ProviderConfigDialog({
                 },
                 sandbox,
                 isDefault: true,
-                enabled: true,
+                enabled,
             });
         },
         onError: (err: any) => toast({ title: 'No se pudo guardar', description: err.message, variant: 'destructive' }),
@@ -1535,6 +1707,16 @@ function ProviderConfigDialog({
                                 </p>
                             )}
                         </div>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+                        <div>
+                            <Label className="text-sm">Facturador activo</Label>
+                            <p className="text-xs text-muted-foreground">
+                                Inactivo = no se emite ninguna factura (ni automática ni por rango) hasta que lo actives.
+                            </p>
+                        </div>
+                        <Switch checked={enabled} onCheckedChange={setEnabled} />
                     </div>
 
                     <div className="flex items-center justify-between rounded-lg border px-3 py-2">

@@ -379,7 +379,7 @@ describe('los datos fiscales del comprador', () => {
         tablas.profiles.push({
             id: ADULTO, full_name: 'Ana Gómez', document_type: 'CC',
             document_number: '4736509', billing_address: 'Cra 7 # 8-9',
-            billing_city_dane: '05001',
+            billing_city_dane: '05001', email: 'ana@ejemplo.co',
         });
         const emit = adaptadorQueDevuelve(ACEPTADA);
 
@@ -583,7 +583,7 @@ describe('backfillInvoices', () => {
         tablas.profiles.push(
             // Sin documento → skipped.
             { id: 'cc000002-0000-4000-8000-000000000002', full_name: 'Sin Documento', document_number: null },
-            { id: 'cc000003-0000-4000-8000-000000000003', full_name: 'Nit Malo', document_type: 'NIT', document_number: '900123456', billing_address: 'x', billing_city_dane: '11001' },
+            { id: 'cc000003-0000-4000-8000-000000000003', full_name: 'Nit Malo', document_type: 'NIT', document_number: '900123456', billing_address: 'x', billing_city_dane: '11001', email: 'nit@ejemplo.co' },
         );
         adaptadorQueDevuelve((req: any) => (req.referenceCode === `SM-${PAGO3}` ? RECHAZADA : ACUSE));
 
@@ -881,5 +881,94 @@ describe('la preferencia de factura del pagador', () => {
         cfgFalso = null;
         adaptadorQueDevuelve(ACEPTADA);
         expect((await emitInvoiceForPayment(PAGO)).error).toBe('customer_missing_fiscal_data');
+    });
+});
+
+// ─── Correo del adquiriente y medio de pago con tarjeta ──────────────────────
+
+describe('correo del comprador antes de emitir', () => {
+    it('sin correo (PAC que no declara aceptarlo) → customer_missing_email, sin llamar al PAC ni crear fila', async () => {
+        sembrarPago({}, { email: null });
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+
+        const r = await emitInvoiceForPayment(PAGO);
+
+        expect(r).toMatchObject({ ok: false, error: 'customer_missing_email' });
+        expect(emit).not.toHaveBeenCalled();
+        expect(tablas.electronic_invoices ?? []).toHaveLength(0);
+    });
+
+    it('correo inválido cuenta como faltante', async () => {
+        sembrarPago({}, { email: 'juan@' });
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+        expect((await emitInvoiceForPayment(PAGO)).error).toBe('customer_missing_email');
+        expect(emit).not.toHaveBeenCalled();
+    });
+
+    it("con customer_email_policy='optional' sale sin correo y con aviso", async () => {
+        sembrarPago({}, { email: 'no tiene' });
+        cfgFalso = cfgBase({ customer_email_policy: 'optional' });
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+
+        const r = await emitInvoiceForPayment(PAGO);
+
+        expect(r.ok).toBe(true);
+        expect(r.warnings).toContain('cliente_sin_correo');
+        expect(peticionAlPac(emit).customer.email).toBeNull();
+        expect(peticionAlPac(emit).sendEmail).not.toBe(true);
+    });
+
+    it('el correo viaja normalizado', async () => {
+        sembrarPago({}, { email: '  Juan@Ejemplo.CO ' });
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+        await emitInvoiceForPayment(PAGO);
+        expect(peticionAlPac(emit).customer.email).toBe('juan@ejemplo.co');
+    });
+
+    it('el backfill lo cuenta como SALTADO, no como fallo', async () => {
+        sembrarPago({}, { email: null });
+        adaptadorQueDevuelve(ACEPTADA);
+        const r = await backfillInvoices({ ownerType: 'school', ownerId: ESCUELA, from: '2026-09-01', to: '2026-09-30', limit: 10 });
+        expect(r.failed).toBe(0);
+        expect(r.skipped).toBe(1);
+    });
+});
+
+describe('medio de pago con tarjeta', () => {
+    const webhook = (cardType: string) => ({
+        provider: 'wompi', reference: 'SM-REF-1', created_at: '2026-09-05T10:00:00Z',
+        payload: { data: { transaction: { id: 'TX-1', payment_method_type: 'CARD', payment_method: { extra: { card_type: cardType } } } } },
+    });
+
+    it('débito según el webhook de Wompi → card_debit', async () => {
+        sembrarPago({ payment_method: 'card', wompi_reference: 'SM-REF-1' });
+        tablas.webhook_events = [webhook('DEBIT')];
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+        await emitInvoiceForPayment(PAGO);
+        expect(peticionAlPac(emit).paymentMethod).toBe('card_debit');
+    });
+
+    it('crédito según el webhook de Wompi → card_credit', async () => {
+        sembrarPago({ payment_method: 'card', wompi_reference: 'SM-REF-1' });
+        tablas.webhook_events = [webhook('CREDIT')];
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+        await emitInvoiceForPayment(PAGO);
+        expect(peticionAlPac(emit).paymentMethod).toBe('card_credit');
+    });
+
+    it('sin referencia de pasarela queda card (→ 48 en el adaptador)', async () => {
+        sembrarPago({ payment_method: 'card' });
+        tablas.webhook_events = [webhook('DEBIT')];
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+        await emitInvoiceForPayment(PAGO);
+        expect(peticionAlPac(emit).paymentMethod).toBe('card');
+    });
+
+    it('un medio que no es tarjeta no consulta nada y pasa tal cual', async () => {
+        sembrarPago({ payment_method: 'cash', wompi_reference: 'SM-REF-1' });
+        tablas.webhook_events = [webhook('DEBIT')];
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+        await emitInvoiceForPayment(PAGO);
+        expect(peticionAlPac(emit).paymentMethod).toBe('cash');
     });
 });

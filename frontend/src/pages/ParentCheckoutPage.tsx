@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
 import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
+import { useSchoolInvoicingActive, mustAskBillingData } from '@/hooks/useSchoolInvoicingActive';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { maskSensitive } from '@/lib/utils';
 import { resolvePaymentAccounts, accountDisplayLabel, chargeCategoryOf } from '@/lib/payment-accounts';
@@ -168,6 +169,11 @@ export default function ParentCheckoutPage() {
 
   const [hasCompleteDianData, setHasCompleteDianData] = useState<boolean>(true);
   const [checkingDian, setCheckingDian] = useState<boolean>(true);
+  // Los datos fiscales se piden SOLO si la escuela factura electrónicamente
+  // (addon 'invoicing' + facturador activo). Antes se exigían siempre. Mientras
+  // no se sabe (o si la consulta falla) se piden, como antes.
+  const { active: schoolInvoicingActive } = useSchoolInvoicingActive(resolvedSchoolId ?? schoolIdParam);
+  const askDianData = mustAskBillingData(hasCompleteDianData, schoolInvoicingActive);
 
   // Fetch DIAN Profile Data
   // Bloquear auto-recarga del PWA mientras el acudiente está en el checkout
@@ -770,7 +776,7 @@ export default function ParentCheckoutPage() {
         <Card className="mb-6">
           <CardHeader><CardTitle className="text-lg">Método de Pago</CardTitle></CardHeader>
           <CardContent>
-            {!checkingDian && !hasCompleteDianData ? (
+            {!checkingDian && askDianData ? (
               <div className="pt-2">
                 <BillingDetailsForm onComplete={() => setHasCompleteDianData(true)} />
               </div>
