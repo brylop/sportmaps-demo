@@ -29,6 +29,12 @@
  * plantilla aprobada, sin opt-in, sin enlace — va el correo como siempre. La
  * única excepción es 'fuera_de_horario' en el aviso de cobro: ese cobro se deja
  * sin reclamar y lo toma el siguiente tick de 15 min dentro del horario.
+ *
+ * Convivencia con el ESTADO DE CUENTA mensual (2026-10-05,
+ * services/estado-de-cuenta.service): mientras el de una escuela esté
+ * pendiente en el mes, sus avisos de aquí se posponen sin reclamar (el estado
+ * de cuenta los incluye y estampa *_notice_sent_at); y a quien ya recibió el
+ * estado de cuenta HOY no se le manda nada más hoy (Ley 2300: 1 contacto/día).
  */
 
 import { supabase } from '../config/supabase';
@@ -36,9 +42,10 @@ import { emailClient } from '../utils/emailClient';
 import { BrandedEmailTemplates } from '../utils/emailTemplates';
 import { findDuplicatePaymentIds } from '../services/duplicatePayerGuard.service';
 import {
-    enviarCobroPorPlantilla, dentroDeHorarioDeCobranza, type ConceptoCobro, type MotivoNoEnvio,
+    enviarCobroPorPlantilla, dentroDeHorarioDeCobranza, aWaId, type ConceptoCobro, type MotivoNoEnvio,
 } from '../services/whatsapp-plantillas.service';
 import { emitirTokenCobro } from '../services/cobro-enlace-publico.service';
+import { contactosConEstadoDeCuentaHoy, escuelasConEstadoPendiente } from '../services/estado-de-cuenta.service';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
 
@@ -135,6 +142,34 @@ async function tryWhatsApp(
 }
 
 const contarMotivo = (m: Record<string, number>, k: string) => { m[k] = (m[k] || 0) + 1; };
+
+/**
+ * Filtro de convivencia con el estado de cuenta. Devuelve si este cobro debe
+ * esperar (no se reclama: lo toma un tick posterior o lo estampa el estado de
+ * cuenta). Exportado para las pruebas.
+ */
+export function creaFiltroEstadoDeCuenta(ahora: Date) {
+    let pospuestas: Set<string> | null = null;
+    const hoyPorEscuela = new Map<string, Set<string>>();
+    return {
+        async inicializar(schoolIds: string[]) {
+            pospuestas = await escuelasConEstadoPendiente(schoolIds, ahora).catch(() => new Set<string>());
+        },
+        async debeEsperar(p: { school_id: string }, c: Resolved | undefined): Promise<'estado_pendiente' | 'estado_hoy' | null> {
+            if (pospuestas?.has(p.school_id)) return 'estado_pendiente';
+            if (!c) return null;
+            if (!hoyPorEscuela.has(p.school_id)) {
+                hoyPorEscuela.set(p.school_id, await contactosConEstadoDeCuentaHoy(p.school_id, ahora).catch(() => new Set<string>()));
+            }
+            const hoy = hoyPorEscuela.get(p.school_id)!;
+            if (hoy.size === 0) return null;
+            const email = String(c.contactEmail ?? '').trim().toLowerCase();
+            const wa = aWaId(c.contactPhone);
+            if ((email && hoy.has(email)) || (wa && hoy.has(`wa:${wa}`))) return 'estado_hoy';
+            return null;
+        },
+    };
+}
 
 type NoticeColumn = 'charge_notice_sent_at' | 'overdue_notice_sent_at';
 
@@ -253,10 +288,14 @@ export async function sendChargeCreatedEmails(ahora: Date = new Date()): Promise
         const toSend = await filterOutDuplicates(candidates as PaymentRow[]);
         const contacts = await resolveContacts(toSend);
         const schools = await schoolNames([...new Set(toSend.map(p => p.school_id))]);
+        const filtro = creaFiltroEstadoDeCuenta(ahora);
+        await filtro.inicializar([...new Set(toSend.map(p => p.school_id))]);
 
         for (const p of toSend) {
-            if (!(await claimNotice(p.id, 'charge_notice_sent_at'))) continue; // otro BFF lo tomó
             const contact = contacts.get(p.id);
+            const espera = await filtro.debeEsperar(p, contact);
+            if (espera) { contarMotivo(motivos, espera); continue; }
+            if (!(await claimNotice(p.id, 'charge_notice_sent_at'))) continue; // otro BFF lo tomó
             // Estado de cuenta con fecha de vencimiento = pago_recordatorio_previo_v3.
             const wa = await tryWhatsApp(p, contact, schools.get(p.school_id), 'recordatorio_previo');
             if (wa.sent) {
@@ -321,10 +360,14 @@ export async function sendOverdueNoticeEmails(ahora: Date = new Date()): Promise
         const toSend = await filterOutDuplicates(candidates as PaymentRow[]);
         const contacts = await resolveContacts(toSend);
         const schools = await schoolNames([...new Set(toSend.map(p => p.school_id))]);
+        const filtro = creaFiltroEstadoDeCuenta(ahora);
+        await filtro.inicializar([...new Set(toSend.map(p => p.school_id))]);
 
         for (const p of toSend) {
-            if (!(await claimNotice(p.id, 'overdue_notice_sent_at'))) continue; // otro BFF lo tomó
             const contact = contacts.get(p.id);
+            const espera = await filtro.debeEsperar(p, contact);
+            if (espera) { contarMotivo(motivos, espera); continue; }
+            if (!(await claimNotice(p.id, 'overdue_notice_sent_at'))) continue; // otro BFF lo tomó
             // Primer aviso tras la gracia = pago_pendiente_suave ("si tuviste algún
             // inconveniente, responde"), el escalón que abre conversación.
             // OJO: este job corre 07:15 UTC = 02:15 COT, fuera del horario legal,

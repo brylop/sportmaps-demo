@@ -26,7 +26,9 @@ function comprobante(over: Partial<OcrResult> = {}): OcrResult {
         time: '13:23',
         bank: 'Davivienda',
         reference: '233901',
-        destination: '**** 6942',
+        // Default: cuenta COMPLETA (match exacto → apto para verde). Los tests que
+        // prueban el destino enmascarado/ausente lo pasan explícitamente.
+        destination: '478170006942',
         destinationName: 'CLU**** BES****',
         originName: 'LAU**** PAR****',
         isReceipt: true,
@@ -85,33 +87,47 @@ describe('destinationMatchesRegistered', () => {
     });
 });
 
-describe('evaluateVerdict · check 4 con el comprobante real de Besser', () => {
-    it('el comprobante Davivienda con "**** 6942" ya NO cae en DESTINO_NO_COINCIDE', () => {
-        const r = evaluateVerdict(comprobante(), {
+describe('evaluateVerdict · check 4 (destino obligatorio para verde, SEG-26)', () => {
+    it('la cuenta COMPLETA que coincide exacto → verde, sin motivo de destino', () => {
+        const r = evaluateVerdict(comprobante({ destination: '478170006942' }), {
             today: TODAY,
             expectedAmount: 210000,
             registeredAccounts: [BESSER_DAVIVIENDA],
         });
         expect(r.reasons.map((x) => x.code)).not.toContain('DESTINO_NO_COINCIDE');
+        expect(r.reasons.map((x) => x.code)).not.toContain('DESTINO_ENMASCARADO');
         expect(r.verdict).toBe('verde');
+    });
+
+    it('destino ENMASCARADO que coincide por sufijo → sigue VERDE (hay escuelas con solo los últimos dígitos)', () => {
+        const r = evaluateVerdict(comprobante({ destination: '**** 6942' }), {
+            today: TODAY,
+            expectedAmount: 210000,
+            registeredAccounts: [BESSER_DAVIVIENDA],
+        });
+        expect(r.reasons.map((x) => x.code)).not.toContain('DESTINO_NO_COINCIDE');
+        expect(r.reasons.map((x) => x.code)).not.toContain('DESTINO_AUSENTE');
+        expect(r.verdict).toBe('verde');
+    });
+
+    it('destino AUSENTE con cuentas registradas → amarillo (DESTINO_AUSENTE), nunca verde', () => {
+        const r = evaluateVerdict(comprobante({ destination: null, destinationName: null }), {
+            today: TODAY,
+            expectedAmount: 210000,
+            registeredAccounts: [BESSER_DAVIVIENDA],
+        });
+        expect(r.reasons.map((x) => x.code)).toContain('DESTINO_AUSENTE');
+        expect(r.verdict).toBe('amarillo');
     });
 
     it('un envío enmascarado a otra cuenta sigue siendo rojo', () => {
         expect(codigos(comprobante({ destination: '**** 1234' }), [BESSER_DAVIVIENDA])).toContain('DESTINO_NO_COINCIDE');
     });
 
-    it('la cuenta completa sigue pasando como antes', () => {
-        expect(codigos(comprobante({ destination: '478170006942' }), [BESSER_DAVIVIENDA])).not.toContain('DESTINO_NO_COINCIDE');
-    });
-
-    it('el nombre del titular no interviene: con destino correcto, un nombre raro no bloquea', () => {
-        expect(
-            codigos(comprobante({ destination: '**** 6942', destinationName: 'OTRO NOMBRE' }), [BESSER_DAVIVIENDA]),
-        ).not.toContain('DESTINO_NO_COINCIDE');
-    });
-
-    it('sin cuentas registradas el check 4 no se evalúa', () => {
-        expect(codigos(comprobante({ destination: '**** 1234' }), [])).not.toContain('DESTINO_NO_COINCIDE');
+    it('sin cuentas registradas el check 4 no se evalúa (ni ausente ni enmascarado)', () => {
+        const cods = codigos(comprobante({ destination: null }), []);
+        expect(cods).not.toContain('DESTINO_NO_COINCIDE');
+        expect(cods).not.toContain('DESTINO_AUSENTE');
     });
 });
 

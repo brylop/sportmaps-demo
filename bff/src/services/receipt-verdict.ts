@@ -27,6 +27,7 @@ export type VerdictCode =
     | 'IS_TRANSACTION_LIST'
     | 'CAMPOS_ILEGIBLES'
     | 'DESTINO_NO_COINCIDE'
+    | 'DESTINO_AUSENTE'
     | 'MONTO_DIFIERE'
     | 'FECHA_FUERA_VENTANA'
     | 'FECHA_FUTURA'
@@ -199,11 +200,27 @@ export function maskedDestinationSuffix(destNorm: string | null | undefined): st
  * acudiente no podía subir un comprobante legítimo.
  */
 export function destinationMatchesRegistered(destNorm: string | null | undefined, accounts: string[]): boolean {
-    if (!destNorm || accounts.length === 0) return false;
-    if (accounts.includes(destNorm)) return true;
+    return classifyDestinationMatch(destNorm, accounts) !== 'none';
+}
+
+/**
+ * Tipo de coincidencia del destino contra las cuentas registradas:
+ *   - 'exact':  igualdad completa de la cuenta → suficiente para VERDE.
+ *   - 'masked': el banco enmascaró la cuenta y solo coinciden los últimos
+ *               dígitos ("****6942"). NO basta para verde: 4 dígitos colisionan
+ *               fácil (SEG-26, 2026-10-05). Queda en amarillo, revisión humana.
+ *   - 'none':   no coincide con ninguna.
+ */
+export type DestinationMatch = 'exact' | 'masked' | 'none';
+
+export function classifyDestinationMatch(
+    destNorm: string | null | undefined, accounts: string[],
+): DestinationMatch {
+    if (!destNorm || accounts.length === 0) return 'none';
+    if (accounts.includes(destNorm)) return 'exact';
     const suffix = maskedDestinationSuffix(destNorm);
-    if (!suffix) return false;
-    return accounts.some((a) => a.length > suffix.length && a.endsWith(suffix));
+    if (suffix && accounts.some((a) => a.length > suffix.length && a.endsWith(suffix))) return 'masked';
+    return 'none';
 }
 
 /** Diferencia en días calendario (a - b), tz-safe, sin depender del reloj. */
@@ -275,17 +292,35 @@ export function evaluateVerdict(ocr: OcrResult, ctx: VerdictContext): VerdictRes
         });
     }
 
-    // 4) Destino no coincide con ninguna cuenta registrada de la escuela.
-    //    Solo evaluable con destino leído Y cuentas registradas cargadas.
+    // 4) Destino. El destino es OBLIGATORIO para VERDE (SEG-26, 2026-10-05): no
+    //    poder confirmar a qué cuenta fue la plata no puede quedar en verde.
+    //    - ausente/ilegible (con cuentas cargadas) → amarillo (DESTINO_AUSENTE)
+    //    - coincide (exacto O por máscara de 4)    → sin motivo (puede ser verde)
+    //    - cuenta de la escuela, otro concepto     → amarillo (DESTINO_NO_COINCIDE)
+    //    - no coincide con nada                    → rojo     (DESTINO_NO_COINCIDE)
+    //
+    //    OJO (feedback del usuario, 2026-10-05): HAY escuelas cuyo único dato de
+    //    la cuenta de destino son los últimos dígitos, y bancos que enmascaran el
+    //    destino. Por eso el match por máscara SIGUE valiendo como coincidencia —
+    //    bajarlo a amarillo mandaría todo el volumen de esas escuelas a revisión.
+    //    El hueco que se cierra es solo el destino AUSENTE: antes, un comprobante
+    //    sin cuenta de destino legible no activaba el check 4 y salía verde.
     const destNorm = normalizeDestination(ocr.destination);
     const accounts = ctx.registeredAccounts ?? [];
     const restricted = ctx.restrictedAccounts ?? [];
-    if (destNorm && (accounts.length > 0 || restricted.length > 0) && !destinationMatchesRegistered(destNorm, accounts)) {
+    const tieneCuentas = accounts.length > 0 || restricted.length > 0;
+    if (tieneCuentas && !destNorm) {
+        reasons.push({
+            check: 4,
+            code: 'DESTINO_AUSENTE',
+            level: 'amarillo',
+            message: 'No pudimos leer la cuenta de destino; sube una captura donde se vea a qué cuenta se envió el dinero.',
+        });
+    } else if (destNorm && tieneCuentas && !destinationMatchesRegistered(destNorm, accounts)) {
         const restringida = restricted.find((r) => destinationMatchesRegistered(destNorm, [r.value]));
         if (restringida) {
             // Cuenta de la escuela, pero de otro concepto (Dynasty: Nequi solo
-            // para inscripciones y llegó una mensualidad). Mismo code para que la
-            // glosa y los reportes lo agrupen con los destinos; nivel amarillo.
+            // para inscripciones y llegó una mensualidad). Nivel amarillo.
             reasons.push({
                 check: 4,
                 code: 'DESTINO_NO_COINCIDE',
@@ -304,9 +339,8 @@ export function evaluateVerdict(ocr: OcrResult, ctx: VerdictContext): VerdictRes
                 code: 'DESTINO_NO_COINCIDE',
                 level: 'rojo',
                 message: 'El dinero se envió a una cuenta que no está registrada por la escuela.',
-                // comparedAgainst se persiste para calibrar el modo sombra: p.ej. si la escuela
-                // cobra por DaviPlata pero esa cuenta no está entre las comparadas (columna drift),
-                // este rojo es un falso positivo descontable al analizar los datos.
+                // comparedAgainst se persiste para calibrar el modo sombra (no viaja
+                // al cliente: payments.routes lo poda del response — SEG-26).
                 detail: { destination: destNorm, comparedAgainst: [...accounts, ...restricted.map((r) => r.value)] },
             });
         }

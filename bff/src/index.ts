@@ -54,6 +54,7 @@ import systemRouter from './routes/system';
 import whatsappWebhookRouter from './routes/whatsapp';
 import whatsappAdminRouter from './routes/whatsapp-admin.routes';
 import whatsappMetricasRouter from './routes/whatsapp-metricas.routes';
+import whatsappImportarChatRouter from './routes/whatsapp-importar-chat.routes';
 import publicBookingRouter from './routes/public-booking.routes';
 import cobroEnlacePublicoRouter from './routes/cobro-enlace-publico.routes';
 import { initMaintenanceJobs } from './jobs/maintenance.job';
@@ -313,7 +314,7 @@ app.use('/api/v1/webhooks/whatsapp', whatsappWebhookRouter);
 // alguien agrega un comodín ahí, este seguiría respondiendo. En la MISMA línea
 // y no en un app.use aparte: con dos, cada petición del panel pasaría dos veces
 // por generalLimiter y gastaría doble cupo.
-app.use('/api/v1/whatsapp', generalLimiter, whatsappMetricasRouter, whatsappAdminRouter);
+app.use('/api/v1/whatsapp', generalLimiter, whatsappMetricasRouter, whatsappImportarChatRouter, whatsappAdminRouter);
 
 // Link público de agendamiento de instalaciones — sin requireAuth, rate-limit propio
 const publicBookingLimiter = rateLimit({

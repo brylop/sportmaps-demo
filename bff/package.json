@@ -15,6 +15,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "@sentry/node": "^10.72.0",
     "@supabase/supabase-js": "^2.97.0",
     "@types/pdfkit": "^0.17.6",

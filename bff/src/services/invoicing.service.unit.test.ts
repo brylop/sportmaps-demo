@@ -779,3 +779,107 @@ describe('IVA: excluido no es lo mismo que gravado al 0%', () => {
         expect(item.tax_rate).toBe(19);
     });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Preferencia de factura del pagador (payer_billing_profiles). Spec:
+// docs/specs/factura-electronica-preferencia-y-datos-del-pagador.md
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('la preferencia de factura del pagador', () => {
+    const fila = (extra: Fila = {}) => ({
+        profile_id: PADRE, preference: 'quiere', document_type: 'NIT', document_number: '901929705',
+        legal_name: 'Inversiones Pérez SAS', invoice_email: 'conta@perez.co',
+        address: null, city_dane: null, department: null, ...extra,
+    });
+
+    it('sin fila todo sigue como antes: el perfil, sin pedir correo al PAC', async () => {
+        sembrarPago();
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+
+        await emitInvoiceForPayment(PAGO);
+
+        const req = peticionAlPac(emit);
+        expect(req.customer.identification).toBe('1015418301');
+        expect(req.customer.name).toBe('Juan Pérez');
+        expect(req.sendEmail).toBeUndefined();
+    });
+
+    it("'quiere': la factura sale con la razón social y el NIT que dejó, no con el perfil", async () => {
+        sembrarPago();
+        tablas.payer_billing_profiles = [fila()];
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+
+        await emitInvoiceForPayment(PAGO);
+
+        const c = peticionAlPac(emit).customer;
+        expect(c).toMatchObject({ documentType: 'NIT', identification: '901929705', name: 'Inversiones Pérez SAS', email: 'conta@perez.co' });
+        // La dirección y el municipio que no dio salen del perfil.
+        expect(c.address).toBe('Calle 1 # 2-3');
+        expect(c.municipalityCode).toBe('11001');
+    });
+
+    it("'quiere' + flag de la escuela → se le pide al PAC mandar el correo; sin flag no", async () => {
+        sembrarPago();
+        tablas.payer_billing_profiles = [fila()];
+        cfgFalso = cfgBase({ enviar_factura_por_correo: true });
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+        await emitInvoiceForPayment(PAGO);
+        expect(peticionAlPac(emit).sendEmail).toBe(true);
+    });
+
+    it('el acudiente SIN cuenta que dejó sus datos por WhatsApp ahora sí se factura (por el celular de la ficha)', async () => {
+        sembrarPago({ parent_id: null, user_id: null, child_id: 'child-1' });
+        tablas.children = [{ id: 'child-1', parent_phone_temp: '+57 300 123 4567' }];
+        tablas.payer_billing_profiles = [{
+            profile_id: null, school_id: ESCUELA, phone10: '3001234567', preference: 'quiere',
+            document_type: 'CC', document_number: '52825050', legal_name: 'Adriana Manrique',
+            invoice_email: 'adriana@correo.com', address: null, city_dane: '25430', department: null,
+        }];
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+
+        const r = await emitInvoiceForPayment(PAGO);
+
+        expect(r.ok).toBe(true);
+        expect(peticionAlPac(emit).customer).toMatchObject({ identification: '52825050', name: 'Adriana Manrique', municipalityCode: '25430' });
+    });
+
+    it('el acudiente SIN cuenta sin preferencia sigue siendo "sin pagador" (no cambia el diagnóstico)', async () => {
+        sembrarPago({ parent_id: null, user_id: null, child_id: 'child-1' });
+        tablas.children = [{ id: 'child-1', parent_phone_temp: '3001234567' }];
+        adaptadorQueDevuelve(ACEPTADA);
+        expect((await emitInvoiceForPayment(PAGO)).error).toBe('payment_without_payer');
+    });
+
+    it("'no_quiere' sin el flag de consumidor final: como hoy, con el perfil", async () => {
+        sembrarPago();
+        tablas.payer_billing_profiles = [fila({ preference: 'no_quiere' })];
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+        await emitInvoiceForPayment(PAGO);
+        expect(peticionAlPac(emit).customer.identification).toBe('1015418301');
+    });
+
+    it("'no_quiere' con consumidor_final=true: factura a consumidor final 222222222222", async () => {
+        sembrarPago();
+        tablas.payer_billing_profiles = [fila({ preference: 'no_quiere' })];
+        cfgFalso = cfgBase({ consumidor_final: true });
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+        await emitInvoiceForPayment(PAGO);
+        expect(peticionAlPac(emit).customer).toMatchObject({ identification: '222222222222', name: 'Consumidor final', documentType: 'CC' });
+    });
+
+    it('sin documento en el perfil y con consumidor_final=true: consumidor final en vez de saltarlo', async () => {
+        sembrarPago({}, { document_number: null });
+        cfgFalso = cfgBase({ consumidor_final: true });
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+        const r = await emitInvoiceForPayment(PAGO);
+        expect(r.ok).toBe(true);
+        expect(peticionAlPac(emit).customer.identification).toBe('222222222222');
+    });
+
+    it('sin documento, sin flag y sin facturador: sigue reportando la falta de datos (diagnóstico intacto)', async () => {
+        sembrarPago({}, { document_number: null });
+        cfgFalso = null;
+        adaptadorQueDevuelve(ACEPTADA);
+        expect((await emitInvoiceForPayment(PAGO)).error).toBe('customer_missing_fiscal_data');
+    });
+});

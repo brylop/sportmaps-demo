@@ -65,6 +65,12 @@ export interface InvoiceRequest {
      * efectivo sin haberlo sido, y eso rompe cualquier cruce con el extracto.
      */
     paymentMethod?: string | null;
+    /**
+     * Pedirle al PAC que le mande la factura al correo del adquiriente. Solo
+     * true cuando el pagador PIDIÓ factura, dejó correo y la escuela activó
+     * `enviar_factura_por_correo`. Ausente/false = como siempre (no se envía).
+     */
+    sendEmail?: boolean;
 }
 
 // ─── Nota crédito (el único camino para deshacer una factura) ─────────────────

@@ -348,6 +348,12 @@ describe('payload — payment_details', () => {
         expect(pac.payload.send_email).toBe(false);
     });
 
+    it('send_email solo se prende con sendEmail === true (el pagador pidió factura y la escuela lo activó)', async () => {
+        const pac = pacEmision();
+        await factusV2Adapter.emit({ ...pedido(), sendEmail: true }, cfg());
+        expect(pac.payload.send_email).toBe(true);
+    });
+
     // BUG LATENTE (no arreglado acá: el adaptador es de otro agente).
     // `payment_details[0].amount` suma unitPrice × quantity IGNORANDO
     // `discountRate`, mientras que el ítem sí manda `discount_rate`: el PAC

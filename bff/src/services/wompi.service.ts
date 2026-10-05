@@ -384,13 +384,17 @@ export async function assertUserNotBlocked(userId: string): Promise<void> {
 // Docs: https://docs.wompi.co/docs/colombia/fuentes-de-pago/
 //
 // 3 pasos:
-//   A. fetchAcceptanceTokens()           — GET /merchants/:pub (JWT Habeas Data)
+//   A. fetchAcceptanceTokens()           — GET /merchants/info (JWT Habeas Data)
 //   B. createPaymentSource(...)          — POST /v1/payment_sources (ID permanente)
 //   C. createTransactionWithPaymentSource — POST /v1/transactions con recurrent:true
 //
 // Importante:
-//   - Acceptance tokens son JWT con TTL. Cacheamos en memoria con TTL conservador
-//     (5 min) y refrescamos en error de aceptacion.
+//   - Acceptance tokens: JWT de 1 h y de UN SOLO USO (verificado en sandbox
+//     2026-10-05: reusar uno en POST /payment_sources o en un pago normal da 422
+//     "El token de aceptación ya fue usado"). NO se cachean: cada usuario pide
+//     los suyos, los ve y los acepta. El cobro con payment_source_id no los exige.
+//   - Se piden a GET /merchants/info con header x-merchant-public-key; el
+//     GET /merchants/:pub se apaga el 2026-10-31.
 //   - payment_source_id es entero permanente; se guarda en
 //     payment_tokens.provider_payment_source_id.
 //   - recurrent:true (COF / Credential On File) solo aplica a VISA/MC con RBM.
@@ -405,38 +409,40 @@ interface AcceptanceTokens {
     fetchedAt: number;
 }
 
-// Cache POR COMERCIO (llave = public_key). Antes era un singleton de módulo, lo que con
-// más de un comercio conectado le habría entregado a una escuela el acceptance token
-// emitido para otra — Wompi los emite por merchant y habría rechazado la transacción.
-const _acceptanceCache = new Map<string, AcceptanceTokens>();
-const ACCEPTANCE_TTL_MS = 5 * 60 * 1000;
+/**
+ * GET /merchants/info del comercio dueño de `publicKey`. Reemplaza a
+ * GET /merchants/:pub (Wompi lo apaga el 2026-10-31). Sin caché: los tokens de
+ * aceptación son de un solo uso, compartirlos entre usuarios hace fallar al segundo.
+ */
+async function fetchMerchantInfo(baseUrl: string, publicKey: string): Promise<{ ok: true; data: any } | { ok: false; error: string }> {
+    const res = await fetch(`${baseUrl}/merchants/info`, {
+        headers: { 'x-merchant-public-key': publicKey, Accept: 'application/json' },
+    });
+    if (!res.ok) return { ok: false, error: `merchants/info ${res.status}` };
+    const json = await res.json().catch(() => null);
+    if (!json?.data) return { ok: false, error: 'merchants/info sin data' };
+    return { ok: true, data: json.data };
+}
 
 /**
  * Obtiene los dos JWT de aceptacion (Habeas Data + politica) desde Wompi.
  * Los dos son requeridos al crear payment_source y transactions con datos
  * personales del usuario.
  *
- * Cachea por 5 min. Pasar `force=true` para refrescar tras un error de
- * aceptacion (el JWT pudo haber expirado).
+ * Sin caché: son de un solo uso y cada usuario debe aceptar los suyos
+ * (verificado en sandbox 2026-10-05).
  */
 export async function fetchAcceptanceTokens(
-    force = false,
     creds?: WompiCreds,
 ): Promise<{ ok: true; tokens: AcceptanceTokens } | { ok: false; error: string }> {
     const publicKey = creds ? creds.publicKey : process.env.WOMPI_PUBLIC_KEY;
     if (!publicKey) return { ok: false, error: 'WOMPI_PUBLIC_KEY no configurado' };
 
-    const cached = _acceptanceCache.get(publicKey);
-    if (!force && cached && Date.now() - cached.fetchedAt < ACCEPTANCE_TTL_MS) {
-        return { ok: true, tokens: cached };
-    }
-
     try {
-        const res = await fetch(`${baseUrlFor(creds)}/merchants/${publicKey}`);
-        if (!res.ok) return { ok: false, error: `merchants endpoint ${res.status}` };
-        const json = await res.json();
-        const presigned = json?.data?.presigned_acceptance;
-        const personal = json?.data?.presigned_personal_data_auth;
+        const info = await fetchMerchantInfo(baseUrlFor(creds), publicKey);
+        if (!info.ok) return info;
+        const presigned = info.data.presigned_acceptance;
+        const personal = info.data.presigned_personal_data_auth;
         if (!presigned?.acceptance_token || !personal?.acceptance_token) {
             return { ok: false, error: 'missing_acceptance_tokens_in_merchant_response' };
         }
@@ -447,7 +453,6 @@ export async function fetchAcceptanceTokens(
             personalDataPermalink: personal.permalink ?? '',
             fetchedAt: Date.now(),
         };
-        _acceptanceCache.set(publicKey, tokens);
         return { ok: true, tokens };
     } catch (err: any) {
         return { ok: false, error: err.message || 'fetchAcceptanceTokens error' };
@@ -645,7 +650,7 @@ export async function voidPaymentSource(
  * funcion sigue para flujos one-shot legacy / fallback.
  *
  * Wompi flow para "merchant initiated transactions":
- *  1. Obtener acceptance_token desde GET /merchants/:public_key
+ *  1. Obtener acceptance_token desde GET /merchants/info
  *  2. POST /transactions con payment_method.type='CARD', token=<tokenized>, customer_email, ...
  */
 export async function createTransactionWithToken(params: {
@@ -663,12 +668,11 @@ export async function createTransactionWithToken(params: {
 
     try {
         // 1. Obtener acceptance_token (Wompi requiere este token de "aceptación de TyC")
-        const merchRes = await fetch(`${baseUrl}/merchants/${c.publicKey}`);
-        if (!merchRes.ok) {
-            return { ok: false, error: `merchants endpoint failed (${merchRes.status})` };
+        const info = await fetchMerchantInfo(baseUrl, c.publicKey);
+        if (!info.ok) {
+            return { ok: false, error: `merchants endpoint failed (${info.error})` };
         }
-        const merchJson = await merchRes.json();
-        const acceptanceToken = merchJson?.data?.presigned_acceptance?.acceptance_token;
+        const acceptanceToken = info.data?.presigned_acceptance?.acceptance_token;
         if (!acceptanceToken) {
             return { ok: false, error: 'no_acceptance_token' };
         }

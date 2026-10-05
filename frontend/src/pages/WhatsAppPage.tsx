@@ -20,6 +20,7 @@ import { AltaDelCanal } from '@/components/whatsapp/AltaDelCanal';
 import { Conversaciones } from '@/components/whatsapp/Conversaciones';
 import { HorariosDeEntrenamiento } from '@/components/whatsapp/HorariosDeEntrenamiento';
 import { Metricas } from '@/components/whatsapp/Metricas';
+import { ImportarChatExportado } from '@/components/whatsapp/ImportarChatExportado';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -420,7 +421,11 @@ export default function WhatsAppPage() {
                 <TabsContent value="bandeja">
                     <Card>
                         <CardHeader>
-                            <CardTitle className="text-base">Comprobantes sin resolver</CardTitle>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <CardTitle className="text-base">Comprobantes sin resolver</CardTitle>
+                                {/* Comprobantes viejos que solo están en el celular de la escuela. */}
+                                {schoolId && <ImportarChatExportado schoolId={schoolId} alTerminar={() => void cargar()} />}
+                            </div>
                             <CardDescription>
                                 Los que llegaron por el chat y necesitan que alguien los mire: archivos que no
                                 eran comprobantes, acudientes sin cobros pendientes, o fallos al procesarlos.

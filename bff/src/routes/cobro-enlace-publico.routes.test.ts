@@ -50,6 +50,7 @@ vi.mock('../config/supabase', () => {
             gte: (c: string, v: any) => { filas = filas.filter(f => f[c] >= v); return api; },
             lt: (c: string, v: any) => { filas = filas.filter(f => f[c] < v); return api; },
             order: () => api,
+            limit: () => api,
             maybeSingle: async () => ({ data: filas[0] ?? null, error: null }),
             single: async () => ({ data: filas[0] ?? null, error: filas[0] ? null : { message: 'no rows' } }),
             update: (c: Fila) => { modo = 'update'; cambios = c; return api; },
@@ -95,6 +96,16 @@ vi.mock('../services/whatsapp-medios-de-pago.service', () => ({
     })),
 }));
 
+const qr = vi.hoisted(() => ({ textos: [] as string[] }));
+vi.mock('qrcode', () => ({
+    default: {
+        toBuffer: vi.fn(async (texto: string) => {
+            qr.textos.push(texto);
+            return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+        }),
+    },
+}));
+
 import router from './cobro-enlace-publico.routes';
 import { emitirTokenCobro, nombreCorto, estadoPublico, montosEnLinea } from '../services/cobro-enlace-publico.service';
 
@@ -136,7 +147,7 @@ afterAll(() => { server.close(); });
 beforeEach(() => {
     process.env.PAGO_PUBLICO_PERMITE_LLAVES_ENV = 'true';
     estado.tablas = {
-        payments: [cobro(COBRO_A), cobro(COBRO_B, { amount: 999999, child_id: 'child-2' })],
+        payments: [cobro(COBRO_A), cobro(COBRO_B, { amount: 999999, child_id: 'child-2', parent_id: 'parent-2' })],
         children: [
             { id: 'child-1', full_name: 'Samuel Rodríguez Pérez' },
             { id: 'child-2', full_name: 'Otra Persona' },
@@ -330,5 +341,73 @@ describe('helpers', () => {
     it('montosEnLinea = create-session (redondeo al peso)', () => {
         expect(montosEnLinea(180000, 5)).toEqual({ recargo: 9000, total: 189000 });
         expect(montosEnLinea(94500, 3)).toEqual({ recargo: 2835, total: 97335 });
+    });
+});
+
+describe('GET /:token/qr.png (QR del correo de estado de cuenta)', () => {
+    const getQr = (t: string) => fetch(`${base}/${t}/qr.png`);
+
+    beforeEach(() => { qr.textos = []; delete process.env.FAMILIAS_APP_URL; });
+
+    it('token válido → PNG que codifica SOLO la URL pública del enlace', async () => {
+        process.env.FRONTEND_URL = 'http://localhost:5173'; // no debe usarse nunca
+        const res = await getQr(TOKEN_A);
+        expect(res.status).toBe(200);
+        expect(res.headers.get('content-type')).toBe('image/png');
+        expect(qr.textos).toEqual([`https://app.sportmaps.co/p/${TOKEN_A}`]);
+        const buf = Buffer.from(await res.arrayBuffer());
+        expect(buf.subarray(0, 4).toString('hex')).toBe('89504e47');
+        // Nada del cobro en lo que se codifica ni en los encabezados.
+        expect(qr.textos[0]).not.toMatch(/150000|Samuel|caro@|3009998877|localhost/);
+    });
+
+    it('token mal formado o inexistente → 404 sin cuerpo y sin dibujar', async () => {
+        for (const t of ['corto', TOKEN_NO_EXISTE]) {
+            const res = await getQr(t);
+            expect(res.status).toBe(404);
+            expect(await res.text()).toBe('');
+        }
+        expect(qr.textos).toHaveLength(0);
+    });
+
+    it('vencido / revocado → 410', async () => {
+        expect((await getQr(TOKEN_VENCIDO)).status).toBe(410);
+        expect((await getQr(TOKEN_REVOCADO)).status).toBe(410);
+        expect(qr.textos).toHaveLength(0);
+    });
+
+    it('FAMILIAS_APP_URL a localhost → 500, nunca un QR a localhost', async () => {
+        process.env.FAMILIAS_APP_URL = 'http://localhost:5173';
+        const res = await getQr(TOKEN_A);
+        expect(res.status).toBe(500);
+        expect(qr.textos).toHaveLength(0);
+    });
+
+    it('rate limit por token: no pasa de 60 en 15 min', async () => {
+        const t = 'TokenRateRateRateRateRat';
+        estado.tokens[t] = { payment_id: COBRO_A, school_id: ESCUELA, vence_en: '2099-01-01T00:00:00Z', estado: 'vigente' };
+        let ultimo = 0;
+        for (let i = 0; i < 61; i++) ultimo = (await getQr(t)).status;
+        expect(ultimo).toBe(429);
+    });
+});
+
+describe('otros cobros del mismo pagador', () => {
+    it('lista los otros pendientes del MISMO pagador con su token, sin ids ni datos del acudiente', async () => {
+        estado.tablas.payments.push(cobro('cccccccc-0000-4000-8000-00000000000c', { amount: 80000, concept: 'Uniforme', period_month: 9, due_date: '2026-09-10', status: 'overdue' }));
+        const v = await (await get(TOKEN_A)).json();
+        expect(v.otrosPendientes).toHaveLength(1); // COBRO_B es de otro pagador
+        expect(v.otrosPendientes[0]).toMatchObject({ concepto: 'Uniforme', monto: 80000, vencido: true, token: 'AbCdEfGhIjKlMnOpQrStUvWx' });
+        const crudo = JSON.stringify(v);
+        expect(crudo).not.toContain('cccccccc');
+        expect(crudo).not.toContain('999999');
+        expect(crudo).not.toContain('caro@correo.co');
+    });
+
+    it('expone el QR de pago de la escuela solo si es https', async () => {
+        estado.tablas.school_settings[0].payment_qr_url = 'https://cdn.x/qr.jpg';
+        expect((await (await get(TOKEN_A)).json()).transferencia.qrEscuelaUrl).toBe('https://cdn.x/qr.jpg');
+        estado.tablas.school_settings[0].payment_qr_url = 'javascript:alert(1)';
+        expect((await (await get(TOKEN_A)).json()).transferencia.qrEscuelaUrl).toBeNull();
     });
 });

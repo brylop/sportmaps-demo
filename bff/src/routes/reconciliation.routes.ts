@@ -37,17 +37,33 @@ const UploadSchema = z.object({
     lines: z.array(LineSchema).min(1).max(5000),
 });
 
-// ── Autorización de escuela (owner / school_admin / admin) ─────────────────
+// ── Autorización de escuela (owner / school_admin / admin de plataforma) ────
+// SEG-26 (2026-10-05): esta función era el clon exacto del bug SEG-25. El
+// `return profile?.role === 'school_admin' || 'owner'` NO correlacionaba con el
+// `schoolId` de la URL: un school_admin legítimo de la escuela A mandaba
+// schoolId=B y leía la conciliación de B (/dashboard) o subía un extracto falso
+// de B y disparaba reconcile_statement (/upload). Y el bypass por
+// `profiles.role === 'admin'` confiaba en una columna que el propio usuario
+// puede autoasignar (policy UPDATE de profiles es USING(auth.uid()=id)).
+// Mismo fix que payment-providers (SEG-25) e invoicing.financeAccess.
 async function isSchoolAuthorized(userId: string, schoolId: string): Promise<boolean> {
-    const { data: profile } = await supabase
-        .from('profiles').select('role').eq('id', userId).maybeSingle();
-    if (profile?.role === 'admin') return true;
+    // Admin de plataforma → platform_admins, la misma fuente que is_super_admin().
+    const { data: pa } = await supabase
+        .from('platform_admins').select('profile_id')
+        .eq('profile_id', userId).eq('is_active', true).limit(1);
+    if ((pa ?? []).length > 0) return true;
 
+    // Correlacionar SIEMPRE con la escuela de la URL.
     const { data: school } = await supabase
         .from('schools').select('owner_id').eq('id', schoolId).maybeSingle();
     if (school?.owner_id === userId) return true;
 
-    return profile?.role === 'school_admin' || profile?.role === 'owner';
+    // limit(1) y no maybeSingle(): school_members no garantiza fila única.
+    const { data: members } = await supabase
+        .from('school_members').select('role')
+        .eq('school_id', schoolId).eq('profile_id', userId).eq('status', 'active')
+        .in('role', ['owner', 'admin', 'school_admin', 'super_admin']).limit(1);
+    return (members ?? []).length > 0;
 }
 
 // ── POST /upload — sube extracto y concilia ────────────────────────────────
