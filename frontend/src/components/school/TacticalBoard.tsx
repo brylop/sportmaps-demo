@@ -27,14 +27,19 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, X, Bookmark, Trash2, Eye, EyeOff, ChevronUp, ChevronDown, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play, User, Maximize2, Minimize2, Copy, RotateCw, Pencil, Type } from 'lucide-react';
+import { Loader2, Square, X, Bookmark, Trash2, Eye, EyeOff, ChevronUp, ChevronDown, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play, User, Maximize2, Minimize2, Copy, RotateCw, Pencil, Type } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useTeamPerformanceRoster } from '@/hooks/usePerformanceData';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
@@ -51,7 +56,7 @@ import {
 import { FootballPitchBackground } from './FootballPitchBackground';
 import { PlayerCard } from './PlayerCard';
 import { POSITION_LABEL, suggestLabel, legacyFallbackPosition } from '@/lib/school/footballDisplay';
-import type { LineupSourceType, LineupPlayerInput, TacticalSituation, TacticalArrow, TacticalArrowColor, TacticalShapeType, BallPathKind, EventSourceType } from '@/lib/school/footballQueries';
+import type { LineupSourceType, LineupPlayerInput, TacticalPreset, TacticalSituation, TacticalArrow, TacticalArrowColor, TacticalShapeType, BallPathKind, EventSourceType } from '@/lib/school/footballQueries';
 import {
   FULL_VIEW, GK_VIEW, viewBoxOf, yToView, yFromView, curveControlPoint, hydrateShape,
   BALL_PATH_BEND, isLoftedPath, ballPathPoint, OBJECT_TYPES, isPointShape, OBJECT_BOX,
@@ -60,9 +65,14 @@ import {
 } from '@/lib/school/tacticalGeometry';
 import {
   ARROW_COLOR_HEX, COLOR_LABEL, OBJECT_LABEL, BALL_PATH_LABEL, PIN_STYLE_KEY, readPinStyle,
-  isGoalkeeperLabel, type PinStyle,
+  PIN_PHOTOS_KEY, readPinPhotos, isGoalkeeperLabel, type PinStyle,
 } from '@/lib/school/tacticalPalette';
 import { BallGlyph, SilhouetteGlyph, ObjectIcon } from './tacticalGlyphs';
+import {
+  MAX_STARTERS, repositionedCenterPx, pitchPctFromPx,
+  buildPresetSlots, applyPresetSlots, nearestEmptySlot, splitKnownKeys,
+  type PlacedSlot, type EmptySlot,
+} from '@/lib/school/tacticalBoardLogic';
 import type { RosterSubject } from '@/lib/school/performanceQueries';
 
 const SITUATION_LABEL: Record<TacticalSituation, string> = {
@@ -76,11 +86,6 @@ const SITUATION_LABEL: Record<TacticalSituation, string> = {
   arqueros: 'Arqueros',
 };
 const SITUATIONS = Object.keys(SITUATION_LABEL) as TacticalSituation[];
-
-/** Distancia (en % de cancha) dentro de la cual soltar un jugador "adopta"
- *  un marcador de plantilla en vez de crear una posición libre nueva. */
-const SNAP_DISTANCE = 8;
-
 
 interface TacticalBoardProps {
   open: boolean;
@@ -136,67 +141,18 @@ function generateFormation442(): { x: number; y: number; label: string }[] {
  *  algo sería ruido estadístico, no una sugerencia real. */
 const MIN_SUGGEST_SAMPLE = 5;
 
-/** Empareja cada punto de `from` con el más cercano de `to`, sin repetir
- *  ninguno de los dos lados -- una aproximación simple (no es el algoritmo
- *  húngaro/óptimo) pero alcanza para "qué jugador va a qué posición de la
- *  plantilla" sin pedirle al coach que lo arme a mano. Se usa tanto para
- *  aplicar una plantilla sobre jugadores ya puestos como, en principio,
- *  para cualquier otro emparejamiento por cercanía que haga falta. */
-function greedyNearestMatch<A extends { x: number; y: number }, B extends { x: number; y: number }>(
-  from: A[],
-  to: B[],
-): { from: A; to: B }[] {
-  const pairs: { fi: number; ti: number; dist: number }[] = [];
-  from.forEach((f, fi) => {
-    to.forEach((t, ti) => {
-      pairs.push({ fi, ti, dist: Math.hypot(f.x - t.x, f.y - t.y) });
-    });
-  });
-  pairs.sort((a, b) => a.dist - b.dist);
-
-  const usedFrom = new Set<number>();
-  const usedTo = new Set<number>();
-  const matches: { from: A; to: B }[] = [];
-  for (const p of pairs) {
-    if (usedFrom.has(p.fi) || usedTo.has(p.ti)) continue;
-    usedFrom.add(p.fi);
-    usedTo.add(p.ti);
-    matches.push({ from: from[p.fi], to: to[p.ti] });
-  }
-  return matches;
-}
-
-interface PlacedSlot {
-  x: number;
-  y: number;
-  slot_label: string;
-  /** false = la etiqueta sigue siendo una sugerencia automática por altura y
-   *  se recalcula si el coach mueve al jugador. true = el coach la escribió
-   *  a mano y ya no se toca, se mueva a donde se mueva. */
-  labelIsCustom: boolean;
-  jersey_number: number | '';
-}
-
-/** Marcador de una plantilla cargada: posición sugerida SIN jugador todavía
- *  (D8 -- los presets guardan layout, no personas). */
-interface EmptySlot {
-  id: string;
-  slot_label: string;
-  x: number;
-  y: number;
-}
-
 function initialsOf(name: string) {
   return name.split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
 }
 
 /** Tarjeta de jugador estilo videojuego (banca): avatar circular con anillo,
  *  nombre debajo, en una tira horizontal desplazable. */
-function BenchDraggable({ subject, onOpenCard, needsRotation }: { subject: RosterSubject; onOpenCard: () => void; needsRotation?: boolean }) {
+function BenchDraggable({ subject, onOpenCard, needsRotation, showPhotos, readOnly }: { subject: RosterSubject; onOpenCard: () => void; needsRotation?: boolean; showPhotos?: boolean; readOnly?: boolean }) {
   const key = subjectKey(subject.subject_type, subject.subject_id);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `bench:${key}`,
     data: { subject },
+    disabled: readOnly,
   });
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
 
@@ -222,7 +178,7 @@ function BenchDraggable({ subject, onOpenCard, needsRotation }: { subject: Roste
           disparando este onClick normal, mismo patrón que ya usa la etiqueta
           del pin para renombrar. */}
       <Avatar className="h-8 w-8 ring-2 ring-white/15 cursor-pointer" onClick={(e) => { e.stopPropagation(); onOpenCard(); }}>
-        <AvatarImage src={subject.avatar_url ?? undefined} />
+        {showPhotos && <AvatarImage src={subject.avatar_url ?? undefined} />}
         <AvatarFallback className="text-xs font-bold bg-gradient-to-br from-emerald-500 to-emerald-700 text-white">
           {initialsOf(subject.full_name)}
         </AvatarFallback>
@@ -624,6 +580,19 @@ function ArrowLayer({
     rotating.current = null;
   }
 
+  /** El sistema puede interrumpir un gesto (llamada, gesto del sistema, otro
+   *  dedo que roba el puntero): llega `pointercancel`/`lostpointercapture` en
+   *  vez de `pointerup`. Sin esto el trazo en curso, la vista previa de una
+   *  flecha o el arrastre de un handle quedaban colgados hasta el próximo toque. */
+  function cancelGestures() {
+    setPreview(null);
+    setStroke(null);
+    setEraserAt(null);
+    draggingHandle.current = null;
+    draggingMeasurePoint.current = null;
+    rotating.current = null;
+  }
+
   // Ancho real = largo * proporción de la cancha (300/340) -- la cancha no
   // es cuadrada, y el largo (arco a arco) es el que el coach conoce mejor.
   const pitchWidthMeters = pitchLengthMeters * (300 / 340);
@@ -670,6 +639,8 @@ function ArrowLayer({
       onPointerDown={handleCanvasPointerDown}
       onPointerMove={handleCanvasPointerMove}
       onPointerUp={handleCanvasPointerUp}
+      onPointerCancel={cancelGestures}
+      onLostPointerCapture={cancelGestures}
       onClick={handleCanvasClick}
     >
       <defs>
@@ -725,7 +696,7 @@ function ArrowLayer({
               >
                 <rect x={p1.x - hw} y={p1.y - hh} width={hw * 2} height={hh * 2} fill="transparent" />
                 <text x={p1.x} y={p1.y} textAnchor="middle" dominantBaseline="central" fontSize={fs} fontWeight={800}
-                  fill={color} stroke="#111827" strokeWidth={fs * 0.22} strokeLinejoin="round" paintOrder="stroke"
+                  fill={color} stroke={s.color === 'black' ? '#f8fafc' : '#111827'} strokeWidth={fs * 0.22} strokeLinejoin="round" paintOrder="stroke"
                   style={{ userSelect: 'none' }}>
                   {label}
                 </text>
@@ -819,13 +790,26 @@ function ArrowLayer({
         return (
           <g key={i}>
             {type === 'zone' ? (
-              <rect
-                x={Math.min(p1.x, p2.x)} y={Math.min(p1.y, p2.y)}
-                width={Math.abs(p2.x - p1.x)} height={Math.abs(p2.y - p1.y)}
-                rx={5} fill={color} fillOpacity={0.14} stroke={color} strokeOpacity={0.7} strokeWidth={1.2}
-                className={`${pe} cursor-pointer`}
-                onClick={(e) => { e.stopPropagation(); onDeleteShape(i); }}
-              />
+              <>
+                {/* El relleno NO captura toques: una zona grande tapaba a los
+                    jugadores de abajo (tocarla la borraba y no se podía
+                    arrastrar al jugador cubierto). Solo el borde es tocable,
+                    con un trazo ancho invisible para que sea fácil de acertar. */}
+                <rect
+                  x={Math.min(p1.x, p2.x)} y={Math.min(p1.y, p2.y)}
+                  width={Math.abs(p2.x - p1.x)} height={Math.abs(p2.y - p1.y)}
+                  rx={5} fill={color} fillOpacity={0.14} stroke={color} strokeOpacity={0.7} strokeWidth={1.2}
+                  className="pointer-events-none"
+                />
+                <rect
+                  x={Math.min(p1.x, p2.x)} y={Math.min(p1.y, p2.y)}
+                  width={Math.abs(p2.x - p1.x)} height={Math.abs(p2.y - p1.y)}
+                  rx={5} fill="none" stroke="transparent" strokeWidth={12}
+                  pointerEvents={pe === 'pointer-events-auto' ? 'stroke' : 'none'}
+                  className="cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); onDeleteShape(i); }}
+                />
+              </>
             ) : type === 'curve' ? (() => {
               const c = curveControlPoint(p1, p2);
               return (
@@ -953,7 +937,7 @@ function ArrowLayer({
           if (e.key === 'Escape') { e.preventDefault(); textDraftRef.current = null; setTextDraft(null); }
         }}
         onBlur={commitTextDraft}
-        className="absolute z-50 -translate-x-1/2 -translate-y-1/2 max-w-[80%] rounded-md border-2 border-emerald-400 bg-black/80 px-2 py-1 text-center text-sm font-bold placeholder:text-white/40 outline-none"
+        className="absolute z-50 -translate-x-1/2 -translate-y-1/2 max-w-[80%] rounded-md border-2 border-emerald-400 bg-black/80 px-2 py-1 text-center text-sm font-bold placeholder:text-white/70 outline-none"
         style={{
           left: `${textDraft.x}%`,
           top: `${yToView(textDraft.y, view)}%`,
@@ -969,7 +953,7 @@ function ArrowLayer({
  *  iniciales, foto si hay) o silueta genérica por posición (arquero en
  *  amarillo, resto en verde; NUNCA la foto -- es una figura, no la persona),
  *  con etiqueta flotante debajo. */
-function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, animate, pinStyle, view }: {
+function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, animate, pinStyle, showPhotos, readOnly, view }: {
   subject: RosterSubject;
   slot: PlacedSlot;
   onLabelChange: (label: string) => void;
@@ -982,19 +966,26 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, 
    *  sentiría con retraso si el transition estuviera siempre activo). */
   animate?: boolean;
   pinStyle: PinStyle;
+  /** Foto del jugador en el disco: opt-in (ver PIN_PHOTOS_KEY). */
+  showPhotos: boolean;
+  /** Solo lectura: no se arrastra, no se quita, no se edita la etiqueta. */
+  readOnly?: boolean;
   view: PitchView;
 }) {
   const key = subjectKey(subject.subject_type, subject.subject_id);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `pitch:${key}`,
     data: { subject },
+    disabled: readOnly,
   });
   const [editing, setEditing] = useState(false);
+  // Esc descarta lo escrito en la etiqueta (sin esto el blur lo guardaba igual).
+  const cancelLabelEdit = useRef(false);
   // `imgError` cubre el caso de una avatar_url rota (404, bucket privado,
   // etc.): cae de vuelta al disco de siempre en vez de dejar un ícono roto.
   const [imgError, setImgError] = useState(false);
   const displayNumber = slot.jersey_number !== '' ? String(slot.jersey_number) : null;
-  const hasPhoto = !!subject.avatar_url && !imgError;
+  const hasPhoto = showPhotos && !!subject.avatar_url && !imgError;
   const topPct = yToView(slot.y, view);
   // Fuera de la ventana visible (zoom al área): se oculta, no se desmonta,
   // para que useDraggable siga registrado y la posición guardada no cambie.
@@ -1027,14 +1018,14 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, 
       }}
       className="flex flex-col items-center gap-1 touch-none"
     >
-      <button
+      {!readOnly && <button
         type="button"
         onClick={onRemove}
         className="absolute -top-2 -right-2 z-10 h-5 w-5 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg ring-2 ring-zinc-950/80"
         aria-label={`Quitar a ${subject.full_name} de la cancha`}
       >
         <X className="h-3 w-3" />
-      </button>
+      </button>}
       {/* El handle de arrastre cubre figura + etiqueta juntos. El botón X
           queda AFUERA de este div a propósito, para que nunca compita con el drag. */}
       <div
@@ -1081,17 +1072,27 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, 
           </div>
         )}
         {editing ? (
+          // En pantallas táctiles la fuente tiene que ser >=16px: con menos, iOS
+          // Safari hace zoom a la página al enfocar el campo y la cancha se
+          // desacomoda. Con mouse queda compacto como siempre.
           <Input
             autoFocus
             defaultValue={slot.slot_label}
-            className="h-5 w-20 text-[10px] px-1 py-0 text-center bg-white/95 text-black"
+            className="h-5 w-20 text-[10px] px-1 py-0 text-center bg-white/95 text-black [@media(pointer:coarse)]:h-8 [@media(pointer:coarse)]:w-28 [@media(pointer:coarse)]:text-[16px]"
             onPointerDown={(e) => e.stopPropagation()}
-            onBlur={(e) => { onLabelChange(e.target.value.trim() || slot.slot_label); setEditing(false); }}
-            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            onBlur={(e) => {
+              if (cancelLabelEdit.current) { cancelLabelEdit.current = false; setEditing(false); return; }
+              onLabelChange(e.target.value.trim() || slot.slot_label);
+              setEditing(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              if (e.key === 'Escape') { e.stopPropagation(); cancelLabelEdit.current = true; (e.target as HTMLInputElement).blur(); }
+            }}
           />
         ) : (
           <span
-            onClick={() => setEditing(true)}
+            onClick={() => { if (!readOnly) setEditing(true); }}
             className="text-[10px] font-bold text-white bg-black/55 backdrop-blur-sm rounded-full px-2 py-0.5 leading-tight max-w-[84px] truncate cursor-text shadow"
           >
             {slot.slot_label}
@@ -1101,8 +1102,16 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, 
     </div>
   );
 }
+/** Roles que pueden MODIFICAR el tablero: espejo de TACTICAL_EDIT_ROLES del BFF
+ *  y de user_tactical_edit_school_ids() en la base. Admin/staff pueden verlo,
+ *  pero guardar les devolvía 403 después de armar todo -- ahora entran en modo
+ *  lectura y se enteran desde el principio. */
+const TACTICAL_EDIT_ROLES = ['owner', 'coach', 'super_admin'];
+
 export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sourceId, contextLabel }: TacticalBoardProps) {
   const { toast } = useToast();
+  const { currentUserRole } = useSchoolContext();
+  const canEdit = TACTICAL_EDIT_ROLES.includes(currentUserRole || '');
   const { data: roster, isLoading: loadingRoster } = useTeamPerformanceRoster({ team_id: teamId });
   const { data: existingList } = useFootballLineups({ source_type: sourceType, source_id: sourceId });
   const existingLineupId = existingList?.[0]?.id;
@@ -1149,6 +1158,12 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   const [emptySlots, setEmptySlots] = useState<EmptySlot[]>([]);
   const [savingName, setSavingName] = useState<string | null>(null);
   const [loadedPresetId, setLoadedPresetId] = useState<string | null>(null);
+  // Confirmación de acciones que descartan trabajo (cargar plantilla sobre
+  // dibujos, cambiar de situación, borrar todo, eliminar plantilla). Un solo
+  // diálogo para todas: la acción pendiente vive acá hasta que se confirma.
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string; description: string; confirmLabel: string; onConfirm: () => void;
+  } | null>(null);
   const { data: presets } = useTacticalPresets({ team_id: teamId, situation });
   const createPreset = useCreateTacticalPreset();
   const updatePreset = useUpdateTacticalPreset();
@@ -1189,6 +1204,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   const [selectedShape, setSelectedShape] = useState<number | null>(null);
   // Disco vs. silueta: preferencia del coach, persistida en localStorage.
   const [pinStyle, setPinStyle] = useState<PinStyle>(() => readPinStyle());
+  const [showPhotos, setShowPhotos] = useState<boolean>(() => readPinPhotos());
   // Zoom al área (modo arqueros): se prende solo al elegir esa situación y
   // se puede alternar a mano desde el toolbar en cualquier situación.
   const [gkZoom, setGkZoom] = useState(false);
@@ -1359,6 +1375,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
   function handleDragEnd(event: DragEndEvent) {
     setAlignGuides({ x: [], y: [] });
+    if (!canEdit) return;
     const { active, delta } = event;
     const data = active.data.current as { subject: RosterSubject } | undefined;
     if (!data?.subject) return;
@@ -1375,11 +1392,11 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       // Reposicionar un jugador YA puesto: sumar el delta (px, siempre
       // confiable en @dnd-kit) a su posición actual -- remedir el rect del
       // nodo acá da mal porque el pin ya trae su propio transform de reposo
-      // (translate(-50%,-50%)) combinado con el de arrastre.
-      const currentPxX = pitchRect.left + (placed[key].x / 100) * pitchRect.width;
-      const currentPxY = pitchRect.top + (placed[key].y / 100) * pitchRect.height;
-      centerX = currentPxX + delta.x;
-      centerY = currentPxY + delta.y;
+      // (translate(-50%,-50%)) combinado con el de arrastre. La posición
+      // guardada pasa por la ventana visible (zoom de arqueros).
+      const c = repositionedCenterPx(placed[key], pitchRect, delta, view);
+      centerX = c.x;
+      centerY = c.y;
     } else {
       // Nuevo desde la banca: sin transform previo, sí es confiable medir
       // dónde quedó el elemento.
@@ -1389,16 +1406,15 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       centerY = activeRect.top + activeRect.height / 2;
     }
 
-    const withinPitch = centerX >= pitchRect.left && centerX <= pitchRect.right
-      && centerY >= pitchRect.top && centerY <= pitchRect.bottom;
+    const dropped = pitchPctFromPx({ x: centerX, y: centerY }, pitchRect, view);
 
     // Soltar afuera de la cancha no hace nada -- ni agrega, ni borra. Sacar
     // a alguien ya puesto es el botón X, a propósito: un drag accidental no
     // debería borrar una posición ya armada.
-    if (!withinPitch) return;
+    if (!dropped.inside) return;
 
-    let xPct = Math.min(100, Math.max(0, ((centerX - pitchRect.left) / pitchRect.width) * 100));
-    let yPct = Math.min(100, Math.max(0, yFromView(((centerY - pitchRect.top) / pitchRect.height) * 100, view)));
+    let xPct = dropped.x;
+    let yPct = dropped.y;
     let adoptedLabel: string | null = null;
 
     // Si es un jugador NUEVO (no reposicionando) y cae cerca de un marcador
@@ -1406,12 +1422,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     // marcador desaparece. Reposicionar uno ya puesto no adopta marcadores --
     // sería confuso que mover a alguien lo tironee hacia un slot ajeno.
     if (!isReposicionando && emptySlots.length > 0) {
-      let closest: EmptySlot | null = null;
-      let closestDist = SNAP_DISTANCE;
-      for (const es of emptySlots) {
-        const dist = Math.hypot(es.x - xPct, es.y - yPct);
-        if (dist < closestDist) { closest = es; closestDist = dist; }
-      }
+      const closest = nearestEmptySlot(emptySlots, xPct, yPct);
       if (closest) {
         xPct = closest.x;
         yPct = closest.y;
@@ -1446,6 +1457,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   }
 
   function removeFromPitch(key: string) {
+    if (!canEdit) return;
     setPlaced((prev) => {
       const next = { ...prev };
       delete next[key];
@@ -1454,6 +1466,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   }
 
   function toggleBench(key: string) {
+    if (!canEdit) return;
     setBenchKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
@@ -1461,61 +1474,53 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     });
   }
 
-  // Cargar una plantilla NUNCA toca a los jugadores ya puestos (D8 -- solo
-  // agrega marcadores de referencia); por eso no hace falta confirmar nada,
-  // a diferencia de lo que decía el plan original antes de implementarlo.
-  // Las flechas SÍ se reemplazan por las del preset (a diferencia de los
-  // slots, no tiene sentido "sumar" flechas de dos tácticas distintas).
-  function handleLoadPreset(presetId: string) {
-    const preset = presets?.find((p) => p.id === presetId);
-    if (!preset) return;
-
-    const slots = preset.slots.map((s) => ({ slot_label: s.slot_label, x: Number(s.x), y: Number(s.y) }));
-    const placedEntries = Object.entries(placed).map(([key, slot]) => ({ key, x: slot.x, y: slot.y }));
-
-    if (placedEntries.length > 0 && slots.length > 0) {
-      // Con jugadores ya puestos, la plantilla los reubica animado hacia el
-      // slot más cercano en vez de solo dejar marcadores vacíos -- eso
-      // seguía pasando antes SIEMPRE (D8: el preset no sabe qué jugador va
-      // dónde), pero acá sí conviene mover a quien ya está, no solo sugerir
-      // dónde falta poner a alguien.
-      const matches = greedyNearestMatch(placedEntries, slots);
-      const matchedSlots = new Set(matches.map((m) => m.to));
-
-      setPlaced((prev) => {
-        const next = { ...prev };
-        for (const m of matches) {
-          const existing = next[m.from.key];
-          next[m.from.key] = {
-            x: m.to.x, y: m.to.y,
-            slot_label: m.to.slot_label,
-            labelIsCustom: false,
-            jersey_number: existing?.jersey_number ?? '',
-          };
-        }
-        return next;
-      });
+  /** Aplica la plantilla: los jugadores ya puestos se reubican (animado) en el
+   *  slot más cercano, los slots sin jugador quedan como marcadores, y los
+   *  dibujos se REEMPLAZAN por los de la plantilla (no tiene sentido "sumar"
+   *  flechas de dos tácticas distintas). */
+  function applyPreset(preset: TacticalPreset) {
+    const result = applyPresetSlots(placed, preset.id, preset.slots);
+    if (result.placed !== placed) {
+      setPlaced(result.placed);
       setAnimatingMove(true);
       setTimeout(() => setAnimatingMove(false), ANIMATE_MS);
-
-      setEmptySlots(
-        slots
-          .filter((s) => !matchedSlots.has(s))
-          .map((s, i) => ({ id: `${preset.id}:${i}`, slot_label: s.slot_label, x: s.x, y: s.y })),
-      );
-    } else {
-      setEmptySlots(slots.map((s, i) => ({ id: `${preset.id}:${i}`, slot_label: s.slot_label, x: s.x, y: s.y })));
     }
-
+    setEmptySlots(result.emptySlots);
     setArrows((preset.arrows ?? []).map(hydrateShape));
     setSelectedShape(null);
     setLoadedPresetId(preset.id);
   }
 
+  /** Cargar una plantilla reubica a los jugadores y reemplaza los dibujos --
+   *  los dibujos pueden ser trabajo sin guardar de esta alineación, así que si
+   *  hay algo que se va a perder se pregunta antes (no hay deshacer). */
+  function handleLoadPreset(presetId: string) {
+    const preset = presets?.find((p) => p.id === presetId);
+    if (!preset) return;
+
+    const willMovePlayers = Object.keys(placed).length > 0 && preset.slots.length > 0;
+    const willReplaceDrawings = arrows.length > 0;
+    if (!willMovePlayers && !willReplaceDrawings) {
+      applyPreset(preset);
+      return;
+    }
+    const efectos: string[] = [];
+    if (willMovePlayers) efectos.push(`los ${Object.keys(placed).length} jugadores en cancha se mueven a las posiciones de la plantilla`);
+    if (willReplaceDrawings) efectos.push(`los ${arrows.length} dibujos actuales se reemplazan por los de la plantilla`);
+    setConfirmAction({
+      title: `¿Cargar «${preset.name}»?`,
+      description: `Al cargarla, ${efectos.join(' y ')}. Esto no se puede deshacer.`,
+      confirmLabel: 'Cargar plantilla',
+      onConfirm: () => applyPreset(preset),
+    });
+  }
+
   async function handleSaveAsPreset() {
     const name = savingName?.trim();
-    if (!name) return;
-    const slots = Object.values(placed).map((s) => ({ slot_label: s.slot_label, x: s.x, y: s.y }));
+    if (!name || !canEdit) return;
+    // Jugadores puestos + marcadores que todavía no adoptó nadie (una
+    // plantilla es layout: un marcador sin jugador sigue siendo una posición).
+    const slots = buildPresetSlots(placed, emptySlots);
     if (slots.length === 0) {
       toast({ title: 'Nada que guardar', description: 'Ubica al menos un jugador en la cancha primero.', variant: 'destructive' });
       return;
@@ -1539,8 +1544,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
    *  → aparecía una plantilla duplicada con el cambio, la original quedaba
    *  intacta y el coach no entendía por qué "no editaba bien". */
   async function handleUpdatePreset() {
-    if (!loadedPresetId) return;
-    const slots = Object.values(placed).map((s) => ({ slot_label: s.slot_label, x: s.x, y: s.y }));
+    if (!loadedPresetId || !canEdit) return;
+    const slots = buildPresetSlots(placed, emptySlots);
     if (slots.length === 0) {
       toast({ title: 'Nada que guardar', description: 'Ubica al menos un jugador en la cancha primero.', variant: 'destructive' });
       return;
@@ -1551,6 +1556,66 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     } catch (err: any) {
       toast({ title: 'No se pudo actualizar la plantilla', description: err?.message, variant: 'destructive' });
     }
+  }
+
+  /** "Borrar todo" quita todos los dibujos de la pizarra; no hay deshacer
+   *  más allá de la última figura, así que se pregunta antes. */
+  function requestClearDrawings() {
+    if (arrows.length === 0 || !canEdit) return;
+    setConfirmAction({
+      title: '¿Borrar todos los dibujos?',
+      description: `Se quitan las ${arrows.length} figuras de la pizarra (flechas, material y anotaciones). Los jugadores no se tocan. Esto no se puede deshacer.`,
+      confirmLabel: 'Borrar todo',
+      onConfirm: () => { setArrows([]); setSelectedShape(null); },
+    });
+  }
+
+  /** Cambiar de situación descarta los dibujos y los marcadores de la
+   *  plantilla cargada: si hay algo que perder, se pregunta primero. */
+  function handleChangeSituation(next: TacticalSituation) {
+    if (next === situation) return;
+    const apply = () => {
+      setSituation(next);
+      setEmptySlots([]);
+      setLoadedPresetId(null);
+      setArrows([]);
+      setSelectedShape(null);
+      setGhostBalls(null);
+    };
+    if (arrows.length === 0 && emptySlots.length === 0) {
+      apply();
+      return;
+    }
+    setConfirmAction({
+      title: `¿Cambiar a ${SITUATION_LABEL[next]}?`,
+      description: 'Al cambiar de situación se quitan los dibujos y los marcadores de la plantilla cargada. Los jugadores en cancha se mantienen.',
+      confirmLabel: 'Cambiar situación',
+      onConfirm: apply,
+    });
+  }
+
+  /** Elimina la plantilla cargada. El estado local solo se limpia si el
+   *  servidor confirmó: antes se limpiaba aunque el DELETE fallara y la
+   *  plantilla seguía existiendo sin que el coach lo notara. */
+  function requestDeletePreset() {
+    if (!loadedPresetId || !canEdit) return;
+    const preset = presets?.find((p) => p.id === loadedPresetId);
+    const id = loadedPresetId;
+    setConfirmAction({
+      title: `¿Eliminar la plantilla${preset ? ` «${preset.name}»` : ''}?`,
+      description: 'Se elimina para todo el cuerpo técnico del equipo. Lo que hay en la cancha ahora no cambia.',
+      confirmLabel: 'Eliminar plantilla',
+      onConfirm: async () => {
+        try {
+          await deletePreset.mutateAsync(id);
+          setEmptySlots([]);
+          setLoadedPresetId(null);
+          toast({ title: 'Plantilla eliminada' });
+        } catch (err: any) {
+          toast({ title: 'No se pudo eliminar la plantilla', description: err?.message, variant: 'destructive' });
+        }
+      },
+    });
   }
 
   const suggestibleCount = (seasonStats?.stats ?? []).filter((s) => s.matches_played > 0).length;
@@ -1575,7 +1640,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
    *  vacía a propósito -- sobre una alineación que el coach ya armó, "sugerir"
    *  significaría reemplazar su trabajo sin avisar, y eso no es aceptable. */
   function handleSuggestXI() {
-    if (!seasonStats) return;
+    if (!canEdit || !seasonStats) return;
     const ranked = seasonStats.stats
       .filter((s) => s.matches_played > 0)
       .sort((a, b) => b.minutes_played - a.minutes_played);
@@ -1613,17 +1678,6 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
    *  anima (es una flecha de zona/espacio, no de un jugador puntual). */
   const PLAY_MATCH_DISTANCE = 6;
 
-  /** "Reproducir jugada": cada jugador puesto que tenga una flecha o curva
-   *  arrancando cerca de su posición se desliza animado hasta la punta de
-   *  esa flecha. Es una aproximación (línea recta con CSS, no sigue el
-   *  arco real de una curva) -- alcanza para "mostrar la jugada", no
-   *  pretende ser una animación exacta del trazo. */
-  /** Ida hasta la punta de la flecha, pausa breve mostrando la formación
-   *  final, y VUELTA al punto de partida -- así "Reproducir" es un ensayo
-   *  repetible (el coach lo aprieta las veces que quiera) y no algo que se
-   *  "gasta": si el jugador se quedara en la punta, la segunda reproducción
-   *  no tendría de dónde partir, porque el jugador ya no está donde arranca
-   *  la flecha. */
   /** Anima balones fantasma a lo largo de cada recorrido, con
    *  requestAnimationFrame (los objetos son SVG, no tienen transition CSS de
    *  left/top como los pines). Ease in-out para que arranque y frene suave. */
@@ -1654,8 +1708,38 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
    *  Ida, pausa breve mostrando la formación final, y VUELTA al punto de
    *  partida -- así "Reproducir" es un ensayo repetible (el coach lo aprieta
    *  las veces que quiera) y no algo que se "gasta". */
+  // Temporizadores de la secuencia y foto de las posiciones reales: la
+  // reproducción mueve `placed` de verdad (los pines se animan por CSS), así
+  // que detenerla tiene que restaurar lo que el coach tenía armado.
+  const playTimers = useRef<number[]>([]);
+  const playSnapshot = useRef<Record<string, PlacedSlot> | null>(null);
+
+  const schedulePlay = (fn: () => void, ms: number) => {
+    playTimers.current.push(window.setTimeout(fn, ms));
+  };
+
+  /** Corta la reproducción en cualquier punto (botón Detener, cerrar el
+   *  tablero, tocar la cancha) y devuelve a los jugadores a su posición real. */
+  function stopPlayback() {
+    playTimers.current.forEach((t) => window.clearTimeout(t));
+    playTimers.current = [];
+    if (ballRaf.current) { cancelAnimationFrame(ballRaf.current); ballRaf.current = null; }
+    if (playSnapshot.current) setPlaced(playSnapshot.current);
+    playSnapshot.current = null;
+    setGhostBalls(null);
+    setHiddenBallIdx(new Set());
+    setAnimatingMove(false);
+    setPlayingSequence(false);
+  }
+
+  useEffect(() => {
+    if (!open && playSnapshot.current) stopPlayback();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  useEffect(() => () => { playTimers.current.forEach((t) => window.clearTimeout(t)); }, []);
+
   function handlePlayMovement() {
-    if (playingSequence) return;
+    if (playingSequence) { stopPlayback(); return; }
 
     const candidateArrows = arrows.filter((a) => (a.type ?? 'arrow') === 'arrow' || a.type === 'curve');
     const ballPaths = arrows.filter((a) => a.type === 'ball_path');
@@ -1690,6 +1774,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     setHiddenBallIdx(hidden);
     setSelectedShape(null);
     setPlayingSequence(true);
+    playSnapshot.current = placed;
 
     // 1) Ida.
     setPlaced((prev) => {
@@ -1702,11 +1787,11 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     setAnimatingMove(true);
     runBallAnimation(ballPaths, ANIMATE_MS);
 
-    setTimeout(() => {
+    schedulePlay(() => {
       setAnimatingMove(false);
 
       // 2) Pausa viendo la formación final, después 3) vuelta al origen.
-      setTimeout(() => {
+      schedulePlay(() => {
         setPlaced((prev) => {
           const next = { ...prev };
           for (const m of matches) {
@@ -1720,7 +1805,11 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
         setGhostBalls(null);
         setHiddenBallIdx(new Set());
 
-        setTimeout(() => {
+        schedulePlay(() => {
+          // Terminó solo: las posiciones ya volvieron al origen, no hay nada
+          // que restaurar.
+          playSnapshot.current = null;
+          playTimers.current = [];
           setAnimatingMove(false);
           setPlayingSequence(false);
         }, ANIMATE_MS);
@@ -1730,21 +1819,31 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   // El manejo de puntero para dibujar/editar vive dentro de ArrowLayer (no
   // acá) para no re-renderizar todo TacticalBoard en cada pixel de
   // arrastre -- estos 3 callbacks son la única superficie que necesita.
+  // Editar dibujos mientras corre la reproducción corta la reproducción:
+  // los índices de `hiddenBallIdx` y las posiciones de ensayo dejarían de
+  // corresponder a lo que hay en pantalla.
   function handleCreateShape(shape: TacticalArrow) {
+    if (!canEdit) return;
+    if (playingSequence) stopPlayback();
     setArrows((prev) => [...prev, shape]);
   }
   function handleUpdateShape(index: number, patch: ShapePatch) {
+    if (!canEdit) return;
+    if (playingSequence) stopPlayback();
     setArrows((prev) => prev.map((a, i) => (i === index ? { ...a, ...patch } : a)));
   }
   /** Borrar corre los índices de las figuras posteriores: la selección se
    *  ajusta para seguir apuntando al mismo objeto (o se limpia si era ese). */
   function handleDeleteShape(index: number) {
+    if (!canEdit) return;
+    if (playingSequence) stopPlayback();
     setArrows((prev) => prev.filter((_, i) => i !== index));
     setSelectedShape((prev) => (prev === null || prev === index ? null : prev > index ? prev - 1 : prev));
   }
   /** Borrador: varias figuras de una vez. La selección se limpia (los
    *  índices se corren y el borrador no es un gesto de selección). */
   function handleEraseShapes(indexes: number[]) {
+    if (!canEdit) return;
     const drop = new Set(indexes);
     setArrows((prev) => prev.filter((_, i) => !drop.has(i)));
     setSelectedShape(null);
@@ -1756,6 +1855,13 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     const copy = offsetShape(src, 4, 3);
     setArrows((prev) => [...prev, copy]);
     setSelectedShape(arrows.length); // la copia queda al final
+  }
+  function togglePinPhotos() {
+    setShowPhotos((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(PIN_PHOTOS_KEY, next ? '1' : '0'); } catch { /* storage bloqueado: se pierde al recargar */ }
+      return next;
+    });
   }
   function togglePinStyle() {
     setPinStyle((prev) => {
@@ -1795,15 +1901,24 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     setMeasureMode(false);
   }
   async function handleSave() {
-    const starters = Object.entries(placed);
-    if (starters.length > 11) {
-      toast({ title: 'Máximo 11 en cancha', description: `Hay ${starters.length} jugadores colocados.`, variant: 'destructive' });
+    if (!canEdit) return;
+    if (playingSequence) return; // posiciones intermedias de la reproducción
+    // Un jugador de una alineación guardada puede ya no estar en el roster
+    // (dado de baja, cambiado de equipo): no se puede guardar y no cuenta para
+    // el máximo. Antes `subjectByKey.get(key)!` reventaba el guardado entero.
+    const starterKeys = splitKnownKeys(Object.keys(placed), subjectByKey);
+    const benchSplit = splitKnownKeys(Array.from(benchKeys), subjectByKey);
+    const missingCount = starterKeys.missing.length + benchSplit.missing.length;
+
+    if (starterKeys.valid.length > MAX_STARTERS) {
+      toast({ title: 'Máximo 11 en cancha', description: `Hay ${starterKeys.valid.length} jugadores colocados.`, variant: 'destructive' });
       return;
     }
 
     const players: LineupPlayerInput[] = [
-      ...starters.map(([key, slot]) => {
+      ...starterKeys.valid.map((key) => {
         const subject = subjectByKey.get(key)!;
+        const slot = placed[key];
         return {
           subject_type: subject.subject_type,
           subject_id: subject.subject_id,
@@ -1814,7 +1929,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
           jersey_number: slot.jersey_number === '' ? null : Number(slot.jersey_number),
         };
       }),
-      ...Array.from(benchKeys).map((key) => {
+      ...benchSplit.valid.map((key) => {
         const subject = subjectByKey.get(key)!;
         return {
           subject_type: subject.subject_type,
@@ -1826,7 +1941,12 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
     try {
       await saveLineup.mutateAsync({ team_id: teamId, source_type: sourceType, source_id: sourceId, players, arrows });
-      toast({ title: 'Alineación guardada' });
+      toast({
+        title: 'Alineación guardada',
+        description: missingCount > 0
+          ? `${missingCount} ${missingCount === 1 ? 'jugador ya no está' : 'jugadores ya no están'} en la plantilla del equipo y no se guardó.`
+          : undefined,
+      });
       onClose();
     } catch (err: any) {
       toast({ title: 'No se pudo guardar', description: err?.message, variant: 'destructive' });
@@ -1884,7 +2004,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
           {!loading && (
             <>
-              <Select value={situation} onValueChange={(v) => { setSituation(v as TacticalSituation); setEmptySlots([]); setLoadedPresetId(null); setArrows([]); setSelectedShape(null); setGhostBalls(null); }}>
+              <Select value={situation} onValueChange={(v) => handleChangeSituation(v as TacticalSituation)}>
                 <SelectTrigger className="h-7 w-[110px] text-[11px] bg-white/5 border-white/15 text-white">
                   <SelectValue />
                 </SelectTrigger>
@@ -1897,7 +2017,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
               {presets && presets.length > 0 && (
                 <>
-                  <Select onValueChange={handleLoadPreset}>
+                  <Select value={loadedPresetId ?? ''} onValueChange={handleLoadPreset}>
                     <SelectTrigger className="h-7 w-[120px] text-[11px] bg-white/5 border-white/15 text-white">
                       <SelectValue placeholder="Plantilla…" />
                     </SelectTrigger>
@@ -1907,32 +2027,45 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       ))}
                     </SelectContent>
                   </Select>
-                  {loadedPresetId && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 w-7 p-0 text-white/50 hover:text-red-400 hover:bg-white/10"
-                      title="Eliminar la plantilla cargada"
-                      onClick={() => {
-                        deletePreset.mutate(loadedPresetId);
-                        setEmptySlots([]);
-                        setLoadedPresetId(null);
-                      }}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
+                  {loadedPresetId && canEdit && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-white/50 hover:text-white hover:bg-white/10"
+                        title="Volver a cargar la plantilla guardada (descarta los cambios)"
+                        aria-label="Volver a cargar la plantilla guardada"
+                        onClick={() => handleLoadPreset(loadedPresetId)}
+                      >
+                        <RotateCw className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-white/50 hover:text-red-400 hover:bg-white/10"
+                        title="Eliminar la plantilla cargada"
+                        aria-label="Eliminar la plantilla cargada"
+                        onClick={requestDeletePreset}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </>
                   )}
                 </>
               )}
 
-              {savingName !== null ? (
+              {!canEdit ? (
+                <Badge variant="outline" className="h-6 text-[10px] border-amber-400/50 text-amber-300" title="Tu rol puede ver el tablero pero no modificarlo">
+                  Solo lectura
+                </Badge>
+              ) : savingName !== null ? (
                 <div className="flex items-center gap-1">
                   <Input
                     autoFocus
                     value={savingName}
                     onChange={(e) => setSavingName(e.target.value)}
                     placeholder="Nombre"
-                    className="h-7 w-[110px] text-[11px] bg-white/5 border-white/15 text-white placeholder:text-white/40"
+                    className="h-7 w-[110px] text-[11px] bg-white/5 border-white/15 text-white placeholder:text-white/70"
                     onKeyDown={(e) => { if (e.key === 'Enter') handleSaveAsPreset(); if (e.key === 'Escape') setSavingName(null); }}
                   />
                   <Button size="sm" className="h-7 text-[11px] px-2 bg-emerald-600 hover:bg-emerald-500 text-white" disabled={createPreset.isPending} onClick={handleSaveAsPreset}>
@@ -1991,6 +2124,20 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
               >
                 <User className="h-3.5 w-3.5" />
               </Button>
+              {pinStyle === 'disc' && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className={`h-7 px-1.5 text-[10px] hover:bg-white/10 ${showPhotos ? 'text-emerald-400 hover:text-emerald-300' : 'text-white/60 hover:text-white'}`}
+                  onClick={togglePinPhotos}
+                  aria-pressed={showPhotos}
+                  title={showPhotos
+                    ? 'Ocultar la foto de los jugadores'
+                    : 'Mostrar la foto de los jugadores (solo si los padres autorizaron el uso de la imagen)'}
+                >
+                  Fotos
+                </Button>
+              )}
 
               <Button
                 size="sm"
@@ -2036,7 +2183,10 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
               size="sm"
               className="h-7 text-[11px] px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
               onClick={handleSave}
-              disabled={saveLineup.isPending || loading}
+              // Durante "Reproducir jugada" los pines están a mitad de camino:
+              // guardar ahora persistiría posiciones intermedias.
+              disabled={saveLineup.isPending || loading || playingSequence || !canEdit}
+              title={!canEdit ? 'Solo lectura: tu rol no puede modificar el tablero' : playingSequence ? 'Espera a que termine la reproducción o presiona Detener' : undefined}
             >
               {saveLineup.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : null}
               Guardar
@@ -2049,7 +2199,13 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
             <Loader2 className="h-6 w-6 animate-spin text-white/50" />
           </div>
         ) : (
-          <DndContext sensors={sensors} onDragMove={handleDragMove} onDragEnd={handleDragEnd} onDragCancel={() => setAlignGuides({ x: [], y: [] })}>
+          <DndContext
+            sensors={sensors}
+            onDragStart={() => { if (playingSequence) stopPlayback(); }}
+            onDragMove={handleDragMove}
+            onDragEnd={handleDragEnd}
+            onDragCancel={() => setAlignGuides({ x: [], y: [] })}
+          >
             {/* Fila: cancha (usa lo que sobre) + panel de plantilla a la
                 derecha, en el margen lateral que antes quedaba vacío -- ya no
                 tapa la cancha por abajo. El lado izquierdo se deja libre a
@@ -2112,6 +2268,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         events={eventSummaryByKey.get(key)}
                         animate={animatingMove}
                         pinStyle={pinStyle}
+                        showPhotos={showPhotos}
+                        readOnly={!canEdit}
                         view={view}
                       />
                     );
@@ -2179,10 +2337,12 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         >
                           <PenLine className="h-3.5 w-3.5" /> {drawMode ? 'Dibujando' : 'Dibujar'}
                         </Button>
-                        <Button size="sm" variant="outline" aria-label="Reproducir jugada" title="Reproducir jugada"
-                          className="h-9 w-10 p-0 bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30"
-                          disabled={playingSequence} onClick={handlePlayMovement}>
-                          <Play className="h-4 w-4" />
+                        <Button size="sm" variant="outline" aria-label={playingSequence ? 'Detener reproducción' : 'Reproducir jugada'}
+                          aria-pressed={playingSequence}
+                          title={playingSequence ? 'Detener reproducción' : 'Reproducir jugada'}
+                          className={`h-9 w-10 p-0 bg-transparent border-white/15 hover:bg-white/10 hover:text-white ${playingSequence ? 'text-emerald-400' : 'text-white/80'}`}
+                          onClick={handlePlayMovement}>
+                          {playingSequence ? <Square className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4" />}
                         </Button>
                         <Button size="sm" variant="outline" aria-label="Deshacer" title="Deshacer"
                           className="h-9 w-10 p-0 bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30"
@@ -2191,7 +2351,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         </Button>
                         <Button size="sm" variant="outline" aria-label="Borrar todo" title="Borrar todo"
                           className="h-9 w-10 p-0 bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-red-400 disabled:opacity-30"
-                          disabled={arrows.length === 0} onClick={() => { setArrows([]); setSelectedShape(null); }}>
+                          disabled={arrows.length === 0} onClick={requestClearDrawings}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -2219,12 +2379,12 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     <Button
                       size="sm"
                       variant="outline"
-                      className="w-full h-8 gap-1.5 text-xs justify-start bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30 mb-1.5"
-                      disabled={playingSequence}
+                      className="w-full h-8 gap-1.5 text-xs justify-start bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-white mb-1.5"
                       onClick={handlePlayMovement}
                       title="Anima a cada jugador hasta la punta de su flecha/curva y lo devuelve -- se puede repetir"
                     >
-                      <Play className="h-3.5 w-3.5" /> {playingSequence ? 'Reproduciendo…' : 'Reproducir jugada'}
+                      {playingSequence ? <Square className="h-3.5 w-3.5 fill-current" /> : <Play className="h-3.5 w-3.5" />}
+                      {playingSequence ? 'Detener' : 'Reproducir jugada'}
                     </Button>
                     <Button
                       size="sm"
@@ -2234,7 +2394,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       <PenLine className="h-3.5 w-3.5" />
                       {drawMode ? 'Dibujando…' : 'Modo dibujo'}
                     </Button>
-                    <p className="text-[10px] text-white/40 mt-1.5 leading-snug">
+                    <p className="text-[10px] text-white/70 mt-1.5 leading-snug">
                       {drawMode
                         ? 'Arrastra sobre la cancha para dibujar. Los puntos blancos de cada figura se pueden arrastrar para ajustarla; tócala para borrarla.'
                         : 'Activa el modo dibujo y arrastra sobre la cancha. Ya puestas, cada figura se ajusta o se borra sin necesidad de este modo.'}
@@ -2264,7 +2424,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         </button>
                       ))}
                     </div>
-                    <p className="hidden md:block text-[10px] text-white/40 mt-1 leading-snug">
+                    <p className="hidden md:block text-[10px] text-white/70 mt-1 leading-snug">
                       {drawShapeType === 'text'
                         ? 'Toca la cancha donde va la nota y escribe; Enter la deja puesta.'
                         : drawShapeType === 'eraser'
@@ -2315,7 +2475,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         </button>
                       ))}
                     </div>
-                    <p className="hidden md:block text-[10px] text-white/40 mt-1 leading-snug">
+                    <p className="hidden md:block text-[10px] text-white/70 mt-1 leading-snug">
                       Arrastra desde donde sale el balón hasta donde llega. En "Reproducir jugada" el balón recorre la línea; remate y penal lo muestran elevándose.
                     </p>
                   </div>
@@ -2343,7 +2503,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         </button>
                       ))}
                     </div>
-                    <p className="hidden md:block text-[10px] text-white/40 mt-1 leading-snug">
+                    <p className="hidden md:block text-[10px] text-white/70 mt-1 leading-snug">
                       Un toque en la cancha lo coloca. Arrástralo para moverlo; tócalo para seleccionarlo (tamaño, giro, duplicar, quitar).
                     </p>
                   </div>
@@ -2362,7 +2522,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         />
                       ))}
                     </div>
-                    <p className="hidden md:block text-[10px] text-white/40 mt-1 leading-snug">
+                    <p className="hidden md:block text-[10px] text-white/70 mt-1 leading-snug">
                       Aplica a líneas, zonas y material. Zonas de distinto color = distintas consignas.
                     </p>
                   </div>
@@ -2434,7 +2594,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         </>
                       )}
                     </div>
-                    <p className="hidden md:block text-[10px] text-white/40 mt-1 leading-snug">
+                    <p className="hidden md:block text-[10px] text-white/70 mt-1 leading-snug">
                       {selectedIsObject && selected!.type === 'text'
                         ? 'Arrástralo para moverlo; tócalo de nuevo para cambiar lo que dice; la × lo quita.'
                         : selectedIsObject
@@ -2458,12 +2618,12 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       variant="outline"
                       className="flex-1 h-7 gap-1 text-[11px] bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-red-400 disabled:opacity-30"
                       disabled={arrows.length === 0}
-                      onClick={() => { setArrows([]); setSelectedShape(null); }}
+                      onClick={requestClearDrawings}
                     >
                       <Eraser className="h-3.5 w-3.5" /> Borrar
                     </Button>
                   </div>
-                  <p className="text-[10px] text-white/40">
+                  <p className="text-[10px] text-white/70">
                     {arrows.length} {arrows.length === 1 ? 'figura' : 'figuras'} · se guardan junto con la plantilla.
                   </p>
 
@@ -2488,7 +2648,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       />
                       <span className="text-[10px] text-white/50">m</span>
                     </div>
-                    <p className="hidden md:block text-[10px] text-white/40 mt-1 leading-snug">
+                    <p className="hidden md:block text-[10px] text-white/70 mt-1 leading-snug">
                       Toca 2 puntos en la cancha. Aproximado -- calculado a partir del largo que pongas arriba, no del tamaño real de tu cancha.
                     </p>
                   </div>
@@ -2521,7 +2681,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     >
                       <Sparkles className="h-3.5 w-3.5" /> Sugerir XI
                     </Button>
-                    <p className="text-[10px] text-white/40 mt-1 mb-2 leading-snug">
+                    <p className="text-[10px] text-white/70 mt-1 mb-2 leading-snug">
                       Por minutos jugados -- formación genérica, no la posición real de cada uno.
                     </p>
                   </div>
@@ -2531,7 +2691,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       Plantilla disponible ({availableSubjects.length})
                     </p>
                     {availableSubjects.length === 0 ? (
-                      <p className="text-xs text-white/40 italic">Todos los jugadores ya están ubicados.</p>
+                      <p className="text-xs text-white/70 italic">Todos los jugadores ya están ubicados.</p>
                     ) : (
                       <div className="flex flex-wrap gap-1.5">
                         {availableSubjects.map((s) => (
@@ -2540,6 +2700,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                             subject={s}
                             onOpenCard={() => setCardSubject(s)}
                             needsRotation={rotationKeys.has(subjectKey(s.subject_type, s.subject_id))}
+                            showPhotos={showPhotos}
+                            readOnly={!canEdit}
                           />
                         ))}
                       </div>
@@ -2600,6 +2762,26 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
         latestValues={roster.latest_values}
       />
     )}
+    <AlertDialog open={!!confirmAction} onOpenChange={(v) => { if (!v) setConfirmAction(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{confirmAction?.title}</AlertDialogTitle>
+          <AlertDialogDescription>{confirmAction?.description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              const action = confirmAction;
+              setConfirmAction(null);
+              action?.onConfirm();
+            }}
+          >
+            {confirmAction?.confirmLabel}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     </>
   );
 }

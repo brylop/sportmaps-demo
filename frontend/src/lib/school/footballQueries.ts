@@ -203,7 +203,7 @@ export type TacticalArrowColor =
  *  simplicidad de esquema (la misma columna jsonb sirve para los dos casos).
  *  Material de entrenamiento agregado 2026-09-24 (Carmel): plato, arco chico,
  *  maniquí, aro, escalera, estaca. Ampliar JUNTO con OBJECT_TYPES /
- *  renderObjectBody (TacticalBoard.tsx) y VALID_SHAPE_TYPES (bff football.ts). */
+ *  renderObjectBody (tacticalGlyphs.tsx) y VALID_SHAPE_TYPES (bff footballShapes.ts). */
 export type TacticalShapeType =
   | 'arrow' | 'curve' | 'zone' | 'ball_path'
   | 'cone' | 'marker' | 'ball' | 'goal' | 'mini_goal' | 'hurdle'

@@ -423,6 +423,7 @@ type HourBankSettings = {
   entryGraceMinutes: number;
   exitGraceMinutes: number;
   reentryMergeMinutes: number;
+  billingRounding: 'none' | 'hour_up';
 };
 const hourBankSettingsCache = new Map<string, { value: HourBankSettings; at: number }>();
 
@@ -432,7 +433,7 @@ export async function getHourBankSettings(schoolId: string): Promise<HourBankSet
 
   const { data } = await supabase
     .from('school_settings')
-    .select('hours_plan_enabled, hours_entry_grace_minutes, hours_exit_grace_minutes, hours_reentry_merge_minutes')
+    .select('hours_plan_enabled, hours_entry_grace_minutes, hours_exit_grace_minutes, hours_reentry_merge_minutes, hours_billing_rounding')
     .eq('school_id', schoolId)
     .maybeSingle();
 
@@ -441,6 +442,7 @@ export async function getHourBankSettings(schoolId: string): Promise<HourBankSet
     entryGraceMinutes:    data?.hours_entry_grace_minutes ?? 15,
     exitGraceMinutes:     data?.hours_exit_grace_minutes ?? 15,
     reentryMergeMinutes:  data?.hours_reentry_merge_minutes ?? 15,
+    billingRounding:      data?.hours_billing_rounding === 'hour_up' ? 'hour_up' : 'none',
   };
 
   hourBankSettingsCache.set(schoolId, { value, at: Date.now() });
@@ -452,6 +454,38 @@ export function invalidateHourBankSettingsCache(schoolId?: string): void {
   else hourBankSettingsCache.clear();
 }
 
+// Única fórmula del cobro vive en SQL (hour_bank_billed_minutes) — el cron de
+// auto-cierre la usa directo; acá se llama por RPC para que los tres sitios que
+// facturan (cron, cierre por reingreso, corrección manual) no puedan divergir.
+// null = la RPC falló: el caller NO debe facturar con un valor inventado.
+export async function computeHourBankBilledMinutes(
+  rawMinutes: number,
+  settings: Pick<HourBankSettings, 'entryGraceMinutes' | 'exitGraceMinutes' | 'billingRounding'>
+): Promise<number | null> {
+  const { data, error } = await supabase.rpc('hour_bank_billed_minutes', {
+    p_raw_minutes: rawMinutes,
+    p_entry_grace: settings.entryGraceMinutes,
+    p_exit_grace:  settings.exitGraceMinutes,
+    p_rounding:    settings.billingRounding,
+  });
+  if (error || typeof data !== 'number') {
+    console.error('[ADMS] banco de horas: hour_bank_billed_minutes falló:', error?.message ?? `respuesta inesperada ${data}`);
+    return null;
+  }
+  return data;
+}
+
+// Mismo formato que formatMinutes del frontend y format_hour_bank_minutes() de SQL.
+export function formatHourBankMinutes(mins: number): string {
+  const abs = Math.abs(Math.round(mins));
+  const h = Math.floor(abs / 60);
+  const m = abs % 60;
+  const sign = mins < 0 ? '-' : '';
+  if (h === 0) return `${sign}${m} min`;
+  if (m === 0) return `${sign}${h}h`;
+  return `${sign}${h}h ${m}min`;
+}
+
 // Cierra una visita 'open': suma sus segmentos, aplica gracia de entrada/salida
 // (D-9: los minutos de gracia NO se facturan, "sin que coma del banco"), y hace
 // el único UPDATE real vía move_hour_bank (F2, FOR UPDATE). No toca
@@ -460,8 +494,7 @@ export function invalidateHourBankSettingsCache(schoolId?: string): void {
 async function closeHourBankVisit(
   visitId: string,
   schoolId: string,
-  entryGraceMinutes: number,
-  exitGraceMinutes: number,
+  settings: Pick<HourBankSettings, 'entryGraceMinutes' | 'exitGraceMinutes' | 'billingRounding'>,
   athleteName: string
 ): Promise<void> {
   const { data: visit } = await supabase
@@ -485,9 +518,11 @@ async function closeHourBankVisit(
     return sum + Math.round((new Date(s.exited_at).getTime() - new Date(s.entered_at).getTime()) / 60000);
   }, 0);
 
-  const billedMinutes = Math.max(0, rawMinutes - entryGraceMinutes - exitGraceMinutes);
   const lastExit = segments[segments.length - 1].exited_at;
   if (!lastExit) return; // el último segmento sigue abierto — no hay nada que cerrar todavía
+
+  const billedMinutes = await computeHourBankBilledMinutes(rawMinutes, settings);
+  if (billedMinutes === null) return; // no facturar con un valor inventado — el cron lo reintenta
 
   // F4: si había una reserva confirmada para el día de esta visita, se libera
   // junto con el consumo real en la misma llamada a move_hour_bank — evita que
@@ -533,7 +568,7 @@ async function closeHourBankVisit(
         school_id: schoolId,
         type:     'hour_bank_overage',
         title:    '⏱️ Banco de horas — saldo excedido',
-        message:  `${athleteName} consumió ${billedMinutes} min y dejó el banco del período en ${available} min (excedido).`,
+        message:  `${athleteName} consumió ${formatHourBankMinutes(billedMinutes)} y dejó el banco del período en ${formatHourBankMinutes(available)} (excedido).`,
         link:     '/school/access-control',
       });
     }
@@ -618,7 +653,7 @@ async function trackHourBankVisit(
         }
         // Fuera de la ventana: esa visita ya terminó de verdad — cerrarla (con
         // billing) antes de abrir la nueva.
-        await closeHourBankVisit(openVisit.id, schoolId, settings.entryGraceMinutes, settings.exitGraceMinutes, athleteName);
+        await closeHourBankVisit(openVisit.id, schoolId, settings, athleteName);
       }
     }
 

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { bffClient } from '@/lib/api/bffClient';
 import { Badge } from '@/components/ui/badge';
 import { DoorOpen, DoorClosed, ShieldX } from 'lucide-react';
+import { formatHourBankMinutes } from '@/lib/hourBank';
 
 /**
  * Reporte de ingresos/salidas de un estudiante — log crudo del torniquete +
@@ -100,7 +101,7 @@ export function StudentReportPanel({ enrollmentId }: { enrollmentId: string }) {
                   {fmtDateTime(v.started_at)}{v.ended_at ? ` — ${fmtDateTime(v.ended_at)}` : ' (en curso)'}
                 </span>
                 <span className="flex items-center gap-1.5">
-                  {v.billed_minutes != null && <span className="font-semibold">{v.billed_minutes} min</span>}
+                  {v.billed_minutes != null && <span className="font-semibold">{formatHourBankMinutes(v.billed_minutes)}</span>}
                   <Badge variant="outline" className="text-[9px] h-4 px-1 py-0">
                     {v.status === 'pending_review' ? 'pendiente revisión' : v.status}
                   </Badge>

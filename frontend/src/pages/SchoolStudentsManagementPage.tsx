@@ -23,6 +23,7 @@ import { StatFilterBar, type StatFilterTone } from '@/components/common/StatFilt
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin, X, RefreshCw, Clock, Upload, AlertTriangle } from 'lucide-react';
 import { HourBankBalanceCard } from '@/components/access/HourBankBalanceCard';
+import { formatHourBankMinutes } from '@/lib/hourBank';
 import { StudentReportPanel } from '@/components/access/StudentReportPanel';
 import { useToast } from '@/hooks/use-toast';
 import { useMemberships } from '@/hooks/useMemberships';
@@ -96,16 +97,6 @@ const studentSchema = z.object({
 });
 
 type StudentFormData = z.infer<typeof studentSchema>;
-
-function formatHourBankMinutes(mins: number): string {
-  const abs = Math.abs(Math.round(mins));
-  const h = Math.floor(abs / 60);
-  const m = abs % 60;
-  const sign = mins < 0 ? '-' : '';
-  if (h === 0) return `${sign}${m}min`;
-  if (m === 0) return `${sign}${h}h`;
-  return `${sign}${h}h${m}min`;
-}
 
 // ── Helpers de filtrado (puros, compartidos por los filtros y los badges) ─────
 type PaymentState = 'paid' | 'overdue' | 'pending' | 'none' | 'other';

@@ -40,7 +40,7 @@ CAMBIO 2026-09-25 -- de polling completo a live_capture (tiempo real):
 
     live_capture() NO reemplaza del todo a get_attendance(): sigue habiendo
     un barrido de respaldo (catchup_sweep) cada CATCHUP_INTERVAL_SECONDS
-    (5 minutos por defecto) que hace lo que antes hacia el polling, pero
+    (30 minutos por defecto) que hace lo que antes hacia el polling, pero
     mucho menos seguido -- por si el hilo de live_capture se cae, se
     reconecta, o el equipo se reinicia y pierde la sesion en el medio; ese
     barrido es la red de seguridad que garantiza que nada se pierda de
@@ -201,7 +201,29 @@ PAUSE_WAIT_TIMEOUT_SECONDS = 5
 # reinicio del equipo a mitad de una sesion, etc). No hace falta que sea
 # frecuente: si live_capture funciona bien, este barrido normalmente no
 # encuentra nada nuevo que reportar.
-CATCHUP_INTERVAL_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_CATCHUP_INTERVAL_SECONDS", "300"))
+#
+# 30 min y no 5: durante el barrido el lector queda DESHABILITADO
+# (disable_device) mientras lee ~48.000 registros -- ~47 s en el de entrada,
+# tiempo en el que NO acepta huellas. A 5 min eso era ~16% del dia con el
+# torniquete sin responder; a 30 min baja a ~2.6%.
+CATCHUP_INTERVAL_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_CATCHUP_INTERVAL_SECONDS", "1800"))
+
+# Primer barrido tras arrancar el proceso: recupera lo que pasó mientras estuvo
+# apagado (reinicio, tarea caida) sin esperar la primera vuelta completa.
+CATCHUP_FIRST_DELAY_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_CATCHUP_FIRST_DELAY_SECONDS", "60"))
+
+# El barrido reenvia tambien los eventos de esta ventana ANTERIOR al cursor.
+# Motivo: mientras el barrido (o un comando) tiene pausado live_capture, una
+# marcacion puede caer en el hueco; si despues llega una marcacion en vivo mas
+# nueva, el cursor salta por encima de la perdida y `timestamp > cursor` la
+# descartaria para siempre. Reenviar duplicados es seguro: el backend los
+# ignora (indice unico device_id+zk_user_id+occurred_at) y NO repite sus
+# efectos (banco de horas, notificaciones, asistencia).
+CATCHUP_LOOKBACK_MINUTES = int(os.environ.get("SPORTMAPS_BRIDGE_CATCHUP_LOOKBACK_MINUTES", "10"))
+
+# Cada cuanto cada lector reporta "sigo capturando en vivo" al backend
+# (GET /iclock/getrequest -> turnstile_devices.last_seen_at).
+DEVICE_HEARTBEAT_INTERVAL_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_DEVICE_HEARTBEAT_INTERVAL_SECONDS", "60"))
 
 # Cada cuanto se manda un heartbeat por la conexion WS.
 HEARTBEAT_INTERVAL_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_HEARTBEAT_INTERVAL_SECONDS", "60"))
@@ -623,7 +645,17 @@ def live_capture_loop(device, state):
                 # equipo siga aceptando huellas normalmente, es lo que
                 # estamos escuchando.
                 log(f"[{name}] escuchando asistencia en vivo...")
+                last_heartbeat = float("-inf")
                 for att in conn.live_capture(new_timeout=LIVE_CAPTURE_TICK_SECONDS):
+                    # El heartbeat sale SOLO mientras esta conexion de captura
+                    # esta viva -- asi turnstile_devices.last_seen_at significa
+                    # "capturando en vivo", no "el proceso existe". Sin esto,
+                    # last_seen_at solo se movia cuando alguien marcaba y el
+                    # lector figuraba sin conexion en horas tranquilas.
+                    now = time.monotonic()
+                    if now - last_heartbeat >= DEVICE_HEARTBEAT_INTERVAL_SECONDS:
+                        send_heartbeat(serial)
+                        last_heartbeat = now
                     if PAUSE_REQUESTED[serial].is_set():
                         log(f"[{name}] cediendo el equipo (comando o barrido pendiente)...")
                         break
@@ -667,9 +699,13 @@ def catchup_sweep(device, state):
             if not attendances:
                 return
 
-            new_records = [a for a in attendances if a.timestamp > last_sent_dt]
-            if not new_records:
+            window_start = last_sent_dt - timedelta(minutes=CATCHUP_LOOKBACK_MINUTES)
+            candidates = [a for a in attendances if a.timestamp > window_start]
+            if not candidates:
                 return
+            # Solo los POSTERIORES al cursor cuentan como "nuevos" de verdad (y
+            # para el limite de seguridad); los de la ventana son reenvios.
+            new_records = [a for a in candidates if a.timestamp > last_sent_dt]
 
             if len(new_records) > MAX_EVENTS_PER_CYCLE:
                 newest = max(new_records, key=lambda a: a.timestamp).timestamp
@@ -682,15 +718,19 @@ def catchup_sweep(device, state):
                 advance_cursor(state, serial_number, newest)
                 return
 
-            new_records.sort(key=lambda a: a.timestamp)
-            lines = [build_attlog_line(a.user_id, a.timestamp, a.status, a.punch) for a in new_records]
+            candidates.sort(key=lambda a: a.timestamp)
+            lines = [build_attlog_line(a.user_id, a.timestamp, a.status, a.punch) for a in candidates]
 
             ok = push_attlog(serial_number, lines)
             if ok:
-                newest = new_records[-1].timestamp
-                advance_cursor(state, serial_number, newest)
-                log(f"[{name}] barrido de respaldo: {len(new_records)} evento(s) que live_capture no "
-                    f"habia mandado (revisar por que). Ultimo: {newest}")
+                if new_records:
+                    newest = candidates[-1].timestamp
+                    advance_cursor(state, serial_number, newest)
+                    log(f"[{name}] barrido de respaldo: {len(new_records)} evento(s) NUEVOS que live_capture no "
+                        f"habia mandado (revisar por que). Ultimo: {newest}")
+                else:
+                    log(f"[{name}] barrido de respaldo: nada nuevo (se re-verificaron {len(candidates)} "
+                        f"evento(s) de los ultimos {CATCHUP_LOOKBACK_MINUTES} min; el backend ignora duplicados).")
             else:
                 log(f"[{name}] barrido de respaldo: fallo el envio, se reintenta en el proximo barrido.")
 
@@ -706,10 +746,11 @@ def catchup_sweep(device, state):
 
 
 def catchup_sweep_loop(state):
+    time.sleep(CATCHUP_FIRST_DELAY_SECONDS)
     while True:
-        time.sleep(CATCHUP_INTERVAL_SECONDS)
         for device in DEVICES:
             catchup_sweep(device, state)
+        time.sleep(CATCHUP_INTERVAL_SECONDS)
 
 
 def main():
