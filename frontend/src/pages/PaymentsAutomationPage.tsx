@@ -480,7 +480,10 @@ export default function PaymentsAutomationPage() {
   const [historyFrom, setHistoryFrom] = useState(() => addDaysToDay(todayColombia(), -HISTORY_DEFAULT_RANGE_DAYS));
   const [historyTo, setHistoryTo] = useState(() => todayColombia());
   const [historyPage, setHistoryPage] = useState(1);
-  const HISTORY_PAGE_SIZE = 10;
+  // Filas por página de la TABLA del historial. No confundir con HISTORY_PAGE_SIZE
+  // (módulo, 1000): con el mismo nombre esta tapaba aquella y fetchPayments
+  // bajaba los cobros de a 10 — 65 peticiones en serie para Dynasty.
+  const HISTORY_ROWS_PER_VIEW = 10;
 
   // Filtros "Equipos y Planes". Antes pintaba las 855 filas de una, sin buscador
   // ni orden: para encontrar a alguien había que usar Ctrl+F del navegador.
@@ -1215,8 +1218,8 @@ export default function PaymentsAutomationPage() {
     return acc;
   }, {});
 
-  const historyTotalPages = Math.max(1, Math.ceil(historyPayments.length / HISTORY_PAGE_SIZE));
-  const pagedHistory = historyPayments.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE);
+  const historyTotalPages = Math.max(1, Math.ceil(historyPayments.length / HISTORY_ROWS_PER_VIEW));
+  const pagedHistory = historyPayments.slice((historyPage - 1) * HISTORY_ROWS_PER_VIEW, historyPage * HISTORY_ROWS_PER_VIEW);
 
   // Los agregados de dinero (ingresos históricos, saldo por validar, tasa de
   // aprobación) ya NO se calculan acá: se pedían sobre `payments`, que es la
