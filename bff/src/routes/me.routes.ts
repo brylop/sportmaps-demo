@@ -80,7 +80,24 @@ router.get('/entitlements', requireAuth, async (req: Request, res: Response) => 
                 coach_can_edit_categories: false,
                 military_discount_enabled: false,
                 coach_attendance_retro_days: 7,
+                coach_can_upload_enrollment_forms: false,
+                coach_can_upload_attendance_sheets: false,
             });
+        }
+
+        // Permisos de subida de fotos del coach (mig 20261005120806). Van en un
+        // select APARTE de school_settings y no en la vista: si la migración aún
+        // no está aplicada, PostgREST falla solo esta lectura y quedan en false
+        // (comportamiento de siempre) sin tumbar los entitlements.
+        {
+            const { data: fotos, error: fotosErr } = await supabase
+                .from('school_settings')
+                .select('coach_can_upload_enrollment_forms, coach_can_upload_attendance_sheets')
+                .eq('school_id', schoolId)
+                .maybeSingle();
+            if (fotosErr) req.log?.warn({ err: fotosErr, schoolId }, 'permisos de fotos del coach no legibles; quedan en false');
+            data.coach_can_upload_enrollment_forms = (fotos as any)?.coach_can_upload_enrollment_forms === true;
+            data.coach_can_upload_attendance_sheets = (fotos as any)?.coach_can_upload_attendance_sheets === true;
         }
 
         if (process.env.NODE_ENV === 'staging') {
