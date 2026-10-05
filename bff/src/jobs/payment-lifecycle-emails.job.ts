@@ -136,6 +136,32 @@ async function tryWhatsApp(
 
 const contarMotivo = (m: Record<string, number>, k: string) => { m[k] = (m[k] || 0) + 1; };
 
+type NoticeColumn = 'charge_notice_sent_at' | 'overdue_notice_sent_at';
+
+/**
+ * Reclama el aviso ANTES de enviarlo: UPDATE condicional (`IS NULL`) que solo
+ * gana un proceso. Los tres BFF (dev/stg/prod) corren este job a la misma hora
+ * contra la misma base; con leer → enviar → marcar, los tres leían la misma
+ * lista y cada familia recibía el correo hasta tres veces.
+ */
+async function claimNotice(paymentId: string, column: NoticeColumn): Promise<boolean> {
+    const { data, error } = await supabase
+        .from('payments')
+        .update({ [column]: new Date().toISOString() })
+        .eq('id', paymentId)
+        .is(column, null)
+        .select('id');
+    if (error) {
+        console.warn('[payment-lifecycle] no se pudo reclamar el aviso', { paymentId, column, error: error.message });
+        return false;
+    }
+    return (data?.length ?? 0) > 0;
+}
+
+async function releaseNotice(paymentId: string, column: NoticeColumn): Promise<void> {
+    await supabase.from('payments').update({ [column]: null }).eq('id', paymentId);
+}
+
 /** Contactos de un lote de pagos, mismo criterio que payment-reminders.ts:
  * menor → acudiente (parent_id → profiles); adulto → user_id → profiles;
  * no registrado → la tabla propia es el contacto. */
@@ -215,18 +241,21 @@ export async function sendChargeCreatedEmails(): Promise<{ sent: number; whatsap
         const schools = await schoolNames([...new Set(toSend.map(p => p.school_id))]);
 
         for (const p of toSend) {
+            if (!(await claimNotice(p.id, 'charge_notice_sent_at'))) continue; // otro BFF lo tomó
             const contact = contacts.get(p.id);
             // Estado de cuenta con fecha de vencimiento = pago_recordatorio_previo_v3.
             const wa = await tryWhatsApp(p, contact, schools.get(p.school_id), 'recordatorio_previo');
             if (wa.sent) {
                 whatsapp++;
-                await supabase.from('payments').update({ charge_notice_sent_at: new Date().toISOString() }).eq('id', p.id);
                 continue;
             }
             contarMotivo(motivos, wa.motivo);
             // Listo para WhatsApp pero de noche (auto_generate corre 06:30 COT):
-            // no se reclama; el primer tick dentro del horario lo manda.
-            if (wa.motivo === 'fuera_de_horario') continue;
+            // se devuelve el reclamo; el primer tick dentro del horario lo manda.
+            if (wa.motivo === 'fuera_de_horario') {
+                await releaseNotice(p.id, 'charge_notice_sent_at');
+                continue;
+            }
             try {
                 if (contact?.contactEmail) {
                     const tpl = await BrandedEmailTemplates.chargeCreated({
@@ -243,8 +272,6 @@ export async function sendChargeCreatedEmails(): Promise<{ sent: number; whatsap
                 }
             } catch (e: unknown) {
                 console.warn('[payment-lifecycle] correo de cobro generado falló', { paymentId: p.id, e });
-            } finally {
-                await supabase.from('payments').update({ charge_notice_sent_at: new Date().toISOString() }).eq('id', p.id);
             }
         }
     } catch (err: any) {
@@ -278,6 +305,7 @@ export async function sendOverdueNoticeEmails(): Promise<{ sent: number; whatsap
         const schools = await schoolNames([...new Set(toSend.map(p => p.school_id))]);
 
         for (const p of toSend) {
+            if (!(await claimNotice(p.id, 'overdue_notice_sent_at'))) continue; // otro BFF lo tomó
             const contact = contacts.get(p.id);
             // Primer aviso tras la gracia = pago_pendiente_suave ("si tuviste algún
             // inconveniente, responde"), el escalón que abre conversación.
@@ -288,7 +316,6 @@ export async function sendOverdueNoticeEmails(): Promise<{ sent: number; whatsap
             const wa = await tryWhatsApp(p, contact, schools.get(p.school_id), 'pendiente_suave');
             if (wa.sent) {
                 whatsapp++;
-                await supabase.from('payments').update({ overdue_notice_sent_at: new Date().toISOString() }).eq('id', p.id);
                 continue;
             }
             contarMotivo(motivos, wa.motivo);
@@ -307,8 +334,6 @@ export async function sendOverdueNoticeEmails(): Promise<{ sent: number; whatsap
                 }
             } catch (e: unknown) {
                 console.warn('[payment-lifecycle] correo de vencido falló', { paymentId: p.id, e });
-            } finally {
-                await supabase.from('payments').update({ overdue_notice_sent_at: new Date().toISOString() }).eq('id', p.id);
             }
         }
     } catch (err: any) {
