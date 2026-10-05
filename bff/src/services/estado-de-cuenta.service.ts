@@ -513,6 +513,12 @@ export interface OpcionesEnvio {
     aplicar: boolean;
     canal?: CanalPedido;
     nota?: string | null;
+    /**
+     * Si viene, la nota solo va a estos correos. Reenvío del 2026-10-06: la
+     * línea «corregimos el enlace de ayer» es para quien recibió el de ayer, no
+     * para los acudientes que reciben su primer estado de cuenta.
+     */
+    notaSoloPara?: Set<string> | null;
     ahora?: Date;
     /** Overrides de los scripts (--frontend / --bff); siempre validados. */
     appUrl?: string | null;
@@ -649,7 +655,9 @@ export async function enviarEstadoDeCuenta(schoolId: string, o: OpcionesEnvio): 
                     greeting: `Hola ${f.nombre},`,
                     bodyHtml: cuerpoCorreoEstado({
                         escuela, familia: f, appBase, bffBase, medios: medios.cuentas,
-                        qrEscuelaUrl: qrEscuela, whatsappComprobante, nota: o.nota, ofrecerFactura,
+                        qrEscuelaUrl: qrEscuela, whatsappComprobante,
+                        nota: o.notaSoloPara && !o.notaSoloPara.has(f.email.toLowerCase()) ? null : o.nota,
+                        ofrecerFactura,
                     }),
                     cta: { label: 'Ver y pagar', url: f.filas.find((x) => x.token) ? enlaceDeCobro(appBase, f.filas.find((x) => x.token)!.token!) : `${appBase}/my-payments` },
                     closingHtml: 'Si ya pagaste, ignora este mensaje: la escuela lo está revisando.',
