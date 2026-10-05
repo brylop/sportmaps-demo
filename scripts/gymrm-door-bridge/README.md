@@ -44,32 +44,37 @@ punto 3 de `VALIDACION-2026-08-25.md` para el detalle de la decisión.
 
 ## Qué hace `door_bridge.py`
 
-Corre en una PC de la red local de GYM RM. Cada 15 segundos (antes 3s,
-ajustado 2026-09-06 para bajar la carga sobre Render — ver
-`SPORTMAPS_BRIDGE_DOOR_INTERVAL_SECONDS` abajo si hace falta calibrarlo):
-1. Pregunta al backend (`GET /bridge/door-commands`, un endpoint dedicado
-   — **no** el canal ADMS) si hay comandos `open_door` pendientes.
-2. Si hay uno, se conecta por SDK local al dispositivo correspondiente
-   (`192.168.1.4` entrada / `192.168.1.11` salida — actualizado 2026-09-16,
-   segundo cambio de red; ver "Si algo cambia en la red de GYM RM" abajo) y ejecuta
-   el desbloqueo físico real vía `pyzk`, por el tiempo configurado en
-   "Editar dispositivo" > "Tiempo de apertura" para ese lector.
-3. Confirma al backend si funcionó o falló (`POST .../ack`).
+Corre en una PC de la red local de GYM RM. **Desde el 2026-09-21 usa WebSocket en vez de sondear por HTTP**
+(antes: long-polling cada ~20 s, y antes cada 3 s — siempre tráfico constante contra Render):
+1. Abre **una** conexión `wss://bffdev.sportmaps.co/bridge/ws`, se autentica con la API key de servicio
+   (`school_id` + `api_key`; sin `command_types` → el default `open_door`) y la mantiene viva con un
+   heartbeat por la misma conexión cada 60 s (alimenta `bridge_heartbeats`).
+2. Cuando se crea un `open_door` en el dashboard, el backend le empuja `{"type":"wake"}` por esa conexión;
+   el script responde `{"type":"poll"}` y recibe los comandos reclamados atómicamente.
+3. Por cada comando se conecta por SDK local al dispositivo correspondiente (`192.168.1.4` entrada /
+   `192.168.1.11` salida — actualizado 2026-09-16, segundo cambio de red; ver «Si algo cambia en la red»)
+   y ejecuta el desbloqueo físico real con `CMD_UNLOCK` en décimas de segundo (`PULSE_DECISECONDS`, 0.2 s).
+4. Confirma al backend si funcionó o falló (`POST /bridge/door-commands/:id/ack`, por HTTP, con `school_id`).
+5. La conexión se **renueva sola una vez al día a las 3 am hora Colombia** (`SPORTMAPS_BRIDGE_WS_RECONNECT_HOUR`):
+   hora fija, con el gym cerrado, para no depender de que una conexión aguante días sin que un proxy la corte
+   en silencio. Si se cae antes, reconecta con un backoff corto. **No hay fallback automático al sondeo HTTP**:
+   si hay que volver atrás, se redespliega la versión anterior del archivo.
 
-**Este bridge NO toca la asistencia/attlog de GYM RM** — eso sigue
-funcionando por su propio canal ADMS nativo, sin cambios.
+Requiere `websockets` y `tzdata` (están en `requirements.txt`; Windows no trae la base de zonas horarias y
+sin `tzdata` el script no arranca). Límite conocido: el registro de conexiones del backend vive en memoria de
+una sola instancia de Render (`bff/src/services/bridgeWsHub.ts`).
 
-## Requisito pendiente antes de instalar
+**Este bridge NO toca la asistencia/attlog de GYM RM** — eso sigue funcionando por su propio canal ADMS
+nativo, sin cambios. (Por eso, si el lector no llega a `/iclock`, la asistencia se cae aunque el bridge
+siga conectado: son canales distintos. El 22-sep esto pasó por el `clientIp()` detrás de Cloudflare — ver
+`docs/gotchas-tecnicos.md`.)
 
-**El código de `/bridge/door-commands` ya está en `develop`, pero todavía
-no está desplegado.** Ver [`BACKEND_ENDPOINT_SPEC.md`](./BACKEND_ENDPOINT_SPEC.md)
-para el detalle de implementación. Antes de instalar esto en la PC del
-gym hace falta, en orden: aplicar la migración
-`20260825231925_gymrm_bridge_local_flag.sql` a la base real, desplegar el
-BFF a Render, y setear `BRIDGE_API_KEY` ahí. Mientras el endpoint no
-responda, el script corre pero solo va a loguear `ERROR: el backend
-todavía no tiene el endpoint... desplegado` en cada ciclo, sin romperse —
-es seguro dejarlo instalado esperando.
+## Estado del backend
+
+✅ **Desplegado y en uso.** `GET/POST /bridge/door-commands` (`bff/src/routes/bridge.routes.ts`) y el servidor WS
+(`bff/src/services/bridgeWsServer.ts`, protocolo en el encabezado del archivo) están en producción; la
+migración `20260825231925_gymrm_bridge_local_flag.sql` y `BRIDGE_API_KEY` en Render ya están. Ver
+[`BACKEND_ENDPOINT_SPEC.md`](./BACKEND_ENDPOINT_SPEC.md).
 
 ## Instalación (una sola vez, en la PC de GYM RM)
 
@@ -95,7 +100,7 @@ es seguro dejarlo instalado esperando.
 ## Verificar que está funcionando
 
 1. Revisar `bridge_supervisor.log` en esta carpeta — debe mostrar el
-   arranque y, cada 15 segundos, el sondeo silencioso (sin líneas nuevas
+   arranque, `Conectado y autenticado por WebSocket` y la próxima reconexión programada (02:59 Colombia); sin líneas nuevas (sin líneas nuevas
    si no hay comandos pendientes).
 2. **Prueba real end-to-end**: desde el dashboard de SportMaps, usar el
    botón de apertura manual para GYM RM y confirmar:

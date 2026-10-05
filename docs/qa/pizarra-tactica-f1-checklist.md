@@ -57,7 +57,7 @@ Condiciones: probar al menos una vez con brillo al 50 % y luz fuerte (simula can
 
 ### 1.4 Prefijos de casos
 
-`HUM` humo · `MAT` material/objetos · `ARC` arco · `BAL` recorridos de balón · `SIL` siluetas · `ARQ` modo arqueros · `COL` colores · `PER` persistencia · `RET` retrocompatibilidad · `REG` regla · `UND` deshacer/borrar · `RND` rendimiento · `GES` gestos táctiles.
+`HUM` humo · `MAT` material/objetos · `ARC` arco · `BAL` recorridos de balón · `SIL` siluetas · `ARQ` modo arqueros · `COL` colores · `PER` persistencia · `RET` retrocompatibilidad · `REG` regla · `UND` deshacer/borrar · `RND` rendimiento · `GES` gestos táctiles · `AUD` correcciones de la auditoría 2026-10-05 (§2.13).
 
 Columna **Disp.**: T = todos · M = móviles · D = desktop · A = Android · i = iPhone.
 
@@ -144,9 +144,9 @@ Columna **Disp.**: T = todos · M = móviles · D = desktop · A = Android · i 
 | SIL-01 | Abrir la pizarra por primera vez en el dispositivo. | Existe el toggle **Discos / Siluetas** en el toolbar; por defecto **discos**; el estado se ve claramente. | T |
 | SIL-02 | 11 jugadores puestos (POR, DEF, MED, DEL) → activar Siluetas. | Cada disco pasa a silueta genérica **según su posición** (arquero, defensa, medio, delantero). El **arquero en amarillo**; el resto en el color de jugador propio. | T |
 | SIL-03 | Mirar el rótulo de cada silueta. | Número de camiseta si lo tiene; si no, **iniciales**. Legible en móvil a tamaño normal. | T |
-| SIL-04 | Atleta **con foto** puesto en cancha → modo Siluetas. | **Nunca se ve la foto**, solo la silueta genérica. En modo Discos la foto se ve como hoy. (Consentimiento de menores: bloqueo real en Carmel.) | T |
+| SIL-04 | Atleta **con foto** puesto en cancha → modo Siluetas. | **Nunca se ve la foto**, solo la silueta genérica. **Desde 2026-10-05** tampoco en modo Discos por defecto: la foto solo aparece si el coach prende el botón **"Fotos"** (ver AUD-12). (Consentimiento de menores: bloqueo real en Carmel.) | T |
 | SIL-05 | Activar Siluetas → recargar la página (F5 / cerrar y abrir la PWA) → abrir la pizarra. | Sigue en Siluetas (`localStorage`). Desactivar → recargar → Discos. | T |
-| SIL-06 | Siluetas activadas → cerrar sesión → entrar con **otro** coach en el mismo dispositivo → pizarra. | Anotar si hereda Siluetas o vuelve a Discos. Es una **preferencia de vista** (spec §3.5), heredarla no es bug; pero reportar si el `signOut` la borra o no, para que la clave nueva entre en la lista/prefijo de limpieza (`docs/gotchas-tecnicos.md`, "localStorage es del dispositivo"). | T |
+| SIL-06 | Siluetas activadas → cerrar sesión → entrar con **otro** coach en el mismo dispositivo → pizarra. | **Desde 2026-10-05** el cierre de sesión borra `tactical_board_pin_style` y `tactical_board_pin_photos` (`AuthContext.tsx`): el otro coach debe ver **Discos sin fotos**. Si hereda Siluetas o las fotos, es FAIL. | T |
 | SIL-07 | Arrastrar una silueta; tocar su ×. | Se arrastra igual que un disco (el área de agarre cubre silueta + rótulo); × visible y funcional. | T |
 | SIL-08 | Siluetas + flecha de jugador → Reproducir. | La silueta se anima igual que el disco. | T |
 | SIL-09 | Siluetas + situación Arqueros. | El arquero amarillo escala proporcional al zoom y no tapa el arco. | T |
@@ -191,17 +191,17 @@ Columna **Disp.**: T = todos · M = móviles · D = desktop · A = Android · i 
 | ID | Pasos | Resultado esperado | Disp. |
 |---|---|---|---|
 | PER-01 | 11 jugadores + 6 objetos con tamaños y giros distintos (incl. arco a 180°) + 1 pase + 1 remate + 1 penal + 1 zona verde → **Guardar**. | Toast "Alineación guardada", el diálogo cierra. Reabrir el mismo bloque: **todo igual** (posición, tipo, tamaño, giro, color, tipo de recorrido). | T |
-| PER-02 | Situación Ataque → armar figuras + slots vacíos → ícono marcador → nombre "F1-Ataque" → guardar. Cambiar a Defensa y volver a Ataque → "Plantilla…" → F1-Ataque. | Toast "Plantilla guardada". Al cargar: figuras y slots iguales, con `size`/`rot`/`kind` intactos. | T |
+| PER-02 | Situación Ataque → armar figuras + slots vacíos → ícono marcador → nombre "F1-Ataque" → guardar. Cambiar a Defensa (**pide confirmación** porque hay figuras/marcadores: aceptar) y volver a Ataque → "Plantilla…" → F1-Ataque. | Toast "Plantilla guardada". Al cargar: figuras y slots iguales, con `size`/`rot`/`kind` intactos. | T |
 | PER-03 | Con F1-Ataque cargada: cambiar el tamaño de un cono a 2.5 → **Actualizar**. Recargar la página → cargar F1-Ataque. | Toast "Plantilla actualizada"; el cambio está; **no** se duplicó la plantilla (una sola F1-Ataque en el selector). | T |
 | PER-04 | Con F1-Ataque cargada → botón **+** (guardar como nueva) → "F1-Ataque-B". | Dos plantillas en el selector; la original sin cambios. | T |
-| PER-05 | Cargar F1-Ataque-B → **Eliminar la plantilla cargada**. | Desaparece del selector; F1-Ataque sigue. | T |
+| PER-05 | Cargar F1-Ataque-B → **Eliminar la plantilla cargada** → confirmar. | Aparece el diálogo "¿Eliminar la plantilla «F1-Ataque-B»?"; al confirmar desaparece del selector y sale toast; F1-Ataque sigue. Si el servidor falla, el estado **no** se limpia y hay toast de error. | T |
 | PER-06 | Cargar **Retro-P** (sin `size`/`rot`/`kind`). Consola abierta en desktop. | Abre sin errores; objetos a tamaño 1 y giro 0; flechas sin color en blanco; nada invisible ni con `NaN` en el DOM. | T |
 | PER-07 | Desktop, DevTools → Network: guardar plantilla y alineación con (a) un cono nuevo sin tocar tamaño ni giro, (b) un cono al que se le cambió tamaño y giro, (c) un pase, y (d) las figuras de Retro-A sin modificar. Inspeccionar el body del `POST/PUT …/tactical-presets` y `…/lineups`. | El payload **solo incluye `size`/`rot`/`kind` cuando el coach los cambió** (o `kind` en los recorridos): (a) sale sin `size`/`rot`; (b) con `size` y `rot`; (c) con `type: 'ball_path'` y `kind`; (d) **una figura vieja se reenvía sin esas claves** (no `null`, no `undefined`, no defaults inventados). `color` siempre dentro de la lista de 9. **No existe** `schema_version` ni ningún número de versión en la raíz (spec §5). | D |
 | PER-08 | Guardar alineación en Android → abrir el mismo bloque en desktop (y viceversa). | Idéntico en ambos. | A, D |
 | PER-09 | Hacer cambios → **Cancelar** → reabrir. | Los cambios **no** quedaron; se ve lo último guardado. | T |
 | PER-10 | Red en modo avión / offline → Guardar. | Toast "No se pudo guardar" con el mensaje; el diálogo **sigue abierto con todo** lo dibujado (no se pierde el trabajo). Volver la red → Guardar funciona. | T |
 | PER-11 | Guardar con el zoom activo (situación Ataque + toggle) → reabrir. | Abre en cancha completa (el zoom es vista, no dato) con las coordenadas intactas. En situación Arqueros abre con zoom. | T |
-| PER-12 | 11 jugadores puestos → cargar una plantilla. | La plantilla **nunca mueve** a los jugadores ya puestos (regla D8): agrega slots vacíos y figuras. | T |
+| PER-12 | 11 jugadores puestos → cargar una plantilla. | **Pide confirmación** (los 11 se mueven y los dibujos se reemplazan). Al aceptar, cada jugador se reubica **animado** en el slot más cercano (sin repetir), conserva su dorsal, y los slots sobrantes quedan como marcadores vacíos. (La regla original D8 "nunca mueve" se cambió: ver `tacticalBoardLogic.ts`.) | T |
 | PER-13 | Arrastrar un cono hasta el tope del borde (MAT-16), girar otro 3 vueltas completas, tamaño 0.5 y 3 en otros → Guardar. | Guarda sin 400. El BFF rechaza coordenadas fuera de 0–100, `size` fuera de 0.25–4 y `rot` no numérico: si aparece "x1 inválido…" o "size inválido…" es un bug del frontend (no normaliza antes de enviar). | D |
 | PER-14 | Bloque 1 con figuras → Guardar; abrir el tablero del **bloque 2** de la misma sesión. | El bloque 2 abre vacío (tablero por bloque); volver al 1 muestra lo guardado. | T |
 
@@ -232,7 +232,7 @@ Columna **Disp.**: T = todos · M = móviles · D = desktop · A = Android · i 
 |---|---|---|---|
 | UND-01 | Dibujar flecha → colocar cono → dibujar pase → **Deshacer** ×3. | Quita en orden inverso: pase, cono, flecha. Con la lista vacía el botón queda deshabilitado. | T |
 | UND-02 | Cambiar tamaño y giro de un cono → Deshacer. | Anotar si deshace el ajuste o quita el cono entero (F1 mínimo: deshace la última figura creada). Documentar cuál. | T |
-| UND-03 | Con 10 figuras y 11 jugadores → **Borrar** (botón del toolbar, todas las figuras). | Todas las figuras desaparecen; los **jugadores quedan**; el contador vuelve a 0. | T |
+| UND-03 | Con 10 figuras y 11 jugadores → **Borrar** (botón del toolbar, todas las figuras) → confirmar el diálogo. | Pide confirmación "¿Borrar todos los dibujos?"; al aceptar todas las figuras desaparecen; los **jugadores quedan**; el contador vuelve a 0. | T |
 | UND-04 | Cargar F1-Ataque → Borrar → **no** Actualizar → recargar → cargar F1-Ataque. | La plantilla guardada sigue intacta (Borrar solo afecta la pizarra abierta). | T |
 | UND-05 | Duplicar un objeto → Deshacer. | Quita el duplicado, no el original. | T |
 | UND-06 | Con un objeto seleccionado: (a) botón de basura del panel; luego, con otro seleccionado, (b) **Borrar** del toolbar. | (a) quita solo ese objeto; (b) vacía todas las figuras. En ambos la selección se limpia y no quedan handles ni marco punteado huérfanos flotando. | T |
@@ -269,6 +269,33 @@ Carga estándar: **30 objetos** (10 conos, 5 platos, 3 balones, 2 arcos, 2 maniq
 | GES-11 | Editar la etiqueta de un jugador (rótulo bajo el pin) con teclado en pantalla. | El teclado abre, la cancha no salta fuera de la vista, al cerrar el teclado el layout vuelve. | M |
 | GES-12 | Desktop: clic derecho sobre un objeto; rueda del mouse sobre la cancha; arrastre con trackpad. | Nada se rompe; la rueda no hace zoom de la pizarra (salvo que sea intencional: anotar). | D |
 | GES-13 | **PWA instalada** (Android, standalone): repetir HUM-01…05 y GES-03. | Igual que en el navegador; sin barra de URL, la X nativa del diálogo sigue accesible y el safe-area no tapa el toolbar. | A |
+
+### 2.13 Correcciones de la auditoría del 2026-10-05 (AUD)
+
+Casos nuevos para lo que se corrigió en el frontend y el BFF (spec §9). Se ejecutan **en dispositivo
+real** (Android gama media y iPhone; Chrome/Safari) además de desktop. Los marcados **B#** apuntan
+a la falla de la tabla §9.1 del spec.
+
+| ID | Pasos | Resultado esperado | Disp. |
+|---|---|---|---|
+| AUD-01 (B1) | Situación **Arqueros** (o toggle de zoom al área) → colocar un jugador → arrastrarlo **unos pocos píxeles** y soltarlo. Repetir con uno que ya estaba más arriba en el área. | Queda donde se soltó, **sin saltar** (antes subía/bajaba ~10 puntos). Volver a cancha completa: la posición coincide. | T |
+| AUD-02 (B2) | Dibujar una **zona** grande encima de 2 jugadores puestos. Tocar el **centro** de la zona; arrastrar a uno de los jugadores cubiertos. | Tocar el relleno **no** borra la zona; el jugador se arrastra normal. Tocar el **borde** de la zona sí la borra. | T |
+| AUD-03 (B3) | Abrir una alineación guardada donde un jugador fue dado de baja del equipo (o quitarlo del roster desde otra pestaña) → **Guardar**. | Guarda sin error; el toast avisa "N jugador(es) ya no están en la plantilla y no se guardó". No cuentan para el máximo de 11. | T |
+| AUD-04 (B4) | Flecha que sale de un jugador → **Reproducir**. A mitad de la ida: (a) presionar **Detener**; repetir y (b) tocar **Guardar**; repetir y (c) empezar a arrastrar otro jugador. | (a) los jugadores **vuelven a su posición real**; (b) Guardar está **deshabilitado** durante la reproducción; (c) la reproducción se corta y restaura. Al terminar sola, nada queda desplazado. | T |
+| AUD-05 (B4) | Reproducir → cerrar el tablero a mitad → reabrir. | Posiciones reales intactas; sin balón fantasma ni animación colgada. | T |
+| AUD-06 (B5) | Cargar una plantilla de 11 posiciones con **3 jugadores** puestos (8 marcadores vacíos) → **Actualizar** → recargar la página → cargar esa plantilla. | Siguen siendo **11** posiciones (3 jugadores + 8 marcadores), no 3. Idem **Guardar como nueva** con marcadores pendientes. | T |
+| AUD-07 (B6) | Con dibujos en la pizarra → elegir una plantilla en el selector. | Diálogo "¿Cargar «…»?" con el detalle (jugadores que se mueven, dibujos que se reemplazan). **Cancelar** no cambia nada; **Cargar plantilla** aplica. | T |
+| AUD-08 (B7) | (a) Con figuras → cambiar la **situación**; (b) **Borrar todo**; (c) eliminar plantilla. | Los tres piden confirmación y **no** actúan hasta confirmar. En (c), con red caída: toast de error y la plantilla **sigue seleccionada**. | T |
+| AUD-09 (B8) | Cargar una plantilla, mover jugadores y presionar el botón de **flecha circular** (volver a cargar). | Pide confirmación y vuelve al estado guardado de la plantilla. El selector muestra el nombre de la plantilla activa; tras eliminarla queda vacío. | T |
+| AUD-10 (B9) | Dibujar una flecha/trazo con el dedo e **interrumpir** el gesto (gesto de sistema de iOS, notificación que cubre la pantalla, tocar con otro dedo). | No queda un trazo/flecha a medio hacer ni un handle "pegado"; el siguiente toque funciona normal. | M |
+| AUD-11 (B13) | Tocar la etiqueta de un jugador para editarla, en **iPhone**. Luego presionar **Esc** con teclado (desktop). | iPhone: **no** hace zoom de página al enfocar (fuente 16 px). Esc descarta lo escrito; Enter lo guarda. | i, D |
+| AUD-12 (B15) | Atleta con foto en cancha, modo **Discos**. | Sin foto por defecto (iniciales/dorsal). Botón **Fotos** (solo en modo Discos) → aparece la foto en cancha **y** en la banca; apagarlo → vuelve. Cerrar sesión y entrar con otro coach: **sin fotos**. | T |
+| AUD-13 (B13) | Texto en color **negro** sobre la cancha verde. | Se lee (borde claro); antes era invisible. Ayudas de texto del panel legibles en brillo medio. | T |
+| AUD-14 (B18) | Entrar como **admin** o **staff** (no owner/coach) y abrir el tablero de un partido con alineación guardada. | Insignia **"Solo lectura"**; no se arrastra ni se quita a nadie; sin guardar plantilla/dibujar; **Guardar** deshabilitado con explicación. Ve las figuras y puede reproducir. Como coach/owner: todo normal. | T |
+| AUD-15 (B16) | Desktop, DevTools → guardar una plantilla con el **mismo nombre** que otra del mismo equipo y situación. | Sale el error "Ya existe una plantilla con ese nombre…" (409) y no se crea la copia. *(Requiere la migración `20261005173002` aplicada.)* | D |
+| AUD-16 (B16) | Dos coaches (o dos pestañas) con la misma plantilla cargada: A la **actualiza**; B (con la versión vieja) intenta actualizar. | *(Hoy el frontend aún no envía `expected_updated_at`: gana el último, anotar. Se prueba cuando la Fase 4 lo cablee.)* Por API con `expected_updated_at` viejo → 409. | D |
+| AUD-17 (B17) | Con la sesión de un **padre** (REST directo con su JWT) leer `team_tactical_presets`. | Lista **vacía**. Un coach/owner de la escuela sí las ve. *(Requiere la migración aplicada; ver también `npm run seguridad:rls-negativas`.)* | D |
+| AUD-18 (B10) | **Deshacer** tras mover un jugador o editar un objeto. | Documentar: hoy solo quita la última **figura creada** (cambia en la Fase 3 con historial real). | T |
 
 ---
 

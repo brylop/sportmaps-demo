@@ -66,9 +66,9 @@ banca a esos puntos. Guardar la alineación sigue siendo exactamente el mismo
 
 ```
 GET    /api/v1/school/football/tactical-presets?team_id=      lista (STAFF_ROLES)
-POST   /api/v1/school/football/tactical-presets                crea  (STAFF_ROLES)
-PUT    /api/v1/school/football/tactical-presets/:id             edita (STAFF_ROLES, dueño de la escuela)
-DELETE /api/v1/school/football/tactical-presets/:id             borra (STAFF_ROLES)
+POST   /api/v1/school/football/tactical-presets                crea  (TACTICAL_EDIT_ROLES: owner/coach/super_admin)
+PUT    /api/v1/school/football/tactical-presets/:id             edita (TACTICAL_EDIT_ROLES, misma escuela; 409 si cambió)
+DELETE /api/v1/school/football/tactical-presets/:id             borra (TACTICAL_EDIT_ROLES; 404 si no existe)
 ```
 
 Mismo patrón que el resto del archivo: `supabase` (service role) +
@@ -96,6 +96,29 @@ solo visible cuando ya hay una cargada).
 De paso, `handleLoadPreset` reconstruía cada flecha sin su campo `type` --
 una curva o zona guardada volvía como flecha recta al recargarla. Corregido
 en el mismo pase.
+
+### 5.2 Ajustes de la auditoría del 2026-10-05 (ver spec de la pizarra §9)
+
+Lo que cambió respecto a lo descrito arriba:
+
+- **Cargar una plantilla vuelve a pedir confirmación** cuando hay algo que perder (jugadores en
+  cancha que se van a reubicar al slot más cercano, o dibujos que se reemplazan). Una versión
+  intermedia la había quitado ("nunca toca a los jugadores"), pero el código ya los movía.
+  Lo mismo para cambiar de situación, "Borrar todo" y eliminar (que solo limpia la pantalla si el
+  servidor confirmó).
+- **Guardar/Actualizar incluye los marcadores sin jugador** (`buildPresetSlots`): una plantilla de
+  11 posiciones cargada con 3 jugadores se "actualizaba" a 3.
+- **El selector está controlado** y hay un botón para volver a cargar la plantilla activa.
+- **BFF:** `validatePresetSlots` pasó a `footballShapes.ts` (con tests), tope de 40 slots, nombre
+  ≤80 y `slot_label` ≤40; los campos se guardan por **lista blanca**; una plantilla puede ser solo
+  formación, solo dibujos o ambos (no vacía); `PUT` no deja una plantilla vacía y acepta
+  `expected_updated_at` → **409** si otra persona la cambió; `POST`/`PUT` devuelven **409** con el
+  nombre repetido (equipo + situación); `DELETE` devuelve **404** si no existe. El frontend todavía
+  no envía `expected_updated_at` (queda para la fase de plantillas).
+- **Base** (migración `20261005173002`, pendiente de aplicar): `CHECK` de forma/tamaño de
+  `slots`/`arrows`, nombre ≤80 e índice único `(team_id, situation, lower(btrim(name)))`.
+  La lectura del SELECT pasa a staff.
+- Modo lectura en el frontend para quien no pueda editar (solo `owner`/`coach`/`super_admin`).
 
 ## 6. Qué necesito de ti para seguir
 

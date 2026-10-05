@@ -1734,7 +1734,6 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
   useEffect(() => {
     if (!open && playSnapshot.current) stopPlayback();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   useEffect(() => () => { playTimers.current.forEach((t) => window.clearTimeout(t)); }, []);
 

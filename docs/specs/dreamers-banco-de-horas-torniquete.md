@@ -3,6 +3,10 @@
 **Estado:** F1 aplicado (2026-08-21 13:03, `luebjarufsiadojhvxgi`) · **Fecha:** 2026-08-21 · **Alcance:** solo escuela Dreamers Gymnastics
 (`school_id = 57ba9352-2c11-4b5b-aa5b-e5ec6f526cbe`). No es una migración de plataforma.
 
+> **Actualización 2026-10-05:** parámetros reales de Dreamers y regla de redondeo a hora entera en
+> [D-16 y D-17](#2-decisiones-de-producto-cerradas-2026-08-21); arquitectura vigente de la captura en el borde
+> (bridge `live_capture`, comandos por WebSocket) y pendientes de la auditoría en la **§8**.
+
 > **Fuera de alcance:** el rediseño `enrollment_periods` de
 > [inscripcion-vs-periodo-de-plan.md](inscripcion-vs-periodo-de-plan.md) — sigue sin aprobar y
 > este módulo no depende de él. Tampoco toca el modelo de créditos por sesión de
@@ -47,6 +51,8 @@ Agendar (session_bookings)          Torniquete (access_events)
 | D-13 | **Aviso antes de perder horas sin usar al cierre del período.** Confirmado como necesario — entra al alcance de F5/F6 (job de recordatorio + notificación), no solo el saldo visible pasivo. |
 | D-14 | Hora de cierre para el auto-cierre (D-7): **10 pm hora Colombia**, como valor por defecto de Dreamers **provisional** — el usuario todavía va a confirmarlo con la escuela. Configurable por escuela igual (D-9), este es solo el punto de partida. |
 | D-15 | El banco de horas es **por atleta** (no compartido entre hermanos) — confirma el diseño ya propuesto en §3.3, colgado de `enrollment_id`. |
+| D-16 | **Cobro en horas enteras, hacia arriba (2026-10-05, regla de la escuela).** Dreamers no maneja bloques de 30 min en ningún plan (sus bloques de disponibilidad son de 60 y 120 min; la mayoría de visitas son de 2 h, hay un segmento de 1 h y las personalizadas son de 2 h o más). Pasada la gracia, **cualquier exceso sobre la clase cuenta como una hora más**. Fórmula única `hour_bank_billed_minutes(raw, gracia_entrada, gracia_salida, redondeo)` = `ceil(max(0, raw − gracia_entrada − gracia_salida) / 60) × 60` con `hours_billing_rounding='hour_up'`; con `'none'` quedan los minutos exactos. No hay mínimo de visita (no hay visitas cortas). Se aplica **igual** en el cron de auto-cierre, en el cierre por reingreso (`closeHourBankVisit`) y en la corrección manual del owner. Activación por escuela, después de desplegar el BFF. |
+| D-17 | **Valores de las ventanas (2026-10-05).** Gracia de entrada **10 min** (puede entrar 10 min antes de la clase) y de salida **20 min** (puede salir hasta 20 min después), para Dreamers y Academia Superior Bogotá. Reingreso: **5 min** en Dreamers, 15 en Academia Superior. Se restan **una sola vez por visita** (no por segmento), no miran el horario de la clase: quien llega a la hora y sale 30 min tarde tiene la misma gracia total que quien llega 10 antes y sale 20 después — un poco más permisivo que la regla hablada; ser exactos exigiría conocer la hora de inicio de cada clase, que estas visitas no tienen. |
 
 ---
 
@@ -65,6 +71,7 @@ Nada de esto está aplicado — es la propuesta para F1.
 | `hours_reentry_merge_minutes` | integer | ventana para fusionar salida+reentrada (D-6) |
 | `hours_closing_time` | time | corte diario para auto-cierre (D-7) |
 | `hours_max_visit_minutes` | integer default 360 | tope de seguridad absoluto (D-7) |
+| `hours_billing_rounding` | text default `'none'`, CHECK `none`/`hour_up` | redondeo del cobro tras las gracias (D-16). Migración `20261005173001` (aplicada en vivo en dos partes; el archivo es idempotente) |
 
 ### 3.2 `offering_plans` — nueva columna
 
@@ -134,7 +141,8 @@ al expandir.
    nueva (D-6). Si no, crear visita `status='open'` + primer segmento.
 4. **Salida**: cerrar el segmento actual. Si no hay reentrada dentro de la ventana de gracia
    (verificado por el cron de auto-cierre, no en el momento), cerrar la visita: sumar segmentos,
-   aplicar gracia de entrada/salida, `consumed_minutes += billed_minutes`,
+   aplicar gracia de entrada/salida y el redondeo de la escuela (`hour_bank_billed_minutes()`, D-16),
+   `consumed_minutes += billed_minutes`,
    `reserved_minutes -= block` de la reserva que esa visita cumplió (si había una para ese día).
 5. **Cron de auto-cierre** (D-7): cada N minutos, busca visitas `open` con `started_at` antes de
    `hours_closing_time` de hoy, o que ya superan `hours_max_visit_minutes` — las pasa a
@@ -259,3 +267,91 @@ para que Estudiantes y Control de Acceso lo puedan compartir sin duplicar códig
 - **D-13 (aviso antes de perder horas) no tiene fase asignada todavía.** Encaja en F5 (junto al
   cron de auto-cierre) o F6 (junto al frontend de saldo) — se define al planear esas fases en
   detalle.
+
+---
+
+## 8. Captura de asistencia y comandos en el borde — arquitectura vigente (2026-10-05)
+
+Los lectores de Dreamers (MB360) no completan el push ADMS por HTTPS, así que **todo pasa por un proceso
+local** (`scripts/dreamers-bridge/dreamers_bridge.py`, tarea programada `SportMaps-DreamersBridge` en la PC
+de Dreamers). El archivo real se entrega por fuera de git; la copia del repo se mantiene al día.
+
+### 8.1 Flujo
+
+```
+Asistencia:  lector ──SDK 4370 (LAN)──► dreamers_bridge.py ──POST /iclock/cdata (ATTLOG imitado)──► BFF
+             ──► access_events (índice único device_id+zk_user_id+occurred_at, dedup)
+             ──► [solo fila nueva] trackHourBankVisit · checkInPresenceFromEvent · notificaciones
+Comandos:    dashboard ──► device_commands ──► wakeSchool() ──► WS /bridge/ws ──► bridge ──SDK──► lector
+             ──► ack por HTTP (POST /bridge/door-commands/:id/ack, con school_id)
+```
+
+### 8.2 El bridge
+
+- **Captura en vivo:** un hilo por lector con `conn.live_capture()` (el equipo empuja cada marcación). No
+  llama `disable_device()` — necesita que el lector siga aceptando huellas.
+- **Barrido de respaldo** (`catchup_sweep`, cada 30 min, primero a los 60 s de arrancar): `get_attendance()`
+  completo, reenvía lo posterior al cursor **y los últimos 10 min anteriores** (si una marcación cae en el
+  hueco mientras la captura está pausada y llega otra más nueva, el cursor saltaría la perdida; reenviar
+  duplicados es seguro porque el backend los ignora y no repite el banco de horas ni las notificaciones).
+  Es la red de seguridad, no el camino normal. Cuesta ~47 s con el lector deshabilitado por lector (de ahí
+  los 30 min: a 5 min el torniquete estaba ~16 % del día sin aceptar huellas).
+- **Coordinación:** un `Lock` por lector (el firmware atiende una conexión SDK a la vez) más
+  `PAUSE_REQUESTED`/`LIVE_CAPTURE_PAUSED` (`threading.Event`) para que `live_capture` ceda el equipo en su
+  siguiente tick (2 s) a un comando o al barrido. Todo acceso SDK que no sea la captura pasa por
+  `device_access()`.
+- **Cursor** (`bridge_state.json`, por serial): solo avanza hacia adelante. Si de golpe aparecen más de 20
+  eventos nuevos (reloj del equipo corrido, o una caída larga) se **saltan y el cursor avanza** — la versión
+  anterior no avanzaba el cursor y repetía el mismo aviso para siempre (LECTOR ENTRADA ~3 días sin
+  capturar, sin que nada lo reportara).
+- **Heartbeat por lector** cada 60 s (`GET /iclock/getrequest` → `turnstile_devices.last_seen_at`), **solo
+  mientras la captura en vivo está conectada**: `last_seen_at` significa «capturando», no «el proceso
+  existe». La alerta que ya existía (`alert_offline_access_devices()`, pg_cron cada 5 min, 15+ min sin
+  `last_seen_at`) cubre entonces también «la captura murió». `bridge_heartbeats` (canal de comandos) es una
+  señal aparte y por sí sola **no** prueba que la asistencia esté fluyendo.
+- **Comandos por WebSocket:** `auth` con `school_id` + `api_key` + `command_types`
+  (`open_door,set_group,disable_user,enable_user`); heartbeat 60 s; reconexión forzada diaria a las 3 am
+  Colombia; `wake` → `poll` → `commands`. Ejecución: `CMD_UNLOCK` en décimas de segundo (nunca
+  `conn.unlock()`), bloqueo por mora vía `set_user()` con el bit 0 de `privilege`.
+
+### 8.3 Límites conocidos (aceptados, no son bugs abiertos)
+
+- El cursor usa el **reloj del lector**: una marcación con `timestamp ≤ cursor` se descarta (salvo la
+  ventana de 10 min del barrido). Si el reloj del equipo retrocede, las marcaciones nuevas se pierden.
+- El backend descarta ATTLOG de más de 3 h (`ADMS_BACKLOG_SKIP_HOURS`): el barrido no recupera una caída
+  larga, y el tope de 20 eventos la saltaría de todos modos. Recuperar un backlog es decisión manual
+  (`diagnostico_backlog_asistencia.py` + subir ese valor temporalmente).
+- El registro de conexiones WS vive en memoria de **una** instancia de Render (`bridgeWsHub.ts`).
+- `BRIDGE_API_KEY` es una sola llave global para todas las escuelas; el WS valida además que la escuela
+  tenga un lector registrado (`schoolHasLocalBridge`).
+- La asistencia entra por `/iclock` (protocolo ADMS, sin auth) protegida por allowlist de IP — ver `INF-16`.
+  El allowlist lee `cf-connecting-ip` porque Render va detrás de Cloudflare (ver `gotchas-tecnicos.md`).
+
+### 8.4 Qué se midió el 2026-10-05 (base viva)
+
+| Dato | Valor | Lectura |
+|---|---|---|
+| Mapeos PIN→persona de Dreamers | **6** | Es el prerrequisito pendiente (`MOD-34`), a propósito después de validar con Athenea |
+| Toques en 7 días / `unknown_user` | 392 / 334 (85 %), 85 PINs distintos | Esos toques no abren visita ni descuentan |
+| Visitas del mes: `pending_review` / `closed` | 80 / 15 | 76 de las 80 sin ningún evento de salida; **69 son de una cuenta de prueba** (no representativo). Con alumnos reales conviene proponer la hora de salida en vez de depender de la corrección manual del owner |
+| Reservas por estado | Superior: 18 `cancelled`; Dreamers: 0 | Ninguna llegó a `fulfilled` en producción (`MOD-35`) |
+| Visitas `open` de días anteriores / inscripciones con plan de horas sin período | 0 / 0 | El cron y la apertura de períodos funcionan |
+| Bloques de `coach_availability` (Dreamers + Superior) | 122 de 60 min, 34 de 120 min | No hay medias horas: el modo flexible reserva horas enteras |
+
+### 8.5 Aceptación con el usuario laboratorio (Athenea, PIN 4, plan `PGR8x2`)
+
+Antes de cargar a los alumnos reales, con `hour_up` activo y el BFF desplegado:
+
+| # | Prueba | Esperado |
+|---|---|---|
+| 1 | Entra 10 min antes y sale 20 después de una clase de 2 h | 2 h facturadas |
+| 2 | Se pasa ~35 min de la gracia de salida | 3 h |
+| 3 | Sale y vuelve a los 3 min | Una sola visita |
+| 4 | Sale y vuelve a los 10 min | Dos visitas |
+| 5 | Entra y no marca salida | `pending_review`; «Confirmar salida» factura con el redondeo |
+| 6 | Agenda por el link y hace la visita | Reserva `fulfilled`, `reserved_minutes` vuelve a 0, sin sobrante |
+| 7 | Agenda y cancela | Reserva liberada |
+| 8 | Supera su saldo | Notificación de excedente **en horas** |
+| 9 | Saldo en vista del padre, perfil, link y reporte | Todo en horas |
+
+Las pruebas 6 y 7 son las que nunca se han completado con datos reales (`MOD-35`).
