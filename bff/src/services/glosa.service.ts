@@ -268,6 +268,9 @@ const AMARILLO_TO_GLOSA: Record<string, GlosaReason> = {
     FECHA_FUERA_VENTANA: 'FECHA_FUERA_VENTANA',
     CAMPOS_ILEGIBLES: 'CAMPOS_ILEGIBLES',
     FORMATO_REFERENCIA: 'OTRO',
+    // Amarillo solo cuando el destino es una llave de la escuela restringida a
+    // otro concepto (payment_accounts[].only_for). El rojo nunca llega acá.
+    DESTINO_NO_COINCIDE: 'DESTINO_NO_COINCIDE',
 };
 
 interface VerdictReasonRow {

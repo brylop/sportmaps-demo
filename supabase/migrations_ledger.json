@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 657,
-  "head": "20261004083707",
+  "count": 659,
+  "head": "20261005120806",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -660,6 +660,8 @@
     {"v":"20261003230016","file":"20261003230016_tienda_v2_factura_y_eventos.sql","sha256":"e86f5fa73b88674e8fa68df9ea185938249b1b1d0e9533303b61a8861b3b77e4","added":"2026-10-04","by":"Brayan Steven Lopez"},
     {"v":"20261004074523","file":"20261004074523_matricula_por_foto_desde_app.sql","sha256":"d609c0822abd77106984c0279b9c6298f7ad3b22cd248d13d9a3110ff3a80bd7","added":"2026-10-04","by":"Brayan Steven Lopez"},
     {"v":"20261004080918","file":"20261004080918_whatsapp_estado_de_plantillas_por_waba.sql","sha256":"2adcd1c3d6e619342cda8597128e45f905e3ce111231f260f8a356d175f68ee2","added":"2026-10-04","by":"Brayan Steven Lopez"},
-    {"v":"20261004083707","file":"20261004083707_cobro_enlace_publico.sql","sha256":"234b3ee705050d3f9a266438db35fba5ec20c4b68744871d850e604e86679a24","added":"2026-10-04","by":"Brayan Steven Lopez"}
+    {"v":"20261004083707","file":"20261004083707_cobro_enlace_publico.sql","sha256":"234b3ee705050d3f9a266438db35fba5ec20c4b68744871d850e604e86679a24","added":"2026-10-04","by":"Brayan Steven Lopez"},
+    {"v":"20261005112635","file":"20261005112635_autopay_f0_cerrar_payment_tokens.sql","sha256":"23afdcf5fc94925644914a5a33c2d6e28315d889663a2263a8002352665aa94a","added":"2026-10-05","by":"Brayan Steven Lopez"},
+    {"v":"20261005120806","file":"20261005120806_coach_sube_fotos_matricula_y_asistencia.sql","sha256":"1fe79bf61ca0e501ea23d05fdb55190682e27162c37039d357f2b416482011cc","added":"2026-10-05","by":"Brayan Steven Lopez"}
   ]
 }

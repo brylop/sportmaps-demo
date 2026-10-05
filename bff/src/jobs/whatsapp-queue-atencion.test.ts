@@ -117,6 +117,7 @@ vi.mock('../services/receipt-context.service', () => ({
 vi.mock('../services/receipt-verdict', () => ({
     normalizeDestination: (d: any) => d,
     normalizeReference: (r: any) => r,
+    destinationMatchesRegistered: (d: any, a: any[]) => a.includes(d),
     evaluateVerdict: vi.fn(() => ({ verdict: 'YELLOW', reasons: [] })),
 }));
 vi.mock('../services/receipt-approval.service', () => ({

@@ -28,7 +28,6 @@ import {
     resolveIntegration,
     parseInboundMessages,
     parseStatuses,
-    markAsRead,
     type WhatsAppIntegration,
     type ParsedInboundMessage,
 } from '../services/whatsapp.service';
@@ -324,8 +323,14 @@ async function processInboundMessage(req: Request, msg: ParsedInboundMessage): P
         req.log?.info({ conversationId, contactWaId: msg.contactWaId }, 'WhatsApp: opt-out registrado');
     }
 
-    // 4. Marcar como leído (best-effort, no bloquea).
-    void markAsRead(integration, msg.waMessageId);
+    // 4. NO se marca como leído acá.
+    //
+    // Antes cada entrante recibía el doble check azul al llegar, aunque nadie
+    // lo hubiera leído: con el bot apagado y en los chats personales que entran
+    // por Coexistence. Milena (Dynasty, 2026-10-05): «los mensajes quedan en
+    // visto» — las familias veían el visto y ninguna respuesta. Ahora el visto
+    // lo pone `deliver` cuando el asistente de verdad envía algo, o la propia
+    // escuela al abrir el chat en su celular.
 
     // 5. Disparar el bot. En WA2 esto encola en pg-boss y corre DeepSeek +
     //    intents + identificación OTP. Por ahora dejamos el punto de entrada.

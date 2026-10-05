@@ -34,7 +34,7 @@ import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
 import { chatWithTools, type LlmTool, type LlmMessage } from './llm.service';
 import {
-    sendTextMessage, sendInteractiveButtons, aFormatoWhatsApp,
+    sendTextMessage, sendInteractiveButtons, aFormatoWhatsApp, markAsRead,
     type WhatsAppIntegration, type BotonInteractivo,
 } from './whatsapp.service';
 import { esSalienteAutomatico } from './whatsapp-buzon';
@@ -1461,6 +1461,18 @@ function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>>): stri
  * responder a los tipos que el bot no procesa (audio, video) sin duplicar nada
  * de eso.
  */
+/** Visto azul sobre el último mensaje de la familia. Best-effort, nunca lanza. */
+async function marcarLeidoElUltimoEntrante(integration: WhatsAppIntegration, conversationId: string): Promise<void> {
+    try {
+        const { data } = await supabase.from('whatsapp_messages')
+            .select('wa_message_id')
+            .eq('conversation_id', conversationId).eq('direction', 'inbound')
+            .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        const id = (data as any)?.wa_message_id as string | undefined;
+        if (id) await markAsRead(integration, id);
+    } catch { /* best-effort */ }
+}
+
 export async function deliver(
     integration: WhatsAppIntegration,
     conversationId: string,
@@ -1558,10 +1570,14 @@ export async function deliver(
             p_ai_generated: true,
             p_to_wa_id: contactWaId,
         });
+        // El visto va recién cuando hay respuesta. Marcar el último entrante
+        // marca también los anteriores de ese chat.
+        if (sent.ok) void marcarLeidoElUltimoEntrante(integration, conversationId);
         return;
     }
 
     // Modo asistido → draft para aprobación (NO se envía).
+    // Tampoco se marca como leído: hasta que alguien apruebe, nadie respondió.
     //
     // El buzón aprueba el borrador como TEXTO (`sendTextMessage` en
     // whatsapp-admin.routes): no hay forma de mandar botones desde ahí. Por eso

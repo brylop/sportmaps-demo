@@ -26,6 +26,19 @@ const SIGNED_URL_TTL_SEG = 600; // 10 minutos — el inbox pide una URL fresca c
 
 const ROLES_ADMIN = ['owner', 'admin', 'super_admin', 'school_admin', 'school'] as const;
 
+/**
+ * ¿Este rol puede SUBIR una hoja de matrícula en esta escuela? Admin siempre;
+ * coach solo si la escuela activó `school_settings.coach_can_upload_enrollment_forms`
+ * (mig 20261005120806, D2 del spec: "coach sube, admin aprueba"). Listar,
+ * aprobar, vincular y rechazar siguen siendo solo de admin.
+ * Sin fila de settings vale el default de la columna (false).
+ */
+export function puedeSubirMatricula(role: string | undefined, coachFlag: boolean | null | undefined): boolean {
+    if (!role) return false;
+    if ((ROLES_ADMIN as readonly string[]).includes(role)) return true;
+    return role === 'coach' && coachFlag === true;
+}
+
 const MIMES_PERMITIDOS = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'] as const;
 const MAX_BYTES = 4 * 1024 * 1024; // el body JSON del BFF topa en 5 MB; en base64 eso es ~3,7 MB reales
 
@@ -72,10 +85,25 @@ const UploadSchema = z.object({
     mimeType: z.enum(MIMES_PERMITIDOS),
 });
 
-router.post('/upload', requireAuth, requireRole(...ROLES_ADMIN), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/upload', requireAuth, requireRole(...ROLES_ADMIN, 'coach'), async (req: AuthenticatedRequest, res: Response) => {
     const { schoolId } = req;
     const userId = req.user?.id;
     if (!schoolId || !userId) return res.status(400).json({ error: 'Falta la escuela activa.' });
+
+    // El coach entra a la lista estática de arriba, pero solo pasa si su
+    // escuela lo activó. El BFF corre con service role: este es el único gate.
+    if (req.role === 'coach') {
+        const { data: settings } = await supabase
+            .from('school_settings')
+            .select('coach_can_upload_enrollment_forms')
+            .eq('school_id', schoolId)
+            .maybeSingle();
+        if (!puedeSubirMatricula(req.role, (settings as any)?.coach_can_upload_enrollment_forms)) {
+            return res.status(403).json({
+                error: 'Esta escuela no tiene habilitado que los entrenadores suban hojas de matrícula. Pídeselo a la escuela.',
+            });
+        }
+    }
 
     const parsed = UploadSchema.safeParse(req.body);
     if (!parsed.success) {

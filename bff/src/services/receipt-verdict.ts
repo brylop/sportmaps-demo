@@ -17,6 +17,7 @@
  */
 
 import type { OcrResult } from './ocr.service';
+import { describirCategorias } from './payment-accounts';
 
 export type Verdict = 'verde' | 'amarillo' | 'rojo';
 
@@ -52,6 +53,17 @@ export interface VerdictContext {
      * (no hay con qué cruzar — típico en modo sombra sin cuentas cargadas).
      */
     registeredAccounts?: string[];
+    /**
+     * Llaves de la escuela que NO valen para este cobro porque están
+     * restringidas a otras categorías (`payment_accounts[].only_for`, p.ej. el
+     * Nequi de inscripciones de Dynasty). YA normalizadas. Si el destino cae en
+     * una de estas, el dinero sí fue a la escuela pero por el canal de otro
+     * concepto: AMARILLO (revisión humana), nunca rojo — rechazarlo haría que la
+     * familia pagara dos veces.
+     */
+    restrictedAccounts?: { value: string; onlyFor: string[] }[];
+    /** Categoría resuelta del cobro (solo para el detalle del motivo). */
+    paymentCategory?: string | null;
     /** Ventana de días hacia atrás permitida para la fecha (§2.6). Default 5. */
     dateWindowDays?: number;
     /** Hoy en Bogotá, ISO yyyy-mm-dd. Lo inyecta el caller (mantiene la fn pura). */
@@ -267,17 +279,37 @@ export function evaluateVerdict(ocr: OcrResult, ctx: VerdictContext): VerdictRes
     //    Solo evaluable con destino leído Y cuentas registradas cargadas.
     const destNorm = normalizeDestination(ocr.destination);
     const accounts = ctx.registeredAccounts ?? [];
-    if (destNorm && accounts.length > 0 && !destinationMatchesRegistered(destNorm, accounts)) {
-        reasons.push({
-            check: 4,
-            code: 'DESTINO_NO_COINCIDE',
-            level: 'rojo',
-            message: 'El dinero se envió a una cuenta que no está registrada por la escuela.',
-            // comparedAgainst se persiste para calibrar el modo sombra: p.ej. si la escuela
-            // cobra por DaviPlata pero esa cuenta no está entre las comparadas (columna drift),
-            // este rojo es un falso positivo descontable al analizar los datos.
-            detail: { destination: destNorm, comparedAgainst: accounts },
-        });
+    const restricted = ctx.restrictedAccounts ?? [];
+    if (destNorm && (accounts.length > 0 || restricted.length > 0) && !destinationMatchesRegistered(destNorm, accounts)) {
+        const restringida = restricted.find((r) => destinationMatchesRegistered(destNorm, [r.value]));
+        if (restringida) {
+            // Cuenta de la escuela, pero de otro concepto (Dynasty: Nequi solo
+            // para inscripciones y llegó una mensualidad). Mismo code para que la
+            // glosa y los reportes lo agrupen con los destinos; nivel amarillo.
+            reasons.push({
+                check: 4,
+                code: 'DESTINO_NO_COINCIDE',
+                level: 'amarillo',
+                message: `El dinero se envió a una cuenta de la escuela que solo recibe ${describirCategorias(restringida.onlyFor)}; revisa a qué cobro corresponde.`,
+                detail: {
+                    destination: destNorm,
+                    cuentaRestringida: true,
+                    soloPara: restringida.onlyFor,
+                    categoriaDelCobro: ctx.paymentCategory ?? null,
+                },
+            });
+        } else {
+            reasons.push({
+                check: 4,
+                code: 'DESTINO_NO_COINCIDE',
+                level: 'rojo',
+                message: 'El dinero se envió a una cuenta que no está registrada por la escuela.',
+                // comparedAgainst se persiste para calibrar el modo sombra: p.ej. si la escuela
+                // cobra por DaviPlata pero esa cuenta no está entre las comparadas (columna drift),
+                // este rojo es un falso positivo descontable al analizar los datos.
+                detail: { destination: destNorm, comparedAgainst: [...accounts, ...restricted.map((r) => r.value)] },
+            });
+        }
     }
 
     // 5) Monto distinto al esperado (tolerancia 0).

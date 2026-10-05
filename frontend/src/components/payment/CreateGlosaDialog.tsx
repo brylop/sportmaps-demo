@@ -17,6 +17,8 @@ const AMARILLO_TO_REASON: Record<string, GlosaReason> = {
     FECHA_FUERA_VENTANA: 'FECHA_FUERA_VENTANA',
     CAMPOS_ILEGIBLES: 'CAMPOS_ILEGIBLES',
     FORMATO_REFERENCIA: 'OTRO',
+    // Amarillo: destino = llave de la escuela restringida a otro concepto (only_for).
+    DESTINO_NO_COINCIDE: 'DESTINO_NO_COINCIDE',
 };
 
 interface Props {

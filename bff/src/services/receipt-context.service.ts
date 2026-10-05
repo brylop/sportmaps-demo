@@ -9,6 +9,7 @@
 
 import { supabase } from '../config/supabase';
 import { normalizeDestination, type VerdictContext } from './receipt-verdict';
+import { categoriaDeCobro, cuentaAplicaA, parseCuentasDePago, type CategoriaCobro } from './payment-accounts';
 
 /** Hoy en Bogotá como ISO yyyy-mm-dd (en-CA formatea así). */
 function todayIsoBogota(): string {
@@ -26,6 +27,30 @@ export interface BuildContextArgs {
     expectedAmount?: number | null;
     /** En el flujo de update: el pago que se está editando, para excluirlo del dedup. */
     paymentId?: string | null;
+    /**
+     * Categoría del cobro (`payments.payment_category`) y/o su concepto, para
+     * decidir qué llaves restringidas (`only_for`) valen. Si no vienen y hay
+     * `paymentId`, se leen del pago. Sin ninguno, la categoría queda
+     * desconocida y las llaves restringidas dan AMARILLO, nunca verde.
+     */
+    paymentCategory?: string | null;
+    concept?: string | null;
+}
+
+/** Categoría del cobro: la que pasó el caller, o la del pago en BD. */
+async function resolverCategoria(args: BuildContextArgs): Promise<CategoriaCobro | null> {
+    if (args.paymentCategory || args.concept) return categoriaDeCobro(args.paymentCategory, args.concept);
+    if (!args.paymentId) return null;
+    try {
+        const { data } = await supabase
+            .from('payments')
+            .select('payment_category, concept')
+            .eq('id', args.paymentId)
+            .maybeSingle();
+        return data ? categoriaDeCobro((data as any).payment_category, (data as any).concept) : null;
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -44,6 +69,8 @@ export async function buildVerdictContext(
     //    sueltas van aparte, ver 1.b).
     let dateWindowDays = 5;
     let registeredAccounts: string[] = [];
+    let restrictedAccounts: { value: string; onlyFor: string[] }[] = [];
+    const paymentCategory = await resolverCategoria(args);
     try {
         const { data: settings } = await supabase
             .from('school_settings')
@@ -87,22 +114,29 @@ export async function buildVerdictContext(
             //      El check 4 pregunta "¿el dinero salió hacia un tercero?", así que
             //      apagar una llave no puede rechazar retroactivamente el comprobante
             //      de quien ya pagó a ella. Para dejar de aceptarla hay que borrarla.
-            const fromList = Array.isArray(extraCols.payment_accounts)
-                ? (extraCols.payment_accounts as unknown[]).map((a) =>
-                      a && typeof a === 'object' && typeof (a as Record<string, unknown>).value === 'string'
-                          ? ((a as Record<string, unknown>).value as string)
-                          : null,
-                  )
-                : [];
+            //
+            //      Lo que SÍ separa es `only_for`: una llave restringida a otra
+            //      categoría (Nequi de inscripciones de Dynasty) no cuenta como
+            //      destino válido de ESTE cobro; va aparte, para que el veredicto
+            //      la marque amarillo en vez de verde o rojo.
+            const cuentas = parseCuentasDePago(extraCols.payment_accounts);
+            const restringidas = cuentas
+                .filter((c) => !cuentaAplicaA(c, paymentCategory))
+                .map((c) => ({ value: normalizeDestination(c.value), onlyFor: c.onlyFor ?? [] }))
+                .filter((c): c is { value: string; onlyFor: CategoriaCobro[] } => c.value !== null);
+            const valoresRestringidos = new Set(restringidas.map((r) => r.value));
             const extra = [
-                ...fromList,
+                ...cuentas.filter((c) => cuentaAplicaA(c, paymentCategory)).map((c) => c.value),
                 extraCols.transfer_key,
                 extraCols.breb_number,
                 extraCols.daviplata_number,
             ]
                 .map((a) => normalizeDestination(a))
                 .filter((a): a is string => a !== null);
-            registeredAccounts = Array.from(new Set([...registeredAccounts, ...extra]));
+            // Una columna suelta que espeje una llave restringida no la vuelve general.
+            registeredAccounts = Array.from(new Set([...registeredAccounts, ...extra]))
+                .filter((a) => !valoresRestringidos.has(a));
+            restrictedAccounts = restringidas;
         }
     } catch {
         // Columnas ausentes en este esquema: se comparan solo las garantizadas.
@@ -134,6 +168,8 @@ export async function buildVerdictContext(
     return {
         expectedAmount: args.expectedAmount ?? null,
         registeredAccounts,
+        restrictedAccounts,
+        paymentCategory,
         dateWindowDays,
         today,
         referenceAlreadyUsed,
