@@ -235,6 +235,15 @@ async function extractWithOpenAI(base64Image: string, mimeType: string): Promise
 // «en revisión» en una y «destino ajeno» en otra). Para leer plata de familias
 // vale más una lectura estable que una barata.
 // ─────────────────────────────────────────────────────────────────────────────
+// Sonnet 5.5 por defecto desde el 2026-10-06: el bot y la lectura de
+// comprobantes no necesitan Opus y Sonnet cuesta bastante menos. Se cambia sin
+// desplegar con la variable de entorno. Haiku 4.5 no acepta `effort`.
+const MODELO_CLAUDE_DEFAULT = 'claude-sonnet-5-5';
+function modeloClaude(env?: string): string { return (env || '').trim() || MODELO_CLAUDE_DEFAULT; }
+function conEsfuerzoBajo(modelo: string): Record<string, unknown> {
+    return /haiku/i.test(modelo) ? {} : { output_config: { effort: 'low' } };
+}
+
 let anthropicClient: Anthropic | null = null;
 function clienteClaude(): Anthropic {
     if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY no configurada');
@@ -257,10 +266,10 @@ async function extractWithClaude(base64Image: string, mimeType: string): Promise
         };
 
     const res = await client.messages.create({
-        model: process.env.CLAUDE_OCR_MODEL || 'claude-opus-5-5',
+        model: modeloClaude(process.env.CLAUDE_OCR_MODEL),
         max_tokens: 4000,
         // Extracción de campos: esfuerzo bajo alcanza y abarata.
-        output_config: { effort: 'low' },
+        ...conEsfuerzoBajo(modeloClaude(process.env.CLAUDE_OCR_MODEL)),
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: [archivo, { type: 'text', text: USER_PROMPT }] }],
     } as any);
