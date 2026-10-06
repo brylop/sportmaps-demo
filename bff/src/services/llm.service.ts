@@ -232,6 +232,15 @@ async function chatOpenAICompatible(
 // Gemini respondía 503 («high demand») y Groq agotó su tope diario gratuito de
 // 200.000 tokens: el bot cayó al menú de respaldo en plena prueba. Claude ya
 // lee los comprobantes (ocr.service) con la misma llave.
+// Sonnet 5.5 por defecto desde el 2026-10-06: el bot y la lectura de
+// comprobantes no necesitan Opus y Sonnet cuesta bastante menos. Se cambia sin
+// desplegar con la variable de entorno. Haiku 4.5 no acepta `effort`.
+const MODELO_CLAUDE_DEFAULT = 'claude-sonnet-5-5';
+function modeloClaude(env?: string): string { return (env || '').trim() || MODELO_CLAUDE_DEFAULT; }
+function conEsfuerzoBajo(modelo: string): Record<string, unknown> {
+    return /haiku/i.test(modelo) ? {} : { output_config: { effort: 'low' } };
+}
+
 let anthropicClient: Anthropic | null = null;
 function clienteClaude(): Anthropic {
     if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY no configurada');
@@ -258,10 +267,10 @@ ${m.content}`
     if (!msgs.length) msgs.push({ role: 'user', content: '(sin texto)' });
 
     const body: any = {
-        model: process.env.WHATSAPP_CLAUDE_MODEL || 'claude-opus-5-5',
+        model: modeloClaude(process.env.WHATSAPP_CLAUDE_MODEL),
         max_tokens: 2048,
         // Respuestas cortas de WhatsApp: esfuerzo bajo = menos latencia y costo.
-        output_config: { effort: 'low' },
+        ...conEsfuerzoBajo(modeloClaude(process.env.WHATSAPP_CLAUDE_MODEL)),
         system,
         messages: msgs,
     };

@@ -25,6 +25,7 @@
 
 import { supabase } from '../config/supabase';
 import type { WhatsAppIntegration } from './whatsapp.service';
+import { conversacionTomada } from './whatsapp-tomada.service';
 
 /**
  * - familia            → acudiente con cuenta de un atleta activo (por teléfono o por OTP)
@@ -173,22 +174,27 @@ let avisoDeColumnaDado = false;
  * `atender=false` con `tipo='desconocido'` y el bot prendido NO es silencio
  * seguro: el webhook todavía le pasa el texto a `atenderDesconocido` (bot), que
  * contesta solo correo/código vigente o tema escolar (`temaEscolar`, abajo).
- * Staff y personal no tienen esa puerta.
+ * Staff y personal no tienen esa puerta. Con `tomada=true` tampoco.
  */
 export async function debeAtender(
     integration: WhatsAppIntegration,
     conversationId: string | null,
     contactWaId: string,
-): Promise<{ atender: boolean; tipo: TipoDeContacto; botEncendido: boolean }> {
-    const [ajustes, tipo] = await Promise.all([
+): Promise<{ atender: boolean; tipo: TipoDeContacto; botEncendido: boolean; tomada: boolean }> {
+    const [ajustes, tipo, tomada] = await Promise.all([
         ajustesDeAtencion(integration.id),
         clasificarContacto(integration, conversationId, contactWaId),
+        conversacionTomada(conversationId),
     ]);
-    const atender = ajustes.botEncendido && (
+    // Tomada por una persona desde el buzón (mejora 9): nada automático, sea
+    // quien sea. `tipo` y `botEncendido` se devuelven igual: el worker de
+    // comprobantes los usa para seguir APLICANDO el comprobante (sin escribirle
+    // a la familia; ver whatsapp-tomada.service).
+    const atender = !tomada && ajustes.botEncendido && (
         TIPOS_QUE_SE_ATIENDEN.has(tipo) ||
         (tipo === 'desconocido' && ajustes.responderDesconocidos)
     );
-    return { atender, tipo, botEncendido: ajustes.botEncendido };
+    return { atender, tipo, botEncendido: ajustes.botEncendido, tomada };
 }
 
 // ─── El desconocido que SÍ es de la escuela ──────────────────────────────────

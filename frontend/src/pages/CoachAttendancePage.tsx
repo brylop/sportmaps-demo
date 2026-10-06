@@ -68,9 +68,17 @@ interface RosterItem {
   enrollment_id?: string | null;
   plan: PlanInfo | null;
   booking_today?: BookingToday | null;
+  /** La familia avisó por WhatsApp que no viene hoy (athlete_absence_notices). */
+  aviso_ausencia?: { motivo: string | null; nota: string | null; fuente: string } | null;
   is_booking?: boolean;
   payment: { status: string; due_date: string | null } | null;
 }
+
+/** Motivo del aviso de ausencia (CHECK de athlete_absence_notices.reason). */
+const MOTIVO_AUSENCIA: Record<string, string> = {
+  enfermedad: 'enfermo/a', cita_medica: 'cita médica', viaje: 'de viaje', lesion: 'lesión',
+  colegio: 'colegio', familiar: 'asunto familiar',
+};
 
 /** Resultado del movimiento de crédito que devuelve el BFF por atleta. */
 type CreditOutcome =
@@ -590,7 +598,8 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
       && presetAppliedKeyRef.current !== presetKey
     ) {
       const allPresent: Record<string, AttendanceStatus> = {};
-      (rosterData?.athletes ?? []).forEach((a) => { allPresent[a.id] = 'present'; });
+      // Quien avisó que no viene arranca «excusado» (no descuenta clase).
+      (rosterData?.athletes ?? []).forEach((a) => { allPresent[a.id] = a.aviso_ausencia ? 'excused' : 'present'; });
       setAttendanceState(allPresent);
       presetAppliedKeyRef.current = presetKey;
     }
@@ -1398,6 +1407,11 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
                                 {student.booking_today.status === 'attended'
                                   ? `Reserva de hoy ya usada${formatHour(student.booking_today.start_time) ? ` (${formatHour(student.booking_today.start_time)})` : ''}`
                                   : `Ya reservó hoy${formatHour(student.booking_today.start_time) ? ` (${formatHour(student.booking_today.start_time)})` : ''} — no se descuenta otra clase`}
+                              </p>
+                            )}
+                            {student.aviso_ausencia && (
+                              <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5" title={student.aviso_ausencia.nota ?? undefined}>
+                                La familia avisó que no viene{MOTIVO_AUSENCIA[student.aviso_ausencia.motivo ?? ''] ? ` (${MOTIVO_AUSENCIA[student.aviso_ausencia.motivo ?? '']})` : ''}
                               </p>
                             )}
                           </div>

@@ -38,7 +38,7 @@ import { bffClient } from '@/lib/api/bffClient';
 import { useToast } from '@/hooks/use-toast';
 import {
     MessageSquare, Send, Bot, User, Clock, Loader2, ChevronLeft, Sparkles, X,
-    EyeOff, Eye, CheckCircle2,
+    EyeOff, Eye, CheckCircle2, Hand, Unlock,
 } from 'lucide-react';
 
 interface UltimoMensaje {
@@ -62,6 +62,16 @@ export interface Conversacion {
     contact_kind?: TipoDeContacto | null;
     /** El último mensaje entrante no tiene respuesta. Ausente en backends viejos. */
     pendiente?: boolean;
+    /** Mejora 9: tomada por una persona (solo si está vigente). Mientras tanto el asistente calla. */
+    toma?: Toma | null;
+}
+
+interface Toma { tomada_por: string; tomada_por_nombre: string | null; tomada_hasta: string }
+
+/** «Atendida por Milena · hasta 9:30 p. m.» */
+function textoDeToma(t: Toma): string {
+    const hasta = new Date(t.tomada_hasta).toLocaleString('es-CO', { hour: 'numeric', minute: '2-digit' });
+    return `Atendida por ${t.tomada_por_nombre || 'alguien de la escuela'} · hasta ${hasta}`;
 }
 
 export type TipoDeContacto =
@@ -147,13 +157,19 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
     const [sinResponderPrimero, setSinResponderPrimero] = useState(true);
     const [confirmarPersonal, setConfirmarPersonal] = useState(false);
     const [accionando, setAccionando] = useState(false);
+    // Sin la migración de «tomar» el BFF manda toma_disponible=false: el botón se deshabilita.
+    const [tomaDisponible, setTomaDisponible] = useState(true);
 
     const cargarLista = useCallback(async () => {
         setCargandoLista(true);
         try {
-            const r = await bffClient.get<{ conversaciones: Conversacion[]; conteos?: Conteos | null; clasificacion_disponible?: boolean }>(
-                `/api/v1/whatsapp/${schoolId}/conversaciones?vista=${vista}`);
+            const r = await bffClient.get<{
+                conversaciones: Conversacion[]; conteos?: Conteos | null;
+                clasificacion_disponible?: boolean; toma_disponible?: boolean;
+            }>(`/api/v1/whatsapp/${schoolId}/conversaciones?vista=${vista}`);
             setLista(r.conversaciones ?? []);
+            // Backend viejo (sin el campo) = no disponible: no hay endpoint que llamar.
+            setTomaDisponible(r.toma_disponible === true);
             // Sin la migración aplicada no llegan conteos: no se pintan números.
             setConteos(r.conteos ?? null);
             setClasificacion(r.clasificacion_disponible !== false);
@@ -179,7 +195,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
             if (!a) return a;
             const fresca = lista.find((c) => c.id === a.id);
             if (!fresca) return a;
-            return { ...a, contact_kind: fresca.contact_kind, pendiente: fresca.pendiente, status: fresca.status };
+            return { ...a, contact_kind: fresca.contact_kind, pendiente: fresca.pendiente, status: fresca.status, toma: fresca.toma ?? null };
         });
     }, [lista]);
 
@@ -190,8 +206,10 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
         setTexto('');
         setCargandoHilo(true);
         try {
-            const r = await bffClient.get<{ conversacion: Conversacion; mensajes: Mensaje[]; borradores: Borrador[] }>(
-                `/api/v1/whatsapp/${schoolId}/conversaciones/${c.id}`);
+            const r = await bffClient.get<{
+                conversacion: Conversacion; mensajes: Mensaje[]; borradores: Borrador[]; toma_disponible?: boolean;
+            }>(`/api/v1/whatsapp/${schoolId}/conversaciones/${c.id}`);
+            if (typeof r.toma_disponible === 'boolean') setTomaDisponible(r.toma_disponible);
             setMensajes(r.mensajes ?? []);
             setBorradores(r.borradores ?? []);
             // El servidor recalcula la ventana: la de la lista pudo quedar
@@ -268,6 +286,33 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
             await cargarLista();
         } catch (e: any) {
             toast({ title: 'No se pudo cambiar', description: e?.message, variant: 'destructive' });
+        } finally {
+            setAccionando(false);
+        }
+    };
+
+    /** Mejora 9: tomar (el asistente calla) o soltar (vuelve a atender). */
+    const cambiarToma = async (tomar: boolean) => {
+        if (!abierta) return;
+        setAccionando(true);
+        try {
+            const r = await bffClient.post<{ tomada_por?: string; tomada_hasta?: string }>(
+                `/api/v1/whatsapp/${schoolId}/conversaciones/${abierta.id}/${tomar ? 'tomar' : 'soltar'}`, {});
+            toast({
+                title: tomar ? 'Tomaste la conversación' : 'Soltaste la conversación',
+                description: tomar
+                    ? 'El asistente no le va a escribir nada automático hasta que la sueltes o pasen 12 horas.'
+                    : 'El asistente vuelve a atenderla.',
+            });
+            setAbierta({
+                ...abierta,
+                toma: tomar && r?.tomada_hasta
+                    ? { tomada_por: r.tomada_por ?? '', tomada_por_nombre: 'ti', tomada_hasta: r.tomada_hasta }
+                    : null,
+            });
+            await cargarLista();
+        } catch (e: any) {
+            toast({ title: tomar ? 'No se pudo tomar' : 'No se pudo soltar', description: e?.message, variant: 'destructive' });
         } finally {
             setAccionando(false);
         }
@@ -361,6 +406,13 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                                 <Badge variant="destructive" className="text-[10px]">Sin responder</Badge>
                             )}
                             <EtiquetaTipo tipo={c.contact_kind} />
+                            {c.toma && (
+                                <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-700 dark:text-blue-400"
+                                       title={textoDeToma(c.toma)}>
+                                    <Hand className="h-2.5 w-2.5 mr-1" />
+                                    Atendida por {c.toma.tomada_por_nombre || 'la escuela'}
+                                </Badge>
+                            )}
                             {c.borradores_pendientes > 0 && (
                                 <Badge variant="secondary" className="text-[10px]">
                                     <Sparkles className="h-2.5 w-2.5 mr-1" />
@@ -399,6 +451,19 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                         </div>
                         {/* Acciones: botones anchos en el celular, que se tocan con el dedo. */}
                         <div className="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
+                            {abierta.toma ? (
+                                <Button variant="outline" size="sm" disabled={accionando || !tomaDisponible}
+                                        onClick={() => void cambiarToma(false)}>
+                                    <Unlock className="h-3.5 w-3.5 mr-1" /> Soltar
+                                </Button>
+                            ) : (
+                                <Button variant="outline" size="sm" disabled={accionando || !tomaDisponible}
+                                        title={tomaDisponible ? 'El asistente deja de responder en esta conversación'
+                                            : 'Todavía no disponible'}
+                                        onClick={() => void cambiarToma(true)}>
+                                    <Hand className="h-3.5 w-3.5 mr-1" /> Tomar la conversación
+                                </Button>
+                            )}
                             <Button
                                 variant="outline" size="sm" disabled={accionando}
                                 onClick={() => esPersonal ? void cambiarPersonal(false) : setConfirmarPersonal(true)}
@@ -421,6 +486,13 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                         {esPersonal && (
                             <p className="text-xs text-muted-foreground">
                                 Conversación personal: el asistente no le responde. Contéstala desde tu celular.
+                            </p>
+                        )}
+                        {abierta.toma && (
+                            <p className="text-xs text-blue-700 dark:text-blue-400 flex items-center gap-1">
+                                <Hand className="h-3 w-3 shrink-0" />
+                                {textoDeToma(abierta.toma)}. El asistente no le escribe nada automático
+                                (los comprobantes se aplican igual, sin avisarle).
                             </p>
                         )}
                     </div>

@@ -131,6 +131,8 @@ export interface PagoDeEstado {
     debe_pagarse?: boolean | null;
     due_date?: string | null;
     vencido?: boolean | null;
+    /** /p/:token del cobro (whatsapp-enlaces-de-pago), si se pudo emitir. */
+    enlace_pago?: string | null;
 }
 
 export interface FilaDeColaFamilia {
@@ -207,6 +209,7 @@ export function textoYaPague(
             : 'Por ahora el sistema muestra pendiente:');
         for (const p of pendientes.slice(0, 5)) {
             lineas.push(`• ${p.concept}: ${copFmt(Number(p.saldo ?? p.amount ?? 0))}`);
+            if (p.enlace_pago) lineas.push(`   Pagar: ${p.enlace_pago}`);
         }
         if (hayAlgo && (enCola.length || enRevision.length)) {
             lineas.push('Si alguno de esos es el que ya pagaste, queda al día apenas se apruebe el comprobante.');

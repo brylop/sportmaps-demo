@@ -35,9 +35,10 @@ import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
 import { chatWithTools, type LlmTool, type LlmMessage } from './llm.service';
 import {
-    sendTextMessage, sendInteractiveButtons, aFormatoWhatsApp, markAsRead,
+    sendTextMessage, sendInteractiveButtons, sendCtaUrl, aFormatoWhatsApp, markAsRead,
     type WhatsAppIntegration, type BotonInteractivo,
 } from './whatsapp.service';
+import { conEnlacesDePago, lineaPagar, botonPagarUnico } from './whatsapp-enlaces-de-pago.service';
 import { esSalienteAutomatico } from './whatsapp-buzon';
 import { avisarEscalamientoPorCorreo } from './avisos-correo.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
@@ -49,6 +50,8 @@ import { resolverRespuestaDeCobro } from './whatsapp-respuesta-de-cobro.service'
 import {
     botEncendido, debeAtender, temaEscolar, preguntaPrecioComoProspecto,
 } from './whatsapp-atencion.service';
+import { conversacionTomada } from './whatsapp-tomada.service';
+import { invitacionPendienteVigente } from './whatsapp-invitacion-vigente.service';
 import { conMarca, sufijoMarcaEscuela } from '../utils/tenantLink';
 import { atenderTurnoFactura, enlaceFormularioFactura } from './whatsapp-factura.service';
 import { celular10, type DuenoFactura } from './factura-pagador.service';
@@ -62,6 +65,7 @@ import {
     preguntaAbierta, pasoEnVentana, normalizarFrase, ecoDeAudios,
     type FilaReciente, type ComprobanteAnunciado,
 } from './whatsapp-reglas-turno';
+import { atenderAusenciaEnBot } from './whatsapp-ausencias.service';
 
 const OTP_TTL_MIN = 10;
 
@@ -134,6 +138,11 @@ async function cuerpoDelTurno(
     //     `deliver` también se niega, pero para entonces el modelo ya se pagó.
     if (!(await botEncendido(integration.id))) {
         console.info('[whatsapp-bot] bot apagado: runBotTurn no hace nada', { conversationId });
+        return;
+    }
+    // Mejora 9: tomada desde el buzón (puede haberse tomado durante la ráfaga).
+    if (await conversacionTomada(conversationId)) {
+        console.info('[whatsapp-bot] conversación tomada por una persona: runBotTurn no hace nada', { conversationId });
         return;
     }
 
@@ -309,6 +318,20 @@ async function cuerpoDelTurno(
     //      «¡De nada! 😊 Si necesitas consultar algún pago…» a cada cierre.
     if (!botonId && esCierreSuelto(text)) {
         console.info('[whatsapp-bot] cierre suelto; no se contesta', { conversationId });
+        return;
+    }
+
+    // 2.65. Mejora 5 — «Mi hija no puede ir hoy»: aviso de ausencia, SIN modelo.
+    //       Va después de la respuesta de cobro (2.5) y ANTES del vocativo (2.7):
+    //       «Milena, Sofía no va hoy» es un aviso, no un recado. Lo que habla de
+    //       pagos/comprobantes nunca dispara (lo filtra el servicio), así que las
+    //       reglas de comprobante 2.8/2.9 siguen siendo de ellas.
+    if (await atenderAusenciaEnBot(
+        { schoolId: integration.school_id, parentId: conv.parent_id, conversationId, waMessageId,
+            texto: text, rafaga, botonId, recientes },
+        (texto, paso, botones) => deliver(integration, conversationId, contactWaId, texto, { step: paso },
+            botones ? { botones } : undefined),
+    )) {
         return;
     }
 
@@ -539,9 +562,12 @@ async function responderYaPague(
         await escalate(integration, conversationId, contactWaId, 'tool_error');
         return;
     }
-    const { texto, hayAlgo } = textoYaPague(pagos as any, cola as any);
+    // Enlace «Pagar» en lo pendiente, solo en el texto: a quien dice que ya
+    // pagó no se le pone un botón grande de pagar.
+    const pagosConEnlace = await conEnlacesDePago(pagos as any[], parentId, integration.school_id);
+    const { texto, hayAlgo } = textoYaPague(pagosConEnlace as any, cola as any);
     await deliver(integration, conversationId, contactWaId, texto,
-        { step: 'estado_comprobantes', encontro_comprobante: hayAlgo, tool_result: pagos });
+        { step: 'estado_comprobantes', encontro_comprobante: hayAlgo, tool_result: pagosConEnlace });
     if (!hayAlgo) await abrirEnBuzon(integration, conversationId, contactWaId);
 }
 
@@ -571,8 +597,10 @@ async function responderSinModelo(
             p_parent_id: parentId, p_school_id: integration.school_id,
         });
         if (!error) {
+            const conEnlace = await conEnlacesDePago(payments as any[], parentId, integration.school_id);
             await deliver(integration, conversationId, contactWaId,
-                fallbackPaymentText(payments), { step: 'payment_fallback', via: 'llm_error', tool_result: payments });
+                fallbackPaymentText(conEnlace), { step: 'payment_fallback', via: 'llm_error', tool_result: conEnlace },
+                conBotonPagar(conEnlace));
             return;
         }
     }
@@ -711,8 +739,10 @@ async function ejecutarAccionDeBoton(
         await escalate(integration, conversationId, contactWaId, 'tool_error');
         return;
     }
+    const conEnlace = await conEnlacesDePago(payments as any[], parentId, integration.school_id);
     await deliver(integration, conversationId, contactWaId,
-        fallbackPaymentText(payments), { step: 'get_payment_status', via: 'boton', tool_result: payments });
+        fallbackPaymentText(conEnlace), { step: 'get_payment_status', via: 'boton', tool_result: conEnlace },
+        conBotonPagar(conEnlace));
     await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
 }
 
@@ -1129,13 +1159,12 @@ async function identificarPorTelefono(
         //
         // Medido el 2026-09-22: 148 de 157 de estas familias en Dynasty YA
         // tienen invitacion pendiente. No hay que crear nada, solo encontrarla.
-        const { data: inv } = await supabase.rpc('wa_invitacion_pendiente_por_telefono', {
-            p_integration_id: integration.id,
-            p_contact_wa_id: contactWaId,
-        });
-
-        const invitacion = inv as { invite_id?: string; email?: string } | null;
-        let enlace: string;
+        //
+        // Y solo si su atleta sigue ACTIVO (2026-10-06, Dynasty: a la familia de
+        // una atleta que la escuela dio de baja se le ofrecía crear la cuenta).
+        const { invitacion, atletaInactivo } = await invitacionPendienteVigente(
+            integration.id, contactWaId, integration.school_id);
+        let enlace: string | null;
         if (invitacion?.invite_id) {
             // El correo viaja para que el formulario lo precargue:
             // `accept_invitation_pro` exige que la sesion sea de ESE correo, y
@@ -1143,6 +1172,11 @@ async function identificarPorTelefono(
             // que ya lleno todo.
             const correo = invitacion.email ? `&email=${encodeURIComponent(invitacion.email)}` : '';
             enlace = `${FRONTEND_URL}/register?invite=${invitacion.invite_id}${correo}`;
+        } else if (atletaInactivo) {
+            // Atleta dado de baja: ni el enlace de la invitación ni el de
+            // teléfono. La conversación queda en el buzón (abajo) y la escuela
+            // decide.
+            enlace = null;
         } else {
             // Sin invitacion (9 de 157 en Dynasty) queda el camino viejo. No
             // vincula solo, pero al menos la escuela lo ve en el buzon y lo
@@ -1153,11 +1187,13 @@ async function identificarPorTelefono(
         }
 
         await deliver(integration, conversationId, contactWaId,
-            'Tu número está registrado en la escuela, pero todavía no tienes tu cuenta creada. 🙌' + '\n\n' +
-            `Créala aquí, ya te dejé todo listo: ${enlace}` + '\n\n' +
-            'Cuando la tengas, escríbeme por acá y podrás consultar tus pagos, mandar ' +
-            'comprobantes y recibir los avisos de tu atleta.',
-            { step: 'debe_registrarse', con_invitacion: Boolean(invitacion?.invite_id) });
+            enlace
+                ? 'Tu número está registrado en la escuela, pero todavía no tienes tu cuenta creada. 🙌' + '\n\n' +
+                  `Créala aquí, ya te dejé todo listo: ${enlace}` + '\n\n' +
+                  'Cuando la tengas, escríbeme por acá y podrás consultar tus pagos, mandar ' +
+                  'comprobantes y recibir los avisos de tu atleta.'
+                : 'Recibí tu mensaje 🙏 Se lo paso a la escuela para que lo revise contigo y te responda por aquí.',
+            { step: 'debe_registrarse', con_invitacion: Boolean(invitacion?.invite_id), atleta_inactivo: atletaInactivo });
 
         // Que quede en el buzon: son familias que hay que empujar a registrarse,
         // y eso lo trabaja la escuela, no el bot.
@@ -1879,6 +1915,10 @@ Reglas estrictas:
   Si el acudiente pregunta por uno de esos, responde con su estado_legible
   ("ya esta pagado y confirmado por la escuela").
 - Si NINGUNO tiene debe_pagarse en true, di que esta al dia; no inventes una lista.
+- Si un pago trae enlace_pago, incluyelo debajo de ese cobro como «Pagar: <enlace>»,
+  la URL completa y tal cual (sin acortarla ni ponerla entre corchetes). Ahi la
+  familia ve la transferencia, el QR y el pago en linea. Nunca inventes un enlace
+  para un pago que no lo trae.
 - «Cuanto cuesta la mensualidad?» de alguien YA inscrito es una pregunta sobre SU
   cobro, no sobre la lista de precios: usa get_payment_status y dile su monto. Es la
   pregunta mas comun de todas y contestarle «no tengo ese dato» teniendolo delante es
@@ -2145,9 +2185,13 @@ async function handleIntent(
             return;
         }
 
+        // Cada pendiente con su `enlace_pago` (/p/:token). El modelo lo recibe
+        // en el JSON y el prompt le pide ponerlo como «Pagar: <enlace>».
+        const conEnlace = await conEnlacesDePago(payments as any[], parentId, integration.school_id);
+
         // Redacción final con el resultado de la tool.
         messages.push({ role: 'assistant', content: `Llamando get_payment_status` });
-        messages.push({ role: 'tool', toolName: 'get_payment_status', content: JSON.stringify(payments) });
+        messages.push({ role: 'tool', toolName: 'get_payment_status', content: JSON.stringify(conEnlace) });
 
         let final;
         try {
@@ -2158,7 +2202,7 @@ async function handleIntent(
         } catch {
             // Si la 2a llamada falla, redactar un fallback determinista con los datos.
             await deliver(integration, conversationId, contactWaId,
-                fallbackPaymentText(payments), { step: 'payment_fallback' });
+                fallbackPaymentText(conEnlace), { step: 'payment_fallback' }, conBotonPagar(conEnlace));
             await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
             return;
         }
@@ -2172,8 +2216,9 @@ async function handleIntent(
                 { proveedor: final.provider, toolCalls: (final as any).toolCalls?.length ?? 0 });
         }
         await deliver(integration, conversationId, contactWaId,
-            final.text || fallbackPaymentText(payments),
-            { step: 'get_payment_status', provider: final.provider, tool_result: payments });
+            final.text || fallbackPaymentText(conEnlace),
+            { step: 'get_payment_status', provider: final.provider, tool_result: conEnlace },
+            conBotonPagar(conEnlace));
         await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
         return;
     }
@@ -2265,6 +2310,13 @@ export async function deliver(
             { conversationId, step: (context as any)?.step ?? null });
         return;
     }
+    // Mejora 9: una persona tomó la conversación en el buzón → nada automático
+    // (ni envío ni borrador), venga del camino que venga (acuse, cortesía, ausencias…).
+    if (await conversacionTomada(conversationId)) {
+        console.info('[whatsapp-bot] conversación tomada por una persona: no se envía ni se deja borrador',
+            { conversationId, step: (context as any)?.step ?? null });
+        return;
+    }
 
     const now = Date.now();
     const autoAllowed =
@@ -2300,6 +2352,9 @@ export async function deliver(
     }
 
     const botones = conBotones?.botones?.length ? conBotones.botones : null;
+    // Botón URL («Pagar» de un solo cobro). El enlace ya va en el texto, así
+    // que si el botón no sale el mensaje se entiende igual.
+    const cta = !botones && conBotones?.cta ? conBotones.cta : null;
     // El mismo mensaje sin botones: lo que sale si Meta rechaza los botones, y
     // lo que queda en el borrador del modo asistido.
     const textoSinBotones = botones && conBotones?.enTexto
@@ -2311,7 +2366,9 @@ export async function deliver(
         let cuerpo = textoSinBotones;
         let sent = botones
             ? await sendInteractiveButtons(integration, contactWaId, texto, botones)
-            : null;
+            : cta
+                ? await sendCtaUrl(integration, contactWaId, texto, cta.texto, cta.url)
+                : null;
         if (sent?.ok) {
             tipo = 'interactive';
             cuerpo = texto;
@@ -2331,7 +2388,7 @@ export async function deliver(
             p_wa_message_id: sent.waMessageId || `local-${crypto.randomUUID()}`,
             p_type: tipo,
             p_text_body: cuerpo,
-            p_payload: tipo === 'interactive' ? { ...context, botones } : context,
+            p_payload: tipo === 'interactive' ? (cta ? { ...context, cta } : { ...context, botones }) : context,
             p_ai_generated: true,
             p_to_wa_id: contactWaId,
         });
@@ -2354,7 +2411,7 @@ export async function deliver(
         conversation_id: conversationId,
         integration_id: integration.id,
         proposed_text: textoSinBotones,
-        tool_context: botones ? { ...context, botones } : context,
+        tool_context: botones ? { ...context, botones } : cta ? { ...context, cta } : context,
         llm_provider: (context as any)?.provider ?? null,
         status: 'pending',
     });
@@ -2452,6 +2509,14 @@ async function hayPreguntaDeCobroAbierta(integration: WhatsAppIntegration, conta
 export interface ConBotones {
     botones: BotonInteractivo[];
     enTexto?: string;
+    /** Botón URL (cta_url). Solo se usa si no hay `botones`. */
+    cta?: { texto: string; url: string };
+}
+
+/** «Pagar» como botón URL cuando hay UN solo cobro pendiente con enlace. */
+function conBotonPagar(pagos: unknown): ConBotones | undefined {
+    const cta = botonPagarUnico(pagos as any);
+    return cta ? { botones: [], cta } : undefined;
 }
 
 function botonesSiNoLoTiene(texto: string | null | undefined): ConBotones | undefined {
@@ -2663,6 +2728,30 @@ export const TEXTO_MIME_RECHAZADO =
     'Recibí tu archivo, pero no puedo leer ese formato. Mándame una *foto* del ' +
     'comprobante o el *PDF* que te da el banco.';
 
+/**
+ * El worker de la cola recibió un adjunto que acompaña una CONSULTA (reclamo o
+ * pregunta sobre un cobro), no un pago (2026-10-06, Dynasty: captura del correo
+ * de estado de cuenta + «¿por qué me cobran?»). La conversación pasa a la
+ * escuela: abierta en el buzón y, solo en la transición, push al staff — lo
+ * mismo que `escalate`, sin su mensaje (el worker ya le escribió a la familia).
+ */
+export async function abrirConsultaParaLaEscuela(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    reason: string,
+): Promise<void> {
+    const { data: previa } = await supabase.from('whatsapp_conversations')
+        .select('status, contact_name').eq('id', conversationId).maybeSingle();
+    await supabase.from('whatsapp_conversations')
+        .update({ status: 'open', assigned_to: null, updated_at: new Date().toISOString() })
+        .eq('id', conversationId);
+    if ((previa as any)?.status !== 'open') {
+        await avisarQueEsperan(integration, conversationId, contactWaId,
+            (previa as any)?.contact_name ?? null, undefined, reason);
+    }
+}
+
 // ─── P1. Comprobante sin procesar a tiempo ──────────────────────────────────
 //
 // El 06-oct, 15 filas de la cola quedaron `pending` desde las 08:00 y nadie se
@@ -2743,7 +2832,8 @@ function fallbackPaymentText(payments: any): string {
     const lines = pendientes.slice(0, 5).map((p: any) => {
         const monto = Number(p.saldo || 0).toLocaleString('es-CO');
         const venc = p.vencido ? ' (vencida)' : '';
-        return `• ${p.concept}: $${monto} — vence ${p.due_date}${venc}`;
+        const pagar = lineaPagar(p);
+        return `• ${p.concept}: $${monto} — vence ${p.due_date}${venc}${pagar ? `\n${pagar}` : ''}`;
     });
     return `Estos son tus pagos pendientes:\n${lines.join('\n')}`;
 }

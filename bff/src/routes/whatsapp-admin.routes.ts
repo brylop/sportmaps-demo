@@ -31,6 +31,8 @@ import { decryptToken, sendTextMessage, aFormatoWhatsApp,
 import { conectarEscuela } from '../services/whatsapp-onboarding.service';
 import { calcularPendientes, contarPorVista, esColumnaInexistente, estaPendiente, vistaDeTipo,
          type VistaDelBuzon } from '../services/whatsapp-buzon';
+import { tomarConversacion, soltarConversacion, tomasDe, HORAS_TOMADA_DEFAULT, HORAS_TOMADA_MAX,
+         HORAS_TOMADA_AL_RESPONDER } from '../services/whatsapp-tomada.service';
 
 const router = Router();
 
@@ -597,11 +599,17 @@ router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRe
         }
     }
 
+    // Mejora 9: quién tiene tomada cada conversación (solo tomas vigentes).
+    // Consulta aparte para que la migración sin aplicar no tumbe la lista.
+    const { disponible: tomaDisponible, tomas } = await tomasDe(ids);
+
     return res.json({
         vista,
         // false = la migración de Fase A aún no está aplicada: la lista viene
         // sin filtrar y `conteos` en null. La pantalla debería ocultar las pestañas.
         clasificacion_disponible: clasificacionDisponible,
+        // false = falta la migración 20261006101521: el botón «Tomar» se deshabilita.
+        toma_disponible: tomaDisponible,
         conteos,
         conversaciones: data.map((c: any) => ({
             ...c,
@@ -609,6 +617,7 @@ router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRe
             pendiente: estaPendiente(c.status, tiempos.get(c.id)),
             ultimo_mensaje: ultimos.get(c.id) ?? null,
             borradores_pendientes: borradores.get(c.id) ?? 0,
+            toma: tomas.get(c.id) ?? null,
         })),
     });
 });
@@ -718,8 +727,14 @@ router.get('/:schoolId/conversaciones/:conversationId', requireAuth, async (req:
         .eq('status', 'pending')
         .order('created_at');
 
+    const { disponible: tomaDisponible, tomas } = await tomasDe([conversationId]);
+
     return res.json({
-        conversacion: { ...conv, ...estadoDeVentana((conv as any).last_inbound_at) },
+        conversacion: {
+            ...conv, ...estadoDeVentana((conv as any).last_inbound_at),
+            toma: tomas.get(conversationId) ?? null,
+        },
+        toma_disponible: tomaDisponible,
         mensajes: mensajes ?? [],
         borradores: drafts ?? [],
     });
@@ -797,7 +812,72 @@ router.post('/:schoolId/conversaciones/:conversationId/responder', requireAuth, 
         .eq('school_id', schoolId);
     if (errCierre) req.log?.warn({ conversationId, err: errCierre.message }, '[wa-admin] no se pudo cerrar tras responder');
 
-    return res.status(201).json({ ok: true });
+    // Mejora 9: responder desde el buzón la TOMA por 2 h (además del silencio
+    // de 15 min por humano). No acorta una toma más larga ya vigente. Si falta
+    // la migración, se responde igual.
+    const toma = await tomarConversacion(schoolId, conversationId, userId, HORAS_TOMADA_AL_RESPONDER,
+        { soloExtender: true }).catch(() => null);
+    if (toma && !toma.ok && toma.motivo !== 'no_disponible') {
+        req.log?.warn({ conversationId, toma }, '[wa-admin] no se pudo tomar tras responder');
+    }
+
+    return res.status(201).json({ ok: true, toma: toma?.ok ? toma : null });
+});
+
+const TomarSchema = z.object({
+    horas: z.number().int().min(1).max(HORAS_TOMADA_MAX).optional(),
+}).strict();
+
+/**
+ * POST /api/v1/whatsapp/:schoolId/conversaciones/:conversationId/tomar
+ *
+ * Mejora 9: una persona toma la conversación y el asistente no escribe nada
+ * automático hasta que la suelte o venza (`horas`, default 12 /
+ * WHATSAPP_TOMADA_HORAS). La cola de comprobantes sigue aplicando, sin
+ * escribirle a la familia (ver whatsapp-tomada.service). Tomar una ya tomada
+ * por otra persona la reasigna a quien la toma (lo ve en el buzón).
+ */
+router.post('/:schoolId/conversaciones/:conversationId/tomar', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId, conversationId } = req.params as { schoolId: string; conversationId: string };
+    if (!(await administraEstaEscuela(req.user.id, schoolId))) {
+        return res.status(403).json({ error: 'Sin permiso sobre esta escuela' });
+    }
+    const parsed = TomarSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+        return res.status(400).json({ error: 'datos_invalidos', details: parsed.error.issues });
+    }
+
+    const r = await tomarConversacion(schoolId, conversationId, req.user.id,
+        parsed.data.horas ?? HORAS_TOMADA_DEFAULT);
+    if (!r.ok) {
+        if (r.motivo === 'no_encontrada') return res.status(404).json({ error: 'Conversacion no encontrada' });
+        if (r.motivo === 'no_disponible') {
+            return res.status(409).json({ error: 'toma_no_disponible',
+                detalle: 'Falta aplicar la migración 20261006101521 (tomada_por / tomada_hasta).' });
+        }
+        return res.status(500).json({ error: r.detalle ?? 'No se pudo tomar' });
+    }
+    req.log?.info({ schoolId, conversationId, hasta: r.tomada_hasta }, '[wa-admin] conversación tomada');
+    return res.json({ ok: true, tomada_por: r.tomada_por, tomada_hasta: r.tomada_hasta });
+});
+
+/** POST /api/v1/whatsapp/:schoolId/conversaciones/:conversationId/soltar — el bot vuelve a atender. */
+router.post('/:schoolId/conversaciones/:conversationId/soltar', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId, conversationId } = req.params as { schoolId: string; conversationId: string };
+    if (!(await administraEstaEscuela(req.user.id, schoolId))) {
+        return res.status(403).json({ error: 'Sin permiso sobre esta escuela' });
+    }
+    const r = await soltarConversacion(schoolId, conversationId);
+    if (!r.ok) {
+        if (r.motivo === 'no_encontrada') return res.status(404).json({ error: 'Conversacion no encontrada' });
+        if (r.motivo === 'no_disponible') {
+            return res.status(409).json({ error: 'toma_no_disponible',
+                detalle: 'Falta aplicar la migración 20261006101521 (tomada_por / tomada_hasta).' });
+        }
+        return res.status(500).json({ error: r.detalle ?? 'No se pudo soltar' });
+    }
+    req.log?.info({ schoolId, conversationId }, '[wa-admin] conversación soltada');
+    return res.json({ ok: true });
 });
 
 const AprobarSchema = z.object({

@@ -56,8 +56,15 @@ interface RosterItem {
   plan: PlanInfo | null;
   /** Reserva de hoy: si existe, pasar lista NO descuenta otra clase. */
   booking_today?: { start_time: string | null; status: string } | null;
+  /** La familia avisó por WhatsApp que no viene (athlete_absence_notices). */
+  aviso_ausencia?: { motivo: string | null; nota: string | null; fuente: string } | null;
   payment: { status: string; due_date: string | null } | null;
 }
+
+const MOTIVO_AUSENCIA: Record<string, string> = {
+  enfermedad: 'enfermo/a', cita_medica: 'cita médica', viaje: 'de viaje', lesion: 'lesión',
+  colegio: 'colegio', familiar: 'asunto familiar',
+};
 
 type CreditOutcome =
   | 'deducted' | 'covered_by_booking' | 'returned' | 'booking_released'
@@ -1444,6 +1451,11 @@ export default function AttendanceSupervisionPage() {
                             {athlete.booking_today.status === 'attended'
                               ? `Reserva de hoy ya usada${formatHour(athlete.booking_today.start_time) ? ` (${formatHour(athlete.booking_today.start_time)})` : ''}`
                               : `Ya reservó hoy${formatHour(athlete.booking_today.start_time) ? ` (${formatHour(athlete.booking_today.start_time)})` : ''} — no se descuenta otra clase`}
+                          </p>
+                        )}
+                        {athlete.aviso_ausencia && (
+                          <p className="text-[11px] mt-1 text-amber-600 dark:text-amber-400 font-medium" title={athlete.aviso_ausencia.nota ?? undefined}>
+                            La familia avisó que no viene{MOTIVO_AUSENCIA[athlete.aviso_ausencia.motivo ?? ''] ? ` (${MOTIVO_AUSENCIA[athlete.aviso_ausencia.motivo ?? '']})` : ''}
                           </p>
                         )}
                       </div>

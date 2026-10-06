@@ -296,3 +296,28 @@ describe('runWhatsAppQueue — la puerta de atención', () => {
         expect(extractEnrollmentFormMock).toHaveBeenCalled();
     });
 });
+
+// ─── Mejora 9: conversación tomada desde el buzón ────────────────────────────
+
+describe('runWhatsAppQueue — conversación tomada por una persona', () => {
+    it('familia: el comprobante se procesa y se aplica, pero no se le escribe', async () => {
+        state.atencion = { atender: false, tipo: 'familia', botEncendido: true, tomada: true };
+        state.rpcIdentifyByPhone = { data: { estado: 'identificado', parent_id: 'parent-9' } };
+
+        await runWhatsAppQueue();
+
+        expect(extractReceiptMock).toHaveBeenCalled();
+        expect(pagosPendientesDeMock).toHaveBeenCalledWith('parent-9', 'school-1');
+        expect(sendTextMessageMock).not.toHaveBeenCalled();
+    });
+
+    it('familia_sin_cuenta: se escala a la escuela (archivo guardado), sin mensaje a la familia', async () => {
+        state.atencion = { atender: false, tipo: 'familia_sin_cuenta', botEncendido: true, tomada: true };
+
+        await runWhatsAppQueue();
+
+        expect(downloadMediaMock).toHaveBeenCalled();
+        expect(sendTextMessageMock).not.toHaveBeenCalled();
+        expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'escalated' });
+    });
+});
