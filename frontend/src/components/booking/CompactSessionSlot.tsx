@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Clock, Users, CheckCircle2 } from 'lucide-react';
 import type { BookableSession } from '@/hooks/useAthleteSessionBookings';
+import { describeAllowedDays, isDayAllowed } from '@/lib/school/levelProgression';
 
 // Compartido entre "Mis Inscripciones" y el link público de agendamiento
 // (/agendar-clase/:slug) — antes cada pantalla tenía su propia versión (la
@@ -30,15 +31,19 @@ function calcDuration(start: string, end: string): string {
   return `${h}h ${m}min`;
 }
 
-export function CompactSessionSlot({ sessions, noCredits, isBooking, onBook }: {
+export function CompactSessionSlot({ sessions, noCredits, isBooking, onBook, allowedDays }: {
   sessions: BookableSession[]; noCredits: boolean; isBooking: boolean; onBook: (s: BookableSession) => void;
+  /** F-F (D9): días que permite el plan (0=dom … 6=sáb). Fuera de ellos, gris + tooltip. */
+  allowedDays?: number[] | null;
 }) {
   const [selectedSessionId, setSelectedSessionId] = useState(sessions[0]?.id);
   const selectedSession = sessions.find(s => s.id === selectedSessionId) || sessions[0];
 
   const isFull = selectedSession.booking_status === 'full';
   const isBooked = selectedSession.already_booked;
-  const isDisabled = noCredits || isFull || isBooked || isBooking;
+  const dayBlocked = !isDayAllowed(allowedDays, selectedSession.session_date);
+  const blockedTitle = dayBlocked && allowedDays ? `Tu plan solo permite reservar los días: ${describeAllowedDays(allowedDays)}` : undefined;
+  const isDisabled = noCredits || isFull || isBooked || isBooking || dayBlocked;
 
   const alreadyBookedSession = sessions.find(s => s.already_booked);
   useEffect(() => {
@@ -48,8 +53,8 @@ export function CompactSessionSlot({ sessions, noCredits, isBooking, onBook }: {
   }, [alreadyBookedSession?.id, selectedSessionId]);
 
   return (
-    <Card className={`overflow-hidden border-border/40 transition-all ${isBooked ? 'bg-primary/5 border-primary/20 shadow-none' :
-        isFull ? 'opacity-40 grayscale bg-muted/20' :
+    <Card title={blockedTitle} className={`overflow-hidden border-border/40 transition-all ${isBooked ? 'bg-primary/5 border-primary/20 shadow-none' :
+        isFull || dayBlocked ? 'opacity-40 grayscale bg-muted/20' :
           noCredits ? 'opacity-60' :
             'hover:border-primary/40 hover:bg-muted/5'
       }`}>

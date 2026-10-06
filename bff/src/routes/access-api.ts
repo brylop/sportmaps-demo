@@ -6,6 +6,7 @@ import { getAccessBlockMechanism, buildBlockCommand, computeIsBlocked, BLOCK_COM
 import { wakeSchool } from '../services/bridgeWsHub';
 import fs from 'fs';
 import path from 'path';
+import { dayNotAllowedBody, isDateAllowedForEnrollment } from '../utils/planDayRules';
 
 const router = Router();
 
@@ -138,8 +139,21 @@ router.get('/events', requireAuth, requireRole('owner', 'admin', 'school_admin')
       });
     }
 
+    // policy_warning (D11b, F-F) en una lectura aparte y tolerante: si la
+    // migración 20261005214300 todavía no está aplicada, el listado sigue igual.
+    const warningMap: Record<string, string> = {};
+    if ((events || []).length) {
+      const { data: warned, error: warnErr } = await supabase
+        .from('access_events')
+        .select('id, policy_warning')
+        .in('id', (events || []).map((e: any) => e.id))
+        .not('policy_warning', 'is', null);
+      if (!warnErr) (warned || []).forEach((w: any) => { warningMap[w.id] = w.policy_warning; });
+    }
+
     const enriched = (events || []).map((e: any) => ({
       ...e,
+      policy_warning: warningMap[e.id] ?? null,
       user_name:
         (e.user_id && profileMap[e.user_id])
           ? profileMap[e.user_id]
@@ -1513,6 +1527,12 @@ router.post('/hour-bank-reservations', requireAuth, async (req: AuthenticatedReq
     if (enrollment.status !== 'active') return res.status(400).json({ error: 'La inscripción no está activa' });
     if (!(await canManageHourBankEnrollment(req, enrollment))) {
       return res.status(403).json({ error: 'Sin permiso para reservar sobre esta inscripción' });
+    }
+
+    // Días permitidos del plan (D9, utils/planDayRules.ts) — 422 antes del RPC.
+    {
+      const dayRule = await isDateAllowedForEnrollment(enrollment_id, reservation_date);
+      if (!dayRule.allowed) return res.status(422).json(dayNotAllowedBody(dayRule.allowedDays!));
     }
 
     const { data: result, error } = await supabase.rpc('reserve_hour_bank', {

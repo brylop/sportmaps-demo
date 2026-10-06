@@ -29,6 +29,8 @@ import { getSportVisual } from '@/lib/sportVisuals';
 import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus, Trash2, ArrowRight, Copy, Share2 } from 'lucide-react';
 import { OfferingCoachesPanel } from './OfferingCoachesPanel';
 import { formatFriendlyDuration } from '@/lib/utils';
+import { PlanLevelRulesSection, EMPTY_LEVEL_RULES, levelRulesFromPlan, levelRulesPayload, type PlanLevelRules } from './PlanLevelRulesSection';
+import { useLevelProgressionEnabled } from '@/hooks/useLevelProgression';
 
 const MIN_SEARCH_CHARS = 1;
 
@@ -515,6 +517,12 @@ export function OfferingsManagement() {
     const [isCustomDays, setIsCustomDays] = useState(false);
     const [customDays, setCustomDays] = useState('30');
 
+    // "Ascenso y días" (F-F) — estado aparte de newPlan a propósito: el payload
+    // solo lleva lo que cambió respecto de cómo se abrió el formulario.
+    const [levelRules, setLevelRules] = useState<PlanLevelRules>(EMPTY_LEVEL_RULES);
+    const [levelRulesInitial, setLevelRulesInitial] = useState<PlanLevelRules>(EMPTY_LEVEL_RULES);
+    const { enabled: levelProgressionEnabled } = useLevelProgressionEnabled();
+
     const resetOfferingForm = () => {
         setNewOffering({ name: '', description: '', offering_type: 'membership', sport: '', booking_mode: 'coach', facility_id: '' });
         setEditingOfferingId(null);
@@ -525,6 +533,8 @@ export function OfferingsManagement() {
         setIsCustomDays(false);
         setCustomDays('30');
         setEditingPlanId(null);
+        setLevelRules(EMPTY_LEVEL_RULES);
+        setLevelRulesInitial(EMPTY_LEVEL_RULES);
     };
 
 
@@ -584,12 +594,12 @@ export function OfferingsManagement() {
         };
 
         if (editingPlanId) {
-            updatePlan.mutate({ offeringId, planId: editingPlanId, ...payload }, {
+            updatePlan.mutate({ offeringId, planId: editingPlanId, ...payload, ...levelRulesPayload(levelRules, levelRulesInitial) }, {
                 onSuccess: () => { toast({ title: 'Tarifa actualizada ✓' }); setShowCreatePlan(null); resetPlanForm(); },
                 onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
             });
         } else {
-            createPlan.mutate({ offeringId, ...payload }, {
+            createPlan.mutate({ offeringId, ...payload, ...levelRulesPayload(levelRules, levelRulesInitial) }, {
                 onSuccess: () => { toast({ title: 'Tarifa creada ✓' }); setShowCreatePlan(null); resetPlanForm(); },
                 onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
             });
@@ -635,6 +645,8 @@ export function OfferingsManagement() {
             });
             setIsCustomDays(!isPreset);
             setCustomDays(!isPreset ? durationStr : '30');
+            setLevelRules(levelRulesFromPlan(plan));
+            setLevelRulesInitial(levelRulesFromPlan(plan));
             setShowCreatePlan(offeringId);
         }
     };
@@ -1242,6 +1254,13 @@ export function OfferingsManagement() {
                                 />
                             )}
                         </div>
+
+                        {/* ── Ascenso y días (F-F) ─────────────────────────────────────────── */}
+                        <PlanLevelRulesSection
+                            value={levelRules}
+                            onChange={setLevelRules}
+                            progressionEnabled={levelProgressionEnabled}
+                        />
                     </div>
 
                     <DialogFooter className="gap-2 sm:gap-0 pt-2">

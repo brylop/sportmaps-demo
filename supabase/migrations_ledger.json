@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 674,
+  "count": 676,
   "head": "20261005214302",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
@@ -677,6 +677,8 @@
     {"v":"20261005214248","file":"20261005214248_inscripcion_seguro_emit_enrollment_fees.sql","sha256":"55a1fd3b774dcef4c9d3b7121490e31ddbaf23fc3981248512ea25175f576635","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261005214250","file":"20261005214250_alta_clases_restantes_create_enrollment_with_payments.sql","sha256":"4d3e5f62731bbd9e97f6d39e82bf9c461b3fa89af5803594576817b87135e150","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261005214253","file":"20261005214253_cobranza_flags_autocancel_y_comprobante_pendiente.sql","sha256":"ff627a5e903f31a6c352d7cddd481c859435cc451e06e33ae06e35e2559979c0","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261005214258","file":"20261005214258_niv_f2_progresion_competitiva.sql","sha256":"75d80a394537bfb69479eaa1bdd16a7f8529616d6babbbf7c79c6eb1f65a96ef","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261005214300","file":"20261005214300_niv_d9_dias_permitidos.sql","sha256":"81c02126de5a22b2a684dff285456a738f1b21a178059b454eeff04281a015d9","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261005214302","file":"20261005214302_hour_bank_overage_charges.sql","sha256":"41acbd80b8271c779daa2c9829081dfe72188c4ca750faace6e475b030d7be3c","added":"2026-10-06","by":"Brayan Steven Lopez"}
   ]
 }

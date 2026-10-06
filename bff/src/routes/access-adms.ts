@@ -4,6 +4,7 @@ import { supabase } from '../config/supabase';
 import fs from 'fs';
 import path from 'path';
 import { checkInPresenceFromEvent } from './attendance';
+import { accessEventDecisionFields, notifyOwnerDayNotAllowedOnce, resolveEntryDayWarning } from '../utils/planDayRules';
 
 const router = Router();
 
@@ -297,7 +298,7 @@ async function enrollmentHasPendingProof(enrollmentId: string): Promise<boolean>
   return data === true;
 }
 
-export async function validateAccess(schoolId: string, zkPin: string, direction: 'entry' | 'exit'): Promise<{
+export async function validateAccess(schoolId: string, zkPin: string, direction: 'entry' | 'exit', occurredAt?: string): Promise<{
   granted: boolean;
   reason?: string;
   userId?: string;
@@ -307,6 +308,9 @@ export async function validateAccess(schoolId: string, zkPin: string, direction:
   enrollmentId?: string;
   /** 'pending_proof': entró con expires_at vencido por comprobante en revisión (F-D). */
   note?: 'pending_proof';
+  // D11b (F-F): advertencia sin negar el paso — p. ej. entró un día que su plan
+  // no permite. Nunca convierte granted en false (el F22 ya decidió local).
+  policyWarning?: 'day_not_allowed';
 }> {
   const pin = parseInt(zkPin) || 0;
 
@@ -446,6 +450,12 @@ export async function validateAccess(schoolId: string, zkPin: string, direction:
     };
   }
 
+  // Días permitidos del plan (D9/D11b, utils/planDayRules.ts): la entrada
+  // queda CONCEDIDA igual — el F22 ya dejó pasar con su base local y el BFF no
+  // controla la puerta. Solo se registra policy_warning y se avisa al owner.
+  // Caché de 60 s por inscripción; NULL en el plan = sin advertencia.
+  const policyWarning = await resolveEntryDayWarning(enrollment.id, occurredAt);
+
   return {
     granted: true,
     userId: mapping.userId ?? undefined,
@@ -454,6 +464,7 @@ export async function validateAccess(schoolId: string, zkPin: string, direction:
     userName,
     enrollmentId: enrollment.id,
     ...(note ? { note } : {}),
+    ...(policyWarning ? { policyWarning } : {}),
   };
 }
 
@@ -818,7 +829,7 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
         continue;
       }
 
-      const validation = await validateAccess(schoolId, zkPin, eventDirection);
+      const validation = await validateAccess(schoolId, zkPin, eventDirection, occurredAt);
 
       // Dedup: índice único (device_id, zk_user_id, occurred_at). Si el lector
       // reenvía el backlog, ON CONFLICT DO NOTHING evita inflar access_events.
@@ -833,8 +844,9 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
           unregistered_athlete_id: validation.unregisteredAthleteId || null,
           child_id:                validation.childId || null,
           direction:               eventDirection,
-          access_granted:          validation.granted,
-          denial_reason:           validation.granted ? null : validation.reason,
+          // access_granted / denial_reason / policy_warning (D11b: este último
+          // solo cuando hay advertencia — un evento normal no lo escribe).
+          ...accessEventDecisionFields(validation),
           check_in_method:         checkInMethod,
           zk_user_id:              parseInt(zkPin) || null,
           raw_event:               { sn, line, table, ...(validation.note ? { note: validation.note } : {}) },
@@ -859,6 +871,22 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
             message:  `${validation.userName ?? 'Un miembro'} intentó ingresar pero tiene el pago vencido.`,
             link:     '/school/access-control',
           });
+        }
+      }
+
+      // D11b (F-F): entró un día que su plan no permite — acceso concedido,
+      // queda policy_warning en el evento y un aviso al owner, uno por atleta
+      // por día. Nunca debe romper el ATTLOG en vivo.
+      if (eventRecord && validation.granted && validation.policyWarning === 'day_not_allowed' && validation.enrollmentId) {
+        try {
+          await notifyOwnerDayNotAllowedOnce({
+            schoolId,
+            enrollmentId: validation.enrollmentId,
+            athleteName: validation.userName ?? 'Un atleta',
+            occurredAt,
+          });
+        } catch (err) {
+          console.error('[ADMS] día no permitido: error avisando al owner', err);
         }
       }
 
