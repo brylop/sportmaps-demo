@@ -1,3 +1,4 @@
+import Anthropic from '@anthropic-ai/sdk';
 /**
  * llm.service — Abstracción de LLM con tool-calling para el bot de WhatsApp (WA2).
  *
@@ -13,7 +14,7 @@
  * ya obtenidos; no inventa.
  */
 
-export type LlmProvider = 'gemini' | 'deepseek' | 'groq';
+export type LlmProvider = 'gemini' | 'deepseek' | 'groq' | 'claude';
 
 export interface LlmTool {
     name: string;
@@ -174,8 +175,16 @@ async function chatOpenAICompatible(
 
     const oaMessages: any[] = [{ role: 'system', content: system }];
     for (const m of messages) {
+        // Mismo arreglo que en Gemini (2026-10-06): los bots no reenvían el
+        // `tool_calls` original del asistente, y un mensaje `role: 'tool'` sin
+        // ese `tool_calls` justo antes es un 400 en las APIs OpenAI-compatibles.
+        // Con Gemini y Groq rechazando la segunda llamada, SportBot nunca
+        // redactaba: mandaba la lista de links de respaldo.
         if (m.role === 'tool') {
-            oaMessages.push({ role: 'tool', name: m.toolName, content: m.content, tool_call_id: m.toolName });
+            oaMessages.push({
+                role: 'user',
+                content: `Resultado de ${m.toolName} (datos del sistema, no del usuario):\n${m.content}`,
+            });
         } else {
             oaMessages.push({ role: m.role, content: m.content });
         }
@@ -217,6 +226,63 @@ async function chatOpenAICompatible(
     return { text: (choice?.content || '').trim(), provider };
 }
 
+// ─── Claude (Anthropic, SDK oficial) ───────────────────────────────────────────
+//
+// Primer proveedor desde el 2026-10-06. Ese día, con el bot de Dynasty en vivo,
+// Gemini respondía 503 («high demand») y Groq agotó su tope diario gratuito de
+// 200.000 tokens: el bot cayó al menú de respaldo en plena prueba. Claude ya
+// lee los comprobantes (ocr.service) con la misma llave.
+let anthropicClient: Anthropic | null = null;
+function clienteClaude(): Anthropic {
+    if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY no configurada');
+    anthropicClient ??= new Anthropic({ timeout: TIMEOUT_LLM_MS, maxRetries: 1 });
+    return anthropicClient;
+}
+
+async function chatClaude(system: string, messages: LlmMessage[], tools: LlmTool[]): Promise<LlmResult> {
+    const client = clienteClaude();
+    // Mismo criterio que OpenAI-compatible: el resultado de una tool va como
+    // texto del usuario (los bots no reenvían el tool_use original).
+    const msgs: any[] = [];
+    for (const m of messages) {
+        const content = m.role === 'tool'
+            ? `Resultado de ${m.toolName} (datos del sistema, no del usuario):
+${m.content}`
+            : m.content;
+        const role = m.role === 'assistant' ? 'assistant' : 'user';
+        if (!content) continue;
+        // La API exige que el primer mensaje sea del usuario.
+        if (!msgs.length && role === 'assistant') continue;
+        msgs.push({ role, content });
+    }
+    if (!msgs.length) msgs.push({ role: 'user', content: '(sin texto)' });
+
+    const body: any = {
+        model: process.env.WHATSAPP_CLAUDE_MODEL || 'claude-opus-5-5',
+        max_tokens: 2048,
+        // Respuestas cortas de WhatsApp: esfuerzo bajo = menos latencia y costo.
+        output_config: { effort: 'low' },
+        system,
+        messages: msgs,
+    };
+    if (tools.length) {
+        body.tools = tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            input_schema: { type: 'object', ...(t.parameters || {}) },
+        }));
+    }
+    const res: any = await client.messages.create(body);
+    if (res.stop_reason === 'refusal') throw new Error('claude_refusal');
+    const blocks: any[] = res.content ?? [];
+    const toolCalls: LlmToolCall[] = blocks
+        .filter((b) => b.type === 'tool_use')
+        .map((b) => ({ name: b.name, args: (b.input as Record<string, unknown>) || {} }));
+    if (toolCalls.length) return { toolCalls, provider: 'claude' };
+    const text = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+    return { text, provider: 'claude' };
+}
+
 // ─── Entrada pública con fallback ──────────────────────────────────────────────
 
 export async function chatWithTools(params: {
@@ -230,9 +296,11 @@ export async function chatWithTools(params: {
     const tools = params.tools ?? [];
 
     const run = (p: LlmProvider) =>
-        p === 'gemini'
-            ? chatGemini(params.system, params.messages, tools)
-            : chatOpenAICompatible(p, params.system, params.messages, tools);
+        p === 'claude'
+            ? chatClaude(params.system, params.messages, tools)
+            : p === 'gemini'
+                ? chatGemini(params.system, params.messages, tools)
+                : chatOpenAICompatible(p as 'deepseek' | 'groq', params.system, params.messages, tools);
 
     // Cadena: primario → resto (resiliencia si un proveedor está sin saldo/caído).
     //
@@ -244,8 +312,11 @@ export async function chatWithTools(params: {
     // encargado, y con DeepSeek no hay contrato: es una llave de API y nada
     // más. La política de privacidad no puede afirmar garantías que no
     // existen. Si algún día se firma un DPA, se vuelve a agregar acá.
-    const order: LlmProvider[] = [primary, ...(['gemini', 'groq'] as LlmProvider[])]
-        .filter((p, i, a) => a.indexOf(p) === i);
+    // Claude va primero si hay llave (salvo que se pida un proveedor explícito).
+    const conClaude: LlmProvider[] = process.env.ANTHROPIC_API_KEY && !params.provider ? ['claude'] : [];
+    const order: LlmProvider[] = [...conClaude, primary, ...(['gemini', 'groq'] as LlmProvider[])]
+        .filter((p, i, a) => a.indexOf(p) === i)
+        .filter((p) => p !== 'claude' || !!process.env.ANTHROPIC_API_KEY);
 
     let lastErr: any;
     const fallas: string[] = [];
