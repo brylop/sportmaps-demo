@@ -22,6 +22,7 @@
 import { supabase } from '../config/supabase';
 import { sendTextMessage, aFormatoWhatsApp, type WhatsAppIntegration } from '../services/whatsapp.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from '../services/whatsapp-optin.service';
+import { conversacionTomada } from '../services/whatsapp-tomada.service';
 import type { Logger } from 'pino';
 
 const LOTE = 25;
@@ -94,6 +95,20 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
             texto =
                 `La escuela necesita una aclaración sobre tu pago de *${monto}* por *${pago.concept}*. ` +
                 'Te van a escribir para resolverlo.';
+        }
+
+        // Mejora 9: una persona tomó la conversación en el buzón → no se le
+        // escribe. NO se marca como avisado: sale en la primera vuelta después
+        // de que la suelten o venza la toma.
+        const { data: convTomada } = await supabase
+            .from('whatsapp_conversations')
+            .select('id')
+            .eq('integration_id', fila.integration_id as string)
+            .eq('contact_wa_id', fila.wa_phone_number as string)
+            .maybeSingle();
+        if (convTomada?.id && await conversacionTomada(convTomada.id as string)) {
+            log?.info?.({ queueId: fila.id }, '[wa-outcome] conversación tomada: el aviso espera');
+            continue;
         }
 
         const dadoDeBaja = await estaDadoDeBaja(fila.integration_id as string, fila.wa_phone_number as string);
