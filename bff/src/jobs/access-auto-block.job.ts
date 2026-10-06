@@ -17,6 +17,15 @@ import { getAccessBlockMechanism, buildBlockCommand, computeIsBlocked, BLOCK_COM
  * automatizar un bloqueo FÍSICO sobre esa señal arriesgaría dejar a alguien
  * bloqueado en la puerta después de haber pagado.
  *
+ * Comprobantes (F-D, migración 20261005214253): un comprobante enviado mueve
+ * la MISMA fila de payments a 'awaiting_approval' (o 'glosado' si la escuela
+ * lo objeta), así que deja de ser 'overdue' y este job lo DESBLOQUEA en la
+ * siguiente corrida — sin lógica extra acá, para todas las escuelas. Si la
+ * escuela lo rechaza ('rejected'), en escuelas con
+ * school_settings.pending_proof_counts_as_paid apply_late_fees() lo devuelve a
+ * 'overdue' (hueco C) cuando ya pasó due_date + gracia, y el bloqueo vuelve
+ * solo. En escuelas sin ese flag, un rechazado no vuelve a mora (como antes).
+ *
  * Reconciliación completa cada corrida (no un hook por evento de pago): lee
  * el estado actual completo (quién debe, quién está bloqueado hoy) y encola
  * solo los cambios — bloquear a quien debe y no está bloqueado, desbloquear
