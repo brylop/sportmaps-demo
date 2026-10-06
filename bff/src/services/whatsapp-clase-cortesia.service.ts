@@ -209,12 +209,12 @@ export function normalizar(t: string | null | undefined): string {
  * el bot contestó con «no tengo esa información».
  */
 const PIDE_CORTESIA: RegExp[] = [
-    /\bclases? (de )?(prueba|cortesia|gratis|gratuitas?|muestra|ensayo)\b/,
+    /\bclases? (de )?(prueba|pruebas|cortesias?|gratis|gratuitas?|muestra|ensayo)\b/,
     /\b(probar|conocer) (una |la )?clase\b/,
     /\b(ir|venir|pasar) a probar\b/,
     /\bpuedo (ir a )?probar\b/,
     /\b(agendar|reservar|separar) (una )?clase\b/,
-    /\bcortesia\b/,
+    /\bcortesias?\b/,
 ];
 export function pideClaseDeCortesia(texto: string | null | undefined): boolean {
     const n = normalizar(texto);
