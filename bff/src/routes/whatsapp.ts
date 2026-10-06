@@ -425,7 +425,9 @@ async function handleBotTurn(
             && !optedOut
             && msg.type !== 'audio' && msg.type !== 'video';
         if (puertaDelDesconocido) {
-            const resultado = await atenderDesconocido(integration, conversationId, msg.contactWaId, msg.textBody)
+            // `botonId`: los botones de la clase de cortesía (sm_cc_*) se deciden por id.
+            const resultado = await atenderDesconocido(integration, conversationId, msg.contactWaId, msg.textBody,
+                msg.botonId ?? null)
                 .catch((err) => {
                     req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: atenderDesconocido falló');
                     return 'error' as const;

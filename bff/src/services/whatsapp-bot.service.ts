@@ -51,6 +51,10 @@ import {
 import { conMarca, sufijoMarcaEscuela } from '../utils/tenantLink';
 import { atenderTurnoFactura, enlaceFormularioFactura } from './whatsapp-factura.service';
 import { celular10, type DuenoFactura } from './factura-pagador.service';
+import {
+    atenderTurnoCortesia, iniciarCortesia, pideClaseDeCortesia, franjasDeSupabase, filtrarVigentes,
+    FLUJO_CORTESIA, type CtxCortesia,
+} from './whatsapp-clase-cortesia.service';
 
 const OTP_TTL_MIN = 10;
 
@@ -123,6 +127,15 @@ export async function runBotTurn(
     if (revision === 'corto') return;
     if (revision !== 'sin_cambio') conv.parent_id = revision;
 
+    // 1c. Clase de cortesía EN CURSO (flujo abierto, botón del flujo o
+    //     «cancelar mi clase» con reserva). Va ANTES del consentimiento: con el
+    //     resumen en pantalla, el «sí» del papá es «confirmo la reserva», y
+    //     `handleConsent` lo estaría leyendo como «acepto recordatorios».
+    if (await atenderCortesiaEnBot(integration, conversationId, contactWaId, text, botonId,
+        conv.parent_id, { iniciar: false })) {
+        return;
+    }
+
     // 2. Consentimiento: se pide UNA vez, después de identificarse.
     //    Si este turno lo resolvió (preguntó, o registró el sí/no), termina acá.
     if (await handleConsent(integration, conversationId, contactWaId, conv.parent_id, text, waMessageId, botonId)) {
@@ -136,6 +149,16 @@ export async function runBotTurn(
     if (conv.parent_id && await atenderFacturaEnBot(
         integration, conversationId, contactWaId,
         { tipo: 'perfil', profileId: conv.parent_id }, true, text, botonId)) {
+        return;
+    }
+
+    // 2.35. «Clase de cortesía tienen», «¿puedo ir a probar?»: flujo
+    //       determinista sin pasar por el modelo. El 2026-10-06 el modelo le
+    //       contestó a una familia de Dynasty «no tengo esa información». La
+    //       regla solo mira el texto (gratis); si no dispara, el modelo aún
+    //       puede llegar por la tool `get_trial_class_info`.
+    if (pideClaseDeCortesia(text) && await atenderCortesiaEnBot(
+        integration, conversationId, contactWaId, text, botonId, conv.parent_id)) {
         return;
     }
 
@@ -517,6 +540,83 @@ async function atenderFacturaEnBot(
     }
 }
 
+/**
+ * Contexto del flujo de clase de cortesía (whatsapp-clase-cortesia.service).
+ *
+ * El estado del paso a paso viaja en el payload de cada saliente
+ * (`flujo`/`paso_cortesia`/`datos_cortesia`): la tabla de flujos de factura
+ * no está aplicada y su CHECK solo admite ese flujo. Un mensaje terminal no
+ * lleva `flujo` y con eso el flujo queda cerrado.
+ */
+function ctxCortesia(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    parentId: string | null,
+): CtxCortesia {
+    return {
+        conversationId,
+        schoolId: integration.school_id,
+        contactWaId,
+        enviar: (texto, step, estado, botones, enTexto) => deliver(integration, conversationId, contactWaId, texto,
+            estado
+                ? { step, flujo: FLUJO_CORTESIA, paso_cortesia: estado.paso, datos_cortesia: estado.datos }
+                : { step },
+            botones?.length ? { botones, enTexto } : undefined),
+        // Familia con cuenta: el acudiente es quien escribe; no se le pregunta
+        // su propio nombre.
+        nombreAcudiente: parentId
+            ? async () => {
+                const { data } = await supabase.from('profiles').select('full_name').eq('id', parentId).maybeSingle();
+                return ((data as any)?.full_name as string | undefined)?.trim() || null;
+            }
+            : undefined,
+    };
+}
+
+/** Turno de clase de cortesía. Nunca lanza: si falla, lo atiende el bot normal. */
+async function atenderCortesiaEnBot(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    text: string,
+    botonId: string | null,
+    parentId: string | null,
+    opciones: { iniciar?: boolean } = {},
+): Promise<boolean> {
+    try {
+        return await atenderTurnoCortesia(
+            ctxCortesia(integration, conversationId, contactWaId, parentId), text, botonId, opciones);
+    } catch (e: any) {
+        console.warn('[whatsapp-bot] flujo de clase de cortesía falló', { conversationId, err: e?.message });
+        return false;
+    }
+}
+
+/**
+ * ¿Ya salió (o quedó en borrador) este paso en las últimas `horas`? Cuenta
+ * borradores por lo mismo que `yaSePreguntoConsentimiento`: en modo asistido
+ * cada mensaje dejaría un borrador nuevo pidiendo lo mismo.
+ */
+async function pasoReciente(conversationId: string, step: string, horas: number): Promise<boolean> {
+    const desde = new Date(Date.now() - horas * 60 * 60 * 1000).toISOString();
+    const { count: enviados } = await supabase
+        .from('whatsapp_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversationId)
+        .eq('direction', 'outbound')
+        .eq('payload->>step', step)
+        .gte('created_at', desde);
+    if ((enviados ?? 0) > 0) return true;
+    const { count: borradores } = await supabase
+        .from('whatsapp_message_drafts')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversationId)
+        .eq('tool_context->>step', step)
+        .gte('created_at', desde);
+    return (borradores ?? 0) > 0;
+}
+
 async function identificarPorTelefono(
     integration: WhatsAppIntegration,
     conversationId: string,
@@ -560,6 +660,12 @@ async function identificarPorTelefono(
         const tel = celular10(contactWaId);
         if (tel && await atenderFacturaEnBot(integration, conversationId, contactWaId,
             { tipo: 'telefono', schoolId: integration.school_id, phone10: tel }, false, text, botonId)) {
+            return true;
+        }
+
+        // Clase de cortesía (un hermano, un amigo): no expone datos de nadie —
+        // solo franjas públicas y lo que el mismo contacto escribe.
+        if (await atenderCortesiaEnBot(integration, conversationId, contactWaId, text, botonId, null)) {
             return true;
         }
 
@@ -660,6 +766,11 @@ async function handleIdentification(
     // sirviendo para el acudiente que escribe desde OTRO telefono.
     if (await identificarPorTelefono(integration, conversationId, contactWaId, text, botonId)) return;
 
+    // Desconocido con `responder_desconocidos=true` (los demás desconocidos
+    // van por `atenderDesconocido`): si pregunta por la clase de cortesía o
+    // está en medio de agendarla, se le atiende antes de pedirle el correo.
+    if (await atenderCortesiaEnBot(integration, conversationId, contactWaId, text, botonId, null)) return;
+
     const emailMatch = text.match(EMAIL_RE);
     const codeMatch = text.match(CODE_RE);
 
@@ -696,6 +807,14 @@ async function handleIdentification(
     // Antes de ese filtro este era el camino de 238 de los 316 borradores de
     // Dynasty: «escríbeme tu correo» a la mamá, a proveedores y a amigos de la
     // dueña.
+    //
+    // UNA VEZ CADA 24 H por conversación, igual que 'debe_registrarse'. Medido
+    // el 2026-10-06 08:10–08:11: el mismo contacto recibió este saludo varias
+    // veces seguidas, una por cada mensaje que escribió. Repetir lo mismo es
+    // spam para quien lo recibe y es lo que Meta penaliza en la calidad del
+    // número. Lo que escriba después ya lo ve la escuela en el buzón.
+    if (await pasoReciente(conversationId, 'ask_email', 24)) return;
+
     const nombreEscuela = await nombreDeEscuela(integration.school_id);
     await deliver(integration, conversationId, contactWaId,
         `Hola 👋 Soy el *asistente automático* de *${nombreEscuela}*. 🤖` + '\n\n' +
@@ -843,6 +962,7 @@ const FRENO_DESCONOCIDO_DIAS = 30;
 export type ResultadoDesconocido =
     | 'otp_codigo' | 'otp_correo' | 'inscripcion' | 'inscripcion_sin_enlace' | 'pagos'
     | 'pagos_y_precio' | 'pagos_y_precio_sin_enlace'
+    | 'clase_cortesia' | 'clase_cortesia_en_curso'
     | 'frenado' | 'silencio';
 
 export async function atenderDesconocido(
@@ -850,13 +970,24 @@ export async function atenderDesconocido(
     conversationId: string,
     contactWaId: string,
     inboundText: string | null,
+    botonId: string | null = null,
 ): Promise<ResultadoDesconocido> {
     // Misma defensa que `runBotTurn`: si alguien llama directo con el bot
     // apagado, no se habla.
     if (!(await botEncendido(integration.id))) return 'silencio';
 
     const text = (inboundText || '').trim();
-    if (!text) return 'silencio';
+    if (!text && !botonId) return 'silencio';
+
+    // 0. Clase de cortesía EN CURSO: «Juan Pérez», «12», «Confirmar» no son
+    //    tema escolar y sin esto el filtro de abajo los callaría a mitad de
+    //    la reserva. Solo continúa lo que el propio bot ya abrió (o un botón
+    //    suyo, o «cancelar mi clase» con reserva de ESE número); empezar algo
+    //    nuevo pasa por el filtro de tema y el freno de 30 días.
+    if (await atenderCortesiaEnBot(integration, conversationId, contactWaId, text, botonId, null,
+        { iniciar: false })) {
+        return 'clase_cortesia_en_curso';
+    }
 
     // 1a. Un código SOLO cuenta si hay un OTP vigente para este contacto. Seis
     //     dígitos seguidos también son un monto («son 170000») o un pedazo de
@@ -934,6 +1065,31 @@ export async function atenderDesconocido(
     }
 
     const enlace = await enlaceDeInscripcion(integration.school_id);
+
+    // Clase de cortesía: si la escuela tiene franjas con cupo se OFRECEN
+    // (además del enlace), y si preguntó por ella sin franjas cargadas se le
+    // ofrece dejar los datos. Es el mismo freno de 30 días: el mensaje sale
+    // con step PASO_DESCONOCIDO_ESCOLAR. Lo que siga (nombre, edad…) lo
+    // atiende el paso 0 de arriba.
+    const pideCortesia = pideClaseDeCortesia(text);
+    const hayFranjas = filtrarVigentes(await franjasDeSupabase(integration.school_id), new Date()).length > 0;
+    if (pideCortesia || hayFranjas) {
+        const lineaEnlace = enlace
+            ? `\n\nEn este enlace ves los grupos y los valores, y puedes hacer la inscripción: ${enlace}`
+            : '';
+        await iniciarCortesia(ctxCortesia(integration, conversationId, contactWaId, null), {
+            encabezado: saludo + lineaEnlace,
+            step: PASO_DESCONOCIDO_ESCOLAR,
+            intro: pideCortesia
+                ? undefined
+                : 'Y si quieres conocer la escuela antes, puedes venir a una *clase de cortesía* gratis. ' +
+                  'Estas son las próximas franjas:',
+        });
+        // Sin enlace, igual que el prospecto de abajo: que la escuela lo vea.
+        if (!enlace) await abrirEnBuzon(integration, conversationId, contactWaId, { motivo: 'prospecto' });
+        return 'clase_cortesia';
+    }
+
     if (enlace) {
         await deliver(integration, conversationId, contactWaId,
             saludo + '\n\n' +
@@ -1225,9 +1381,10 @@ Reglas estrictas:
 - Formatea montos en pesos colombianos y fechas en formato legible.
 - Formato de WhatsApp, NO Markdown: negrita con UN asterisco (*asi*), cursiva con _asi_.
   Nunca uses ** ni ## ni tablas ni enlaces [texto](url): WhatsApp los muestra literales.
-- No ofrezcas nada que no puedas hacer. Sabes tres cosas: consultar los pagos del
-  acudiente, decirle como pagar, y pasar la conversacion a un humano. No ofrezcas
-  agendar, inscribir, enviar documentos ni cambiar nada en el sistema.
+- No ofrezcas nada que no puedas hacer. Sabes cuatro cosas: consultar los pagos del
+  acudiente, decirle como pagar, agendar la CLASE DE CORTESIA (ver abajo) y pasar la
+  conversacion a un humano. No ofrezcas inscribir, agendar otra cosa, enviar
+  documentos ni cambiar nada en el sistema.
 - Lo que NO sabes y te van a preguntar igual: edades de cada categoria, lista de
   precios de la escuela (mensualidad de otros planes, uniforme, inscripcion nueva),
   entrenadores, competencias, asistencia y rendimiento. No tienes esos datos. Dilo
@@ -1309,6 +1466,14 @@ SOBRE LA ESCUELA:
   · Si no sabes de que grupo habla, pregunta cual, o lista los que si tienen
     horario cargado.
 
+CLASE DE CORTESIA (clase de prueba):
+- Para «clase de cortesia», «clase de prueba», «clase gratis», «puedo ir a probar»,
+  «quiero que mi hijo pruebe una clase», «agendar una clase» o «cancelar mi clase de
+  prueba» usa SIEMPRE get_trial_class_info. Ella responde sola con las franjas reales
+  y agenda paso a paso.
+- NUNCA digas que no tienes esa informacion sin haber usado la herramienta, ni
+  inventes fechas, horarios, precios o cupos de la clase de cortesia.
+
 COMO PAGAR:
 - Para «medios de pago», «como pago», «a que cuenta», «acepta Nequi» o «donde mando el
   soporte» usa get_payment_methods. Esas preguntas NO se escalan.
@@ -1332,6 +1497,11 @@ export const TOOLS: LlmTool[] = [
     {
         name: 'get_payment_methods',
         description: 'Como puede pagar el acudiente: las cuentas de la escuela para transferir, el enlace para pagar en linea, y que puede mandar el comprobante por este mismo chat. Usala cuando pregunte como pagar, medios de pago, a que cuenta consignar, si acepta Nequi o transferencia, o donde manda el soporte. NO escales estas preguntas: se responden con esta herramienta.',
+        parameters: { type: 'object', properties: {}, required: [] },
+    },
+    {
+        name: 'get_trial_class_info',
+        description: 'Clase de cortesia / clase de prueba / clase gratis de la escuela: si la ofrece, las proximas franjas disponibles (fecha, hora, grupo, sede, cupos) y el agendamiento paso a paso con reserva del cupo; tambien cancela una clase ya reservada. Usala SIEMPRE que pregunten por clase de cortesia, clase de prueba, clase gratis, «puedo ir a probar», agendar o cancelar esa clase. Responde por si sola: no hace falta redactar despues.',
         parameters: { type: 'object', properties: {}, required: [] },
     },
     {
@@ -1385,6 +1555,24 @@ async function handleIntent(
 
     if (call.name === 'escalate_to_human') {
         await escalate(integration, conversationId, contactWaId, String((call.args as any)?.reason || 'user_request'));
+        return;
+    }
+
+    if (call.name === 'get_trial_class_info') {
+        // Sin segundo turno de redacción: el texto, las franjas y los botones
+        // salen del flujo determinista. Un modelo redactando franjas es justo
+        // donde se inventa un horario que la familia después reclama.
+        const ctx = ctxCortesia(integration, conversationId, contactWaId, parentId);
+        try {
+            // «Cancelar mi clase» llega acá cuando la regla no lo atrapó: el
+            // flujo lo atiende si hay reserva; si no, se informa la oferta.
+            if (!(await atenderTurnoCortesia(ctx, text, null, { iniciar: false }))) {
+                await iniciarCortesia(ctx);
+            }
+        } catch (e: any) {
+            console.error('[whatsapp-bot] get_trial_class_info falló', { conversationId, err: e?.message });
+            await escalate(integration, conversationId, contactWaId, 'tool_error');
+        }
         return;
     }
 

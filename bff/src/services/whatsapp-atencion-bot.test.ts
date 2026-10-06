@@ -381,7 +381,10 @@ describe('desconocido: correo, código vigente o tema escolar', () => {
         const desdes: string[] = [];
         const resolver = h.state.resolve;
         h.state.resolve = (table, ops) => {
-            if (table === 'whatsapp_messages') {
+            // Solo la consulta del freno (la que filtra por step): antes corre la
+            // lectura del flujo de clase de cortesía, con su propia ventana de 24 h.
+            const esFreno = ops.some(([m, a]) => m === 'eq' && String(a[0]).endsWith('>>step'));
+            if (table === 'whatsapp_messages' && esFreno) {
                 const gte = ops.find(([m]) => m === 'gte');
                 if (gte) desdes.push(gte[1][1]);
             }
