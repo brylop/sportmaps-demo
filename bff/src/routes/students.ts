@@ -11,6 +11,7 @@ import {
     accionCobroDePlan,
     INACTIVE_ATHLETE_ERROR,
 } from '../services/enrollmentBilling';
+import { previewPlanChange, applyPlanChangeEffects } from '../services/planChange.service';
 
 const router = Router();
 
@@ -934,7 +935,7 @@ router.put(
           // sobrevive; consolidateEnrollments ya cerró las pending sobrantes.
           const { data, error } = await applyAthleteFilter(
             supabase.from('enrollments')
-              .select('id, team_id, offering_plan_id, monthly_fee, status')
+              .select('id, team_id, offering_plan_id, monthly_fee, status, start_date')
               .eq('school_id', schoolId).in('status', ['active', 'pending'])
               .order('status', { ascending: true })
               .order('created_at', { ascending: true })
@@ -1203,8 +1204,27 @@ router.put(
 
           if (existingPlan) {
             const activatePending = existingPlan.status === 'pending' && !!enrollment.offering_plan_id;
+
+            // Cambio de plan sobre una inscripción activa con plan: en escuelas con
+            // banco de horas se calcula la vista previa ANTES de mover el plan (lee el
+            // plan viejo y lo pagado del período) y NO se reescribe start_date si el
+            // formulario no mandó fecha — en ciclo rolling_30 el período del banco
+            // cuelga de start_date y reescribirla abriría un período nuevo en 0,
+            // perdiendo las horas ya usadas.
+            const isPlanSwap = existingPlan.status === 'active' && !!oldPlanId
+              && !!enrollment.offering_plan_id && oldPlanId !== enrollment.offering_plan_id;
+            const planChangePreview = isPlanSwap
+              ? await previewPlanChange({
+                  schoolId, athleteCol, athleteId: id, newPlanId: enrollment.offering_plan_id,
+                })
+              : null;
+            const planStartForUpdate: string =
+              isPlanSwap && planChangePreview?.applies && !enrollment.plan_start_date && existingPlan.start_date
+                ? existingPlan.start_date
+                : planStartDate;
+
             await supabase.from('enrollments')
-              .update({ offering_plan_id: enrollment.offering_plan_id || null, start_date: planStartDate, monthly_fee: planFee, updated_at: new Date().toISOString(), ...feeManualPatch, ...(activatePending ? { status: 'active' } : {}) })
+              .update({ offering_plan_id: enrollment.offering_plan_id || null, start_date: planStartForUpdate, monthly_fee: planFee, updated_at: new Date().toISOString(), ...feeManualPatch, ...(activatePending ? { status: 'active' } : {}) })
               .eq('id', existingPlan.id).eq('school_id', schoolId);
             if (activatePending) notePendingActivated();
 
@@ -1223,13 +1243,29 @@ router.put(
                 );
               }
               if (enrollment.offering_plan_id) {
-                const { data: planData } = await supabase.from('offering_plans').select('name, price').eq('id', enrollment.offering_plan_id).maybeSingle();
-                const amount = planFee ?? planData?.price ?? 0;
-                await createPendingPayment(
-                  null, enrollment.offering_plan_id, amount,
-                  `Plan ${planData?.name || 'Plan'}`,
-                  billingStartForChange(planStartDate),
-                );
+                // Banco de horas: las horas usadas pasan al plan nuevo y, si el atleta
+                // ya pagó el período, se emite el cobro que eligió el admin (parcial o
+                // completo). Sin banco de horas o sin pago previo, cobro habitual.
+                const planChange = planChangePreview
+                  ? await applyPlanChangeEffects({
+                      schoolId, athleteCol, athleteId: id,
+                      enrollmentId: existingPlan.id,
+                      newPlanId: enrollment.offering_plan_id,
+                      chargeMode: enrollment.plan_change_charge === 'partial' ? 'partial'
+                        : enrollment.plan_change_charge === 'full' ? 'full' : undefined,
+                      preview: planChangePreview,
+                    })
+                  : null;
+
+                if (!planChange?.handledCharge) {
+                  const { data: planData } = await supabase.from('offering_plans').select('name, price').eq('id', enrollment.offering_plan_id).maybeSingle();
+                  const amount = planFee ?? planData?.price ?? 0;
+                  await createPendingPayment(
+                    null, enrollment.offering_plan_id, amount,
+                    `Plan ${planData?.name || 'Plan'}`,
+                    billingStartForChange(planStartDate),
+                  );
+                }
               }
             } else if (accionPlan === 'sin_cobro') {
               // Plan sin cobro: cancelar pendientes (amount = 0 rompe el

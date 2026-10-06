@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { PlanChangeDialog, fetchPlanChangePreview, type PlanChangePreview, type PlanChangeChargeMode } from '@/components/students/PlanChangeDialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -272,6 +273,9 @@ export default function SchoolStudentsManagementPage() {
   const [showStudentAccessReport, setShowStudentAccessReport] = useState(false);
   const [editingStudent, setEditingStudent] = useState<StudentViewRow | null>(null);
   const [editingAthleteType, setEditingAthleteType] = useState<'child' | 'adult' | 'unregistered' | null>(null);
+  // Cambio de plan con pago previo en escuelas con banco de horas: el admin elige
+  // pago parcial o completo antes de guardar (ver PlanChangeDialog).
+  const [planChangePrompt, setPlanChangePrompt] = useState<{ preview: PlanChangePreview; data: StudentFormData } | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [studentDocs, setStudentDocs] = useState<{ id?: string; document_type?: string; storage_path?: string; name: string; url: string }[]>([]);
   const [uploadingDocType, setUploadingDocType] = useState<string | null>(null);
@@ -740,7 +744,7 @@ export default function SchoolStudentsManagementPage() {
   });
 
   const updateStudentMutation = useMutation({
-    mutationFn: async (data: StudentFormData) => {
+    mutationFn: async (data: StudentFormData & { plan_change_charge?: PlanChangeChargeMode }) => {
       if (!editingStudent || !schoolId) return;
 
       const { bffClient } = await import('@/lib/api/bffClient');
@@ -773,11 +777,14 @@ export default function SchoolStudentsManagementPage() {
           fee_is_manual:    !!data.fee_is_manual,
           fee_reason:       data.fee_reason || null,
           discount_type:    data.discount_type || null,
+          // Solo viaja cuando el admin eligió en el diálogo de cambio de plan.
+          ...(data.plan_change_charge ? { plan_change_charge: data.plan_change_charge } : {}),
         },
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['school-students'] });
+      setPlanChangePrompt(null);
       setDialogOpen(false);
       setEditingStudent(null);
       setEditingAthleteType(null);
@@ -796,10 +803,27 @@ export default function SchoolStudentsManagementPage() {
   // no se le asigna equipo ni plan (el plan es lo que genera los cobros).
   const editingIsInactive = !!editingStudent && (editingStudent as any).is_active === false;
 
-  const onSubmit = (input: z.input<typeof studentSchema>) => {
+  const onSubmit = async (input: z.input<typeof studentSchema>) => {
     const data = studentSchema.parse(input);
-    if (editingStudent) updateStudentMutation.mutate(data);
-    else {
+    if (editingStudent) {
+      // Cambio de plan sobre un atleta que ya tenía otro: en escuelas con banco de
+      // horas el BFF devuelve una vista previa y, si ya pagó el período, el admin
+      // decide parcial o completo antes de guardar.
+      const previousPlanId = (editingStudent as any).offering_plan_id || '';
+      if (data.offering_plan_id && previousPlanId && data.offering_plan_id !== previousPlanId && editingAthleteType) {
+        const identity = editingAthleteType === 'child'
+          ? { child_id: editingStudent.id }
+          : editingAthleteType === 'adult'
+            ? { user_id: editingStudent.id }
+            : { unregistered_athlete_id: editingStudent.id };
+        const preview = await fetchPlanChangePreview(identity, data.offering_plan_id);
+        if (preview) {
+          setPlanChangePrompt({ preview, data });
+          return;
+        }
+      }
+      updateStudentMutation.mutate(data);
+    } else {
       setDupAviso(null);
       createStudentMutation.mutate(data);
     }
@@ -1655,6 +1679,16 @@ export default function SchoolStudentsManagementPage() {
       </Card>
 
       {/* Dialogs — sin cambios respecto al original */}
+      <PlanChangeDialog
+        preview={planChangePrompt?.preview ?? null}
+        open={!!planChangePrompt}
+        submitting={updateStudentMutation.isPending}
+        onCancel={() => setPlanChangePrompt(null)}
+        onConfirm={(mode) => {
+          if (planChangePrompt) updateStudentMutation.mutate({ ...planChangePrompt.data, plan_change_charge: mode });
+        }}
+      />
+
       <Dialog open={dialogOpen} onOpenChange={(o) => { if (!o) setDupAviso(null); setDialogOpen(o); }}>
         <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>

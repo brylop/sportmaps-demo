@@ -34,6 +34,13 @@ WS (`bridgeWsServer.ts`). **Verificado:** los 4 `last_seen_at` volvieron a los s
   ~48.000 registros del equipo en cada ciclo (~47 s por lector, y el script lo hacía con el lector deshabilitado:
   sin aceptar huellas casi la mitad del día — ahora el barrido no lo deshabilita). Ver
   [README](../scripts/dreamers-bridge/README.md).
+- **Dreamers — ciclo de cobro 1–5, vigencia a fin de mes y bloqueo por mora** (`NIV-8`, 2026-10-05): corte 5 + gracia 0
+  aplicados en vivo (el recargo del 5 % cae el día 6 a las 02:00 COT; plan queda vencido y bloqueado, no se cancela).
+  Bloqueo automático: menores (`child_id`) y excepción manual de un día corregidos en código, falta desplegar y activar
+  el flag. Vigencia a fin de mes (`enrollment_validity_mode`) aplicada en vivo (migración `20261005221257`); cambio de
+  plan con traslado de horas y aviso parcial/completo construido (Dreamers y Academia Superior), falta desplegar BFF y
+  frontend. Edna y Fabio ya salieron de estudiantes (Edna a staff, diferido).
+  Spec: [`specs/dreamers-ciclo-cobro-1-al-5-y-bloqueo.md`](specs/dreamers-ciclo-cobro-1-al-5-y-bloqueo.md).
 - **Banco de horas — parámetros y regla de cobro con Dreamers** (`MOD-21`): gracia 10 min antes / 20 después
   y reingreso 5 min (Dreamers; Academia Superior: igual gracia, reingreso 15) — son settings por escuela,
   no código. Nuevo `school_settings.hours_billing_rounding` (`none` | `hour_up`): pasada la gracia, todo

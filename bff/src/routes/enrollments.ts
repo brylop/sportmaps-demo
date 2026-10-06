@@ -12,6 +12,7 @@ import {
     isAthleteActive,
     INACTIVE_ATHLETE_ERROR,
 } from '../services/enrollmentBilling';
+import { previewPlanChange, applyPlanChangeEffects } from '../services/planChange.service';
 
 const router = Router();
 
@@ -33,6 +34,10 @@ const CreateEnrollmentSchema = z.object({
     // school_settings.allow_secondary_team_enrollment. Ver el bloque
     // "Equipo secundario" más abajo.
     secondary: z.boolean().optional(),
+    // Cambio de plan en escuelas con banco de horas: si el atleta ya pagó el
+    // período, el admin elige parcial (diferencia) o completo. Ver
+    // POST /plan-change-preview. Sin valor y con pago previo = 'full'.
+    plan_change_charge: z.enum(['partial', 'full']).optional(),
 }).refine(
     (data) => data.user_id || data.child_id || data.unregistered_athlete_id,
     { message: 'Se requiere user_id, child_id o unregistered_athlete_id', path: ['user_id'] }
@@ -40,6 +45,39 @@ const CreateEnrollmentSchema = z.object({
     (data) => data.team_id || data.offering_plan_id,
     { message: 'Debe proporcionar team_id u offering_plan_id' }
 );
+
+// ── POST /api/v1/enrollments/plan-change-preview ─────────────────────────────
+// Vista previa (no escribe) de un cambio de plan en escuelas con banco de horas:
+// lo pagado del período, horas usadas y recomendación de cobro parcial/completo.
+// `applies: false` = el frontend sigue el flujo de siempre, sin diálogo.
+const PlanChangePreviewSchema = z.object({
+    user_id: z.string().uuid().optional(),
+    child_id: z.string().uuid().optional(),
+    unregistered_athlete_id: z.string().uuid().optional(),
+    new_plan_id: z.string().uuid(),
+}).refine(
+    (d) => d.user_id || d.child_id || d.unregistered_athlete_id,
+    { message: 'Se requiere user_id, child_id o unregistered_athlete_id', path: ['user_id'] }
+);
+
+router.post('/plan-change-preview', requireAuth, requireRole('owner', 'admin', 'school_admin', 'staff'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const parsed = PlanChangePreviewSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+        }
+        const { schoolId } = req;
+        const d = parsed.data;
+        const athleteCol = d.user_id ? 'user_id' : d.child_id ? 'child_id' : 'unregistered_athlete_id';
+        const athleteId = (d.user_id || d.child_id || d.unregistered_athlete_id) as string;
+        const preview = await previewPlanChange({
+            schoolId: schoolId!, athleteCol, athleteId, newPlanId: d.new_plan_id,
+        });
+        return res.json({ data: preview });
+    } catch (err: any) {
+        return res.status(500).json({ error: 'No se pudo calcular la vista previa del cambio de plan' });
+    }
+});
 
 // ── POST /api/v1/enrollments ─────────────────────────────────────────────────
 // ✅ Crear inscripción (equipo, plan o ambos)
@@ -292,6 +330,15 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
                     .eq('school_id', schoolId);
             }
 
+            // Vista previa ANTES de mover el plan: lee la inscripción activa con el plan
+            // viejo y lo pagado del período (escuelas con banco de horas).
+            const planChangePreview = await previewPlanChange({
+                schoolId: schoolId!,
+                athleteCol,
+                athleteId: studentId!,
+                newPlanId: data.offering_plan_id!,
+            });
+
             await cancelPendingPlanPayments({
                 schoolId: schoolId!,
                 athleteCol,
@@ -318,20 +365,38 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
 
             if (replaceError) throw replaceError;
 
-            await createPendingPayment({
+            // Banco de horas: las horas ya usadas pasan al plan nuevo y, si el atleta
+            // ya pagó el período, se emite el cobro que eligió el admin (parcial o
+            // completo). Sin banco de horas o sin pago previo, sigue el cobro habitual.
+            const planChange = await applyPlanChangeEffects({
                 schoolId: schoolId!,
                 athleteCol,
                 athleteId: studentId!,
-                planId: data.offering_plan_id!,
-                amount: Number(planInfo?.price ?? 0),
-                concept: `Plan ${planInfo?.name || 'Plan'}`,
-                startDate,
+                enrollmentId: replaceTarget.id,
+                newPlanId: data.offering_plan_id!,
+                chargeMode: data.plan_change_charge,
+                preview: planChangePreview,
             });
+
+            if (!planChange.handledCharge) {
+                await createPendingPayment({
+                    schoolId: schoolId!,
+                    athleteCol,
+                    athleteId: studentId!,
+                    planId: data.offering_plan_id!,
+                    amount: Number(planInfo?.price ?? 0),
+                    concept: `Plan ${planInfo?.name || 'Plan'}`,
+                    startDate,
+                });
+            }
 
             return res.status(200).json({
                 message: 'Plan reemplazado exitosamente',
                 data: replaced,
                 replaced: true,
+                plan_change: planChange.applies
+                    ? { charge: planChange.charge, hours: planChange.hours }
+                    : undefined,
             });
         }
 

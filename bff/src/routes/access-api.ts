@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { invalidateDeviceCache, invalidateMappingCache, getHourBankSettings, computeHourBankBilledMinutes, formatHourBankMinutes } from './access-adms';
-import { getAccessBlockMechanism, buildBlockCommand, computeIsBlocked, BLOCK_COMMAND_TYPES } from '../utils/accessBlockMechanism';
+import { getAccessBlockMechanism, buildBlockCommand, computeIsBlocked, athleteKey, BLOCK_COMMAND_TYPES } from '../utils/accessBlockMechanism';
 import { wakeSchool } from '../services/bridgeWsHub';
 import fs from 'fs';
 import path from 'path';
@@ -775,7 +775,7 @@ router.get('/overdue', requireAuth, requireRole('owner', 'admin', 'school_admin'
 
     const { data: overduePayments, error } = await supabase
       .from('payments')
-      .select('id, user_id, unregistered_athlete_id, due_date, amount')
+      .select('id, user_id, unregistered_athlete_id, child_id, due_date, amount')
       .eq('school_id', schoolId)
       .eq('status', 'overdue');
     if (error) throw error;
@@ -783,17 +783,24 @@ router.get('/overdue', requireAuth, requireRole('owner', 'admin', 'school_admin'
 
     const { data: mappings } = await supabase
       .from('zk_user_mappings')
-      .select('zk_pin, user_id, unregistered_athlete_id')
+      .select('zk_pin, user_id, unregistered_athlete_id, child_id')
       .eq('school_id', schoolId);
 
     const mapByKey: Record<string, number> = {};
     (mappings || []).forEach((m: any) => {
-      const key = m.user_id ? `u:${m.user_id}` : `a:${m.unregistered_athlete_id}`;
-      mapByKey[key] = m.zk_pin;
+      const key = athleteKey(m);
+      if (key) mapByKey[key] = m.zk_pin;
     });
 
-    const userIds = [...new Set(overduePayments.map((p: any) => p.user_id).filter(Boolean))];
-    const uaIds   = [...new Set(overduePayments.map((p: any) => p.unregistered_athlete_id).filter(Boolean))];
+    const userIds  = [...new Set(overduePayments.filter((p: any) => !p.child_id).map((p: any) => p.user_id).filter(Boolean))];
+    const uaIds    = [...new Set(overduePayments.map((p: any) => p.unregistered_athlete_id).filter(Boolean))];
+    const childIds = [...new Set(overduePayments.map((p: any) => p.child_id).filter(Boolean))];
+
+    const childMap: Record<string, string> = {};
+    if (childIds.length) {
+      const { data: kids } = await supabase.from('children').select('id, full_name').in('id', childIds);
+      (kids || []).forEach((k: any) => { childMap[k.id] = k.full_name; });
+    }
 
     const profileMap: Record<string, string> = {};
     if (userIds.length) {
@@ -833,12 +840,14 @@ router.get('/overdue', requireAuth, requireRole('owner', 'admin', 'school_admin'
 
     const overdue = overduePayments
       .map((p: any) => {
-        const key = p.user_id ? `u:${p.user_id}` : `a:${p.unregistered_athlete_id}`;
-        const pin = mapByKey[key];
+        const key = athleteKey(p);
+        const pin = key ? mapByKey[key] : undefined;
         if (pin === undefined) return null;
         return {
           payment_id: p.id,
-          name: p.user_id ? (profileMap[p.user_id] ?? 'Usuario') : (uaMap[p.unregistered_athlete_id] ?? 'Atleta'),
+          name: p.child_id
+            ? (childMap[p.child_id] ?? 'Alumno')
+            : p.user_id ? (profileMap[p.user_id] ?? 'Usuario') : (uaMap[p.unregistered_athlete_id] ?? 'Atleta'),
           due_date: p.due_date,
           amount: p.amount,
           zk_pin: pin,
