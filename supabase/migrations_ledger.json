@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 669,
-  "head": "20261005135530",
+  "count": 670,
+  "head": "20261005214235",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -672,6 +672,7 @@
     {"v":"20261005133939","file":"20261005133939_anular_gasto_con_motivo.sql","sha256":"0d96a0228b1f4e8d1b8379bfb85c50b2b2eea754d91e7e810810894f931bf3a6","added":"2026-10-05","by":"Brayan Steven Lopez"},
     {"v":"20261005135518","file":"20261005135518_invitacion_ficha_menor_va_al_acudiente.sql","sha256":"324fe24fe2774380f7777198dd690326b6bbe038002d563059b2d2f948cdc077","added":"2026-10-05","by":"Brayan Steven Lopez"},
     {"v":"20261005135525","file":"20261005135525_cobro_no_nace_vencido_y_mora_con_gracia.sql","sha256":"644b9a51b1a505a10acb2fc2ff955883f3c76ceb3d5c8fd57b235ed992e055a1","added":"2026-10-05","by":"Brayan Steven Lopez"},
-    {"v":"20261005135530","file":"20261005135530_cancelar_inscripcion_ficha_anula_cobros.sql","sha256":"d68cde107ce498fe279e5d98c63a75292f059925911c61abef2a2562b8412792","added":"2026-10-05","by":"Brayan Steven Lopez"}
+    {"v":"20261005135530","file":"20261005135530_cancelar_inscripcion_ficha_anula_cobros.sql","sha256":"d68cde107ce498fe279e5d98c63a75292f059925911c61abef2a2562b8412792","added":"2026-10-05","by":"Brayan Steven Lopez"},
+    {"v":"20261005214235","file":"20261005214235_hour_bank_overage_charges.sql","sha256":"32bebc93b087d19199f9bfa946cc823e7c676b92d4951710475212d8c8178562","added":"2026-10-06","by":"Brayan Steven Lopez"}
   ]
 }
