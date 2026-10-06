@@ -186,6 +186,7 @@ cuando el guard de reserva entre en juego.
 | 8 | Coach intenta corregir una `pending_review` | rechazado — solo owner (D-8) |
 | 9 | Cierra el mes con 2h sin usar | no rueda al siguiente período (D-5) |
 | 10 | Dos entradas simultáneas del mismo atleta (glitch de lector) | el `FOR UPDATE` de la RPC evita doble apertura de visita |
+| 11 | Ya está adentro (visita abierta, sin salida) y el lector lo deja marcar entrada otra vez, a cualquier hora | la entrada nueva se **ignora**; se conserva la primera. La visita cierra por salida + ventana de reingreso, o por el cron (6 h / hora de cierre → `pending_review`). Sin tope propio de horas (decisión del owner, 2026-10-05). El lector no hace antipassback; SportMaps no bloquea el paso |
 
 ---
 
