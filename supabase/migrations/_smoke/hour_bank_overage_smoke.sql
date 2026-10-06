@@ -1,10 +1,10 @@
 -- ============================================================
--- SMOKE TEST — F-E cargo por horas de más (migración 20261005214235).
+-- SMOKE TEST — F-E cargo por horas de más (migración 20261005214302).
 -- NO es una migración. Requiere aplicadas, en orden:
 --   1) la migración de F-A ('excedente' en payments_payment_category_check,
 --      índices _per_adult/_per_unreg con NOT period_uniqueness_exempt,
 --      fn_extend_enrollment_on_payment_paid ignorando 'excedente');
---   2) 20261005214235_hour_bank_overage_charges.sql.
+--   2) 20261005214302_hour_bank_overage_charges.sql.
 --
 --   psql "$DATABASE_URL" -f supabase/migrations/_smoke/hour_bank_overage_smoke.sql
 --

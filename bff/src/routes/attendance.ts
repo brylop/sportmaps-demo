@@ -1989,7 +1989,7 @@ router.post('/facturar-fuera-de-plan', requireAuth, requireRole('owner', 'super_
         if (error) {
           // B7: el SELECT de arriba no cierra la carrera (doble clic, dos
           // pestañas). La cierra el índice único uniq_payment_out_of_plan_classes
-          // (migración 20261005214235): el segundo INSERT choca y se informa
+          // (migración 20261005214302): el segundo INSERT choca y se informa
           // como ya facturado, no como error.
           if ((error as any).code === '23505') {
             omitidos.push({ athleteId: it.athleteId, motivo: it.motivo, razon: 'ya_facturado' });

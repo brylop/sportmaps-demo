@@ -9,7 +9,7 @@
 //
 // Prerrequisitos (el script los verifica y se niega si faltan):
 //   · migración de F-A aplicada ('excedente' en payments_payment_category_check)
-//   · migración 20261005214235_hour_bank_overage_charges aplicada
+//   · migración 20261005214302_hour_bank_overage_charges aplicada
 //
 // Uso:
 //   node scripts/fe-dreamers-horas.mjs              (dry-run, default)
@@ -57,7 +57,7 @@ async function main() {
     [settings] = await rest('GET',
       `school_settings?school_id=eq.${SCHOOL_ID}&select=school_id,hours_plan_enabled,hours_billing_rounding,hour_bank_overage_charges_enabled`);
   } catch (err) {
-    throw new Error(`¿Falta aplicar 20261005214235_hour_bank_overage_charges? ${err.message}`);
+    throw new Error(`¿Falta aplicar 20261005214302_hour_bank_overage_charges? ${err.message}`);
   }
   if (!settings) throw new Error(`${SCHOOL_NAME}: no tiene fila en school_settings`);
   console.log(`${SCHOOL_NAME} hoy:`, settings);

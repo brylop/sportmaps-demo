@@ -601,7 +601,7 @@ export function initMaintenanceJobs() {
     console.log('[CRON] Auto-cierre de banco de horas registrado (cada 1 min).');
 
     // ────────────────────────────────────────────────────────────────────────
-    // Cargo por horas de más del banco de horas (F-E, migración 20261005214235).
+    // Cargo por horas de más del banco de horas (F-E, migración 20261005214302).
     // Genera sugerencias 'suggested' para periodos cerrados con excedente; el
     // owner confirma o descarta. Nunca crea cobros. No-op para toda escuela con
     // school_settings.hour_bank_overage_charges_enabled = false (default).

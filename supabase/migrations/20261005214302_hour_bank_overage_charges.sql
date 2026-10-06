@@ -1,6 +1,6 @@
 -- =============================================================================
--- 20261005214235_hour_bank_overage_charges.sql
--- Autor: Brayan Steven Lopez   Fecha: 2026-10-05   Versión anterior: 20261005135530
+-- 20261005214302_hour_bank_overage_charges.sql
+-- Autor: Brayan Steven Lopez   Fecha: 2026-10-05   Versión anterior: 20261005214300 (renumerada: depende de F-A 20261005214245)
 -- Objetivo: F-E de docs/specs/dreamers-reglas-completas-plan.md (W4 / F5, D8 de
 -- docs/specs/dreamers-niveles-por-horas-y-progresion.md) — cargo por horas de
 -- más del banco de horas. Extiende D-10 ("solo notifica") a "notifica con un

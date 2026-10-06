@@ -5,7 +5,7 @@ import { supabase } from '../config/supabase';
  * SUGERIDO por horas de más del banco de horas.
  *
  * Corre una vez al día (03:00 Bogotá, registrado en maintenance.job.ts) la RPC
- * generate_hour_bank_overage_suggestions() (migración 20261005214235), que:
+ * generate_hour_bank_overage_suggestions() (migración 20261005214302), que:
  *   - solo mira escuelas con hours_plan_enabled Y hour_bank_overage_charges_enabled
  *     (default false → no-op para el resto);
  *   - toma periodos ya cerrados (period_end < hoy en Bogotá) con consumo > incluido;
@@ -40,7 +40,7 @@ export interface HourBankOverageResult {
 }
 
 /**
- * ESPEJO de public.hour_bank_overage_calc() (migración 20261005214235). La
+ * ESPEJO de public.hour_bank_overage_calc() (migración 20261005214302). La
  * fuente de verdad es la SQL; esto existe para fijar la fórmula con tests y
  * para que una divergencia futura se vea en el diff. Si cambias una, cambia
  * la otra.
