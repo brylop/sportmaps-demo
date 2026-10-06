@@ -1,6 +1,15 @@
 import { Router, Response } from 'express';
 import { supabase } from '../../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../../middlewares/authMiddleware';
+import {
+  COMPETITION_LEVELS,
+  fetchEligibility,
+  getLevelProgressionEnabled,
+  invalidateLevelProgressionCache,
+  notifyNewlyEligible,
+  parseSeason,
+  seasonOfDate,
+} from '../../services/levelProgression.service';
 
 const router = Router();
 
@@ -331,6 +340,311 @@ router.delete(
       res.json({ success: true });
     } catch (err: any) {
       req.log?.error({ err }, 'school/competition-results unhandled error');
+      res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  }
+);
+
+// ==========================================
+// Resultados INDIVIDUALES + progresión por puntaje (F-F,
+// docs/specs/dreamers-niveles-por-horas-y-progresion.md D3/D4/D5/D6/D15).
+//
+// Cargar puntos/nivel es dato PASIVO: disponible para todas las escuelas, sin
+// flag. Lo único detrás de school_settings.level_progression_enabled es la
+// mecánica que reacciona (aviso al owner/admin y la vista de elegibilidad).
+// Nada de esto cambia el plan ni el monthly_fee de nadie (D4).
+// ==========================================
+
+const INDIVIDUAL_RESULT_TYPES = [
+  'preparatorio', 'competencia_oficial',                       // catálogo de la app
+  'score', 'time', 'placement', 'rounds', 'rating_change',     // catálogo regularizado
+] as const;
+const INDIVIDUAL_SUBJECT_TYPES = ['child', 'profile', 'unregistered'] as const;
+type IndividualSubjectType = typeof INDIVIDUAL_SUBJECT_TYPES[number];
+const ADMIN_ROLES = ['owner', 'admin', 'school_admin', 'super_admin'] as const;
+
+const SUBJECT_COLUMN: Record<IndividualSubjectType, 'child_id' | 'user_id' | 'unregistered_athlete_id'> = {
+  child: 'child_id',
+  profile: 'user_id',
+  unregistered: 'unregistered_athlete_id',
+};
+
+/** Valida points / competition_level / result_type / fecha de un resultado individual. Pura. */
+export function validateIndividualFields(body: any, partial: boolean): { errors: string[]; values: Record<string, any> } {
+  const errors: string[] = [];
+  const values: Record<string, any> = {};
+
+  if (!partial || body.points !== undefined) {
+    if (body.points === null || body.points === '' || body.points === undefined) {
+      if (!partial) errors.push('points es requerido.');
+      else values.points = null;
+    } else {
+      const n = Number(body.points);
+      if (!Number.isFinite(n) || n < 0) errors.push('points debe ser un número >= 0.');
+      else values.points = n;
+    }
+  }
+
+  if (body.competition_level !== undefined) {
+    if (body.competition_level === null || body.competition_level === '') values.competition_level = null;
+    else if (!(COMPETITION_LEVELS as readonly string[]).includes(body.competition_level)) {
+      errors.push(`competition_level debe ser uno de: ${COMPETITION_LEVELS.join(', ')}`);
+    } else values.competition_level = body.competition_level;
+  }
+
+  if (!partial || body.result_type !== undefined) {
+    const rt = body.result_type ?? (partial ? undefined : 'competencia_oficial');
+    if (rt !== undefined) {
+      if (!(INDIVIDUAL_RESULT_TYPES as readonly string[]).includes(rt)) {
+        errors.push(`result_type debe ser uno de: ${INDIVIDUAL_RESULT_TYPES.join(', ')}`);
+      } else values.result_type = rt;
+    }
+  }
+
+  if (!partial || body.competition_date !== undefined) {
+    if (!body.competition_date || !/^\d{4}-\d{2}-\d{2}$/.test(String(body.competition_date))) {
+      errors.push('competition_date (YYYY-MM-DD) es requerido.');
+    } else values.competition_date = body.competition_date;
+  }
+
+  if (body.competition_name !== undefined) values.competition_name = body.competition_name || null;
+  if (body.notes !== undefined) values.notes = body.notes || null;
+
+  return { errors, values };
+}
+
+async function subjectBelongsToSchool(schoolId: string, subjectType: IndividualSubjectType, subjectId: string): Promise<boolean> {
+  const { data } = await supabase
+    .from('enrollments')
+    .select('id')
+    .eq('school_id', schoolId)
+    .eq(SUBJECT_COLUMN[subjectType], subjectId)
+    .limit(1);
+  return !!data && data.length > 0;
+}
+
+// POST /api/v1/school/competition-results/individual
+// Body: { subject_type, subject_id, competition_date, points, competition_level?,
+//         result_type?, competition_name?, notes? }
+router.post(
+  '/competition-results/individual',
+  requireAuth,
+  requireRole(...STAFF_ROLES),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { schoolId, user } = req;
+      const { subject_type, subject_id } = req.body ?? {};
+
+      if (!(INDIVIDUAL_SUBJECT_TYPES as readonly string[]).includes(subject_type) || !subject_id) {
+        return res.status(400).json({ error: `subject_type (${INDIVIDUAL_SUBJECT_TYPES.join(', ')}) y subject_id son requeridos.` });
+      }
+      const { errors, values } = validateIndividualFields(req.body ?? {}, false);
+      if (errors.length > 0) return res.status(400).json({ error: errors[0], details: errors });
+
+      if (!(await subjectBelongsToSchool(schoolId, subject_type, subject_id))) {
+        return res.status(404).json({ error: 'El atleta no pertenece a esta escuela.' });
+      }
+
+      const { data: school } = await supabase
+        .from('schools').select('category_id').eq('id', schoolId).maybeSingle();
+
+      const { data, error } = await supabase
+        .from('competition_results')
+        .insert({
+          school_id: schoolId,
+          sport_category_id: school?.category_id ?? null,
+          subject_type,
+          subject_id,
+          team_id: null,
+          result_data: {},
+          recorded_by: user.id, // staff (requireRole): cuenta para la elegibilidad
+          ...values,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+
+      const { notified } = await notifyNewlyEligible({
+        schoolId, subjectType: subject_type, subjectId: subject_id,
+        season: seasonOfDate(data.competition_date), resultId: data.id, log: req.log,
+      });
+
+      res.status(201).json({ ...data, promotion_notices: notified });
+    } catch (err: any) {
+      req.log?.error({ err }, 'school/competition-results/individual unhandled error');
+      res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  }
+);
+
+// PUT /api/v1/school/competition-results/individual/:id
+router.put(
+  '/competition-results/individual/:id',
+  requireAuth,
+  requireRole(...STAFF_ROLES),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { schoolId } = req;
+      const { id } = req.params;
+
+      const { data: existing, error: fetchErr } = await supabase
+        .from('competition_results')
+        .select('id, school_id, subject_type, subject_id')
+        .eq('id', id)
+        .maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!existing || existing.school_id !== schoolId) {
+        return res.status(404).json({ error: 'Registro no encontrado.' });
+      }
+      if (!(INDIVIDUAL_SUBJECT_TYPES as readonly string[]).includes(existing.subject_type) || !existing.subject_id) {
+        return res.status(400).json({ error: 'Este registro no es un resultado individual.' });
+      }
+
+      const { errors, values } = validateIndividualFields(req.body ?? {}, true);
+      if (errors.length > 0) return res.status(400).json({ error: errors[0], details: errors });
+      if (Object.keys(values).length === 0) {
+        return res.status(400).json({ error: 'No hay campos válidos para actualizar.' });
+      }
+
+      const { data, error } = await supabase
+        .from('competition_results')
+        .update(values)
+        .eq('id', id)
+        .eq('school_id', schoolId)
+        .select()
+        .single();
+      if (error) throw error;
+
+      const { notified } = await notifyNewlyEligible({
+        schoolId, subjectType: existing.subject_type as IndividualSubjectType, subjectId: existing.subject_id,
+        season: seasonOfDate(data.competition_date), resultId: data.id, log: req.log,
+      });
+
+      res.json({ ...data, promotion_notices: notified });
+    } catch (err: any) {
+      req.log?.error({ err }, 'school/competition-results/individual unhandled error');
+      res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  }
+);
+
+// GET /api/v1/school/level-progression/settings — ¿la escuela tiene el flag?
+router.get(
+  '/level-progression/settings',
+  requireAuth,
+  requireRole(...STAFF_ROLES),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      res.json({ level_progression_enabled: await getLevelProgressionEnabled(req.schoolId) });
+    } catch (err: any) {
+      req.log?.error({ err }, 'school/level-progression/settings unhandled error');
+      res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  }
+);
+
+// PUT /api/v1/school/level-progression/settings — solo owner (y roles privilegiados).
+router.put(
+  '/level-progression/settings',
+  requireAuth,
+  requireRole('owner'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { schoolId } = req;
+      const enabled = req.body?.level_progression_enabled;
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ error: 'level_progression_enabled (boolean) es requerido.' });
+      }
+      const { error } = await supabase
+        .from('school_settings')
+        .upsert({ school_id: schoolId, level_progression_enabled: enabled }, { onConflict: 'school_id' });
+      if (error) throw error;
+      invalidateLevelProgressionCache(schoolId);
+      res.json({ level_progression_enabled: enabled });
+    } catch (err: any) {
+      req.log?.error({ err }, 'school/level-progression/settings unhandled error');
+      res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  }
+);
+
+// GET /api/v1/school/level-progression/athletes — selector del modo individual.
+// Inscripciones activas con plan: una fila por atleta (subject_type/subject_id).
+router.get(
+  '/level-progression/athletes',
+  requireAuth,
+  requireRole(...STAFF_ROLES),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { schoolId } = req;
+      const { data, error } = await supabase
+        .from('enrollments')
+        .select('id, user_id, child_id, unregistered_athlete_id, offering_plans(name)')
+        .eq('school_id', schoolId)
+        .eq('status', 'active')
+        .not('offering_plan_id', 'is', null)
+        .limit(3000);
+      if (error) throw error;
+
+      const rows = (data || []) as any[];
+      const ids = (col: string) => [...new Set(rows.map((r) => r[col]).filter(Boolean))] as string[];
+      const nameMap = new Map<string, string>();
+      const loadNames = async (table: string, list: string[]) => {
+        for (let i = 0; i < list.length; i += 500) {
+          const { data: names } = await supabase.from(table).select('id, full_name').in('id', list.slice(i, i + 500));
+          (names || []).forEach((n: any) => nameMap.set(n.id, n.full_name));
+        }
+      };
+      await loadNames('children', ids('child_id'));
+      await loadNames('profiles', ids('user_id'));
+      await loadNames('unregistered_athletes', ids('unregistered_athlete_id'));
+
+      const seen = new Set<string>();
+      const athletes: any[] = [];
+      for (const e of rows) {
+        const subject_type: IndividualSubjectType | null =
+          e.child_id ? 'child' : e.user_id ? 'profile' : e.unregistered_athlete_id ? 'unregistered' : null;
+        if (!subject_type) continue;
+        const subject_id = e.child_id ?? e.user_id ?? e.unregistered_athlete_id;
+        const key = `${subject_type}:${subject_id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        athletes.push({
+          subject_type, subject_id,
+          full_name: nameMap.get(subject_id) ?? 'Atleta',
+          enrollment_id: e.id,
+          plan_name: e.offering_plans?.name ?? null,
+        });
+      }
+      athletes.sort((a, b) => a.full_name.localeCompare(b.full_name, 'es'));
+      res.json(athletes);
+    } catch (err: any) {
+      req.log?.error({ err }, 'school/level-progression/athletes unhandled error');
+      res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  }
+);
+
+// GET /api/v1/school/level-progression/eligibility?season=2026
+// Owner/admin. 404 si la escuela no tiene el flag (D6). Solo lectura (D4):
+// "Cambiar plan" en la UI lleva al flujo de edición del atleta ya existente.
+router.get(
+  '/level-progression/eligibility',
+  requireAuth,
+  requireRole(...ADMIN_ROLES),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { schoolId } = req;
+      if (!(await getLevelProgressionEnabled(schoolId))) {
+        return res.status(404).json({ error: 'La progresión por puntaje no está habilitada para esta escuela.' });
+      }
+      const season = parseSeason(req.query.season);
+      if (season === null) return res.status(400).json({ error: 'season debe ser un año válido.' });
+
+      const rows = await fetchEligibility(schoolId, season);
+      res.json({ season, rows });
+    } catch (err: any) {
+      req.log?.error({ err }, 'school/level-progression/eligibility unhandled error');
       res.status(500).json({ error: 'Error interno del servidor.' });
     }
   }
