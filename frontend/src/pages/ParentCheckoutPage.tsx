@@ -24,7 +24,8 @@ import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { useSchoolInvoicingActive, mustAskBillingData } from '@/hooks/useSchoolInvoicingActive';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { maskSensitive } from '@/lib/utils';
-import { resolvePaymentAccounts, accountDisplayLabel, chargeCategoryOf } from '@/lib/payment-accounts';
+import { resolvePaymentAccounts, resolvePaymentLink, accountDisplayLabel, chargeCategoryOf } from '@/lib/payment-accounts';
+import { PaymentLinkButton } from '@/components/payment/PaymentLinkButton';
 import { FileUpload } from '@/components/common/FileUpload';
 import type { ReceiptValidationResult, ConceptKind } from '@/hooks/useReceiptValidator';
 import { blockPwaReload, unblockPwaReload } from '@/pwa/reloadGuard';
@@ -207,6 +208,12 @@ export default function ParentCheckoutPage() {
   const chargeCategory = chargeCategoryOf(null, concept);
   const payableAccounts = useMemo(
     () => resolvePaymentAccounts(bankDetails, { category: chargeCategory }),
+    [bankDetails, chargeCategory],
+  );
+  // Link de pago genérico de la escuela (Wompi de Dynasty): botón dentro de la
+  // transferencia, porque igual termina en subir el comprobante.
+  const paymentLink = useMemo(
+    () => resolvePaymentLink(bankDetails, { category: chargeCategory }),
     [bankDetails, chargeCategory],
   );
 
@@ -847,6 +854,7 @@ export default function ParentCheckoutPage() {
 
                       {paymentFlow === 'manual' && bankDetails && (
                         <div className="pl-7 pt-2 animate-in fade-in slide-in-from-top-2">
+                          {paymentLink && <PaymentLinkButton url={paymentLink} className="mb-3" />}
                           <div className="bg-background/80 p-3 rounded border space-y-1 font-mono text-xs mb-3">
                             <div className="flex items-center justify-between mb-2">
                               <p className="text-muted-foreground font-sans font-semibold">Datos de Transferencia:</p>

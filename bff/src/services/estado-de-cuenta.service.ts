@@ -69,6 +69,9 @@ import {
 import { cerrarEnvio, escaparHtml, fechaColombia, reservarEnvio, uuidDeClave } from './avisos-correo.service';
 import { emitirTokenCobro, enlaceWhatsApp, nombreCorto, whatsappDeLaEscuela } from './cobro-enlace-publico.service';
 import { mediosDePago, type MediosDePago } from './whatsapp-medios-de-pago.service';
+// Los textos del link viven en payment-accounts (módulo puro): varias pruebas
+// moquean el servicio de medios entero y no exportarían estas constantes.
+import { AVISO_LINK_DE_PAGO, TEXTO_BOTON_LINK_DE_PAGO } from './payment-accounts';
 import { COLUMNAS_CONTACTO_FICHA, COLUMNAS_CONTACTO_HIJO, contactoDeFicha, contactoDeHijoSinCuenta, type FichaContacto } from './contacto-acudiente';
 import { escuelaFacturaElectronicamente } from './factura-pagador.service';
 
@@ -308,6 +311,13 @@ export interface ContenidoCorreo {
     medios: MediosDePago['cuentas'];
     qrEscuelaUrl: string | null;
     whatsappComprobante: string | null;
+    /**
+     * Link de pago genérico de la escuela (p.ej. Wompi de Dynasty), o null. No
+     * reemplaza los botones «Pagar» de cada cobro (esos abren /p/<token>): es
+     * un camino más dentro de «Cómo pagar», con el aviso de mandar comprobante
+     * porque Wompi no sabe a qué cobro corresponde.
+     */
+    linkDePago?: string | null;
     nota?: string | null;
     /** La escuela emite factura electrónica: se ofrece completar los datos (lleva a /p/<token>#factura). */
     ofrecerFactura?: boolean;
@@ -358,7 +368,11 @@ export function cuerpoCorreoEstado(c: ContenidoCorreo): string {
         ${vencido > 0 ? `<p style="color:#b91c1c;">De ese total, <strong>${fmtCop(vencido)}</strong> ya están vencidos.</p>` : ''}
         <p>Cada botón <strong>Pagar</strong> abre el cobro sin tener que iniciar sesión.</p>
         <h3 style="font-size:16px;margin:20px 0 4px;">Cómo pagar</h3>
-        ${medios ? `<p style="margin:0;">Transfiere a cualquiera de estas cuentas de la escuela:</p>${medios}` : ''}
+        ${c.linkDePago
+            ? `<p style="margin:8px 0 4px;"><a href="${escaparHtml(c.linkDePago)}" style="display:inline-block;padding:10px 16px;background:#248223;color:#fff;text-decoration:none;border-radius:6px;font-size:14px;font-weight:bold;">${escaparHtml(TEXTO_BOTON_LINK_DE_PAGO)}</a></p>
+        <p style="margin:0 0 12px;font-size:13px;color:#444;">${escaparHtml(AVISO_LINK_DE_PAGO)}.</p>`
+            : ''}
+        ${medios ? `<p style="margin:0;">${c.linkDePago ? 'O transfiere' : 'Transfiere'} a cualquiera de estas cuentas de la escuela:</p>${medios}` : ''}
         ${qrs ? `<table cellpadding="0" cellspacing="0" border="0" style="margin:8px 0;"><tr>${qrs}</tr></table>` : ''}
         ${c.whatsappComprobante
             ? `<p>Después de pagar, <a href="${escaparHtml(c.whatsappComprobante)}">envía el comprobante por WhatsApp a la escuela</a>. Si pagas por el botón en línea, no tienes que enviar nada.</p>`
@@ -656,6 +670,8 @@ export async function enviarEstadoDeCuenta(schoolId: string, o: OpcionesEnvio): 
                     bodyHtml: cuerpoCorreoEstado({
                         escuela, familia: f, appBase, bffBase, medios: medios.cuentas,
                         qrEscuelaUrl: qrEscuela, whatsappComprobante,
+                        // `?? null`: si mediosDePago no lo trae (mock viejo), no hay botón.
+                        linkDePago: medios.link_de_pago ?? null,
                         nota: o.notaSoloPara && !o.notaSoloPara.has(f.email.toLowerCase()) ? null : o.nota,
                         ofrecerFactura,
                     }),

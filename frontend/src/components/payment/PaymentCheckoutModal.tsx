@@ -40,7 +40,8 @@ import { getPaymentPayload, SchoolAthlete } from '@/lib/athleteUtils';
 import { useWompiCheckout, type ServerQuote } from '@/hooks/useWompiCheckout';
 import { blockPwaReload, unblockPwaReload } from '@/pwa/reloadGuard';
 import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
-import { resolvePaymentAccounts, accountDisplayLabel, chargeCategoryOf, type PaymentChargeCategory } from '@/lib/payment-accounts';
+import { resolvePaymentAccounts, resolvePaymentLink, accountDisplayLabel, chargeCategoryOf, type PaymentChargeCategory } from '@/lib/payment-accounts';
+import { PaymentLinkButton } from '@/components/payment/PaymentLinkButton';
 import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
 import { autoEvaluate as autoEvaluateGlosa } from '@/lib/api/glosas';
 import {
@@ -299,6 +300,12 @@ export function PaymentCheckoutModal({
     : chargeCategoryOf(null, concept);
   const payableAccounts = useMemo(
     () => resolvePaymentAccounts(bankDetails, { category: accountsCategory }),
+    [bankDetails, accountsCategory],
+  );
+  // Link de pago genérico de la escuela (Wompi de Dynasty): botón dentro de la
+  // transferencia, porque igual termina en subir el comprobante.
+  const paymentLink = useMemo(
+    () => resolvePaymentLink(bankDetails, { category: accountsCategory }),
     [bankDetails, accountsCategory],
   );
 
@@ -1306,6 +1313,7 @@ export function PaymentCheckoutModal({
               {/* Datos bancarios */}
               {selectedMethod === 'transfer' && dianDataOk && (
                 <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                  {paymentLink && <PaymentLinkButton url={paymentLink} />}
                   <Alert variant="default" className="bg-primary/5 border-primary/20">
                     <Info className="h-4 w-4 text-primary shrink-0" />
                     <AlertTitle className="text-primary font-bold text-sm">Información de Transferencia</AlertTitle>

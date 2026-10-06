@@ -3,7 +3,48 @@
  * Caso de origen: Dynasty, 2026-10-05 — Nequi personal de la dueña solo para inscripciones.
  */
 import { describe, it, expect } from 'vitest';
-import { categoriaDeCobro, cuentaAplicaA, parseCuentasDePago, describirCategorias } from './payment-accounts';
+import {
+    categoriaDeCobro, cuentaAplicaA, parseCuentasDePago, describirCategorias, linkDePago, esUrlDeLinkDePago,
+} from './payment-accounts';
+
+// Link de pago de Wompi de Dynasty (2026-10-06): vive en payment_accounts pero
+// no es una cuenta para transferir.
+describe('link de pago (type payment_link)', () => {
+    const LINK = 'https://checkout.wompi.co/l/Hj5s7R';
+    const lista = [
+        { id: 'a', type: 'breb', label: 'Bre-B', value: '0092231411', active: true },
+        { id: 'w', type: 'payment_link', label: 'Pagar con tarjeta, PSE o Nequi (Wompi)', value: LINK, active: true },
+    ];
+
+    it('NO entra en parseCuentasDePago (verificación de destino del comprobante y cuentas)', () => {
+        const cuentas = parseCuentasDePago(lista);
+        expect(cuentas.map((c) => c.value)).toEqual(['0092231411']);
+        expect(cuentas.some((c) => c.type === 'payment_link')).toBe(false);
+    });
+
+    it('linkDePago devuelve la URL si está activa y aplica', () => {
+        expect(linkDePago(lista, null)).toBe(LINK);
+        expect(linkDePago(lista, 'mensualidad')).toBe(LINK);
+    });
+
+    it('linkDePago respeta active y only_for', () => {
+        expect(linkDePago([{ ...lista[1], active: false }], null)).toBeNull();
+        const soloInscripcion = [{ ...lista[1], only_for: ['inscripcion'] }];
+        expect(linkDePago(soloInscripcion, 'mensualidad')).toBeNull();
+        expect(linkDePago(soloInscripcion, null)).toBeNull();
+        expect(linkDePago(soloInscripcion, 'inscripcion')).toBe(LINK);
+    });
+
+    it('solo https y sin caracteres que rompan el HTML', () => {
+        expect(esUrlDeLinkDePago(LINK)).toBe(true);
+        expect(esUrlDeLinkDePago('http://checkout.wompi.co/l/Hj5s7R')).toBe(false);
+        expect(esUrlDeLinkDePago('javascript:alert(1)')).toBe(false);
+        expect(esUrlDeLinkDePago('https://x.co/"><script>')).toBe(false);
+        expect(esUrlDeLinkDePago('3204298969')).toBe(false);
+        expect(linkDePago([{ type: 'payment_link', value: 'http://inseguro.co/l/1' }], null)).toBeNull();
+        expect(linkDePago(null, null)).toBeNull();
+    });
+});
 
 describe('parseCuentasDePago', () => {
     it('lee `value`, `active` y `only_for`, y descarta filas sin valor', () => {

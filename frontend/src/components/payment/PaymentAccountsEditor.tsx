@@ -10,6 +10,11 @@
  * Los valores se muestran enmascarados hasta que el admin pulsa "Mostrar" (mismo
  * gesto que el resto de la tarjeta). Mientras esten enmascarados el input es de
  * solo lectura: si se pudiera escribir encima, se guardarian los asteriscos.
+ *
+ * Tipo «Link de pago (Wompi)» (2026-10-06, Dynasty): no es una llave para
+ * transferir sino un link reutilizable donde el acudiente escribe el valor. Se
+ * muestra como botón en el checkout, la página /p/:token, el correo del estado
+ * de cuenta y el bot. Va sin enmascarar (es una URL pública) y se valida https.
  */
 
 import { Button } from '@/components/ui/button';
@@ -21,6 +26,8 @@ import { maskSensitive } from '@/lib/utils';
 import {
     PAYMENT_ACCOUNT_TYPES,
     accountPlaceholder,
+    isPaymentLink,
+    isValidPaymentLinkUrl,
     newAccountId,
     type PaymentAccount,
     type PaymentAccountType,
@@ -56,7 +63,9 @@ export function PaymentAccountsEditor({ accounts, onChange, showSensitive, onRev
                 <Label className="font-medium">Llaves de transferencia</Label>
                 <p className="text-xs text-muted-foreground max-w-[62ch]">
                     Bre-B, Nequi, Daviplata o llaves de otros bancos. Los acudientes las verán en
-                    este orden, y solo se aceptan comprobantes girados a alguna de ellas.
+                    este orden, y solo se aceptan comprobantes girados a alguna de ellas. Si tienes un
+                    link de pago de Wompi, agrégalo como «Link de pago (Wompi)»: los acudientes lo verán
+                    como botón para pagar con tarjeta, PSE o Nequi.
                 </p>
             </div>
 
@@ -75,7 +84,12 @@ export function PaymentAccountsEditor({ accounts, onChange, showSensitive, onRev
                     </div>
 
                     <div className="space-y-2">
-                        {accounts.map(account => (
+                        {accounts.map(account => {
+                            const link = isPaymentLink(account);
+                            // Un link es una URL pública: no hay nada que enmascarar.
+                            const visible = showSensitive || link;
+                            const linkInvalido = link && account.value.trim() !== '' && !isValidPaymentLinkUrl(account.value);
+                            return (
                             <div
                                 key={account.id}
                                 className={`grid grid-cols-1 md:grid-cols-[minmax(0,11rem)_minmax(0,1fr)_minmax(0,1.1fr)_4.5rem_2.5rem] gap-2 items-center rounded-lg border bg-muted/30 p-2 ${account.active ? '' : 'opacity-60'}`}
@@ -99,11 +113,15 @@ export function PaymentAccountsEditor({ accounts, onChange, showSensitive, onRev
                                 />
 
                                 <Input
-                                    aria-label="Valor de la llave"
+                                    aria-label={link ? 'Dirección del link de pago' : 'Valor de la llave'}
+                                    aria-invalid={linkInvalido || undefined}
+                                    type={link ? 'url' : 'text'}
+                                    inputMode={link ? 'url' : undefined}
                                     placeholder={accountPlaceholder(account.type)}
-                                    value={showSensitive ? account.value : maskSensitive(account.value)}
-                                    readOnly={!showSensitive}
-                                    onFocus={() => { if (!showSensitive) onReveal(); }}
+                                    value={visible ? account.value : maskSensitive(account.value)}
+                                    readOnly={!visible}
+                                    className={linkInvalido ? 'border-destructive' : undefined}
+                                    onFocus={() => { if (!visible) onReveal(); }}
                                     onChange={e => patch(account.id, { value: e.target.value })}
                                 />
 
@@ -133,6 +151,18 @@ export function PaymentAccountsEditor({ accounts, onChange, showSensitive, onRev
                                     SOLO las inscripciones. Con esto el acudiente no la ve al
                                     pagar la mensualidad, el bot no la ofrece y un comprobante
                                     de mensualidad girado ahí queda en revisión. */}
+                                {linkInvalido && (
+                                    <p className="md:col-span-5 px-1 text-xs text-destructive">
+                                        Debe ser una dirección https completa, por ejemplo https://checkout.wompi.co/l/…
+                                    </p>
+                                )}
+                                {link && !linkInvalido && (
+                                    <p className="md:col-span-5 px-1 text-xs text-muted-foreground">
+                                        El acudiente escribe el valor en Wompi: le pediremos mandar el comprobante para que
+                                        apliques el pago.
+                                    </p>
+                                )}
+
                                 <label className="md:col-span-5 flex items-start gap-2 px-1 text-xs text-muted-foreground cursor-pointer">
                                     <input
                                         type="checkbox"
@@ -146,7 +176,8 @@ export function PaymentAccountsEditor({ accounts, onChange, showSensitive, onRev
                                     </span>
                                 </label>
                             </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </>
             )}

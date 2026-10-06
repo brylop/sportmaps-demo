@@ -13,7 +13,38 @@
  * escuela quede sin datos de pago entre el deploy y el primer guardado.
  */
 
-export type PaymentAccountType = 'breb' | 'nequi' | 'daviplata' | 'transfer_key';
+/**
+ * `payment_link` NO es una llave para transferir: es un link de pago reutilizable
+ * (p.ej. https://checkout.wompi.co/l/Hj5s7R de Dynasty, 2026-10-06) donde el
+ * acudiente escribe el valor. Vive en la misma lista porque la escuela lo
+ * administra en el mismo panel, pero el acudiente lo ve como botón, no como
+ * llave para copiar, y el BFF no lo usa para verificar el destino del comprobante.
+ */
+export type PaymentAccountType = 'breb' | 'nequi' | 'daviplata' | 'transfer_key' | 'payment_link';
+
+export const PAYMENT_LINK_TYPE = 'payment_link' as const;
+
+/** Texto del botón y aviso que acompañan al link (iguales en BFF: payment-accounts.ts). */
+export const PAYMENT_LINK_BUTTON_TEXT = 'Pagar con tarjeta, PSE o Nequi (Wompi)';
+export const PAYMENT_LINK_NOTICE =
+    'Escribe el valor de tu cobro y, al terminar, manda el comprobante por WhatsApp o súbelo en la app para que la escuela lo aplique.';
+
+/**
+ * ¿Sirve como link de pago? Solo https y sin caracteres raros. El esperado es
+ * https://checkout.wompi.co/l/<id>; se acepta otro https por si la escuela usa
+ * otra pasarela con links reutilizables. Misma regla que esUrlDeLinkDePago del BFF.
+ */
+export function isValidPaymentLinkUrl(value: string): boolean {
+    const v = value.trim();
+    if (!/^https:\/\/[^\s"'<>`]+$/i.test(v)) return false;
+    try {
+        return new URL(v).protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
+export const isPaymentLink = (a: Pick<PaymentAccount, 'type'>): boolean => a.type === PAYMENT_LINK_TYPE;
 
 /** Categorías de cobro (CHECK de payments.payment_category). */
 export type PaymentChargeCategory = 'mensualidad' | 'inscripcion' | 'articulos' | 'torneo' | 'otro' | 'seguro' | 'excedente';
@@ -69,6 +100,7 @@ export const PAYMENT_ACCOUNT_TYPES: { value: PaymentAccountType; label: string; 
     { value: 'nequi',        label: 'Nequi',                  placeholder: 'Celular' },
     { value: 'daviplata',    label: 'Daviplata',              placeholder: 'Celular' },
     { value: 'transfer_key', label: 'Llave de transferencia', placeholder: 'Celular, correo o alias' },
+    { value: 'payment_link', label: 'Link de pago (Wompi)',   placeholder: 'https://checkout.wompi.co/l/…' },
 ];
 
 export function accountTypeLabel(type: string): string {
@@ -179,8 +211,27 @@ export function resolvePaymentAccounts(
 ): PaymentAccount[] {
     if (!source) return [];
     const parsed = parsePaymentAccounts(source.payment_accounts);
-    const accounts = parsed.length > 0 ? parsed : legacyColumnsToAccounts(source);
-    return onlyActive ? accounts.filter(a => a.active && accountAppliesTo(a, category)) : accounts;
+    // Un link de pago no cuenta como "la escuela ya migró sus llaves": si la
+    // lista solo tuviera el link, se perderían las columnas viejas.
+    const keys = parsed.filter(a => !isPaymentLink(a));
+    const accounts = keys.length > 0 ? parsed : [...legacyColumnsToAccounts(source), ...parsed];
+    // Al acudiente solo se le muestran llaves para transferir; el link sale por
+    // resolvePaymentLink como botón. El panel (onlyActive=false) ve todo.
+    return onlyActive ? accounts.filter(a => a.active && !isPaymentLink(a) && accountAppliesTo(a, category)) : accounts;
+}
+
+/**
+ * Link de pago a mostrar al acudiente para un cobro de esta categoría: el
+ * primero activo, aplicable (`only_for`) y con URL https válida. null = no hay.
+ */
+export function resolvePaymentLink(
+    source: { payment_accounts?: unknown } | null | undefined,
+    { category = null }: { category?: PaymentChargeCategory | null } = {},
+): string | null {
+    if (!source) return null;
+    const link = parsePaymentAccounts(source.payment_accounts)
+        .find(a => isPaymentLink(a) && a.active && accountAppliesTo(a, category) && isValidPaymentLinkUrl(a.value));
+    return link?.value ?? null;
 }
 
 /**
@@ -194,6 +245,8 @@ export function accountsToLegacyColumns(accounts: PaymentAccount[]): Required<Om
     // una llave para todo.
     const firstOf = (type: PaymentAccountType) =>
         accounts.find(a => a.active && !(a.only_for && a.only_for.length > 0) && a.type === type && a.value.trim())?.value.trim() ?? null;
+    // `payment_link` no tiene columna vieja y no se espeja: los lectores de las
+    // columnas (bot viejo, RPCs) tratarían la URL como número de cuenta.
     return {
         nequi_number:     firstOf('nequi'),
         daviplata_number: firstOf('daviplata'),

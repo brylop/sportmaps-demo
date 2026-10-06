@@ -91,7 +91,9 @@ vi.mock('../services/payment-provider.resolver', () => ({
 vi.mock('../services/whatsapp-medios-de-pago.service', () => ({
     mediosDePago: vi.fn(async () => ({
         cuentas: [{ tipo: 'Nequi', titular: 'Club Prueba', numero: '3001234567' }],
-        enlace_para_pagar: 'https://app.sportmaps.co/my-payments',
+        enlace_para_pagar: 'https://checkout.wompi.co/l/Hj5s7R',
+        link_de_pago: 'https://checkout.wompi.co/l/Hj5s7R',
+        instrucciones_del_enlace: 'x',
         puede_enviar_comprobante_por_whatsapp: true,
     })),
 }));
@@ -208,6 +210,9 @@ describe('vista del cobro', () => {
         expect(v.estado).toBe('pendiente');
         expect(v.enLinea).toEqual({ proveedor: 'wompi', recargoPct: 5, recargo: 7500, total: 157500 });
         expect(v.transferencia.cuentas).toHaveLength(1);
+        // Link de pago genérico de la escuela (Wompi de Dynasty): convive con el
+        // pago en línea propio, que va primero en la página.
+        expect(v.transferencia.linkDePago).toBe('https://checkout.wompi.co/l/Hj5s7R');
         expect(v.transferencia.whatsappComprobante).toMatch(/^https:\/\/wa\.me\/573001112233\?text=/);
         const crudo = JSON.stringify(v);
         expect(crudo).not.toContain('caro@correo.co');
@@ -224,6 +229,7 @@ describe('vista del cobro', () => {
         expect(v.fechaPago).toBe('2026-10-02');
         expect(v.enLinea).toBeNull();
         expect(v.transferencia.cuentas).toHaveLength(0);
+        expect(v.transferencia.linkDePago).toBeNull();
     });
 
     it('escuela sin pasarela → sin pago en línea, con cuentas y comprobante por WhatsApp', async () => {

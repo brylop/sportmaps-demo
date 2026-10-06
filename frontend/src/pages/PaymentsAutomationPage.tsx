@@ -44,6 +44,8 @@ import {
   resolvePaymentAccounts,
   serializePaymentAccounts,
   accountsToLegacyColumns,
+  isPaymentLink,
+  isValidPaymentLinkUrl,
   type PaymentAccount,
   type LegacyAccountColumns,
 } from '@/lib/payment-accounts';
@@ -581,6 +583,17 @@ export default function PaymentsAutomationPage() {
 
   const handleSaveBilling = async () => {
     if (!billing || !schoolId) return;
+    // Un link de pago mal escrito no se guarda: el BFF y el checkout lo
+    // ignorarían en silencio y la escuela creería que está publicado.
+    const linkMalo = (billing.payment_accounts ?? []).find(a => isPaymentLink(a) && a.value.trim() && !isValidPaymentLinkUrl(a.value));
+    if (linkMalo) {
+      toast({
+        title: 'Revisa el link de pago',
+        description: 'Debe ser una dirección https completa, por ejemplo https://checkout.wompi.co/l/…',
+        variant: 'destructive',
+      });
+      return;
+    }
     setBillingSaving(true);
     try {
       // La lista manda: las columnas sueltas se reescriben con la primera llave

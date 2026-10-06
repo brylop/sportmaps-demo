@@ -33,7 +33,8 @@ import { downloadReceipt } from '@/lib/receipt-generator';
 import { usePdfBranding } from '@/hooks/usePdfBranding';
 import { transactionsAPI } from '@/lib/api/transactions';
 import { maskSensitive } from '@/lib/utils';
-import { resolvePaymentAccounts, accountDisplayLabel } from '@/lib/payment-accounts';
+import { resolvePaymentAccounts, resolvePaymentLink, accountDisplayLabel } from '@/lib/payment-accounts';
+import { PaymentLinkButton } from '@/components/payment/PaymentLinkButton';
 import { Eye, EyeOff, Copy } from 'lucide-react';
 
 export interface PaymentItem {
@@ -102,6 +103,8 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
   // Llaves visibles de la escuela. La RPC ahora devuelve payment_accounts; las
   // columnas viejas quedan de respaldo para escuelas sin la lista guardada.
   const payableAccounts = useMemo(() => resolvePaymentAccounts(bankSettings), [bankSettings]);
+  // Link de pago genérico (Wompi de Dynasty): sin categoría conocida, solo uno general.
+  const paymentLink = useMemo(() => resolvePaymentLink(bankSettings), [bankSettings]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-CO', {
@@ -388,6 +391,7 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
                         </div>
                       ) : bankSettings ? (
                         <>
+                          {paymentLink && <PaymentLinkButton url={paymentLink} className="mb-2" />}
                           {bankSettings.bank_name && (
                             <div className="flex justify-between items-center group">
                               <p>Banco: <span className="font-medium">{bankSettings.bank_name} ({bankSettings.bank_account_type})</span></p>
