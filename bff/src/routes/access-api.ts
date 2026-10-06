@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { supabase } from '../config/supabase';
-import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { requireAuth, requireRole, auditLog, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { invalidateDeviceCache, invalidateMappingCache, getHourBankSettings } from './access-adms';
 import { getAccessBlockMechanism, buildBlockCommand, computeIsBlocked, BLOCK_COMMAND_TYPES } from '../utils/accessBlockMechanism';
 import { wakeSchool } from '../services/bridgeWsHub';
@@ -1031,6 +1031,12 @@ router.patch('/hour-bank-visits/:id/correct', requireAuth, async (req: Authentic
       })
       .eq('id', id);
 
+    // F-E: si el periodo ya tenía un cargo por horas de más SUGERIDO, se
+    // recalcula en sitio con el consumo corregido (nunca toca uno confirmado).
+    // Best-effort: la corrección ya quedó aplicada arriba.
+    const { error: recomputeError } = await supabase.rpc('recompute_hour_bank_overage', { p_period_id: visit.period_id });
+    if (recomputeError) console.error('[hour-bank] no se pudo recalcular el cargo por horas de más:', recomputeError.message);
+
     // D-10: mismo patrón de notificación que closeHourBankVisit (F3) y que
     // payment_overdue — solo avisa, sin bloqueo automático.
     const available = (moveResult as any)?.available_minutes;
@@ -1051,6 +1057,221 @@ router.patch('/hour-bank-visits/:id/correct', requireAuth, async (req: Authentic
     return res.json({ success: true, billed_minutes: billedMinutes, available_minutes: available });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error al corregir la visita' });
+  }
+});
+
+// ─── Banco de horas — cargo por horas de más (F-E) ───────────────────────────
+// docs/specs/dreamers-reglas-completas-plan.md F-E / D8. El cron de las 03:00
+// (jobs/hour-bank-overage.job.ts) deja filas 'suggested'; acá el owner las ve,
+// las confirma (crea el cobro vía confirm_hour_bank_overage, FOR UPDATE) o las
+// descarta. Mismo chequeo manual "solo owner" que D-8 (/hour-bank-visits/:id/correct):
+// requireRole('owner') dejaría pasar a admin/super_admin.
+
+const OVERAGE_STATUSES = ['suggested', 'confirmed', 'dismissed'] as const;
+
+// ─── GET /api/v1/access/hour-bank-overage-settings ───────────────────────────
+router.get('/hour-bank-overage-settings', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId, role } = req;
+    if (role !== 'owner') {
+      return res.status(403).json({ error: 'Solo el owner de la escuela puede ver esta configuración' });
+    }
+    const { data } = await supabase
+      .from('school_settings')
+      .select('hours_plan_enabled, hour_bank_overage_charges_enabled, hours_billing_rounding')
+      .eq('school_id', schoolId)
+      .maybeSingle();
+    return res.json({
+      hours_plan_enabled: !!(data as any)?.hours_plan_enabled,
+      hour_bank_overage_charges_enabled: !!(data as any)?.hour_bank_overage_charges_enabled,
+      hours_billing_rounding: (data as any)?.hours_billing_rounding ?? 'none',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al leer la configuración' });
+  }
+});
+
+// ─── PATCH /api/v1/access/hour-bank-overage-settings ─────────────────────────
+router.patch('/hour-bank-overage-settings', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId, role } = req;
+    if (role !== 'owner') {
+      return res.status(403).json({ error: 'Solo el owner de la escuela puede cambiar esta configuración' });
+    }
+    const { enabled } = req.body as { enabled?: unknown };
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled (boolean) es requerido' });
+    }
+
+    const { data: before } = await supabase
+      .from('school_settings')
+      .select('hour_bank_overage_charges_enabled')
+      .eq('school_id', schoolId)
+      .maybeSingle();
+    if (!before) return res.status(404).json({ error: 'La escuela no tiene configuración' });
+
+    const { error } = await supabase
+      .from('school_settings')
+      .update({ hour_bank_overage_charges_enabled: enabled })
+      .eq('school_id', schoolId);
+    if (error) return res.status(500).json({ error: 'No se pudo guardar la configuración' });
+
+    await auditLog(req, 'hour_bank_overage_charges_toggled', 'school_settings', schoolId!,
+      { hour_bank_overage_charges_enabled: (before as any).hour_bank_overage_charges_enabled },
+      { hour_bank_overage_charges_enabled: enabled });
+
+    return res.json({ success: true, hour_bank_overage_charges_enabled: enabled });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al guardar la configuración' });
+  }
+});
+
+// ─── GET /api/v1/access/hour-bank-overage-charges?status= ────────────────────
+router.get('/hour-bank-overage-charges', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId, role } = req;
+    if (role !== 'owner') {
+      return res.status(403).json({ error: 'Solo el owner de la escuela puede ver los cargos por horas de más' });
+    }
+
+    const status = (req.query.status as string) || 'suggested';
+    if (!(OVERAGE_STATUSES as readonly string[]).includes(status)) {
+      return res.status(400).json({ error: `status inválido (${OVERAGE_STATUSES.join(' | ')})` });
+    }
+
+    const { data: rows, error } = await supabase
+      .from('hour_bank_overage_charges')
+      .select('id, period_id, enrollment_id, included_minutes, consumed_minutes, overage_minutes, billable_hours, hourly_rate, amount, rounding, plan_price, status, payment_id, decided_at, dismiss_reason, created_at')
+      .eq('school_id', schoolId)
+      .eq('status', status)
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (error) return res.status(500).json({ error: 'Error al listar los cargos' });
+    if (!rows || rows.length === 0) return res.json({ charges: [] });
+
+    const periodIds = [...new Set(rows.map((r: any) => r.period_id))];
+    const enrollmentIds = [...new Set(rows.map((r: any) => r.enrollment_id))];
+
+    const [{ data: periods }, { data: enrollments }] = await Promise.all([
+      supabase.from('hour_bank_periods').select('id, period_start, period_end').in('id', periodIds),
+      supabase.from('enrollments')
+        .select('id, child_id, user_id, unregistered_athlete_id, offering_plans(name)')
+        .in('id', enrollmentIds),
+    ]);
+
+    const childIds = [...new Set((enrollments ?? []).map((e: any) => e.child_id).filter(Boolean))];
+    const userIds  = [...new Set((enrollments ?? []).map((e: any) => e.user_id).filter(Boolean))];
+    const uaIds    = [...new Set((enrollments ?? []).map((e: any) => e.unregistered_athlete_id).filter(Boolean))];
+
+    const empty = Promise.resolve({ data: [] as any[] });
+    const [{ data: children }, { data: profiles }, { data: uas }] = await Promise.all([
+      childIds.length ? supabase.from('children').select('id, full_name').in('id', childIds) : empty,
+      userIds.length  ? supabase.from('profiles').select('id, full_name').in('id', userIds) : empty,
+      uaIds.length    ? supabase.from('unregistered_athletes').select('id, full_name').in('id', uaIds) : empty,
+    ]);
+
+    const nameOf: Record<string, string> = {};
+    for (const x of [...(children ?? []), ...(profiles ?? []), ...(uas ?? [])] as any[]) nameOf[x.id] = x.full_name;
+    const periodMap: Record<string, any> = Object.fromEntries((periods ?? []).map((p: any) => [p.id, p]));
+    const enrMap: Record<string, any> = Object.fromEntries((enrollments ?? []).map((e: any) => [e.id, e]));
+
+    const charges = rows.map((r: any) => {
+      const e = enrMap[r.enrollment_id];
+      const athleteId = e?.child_id ?? e?.user_id ?? e?.unregistered_athlete_id;
+      return {
+        ...r,
+        athlete_name: (athleteId && nameOf[athleteId]) || 'Atleta',
+        plan_name: e?.offering_plans?.name ?? null,
+        period_start: periodMap[r.period_id]?.period_start ?? null,
+        period_end: periodMap[r.period_id]?.period_end ?? null,
+      };
+    });
+
+    return res.json({ charges });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al listar los cargos por horas de más' });
+  }
+});
+
+// ─── POST /api/v1/access/hour-bank-overage-charges/:id/confirm ───────────────
+router.post('/hour-bank-overage-charges/:id/confirm', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId, role } = req;
+    if (role !== 'owner') {
+      return res.status(403).json({ error: 'Solo el owner de la escuela puede confirmar cargos por horas de más' });
+    }
+    const id = String(req.params.id);
+
+    // Aislamiento por escuela antes de la RPC (la RPC corre como service_role).
+    const { data: row } = await supabase
+      .from('hour_bank_overage_charges')
+      .select('id, status, amount, period_id')
+      .eq('id', id)
+      .eq('school_id', schoolId)
+      .maybeSingle();
+    if (!row) return res.status(404).json({ error: 'Cargo no encontrado' });
+
+    const { data, error } = await supabase.rpc('confirm_hour_bank_overage', { p_id: id, p_actor: req.user.id });
+    if (error) {
+      req.log?.error({ err: error.message }, 'Error confirmando cargo por horas de más');
+      return res.status(500).json({ error: 'No se pudo crear el cobro' });
+    }
+    const result = (data ?? {}) as { payment_id?: string; error?: string; status?: string };
+    if (result.error === 'not_suggested') {
+      return res.status(409).json({
+        error: `Este cargo ya fue ${result.status === 'confirmed' ? 'confirmado' : 'descartado'}`,
+        status: result.status,
+      });
+    }
+    if (result.error) return res.status(422).json({ error: result.error });
+
+    await auditLog(req, 'hour_bank_overage_confirmed', 'hour_bank_overage_charges', id,
+      { status: 'suggested' },
+      { status: 'confirmed', payment_id: result.payment_id, amount: (row as any).amount, period_id: (row as any).period_id });
+
+    return res.json({ success: true, payment_id: result.payment_id });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al confirmar el cargo' });
+  }
+});
+
+// ─── POST /api/v1/access/hour-bank-overage-charges/:id/dismiss ───────────────
+router.post('/hour-bank-overage-charges/:id/dismiss', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId, role } = req;
+    if (role !== 'owner') {
+      return res.status(403).json({ error: 'Solo el owner de la escuela puede descartar cargos por horas de más' });
+    }
+    const id = String(req.params.id);
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
+
+    // Guardado por status: si otra pestaña ya confirmó, no se pisa.
+    const now = new Date().toISOString();
+    const { data: updated, error } = await supabase
+      .from('hour_bank_overage_charges')
+      .update({
+        status: 'dismissed',
+        dismiss_reason: reason || null,
+        decided_by: req.user.id,
+        decided_at: now,
+        updated_at: now,
+      })
+      .eq('id', id)
+      .eq('school_id', schoolId)
+      .eq('status', 'suggested')
+      .select('id, amount, period_id');
+    if (error) return res.status(500).json({ error: 'No se pudo descartar el cargo' });
+    if (!updated || updated.length === 0) {
+      return res.status(409).json({ error: 'El cargo no existe o ya no está pendiente' });
+    }
+
+    await auditLog(req, 'hour_bank_overage_dismissed', 'hour_bank_overage_charges', id,
+      { status: 'suggested' },
+      { status: 'dismissed', reason: reason || null, amount: (updated[0] as any).amount, period_id: (updated[0] as any).period_id });
+
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al descartar el cargo' });
   }
 });
 
