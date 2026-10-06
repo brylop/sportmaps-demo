@@ -33,6 +33,7 @@ import { calcularPendientes, contarPorVista, esColumnaInexistente, estaPendiente
          type VistaDelBuzon } from '../services/whatsapp-buzon';
 import { tomarConversacion, soltarConversacion, tomasDe, HORAS_TOMADA_DEFAULT, HORAS_TOMADA_MAX,
          HORAS_TOMADA_AL_RESPONDER } from '../services/whatsapp-tomada.service';
+import { PASO_PROSPECTO } from '../services/whatsapp-metricas';
 
 const router = Router();
 
@@ -549,6 +550,50 @@ router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRe
         for (const m of (msgs ?? []) as any[]) {
             if (!ultimos.has(m.conversation_id)) ultimos.set(m.conversation_id, m);
         }
+        // El tope de 1000 lo pueden llenar pocos hilos muy conversados: los
+        // demás llegaban como «(sin mensajes)» aunque sí tuvieran. Segunda
+        // pasada solo para los que quedaron sin último mensaje.
+        const faltan = ids.filter((id: string) => !ultimos.has(id));
+        if (msgs && msgs.length >= 1000 && faltan.length) {
+            const { data: resto } = await supabase
+                .from('whatsapp_messages')
+                .select('conversation_id, direction, text_body, type, created_at, ai_generated')
+                .in('conversation_id', faltan)
+                .order('created_at', { ascending: false })
+                .limit(1000);
+            for (const m of (resto ?? []) as any[]) {
+                if (!ultimos.has(m.conversation_id)) ultimos.set(m.conversation_id, m);
+            }
+        }
+    }
+
+    // ¿Es un prospecto? Un número que no es familia y al que el asistente ya
+    // contestó en el paso de «tema escolar» (pidió información de clases,
+    // precios, inscripción). Solo se busca entre los que no son familia.
+    // TODO: cuando el backend guarde la detección de prospectos en la
+    // conversación (otro frente, whatsapp-atencion.service), leerla de ahí.
+    const prospectos = new Set<string>();
+    const noFamilia = data.filter((c: any) => vistaDeTipo(c.contact_kind) === 'otros'
+        && c.contact_kind !== 'personal' && c.contact_kind !== 'staff').map((c: any) => c.id);
+    if (noFamilia.length) {
+        const [enviados, propuestos] = await Promise.all([
+            supabase.from('whatsapp_messages')
+                .select('conversation_id')
+                .in('conversation_id', noFamilia)
+                .eq('direction', 'outbound')
+                .eq('payload->>step', PASO_PROSPECTO)
+                .limit(1000),
+            // En modo asistido la respuesta al prospecto queda como borrador.
+            supabase.from('whatsapp_message_drafts')
+                .select('conversation_id')
+                .in('conversation_id', noFamilia)
+                .eq('tool_context->>step', PASO_PROSPECTO)
+                .limit(1000),
+        ]);
+        for (const r of [enviados, propuestos]) {
+            if (r.error) continue; // Sin la columna o el dato: el buzón no se cae.
+            for (const x of (r.data ?? []) as any[]) prospectos.add(x.conversation_id);
+        }
     }
 
     // Cuantos borradores esperan aprobacion en cada hilo.
@@ -618,6 +663,7 @@ router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRe
             ultimo_mensaje: ultimos.get(c.id) ?? null,
             borradores_pendientes: borradores.get(c.id) ?? 0,
             toma: tomas.get(c.id) ?? null,
+            es_prospecto: prospectos.has(c.id) || c.contact_kind === 'prospecto',
         })),
     });
 });
