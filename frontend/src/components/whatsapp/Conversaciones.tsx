@@ -71,6 +71,8 @@ export interface Conversacion {
     contact_kind?: TipoDeContacto | null;
     /** El último mensaje entrante no tiene respuesta. Ausente en backends viejos. */
     pendiente?: boolean;
+    /** Pendiente y lo último NO es un cierre («gracias», «ok», 👍). Ausente en backends viejos. */
+    requiere_respuesta?: boolean;
     /** Mejora 9: tomada por una persona (solo si está vigente). Mientras tanto el asistente calla. */
     toma?: Toma | null;
     /** El asistente lo atendió como prospecto (pidió info de clases/inscripción). Ausente en backends viejos. */
@@ -124,7 +126,8 @@ function EtiquetaTipo({ c }: { c: Pick<Conversacion, 'contact_kind' | 'es_prospe
  * (versión vieja), se cae al `status === 'open'` de antes.
  */
 const sinResponder = (c: Conversacion) =>
-    typeof c.pendiente === 'boolean' ? c.pendiente : c.status === 'open';
+    typeof c.requiere_respuesta === 'boolean' ? c.requiere_respuesta
+        : typeof c.pendiente === 'boolean' ? c.pendiente : c.status === 'open';
 
 const TIPOS_FAMILIA: readonly string[] = ['familia', 'familia_sin_cuenta', 'ambiguo'];
 const esFamilia = (c: Conversacion) => !!c.contact_kind && TIPOS_FAMILIA.includes(c.contact_kind);
@@ -400,7 +403,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
             const fresca = lista.find((c) => c.id === a.id);
             if (!fresca) return a;
             return { ...a, contact_kind: fresca.contact_kind, es_prospecto: fresca.es_prospecto,
-                     pendiente: fresca.pendiente, status: fresca.status, toma: fresca.toma ?? null };
+                     pendiente: fresca.pendiente, requiere_respuesta: fresca.requiere_respuesta, status: fresca.status, toma: fresca.toma ?? null };
         });
     }, [lista]);
 
@@ -533,7 +536,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
         try {
             await bffClient.post(`/api/v1/whatsapp/${schoolId}/conversaciones/${abierta.id}/cerrar`, {});
             toast({ title: 'Conversación cerrada', description: 'Si la persona vuelve a escribir, se abre de nuevo.' });
-            parchar(abierta.id, { status: 'closed', pendiente: false });
+            parchar(abierta.id, { status: 'closed', pendiente: false, requiere_respuesta: false });
             await cargarLista();
         } catch (e: any) {
             toast({ title: 'No se pudo cerrar', description: e?.message, variant: 'destructive' });

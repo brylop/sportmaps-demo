@@ -59,7 +59,10 @@ interface Estado {
     consumo: Consumo | null;
     bandeja?: FilaBandeja[];
     eventos?: EventoMeta[];
+    /** Borradores `pending` que quedaron de un rato en asistido (solo en modo auto). */
+    borradores_huerfanos?: Huerfanos;
 }
+interface Huerfanos { conversaciones: number; borradores: number }
 interface Plantilla {
     name: string; status: string; category: string; language: string;
 }
@@ -104,6 +107,8 @@ export default function WhatsAppPage() {
     const [conectando, setConectando] = useState(false);
     const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
     const [guardando, setGuardando] = useState(false);
+    const [pestana, setPestana] = useState(pestanaInicial);
+    const [respondiendo, setRespondiendo] = useState(false);
 
     const cargar = useCallback(async () => {
         if (!schoolId) return;
@@ -174,13 +179,31 @@ export default function WhatsAppPage() {
         if (!schoolId) return;
         setGuardando(true);
         try {
-            const r = await bffClient.patch<Ajustes>(`/api/v1/whatsapp/${schoolId}/settings`, cambios);
-            setEstado((e) => (e ? { ...e, ajustes: r } : e));
+            const { borradores_huerfanos: huerfanos, ...r } = await bffClient.patch<Ajustes & { borradores_huerfanos?: Huerfanos }>(
+                `/api/v1/whatsapp/${schoolId}/settings`, cambios);
+            setEstado((e) => (e ? { ...e, ajustes: r, borradores_huerfanos: huerfanos ?? e.borradores_huerfanos } : e));
             toast({ title: 'Guardado' });
         } catch (err: any) {
             toast({ title: 'No se pudo guardar', description: err?.message ?? 'Error', variant: 'destructive' });
         } finally {
             setGuardando(false);
+        }
+    };
+
+    // Al volver a automático los borradores del rato en asistido no se mandan
+    // solos (ver PATCH /settings): «Responder ahora» le pide al BFF que conteste
+    // esas conversaciones con el bot de HOY (no reenvía el borrador viejo).
+    const responderAhora = async () => {
+        if (!schoolId) return;
+        setRespondiendo(true);
+        try {
+            await bffClient.post(`/api/v1/whatsapp/${schoolId}/ponerse-al-dia`, { solo_borradores: true });
+            setEstado((e) => (e ? { ...e, borradores_huerfanos: { conversaciones: 0, borradores: 0 } } : e));
+            toast({ title: 'Respondiendo', description: 'El asistente está contestando esas conversaciones. Tarda uno o dos minutos.' });
+        } catch (err: any) {
+            toast({ title: 'No se pudo', description: err?.message ?? 'Error', variant: 'destructive' });
+        } finally {
+            setRespondiendo(false);
         }
     };
 
@@ -298,6 +321,31 @@ export default function WhatsAppPage() {
                 </Card>
             )}
 
+            {estado?.ajustes?.mode === 'auto' && (estado.borradores_huerfanos?.borradores ?? 0) > 0 && (
+                <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/20">
+                    <CardContent className="pt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+                        <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+                        <div className="text-sm flex-1">
+                            <p className="font-medium">
+                                Quedan {estado.borradores_huerfanos!.borradores} borradores sin enviar
+                                en {estado.borradores_huerfanos!.conversaciones} conversaciones
+                            </p>
+                            <p className="text-muted-foreground">
+                                Se prepararon mientras el bot estaba en modo asistido y nadie los aprobó.
+                                Ahora que responde solo, nadie los va a mandar: esas familias siguen esperando.
+                            </p>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                            <Button onClick={() => void responderAhora()} disabled={respondiendo}>
+                                {respondiendo && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                                Enviar todos
+                            </Button>
+                            <Button variant="outline" onClick={() => setPestana('conversaciones')}>Revisar</Button>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
             {consumo?.avisar && (
                 <Card className="border-orange-300 bg-orange-50 dark:bg-orange-950/20">
                     <CardContent className="pt-6 flex gap-3">
@@ -313,7 +361,7 @@ export default function WhatsAppPage() {
                 </Card>
             )}
 
-            <Tabs defaultValue={pestanaInicial}>
+            <Tabs value={pestana} onValueChange={setPestana}>
                 {/* Con ocho pestañas la fila no cabe en un celular: se desliza de lado. */}
                 <TabsList className="w-full justify-start overflow-x-auto">
                     <TabsTrigger value="resumen">Resumen</TabsTrigger>

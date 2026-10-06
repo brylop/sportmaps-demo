@@ -320,13 +320,30 @@ const CIERRES = new Set([
     'ok muchas gracias', 'listo muchas gracias', 'super gracias', 'gracias a ti', 'a ti',
 ]);
 
-export function esCierreSuelto(texto: string | null | undefined): boolean {
+/** Apelativos de cariño que acompañan un cierre («Vale querida», «Gracias linda»). */
+const CARINOS = new Set(['querida', 'querido', 'linda', 'lindo', 'hermosa', 'bella', 'reina', 'mija', 'amiga', 'amigo']);
+
+/**
+ * `equipo`: los vocativos de la escuela (`vocativosDeEscuela`, claves
+ * normalizadas: «mile», «milena»). «Gracias Mile» y «Listo mile gracias»
+ * son cierres con el nombre de quien atiende (Dynasty, 2026-10-06); sin el
+ * nombre, el P9 los leía como recado para Milena.
+ */
+export function esCierreSuelto(
+    texto: string | null | undefined,
+    equipo: ReadonlyMap<string, string> | ReadonlySet<string> = new Map(),
+): boolean {
     const crudo = (texto || '').trim();
     if (!crudo) return false;
     // Solo emojis o signos («👍», «🙏🏻», «👆», «!!»): no hay nada que contestar.
     if (!/[\p{L}\p{N}]/u.test(crudo)) return !crudo.includes('?');
+    if (crudo.includes('?')) return false;
     const t = normalizarFrase(crudo);
-    return CIERRES.has(t);
+    if (CIERRES.has(t)) return true;
+    const resto = t.split(' ')
+        .filter((w) => !equipo.has(w) && !VOCATIVOS_GENERICOS.includes(w) && !CARINOS.has(w))
+        .join(' ');
+    return resto !== t && CIERRES.has(resto);
 }
 
 // ─── P14. Auto-respuestas de otros negocios ─────────────────────────────────
