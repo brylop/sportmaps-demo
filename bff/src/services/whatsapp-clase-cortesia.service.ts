@@ -233,9 +233,15 @@ export function quiereCancelarClase(texto: string | null | undefined): boolean {
         || /\bya no (puedo|podemos|voy|vamos) (a ir )?(a )?(la )?(clase|prueba)\b/.test(n);
 }
 
+/**
+ * ¿Quiere salirse del agendamiento? Antes solo valía el mensaje EXACTO
+ * («cancelar»); en la prueba en vivo del 2026-10-06 escribieron «Cancelar
+ * prueba» y el bot respondió «Toca la franja que prefieras». Ahora basta con
+ * que EMPIECE por una de estas frases.
+ */
 function abandona(texto: string): boolean {
-    return ['cancelar', 'salir', 'ya no', 'no gracias', 'dejalo asi', 'olvidalo', 'no quiero']
-        .includes(normalizar(texto));
+    return /^(cancelar|cancela|cancelo|salir|ya no|no gracias|dejalo|olvidalo|no quiero|no me interesa|mejor no|despues|luego)/
+        .test(normalizar(texto));
 }
 
 /** Un mensaje largo o con pregunta no es una respuesta: es otra conversación. */
