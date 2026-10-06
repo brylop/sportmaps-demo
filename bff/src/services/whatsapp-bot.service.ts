@@ -30,6 +30,7 @@
  */
 
 import crypto from 'crypto';
+import { AsyncLocalStorage } from 'async_hooks';
 import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
 import { chatWithTools, type LlmTool, type LlmMessage } from './llm.service';
@@ -58,7 +59,7 @@ import {
 import {
     anunciaComprobante, nombreDelCobroAnunciado, yaPagoYReclama, textoYaPague, pideALaPersona,
     vocativosDelEquipo, esCierreSuelto, esAutoRespuesta, rutaSinModelo, humanoReciente,
-    preguntaAbierta, pasoEnVentana, normalizarFrase,
+    preguntaAbierta, pasoEnVentana, normalizarFrase, ecoDeAudios,
     type FilaReciente, type ComprobanteAnunciado,
 } from './whatsapp-reglas-turno';
 
@@ -71,8 +72,33 @@ const OTP_TTL_MIN = 10;
  */
 export const SILENCIO_HUMANO_MIN = Number(process.env.WHATSAPP_SILENCIO_HUMANO_MIN) || 15;
 
+// ─── Contexto del turno (notas de voz) ───────────────────────────────────────
+//
+// Lo que `deliver` necesita saber del turno en curso sin pasarlo por las ~40
+// llamadas que hay en el medio: el eco «🎤 Entendí: …» de las notas de voz
+// transcritas (spec whatsapp-notas-de-voz, D2). Sale UNA vez, al inicio de la
+// primera respuesta del turno. Fuera de un turno (worker, webhook) no hay
+// contexto y `deliver` se comporta como siempre.
+
+export type OrigenDelTurno = 'texto' | 'audio';
+
+interface ContextoDeTurno {
+    origen: OrigenDelTurno;
+    eco: string | null;
+    ecoUsado: boolean;
+}
+
+const turnoEnCurso = new AsyncLocalStorage<ContextoDeTurno>();
+
 // ─── Entrada principal ────────────────────────────────────────────────────────
 
+/**
+ * `opciones.origen = 'audio'`: el texto es la transcripción de una nota de voz
+ * (ya guardada en `text_body` del entrante). Corre el mismo turno que un texto
+ * —consentimiento, ráfaga, P4, P9, modelo— con dos diferencias: la respuesta
+ * empieza con el eco, y nada que mueva plata se resuelve por audio (la
+ * respuesta a «¿a cuál cobro lo aplico?» se pide escrita).
+ */
 export async function runBotTurn(
     integration: WhatsAppIntegration,
     conversationId: string,
@@ -81,6 +107,22 @@ export async function runBotTurn(
     waMessageId: string,
     optedOut = false,
     botonId: string | null = null,
+    opciones: { origen?: OrigenDelTurno } = {},
+): Promise<void> {
+    const ctx: ContextoDeTurno = { origen: opciones.origen ?? 'texto', eco: null, ecoUsado: false };
+    return turnoEnCurso.run(ctx, () => cuerpoDelTurno(
+        integration, conversationId, contactWaId, inboundText, waMessageId, optedOut, botonId, ctx));
+}
+
+async function cuerpoDelTurno(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    inboundText: string | null,
+    waMessageId: string,
+    optedOut: boolean,
+    botonId: string | null,
+    ctx: ContextoDeTurno,
 ): Promise<void> {
     const text = (inboundText || '').trim();
 
@@ -99,6 +141,10 @@ export async function runBotTurn(
     // el silencio por humano (P4), la pregunta de consentimiento abierta (P2),
     // el STOP pegado al sí (P8) y la ráfaga de mensajes (P5). Nunca lanza.
     const recientes = await mensajesRecientes(conversationId);
+
+    // Notas de voz transcritas en esta ráfaga (la actual o las que este turno
+    // absorbió): la respuesta empieza con lo que se entendió.
+    ctx.eco = ecoDeAudios(recientes, waMessageId);
 
     // 0. Pidió la baja (la ingesta ya la registró) → confirmar y parar.
     //    A quien pide que no le escriban no se le sigue preguntando nada.
@@ -236,6 +282,16 @@ export async function runBotTurn(
     //      contra las opciones que se le ofrecieron; para el modelo son ruido y
     //      terminaba contestando cualquier cosa mientras el comprobante seguia
     //      colgado en 'waiting_user'.
+    //      Por nota de voz NO: elegir el cobro aplica un comprobante (mueve
+    //      plata), y «el de Sara» mal transcrito lo aplicaría a otro. Se pide
+    //      escrito.
+    if (ctx.origen === 'audio' && await hayPreguntaDeCobroAbierta(integration, contactWaId)) {
+        await deliver(integration, conversationId, contactWaId,
+            'Para aplicar tu comprobante necesito que me *escribas* a cuál cobro corresponde ' +
+            '(el número de la opción). Por nota de voz no aplico pagos 🙏',
+            { step: 'cobro_por_audio' });
+        return;
+    }
     const respondio = await resolverRespuestaDeCobro(
         integration, contactWaId, text,
         (texto, paso) => deliver(integration, conversationId, contactWaId, texto, { step: paso }),
@@ -347,7 +403,7 @@ async function marcarAbiertaSinAviso(conversationId: string): Promise<void> {
  * escuela: se consulta en cada turno y el equipo casi no cambia. Nunca lanza.
  */
 const cacheVocativos = new Map<string, { hasta: number; mapa: Map<string, string> }>();
-async function vocativosDeEscuela(schoolId: string): Promise<Map<string, string>> {
+export async function vocativosDeEscuela(schoolId: string): Promise<Map<string, string>> {
     const c = cacheVocativos.get(schoolId);
     if (c && c.hasta > Date.now()) return c.mapa;
     let mapa = new Map<string, string>();
@@ -740,7 +796,10 @@ export function historialDesdeFilas(
         const t = momento(f);
         if (!t || t < desde) continue;
 
-        const texto = f.text_body?.trim()
+        // Una nota de voz transcrita va marcada: el modelo tiene que saber que
+        // puede traer errores de transcripción (nombres, montos, fechas).
+        const transcrita = f.type === 'audio' && !!f.text_body?.trim();
+        const texto = (transcrita ? '[nota de voz transcrita] ' : '') + (f.text_body?.trim() || '')
             || (f.type ? TIPOS_CON_ARCHIVO[f.type] : undefined)
             || '';
         if (!texto) continue;   // stickers, reacciones, ubicaciones: nada que leer
@@ -1202,7 +1261,7 @@ async function handleIdentification(
  * Deja la conversación 'open' en el buzón y avisa por push SOLO en la
  * transición (si ya estaba abierta, la escuela ya fue avisada).
  */
-async function abrirEnBuzon(
+export async function abrirEnBuzon(
     integration: WhatsAppIntegration,
     conversationId: string,
     contactWaId: string,
@@ -1782,7 +1841,7 @@ async function yaSePreguntoConsentimiento(conversationId: string): Promise<boole
     return (borradores ?? 0) > 0;
 }
 
-async function nombreDeEscuela(schoolId: string): Promise<string> {
+export async function nombreDeEscuela(schoolId: string): Promise<string> {
     const { data } = await supabase.from('schools').select('name').eq('id', schoolId).maybeSingle();
     return (data as any)?.name || 'la escuela';
 }
@@ -2219,8 +2278,17 @@ export async function deliver(
         'opt_out_confirmado', 'opt_in_confirmado', 'opt_in_reactivado', 'ask_consent',
         'confirmar_baja', 'baja_mantenida',
     ];
+    // Encabezado del mensaje: la presentación (primera respuesta automática de
+    // la conversación) y el eco de la nota de voz (primera respuesta del turno).
+    const ctxTurno = turnoEnCurso.getStore();
+    const presentacion = await presentacionPendiente(integration, conversationId, proposedText);
+    const eco = ctxTurno && !ctxTurno.ecoUsado ? ctxTurno.eco : null;
+    if (ctxTurno && eco) ctxTurno.ecoUsado = true;
+    const cuerpoPropuesto = presentacion ? sinSaludoInicial(proposedText) : proposedText;
+    const conEncabezado = [presentacion, eco, cuerpoPropuesto].filter(Boolean).join('\n\n');
+
     // WhatsApp usa UN asterisco para negrita; el modelo escribe Markdown estandar.
-    let texto = aFormatoWhatsApp(proposedText);
+    let texto = aFormatoWhatsApp(conEncabezado);
     if (!PASOS_DE_CONSENTIMIENTO.includes(String((context as any)?.step ?? ''))
         && await estaDadoDeBaja(integration.id, contactWaId)) {
         texto += AVISO_DADO_DE_BAJA;
@@ -2285,6 +2353,90 @@ export async function deliver(
         llm_provider: (context as any)?.provider ?? null,
         status: 'pending',
     });
+}
+
+// ─── Presentación: el bot dice que es un bot ────────────────────────────────
+//
+// Al sacar el consentimiento del primer mensaje (P2, 2026-10-06) el bot dejó de
+// presentarse en el primer contacto: la familia recibía «Estás al día ✅» sin
+// saber si le escribía Milena o una máquina. La transparencia es obligatoria
+// (política de Meta para asistentes y SYSTEM_PROMPT: «no te hagas pasar por una
+// persona»). La PRIMERA respuesta automática de cada conversación empieza con
+// la presentación; nunca más después.
+//
+// «Primera» = no hay ningún saliente automático (`ai_generated=true`) en la
+// conversación ni un borrador pendiente (modo asistido: el borrador ya la
+// lleva). Si el texto ya se presenta solo («Soy el *asistente automático*…»),
+// no se repite.
+
+export const presentacionDelAsistente = (escuela: string) =>
+    `Hola 👋 soy el asistente automático de ${escuela}.`;
+
+/** Conversaciones que ya se presentaron (evita la consulta en cada mensaje). */
+const yaPresentadas = new Set<string>();
+
+/** Solo para pruebas. */
+export function _olvidarPresentaciones(): void { yaPresentadas.clear(); }
+
+async function presentacionPendiente(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    texto: string,
+): Promise<string | null> {
+    if (yaPresentadas.has(conversationId)) return null;
+    if (normalizarFrase(texto).includes('asistente automatico')) {
+        yaPresentadas.add(conversationId);
+        return null;
+    }
+    try {
+        const [enviados, borradores] = await Promise.all([
+            supabase.from('whatsapp_messages')
+                .select('id', { count: 'exact', head: true })
+                .eq('conversation_id', conversationId)
+                .eq('direction', 'outbound')
+                .eq('ai_generated', true),
+            supabase.from('whatsapp_message_drafts')
+                .select('id', { count: 'exact', head: true })
+                .eq('conversation_id', conversationId)
+                .eq('status', 'pending'),
+        ]);
+        // Si no se pudo contar, no se presenta: repetir la presentación en cada
+        // mensaje mientras la base falla sería peor que saltarla una vez.
+        if (enviados.error || borradores.error
+            || typeof enviados.count !== 'number' || typeof borradores.count !== 'number') return null;
+        yaPresentadas.add(conversationId);
+        if (enviados.count + borradores.count > 0) return null;
+        return presentacionDelAsistente(await nombreDeEscuela(integration.school_id));
+    } catch {
+        return null;
+    }
+}
+
+/** «¡Hola! Estás al día» → «Estás al día»: la presentación ya saludó. */
+function sinSaludoInicial(texto: string): string {
+    const m = texto.match(/^\s*¡?hola\s*(?:!|\.|👋)\s*(?:👋\s*)?/i);
+    if (!m) return texto;
+    const resto = texto.slice(m[0].length);
+    if (!resto.trim()) return texto;
+    return resto.charAt(0).toUpperCase() + resto.slice(1);
+}
+
+/** ¿Hay una pregunta «¿a cuál cobro lo aplico?» abierta (≤ 24 h) para este contacto? */
+async function hayPreguntaDeCobroAbierta(integration: WhatsAppIntegration, contactWaId: string): Promise<boolean> {
+    try {
+        const { data } = await supabase
+            .from('whatsapp_inbound_queue')
+            .select('id')
+            .eq('integration_id', integration.id)
+            .eq('wa_phone_number', contactWaId)
+            .eq('status', 'waiting_user')
+            .gte('pregunta_at', new Date(Date.now() - 24 * 3600_000).toISOString())
+            .limit(1)
+            .maybeSingle();
+        return !!(data as any)?.id;
+    } catch {
+        return false;
+    }
 }
 
 /**

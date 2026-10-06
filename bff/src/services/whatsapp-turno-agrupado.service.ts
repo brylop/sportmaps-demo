@@ -52,7 +52,15 @@ const SONDEO_MS = 1_500;
 // Solo los que corren `runBotTurn`. Un audio o un video tienen su propia
 // respuesta fija («no puedo escuchar notas de voz»): si contaran, un texto
 // seguido de un audio quedaría sin contestar.
+//
+// Excepción: la nota de voz TRANSCRITA que se le pasó al bot
+// (`payload.transcripcion.al_bot`, spec whatsapp-notas-de-voz) sí corre
+// `runBotTurn`, así que cuenta como cualquier texto. Una larga, ruido o sin
+// transcribir no cuenta.
 const TIPOS_CONVERSACIONALES = new Set(['text', 'interactive', 'button']);
+const esConversacional = (f: { type: string | null; transcripcion?: any }) =>
+    TIPOS_CONVERSACIONALES.has(String(f.type))
+    || (f.type === 'audio' && f.transcripcion?.al_bot === true);
 
 type Logger = { info?: (...a: any[]) => void; warn?: (...a: any[]) => void; error?: (...a: any[]) => void };
 
@@ -75,18 +83,18 @@ export async function hayEntranteMasNuevo(conversationId: string, waMessageId: s
         const desde = new Date(Date.now() - 15 * 60_000).toISOString();
         const { data, error } = await supabase
             .from('whatsapp_messages')
-            .select('wa_message_id, type, created_at')
+            .select('wa_message_id, type, created_at, transcripcion:payload->transcripcion')
             .eq('conversation_id', conversationId)
             .eq('direction', 'inbound')
             .gte('created_at', desde)
             .limit(50);
         if (error || !Array.isArray(data)) return false;
-        const filas = data as { wa_message_id: string; type: string | null; created_at: string }[];
+        const filas = data as unknown as { wa_message_id: string; type: string | null; created_at: string; transcripcion?: any }[];
         const mio = filas.find((f) => f.wa_message_id === waMessageId);
         if (!mio) return false;
         const t = new Date(mio.created_at).getTime();
         return filas.some((f) => f.wa_message_id !== waMessageId
-            && TIPOS_CONVERSACIONALES.has(String(f.type))
+            && esConversacional(f)
             && new Date(f.created_at).getTime() > t);
     } catch {
         return false;

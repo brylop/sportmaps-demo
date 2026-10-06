@@ -426,3 +426,63 @@ export function pasoEnVentana(filas: FilaReciente[], paso: string, ms: number, a
 }
 
 export { PASOS_DE_CONSENTIMIENTO };
+
+// ─── Notas de voz (spec docs/specs/whatsapp-notas-de-voz.md, F1) ─────────────
+
+/** Más de esto no se le pasa al bot: va al buzón con la transcripción (D3). */
+export const AUDIO_MAX_SEGUNDOS_BOT = 120;
+const ECO_MAX_CARACTERES = 120;
+const VENTANA_ECO_MS = 3 * 60_000;
+
+/**
+ * Frases que Whisper «oye» en audios vacíos o de puro ruido (alucinaciones
+ * conocidas en español: vienen de los subtítulos con los que se entrenó).
+ */
+const ALUCINACIONES_WHISPER = [
+    /subtitulos? (realizados|hechos|creados) por/,
+    /amara org/,
+    /gracias por ver( el video)?$/,
+    /suscribete/,
+    /^(musica|aplausos|risas)$/,
+];
+
+/**
+ * ¿La transcripción es ruido o nada? Vacía, alucinación conocida, o el modelo
+ * dice que no hubo voz (`no_speech_prob` alto). Una sola palabra NO es ruido
+ * por sí sola («Sí», «Gracias»): solo si además la probabilidad de no-voz es
+ * dudosa.
+ */
+export function esRuidoDeTranscripcion(texto: string | null | undefined, noSpeechProb: number | null | undefined): boolean {
+    const norm = normalizarFrase(texto);
+    if (!norm || !/[a-z]/.test(norm)) return true;
+    if (ALUCINACIONES_WHISPER.some((re) => re.test(norm))) return true;
+    const p = typeof noSpeechProb === 'number' ? noSpeechProb : 0;
+    if (p > 0.6) return true;
+    return norm.split(' ').length < 2 && p > 0.3;
+}
+
+/** La transcripción de esta fila se le pasó al bot (no fue larga, ni ruido, ni error). */
+export function esAudioTranscritoParaBot(f: FilaReciente): boolean {
+    return f.direction === 'inbound' && f.type === 'audio'
+        && f.payload?.transcripcion?.al_bot === true && !!(f.text_body || '').trim();
+}
+
+/**
+ * El eco «🎤 Entendí: «…»» del turno: las notas de voz transcritas de la ráfaga
+ * (la actual, más las que llegaron desde la última respuesta, ≤ 3 min). Le
+ * muestra a la familia qué entendió el bot y la deja corregir (D2). `null` si
+ * en la ráfaga no hay audio transcrito.
+ */
+export function ecoDeAudios(filas: FilaReciente[], waMessageIdActual: string | null, ahora = Date.now()): string | null {
+    const ultimoSaliente = Math.max(0, ...filas.filter((f) => f.direction === 'outbound').map(momento));
+    const desde = Math.max(ultimoSaliente, ahora - VENTANA_ECO_MS);
+    const audios = filas
+        .filter(esAudioTranscritoParaBot)
+        .filter((f) => (waMessageIdActual && f.wa_message_id === waMessageIdActual) || momento(f) > desde)
+        .sort((a, b) => momento(a) - momento(b))
+        .map((f) => (f.text_body || '').trim().replace(/\s+/g, ' '));
+    if (!audios.length) return null;
+    let texto = audios.join(' … ');
+    if (texto.length > ECO_MAX_CARACTERES) texto = texto.slice(0, ECO_MAX_CARACTERES).trimEnd() + '…';
+    return `🎤 Entendí: «${texto}»`;
+}

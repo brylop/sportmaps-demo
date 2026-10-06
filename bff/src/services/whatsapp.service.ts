@@ -406,6 +406,8 @@ export interface MediaDownloadResult {
     ok: boolean;
     /** contenido en base64, listo para extractReceipt() */
     base64?: string;
+    /** el binario tal cual (audio para transcribir: no tiene sentido pasarlo a base64) */
+    buffer?: Buffer;
     mimeType?: string;
     /** sha256 que reporta Meta; sirve para detectar el mismo comprobante repetido */
     sha256?: string;
@@ -423,6 +425,23 @@ const MEDIA_MIME_PERMITIDOS = new Set([
 const MEDIA_MAX_BYTES = 8 * 1024 * 1024;
 
 /**
+ * Notas de voz y audios reenviados (spec whatsapp-notas-de-voz §3.5). WhatsApp
+ * limita el audio a 16 MB. Se bajan a memoria para transcribir y se descartan:
+ * nunca van a Storage.
+ */
+export const AUDIO_MIME_PERMITIDOS: ReadonlySet<string> = new Set([
+    'audio/ogg', 'audio/opus', 'audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/webm', 'audio/amr',
+]);
+export const AUDIO_MAX_BYTES = 16 * 1024 * 1024;
+
+export interface OpcionesDescarga {
+    /** mimes aceptados (por defecto, los de comprobante) */
+    mimes?: ReadonlySet<string>;
+    /** tope en bytes (por defecto 8 MB) */
+    maxBytes?: number;
+}
+
+/**
  * Baja un archivo que el padre mandó por WhatsApp. Son DOS saltos:
  *
  *   1. GET /{media_id}  → devuelve { url, mime_type, sha256, file_size }
@@ -437,7 +456,10 @@ const MEDIA_MAX_BYTES = 8 * 1024 * 1024;
 export async function downloadMedia(
     integration: WhatsAppIntegration,
     mediaId: string,
+    opciones: OpcionesDescarga = {},
 ): Promise<MediaDownloadResult> {
+    const mimesPermitidos = opciones.mimes ?? MEDIA_MIME_PERMITIDOS;
+    const maxBytes = opciones.maxBytes ?? MEDIA_MAX_BYTES;
     if (!integration.access_token_encrypted) {
         return { ok: false, error: 'integration_without_token' };
     }
@@ -461,10 +483,10 @@ export async function downloadMedia(
         const mimeType: string = String(meta?.mime_type || '').split(';')[0].trim();
         const declarado = Number(meta?.file_size || 0);
 
-        if (!MEDIA_MIME_PERMITIDOS.has(mimeType)) {
+        if (!mimesPermitidos.has(mimeType)) {
             return { ok: false, error: `mime_no_soportado:${mimeType || 'desconocido'}` };
         }
-        if (declarado > MEDIA_MAX_BYTES) {
+        if (declarado > maxBytes) {
             return { ok: false, error: `archivo_muy_grande:${declarado}` };
         }
         if (!meta?.url) {
@@ -481,13 +503,14 @@ export async function downloadMedia(
         const buf = Buffer.from(await binRes.arrayBuffer());
 
         // Se vuelve a medir: el file_size declarado no es de fiar.
-        if (buf.byteLength > MEDIA_MAX_BYTES) {
+        if (buf.byteLength > maxBytes) {
             return { ok: false, error: `archivo_muy_grande:${buf.byteLength}` };
         }
 
         return {
             ok: true,
             base64: buf.toString('base64'),
+            buffer: buf,
             mimeType,
             sha256: meta?.sha256 ? String(meta.sha256) : undefined,
             sizeBytes: buf.byteLength,
