@@ -9,6 +9,8 @@ import {
     createPendingPayment,
     cancelPendingPlanPayments,
     emitPlanCharge,
+    emitEnrollmentFees,
+    enrollmentFeeDueDate,
     isAthleteActive,
     INACTIVE_ATHLETE_ERROR,
 } from '../services/enrollmentBilling';
@@ -596,6 +598,16 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
         // emitirla aquí cambiaría el comportamiento del modal de equipos.
         if (data.offering_plan_id && data.status === 'active') {
             await emitPlanCharge(schoolId!, athleteCol, studentId!, data.offering_plan_id, startDate);
+            // Inscripción + seguro del plan (F-B). Alta nueva = fila nueva de
+            // enrollments → cobra; el cambio de plan (PUT) no pasa por acá (D18).
+            await emitEnrollmentFees({
+                schoolId: schoolId!,
+                planId: data.offering_plan_id,
+                athleteCol,
+                athleteId: studentId!,
+                dueDate: enrollmentFeeDueDate(startDate),
+                log: req.log,
+            });
         }
 
         res.status(201).json({

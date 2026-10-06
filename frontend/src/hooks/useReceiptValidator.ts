@@ -100,7 +100,7 @@ export interface ValidationOptions {
     paymentId?: string;
     /** Categoría del cobro (mensualidad/inscripcion/...): el BFF solo acepta una
      *  llave restringida (`only_for`) como destino del cobro de su concepto. */
-    paymentCategory?: 'mensualidad' | 'inscripcion' | 'articulos' | 'torneo' | 'otro';
+    paymentCategory?: 'mensualidad' | 'inscripcion' | 'articulos' | 'torneo' | 'otro' | 'seguro' | 'excedente';
     /** Ver DateMode. Default 'window' (flujo del acudiente). */
     dateMode?: DateMode;
     /**

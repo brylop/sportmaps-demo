@@ -7172,6 +7172,7 @@ export type Database = {
           fee_reason: string | null
           fee_set_at: string | null
           fee_set_by: string | null
+          first_payment_mode: string | null
           id: string
           monthly_fee: number | null
           offering_id: string | null
@@ -7202,6 +7203,7 @@ export type Database = {
           fee_reason?: string | null
           fee_set_at?: string | null
           fee_set_by?: string | null
+          first_payment_mode?: string | null
           id?: string
           monthly_fee?: number | null
           offering_id?: string | null
@@ -7232,6 +7234,7 @@ export type Database = {
           fee_reason?: string | null
           fee_set_at?: string | null
           fee_set_by?: string | null
+          first_payment_mode?: string | null
           id?: string
           monthly_fee?: number | null
           offering_id?: string | null
@@ -12718,6 +12721,7 @@ export type Database = {
           name: string
           offering_id: string
           price: number
+          insurance_fee: number | null
           registration_fee: number | null
           school_id: string
           session_block_minutes: number | null
@@ -12743,6 +12747,7 @@ export type Database = {
           name: string
           offering_id: string
           price: number
+          insurance_fee?: number | null
           registration_fee?: number | null
           school_id: string
           session_block_minutes?: number | null
@@ -12768,6 +12773,7 @@ export type Database = {
           name?: string
           offering_id?: string
           price?: number
+          insurance_fee?: number | null
           registration_fee?: number | null
           school_id?: string
           session_block_minutes?: number | null
@@ -18490,6 +18496,7 @@ export type Database = {
           receipt_date_window_days: number
           reminder_days_before: number | null
           reminder_enabled: boolean | null
+          remaining_classes_billing_enabled: boolean
           reports_default_send_day: number
           reports_draft_lead_days: number
           reports_enabled: boolean
@@ -18585,6 +18592,7 @@ export type Database = {
           receipt_date_window_days?: number
           reminder_days_before?: number | null
           reminder_enabled?: boolean | null
+          remaining_classes_billing_enabled?: boolean
           reports_default_send_day?: number
           reports_draft_lead_days?: number
           reports_enabled?: boolean
@@ -18680,6 +18688,7 @@ export type Database = {
           receipt_date_window_days?: number
           reminder_days_before?: number | null
           reminder_enabled?: boolean | null
+          remaining_classes_billing_enabled?: boolean
           reports_default_send_day?: number
           reports_draft_lead_days?: number
           reports_enabled?: boolean

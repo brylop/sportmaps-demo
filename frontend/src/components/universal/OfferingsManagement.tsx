@@ -508,6 +508,8 @@ export function OfferingsManagement() {
         session_block_minutes: '',
         included_sessions_per_week: '',
         registration_fee: '',
+        // Seguro de accidentes (F-B): cobro único en el alta, dedupe 365 días por atleta.
+        insurance_fee: '',
     });
 
     const [isCustomDays, setIsCustomDays] = useState(false);
@@ -519,7 +521,7 @@ export function OfferingsManagement() {
     };
 
     const resetPlanForm = () => {
-        setNewPlan({ name: '', max_sessions: '', max_secondary_sessions: '0', secondary_session_label: '', duration_days: '30', price: '', auto_renew: false, schedule_type: 'general', schedule: [], is_hours_plan: false, included_minutes_per_period: '', session_block_minutes: '', included_sessions_per_week: '', registration_fee: '' });
+        setNewPlan({ name: '', max_sessions: '', max_secondary_sessions: '0', secondary_session_label: '', duration_days: '30', price: '', auto_renew: false, schedule_type: 'general', schedule: [], is_hours_plan: false, included_minutes_per_period: '', session_block_minutes: '', included_sessions_per_week: '', registration_fee: '', insurance_fee: '' });
         setIsCustomDays(false);
         setCustomDays('30');
         setEditingPlanId(null);
@@ -573,6 +575,7 @@ export function OfferingsManagement() {
             session_block_minutes: newPlan.session_block_minutes ? parseInt(newPlan.session_block_minutes) : null,
             included_sessions_per_week: newPlan.included_sessions_per_week ? parseInt(newPlan.included_sessions_per_week) : null,
             registration_fee: newPlan.registration_fee ? parseFloat(newPlan.registration_fee) : null,
+            insurance_fee: newPlan.insurance_fee ? parseFloat(newPlan.insurance_fee) : null,
             metadata: {
                 secondary_session_label: newPlan.secondary_session_label || undefined,
                 schedule_type: newPlan.schedule_type,
@@ -628,6 +631,7 @@ export function OfferingsManagement() {
                 session_block_minutes: plan.session_block_minutes?.toString() || '',
                 included_sessions_per_week: plan.included_sessions_per_week?.toString() || '',
                 registration_fee: plan.registration_fee?.toString() || '',
+                insurance_fee: plan.insurance_fee?.toString() || '',
             });
             setIsCustomDays(!isPreset);
             setCustomDays(!isPreset ? durationStr : '30');
@@ -1014,6 +1018,23 @@ export function OfferingsManagement() {
                                 />
                                 <p className="text-[10px] text-muted-foreground">
                                     Cobro único al inscribirse, aparte de la mensualidad. Vacío = sin inscripción.
+                                </p>
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-sm font-medium flex items-center gap-1.5">
+                                    <DollarSign className="h-3.5 w-3.5 text-sky-500" /> Seguro
+                                </Label>
+                                <NumberStepper
+                                    id="plan-insurance-fee"
+                                    value={newPlan.insurance_fee}
+                                    onChange={(v) => setNewPlan((prev) => ({ ...prev, insurance_fee: v }))}
+                                    placeholder="Sin cobro"
+                                    prefix="$"
+                                    step={5000}
+                                    isCurrency={true}
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                    Seguro de accidentes al inscribirse. Se cobra máximo una vez cada 12 meses por atleta. Vacío = sin seguro.
                                 </p>
                             </div>
                         </div>
@@ -1474,6 +1495,11 @@ function OfferingCard({
                                             {plan.registration_fee > 0 && (
                                                 <Badge variant="secondary" className="text-[9px] h-4 px-1 py-0 bg-orange-50 text-orange-700 border-orange-200">
                                                     +${formatCurrency(plan.registration_fee)} inscripción
+                                                </Badge>
+                                            )}
+                                            {plan.insurance_fee > 0 && (
+                                                <Badge variant="secondary" className="text-[9px] h-4 px-1 py-0 bg-sky-50 text-sky-700 border-sky-200">
+                                                    +${formatCurrency(plan.insurance_fee)} seguro
                                                 </Badge>
                                             )}
                                             <span className="font-bold text-primary ml-1">

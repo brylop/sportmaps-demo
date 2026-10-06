@@ -11,6 +11,20 @@ import { addDaysToDateString, todayInZone } from '../utils/businessDate';
  */
 
 export type AthleteType = 'child' | 'adult' | 'unregistered';
+
+/**
+ * Categorías de cobro ÚNICO (no son la mensualidad de un período aunque el
+ * trigger trg_payments_fill_period les estampe period_year/period_month).
+ * Un cambio o baja de plan NO las anula ni las re-precia: la inscripción y el
+ * seguro ya se cobraron por el alta, el excedente por horas consumidas.
+ * Misma lista que fn_extend_enrollment_on_payment_paid y open_month
+ * (migración 20261005214245).
+ */
+export const ONE_OFF_PAYMENT_CATEGORIES = ['inscripcion', 'seguro', 'excedente'] as const;
+
+/** Filtro PostgREST (`.or(...)`) que deja solo cobros de mensualidad / sin categoría. */
+export const PLAN_PERIOD_CHARGE_FILTER =
+    `payment_category.is.null,payment_category.not.in.(${ONE_OFF_PAYMENT_CATEGORIES.join(',')})`;
 export type AthleteCol = 'child_id' | 'user_id' | 'unregistered_athlete_id';
 
 export const athleteColFor = (t: AthleteType): AthleteCol =>
@@ -239,6 +253,56 @@ export function accionCobroDePlan(
     return 'mismo_plan';
 }
 
+/**
+ * Vencimiento de los cobros únicos del alta (inscripción / seguro): el día del
+ * alta, o hoy si el alta se registró con fecha pasada — un cobro nuevo nunca
+ * nace vencido (misma regla que billingDue). NUNCA el 1 del mes siguiente: el
+ * trigger trg_payments_fill_period estamparía ese período.
+ */
+export function enrollmentFeeDueDate(startDate: string, today: string = todayInZone()): string {
+    return startDate > today ? startDate : today;
+}
+
+/**
+ * Cobros únicos del alta — inscripción y seguro (F-B, D17-D19). Delegado a la
+ * RPC emit_enrollment_fees (solo service_role): filas 'one_time' exentas de la
+ * unicidad por período, con parent_id del menor, seguro con dedupe de 365 días.
+ * Plan sin registration_fee / insurance_fee = 0 filas (hoy, todas las escuelas).
+ *
+ * NO se llama en cambio de plan (D18: solo un alta nueva cobra inscripción).
+ * Nunca rompe el alta: un error se registra y devuelve [].
+ */
+export async function emitEnrollmentFees(opts: {
+    schoolId: string;
+    planId: string | null | undefined;
+    athleteCol: AthleteCol;
+    athleteId: string;
+    parentId?: string | null;
+    branchId?: string | null;
+    dueDate: string;
+    personName?: string | null;
+    log?: { error: (...a: any[]) => void };
+}): Promise<string[]> {
+    if (!opts.planId) return [];
+    const { data, error } = await supabase.rpc('emit_enrollment_fees', {
+        p_school_id: opts.schoolId,
+        p_plan_id: opts.planId,
+        p_child_id: opts.athleteCol === 'child_id' ? opts.athleteId : null,
+        p_user_id: opts.athleteCol === 'user_id' ? opts.athleteId : null,
+        p_unreg_id: opts.athleteCol === 'unregistered_athlete_id' ? opts.athleteId : null,
+        p_parent_id: opts.parentId ?? null,
+        p_branch_id: opts.branchId ?? null,
+        p_due_date: opts.dueDate,
+        p_person_name: opts.personName ?? null,
+    });
+    if (error) {
+        if (opts.log) opts.log.error({ err: error }, 'Error emitiendo cobros de inscripción/seguro');
+        else console.error('[enrollmentBilling] emit_enrollment_fees', error);
+        return [];
+    }
+    return ((data as string[] | null) ?? []).filter(Boolean);
+}
+
 /** Anula los cobros pendientes de un plan concreto (cambio o baja de plan). */
 export async function cancelPendingPlanPayments(opts: {
     schoolId: string;
@@ -254,7 +318,9 @@ export async function cancelPendingPlanPayments(opts: {
         .eq('school_id', opts.schoolId)
         .eq(opts.athleteCol, opts.athleteId)
         .in('offering_plan_id', planIds)
-        .eq('status', 'pending');
+        .eq('status', 'pending')
+        // Inscripción / seguro / excedente sobreviven al cambio de plan (B4).
+        .or(PLAN_PERIOD_CHARGE_FILTER);
 }
 
 /**

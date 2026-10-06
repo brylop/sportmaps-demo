@@ -77,6 +77,7 @@ const METHOD_LABEL: Record<string, string> = {
 /** payments.payment_category (CHECK de la base) → etiqueta. */
 export const INCOME_CATEGORY_LABEL: Record<string, string> = {
     mensualidad: 'Mensualidad', inscripcion: 'Inscripción', articulos: 'Artículos', torneo: 'Torneo', otro: 'Otro',
+    seguro: 'Seguro', excedente: 'Horas adicionales',
 };
 
 export function methodLabel(m: string | null | undefined): string {
