@@ -1481,7 +1481,8 @@ COMO PAGAR:
   mandar la foto del comprobante por este mismo chat: es la que nadie descubre solo.
 - Da los numeros de cuenta COMPLETOS, tal como vienen. No los recortes.
 - Si la escuela no tiene cuentas cargadas, no te las inventes: ofrece el enlace para
-  pagar en linea y el envio del comprobante por aqui.`;
+  pagar en linea y el envio del comprobante por aqui.
+- Si get_payment_methods trae instrucciones_del_enlace, repitelas junto al enlace.`;
 
 export const TOOLS: LlmTool[] = [
     {
@@ -1698,6 +1699,10 @@ function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>>): stri
         lineas.push('');
     }
     lineas.push(`*En línea:* ${m.enlace_para_pagar}`);
+    // Con link de pago (Wompi/MP de la escuela) va también qué hacer con él:
+    // la familia paga por fuera de SportMaps y, si no manda el comprobante, el
+    // pago no queda registrado. Sin modelo, este texto es lo único que lo dice.
+    if (m.instrucciones_del_enlace) lineas.push(m.instrucciones_del_enlace);
     lineas.push('');
     lineas.push('*Y si ya pagaste*, mándame la foto del comprobante por acá mismo y yo lo registro. 📄');
     return lineas.join('\n');

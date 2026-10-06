@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 682,
-  "head": "20261006082002",
+  "count": 683,
+  "head": "20261006084303",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -685,6 +685,7 @@
     {"v":"20261005221257","file":"20261005221257_vigencia_fin_de_mes_y_cambio_plan_horas.sql","sha256":"0800035c9989a01c331802b604f8315d224f7a9ec674d0ed61a3146997cd467a","added":"2026-10-06","by":"judegor99"},
     {"v":"20261005221734","file":"20261005221734_open_month_h01_mas_cobros_unicos.sql","sha256":"382f6c276950232bfc17b15af6d73c15be37077269662ebce9ad2970f9926767","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261005221944","file":"20261005221944_fn_extend_vigencia_viva_mas_cobros_unicos.sql","sha256":"75dccf998de063200dec3b1e442bf90589451c1a021e905d6ac701fb9e8137eb","added":"2026-10-06","by":"Brayan Steven Lopez"},
-    {"v":"20261006082002","file":"20261006082002_wa_cancelar_clase_de_prueba.sql","sha256":"a8085fceb12a2d4c0302be4c4be9d7580db022537d6a06fa51d9a291900b40a6","added":"2026-10-06","by":"Brayan Steven Lopez"}
+    {"v":"20261006082002","file":"20261006082002_wa_cancelar_clase_de_prueba.sql","sha256":"a8085fceb12a2d4c0302be4c4be9d7580db022537d6a06fa51d9a291900b40a6","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261006084303","file":"20261006084303_franjas_cortesia_desde_entrenamientos.sql","sha256":"976d346b3cde1dd08979d192adc6ed4531c0fe7a41a70089b68443982198fb8d","added":"2026-10-06","by":"Brayan Steven Lopez"}
   ]
 }

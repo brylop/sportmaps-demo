@@ -27,6 +27,7 @@ import { runWhatsAppMantenimiento } from './whatsapp-mantenimiento.job';
 import { runWhatsAppPlantillasSync } from './whatsapp-plantillas-sync.job';
 import { runWhatsAppResumenDiario } from './whatsapp-resumen-diario.job';
 import { runBotResumenSemanal } from './bot-resumen-semanal.job';
+import { runFranjasCortesia } from '../services/franjas-cortesia.service';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -694,4 +695,28 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Borrado físico de cuentas registrado para las 06:30 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Franjas de clase de cortesía desde los entrenamientos (teams.schedule).
+    // Mantiene una ventana rodante de 3 semanas en las escuelas con
+    // school_settings.courtesy_from_training = true: cada día entra el día
+    // nuevo del final y se cierran (sin borrar) las franjas generadas que ya
+    // no corresponden al horario, si no tienen reservas. 05:30 COT: antes de
+    // que las familias escriban y antes de los demás ciclos de la mañana.
+    // Corre en los 3 BFF a la vez: idempotente por el índice único
+    // (team_id, slot_date, start_time) de la migración 20261006084303.
+    // Kill-switch: DISABLE_FRANJAS_CORTESIA=true.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('30 5 * * *', async () => {
+        if (process.env.DISABLE_FRANJAS_CORTESIA === 'true') return;
+        try {
+            const r = await runFranjasCortesia();
+            console.log(`[CRON] Franjas de cortesía: ${r.escuelas} escuela(s), ${r.creadas} creada(s), ${r.cerradas} cerrada(s), ${r.errores} error(es).`);
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error generando franjas de cortesía:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Franjas de cortesía registradas para las 05:30 COT.');
 }

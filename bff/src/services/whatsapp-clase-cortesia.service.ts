@@ -48,6 +48,7 @@ import { supabase } from '../config/supabase';
 import type { BotonInteractivo } from './whatsapp.service';
 import { sendToUser } from './push.service';
 import { destinatariosDeEscuela, enviarConReserva } from './avisos-correo.service';
+import { esSinLimite } from './franjas-cortesia.service';
 
 export const FLUJO_CORTESIA = 'clase_cortesia';
 /** Misma ventana de atención de Meta: pasada, el papá ya no recuerda la pregunta. */
@@ -290,11 +291,51 @@ export function tituloBoton(f: FranjaCortesia, n: number): string {
     return Array.from(t).slice(0, 20).join('');
 }
 
+/**
+ * Las franjas generadas desde los entrenamientos no tienen límite real
+ * (max_capacity = CUPOS_SIN_LIMITE = 999): decir «998 cupos» suena a error y
+ * además invita a preguntar «¿998?». Ahí va «cupos disponibles», sin número.
+ * Las franjas cargadas a mano (5, 10…) siguen mostrando la cifra.
+ */
+export function textoCupos(cupos: number): string {
+    if (esSinLimite(cupos)) return 'cupos disponibles';
+    return cupos === 1 ? '1 cupo' : `${cupos} cupos`;
+}
+
+/**
+ * Reordena para que la primera página muestre grupos DISTINTOS: la próxima
+ * franja de cada grupo (en orden cronológico de su primera franja), después la
+ * segunda de cada uno, etc.
+ *
+ * Por qué: con franjas generadas de los entrenamientos Dynasty tiene ~40 por
+ * semana y `list_open_trial_slots_public` devuelve las 20 más cercanas; en
+ * orden puro de fecha, las dos primeras con botón serían de los dos grupos que
+ * entrenan hoy a las 4 p. m. y el papá de un niño de otra categoría tendría
+ * que tocar «Ver más» varias veces. Lo ideal sería ofrecer primero el grupo de
+ * la EDAD del deportista, pero (a) el flujo pregunta la edad DESPUÉS de elegir
+ * la franja y (b) ningún equipo tiene edades cargadas (age_min/birth_year_min
+ * NULL en todas las escuelas, medido 2026-09-22) y deducirla del nombre
+ * («U15») está prohibido en whatsapp-info-escuela.service.ts. Intercalar por
+ * grupo es lo que se puede hacer sin inventar.
+ */
+export function intercalarPorGrupo(franjas: FranjaCortesia[]): FranjaCortesia[] {
+    const colas = new Map<string, FranjaCortesia[]>();
+    for (const f of franjas) {
+        if (!colas.has(f.grupo)) colas.set(f.grupo, []);
+        colas.get(f.grupo)!.push(f);
+    }
+    const salida: FranjaCortesia[] = [];
+    for (let ronda = 0; salida.length < franjas.length; ronda++) {
+        for (const cola of colas.values()) if (cola[ronda]) salida.push(cola[ronda]);
+    }
+    return salida;
+}
+
 function lineaFranja(f: FranjaCortesia, n: number): string {
     const fin = f.horaFin ? ` a ${horaLegible(f.horaFin)}` : '';
     const dur = duracionLegible(f.horaInicio, f.horaFin);
     const sede = f.sede ? ` · 📍 ${f.sede}` : '';
-    const cupos = f.cupos === 1 ? '1 cupo' : `${f.cupos} cupos`;
+    const cupos = textoCupos(f.cupos);
     return `${n}. *${f.grupo}* — ${fechaLegible(f.fecha)}, ${horaLegible(f.horaInicio)}${fin}` +
         `${dur ? ` (${dur})` : ''}${sede} · ${cupos}`;
 }
@@ -510,7 +551,9 @@ async function ofrecerFranjas(
     intro: string,
     step: string,
 ): Promise<void> {
-    const lista = franjas.slice(0, 10);
+    // Hasta 20 (lo que trae la RPC), intercaladas por grupo: así «Ver más
+    // horarios» recorre todos los grupos y no solo los de los próximos dos días.
+    const lista = intercalarPorGrupo(franjas).slice(0, 20);
     const inicio = desde >= lista.length ? 0 : desde;
     const hayMas = lista.length > MAX_BOTONES;
     const porPagina = hayMas ? MAX_BOTONES - 1 : MAX_BOTONES;
@@ -667,7 +710,8 @@ async function elegirFranja(
     const franjas = filtrarVigentes(await d.franjas(ctx.schoolId), d.ahora);
     const n = normalizar(texto);
 
-    if (botonId === BOTON_CC.VER_MAS || n === 'ver mas' || n === 'mas' || n === 'ver mas horarios') {
+    if (botonId === BOTON_CC.VER_MAS || n === 'ver mas' || n === 'mas' || n === 'ver mas horarios'
+        || n === 'ver otros horarios' || n === 'otros horarios' || n === 'otro horario') {
         if (!franjas.length) return sinFranjasDisponibles(ctx);
         await ofrecerFranjas(ctx, franjas, (datos.desde ?? 0) + MAX_BOTONES - 1, datos,
             'Estas son otras franjas:', 'cortesia_ofrecer');
