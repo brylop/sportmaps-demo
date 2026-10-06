@@ -10,6 +10,7 @@ import {
     cancelPendingPlanPayments,
     accionCobroDePlan,
     INACTIVE_ATHLETE_ERROR,
+    PLAN_PERIOD_CHARGE_FILTER,
 } from '../services/enrollmentBilling';
 
 const router = Router();
@@ -1220,6 +1221,7 @@ router.put(
                 await applyAthleteFilter(
                   supabase.from('payments').update({ status: 'cancelled', updated_at: new Date().toISOString() })
                     .eq('school_id', schoolId).eq('offering_plan_id', oldPlanId).eq('status', 'pending')
+                    .or(PLAN_PERIOD_CHARGE_FILTER) // B4: no tocar inscripción/seguro/excedente
                 );
               }
               if (enrollment.offering_plan_id) {
@@ -1237,6 +1239,7 @@ router.put(
               await applyAthleteFilter(
                 supabase.from('payments').update({ status: 'cancelled', updated_at: new Date().toISOString() })
                   .eq('school_id', schoolId).eq('offering_plan_id', oldPlanId || enrollment.offering_plan_id).eq('status', 'pending')
+                    .or(PLAN_PERIOD_CHARGE_FILTER) // B4: no tocar inscripción/seguro/excedente
               );
             } else {
               // Mismo plan: actualizar SOLO el monto de los cobros pendientes.
@@ -1250,6 +1253,7 @@ router.put(
                 await applyAthleteFilter(
                   supabase.from('payments').update({ amount: planFee, updated_at: new Date().toISOString() })
                     .eq('school_id', schoolId).eq('offering_plan_id', oldPlanId || enrollment.offering_plan_id).eq('status', 'pending')
+                    .or(PLAN_PERIOD_CHARGE_FILTER) // B4: no tocar inscripción/seguro/excedente
                 );
               }
             }

@@ -11,6 +11,20 @@ import { addDaysToDateString, todayInZone } from '../utils/businessDate';
  */
 
 export type AthleteType = 'child' | 'adult' | 'unregistered';
+
+/**
+ * Categorías de cobro ÚNICO (no son la mensualidad de un período aunque el
+ * trigger trg_payments_fill_period les estampe period_year/period_month).
+ * Un cambio o baja de plan NO las anula ni las re-precia: la inscripción y el
+ * seguro ya se cobraron por el alta, el excedente por horas consumidas.
+ * Misma lista que fn_extend_enrollment_on_payment_paid y open_month
+ * (migración 20261005214245).
+ */
+export const ONE_OFF_PAYMENT_CATEGORIES = ['inscripcion', 'seguro', 'excedente'] as const;
+
+/** Filtro PostgREST (`.or(...)`) que deja solo cobros de mensualidad / sin categoría. */
+export const PLAN_PERIOD_CHARGE_FILTER =
+    `payment_category.is.null,payment_category.not.in.(${ONE_OFF_PAYMENT_CATEGORIES.join(',')})`;
 export type AthleteCol = 'child_id' | 'user_id' | 'unregistered_athlete_id';
 
 export const athleteColFor = (t: AthleteType): AthleteCol =>
@@ -254,7 +268,9 @@ export async function cancelPendingPlanPayments(opts: {
         .eq('school_id', opts.schoolId)
         .eq(opts.athleteCol, opts.athleteId)
         .in('offering_plan_id', planIds)
-        .eq('status', 'pending');
+        .eq('status', 'pending')
+        // Inscripción / seguro / excedente sobreviven al cambio de plan (B4).
+        .or(PLAN_PERIOD_CHARGE_FILTER);
 }
 
 /**
