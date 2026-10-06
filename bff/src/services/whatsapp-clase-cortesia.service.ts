@@ -324,6 +324,29 @@ export function textoCupos(cupos: number): string {
  * («U15») está prohibido en whatsapp-info-escuela.service.ts. Intercalar por
  * grupo es lo que se puede hacer sin inventar.
  */
+/**
+ * ¿El mensaje nombra un grupo? («clase de cortesía para menores masculinos»,
+ * prueba en vivo 2026-10-06). Compara contra los nombres REALES de los grupos
+ * que tienen franjas (la parte antes de «·»), tolerando plural y tildes. Nunca
+ * deduce el grupo por la edad. Devuelve el nombre base o null.
+ */
+export function grupoMencionado(texto: string | null | undefined, franjas: FranjaCortesia[]): string | null {
+    const n = ` ${normalizar(texto)} `;
+    if (!n.trim()) return null;
+    const base = (g: string) => g.split('·')[0].trim();
+    let mejor: { nombre: string; palabras: number } | null = null;
+    for (const nombre of new Set(franjas.map((f) => base(f.grupo)))) {
+        const palabras = normalizar(nombre).split(' ').filter((w) => w.length >= 4);
+        if (!palabras.length) continue;
+        const todas = palabras.every((w) => {
+            const raiz = w.replace(/(es|s)$/, '');
+            return new RegExp(`(^|\\s)${raiz}(s|es)?(\\s|$)`).test(n);
+        });
+        if (todas && (!mejor || palabras.length > mejor.palabras)) mejor = { nombre, palabras: palabras.length };
+    }
+    return mejor?.nombre ?? null;
+}
+
 export function intercalarPorGrupo(franjas: FranjaCortesia[]): FranjaCortesia[] {
     const colas = new Map<string, FranjaCortesia[]>();
     for (const f of franjas) {
@@ -504,7 +527,7 @@ export async function atenderTurnoCortesia(
     }
 
     if (iniciar && pideClaseDeCortesia(texto)) {
-        await iniciarCortesia(ctx, opciones);
+        await iniciarCortesia(ctx, { ...opciones, texto });
         return true;
     }
     return false;
@@ -516,7 +539,7 @@ export async function atenderTurnoCortesia(
  */
 export async function iniciarCortesia(
     ctx: CtxCortesia,
-    opciones: { encabezado?: string; step?: string; intro?: string } = {},
+    opciones: { encabezado?: string; step?: string; intro?: string; texto?: string | null } = {},
 ): Promise<void> {
     const d = deps(ctx);
     const cabeza = opciones.encabezado ? `${opciones.encabezado}\n\n` : '';
@@ -543,10 +566,17 @@ export async function iniciarCortesia(
         return;
     }
 
-    await ofrecerFranjas(ctx, franjas, 0, {},
-        cabeza + (opciones.intro ?? '¡Claro! 🙌 La *clase de cortesía* es *gratis* y sirve para conocer la escuela. ' +
-        'Estas son las próximas franjas disponibles:'),
-        opciones.step ?? 'cortesia_ofrecer');
+    // Ser claro sobre QUÉ horarios se muestran: los de su grupo si lo nombró,
+    // o los de todos los grupos si no (y cómo pedir los de uno).
+    const grupo = grupoMencionado(opciones.texto, franjas);
+    const delGrupo = grupo ? franjas.filter((f) => f.grupo.split('·')[0].trim() === grupo) : [];
+    const base = '¡Claro! 🙌 La *clase de cortesía* es *gratis* y sirve para conocer la escuela.';
+    const intro = opciones.intro ?? (grupo
+        ? `${base} Estos son los horarios de *${grupo.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())}*:`
+        : `${base} Estos son los próximos horarios de *todos los grupos*. ` +
+          'Si me dices la categoría (por ejemplo *Menores Masculino*), te muestro solo los de ese grupo:');
+    await ofrecerFranjas(ctx, grupo && delGrupo.length ? delGrupo : franjas, 0, {},
+        cabeza + intro, opciones.step ?? 'cortesia_ofrecer');
 }
 
 async function ofrecerFranjas(
