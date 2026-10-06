@@ -29,6 +29,7 @@ import { buildVerdictContext } from '../services/receipt-context.service';
 import { normalizeDestination, normalizeReference, evaluateVerdict, destinationMatchesRegistered } from '../services/receipt-verdict';
 import { evaluatePaymentReceipt, redRejectionMessage } from '../services/receipt-approval.service';
 import { debeAtender, type TipoDeContacto } from '../services/whatsapp-atencion.service';
+import { anunciaComprobante, normalizarFrase, type ComprobanteAnunciado } from '../services/whatsapp-reglas-turno';
 import {
     pagosPendientesDe, resolverPago, describirPago, mensajeElegirPago,
     type PagoPendiente,
@@ -55,6 +56,73 @@ export interface FilaCola {
     media_mime_type: string | null;
     storage_path: string | null;
     retries: number;
+    /** Vienen en el `q.*` del claim; opcionales para no romper llamadores viejos. */
+    media_caption?: string | null;
+    created_at?: string | null;
+}
+
+// ─── Pista del cobro anunciado (P3, análisis 2026-10-06) ────────────────────
+//
+// La familia suele ANUNCIAR el comprobante con texto antes o después de la
+// foto («Hola, envío el comprobante de pago de Mensualidad 10/2026 - X (octubre
+// 2026) de X. (ref. ABCD1234)», el texto precargado de /p/:token). Cuando el
+// monto no desempata entre varios pendientes, esa pista decide en vez de
+// preguntarle «¿a cuál de estos?».
+
+export interface PistaDeCobro { ref: string | null; concepto: string | null }
+
+/**
+ * El cobro que la pista señala, o null. Por ref (prefijo del id) primero —es
+ * exacta—; por concepto, solo si coincide con UNO.
+ */
+export function elegirPorPista(pendientes: PagoPendiente[], pista: PistaDeCobro | null): PagoPendiente | null {
+    if (!pista) return null;
+    if (pista.ref) {
+        const ref = pista.ref.toLowerCase();
+        const porRef = pendientes.filter((p) => String(p.id).replace(/-/g, '').toLowerCase().startsWith(ref));
+        if (porRef.length === 1) return porRef[0];
+    }
+    if (pista.concepto) {
+        const c = normalizarFrase(pista.concepto);
+        const porConcepto = pendientes.filter((p) => normalizarFrase(p.concept) === c);
+        if (porConcepto.length === 1) return porConcepto[0];
+    }
+    return null;
+}
+
+/** Junta la pista del pie de la foto y de los textos de la familia cerca de ella. */
+export function pistaDesdeTextos(textos: (string | null | undefined)[]): PistaDeCobro | null {
+    let mejor: ComprobanteAnunciado | null = null;
+    for (const t of textos) {
+        const a = anunciaComprobante(t);
+        if (!a) continue;
+        if (a.ref) return { ref: a.ref, concepto: a.concepto ?? null };
+        if (a.concepto && !mejor?.concepto) mejor = a;
+    }
+    return mejor?.concepto ? { ref: null, concepto: mejor.concepto } : null;
+}
+
+async function pistaDeCobro(fila: FilaCola): Promise<PistaDeCobro | null> {
+    try {
+        const { data: conv } = await supabase.from('whatsapp_conversations')
+            .select('id').eq('integration_id', fila.integration_id).eq('contact_wa_id', fila.wa_phone_number)
+            .maybeSingle();
+        const textos: (string | null | undefined)[] = [fila.media_caption];
+        if ((conv as any)?.id) {
+            const base = fila.created_at ? new Date(fila.created_at).getTime() : Date.now();
+            const { data } = await supabase.from('whatsapp_messages')
+                .select('text_body, created_at')
+                .eq('conversation_id', (conv as any).id)
+                .eq('direction', 'inbound')
+                .gte('created_at', new Date(base - 15 * 60_000).toISOString())
+                .lte('created_at', new Date(base + 5 * 60_000).toISOString())
+                .limit(30);
+            for (const m of (Array.isArray(data) ? data : []) as any[]) textos.push(m?.text_body);
+        }
+        return pistaDesdeTextos(textos);
+    } catch {
+        return null;
+    }
 }
 
 // ─── Mensajes al acudiente ───────────────────────────────────────────────────
@@ -565,7 +633,16 @@ async function continuarComoComprobante(
 
     // ¿A qué pago va?
     const pendientes = await pagosPendientesDe(parentId, fila.school_id);
-    const match = resolverPago(pendientes, ocr.amount ?? null);
+    let match = resolverPago(pendientes, ocr.amount ?? null);
+
+    // El monto no desempata: ¿la familia dijo a cuál iba? (P3)
+    if (match.tipo === 'preguntar') {
+        const elegido = elegirPorPista(pendientes, await pistaDeCobro(fila));
+        if (elegido) {
+            log?.info?.({ queueId: fila.id, paymentId: elegido.id }, '[wa-queue] cobro elegido por la pista del texto');
+            match = { tipo: 'unico', pago: elegido };
+        }
+    }
 
     if (match.tipo === 'sin_pendientes') {
         await responder(M.sinPendientes, 'sin_pendientes');
@@ -887,6 +964,8 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
     // la coletilla que le recuerda que tiene las notificaciones apagadas.
     const dadoDeBaja = await estaDadoDeBaja(fila.integration_id, fila.wa_phone_number);
     let conversationId: string | null = null;
+    /** Pasos que salieron en este procesamiento: decide si se ofrece el consentimiento. */
+    const pasosEnviados = new Set<string>();
 
     /**
      * Envía Y REGISTRA. Lo segundo no es un detalle: el worker mandaba con
@@ -899,6 +978,7 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
      * no puede pasar: la ingesta la crea antes de encolar.
      */
     const responder = async (texto: string, paso: string) => {
+        pasosEnviados.add(paso);
         const final = aFormatoWhatsApp(dadoDeBaja ? texto + AVISO_DADO_DE_BAJA : texto);
 
         // Si ese MISMO texto ya salió hace poco a este contacto, no se repite.
@@ -1049,6 +1129,21 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
     }
 
     await continuarComoComprobante(fila, parentId, responder, base64, mime, storagePath, ocr, log);
+
+    // P2 (análisis 2026-10-06): la pregunta del consentimiento va al final de
+    // un turno resuelto, y el resultado de un comprobante es uno. Import
+    // perezoso: el bot arrastra el modelo y media app, y este job no lo
+    // necesita para nada más. Nunca tumba el procesamiento.
+    if (conversationId && pasosEnviados.has('resultado_comprobante')) {
+        try {
+            const { ofrecerConsentimientoSiFalta } = await import('../services/whatsapp-bot.service');
+            if (typeof ofrecerConsentimientoSiFalta === 'function') {
+                await ofrecerConsentimientoSiFalta(wa, conversationId, fila.wa_phone_number, parentId);
+            }
+        } catch (e: any) {
+            log?.warn?.({ queueId: fila.id, err: e?.message }, '[wa-queue] no se pudo ofrecer el consentimiento');
+        }
+    }
 }
 
 // ─── Entrada del job ─────────────────────────────────────────────────────────

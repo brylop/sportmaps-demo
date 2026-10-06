@@ -69,6 +69,10 @@ import {
 import { cerrarEnvio, escaparHtml, fechaColombia, reservarEnvio, uuidDeClave } from './avisos-correo.service';
 import { emitirTokenCobro, enlaceWhatsApp, nombreCorto, whatsappDeLaEscuela } from './cobro-enlace-publico.service';
 import { mediosDePago, type MediosDePago } from './whatsapp-medios-de-pago.service';
+// Los textos del link viven en payment-accounts (módulo puro): varias pruebas
+// moquean el servicio de medios entero y no exportarían estas constantes.
+import { AVISO_LINK_DE_PAGO, TEXTO_BOTON_LINK_DE_PAGO } from './payment-accounts';
+import { COLUMNAS_CONTACTO_FICHA, COLUMNAS_CONTACTO_HIJO, contactoDeFicha, contactoDeHijoSinCuenta, type FichaContacto } from './contacto-acudiente';
 import { escuelaFacturaElectronicamente } from './factura-pagador.service';
 
 export const TIPO_ESTADO = 'estado_de_cuenta';
@@ -211,15 +215,17 @@ const saldoDe = (p: PagoEstado) =>
 
 /**
  * Agrupa los cobros vivos por familia. Contacto: mismo criterio que
- * payment-lifecycle-emails (perfil del pagador → teléfono temporal del menor →
- * no registrado). Dos perfiles con el mismo correo son UNA familia.
+ * payment-lifecycle-emails (perfil del pagador → contacto temporal del menor →
+ * ficha sin cuenta vía contactoDeFicha: si es MENOR, el ACUDIENTE, nunca el niño
+ * — H-06). Dos perfiles con el mismo correo son UNA familia: dos hermanas con
+ * ficha y el mismo acudiente reciben UN solo estado de cuenta.
  */
 export function agruparPorFamilia(
     pagos: PagoEstado[],
     datos: {
         perfiles: Map<string, { id: string; full_name?: string | null; email?: string | null; phone?: string | null }>;
-        hijos: Map<string, { full_name?: string | null; parent_phone_temp?: string | null }>;
-        noRegistrados: Map<string, { full_name?: string | null; email?: string | null; phone?: string | null }>;
+        hijos: Map<string, { full_name?: string | null; parent_name_temp?: string | null; parent_email_temp?: string | null; parent_phone_temp?: string | null }>;
+        noRegistrados: Map<string, FichaContacto>;
     },
     ahora: Date,
     mes: string,
@@ -234,8 +240,10 @@ export function agruparPorFamilia(
         const perfil = datos.perfiles.get(p.parent_id || p.user_id || '');
         const hijo = datos.hijos.get(p.child_id || '');
         const nr = datos.noRegistrados.get(p.unregistered_athlete_id || '');
-        const email = String(perfil?.email || nr?.email || '').trim().toLowerCase();
-        const waId = aWaId(perfil?.phone || hijo?.parent_phone_temp || nr?.phone || null);
+        const cHijo = hijo ? contactoDeHijoSinCuenta(hijo) : null;
+        const cFicha = nr ? contactoDeFicha(nr, hoy) : null;
+        const email = String(perfil?.email || cHijo?.email || cFicha?.email || '').trim().toLowerCase();
+        const waId = aWaId(perfil?.phone || cHijo?.phone || cFicha?.phone || null);
         const clave = email.includes('@') ? email : (waId ? `wa:${waId}` : null);
         if (!clave) { sinContacto++; continue; }
 
@@ -246,7 +254,7 @@ export function agruparPorFamilia(
             clave,
             email: email.includes('@') ? email : null,
             waId,
-            nombre: perfil?.full_name || nr?.full_name || 'Familia',
+            nombre: perfil?.full_name || cHijo?.nombre || cFicha?.nombre || 'Familia',
             perfilId: perfil?.id ?? null,
             filas: [],
             avisadaHoy: false,
@@ -303,6 +311,13 @@ export interface ContenidoCorreo {
     medios: MediosDePago['cuentas'];
     qrEscuelaUrl: string | null;
     whatsappComprobante: string | null;
+    /**
+     * Link de pago genérico de la escuela (p.ej. Wompi de Dynasty), o null. No
+     * reemplaza los botones «Pagar» de cada cobro (esos abren /p/<token>): es
+     * un camino más dentro de «Cómo pagar», con el aviso de mandar comprobante
+     * porque Wompi no sabe a qué cobro corresponde.
+     */
+    linkDePago?: string | null;
     nota?: string | null;
     /** La escuela emite factura electrónica: se ofrece completar los datos (lleva a /p/<token>#factura). */
     ofrecerFactura?: boolean;
@@ -353,7 +368,11 @@ export function cuerpoCorreoEstado(c: ContenidoCorreo): string {
         ${vencido > 0 ? `<p style="color:#b91c1c;">De ese total, <strong>${fmtCop(vencido)}</strong> ya están vencidos.</p>` : ''}
         <p>Cada botón <strong>Pagar</strong> abre el cobro sin tener que iniciar sesión.</p>
         <h3 style="font-size:16px;margin:20px 0 4px;">Cómo pagar</h3>
-        ${medios ? `<p style="margin:0;">Transfiere a cualquiera de estas cuentas de la escuela:</p>${medios}` : ''}
+        ${c.linkDePago
+            ? `<p style="margin:8px 0 4px;"><a href="${escaparHtml(c.linkDePago)}" style="display:inline-block;padding:10px 16px;background:#248223;color:#fff;text-decoration:none;border-radius:6px;font-size:14px;font-weight:bold;">${escaparHtml(TEXTO_BOTON_LINK_DE_PAGO)}</a></p>
+        <p style="margin:0 0 12px;font-size:13px;color:#444;">${escaparHtml(AVISO_LINK_DE_PAGO)}.</p>`
+            : ''}
+        ${medios ? `<p style="margin:0;">${c.linkDePago ? 'O transfiere' : 'Transfiere'} a cualquiera de estas cuentas de la escuela:</p>${medios}` : ''}
         ${qrs ? `<table cellpadding="0" cellspacing="0" border="0" style="margin:8px 0;"><tr>${qrs}</tr></table>` : ''}
         ${c.whatsappComprobante
             ? `<p>Después de pagar, <a href="${escaparHtml(c.whatsappComprobante)}">envía el comprobante por WhatsApp a la escuela</a>. Si pagas por el botón en línea, no tienes que enviar nada.</p>`
@@ -397,8 +416,8 @@ export async function familiasConDeuda(schoolId: string, ahora: Date, mes = mesC
     const ids = (f: (p: PagoEstado) => string | null) => [...new Set(vivos.map(f).filter(Boolean))] as string[];
     const [perfiles, hijos, noReg] = await Promise.all([
         leerPorIds('profiles', 'id, full_name, email, phone', ids((p) => p.parent_id || p.user_id)),
-        leerPorIds('children', 'id, full_name, parent_phone_temp', ids((p) => p.child_id)),
-        leerPorIds('unregistered_athletes', 'id, full_name, email, phone', ids((p) => p.unregistered_athlete_id)),
+        leerPorIds('children', `id, ${COLUMNAS_CONTACTO_HIJO}`, ids((p) => p.child_id)),
+        leerPorIds('unregistered_athletes', `id, ${COLUMNAS_CONTACTO_FICHA}`, ids((p) => p.unregistered_athlete_id)),
     ]);
     const { familias, sinContacto } = agruparPorFamilia(vivos, {
         perfiles: new Map(perfiles.map((x) => [x.id, x])),
@@ -508,6 +527,12 @@ export interface OpcionesEnvio {
     aplicar: boolean;
     canal?: CanalPedido;
     nota?: string | null;
+    /**
+     * Si viene, la nota solo va a estos correos. Reenvío del 2026-10-06: la
+     * línea «corregimos el enlace de ayer» es para quien recibió el de ayer, no
+     * para los acudientes que reciben su primer estado de cuenta.
+     */
+    notaSoloPara?: Set<string> | null;
     ahora?: Date;
     /** Overrides de los scripts (--frontend / --bff); siempre validados. */
     appUrl?: string | null;
@@ -644,7 +669,11 @@ export async function enviarEstadoDeCuenta(schoolId: string, o: OpcionesEnvio): 
                     greeting: `Hola ${f.nombre},`,
                     bodyHtml: cuerpoCorreoEstado({
                         escuela, familia: f, appBase, bffBase, medios: medios.cuentas,
-                        qrEscuelaUrl: qrEscuela, whatsappComprobante, nota: o.nota, ofrecerFactura,
+                        qrEscuelaUrl: qrEscuela, whatsappComprobante,
+                        // `?? null`: si mediosDePago no lo trae (mock viejo), no hay botón.
+                        linkDePago: medios.link_de_pago ?? null,
+                        nota: o.notaSoloPara && !o.notaSoloPara.has(f.email.toLowerCase()) ? null : o.nota,
+                        ofrecerFactura,
                     }),
                     cta: { label: 'Ver y pagar', url: f.filas.find((x) => x.token) ? enlaceDeCobro(appBase, f.filas.find((x) => x.token)!.token!) : `${appBase}/my-payments` },
                     closingHtml: 'Si ya pagaste, ignora este mensaje: la escuela lo está revisando.',

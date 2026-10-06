@@ -25,6 +25,12 @@ export interface OcrResult {
     destinationName: string | null;
     /** Nombre de quien envia. */
     originName: string | null;
+    /**
+     * Texto libre que escribió quien paga (concepto, descripción, mensaje,
+     * «motivo»): suele traer el nombre del deportista o el mes. Solo es pista
+     * para elegir el cobro entre varios; nunca decide validez.
+     */
+    description?: string | null;
     /** false si la imagen no es un comprobante de pago individual. */
     isReceipt: boolean;
     /** true si es un pantallazo de lista de movimientos (no un comprobante individual). */
@@ -50,6 +56,7 @@ Devuelve UNICAMENTE un JSON valido con este schema, sin texto adicional:
   "destination": "<numero de cuenta, celular o llave A LA QUE SE ENVIO el dinero>" | null,
   "destination_name": "<nombre del titular destino, etiqueta 'Para'>" | null,
   "origin_name": "<nombre de quien envia>" | null,
+  "description": "<texto libre escrito por quien envia: concepto, descripcion, mensaje o motivo>" | null,
   "is_receipt": true | false,
   "is_transaction_list": true | false,
   "missing_fields": ["<campos que NO son visibles o legibles en la imagen>"]
@@ -337,6 +344,7 @@ function parseLlmJson(content: string, provider: string): OcrResult {
             destination: asStr(data.destination),
             destinationName: asStr(data.destination_name),
             originName: asStr(data.origin_name),
+            description: asStr(data.description),
             // Default true: solo marcamos "no es comprobante" si el modelo lo afirma
             // explícitamente. Un campo omitido no debe disparar un ROJO falso.
             isReceipt: data.is_receipt === false ? false : true,
@@ -358,7 +366,7 @@ function parseLlmJson(content: string, provider: string): OcrResult {
         // AMARILLO por campos faltantes, no a ROJO.
         return {
             amount: null, currency: null, date: null, time: null, bank: null,
-            reference: null, destination: null, destinationName: null, originName: null,
+            reference: null, destination: null, destinationName: null, originName: null, description: null,
             isReceipt: true, isTransactionList: false, missingFields: ['amount', 'date', 'reference'],
             rawResponse: content,
             provider,
@@ -425,15 +433,20 @@ export async function extractReceipt(base64Image: string, mimeType: string = 'im
     }
 
     let lastErr: Error | null = null;
+    const fallas: string[] = [];
     for (const name of tryOrder) {
         try {
             return await providers[name]();
         } catch (err: any) {
             lastErr = err;
+            fallas.push(`${name}: ${err?.message ?? err}`);
             console.warn(`[OCR] ${name} fallo, intentando siguiente:`, err.message);
         }
     }
-    throw lastErr ?? new Error('Todos los providers de OCR fallaron');
+    // Todos los proveedores, no solo el último. El 2026-10-06 las 15 filas de la
+    // cola de WhatsApp quedaron con «OPENAI_API_KEY no configurada» —el último
+    // de la cadena— y no se veía por qué había fallado Gemini, que va primero.
+    throw new Error(fallas.length ? fallas.join(' | ') : (lastErr?.message ?? 'Todos los providers de OCR fallaron'));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

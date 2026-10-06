@@ -1,11 +1,9 @@
 # Endpoint `/bridge/door-commands` — implementado
 
-> **Estado (2026-08-26): código en `develop`, pendiente de desplegar.**
-> Implementación real en [`bff/src/routes/bridge.routes.ts`](../../bff/src/routes/bridge.routes.ts).
-> Este documento ya no es un spec a implementar — es la referencia de cómo
-> quedó armado y por qué. Falta: aplicar
-> `supabase/migrations/20260825231925_gymrm_bridge_local_flag.sql` a la
-> base real, desplegar el BFF a Render, y setear `BRIDGE_API_KEY` ahí.
+> **Estado (2026-10-05): en producción.** Implementación real en
+> [`bff/src/routes/bridge.routes.ts`](../../bff/src/routes/bridge.routes.ts) (HTTP) y
+> [`bff/src/services/bridgeWsServer.ts`](../../bff/src/services/bridgeWsServer.ts) (WebSocket, ver la última
+> sección). Este documento ya no es un spec a implementar — es la referencia de cómo quedó armado y por qué.
 
 El `door_bridge.py` de esta carpeta necesita que el BFF exponga un canal
 propio para consultar y confirmar comandos `open_door`, **separado del
@@ -196,3 +194,27 @@ de verdad.
 
 Pendiente aplicarla a la base real (no vía SQL editor — ver `INF-7` en el
 roadmap sobre por qué eso no deja rastro).
+
+---
+
+## WebSocket `/bridge/ws` (2026-09-21 GYM RM · 2026-09-25 Dreamers)
+
+El `GET /bridge/door-commands` sigue existiendo y sin cambios (long-poll opcional con `wait_seconds`), pero los
+bridges de GYM RM y Dreamers ya no lo sondean: abren una conexión WebSocket persistente. Misma lógica de reclamo
+atómico (`claimAndMapCommands`, un solo lugar), mismo `ack` por HTTP.
+
+Protocolo, todo JSON sobre la misma conexión (el original está en el encabezado de `bridgeWsServer.ts`):
+
+| Dirección | Mensaje | Notas |
+|---|---|---|
+| cliente → servidor | `{type:"auth", school_id, api_key, command_types?}` | primer mensaje, obligatorio (10 s). `command_types` coma-separado, default `open_door`; Dreamers manda `open_door,set_group,disable_user,enable_user` |
+| servidor → cliente | `{type:"auth_ok"}` / `{type:"auth_failed"}` | `auth_failed` también si la escuela no tiene un lector registrado (`schoolHasLocalBridge`) |
+| servidor → cliente | `{type:"wake"}` | `wakeSchool()` al crear un `open_door` en `access-api.ts` |
+| cliente → servidor | `{type:"poll"}` | «dame lo pendiente»; el servidor responde `commands` |
+| servidor → cliente | `{type:"commands", commands:[...]}` | también al autenticar, si ya había algo |
+| cliente → servidor | `{type:"heartbeat", devices?:[serial]}` | cada ~60 s; mantiene `bridge_heartbeats`. `devices` (opcional) = lectores que siguen capturando → `turnstile_devices.last_seen_at`, solo seriales de la escuela del socket (lo usa el bridge de Dreamers; `auth_ok` anuncia `features:["device_heartbeat"]`). Sin heartbeat en 90 s el servidor corta el socket |
+
+Notas de diseño: frames de máx. 8 KB; rate-limit de auths fallidos por IP (20 / 5 min) usando `cf-connecting-ip`
+(el upgrade de un WS no pasa por `trust proxy`); la conexión se renueva a las 3 am Colombia desde el cliente.
+**Límite aceptado:** el registro de conexiones (`bridgeWsHub.ts`) vive en memoria de una sola instancia de Render —
+con más de una instancia, el `wake` solo llegaría a los bridges conectados a la que atiende el request.

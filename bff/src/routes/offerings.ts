@@ -68,6 +68,8 @@ const CreatePlanSchema = z.object({
     session_block_minutes: z.number().int().positive().nullable().optional(),
     included_sessions_per_week: z.number().int().positive().nullable().optional(),
     registration_fee: z.number().min(0).nullable().optional(),
+    // Seguro de accidentes cobrado en el alta (F-B, dedupe 365 días). NULL = sin cobro.
+    insurance_fee: z.number().min(0).nullable().optional(),
 });
 
 const UpdatePlanSchema = z.object({
@@ -87,6 +89,8 @@ const UpdatePlanSchema = z.object({
     session_block_minutes: z.number().int().positive().nullable().optional(),
     included_sessions_per_week: z.number().int().positive().nullable().optional(),
     registration_fee: z.number().min(0).nullable().optional(),
+    // Seguro de accidentes cobrado en el alta (F-B, dedupe 365 días). NULL = sin cobro.
+    insurance_fee: z.number().min(0).nullable().optional(),
 });
 
 // Piloto (docs — booking_mode toggle): antes de aceptar un booking_mode distinto
@@ -384,6 +388,20 @@ router.get('/:id/plans', requireAuth, async (req: Request, res: Response) => {
     }
 });
 
+// ── Ascenso y días (F-F, docs/specs/dreamers-niveles-por-horas-y-progresion.md) ──
+// Campos pasivos del plan, todos nullable (NULL = comportamiento de hoy):
+//   · allowed_days_of_week: días en que el plan permite reservar (0=dom … 6=sáb), D9.
+//   · promotion_threshold_points / promotion_min_competition_level: umbral para
+//     ENTRAR a este plan (plan destino), D15. Solo sugiere (D4).
+// Se mezclan con Create/UpdatePlanSchema en los handlers (bloque aparte a propósito).
+const PlanLevelRulesSchema = z.object({
+    allowed_days_of_week: z.array(z.number().int().min(0).max(6)).min(1).max(7)
+        .transform((days) => [...new Set(days)].sort((a, b) => a - b))
+        .nullable().optional(),
+    promotion_threshold_points: z.number().min(0).nullable().optional(),
+    promotion_min_competition_level: z.enum(['club', 'regional', 'nacional', 'federacion']).nullable().optional(),
+});
+
 // ── POST /api/v1/offerings/:id/plans ─────────────────────────────────────────
 
 router.post('/:id/plans',
@@ -391,7 +409,7 @@ router.post('/:id/plans',
     requireRole('owner', 'admin', 'school_admin'),
     async (req: Request, res: Response) => {
         try {
-            const parsed = CreatePlanSchema.safeParse(req.body);
+            const parsed = CreatePlanSchema.merge(PlanLevelRulesSchema).safeParse(req.body);
             if (!parsed.success) {
                 return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
             }
@@ -465,7 +483,7 @@ router.patch('/:offeringId/plans/:planId',
     requireRole('owner', 'admin', 'school_admin'),
     async (req: Request, res: Response) => {
         try {
-            const parsed = UpdatePlanSchema.safeParse(req.body);
+            const parsed = UpdatePlanSchema.merge(PlanLevelRulesSchema).safeParse(req.body);
             if (!parsed.success) {
                 return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
             }

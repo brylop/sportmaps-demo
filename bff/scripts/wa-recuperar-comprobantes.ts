@@ -7,6 +7,7 @@
  *   npx tsx scripts/wa-recuperar-comprobantes.ts --escuela <school_id> --desde 2026-10-02
  *   npx tsx scripts/wa-recuperar-comprobantes.ts --escuela <school_id> --aplicar          # escribe
  *   opcionales: --concurrencia 2 (OCR en paralelo) · --reintentos 3 (vueltas extra para el OCR saturado)
+ *               --reprocesar (vuelve a tomar lo que quedó en el buzón y las reglas nuevas resuelven)
  *
  * QUÉ TOMA
  *
@@ -17,6 +18,14 @@
  *
  * Lo ya procesado por este script queda con `error_message` 'recuperado: …' y
  * otro estado, así que una segunda corrida no lo vuelve a tomar (idempotente).
+ *
+ * Con --reprocesar (2026-10-06) también toma lo que quedó en el buzón por algo
+ * que las reglas nuevas resuelven (ver `esRecuperable`): 'recuperado:
+ * familia_sin_cuenta | varios_cobros | monto_distinto | sin_pendientes |
+ * sin_familia' y las que el worker cerró con 'sin pagos pendientes'. Lo que
+ * sigue sin resolverse vuelve al buzón con el motivo nuevo; nada que ya esté
+ * en un cobro se toca. Un abono (comprobante menor al cobro) queda en
+ * revisión como cualquier otro: la escuela lo aprueba como abono.
  *
  * QUÉ HACE CON CADA UNA — la regla está en services/whatsapp-recuperacion.service.ts
  *
@@ -38,7 +47,7 @@ import 'dotenv/config';
 import { supabase } from '../src/config/supabase';
 import type { WhatsAppIntegration } from '../src/services/whatsapp.service';
 import {
-    recuperarFilaDeCola, MOTIVOS_RECUPERABLES, type FilaParaRecuperar,
+    recuperarFilaDeCola, esRecuperable, PREFIJO_RECUPERADO, type FilaParaRecuperar,
     type ResultadoRecuperacion, type CacheEscuela,
 } from '../src/services/whatsapp-recuperacion.service';
 
@@ -50,6 +59,7 @@ function arg(nombre: string): string | null {
 const ESCUELA = arg('--escuela');
 const DESDE = arg('--desde');
 const APLICAR = process.argv.includes('--aplicar');
+const REPROCESAR = process.argv.includes('--reprocesar');
 
 const cop = (n: number | null | undefined) =>
     n === null || n === undefined ? '—'
@@ -71,16 +81,18 @@ async function main() {
 
     let q = supabase.from('whatsapp_inbound_queue')
         .select('id, integration_id, school_id, wa_phone_number, wa_message_id, wa_timestamp, media_id, '
-            + 'media_mime_type, storage_path, retries, status, error_message, created_at')
+            + 'media_mime_type, media_caption, storage_path, retries, status, error_message, created_at')
         .eq('school_id', ESCUELA)
         .not('media_id', 'is', null)
-        .or(`status.eq.pending,and(status.eq.ignored,error_message.in.(${MOTIVOS_RECUPERABLES.map((m) => `"${m}"`).join(',')}))`)
+        .in('status', ['pending', 'ignored'])
         .order('created_at', { ascending: true });
     if (DESDE) q = q.gte('created_at', `${DESDE}T00:00:00-05:00`);
-    const { data: filas, error } = await q;
+    const { data: filas, error } = await q.limit(2000);
     if (error) { console.error('No se pudo leer la cola:', error.message); process.exit(1); }
-    const lista = (filas ?? []) as FilaParaRecuperar[];
-    console.log(`Filas a revisar: ${lista.length}\n`);
+    // La regla de qué se toma vive en el servicio (probada); acá solo se aplica.
+    const lista = ((filas ?? []) as unknown as FilaParaRecuperar[]).filter((f) => esRecuperable(f, REPROCESAR));
+    const antes = new Map(lista.map((f) => [f.id, decisionPrevia(f)]));
+    console.log(`Filas a revisar: ${lista.length}${REPROCESAR ? ' (con --reprocesar)' : ''}\n`);
     if (lista.length === 0) return;
 
     // Una integración por escuela: el token para bajar los archivos.
@@ -148,19 +160,19 @@ async function main() {
         const fila = lista[i];
         const r = resultados[i];
         totales.set(r.decision, (totales.get(r.decision) ?? 0) + 1);
-        if (r.decision === 'en_revision' && r.pago) aplicados.push({ fila: fila.id, pago: r.pago.id, monto: r.ocr?.amount ?? null });
+        if ((r.decision === 'en_revision' || r.decision === 'abono_en_revision') && r.pago) aplicados.push({ fila: fila.id, pago: r.pago.id, monto: r.ocr?.amount ?? null });
 
         filasTabla.push({
             fila: fila.id.slice(0, 8),
             llegó: fila.created_at.slice(0, 16).replace('T', ' '),
-            origen: `${fila.status}${fila.error_message ? `/${fila.error_message}` : ''}`.slice(0, 30),
+            antes: antes.get(fila.id)!,
             tel: `…${fila.wa_phone_number.slice(-4)}`,
             familia: r.parentId ? (await nombreDe(r.parentId)).slice(0, 28) : '—',
             monto: cop(r.ocr?.amount),
             fecha_comp: r.ocr?.date ?? '—',
             cobro: r.pago ? `${(r.pago.concept ?? r.pago.id).slice(0, 40)} (${cop(r.pago.amount)})` : (r.pagoRegistradoId ? `ya: ${r.pagoRegistradoId.slice(0, 8)}` : '—'),
             decisión: r.decision,
-            motivo: r.motivo.slice(0, 80),
+            motivo: r.motivo.slice(0, 110),
         });
     }
 
@@ -169,7 +181,27 @@ async function main() {
     for (const [k, v] of Array.from(totales.entries()).sort((a, b) => b[1] - a[1])) console.log(`  ${k.padEnd(22)} ${v}`);
     const suma = aplicados.reduce((s, a) => s + (a.monto ?? 0), 0);
     console.log(`\n${APLICAR ? 'Quedaron' : 'Quedarían'} EN REVISIÓN: ${aplicados.length} comprobante(s) por ${cop(suma)} (leído).`);
-    if (!APLICAR) console.log('\nNada se escribió. Para aplicar: agregar --aplicar.');
+
+    // Antes → ahora: cuántas cambian de destino con las reglas nuevas.
+    const cruce = new Map<string, Map<string, number>>();
+    lista.forEach((f, i) => {
+        const a = antes.get(f.id)!;
+        if (!cruce.has(a)) cruce.set(a, new Map());
+        const m = cruce.get(a)!;
+        m.set(resultados[i].decision, (m.get(resultados[i].decision) ?? 0) + 1);
+    });
+    console.log('\nAntes → ahora:');
+    for (const [a, m] of cruce) {
+        console.log(`  ${a.padEnd(28)} → ${Array.from(m.entries()).map(([d, n]) => `${d} ${n}`).join(' · ')}`);
+    }
+    if (!APLICAR) console.log(`\nNada se escribió. Para aplicar: agregar --aplicar${REPROCESAR ? ' (con --reprocesar)' : ''}.`);
+}
+
+/** Cómo estaba la fila antes de esta corrida, para comparar. */
+function decisionPrevia(f: FilaParaRecuperar): string {
+    const em = f.error_message ?? '';
+    if (em.startsWith(PREFIJO_RECUPERADO)) return em.slice(PREFIJO_RECUPERADO.length).trim().split(' ')[0];
+    return `${f.status}${em ? `/${em}` : ''}`.slice(0, 26);
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

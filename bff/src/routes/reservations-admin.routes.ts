@@ -20,6 +20,12 @@
 // negaba la fila silenciosamente (DELETE sobre 0 filas no es un error) y el
 // toast decía "eliminado" sin haber borrado nada. Acá sí se puede, con
 // service_role, solo para owner/admin.
+//
+// Días permitidos por plan (offering_plans.allowed_days_of_week, D9 / F-F):
+// lo que hace el staff/admin desde acá NO se valida contra esos días, a
+// propósito — la escuela puede reprogramar o hacer una excepción. El 422
+// day_not_allowed solo aplica a las reservas del atleta/acudiente
+// (utils/planDayRules.ts).
 
 
 

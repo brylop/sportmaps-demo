@@ -1,7 +1,11 @@
 # Pizarra táctica: material de entrenamiento, modo arqueros y vista 3D
 
-**Estado:** F1 en construcción (2026-09-24). Decisiones del §6 cerradas. Nace de los pedidos de
-Club Carmel del 2026-09-24 (entrenador de arqueros Yohan Casas + coaches de categoría) sobre la
+**Estado:** F1 entregada y en producción (2026-09-25, `2b1dc946`) + lápiz/texto/borrador
+(2026-09-30, `5bda8a3f`) + ajustes de celular/iPhone (`e485a9b1`, `5acf1eeb`). **Auditoría de
+diseño/UX/datos de la pizarra y la plantilla: 2026-10-05, ver §9** — fallas verificadas corregidas
+en el frontend y el BFF; la migración de datos/lectura (`20261005173002`) está en el repo y **pendiente
+de aplicar en la base viva**. F2 (3D) sigue sin empezar. Decisiones del §6 cerradas. Nace de los pedidos
+de Club Carmel del 2026-09-24 (entrenador de arqueros Yohan Casas + coaches de categoría) sobre la
 pizarra que ya existe en `/training-plans` → sesión → "Pizarra".
 **Decide:** el usuario (decisiones cerradas en §6).
 
@@ -134,9 +138,27 @@ aperturas de "Ver en 3D" por semana en escuelas reales, no solo Carmel.
 - **Sin número de versión en el JSON.** Todos los campos nuevos (`size`, `rot`, `kind`, tipos
   nuevos) son opcionales dentro del jsonb y las figuras viejas se leen como están. Un
   `schema_version` no aporta nada y obliga a tocar dos escritores (alineación y plantilla).
-- **Validación en el BFF.** `validateArrows` en `bff/src/routes/school/football.ts` valida los
-  campos nuevos: `size` en rango 0,25–4, `rot` numérico, `kind` ∈ `pase | remate | penal` y
-  tipos dentro del catálogo.
+- **Validación en el BFF.** `validateArrows` (hoy en `bff/src/routes/school/footballShapes.ts`,
+  lógica pura con tests en `footballShapes.test.ts`) valida los campos nuevos: `size` en rango
+  0,25–4, `rot` numérico entre −360 y 360, `kind` ∈ `pase | remate | penal` y tipos dentro del
+  catálogo. **Desde la auditoría del 2026-10-05 (§9):** rechaza elementos que no son objeto (422, antes
+  500), tope de **300 figuras** y **40 slots** por plantilla, nombre ≤80 y `slot_label` ≤40; y
+  `sanitizeArrows`/`sanitizeSlots` guardan **solo los campos conocidos** (antes el objeto del
+  cliente se persistía crudo). La paridad de catálogos (17 tipos, 9 colores, límites) entre frontend
+  y BFF sigue siendo manual — ampliar JUNTO `footballQueries.ts`, `tacticalGeometry.ts`,
+  `tacticalPalette.ts` y `footballShapes.ts`.
+- **Restricciones en la base** (migración `20261005173002`, **pendiente de aplicar**): `CHECK` de que
+  `slots`/`arrows` sean listas con el mismo tope, `CHECK` de nombre ≤80, e índice único
+  `(team_id, situation, lower(btrim(name)))` en `team_tactical_presets`; `CHECK` de `arrows` en
+  `match_lineups`. Medido antes: 9 plantillas (máx. 11 slots, 14 figuras, 0 duplicados) y 58
+  alineaciones (máx. 52 figuras) — ninguna fila existente se rechaza.
+- **Lectura (RLS), misma migración:** los SELECT de `team_tactical_presets`, `match_lineups`,
+  `match_lineup_players` y `football_match_events` pasan de `user_school_ids()` (cualquier miembro,
+  incluidos padres y atletas) a `user_staff_school_ids()`; se conservan las ramas de "lo mío" (el
+  atleta/padre sigue viendo las alineaciones y eventos donde participa él o su hijo). Nada fuera del
+  BFF (service_role) lee estas tablas con el JWT del usuario. Esto **corrige** lo que dejaba
+  `20260819173354` (lectura de plantillas en `user_school_ids()`, ver
+  `docs/seguridad-escritura-rls-registro.md`).
 
 ## 6. Decisiones cerradas (2026-09-24)
 
@@ -157,6 +179,16 @@ Revisadas y cerradas por el dueño del producto el 2026-09-24.
    escuelas distintas durante un mes, **y además** con al menos 5 coaches distintos. Si el 90 %
    de las aperturas son de un solo coach, la señal es débil aunque el total se cumpla.
 
+7. **(2026-10-05) La foto del jugador en el modo disco es opt-in, apagada por defecto.** El modo
+   disco mostraba la foto (`avatar_url`) sin preguntar, contra la decisión 3. Ahora hay un botón
+   "Fotos" por dispositivo (`localStorage` `tactical_board_pin_photos`, borrado al cerrar sesión). *Pendiente
+   de confirmar con el dueño del producto: si se prefiere quitar la foto del todo.*
+8. **(2026-10-05) Solo `owner`, `coach` y `super_admin` modifican el tablero** (espejo de
+   `TACTICAL_EDIT_ROLES` del BFF y de `user_tactical_edit_school_ids()`); admin/school_admin/staff lo
+   abren en **modo lectura** (insignia "Solo lectura", sin arrastrar, guardar ni dibujar).
+9. **(2026-10-05) La lectura de plantillas, alineaciones y eventos es de staff**, no de cualquier
+   miembro (ver §5). El padre/atleta conserva lo suyo.
+
 ## 7. Plan de QA
 
 - F1 **exige pruebas en dispositivos reales antes de desplegar.** La pizarra se usa con el dedo
@@ -174,3 +206,51 @@ Revisadas y cerradas por el dueño del producto el 2026-09-24.
 - Bloque de sesión con componente "Arqueros" en `SessionFormDialog`: **hecho**.
 - Grupo transversal de arqueros (un niño en su categoría **y** en el grupo de arqueros): tema
   aparte, ver `docs/plan-club-carmel-2026-09.md` y memoria `project_carmel_arqueros_grupo_transversal`.
+
+## 9. Auditoría de diseño, edición y plantilla (2026-10-05)
+
+Pedido: validar y mejorar todo el editor de la pizarra y la plantilla interactiva, funcional en
+todos los dispositivos. El plan completo se aprobó el 2026-10-05; esta sección es el registro de lo
+encontrado (leyendo el código completo, no por opinión) y de dónde está cada cosa. **Las pruebas en
+celular/tableta las hace el usuario**; el checklist de gestos vive en
+`docs/qa/pizarra-tactica-f1-checklist.md` (casos nuevos al final).
+
+### 9.1 Fallas verificadas y su estado
+
+| # | Falla | Estado |
+|---|---|---|
+| B1 | Con zoom de arqueros, reposicionar un jugador lo hacía saltar (~10 puntos): usaba `y/100` sin la ventana visible | ✅ `repositionedCenterPx` (`tacticalBoardLogic.ts`), con tests |
+| B2 | El relleno de una zona tapaba a los jugadores debajo (tocarla la borraba) | ✅ relleno `pointer-events-none`; solo el borde es tocable |
+| B3 | Un jugador guardado que ya no está en el roster reventaba el guardado y contaba para el máximo de 11 | ✅ `splitKnownKeys` + aviso al guardar |
+| B4 | "Reproducir jugada" mutaba `placed`, Guardar seguía activo, timeouts sin limpiar | ✅ botón Detener que restaura posiciones; Guardar deshabilitado; timers limpios |
+| B5 | Guardar/Actualizar plantilla perdía los marcadores sin jugador | ✅ `buildPresetSlots` |
+| B6/B7 | Cargar plantilla, cambiar de situación, "Borrar todo" y eliminar plantilla sin confirmación; eliminar limpiaba la pantalla aunque fallara | ✅ `AlertDialog` único; eliminar solo limpia si el servidor respondió OK |
+| B8 | `Select` de plantilla no controlado | ✅ controlado + botón "volver a cargar la plantilla guardada" |
+| B9 | Gestos interrumpidos dejaban trazo/preview/arrastre colgados | ✅ `onPointerCancel`/`onLostPointerCapture` |
+| B13 | Etiqueta de jugador <16 px (zoom de iOS), texto negro invisible, contraste `white/40` | ✅ |
+| B15 | El modo disco mostraba la foto de menores | ✅ opt-in (decisión 7, §6) |
+| B16 | BFF: 500 con elementos nulos, sin topes, objetos crudos al jsonb, `DELETE` 204 siempre, `PUT` con `slots: []`, sin unicidad de nombre ni control de concurrencia | ✅ BFF (`footballShapes.ts`, `football.ts`: 409 por `expected_updated_at`/nombre repetido, 404 al borrar inexistente) · ⏳ base (migración pendiente de aplicar) |
+| B17 | RLS: lectura de plantillas/alineaciones/eventos para cualquier miembro, incluidos padres | ⏳ migración `20261005173002` en el repo, **pendiente de aplicar** |
+| B18 | Sin control de rol en el frontend (admin/staff recibían 403 después de armar todo) | ✅ modo lectura (decisión 8, §6) |
+| B19 | Catálogos duplicados a mano en 4-5 archivos, sin test de paridad | ⏳ Fase 0 pendiente (`scripts/verificar-paridad-pizarra.mjs`) |
+| B10 | Deshacer = quitar la última figura; sin rehacer; sin teclado; líneas/zonas se borran con un toque | ⏳ Fase 3 |
+| B11 | Sin estado "sin guardar": Cancelar/X/Esc cierran perdiendo todo | ⏳ Fase 3 |
+| B12 | Handles y botones muy por debajo de 44 px | ⏳ Fase 6 |
+| B14 | El jugador "patea" y el balón sale a la vez (spec §3.3); solo 2 siluetas en vez de 4 por posición (§3.5) | ⏳ Fases 3 y 6 |
+
+### 9.2 Lo que sigue (orden aprobado)
+
+`0 → 1 → 2 → 5(partición del archivo) → 3 → 4 → 6 → 7`. Hecho: Fase 1 completa y la parte de
+código de la Fase 2. Pendiente: aplicar la migración (Fase 2), Fase 0 (paridad de catálogos, e2e de
+referencia, medición de rendimiento), partición de `TacticalBoard.tsx` en módulos, historial real +
+atajos + "sin guardar" + reproducción v2 (Fase 3), panel de plantillas con vista previa, renombrar,
+duplicar y envío de `expected_updated_at` (Fase 4), rendimiento (carga diferida, memo), y sistema de
+diseño + accesibilidad + áreas táctiles ≥44 px (Fase 6). No cambia la forma del JSON.
+
+### 9.3 Decisiones abiertas
+
+1. Foto en modo disco: ¿se queda opt-in o se quita del todo? (decisión 7, recomendada opt-in).
+2. Preferencia disco/silueta: ¿por dispositivo (hoy) o por equipo (lo que dice §3.5)?
+3. Aplicar plantilla: ¿ofrecer "solo formación / solo dibujos" o siempre "todo"?
+4. ¿Guardar `situation` (y la plantilla cargada) con la alineación? Hoy no viaja.
+5. Multiselección y zoom libre: ¿en esta ronda o en una segunda?

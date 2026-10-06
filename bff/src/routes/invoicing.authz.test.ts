@@ -42,7 +42,9 @@ const estado = vi.hoisted(() => ({
     /** token → usuario, para el `auth.getUser` del requireAuth REAL. */
     tokens: {} as Record<string, { id: string; email: string }>,
     /** Efectos que NO deben ocurrir cuando la autorización dice no. */
-    llamadas: { emit: [] as string[], backfill: [] as any[], deletes: [] as string[], void: [] as any[] },
+    llamadas: { emit: [] as string[], backfill: [] as any[], deletes: [] as string[], void: [] as any[], updates: [] as any[] },
+    /** Respuesta de supabase.rpc('has_entitlement'). */
+    entitlement: true as boolean,
 }));
 
 // ─── Supabase moqueado ───────────────────────────────────────────────────────
@@ -57,6 +59,10 @@ vi.mock('../config/supabase', () => {
             eq: (col: string, val: any) => { filas = filas.filter(f => f[col] === val); return api; },
             in: (col: string, vals: any[]) => { filas = filas.filter(f => vals.includes(f[col])); return api; },
             order: () => api,
+            gte: () => api,
+            lte: () => api,
+            range: (a: number, b: number) => { filas = filas.slice(a, b + 1); return api; },
+            update: (cuerpo: any) => { estado.llamadas.updates.push({ tabla, cuerpo }); return api; },
             limit: (n: number) => { filas = filas.slice(0, n); return api; },
             maybeSingle: async () => ({ data: filas[0] ?? null, error: null }),
             single: async () => ({ data: filas[0] ?? null, error: null }),
@@ -70,6 +76,7 @@ vi.mock('../config/supabase', () => {
     return {
         supabase: {
             from: (tabla: string) => builder(tabla),
+            rpc: async () => ({ data: estado.entitlement, error: null }),
             auth: {
                 getUser: async (token: string) => {
                     const user = estado.tokens[token];
@@ -207,7 +214,8 @@ beforeEach(async () => {
     };
     estado.usuarioRouter = { id: DUENO, email: 'quien@test.co' };
     estado.tokens = {};
-    estado.llamadas = { emit: [], backfill: [], deletes: [], void: [] };
+    estado.llamadas = { emit: [], backfill: [], deletes: [], void: [], updates: [] };
+    estado.entitlement = true;
 
     const app = express();
     app.use(express.json());
@@ -641,5 +649,83 @@ describe('rol contador — lee facturas, no opera el facturador', () => {
             m.profile_id === CONTADOR ? { ...m, status: 'inactive' } : m);
         const { status } = await como(CONTADOR, `/api/v1/invoicing/invoices/school/${ESCUELA}`);
         expect(status).toBe(403);
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Interruptor Activo/Inactivo, permiso de emitir en el listado, y la consulta
+// del checkout (¿la escuela factura?).
+describe('facturador: interruptor, canEmit y estado para el checkout', () => {
+    const CONTADOR = 'u0000000-0000-4000-8000-000000000013';
+    const toggle = (enabled: unknown) => ({ method: 'PATCH', body: JSON.stringify({ enabled }) });
+
+    it('el admin de la escuela apaga el facturador SIN mandar credenciales', async () => {
+        const { status } = await como(ADMIN_DE_ESTA, `/api/v1/invoicing/providers/${PROVEEDOR_ID}/enabled`, toggle(false));
+        expect(status).toBe(200);
+        expect(estado.llamadas.updates).toEqual([
+            { tabla: 'electronic_invoice_providers', cuerpo: expect.objectContaining({ enabled: false }) },
+        ]);
+    });
+
+    it('el admin de OTRA escuela no puede apagarlo', async () => {
+        const { status } = await como(ADMIN_DE_OTRA, `/api/v1/invoicing/providers/${PROVEEDOR_ID}/enabled`, toggle(false));
+        expect(status).toBe(403);
+        expect(estado.llamadas.updates).toEqual([]);
+    });
+
+    it('el contador no puede apagarlo', async () => {
+        estado.tablas.school_members.push({
+            school_id: ESCUELA, profile_id: CONTADOR, role: 'accountant', status: 'active', joined_at: '2026-10-04',
+        });
+        const { status } = await como(CONTADOR, `/api/v1/invoicing/providers/${PROVEEDOR_ID}/enabled`, toggle(false));
+        expect(status).toBe(403);
+        expect(estado.llamadas.updates).toEqual([]);
+    });
+
+    it('body inválido → 400; proveedor inexistente → 404', async () => {
+        expect((await como(DUENO, `/api/v1/invoicing/providers/${PROVEEDOR_ID}/enabled`, toggle('si'))).status).toBe(400);
+        expect((await como(DUENO, `/api/v1/invoicing/providers/f0000000-0000-4000-8000-0000000000ff/enabled`, toggle(true))).status).toBe(404);
+    });
+
+    it('el listado dice canEmit=true al dueño y false al contador', async () => {
+        estado.tablas.school_members.push({
+            school_id: ESCUELA, profile_id: CONTADOR, role: 'accountant', status: 'active', joined_at: '2026-10-04',
+        });
+        const dueno = await como(DUENO, `/api/v1/invoicing/invoices/school/${ESCUELA}?page=1&pageSize=50`);
+        expect(dueno.status).toBe(200);
+        expect(dueno.body.permissions.canEmit).toBe(true);
+        expect(dueno.body).toMatchObject({ page: 1, pageSize: 50 });
+        const contador = await como(CONTADOR, `/api/v1/invoicing/invoices/school/${ESCUELA}`);
+        expect(contador.body.permissions.canEmit).toBe(false);
+    });
+
+    it('filtros inválidos → 400 antes de tocar la base', async () => {
+        expect((await como(DUENO, `/api/v1/invoicing/invoices/school/${ESCUELA}?status=pagada`)).status).toBe(400);
+        expect((await como(DUENO, `/api/v1/invoicing/invoices/school/${ESCUELA}?from=2026-10-01&to=2026-09-01`)).status).toBe(400);
+    });
+
+    it('checkout: escuela con addon y facturador activo → active', async () => {
+        const { status, body } = await como(PADRE_PAGADOR, `/api/v1/invoicing/active/school/${ESCUELA}`);
+        expect(status).toBe(200);
+        expect(body.active).toBe(true);
+    });
+
+    it('checkout: sin addon → no factura, aunque tenga facturador', async () => {
+        estado.entitlement = false;
+        const { body } = await como(PADRE_PAGADOR, `/api/v1/invoicing/active/school/${ESCUELA}`);
+        expect(body).toMatchObject({ active: false, reason: 'no_addon' });
+    });
+
+    it('checkout: con addon pero facturador apagado → no factura', async () => {
+        estado.tablas.electronic_invoice_providers = [
+            { ...estado.tablas.electronic_invoice_providers[0], enabled: false },
+        ];
+        const { body } = await como(PADRE_PAGADOR, `/api/v1/invoicing/active/school/${ESCUELA}`);
+        expect(body).toMatchObject({ active: false, reason: 'no_enabled_provider' });
+    });
+
+    it('checkout: escuela sin facturador → no factura', async () => {
+        const { body } = await como(PADRE_PAGADOR, `/api/v1/invoicing/active/school/${OTRA_ESCUELA}`);
+        expect(body.active).toBe(false);
     });
 });

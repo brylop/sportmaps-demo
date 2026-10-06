@@ -10,7 +10,9 @@
 //   servidor -> cliente  {type:'wake'}                        -- "revisa ahora" (bridgeWsHub.wakeSchool)
 //   cliente -> servidor  {type:'poll'}                        -- "dame lo que haya pendiente"
 //   servidor -> cliente  {type:'commands', commands:[...]}    -- resultado de un poll (o al autenticar, si ya había algo)
-//   cliente -> servidor  {type:'heartbeat'}                   -- cada ~60s, mantiene bridge_heartbeats vivo
+//   cliente -> servidor  {type:'heartbeat', devices?:[serial]} -- cada ~60s, mantiene bridge_heartbeats vivo;
+//                        `devices` (opcional, solo seriales de la escuela del socket) = lectores que siguen
+//                        capturando -> turnstile_devices.last_seen_at. El auth_ok anuncia `features:['device_heartbeat']`.
 //
 // El ack de un comando ejecutado NO pasa por acá -- sigue siendo el mismo
 // POST /bridge/door-commands/:id/ack de siempre (es infrecuente, no aporta
@@ -116,6 +118,25 @@ function touchHeartbeat(schoolId: string) {
   ).then(() => {}, () => {});
 }
 
+// El bridge reporta por el WS qué lectores siguen capturando en vivo (en vez de
+// un GET /iclock/getrequest por lector cada minuto). Solo se actualizan seriales
+// de la escuela YA autenticada en este socket — la llave de servicio es global,
+// así que el school_id del socket es lo único que acota a qué lectores puede tocar.
+const MAX_DEVICES_PER_HEARTBEAT = 20;
+
+function touchDevices(schoolId: string, rawSerials: unknown) {
+  if (!Array.isArray(rawSerials)) return;
+  const serials = [...new Set(
+    rawSerials.filter((s): s is string => typeof s === 'string' && s.length > 0 && s.length <= 64),
+  )].slice(0, MAX_DEVICES_PER_HEARTBEAT);
+  if (serials.length === 0) return;
+  supabase.from('turnstile_devices')
+    .update({ last_seen_at: new Date().toISOString() })
+    .eq('school_id', schoolId)
+    .in('serial_number', serials)
+    .then(() => {}, () => {});
+}
+
 async function pushPending(ws: BridgeSocket, schoolId: string) {
   try {
     const commands = await claimAndMapCommands(schoolId, ws.commandTypes || ['open_door']);
@@ -185,7 +206,9 @@ export function attachBridgeWsServer(server: Server): WebSocketServer {
           ws.commandTypes = commandTypes;
           ws.lastHeartbeat = Date.now();
           registerConnection(schoolId, ws);
-          try { ws.send(JSON.stringify({ type: 'auth_ok' })); } catch { /* noop */ }
+          // `features`: un bridge nuevo contra un BFF viejo no ve este campo y sigue
+          // con el heartbeat HTTP por lector — el orden de despliegue no importa.
+          try { ws.send(JSON.stringify({ type: 'auth_ok', features: ['device_heartbeat'] })); } catch { /* noop */ }
           touchHeartbeat(schoolId);
           pushPending(ws, schoolId);
         }, () => {
@@ -200,6 +223,7 @@ export function attachBridgeWsServer(server: Server): WebSocketServer {
       if (msg.type === 'heartbeat') {
         ws.lastHeartbeat = Date.now();
         touchHeartbeat(ws.schoolId);
+        touchDevices(ws.schoolId, msg.devices);
         return;
       }
 

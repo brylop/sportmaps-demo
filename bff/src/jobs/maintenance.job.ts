@@ -15,6 +15,7 @@ import { runNotificationDispatch } from './notifications-dispatch.job';
 import { runAthleteReportsCycle } from './athlete-reports.job';
 import { runTeamReportsCycle } from './team-reports.job';
 import { runHourBankAutoclose } from './hour-bank-autoclose.job';
+import { runHourBankOverageSuggestions } from './hour-bank-overage.job';
 import { runAccessAutoBlockCycle } from './access-auto-block.job';
 import { runSaasBillingCycle } from './saas-billing-cycle.job';
 import { runBridgeHeartbeatCheck } from './bridge-heartbeat-check.job';
@@ -23,9 +24,11 @@ import { runPostTrainingReminders } from './post-training-reminders.job';
 import { runWhatsAppQueue } from './whatsapp-queue.job';
 import { runWhatsAppPaymentOutcome } from './whatsapp-payment-outcome.job';
 import { runWhatsAppMantenimiento } from './whatsapp-mantenimiento.job';
+import { vencerComprobantesColgados } from './whatsapp-cola-vencimiento.job';
 import { runWhatsAppPlantillasSync } from './whatsapp-plantillas-sync.job';
 import { runWhatsAppResumenDiario } from './whatsapp-resumen-diario.job';
 import { runBotResumenSemanal } from './bot-resumen-semanal.job';
+import { runFranjasCortesia } from '../services/franjas-cortesia.service';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -491,6 +494,36 @@ export function initMaintenanceJobs() {
     console.log('[CRON] Aviso de desenlace de comprobantes registrado (cada minuto).');
 
     // ────────────────────────────────────────────────────────────────────────
+    // Plazo de la promesa del acuse (P1, análisis 2026-10-06) — cada 2 min.
+    //
+    // El 06-oct, 15 adjuntos de familias quedaron `pending` una hora sin que
+    // nadie se enterara (primero sin worker, después con el OCR fallando).
+    // Este job avisa (log + Sentry) desde los 5 min y a los 10 min pasa el caso
+    // a la escuela (buzón + push + correo) y le escribe UNA vez a la familia.
+    //
+    // Kill-switch PROPIO, a propósito: si se apaga la cola con
+    // DISABLE_WHATSAPP_QUEUE_CRON, este es el que tiene que seguir avisando.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/2 * * * *', async () => {
+        if (process.env.DISABLE_WHATSAPP_COLA_VENCIMIENTO === 'true') return;
+        try {
+            const r = await vencerComprobantesColgados();
+            if (r.alerta > 0) {
+                const msg = `[wa-vencimiento] ${r.alerta} adjunto(s) de WhatsApp sin desenlace hace más de 5 min `
+                    + `(el más viejo: ${r.masVieja}); ${r.vencidas} pasado(s) a la escuela, ${r.avisadas} familia(s) avisada(s).`
+                    + (process.env.DISABLE_WHATSAPP_QUEUE_CRON === 'true' ? ' OJO: la cola está apagada (DISABLE_WHATSAPP_QUEUE_CRON).' : '');
+                console.warn(msg);
+                Sentry.captureMessage(msg, 'warning');
+            }
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en el vencimiento de comprobantes de WhatsApp:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Vencimiento de comprobantes de WhatsApp registrado (cada 2 min).');
+
+    // ────────────────────────────────────────────────────────────────────────
     // Buzón de WhatsApp (Fase A) — cada 15 min.
     //
     // Conversaciones 'open' sin actividad hace 48 h → 'closed', y borradores
@@ -600,6 +633,24 @@ export function initMaintenanceJobs() {
     console.log('[CRON] Auto-cierre de banco de horas registrado (cada 1 min).');
 
     // ────────────────────────────────────────────────────────────────────────
+    // Cargo por horas de más del banco de horas (F-E, migración 20261005214302).
+    // Genera sugerencias 'suggested' para periodos cerrados con excedente; el
+    // owner confirma o descarta. Nunca crea cobros. No-op para toda escuela con
+    // school_settings.hour_bank_overage_charges_enabled = false (default).
+    // 03:00 COT: después del auto-cierre nocturno de visitas y lejos de open_month.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('0 3 * * *', async () => {
+        try {
+            await runHourBankOverageSuggestions();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error generando cargos por horas de más:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Cargos por horas de más del banco de horas registrado para las 03:00 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
     // Bloqueo automático por mora (school_settings.access_auto_block_overdue_enabled,
     // migración 20260905111458). Reconcilia contra payments.status='overdue' —
     // bloquea (Grp=2) a quien debe y no está bloqueado, desbloquea (Grp=1) a
@@ -675,4 +726,28 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Borrado físico de cuentas registrado para las 06:30 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Franjas de clase de cortesía desde los entrenamientos (teams.schedule).
+    // Mantiene una ventana rodante de 3 semanas en las escuelas con
+    // school_settings.courtesy_from_training = true: cada día entra el día
+    // nuevo del final y se cierran (sin borrar) las franjas generadas que ya
+    // no corresponden al horario, si no tienen reservas. 05:30 COT: antes de
+    // que las familias escriban y antes de los demás ciclos de la mañana.
+    // Corre en los 3 BFF a la vez: idempotente por el índice único
+    // (team_id, slot_date, start_time) de la migración 20261006084303.
+    // Kill-switch: DISABLE_FRANJAS_CORTESIA=true.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('30 5 * * *', async () => {
+        if (process.env.DISABLE_FRANJAS_CORTESIA === 'true') return;
+        try {
+            const r = await runFranjasCortesia();
+            console.log(`[CRON] Franjas de cortesía: ${r.escuelas} escuela(s), ${r.creadas} creada(s), ${r.cerradas} cerrada(s), ${r.errores} error(es).`);
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error generando franjas de cortesía:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Franjas de cortesía registradas para las 05:30 COT.');
 }

@@ -29,6 +29,8 @@ import { getSportVisual } from '@/lib/sportVisuals';
 import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus, Trash2, ArrowRight, Copy, Share2 } from 'lucide-react';
 import { OfferingCoachesPanel } from './OfferingCoachesPanel';
 import { formatFriendlyDuration } from '@/lib/utils';
+import { PlanLevelRulesSection, EMPTY_LEVEL_RULES, levelRulesFromPlan, levelRulesPayload, type PlanLevelRules } from './PlanLevelRulesSection';
+import { useLevelProgressionEnabled } from '@/hooks/useLevelProgression';
 
 const MIN_SEARCH_CHARS = 1;
 
@@ -508,10 +510,18 @@ export function OfferingsManagement() {
         session_block_minutes: '',
         included_sessions_per_week: '',
         registration_fee: '',
+        // Seguro de accidentes (F-B): cobro único en el alta, dedupe 365 días por atleta.
+        insurance_fee: '',
     });
 
     const [isCustomDays, setIsCustomDays] = useState(false);
     const [customDays, setCustomDays] = useState('30');
+
+    // "Ascenso y días" (F-F) — estado aparte de newPlan a propósito: el payload
+    // solo lleva lo que cambió respecto de cómo se abrió el formulario.
+    const [levelRules, setLevelRules] = useState<PlanLevelRules>(EMPTY_LEVEL_RULES);
+    const [levelRulesInitial, setLevelRulesInitial] = useState<PlanLevelRules>(EMPTY_LEVEL_RULES);
+    const { enabled: levelProgressionEnabled } = useLevelProgressionEnabled();
 
     const resetOfferingForm = () => {
         setNewOffering({ name: '', description: '', offering_type: 'membership', sport: '', booking_mode: 'coach', facility_id: '' });
@@ -519,10 +529,12 @@ export function OfferingsManagement() {
     };
 
     const resetPlanForm = () => {
-        setNewPlan({ name: '', max_sessions: '', max_secondary_sessions: '0', secondary_session_label: '', duration_days: '30', price: '', auto_renew: false, schedule_type: 'general', schedule: [], is_hours_plan: false, included_minutes_per_period: '', session_block_minutes: '', included_sessions_per_week: '', registration_fee: '' });
+        setNewPlan({ name: '', max_sessions: '', max_secondary_sessions: '0', secondary_session_label: '', duration_days: '30', price: '', auto_renew: false, schedule_type: 'general', schedule: [], is_hours_plan: false, included_minutes_per_period: '', session_block_minutes: '', included_sessions_per_week: '', registration_fee: '', insurance_fee: '' });
         setIsCustomDays(false);
         setCustomDays('30');
         setEditingPlanId(null);
+        setLevelRules(EMPTY_LEVEL_RULES);
+        setLevelRulesInitial(EMPTY_LEVEL_RULES);
     };
 
 
@@ -573,6 +585,7 @@ export function OfferingsManagement() {
             session_block_minutes: newPlan.session_block_minutes ? parseInt(newPlan.session_block_minutes) : null,
             included_sessions_per_week: newPlan.included_sessions_per_week ? parseInt(newPlan.included_sessions_per_week) : null,
             registration_fee: newPlan.registration_fee ? parseFloat(newPlan.registration_fee) : null,
+            insurance_fee: newPlan.insurance_fee ? parseFloat(newPlan.insurance_fee) : null,
             metadata: {
                 secondary_session_label: newPlan.secondary_session_label || undefined,
                 schedule_type: newPlan.schedule_type,
@@ -581,12 +594,12 @@ export function OfferingsManagement() {
         };
 
         if (editingPlanId) {
-            updatePlan.mutate({ offeringId, planId: editingPlanId, ...payload }, {
+            updatePlan.mutate({ offeringId, planId: editingPlanId, ...payload, ...levelRulesPayload(levelRules, levelRulesInitial) }, {
                 onSuccess: () => { toast({ title: 'Tarifa actualizada ✓' }); setShowCreatePlan(null); resetPlanForm(); },
                 onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
             });
         } else {
-            createPlan.mutate({ offeringId, ...payload }, {
+            createPlan.mutate({ offeringId, ...payload, ...levelRulesPayload(levelRules, levelRulesInitial) }, {
                 onSuccess: () => { toast({ title: 'Tarifa creada ✓' }); setShowCreatePlan(null); resetPlanForm(); },
                 onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
             });
@@ -628,9 +641,12 @@ export function OfferingsManagement() {
                 session_block_minutes: plan.session_block_minutes?.toString() || '',
                 included_sessions_per_week: plan.included_sessions_per_week?.toString() || '',
                 registration_fee: plan.registration_fee?.toString() || '',
+                insurance_fee: plan.insurance_fee?.toString() || '',
             });
             setIsCustomDays(!isPreset);
             setCustomDays(!isPreset ? durationStr : '30');
+            setLevelRules(levelRulesFromPlan(plan));
+            setLevelRulesInitial(levelRulesFromPlan(plan));
             setShowCreatePlan(offeringId);
         }
     };
@@ -1016,6 +1032,23 @@ export function OfferingsManagement() {
                                     Cobro único al inscribirse, aparte de la mensualidad. Vacío = sin inscripción.
                                 </p>
                             </div>
+                            <div className="space-y-2">
+                                <Label className="text-sm font-medium flex items-center gap-1.5">
+                                    <DollarSign className="h-3.5 w-3.5 text-sky-500" /> Seguro
+                                </Label>
+                                <NumberStepper
+                                    id="plan-insurance-fee"
+                                    value={newPlan.insurance_fee}
+                                    onChange={(v) => setNewPlan((prev) => ({ ...prev, insurance_fee: v }))}
+                                    placeholder="Sin cobro"
+                                    prefix="$"
+                                    step={5000}
+                                    isCurrency={true}
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                    Seguro de accidentes al inscribirse. Se cobra máximo una vez cada 12 meses por atleta. Vacío = sin seguro.
+                                </p>
+                            </div>
                         </div>
 
                         <div className="space-y-2">
@@ -1221,6 +1254,13 @@ export function OfferingsManagement() {
                                 />
                             )}
                         </div>
+
+                        {/* ── Ascenso y días (F-F) ─────────────────────────────────────────── */}
+                        <PlanLevelRulesSection
+                            value={levelRules}
+                            onChange={setLevelRules}
+                            progressionEnabled={levelProgressionEnabled}
+                        />
                     </div>
 
                     <DialogFooter className="gap-2 sm:gap-0 pt-2">
@@ -1474,6 +1514,11 @@ function OfferingCard({
                                             {plan.registration_fee > 0 && (
                                                 <Badge variant="secondary" className="text-[9px] h-4 px-1 py-0 bg-orange-50 text-orange-700 border-orange-200">
                                                     +${formatCurrency(plan.registration_fee)} inscripción
+                                                </Badge>
+                                            )}
+                                            {plan.insurance_fee > 0 && (
+                                                <Badge variant="secondary" className="text-[9px] h-4 px-1 py-0 bg-sky-50 text-sky-700 border-sky-200">
+                                                    +${formatCurrency(plan.insurance_fee)} seguro
                                                 </Badge>
                                             )}
                                             <span className="font-bold text-primary ml-1">

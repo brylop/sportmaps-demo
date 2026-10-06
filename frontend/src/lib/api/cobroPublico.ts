@@ -25,6 +25,12 @@ export interface VistaCobroPublico {
         whatsappComprobante: string | null;
         /** Imagen del QR de pago que cargó la escuela (p.ej. Bre-B). */
         qrEscuelaUrl?: string | null;
+        /**
+         * Link de pago genérico de la escuela (p.ej. Wompi de Dynasty). El
+         * acudiente escribe el valor; la escuela concilia con el comprobante.
+         * Opcional: un BFF anterior no lo manda.
+         */
+        linkDePago?: string | null;
     };
     /** Otros cobros por pagar del mismo pagador, cada uno con su enlace. */
     otrosPendientes?: {

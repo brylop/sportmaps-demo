@@ -19,6 +19,10 @@
  * otros cobros pendientes de la familia, cada uno con su enlace. Sin pago en
  * línea la página funciona igual con transferencia y QR.
  *
+ * Link de pago genérico (2026-10-06, Dynasty): si la escuela cargó uno en sus
+ * llaves (type 'payment_link'), va como botón «Pagar con tarjeta, PSE o Nequi
+ * (Wompi)» antes de la transferencia; detrás del pago en línea propio si existe.
+ *
  * Factura electrónica (2026-10-05): bloque «¿Quieres factura electrónica?» con
  * id="factura" — el correo del estado de cuenta enlaza a /p/<token>#factura.
  * Solo aparece si el BFF dice que está disponible (migración aplicada y el
@@ -30,7 +34,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import {
-    AlertCircle, CheckCircle2, Clock, Copy, CreditCard, ListChecks, Loader2, MessageCircle, Landmark, QrCode, XCircle,
+    AlertCircle, CheckCircle2, Clock, Copy, CreditCard, ExternalLink, ListChecks, Loader2, MessageCircle, Landmark, QrCode, XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { BFFError } from '@/lib/api/bffClient';
@@ -250,10 +254,32 @@ export default function CobroPublicoPage() {
                     </section>
                 )}
 
+                {/* Link de pago genérico de la escuela (Wompi de Dynasty, 2026-10-06).
+                    Si hay pago en línea propio (`enLinea`, conciliado solo) ese va
+                    primero y este queda como alternativa; si no, este es el camino
+                    en línea. Wompi no sabe a qué cobro corresponde: por eso el aviso
+                    de escribir el valor y mandar el comprobante. */}
+                {pagable && v.transferencia.linkDePago && (
+                    <section className="rounded-2xl bg-white p-5 shadow-sm">
+                        <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                            <CreditCard className="h-4 w-4" /> {v.enLinea ? 'O paga con el link de la escuela' : 'Pagar en línea'}
+                        </h2>
+                        <Button asChild variant={v.enLinea ? 'outline' : 'default'} className="mt-3 h-12 w-full text-base">
+                            <a href={v.transferencia.linkDePago} target="_blank" rel="noopener noreferrer">
+                                <ExternalLink className="mr-2 h-5 w-5" /> Pagar con tarjeta, PSE o Nequi (Wompi)
+                            </a>
+                        </Button>
+                        <p className="mt-2 text-xs text-gray-600">
+                            Escribe el valor de tu cobro (<strong>{cop(v.monto)}</strong>) y, al terminar, manda el comprobante
+                            por WhatsApp o súbelo en la app para que la escuela lo aplique.
+                        </p>
+                    </section>
+                )}
+
                 {pagable && (v.transferencia.cuentas.length > 0 || v.transferencia.whatsappComprobante) && (
                     <section className="rounded-2xl bg-white p-5 shadow-sm">
                         <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-                            <Landmark className="h-4 w-4" /> {v.enLinea ? 'O transfiere' : 'Paga por transferencia'}
+                            <Landmark className="h-4 w-4" /> {v.enLinea || v.transferencia.linkDePago ? 'O transfiere' : 'Paga por transferencia'}
                         </h2>
                         {v.transferencia.cuentas.length > 0 ? (
                             <ul className="mt-3 space-y-2">

@@ -38,6 +38,7 @@
  */
 
 import { supabase } from '../config/supabase';
+import { COLUMNAS_CONTACTO_FICHA, COLUMNAS_CONTACTO_HIJO, contactoDeFicha, contactoDeHijoSinCuenta, type FichaContacto } from '../services/contacto-acudiente';
 import { emailClient } from '../utils/emailClient';
 import { BrandedEmailTemplates } from '../utils/emailTemplates';
 import { findDuplicatePaymentIds } from '../services/duplicatePayerGuard.service';
@@ -198,17 +199,18 @@ async function releaseNotice(paymentId: string, column: NoticeColumn): Promise<v
 }
 
 /** Contactos de un lote de pagos, mismo criterio que payment-reminders.ts:
- * menor → acudiente (parent_id → profiles); adulto → user_id → profiles;
- * no registrado → la tabla propia es el contacto. */
-async function resolveContacts(payments: PaymentRow[]): Promise<Map<string, Resolved>> {
+ * menor → acudiente (parent_id → profiles, o el parent_*_temp que cargó la
+ * escuela si aún no tiene cuenta); adulto → user_id → profiles; ficha sin cuenta
+ * → contactoDeFicha: si es MENOR, el ACUDIENTE (guardian_*), nunca el niño (H-06). */
+export async function resolveContacts(payments: PaymentRow[]): Promise<Map<string, Resolved>> {
     const parentIds = [...new Set(payments.map(p => p.parent_id || p.user_id).filter(Boolean))] as string[];
     const childIds = [...new Set(payments.map(p => p.child_id).filter(Boolean))] as string[];
     const unregIds = [...new Set(payments.map(p => p.unregistered_athlete_id).filter(Boolean))] as string[];
 
     const [{ data: profiles }, { data: children }, { data: unregistered }] = await Promise.all([
         parentIds.length ? supabase.from('profiles').select('id, full_name, email, phone').in('id', parentIds) : Promise.resolve({ data: [] as any[] }),
-        childIds.length ? supabase.from('children').select('id, full_name, parent_phone_temp').in('id', childIds) : Promise.resolve({ data: [] as any[] }),
-        unregIds.length ? supabase.from('unregistered_athletes').select('id, full_name, email, phone').in('id', unregIds) : Promise.resolve({ data: [] as any[] }),
+        childIds.length ? supabase.from('children').select(`id, ${COLUMNAS_CONTACTO_HIJO}`).in('id', childIds) : Promise.resolve({ data: [] as any[] }),
+        unregIds.length ? supabase.from('unregistered_athletes').select(`id, ${COLUMNAS_CONTACTO_FICHA}`).in('id', unregIds) : Promise.resolve({ data: [] as any[] }),
     ]);
 
     const profileMap = new Map((profiles || []).map(p => [p.id, p]));
@@ -220,15 +222,29 @@ async function resolveContacts(payments: PaymentRow[]): Promise<Map<string, Reso
         const profile = profileMap.get(p.parent_id || p.user_id || '');
         const child = childMap.get(p.child_id || '');
         const unreg = unregMap.get(p.unregistered_athlete_id || '');
-        out.set(p.id, {
-            contactName: (profile as any)?.full_name || (unreg as any)?.full_name || 'Familia',
-            contactEmail: (profile as any)?.email || (unreg as any)?.email || null,
-            athleteName: (child as any)?.full_name || (unreg as any)?.full_name || 'tu deportista',
-            contactPhone: (profile as any)?.phone || (child as any)?.parent_phone_temp || (unreg as any)?.phone || null,
-            contactProfileId: (profile as any)?.id || null,
-        });
+        out.set(p.id, contactoDePago(profile as any, child as any, unreg as any));
     }
     return out;
+}
+
+/**
+ * Contacto de UN cobro a partir de lo ya leído. Exportado para probarlo con
+ * datos del gemelo (bff/test/integration/monster-contacto-acudiente.test.ts).
+ */
+export function contactoDePago(
+    profile: { id?: string | null; full_name?: string | null; email?: string | null; phone?: string | null } | null | undefined,
+    child: { full_name?: string | null; parent_name_temp?: string | null; parent_email_temp?: string | null; parent_phone_temp?: string | null } | null | undefined,
+    unreg: FichaContacto | null | undefined,
+): Resolved {
+    const hijo = child ? contactoDeHijoSinCuenta(child) : null;
+    const ficha = unreg ? contactoDeFicha(unreg) : null;
+    return {
+        contactName: profile?.full_name || hijo?.nombre || ficha?.nombre || 'Familia',
+        contactEmail: profile?.email || hijo?.email || ficha?.email || null,
+        athleteName: child?.full_name || unreg?.full_name || 'tu deportista',
+        contactPhone: profile?.phone || hijo?.phone || ficha?.phone || null,
+        contactProfileId: profile?.id || null,
+    };
 }
 
 async function enabledSchoolIds(): Promise<string[]> {

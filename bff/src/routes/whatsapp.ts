@@ -31,9 +31,35 @@ import {
     type WhatsAppIntegration,
     type ParsedInboundMessage,
 } from '../services/whatsapp.service';
-import { runBotTurn, deliver, atenderDesconocido } from '../services/whatsapp-bot.service';
+import {
+    runBotTurn, deliver, atenderDesconocido, acusarAdjunto, mensajesRecientes, SILENCIO_HUMANO_MIN,
+    TEXTO_MIME_RECHAZADO,
+} from '../services/whatsapp-bot.service';
 import { debeAtender } from '../services/whatsapp-atencion.service';
 import { encolarAdjunto } from '../services/whatsapp-queue.service';
+import { correrTurnoAgrupado, ESPERA_RAFAGA_MS } from '../services/whatsapp-turno-agrupado.service';
+import { humanoReciente } from '../services/whatsapp-reglas-turno';
+import { atenderNotaDeVoz } from '../services/whatsapp-notas-de-voz.service';
+
+/**
+ * Lo que tarda en salir el acuse de un adjunto: lo justo para que una ráfaga
+ * de fotos («4 imágenes en 2 s») produzca UN acuse, el de la última.
+ */
+const ESPERA_ACUSE_MS = process.env.VITEST ? 0 : 3_000;
+
+/**
+ * Corre en segundo plano lo que espera (la ráfaga, el acuse): el webhook
+ * procesa los mensajes de un POST en serie, y los echos de Coexistence —que
+ * son los que callan al bot cuando la escuela escribe— van DESPUÉS en el mismo
+ * POST. En las pruebas (espera 0) se espera, para poder afirmar sobre el
+ * resultado.
+ */
+function enSegundoPlano(espera: number, tarea: () => Promise<unknown>, log: Request['log'], que: string): Promise<void> {
+    const p = tarea().then(() => undefined).catch((err: any) => {
+        log?.error({ err: err?.message || err }, `WhatsApp: ${que} falló`);
+    });
+    return espera > 0 ? Promise.resolve() : p;
+}
 import { procesarEchos, procesarHistorial, registrarAppState }
     from '../services/whatsapp-coexistence.service';
 
@@ -344,7 +370,8 @@ async function processInboundMessage(req: Request, msg: ParsedInboundMessage): P
  *  - modo asistido (draft para aprobación) vs auto (envía directo)
  *
  * Los adjuntos (imagen, PDF) NO los atiende el bot: se encolan y los procesa el
- * worker (que hace su propio filtro de atención). Audio y video reciben un aviso
+ * worker (que hace su propio filtro de atención). Las notas de voz se transcriben
+ * si la escuela lo prendió (ver `atenderNotaDeVoz`); el video recibe un aviso
  * de que no se procesan; stickers y reacciones se ignoran.
  *
  * Todo lo que no es adjunto pasa antes por `debeAtender`: el asistente solo le
@@ -375,6 +402,26 @@ async function handleBotTurn(
             return 'error' as const;
         });
         req.log?.info({ conversationId, resultado }, 'WhatsApp: adjunto entrante');
+
+        // P6 (análisis 2026-10-06): el acuse sale DESPUÉS de `debeAtender` y
+        // por `deliver` (queda registrado, respeta el modo, el bot apagado y la
+        // baja), uno por ráfaga y con texto veraz. Antes salía desde la cola,
+        // pelado y antes de todo filtro (ver `acusarAdjunto`).
+        if (resultado === 'encolado') {
+            await enSegundoPlano(ESPERA_ACUSE_MS, async () => {
+                if (ESPERA_ACUSE_MS > 0) await new Promise((r) => setTimeout(r, ESPERA_ACUSE_MS));
+                const acuse = await acusarAdjunto(integration, conversationId, msg.contactWaId,
+                    msg.waMessageId, msg.mediaCaption ?? msg.textBody ?? null);
+                req.log?.info({ conversationId, acuse }, 'WhatsApp: acuse de adjunto');
+            }, req.log, 'el acuse del adjunto');
+        } else if (resultado === 'mime_rechazado') {
+            const d = await debeAtender(integration, conversationId, msg.contactWaId).catch(() => null);
+            if (d?.atender) {
+                await deliver(integration, conversationId, msg.contactWaId, TEXTO_MIME_RECHAZADO,
+                    { step: 'adjunto_formato_no_soportado' })
+                    .catch((err) => req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: no se pudo avisar el formato'));
+            }
+        }
         return;
     }
 
@@ -425,7 +472,9 @@ async function handleBotTurn(
             && !optedOut
             && msg.type !== 'audio' && msg.type !== 'video';
         if (puertaDelDesconocido) {
-            const resultado = await atenderDesconocido(integration, conversationId, msg.contactWaId, msg.textBody)
+            // `botonId`: los botones de la clase de cortesía (sm_cc_*) se deciden por id.
+            const resultado = await atenderDesconocido(integration, conversationId, msg.contactWaId, msg.textBody,
+                msg.botonId ?? null)
                 .catch((err) => {
                     req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: atenderDesconocido falló');
                     return 'error' as const;
@@ -440,18 +489,36 @@ async function handleBotTurn(
         return;
     }
 
-    // Audio y video NO se pueden procesar, pero callarse es peor: el acudiente
-    // manda una nota de voz preguntando algo y se queda esperando una respuesta
-    // que nunca llega. Antes caían en el `return` de abajo, en silencio.
+    // Notas de voz (spec whatsapp-notas-de-voz, F1). Con el flag de la escuela
+    // y una familia con consentimiento se transcriben y pasan al turno normal
+    // (ráfaga incluida); si no, el aviso de siempre («No puedo escuchar…»),
+    // respetando P4 y P9. Desconocidos, staff y personal nunca llegan acá
+    // transcritos: `atenderNotaDeVoz` vuelve a exigir tipo de familia.
+    if (msg.type === 'audio') {
+        const resultado = await atenderNotaDeVoz({
+            integration, conversationId, msg, tipo: decision.tipo,
+            turno: (texto) => lanzarTurno(req, integration, conversationId, msg, texto, optedOut, 'audio'),
+        }).catch((err) => {
+            req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: atenderNotaDeVoz falló');
+            return 'error' as const;
+        });
+        req.log?.info({ conversationId, resultado }, 'WhatsApp: nota de voz');
+        return;
+    }
+
+    // Video NO se puede procesar, pero callarse es peor: el acudiente manda un
+    // video y se queda esperando una respuesta que nunca llega.
     //
     // Los stickers y las reacciones sí se ignoran: son ruido social, no una
     // pregunta, y responderles sería molesto.
-    if (msg.type === 'audio' || msg.type === 'video') {
-        const texto = msg.type === 'audio'
-            ? 'No puedo escuchar notas de voz 🙊 Escríbeme el mensaje y te ayudo. Y si es un ' +
-              'comprobante de pago, mándame la *foto* o el *PDF* que te da el banco.'
-            : 'No puedo ver videos. Si es un comprobante de pago, mándame la *foto* o el *PDF* ' +
-              'que te da el banco y lo valido enseguida.';
+    if (msg.type === 'video') {
+        // P4: si la escuela está escribiendo en el chat, el video es para ella.
+        if (humanoReciente(await mensajesRecientes(conversationId), SILENCIO_HUMANO_MIN)) {
+            req.log?.info({ conversationId }, 'WhatsApp: video con la escuela atendiendo; el bot se calla');
+            return;
+        }
+        const texto = 'No puedo ver videos. Si es un comprobante de pago, mándame la *foto* o el *PDF* ' +
+            'que te da el banco y lo valido enseguida.';
         await deliver(integration, conversationId, msg.contactWaId, texto, { step: `tipo_no_soportado_${msg.type}` })
             .catch((err) => req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: no se pudo responder al tipo no soportado'));
         return;
@@ -466,12 +533,38 @@ async function handleBotTurn(
     // ingesta solo detecta las palabras de baja en texto.
     // `botonId`: si tocó un botón, el id viaja aparte del título. El bot decide
     // con el id, sin modelo (ver `accionDeBoton`).
-    try {
-        await runBotTurn(integration, conversationId, msg.contactWaId, msg.textBody, msg.waMessageId,
-            optedOut, msg.botonId ?? null);
-    } catch (err: any) {
-        req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: runBotTurn failed');
-    }
+    //
+    // P5 (análisis 2026-10-06): un turno por RÁFAGA y nunca dos a la vez en la
+    // misma conversación (`correrTurnoAgrupado`). Un botón o un STOP no esperan
+    // la ráfaga: son una elección explícita.
+    await lanzarTurno(req, integration, conversationId, msg, msg.textBody, optedOut, 'texto');
+}
+
+/**
+ * El turno del bot para un mensaje: agrupado por ráfaga y con candado por
+ * conversación. `texto` es el del mensaje, o la transcripción de una nota de voz
+ * (`origen: 'audio'`).
+ */
+function lanzarTurno(
+    req: Request,
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    msg: ParsedInboundMessage,
+    texto: string | null,
+    optedOut: boolean,
+    origen: 'texto' | 'audio',
+): Promise<void> {
+    return enSegundoPlano(ESPERA_RAFAGA_MS, async () => {
+        const r = await correrTurnoAgrupado({
+            conversationId,
+            waMessageId: msg.waMessageId,
+            inmediato: optedOut || Boolean(msg.botonId),
+            log: req.log as any,
+            correr: () => runBotTurn(integration, conversationId, msg.contactWaId, texto, msg.waMessageId,
+                optedOut, msg.botonId ?? null, { origen }),
+        });
+        if (r !== 'corrido') req.log?.info({ conversationId, turno: r }, 'WhatsApp: turno agrupado');
+    }, req.log, 'runBotTurn');
 }
 
 // Exportada solo para la prueba del filtro de atención

@@ -1,5 +1,5 @@
 import { supabase } from '../config/supabase';
-import { getAccessBlockMechanism, buildBlockCommand, computeIsBlocked, BLOCK_COMMAND_TYPES } from '../utils/accessBlockMechanism';
+import { getAccessBlockMechanism, buildBlockCommand, computeIsBlocked, athleteKey, BLOCK_COMMAND_TYPES } from '../utils/accessBlockMechanism';
 
 /**
  * Bloqueo automático por mora — school_settings.access_auto_block_overdue_enabled
@@ -16,6 +16,15 @@ import { getAccessBlockMechanism, buildBlockCommand, computeIsBlocked, BLOCK_COM
  * ver docs/specs/vigencia-cobranza-y-sesiones-unificado.md §1.7/§2) —
  * automatizar un bloqueo FÍSICO sobre esa señal arriesgaría dejar a alguien
  * bloqueado en la puerta después de haber pagado.
+ *
+ * Comprobantes (F-D, migración 20261005214253): un comprobante enviado mueve
+ * la MISMA fila de payments a 'awaiting_approval' (o 'glosado' si la escuela
+ * lo objeta), así que deja de ser 'overdue' y este job lo DESBLOQUEA en la
+ * siguiente corrida — sin lógica extra acá, para todas las escuelas. Si la
+ * escuela lo rechaza ('rejected'), en escuelas con
+ * school_settings.pending_proof_counts_as_paid apply_late_fees() lo devuelve a
+ * 'overdue' (hueco C) cuando ya pasó due_date + gracia, y el bloqueo vuelve
+ * solo. En escuelas sin ese flag, un rechazado no vuelve a mora (como antes).
  *
  * Reconciliación completa cada corrida (no un hook por evento de pago): lee
  * el estado actual completo (quién debe, quién está bloqueado hoy) y encola
@@ -46,26 +55,26 @@ async function reconcileSchool(schoolId: string): Promise<{ blocked: number; unb
 
   const { data: mappings } = await supabase
     .from('zk_user_mappings')
-    .select('zk_pin, user_id, unregistered_athlete_id')
+    .select('zk_pin, user_id, unregistered_athlete_id, child_id')
     .eq('school_id', schoolId);
   if (!mappings?.length) return { blocked: 0, unblocked: 0 }; // sin huellas mapeadas, nada que hacer
 
   const pinByKey: Record<string, number> = {};
   mappings.forEach((m: any) => {
-    const key = m.user_id ? `u:${m.user_id}` : `a:${m.unregistered_athlete_id}`;
-    pinByKey[key] = m.zk_pin;
+    const key = athleteKey(m);
+    if (key) pinByKey[key] = m.zk_pin;
   });
 
   const { data: overduePayments } = await supabase
     .from('payments')
-    .select('user_id, unregistered_athlete_id')
+    .select('user_id, unregistered_athlete_id, child_id')
     .eq('school_id', schoolId)
     .eq('status', 'overdue');
 
   const overduePins = new Set<number>();
   (overduePayments ?? []).forEach((p: any) => {
-    const key = p.user_id ? `u:${p.user_id}` : `a:${p.unregistered_athlete_id}`;
-    const pin = pinByKey[key];
+    const key = athleteKey(p);
+    const pin = key ? pinByKey[key] : undefined;
     if (pin !== undefined) overduePins.add(pin);
   });
 
@@ -91,8 +100,27 @@ async function reconcileSchool(schoolId: string): Promise<{ blocked: number; unb
   const pinBlocked: Record<number, boolean> = {};
   allPins.forEach(pin => { pinBlocked[pin] = isBlocked(pin); });
 
+  // Excepción manual de UN día: si un admin habilitó a alguien hoy (hora de
+  // Colombia) desde Control de acceso, el job no lo vuelve a bloquear hasta que
+  // termine el día. Al día siguiente, si sigue vencido, se bloquea de nuevo.
+  // Los comandos del job llevan issued_by = null; los manuales, el id del admin.
+  const bogotaNow = new Date(Date.now() - 5 * 60 * 60 * 1000);
+  const dayStartUtc = new Date(Date.UTC(bogotaNow.getUTCFullYear(), bogotaNow.getUTCMonth(), bogotaNow.getUTCDate(), 5, 0, 0));
+  const { data: manualCmds } = await supabase
+    .from('device_commands')
+    .select('command_type, metadata')
+    .eq('school_id', schoolId)
+    .in('command_type', BLOCK_COMMAND_TYPES)
+    .not('issued_by', 'is', null)
+    .gte('created_at', dayStartUtc.toISOString());
+  const manuallyEnabledToday = new Set<number>();
+  (manualCmds ?? []).forEach((c: any) => {
+    const isUnblock = c.command_type === 'enable_user' || (c.command_type === 'set_group' && c.metadata?.group === 1);
+    if (isUnblock && c.metadata?.pin !== undefined) manuallyEnabledToday.add(Number(c.metadata.pin));
+  });
+
   const toBlock: number[] = [];
-  overduePins.forEach(pin => { if (!pinBlocked[pin]) toBlock.push(pin); });
+  overduePins.forEach(pin => { if (!pinBlocked[pin] && !manuallyEnabledToday.has(pin)) toBlock.push(pin); });
 
   const toUnblock: number[] = [];
   Object.keys(pinBlocked).forEach(pinStr => {

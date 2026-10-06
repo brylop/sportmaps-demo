@@ -2,6 +2,12 @@ import { Router, Request, Response } from 'express';
 import { requireAuth, requireRole } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
 import { z } from 'zod';
+import {
+  dayNotAllowedBody,
+  getAllowedDaysForPlans,
+  isDateAllowedForEnrollment,
+  isDayAllowed,
+} from '../utils/planDayRules';
 
 const router = Router();
 
@@ -315,6 +321,20 @@ router.post('/:id/book', requireAuth, async (req: Request, res: Response) => {
     if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
 
     const { enrollment_id, user_id, child_id, is_secondary, booking_type } = parsed.data;
+
+    // Días permitidos del plan (D9, utils/planDayRules.ts): 422 ANTES de
+    // mover saldo o crear nada. NULL en el plan = sin restricción (hoy).
+    {
+      const { data: sessForDay } = await supabase
+        .from('attendance_sessions')
+        .select('session_date')
+        .eq('id', sessionId)
+        .maybeSingle();
+      if (sessForDay?.session_date) {
+        const { allowed, allowedDays } = await isDateAllowedForEnrollment(enrollment_id, sessForDay.session_date);
+        if (!allowed) return res.status(422).json(dayNotAllowedBody(allowedDays!));
+      }
+    }
 
     // Banco de horas (docs/specs/dreamers-banco-de-horas-torniquete.md): si la
     // inscripción tiene un plan por horas, la reserva mueve reserve_hour_bank
@@ -1169,7 +1189,24 @@ export async function listAvailableSessions(identity: AthleteIdentity) {
       };
     });
 
-    return { sessions, flexible_hour_grid: flexibleHourGrid };
+    // ── Días permitidos del plan (D9, utils/planDayRules.ts) ───────────────
+    // Las sesiones de un día que el plan no permite no se ofrecen (la reserva
+    // igual las rechaza con 422). allowed_days_by_enrollment va al front para
+    // pintar esos días en gris con su explicación. Plan sin días = sin cambio.
+    const allowedDaysByPlan = await getAllowedDaysForPlans(planEnrollments.map((e: any) => e.offering_plan_id));
+    const allowedDaysByEnrollment: Record<string, number[]> = {};
+    planEnrollments.forEach((e: any) => {
+      const days = allowedDaysByPlan[e.offering_plan_id];
+      if (days) allowedDaysByEnrollment[e.id] = days;
+    });
+    const dayOk = (enrollmentId: string | null | undefined, date: string) =>
+      !enrollmentId || isDayAllowed(allowedDaysByEnrollment[enrollmentId], date);
+
+    return {
+      sessions: sessions.filter((s: any) => dayOk(s.enrollment_id, s.session_date)),
+      flexible_hour_grid: flexibleHourGrid.filter((g: any) => dayOk(g.enrollment_id, g.session_date)),
+      allowed_days_by_enrollment: allowedDaysByEnrollment,
+    };
   }
 }
 
@@ -1213,6 +1250,31 @@ export async function bookSession(
       await validateEnrollmentOwnership(enrollment_id, identity);
     if (!enrollmentValid)
       return res.status(403).json({ error: 'enrollment_unauthorized' });
+
+    // ── 2b. Días permitidos del plan (D9, utils/planDayRules.ts) ──────────
+    // Va ANTES del paso 3 porque la rama avail_ puede materializar/estirar
+    // attendance_sessions: un día no permitido se corta sin mutar nada.
+    // Cubre /athlete/book-session y la reserva pública (public-booking).
+    // NULL en el plan = sin restricción (comportamiento de hoy).
+    {
+      let targetDate: string | null = null;
+      if (session_id.startsWith('avail_')) {
+        const tail = session_id.slice(-10);
+        targetDate = /^\d{4}-\d{2}-\d{2}$/.test(tail) ? tail : null;
+      } else {
+        const cleanId = (session_id.endsWith('_p') || session_id.endsWith('_g')) ? session_id.slice(0, -2) : session_id;
+        const { data: sessForDay } = await supabase
+          .from('attendance_sessions')
+          .select('session_date')
+          .eq('id', cleanId)
+          .maybeSingle();
+        targetDate = sessForDay?.session_date ?? null;
+      }
+      if (targetDate) {
+        const { allowed, allowedDays } = await isDateAllowedForEnrollment(enrollment_id, targetDate);
+        if (!allowed) return res.status(422).json(dayNotAllowedBody(allowedDays!));
+      }
+    }
 
     // ── 3. Validar sesión y capacidad ─────────────────────────────────────
     let actualSessionId = session_id;

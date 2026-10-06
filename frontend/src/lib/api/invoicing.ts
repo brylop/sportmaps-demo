@@ -159,6 +159,44 @@ export interface VoidInvoiceResult {
     message: string | null;
 }
 
+// ─── Listado paginado ───────────────────────────────────────────────────────
+
+export type InvoiceStatusFilter = 'draft' | 'queued' | 'sent' | 'accepted' | 'rejected' | 'void';
+
+export interface ListInvoicesParams {
+    page?: number;
+    pageSize?: number;
+    /** Vacío = todos los estados. */
+    status?: InvoiceStatusFilter[];
+    documentType?: 'invoice' | 'credit_note' | null;
+    /** `YYYY-MM-DD`, inclusivo, sobre la fecha de creación (día de Colombia). */
+    from?: string | null;
+    to?: string | null;
+}
+
+/** Conteos del dueño completo, sin filtros: lo que pinta los avisos de arriba de la tabla. */
+export interface InvoiceSummary {
+    rejected: { count: number; total: number };
+    queued: { count: number; total: number };
+    void: { count: number; total: number };
+}
+
+export interface InvoiceListPage {
+    invoices: InvoiceRow[];
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+    /** null si el BFF no pudo calcularlo (o es uno viejo que no lo manda). */
+    summary: InvoiceSummary | null;
+    /** Notas crédito que anularon facturas de esta página pero están en otra. */
+    linked: InvoiceRow[];
+    /** El contador lee pero no emite. Un BFF viejo no lo manda → false. */
+    canEmit: boolean;
+}
+
+export const INVOICE_PAGE_SIZE = 50;
+
 export interface SaveProviderBody {
     provider: string;
     credentials: Record<string, any>;
@@ -256,15 +294,65 @@ export const invoicingApi = {
     deleteProvider: (id: string) =>
         bffClient.delete<{ ok: boolean }>(`/api/v1/invoicing/providers/${id}`),
 
+    /**
+     * Interruptor Activo / Inactivo. No pide credenciales: apagar el
+     * facturador es la palanca de emergencia (frena el cron de la escuela).
+     */
+    setProviderEnabled: (id: string, enabled: boolean) =>
+        bffClient.patch<{ provider: InvoiceProviderRow }>(
+            `/api/v1/invoicing/providers/${id}/enabled`,
+            { enabled },
+        ),
+
+    /**
+     * ¿La escuela emite factura electrónica? (addon 'invoicing' + facturador
+     * activo). Lo usa el checkout del acudiente para decidir si le pide datos
+     * fiscales.
+     */
+    isSchoolInvoicingActive: (schoolId: string) =>
+        bffClient.get<{ active: boolean; reason?: string | null }>(
+            `/api/v1/invoicing/active/school/${schoolId}`,
+        ),
+
+    /**
+     * Emite la factura de UN pago cobrado. Irreversible: consume un número de
+     * la resolución DIAN. El BFF responde 422 con `error` cuando no se pudo
+     * (datos faltantes, pago no cobrado, rechazo del PAC); bffClient lo lanza.
+     */
     emit: (paymentId: string) =>
-        bffClient.post<{ ok: boolean; invoiceId?: string; status?: string; error?: string }>(
+        bffClient.post<{ ok: boolean; invoiceId?: string; status?: string; error?: string; warnings?: string[] }>(
             `/api/v1/invoicing/emit/${paymentId}`, {},
         ),
 
-    listInvoices: (ownerType: OwnerType, ownerId: string) =>
-        bffClient.get<{ invoices: InvoiceRow[] }>(
-            `/api/v1/invoicing/invoices/${ownerType}/${ownerId}`,
-        ),
+    listInvoices: async (
+        ownerType: OwnerType,
+        ownerId: string,
+        params: ListInvoicesParams = {},
+    ): Promise<InvoiceListPage> => {
+        const qs = new URLSearchParams();
+        qs.set('page', String(params.page ?? 1));
+        qs.set('pageSize', String(params.pageSize ?? INVOICE_PAGE_SIZE));
+        if (params.status?.length) qs.set('status', params.status.join(','));
+        if (params.documentType) qs.set('documentType', params.documentType);
+        if (params.from) qs.set('from', params.from);
+        if (params.to) qs.set('to', params.to);
+        const raw = await bffClient.get<any>(
+            `/api/v1/invoicing/invoices/${ownerType}/${ownerId}?${qs.toString()}`,
+        );
+        const invoices: InvoiceRow[] = Array.isArray(raw?.invoices) ? raw.invoices : [];
+        const pageSize = Number(raw?.pageSize ?? params.pageSize ?? INVOICE_PAGE_SIZE);
+        const total = Number(raw?.total ?? invoices.length);
+        return {
+            invoices,
+            total,
+            page: Number(raw?.page ?? params.page ?? 1),
+            pageSize,
+            totalPages: Number(raw?.totalPages ?? Math.max(1, Math.ceil(total / pageSize))),
+            summary: raw?.summary ?? null,
+            linked: Array.isArray(raw?.linked) ? raw.linked : [],
+            canEmit: raw?.permissions?.canEmit === true,
+        };
+    },
 
     /**
      * Emite el rezago de un rango de fechas.

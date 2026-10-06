@@ -95,7 +95,7 @@ export function ballPathPoint(a: TacticalArrow, t: number): ArrowPoint {
  *  plato, balón, arco (movible y girable), arco chico, vallita, aro,
  *  escalera, estaca, maniquí y rival. El orden es el de la paleta.
  *  Ampliar JUNTO con TacticalShapeType (footballQueries.ts), OBJECT_LABEL /
- *  renderObjectBody (tacticalGlyphs.tsx) y VALID_SHAPE_TYPES (bff football.ts). */
+ *  renderObjectBody (tacticalGlyphs.tsx) y VALID_SHAPE_TYPES (bff footballShapes.ts). */
 export const OBJECT_TYPES = ['cone', 'marker', 'ball', 'goal', 'mini_goal', 'hurdle', 'ring', 'ladder', 'pole', 'mannequin', 'opponent'] as const;
 export type ObjectType = (typeof OBJECT_TYPES)[number];
 export const isPointShape = (t: TacticalShapeType | undefined): t is ObjectType =>

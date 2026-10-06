@@ -2616,7 +2616,7 @@ export const helpFAQs: HelpFAQ[] = [
   {
     question: "¿SportMaps emite facturas electrónicas?",
     answer:
-      "En el plan Pro generamos comprobantes de pago automáticos. Para facturación electrónica DIAN, en plan Elite tenemos integración con Siigo y Alegra. Si usás otra plataforma, podemos integrar via API.",
+      "Sí, con el adicional de Facturación electrónica. SportMaps se conecta con el proveedor de facturación electrónica de tu escuela (hoy Factus) y emite la factura DIAN de cada cobro pagado —mensualidades, inscripciones y ventas de la tienda— a nombre de tu escuela. Se configura en Finanzas → Facturación electrónica. Si tu escuela factura con otro proveedor, escríbenos a soporte y revisamos la integración: hoy no está disponible de forma automática.",
   },
   {
     question: "¿Qué pasa con mis datos si me doy de baja de SportMaps?",

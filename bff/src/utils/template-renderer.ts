@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase';
+import { COLUMNAS_CONTACTO_FICHA, COLUMNAS_CONTACTO_HIJO, contactoDeFicha, contactoDeHijoSinCuenta } from '../services/contacto-acudiente';
 
 /**
  * Renders a message template by replacing {{variables}} with real payment data.
@@ -88,10 +89,10 @@ export async function renderTemplate(ctx: RenderContext): Promise<RenderedMessag
             ? supabase.from('profiles').select('full_name, email, phone').eq('id', payment.parent_id).single()
             : { data: null },
         payment.child_id
-            ? supabase.from('children').select('full_name, parent_phone_temp').eq('id', payment.child_id).single()
+            ? supabase.from('children').select(COLUMNAS_CONTACTO_HIJO).eq('id', payment.child_id).single()
             : { data: null },
         payment.unregistered_athlete_id
-            ? supabase.from('unregistered_athletes').select('full_name, email, phone').eq('id', payment.unregistered_athlete_id).single()
+            ? supabase.from('unregistered_athletes').select(COLUMNAS_CONTACTO_FICHA).eq('id', payment.unregistered_athlete_id).single()
             : { data: null },
         payment.team_id
             ? supabase.from('teams').select('name').eq('id', payment.team_id).single()
@@ -111,10 +112,14 @@ export async function renderTemplate(ctx: RenderContext): Promise<RenderedMessag
     const settings = settingsRes.data as any;
     const plan = planRes.data as any;
 
-    // Determine contact info
-    const recipientName = parent?.full_name || unreg?.full_name || 'Padre/Acudiente';
-    const recipientEmail = parent?.email || unreg?.email || null;
-    const recipientPhone = parent?.phone || child?.parent_phone_temp || unreg?.phone || null;
+    // Contacto: cuenta del acudiente → contacto temporal del menor → ficha sin
+    // cuenta. De una ficha MENOR se usa el ACUDIENTE (guardian_*), nunca el
+    // correo/teléfono del niño (H-06, docs/qa/monster-prelanzamiento-2026-10-05.md).
+    const cHijo = child ? contactoDeHijoSinCuenta(child) : null;
+    const cFicha = unreg ? contactoDeFicha(unreg) : null;
+    const recipientName = parent?.full_name || cHijo?.nombre || cFicha?.nombre || 'Padre/Acudiente';
+    const recipientEmail = parent?.email || cHijo?.email || cFicha?.email || null;
+    const recipientPhone = parent?.phone || cHijo?.phone || cFicha?.phone || null;
     const athleteName = child?.full_name || unreg?.full_name || 'Deportista';
 
     // Calculate date-related values

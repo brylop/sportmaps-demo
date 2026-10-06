@@ -44,6 +44,8 @@ import {
   resolvePaymentAccounts,
   serializePaymentAccounts,
   accountsToLegacyColumns,
+  isPaymentLink,
+  isValidPaymentLinkUrl,
   type PaymentAccount,
   type LegacyAccountColumns,
 } from '@/lib/payment-accounts';
@@ -87,6 +89,8 @@ interface BillingSettings {
   min_installment_amount: number;
   installment_require_proof: boolean;
   billing_cycle_type: 'prorated' | 'fixed_calendar' | 'rolling_30';
+  /** F7: alta a mitad de mes cobrando solo las clases restantes (mig 20261005214250). */
+  remaining_classes_billing_enabled?: boolean;
   early_payment_discount_enabled: boolean;
   early_payment_discount_days: number;
   early_payment_discount_percentage: number;
@@ -475,6 +479,7 @@ export default function PaymentsAutomationPage() {
   // ¿Este ambiente ya tiene la columna payment_accounts? Se resuelve al cargar.
   const accountsColumnReady = useRef(false);
   const coachPhotoColumnsReady = useRef(false);
+  const remainingClassesColumnReady = useRef(false);
   const [billingSaving, setBillingSaving] = useState(false);
   const [showSensitive, setShowSensitive] = useState(false);
 
@@ -565,6 +570,8 @@ export default function PaymentsAutomationPage() {
     accountsColumnReady.current = 'payment_accounts' in data;
     // Mismo cuidado con los permisos de fotos del coach (mig 20261005120806).
     coachPhotoColumnsReady.current = 'coach_can_upload_enrollment_forms' in data;
+    // Y con el cobro por clases restantes (mig 20261005214250).
+    remainingClassesColumnReady.current = 'remaining_classes_billing_enabled' in data;
     // `onlyActive: false` porque el admin también edita las llaves apagadas. Si la
     // escuela nunca guardó la lista (deploy recién hecho), se arma desde las
     // columnas viejas para que no vea el formulario en blanco teniendo datos.
@@ -576,6 +583,17 @@ export default function PaymentsAutomationPage() {
 
   const handleSaveBilling = async () => {
     if (!billing || !schoolId) return;
+    // Un link de pago mal escrito no se guarda: el BFF y el checkout lo
+    // ignorarían en silencio y la escuela creería que está publicado.
+    const linkMalo = (billing.payment_accounts ?? []).find(a => isPaymentLink(a) && a.value.trim() && !isValidPaymentLinkUrl(a.value));
+    if (linkMalo) {
+      toast({
+        title: 'Revisa el link de pago',
+        description: 'Debe ser una dirección https completa, por ejemplo https://checkout.wompi.co/l/…',
+        variant: 'destructive',
+      });
+      return;
+    }
     setBillingSaving(true);
     try {
       // La lista manda: las columnas sueltas se reescriben con la primera llave
@@ -617,6 +635,9 @@ export default function PaymentsAutomationPage() {
         bank_titular_id: billing.bank_titular_id,
         payment_qr_url: billing.payment_qr_url,
         billing_cycle_type: billing.billing_cycle_type,
+        ...(remainingClassesColumnReady.current
+            ? { remaining_classes_billing_enabled: !!billing.remaining_classes_billing_enabled }
+            : {}),
         allow_installments: billing.allow_installments,
         max_installments_per_payment: billing.max_installments_per_payment,
         min_installment_amount: billing.min_installment_amount,
@@ -2305,6 +2326,23 @@ export default function PaymentsAutomationPage() {
                       ))}
                     </div>
                   </div>
+                  {/* F7 — solo el owner decide si la escuela cobra por clases restantes. */}
+                  {(currentUserRole === 'owner' || currentUserRole === 'super_admin') && remainingClassesColumnReady.current && (
+                    <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+                      <div>
+                        <Label className="font-medium">Alta a mitad de mes por clases restantes</Label>
+                        <p className="text-xs text-muted-foreground max-w-[46ch]">
+                          Con mensualidad fija por calendario, al inscribir a alguien a mitad de mes
+                          puedes cobrarle solo las clases que le quedan y el mes siguiente completo.
+                          Requiere planes con horas o número de clases definido.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={!!billing.remaining_classes_billing_enabled}
+                        onCheckedChange={v => updateBilling('remaining_classes_billing_enabled', v)}
+                      />
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <Label htmlFor="grace">Días de gracia</Label>
                     <div className="flex items-center gap-2">

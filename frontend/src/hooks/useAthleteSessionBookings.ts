@@ -134,7 +134,10 @@ export interface MyBooking {
 export function useAvailableSessions(childId?: string) {
   const { schoolId, activeBranchId } = useSchoolContext();
   const { user } = useAuth();
-  return useQuery<{ sessions: BookableSession[]; flexible_hour_grid?: FlexibleHourGridGroup[] }>({
+  // allowed_days_by_enrollment (F-F, D9): días que permite el plan de cada
+  // inscripción (0=dom … 6=sáb); ausente = sin restricción. El servidor ya no
+  // ofrece sesiones de otros días; el front los pinta en gris.
+  return useQuery<{ sessions: BookableSession[]; flexible_hour_grid?: FlexibleHourGridGroup[]; allowed_days_by_enrollment?: Record<string, number[]> }>({
     queryKey: ['athlete-available-sessions', schoolId, activeBranchId, childId],
     queryFn: () => bff('/athlete/available', undefined, childId, activeBranchId),
     staleTime: 60_000,

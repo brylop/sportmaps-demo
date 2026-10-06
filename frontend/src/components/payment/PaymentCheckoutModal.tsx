@@ -35,11 +35,13 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
+import { useSchoolInvoicingActive, mustAskBillingData } from '@/hooks/useSchoolInvoicingActive';
 import { getPaymentPayload, SchoolAthlete } from '@/lib/athleteUtils';
 import { useWompiCheckout, type ServerQuote } from '@/hooks/useWompiCheckout';
 import { blockPwaReload, unblockPwaReload } from '@/pwa/reloadGuard';
 import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
-import { resolvePaymentAccounts, accountDisplayLabel, chargeCategoryOf, type PaymentChargeCategory } from '@/lib/payment-accounts';
+import { resolvePaymentAccounts, resolvePaymentLink, accountDisplayLabel, chargeCategoryOf, type PaymentChargeCategory } from '@/lib/payment-accounts';
+import { PaymentLinkButton } from '@/components/payment/PaymentLinkButton';
 import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
 import { autoEvaluate as autoEvaluateGlosa } from '@/lib/api/glosas';
 import {
@@ -210,6 +212,10 @@ export function PaymentCheckoutModal({
   const { user } = useAuth();
   const [hasCompleteDianData, setHasCompleteDianData] = useState<boolean>(true);
   const [checkingDian, setCheckingDian] = useState<boolean>(true);
+  // Datos fiscales: solo si la escuela factura electrónicamente (addon
+  // 'invoicing' + facturador activo). Sin saberlo todavía se piden, como antes.
+  const { active: schoolInvoicingActive } = useSchoolInvoicingActive(open ? schoolId : null);
+  const dianDataOk = !mustAskBillingData(hasCompleteDianData, schoolInvoicingActive);
   /** Respaldo para rotular la notificación al colegio cuando paga un atleta adulto. */
   const [payerName, setPayerName] = useState<string | null>(null);
   const [bankDetails, setBankDetails] = useState<any>(null);
@@ -294,6 +300,12 @@ export function PaymentCheckoutModal({
     : chargeCategoryOf(null, concept);
   const payableAccounts = useMemo(
     () => resolvePaymentAccounts(bankDetails, { category: accountsCategory }),
+    [bankDetails, accountsCategory],
+  );
+  // Link de pago genérico de la escuela (Wompi de Dynasty): botón dentro de la
+  // transferencia, porque igual termina en subir el comprobante.
+  const paymentLink = useMemo(
+    () => resolvePaymentLink(bankDetails, { category: accountsCategory }),
     [bankDetails, accountsCategory],
   );
 
@@ -1292,15 +1304,16 @@ export function PaymentCheckoutModal({
               </div>
 
               {/* Formulario DIAN si falta */}
-              {selectedMethod && !checkingDian && !hasCompleteDianData && (
+              {selectedMethod && !checkingDian && !dianDataOk && (
                 <div className="pt-4 border-t">
                   <BillingDetailsForm onComplete={() => setHasCompleteDianData(true)} />
                 </div>
               )}
 
               {/* Datos bancarios */}
-              {selectedMethod === 'transfer' && hasCompleteDianData && (
+              {selectedMethod === 'transfer' && dianDataOk && (
                 <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                  {paymentLink && <PaymentLinkButton url={paymentLink} />}
                   <Alert variant="default" className="bg-primary/5 border-primary/20">
                     <Info className="h-4 w-4 text-primary shrink-0" />
                     <AlertTitle className="text-primary font-bold text-sm">Información de Transferencia</AlertTitle>
@@ -1409,7 +1422,7 @@ export function PaymentCheckoutModal({
                 esta seleccionado, porque el SDK MP mide el contenedor durante
                 .render() y con display:none queda con width/height=0, lo que
                 causa errores 'Could not find container' y SVG vacios. */}
-              {hasCompleteDianData && mpReference && mpEnabled && selectedMethod === 'mercadopago' && (
+              {dianDataOk && mpReference && mpEnabled && selectedMethod === 'mercadopago' && (
                 <div className="space-y-2 pt-2 animate-in fade-in slide-in-from-top-2">
                   <MercadoPagoBrick
                     key={mpReference}
@@ -1431,7 +1444,7 @@ export function PaymentCheckoutModal({
               )}
 
               {/* Botones acción para los demás métodos (no online ni MP) */}
-              {hasCompleteDianData && selectedMethod !== 'online' && selectedMethod !== 'mercadopago' && (
+              {dianDataOk && selectedMethod !== 'online' && selectedMethod !== 'mercadopago' && (
                 <div className="space-y-2 pt-2">
                   <Button className="w-full" size="lg" disabled={!selectedMethod || processing || (conceptType === 'articulos' && merchTotal === 0) || (conceptType === 'torneo' && tournTotal === 0)} onClick={handlePayClick}>
                     {processing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Procesando...</> : `Pagar ${formatCurrency(chargeAmount)}`}

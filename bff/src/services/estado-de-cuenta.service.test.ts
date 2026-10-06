@@ -238,6 +238,46 @@ describe('llaves restringidas (only_for)', () => {
     });
 });
 
+// Link de pago de Wompi de Dynasty (2026-10-06): sale como enlace/botón, nunca como cuenta.
+describe('link de pago (payment_link)', () => {
+    const LINK = 'https://checkout.wompi.co/l/Hj5s7R';
+    const conLink = (extra: Record<string, unknown> = {}) => {
+        estado.tablas.school_settings[0].payment_accounts.push({
+            id: 'w1', type: 'payment_link', label: 'Pagar con tarjeta, PSE o Nequi (Wompi)', value: LINK, active: true, ...extra,
+        });
+    };
+
+    it('mediosDePago lo usa como enlace_para_pagar y no lo mete en cuentas', async () => {
+        conLink();
+        const m = await mediosDePago(ESCUELA, { categoria: 'mensualidad' });
+        expect(m.enlace_para_pagar).toBe(LINK);
+        expect(m.link_de_pago).toBe(LINK);
+        expect(m.instrucciones_del_enlace).toContain('manda el comprobante');
+        expect(m.cuentas.map((c) => c.numero)).not.toContain(LINK);
+    });
+
+    it('sin link (o apagado) sigue /my-payments', async () => {
+        conLink({ active: false });
+        const m = await mediosDePago(ESCUELA);
+        expect(m.enlace_para_pagar).toMatch(/\/my-payments$/);
+        expect(m.link_de_pago).toBeNull();
+        expect(m.instrucciones_del_enlace).toBeNull();
+    });
+
+    it('el correo muestra el botón con el aviso de mandar el comprobante', () => {
+        const f: Familia = {
+            clave: 'x@x.co', email: 'x@x.co', waId: null, nombre: 'X', perfilId: null, avisadaHoy: false,
+            filas: [{ paymentId: 'p', atleta: 'Ana', concepto: 'Mensualidad', vence: '2026-11-10', saldo: 1, vencido: false, delMes: true, status: 'pending', token: 'Tok' }],
+        };
+        const base = { escuela: 'E', familia: f, appBase: 'https://app.sportmaps.co', bffBase: 'https://bffprod.sportmaps.co', medios: [], qrEscuelaUrl: null, whatsappComprobante: null };
+        const html = cuerpoCorreoEstado({ ...base, linkDePago: LINK });
+        expect(html).toContain(`href="${LINK}"`);
+        expect(html).toContain('Pagar con tarjeta, PSE o Nequi (Wompi)');
+        expect(html).toContain('súbelo en la app para que la escuela lo aplique');
+        expect(cuerpoCorreoEstado(base)).not.toContain('Wompi');
+    });
+});
+
 describe('horario y festivos', () => {
     it('noviembre 2026: domingo 1 y lunes 2 (festivo) no; martes 3 sí', () => {
         expect(esDiaHabil(DOM_1_NOV_0900)).toBe(false);

@@ -39,6 +39,27 @@ Migración `20260819173354_cerrar_escritura_team_tactical_presets.sql`, aplicada
 
 Radio medido antes de aplicar: 2 filas, 1 escuela, ninguna creada por alguien ajeno a su escuela — el hueco no alcanzó a usarse. Verificado después: la misma prueba que daba `true` ahora da `false`, `anon` quedó sin grants, y el coach real conserva escritura y lectura.
 
+### Seguimiento 2026-10-05 — la LECTURA también era demasiado ancha
+
+Dejar la lectura de `team_tactical_presets` en `user_school_ids()` (cualquier miembro activo) fue una
+decisión consciente de ese día, pero la auditoría de la pizarra encontró que **no servía a nadie**:
+las plantillas son la táctica del cuerpo técnico y nada fuera del BFF (service_role) las lee con el
+JWT del usuario. Un padre con su sesión podía listar por REST las plantillas — y, por el mismo
+motivo, las alineaciones con sus dibujos (`match_lineups`), los jugadores de cada alineación
+(`match_lineup_players`) y los eventos de partido (`football_match_events`) de **todos los equipos**
+de su escuela (en una escuela medida hay 53 padres activos).
+
+Migración `20261005173002_pizarra_blindaje_datos_y_lectura.sql`: el SELECT de las cuatro tablas pasa a
+`user_staff_school_ids()`, conservando las ramas de "lo mío" (un atleta o un padre sigue viendo las
+alineaciones y eventos donde participa él o su hijo). Mismo archivo: `CHECK` de forma/tamaño de
+`slots`/`arrows` e índice único del nombre de plantilla (equipo + situación). Radio medido antes:
+9 plantillas, 58 alineaciones, 0 duplicados; cada escuela afectada tiene staff activo.
+
+**Estado: en el repo, pendiente de aplicar en la base viva** (verificado 2026-10-05: sin los
+`CHECK`, sin el índice y con la policy vieja). Al aplicarla (`apply_migration`), correr
+`npm run seguridad:invariantes` y `npm run seguridad:rls-negativas` con los casos nuevos de lectura
+(padre → lista vacía, coach → ve las suyas).
+
 ---
 
 ## 2. Lo que queda abierto: 60 policies `FOR ALL` sin `WITH CHECK`

@@ -10,7 +10,7 @@
  */
 
 import { supabase } from '../config/supabase';
-import { sendTextMessage, type WhatsAppIntegration, type ParsedInboundMessage } from './whatsapp.service';
+import type { WhatsAppIntegration, ParsedInboundMessage } from './whatsapp.service';
 
 type Logger = { info?: (...a: any[]) => void; warn?: (...a: any[]) => void; error?: (...a: any[]) => void };
 
@@ -36,20 +36,17 @@ export type ResultadoEncolado =
     | 'mime_rechazado'
     | 'error';
 
-const ACUSE =
-    'Recibí tu comprobante 📄 Lo estoy revisando y te confirmo en un momento.';
-
-const MIME_RECHAZADO =
-    'Recibí tu archivo, pero no puedo leer ese formato. Mándame una *foto* del ' +
-    'comprobante o el *PDF* que te da el banco, y lo valido enseguida.';
-
 /**
  * Encola un adjunto entrante. Devuelve qué pasó, para que el llamador decida.
  *
- * El acuse al acudiente sale SOLO si la inserción ocurrió de verdad. El
- * `UNIQUE (wa_message_id)` ya protegía la fila, pero mandar el mensaje antes de
- * mirar si se insertó hacía que ante un reintento de Meta el padre recibiera
- * "recibí tu comprobante" dos y tres veces.
+ * Ya NO le escribe a nadie (P6, análisis 2026-10-06). Antes mandaba acá «Recibí
+ * tu comprobante 📄 Lo estoy revisando y te confirmo en un momento» con
+ * `sendTextMessage` pelado: antes de `debeAtender` (le llegaba a contactos
+ * personales y salía con el bot apagado), sin registrarse en whatsapp_messages
+ * y llamando «comprobante» a una captura o a una hoja de matrícula. El acuse
+ * ahora lo manda el webhook con `acusarAdjunto` (whatsapp-bot.service), y solo
+ * cuando esto devuelve 'encolado' —un reintento de Meta ('duplicado') no se
+ * acusa dos veces—.
  */
 export async function encolarAdjunto(
     integration: WhatsAppIntegration,
@@ -63,9 +60,8 @@ export async function encolarAdjunto(
     if (!MIME_ACEPTADOS.has(mime)) {
         log?.info?.({ waMessageId: msg.waMessageId, mime }, '[wa-queue] mime no aceptado, no se encola');
         // Un audio o un video no es un comprobante: no se encola para que el
-        // worker no lo falle cinco veces. Pero al acudiente hay que decirle algo,
-        // o se queda esperando una respuesta que nunca llega.
-        await sendTextMessage(integration, msg.contactWaId, MIME_RECHAZADO);
+        // worker no lo falle cinco veces. El aviso al acudiente lo da el webhook
+        // por `deliver`, después de `debeAtender`.
         return 'mime_rechazado';
     }
 
@@ -104,13 +100,5 @@ export async function encolarAdjunto(
     }
 
     log?.info?.({ queueId: data[0].id, waMessageId: msg.waMessageId }, '[wa-queue] encolado');
-
-    // El acuse va DESPUÉS de la inserción y solo si insertó. Si el envío falla,
-    // la fila ya está: el worker igual procesa y responde con el resultado.
-    const enviado = await sendTextMessage(integration, msg.contactWaId, ACUSE);
-    if (!enviado.ok) {
-        log?.warn?.({ queueId: data[0].id, err: enviado.error }, '[wa-queue] acuse no salió');
-    }
-
     return 'encolado';
 }

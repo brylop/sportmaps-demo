@@ -18,6 +18,7 @@ import {
 } from '@/hooks/useAthleteSessionBookings';
 import { getSportVisual } from '@/lib/sportVisuals';
 import { SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
+import { dayNotAllowedMessage, describeAllowedDays } from '@/lib/school/levelProgression';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -70,8 +71,19 @@ function AvailableTab({ childId }: { childId?: string }) {
 
   const grouped = groupByDate(open);
 
+  // F-F (D9): si algún plan restringe días, se dice cuáles (los demás días no
+  // aparecen: el servidor ya no los ofrece). Un aviso por plan distinto.
+  const dayRules = [...new Set(
+    Object.values(data?.allowed_days_by_enrollment ?? {}).map((d) => describeAllowedDays(d)),
+  )];
+
   return (
     <>
+      {dayRules.length > 0 && (
+        <p className="mb-3 rounded-lg border border-border/40 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          Tu plan permite reservar solo: {dayRules.join(' · ')}. Los demás días no aparecen.
+        </p>
+      )}
       <div className="space-y-5">
         {Object.entries(grouped).map(([date, daySessions]) => (
           <div key={date}>
@@ -129,7 +141,8 @@ function AvailableTab({ childId }: { childId?: string }) {
                       setConfirming(null);
                     },
                     onError: (err: any) => {
-                      toast({ title: 'No se pudo reservar', description: err.message, variant: 'destructive' });
+                      // 422 day_not_allowed (F-F, D9): el plan no incluye ese día.
+                      toast({ title: 'No se pudo reservar', description: dayNotAllowedMessage(err) ?? err.message, variant: 'destructive' });
                       setConfirming(null);
                     },
                   }
