@@ -2063,7 +2063,7 @@ async function handleIntent(
             // «Cancelar mi clase» llega acá cuando la regla no lo atrapó: el
             // flujo lo atiende si hay reserva; si no, se informa la oferta.
             if (!(await atenderTurnoCortesia(ctx, text, null, { iniciar: false }))) {
-                await iniciarCortesia(ctx);
+                await iniciarCortesia(ctx, { texto: text });
             }
         } catch (e: any) {
             console.error('[whatsapp-bot] get_trial_class_info falló', { conversationId, err: e?.message });
