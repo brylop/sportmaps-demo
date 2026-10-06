@@ -367,6 +367,11 @@ async function otrosPendientesDelPagador(p: any): Promise<VistaCobroPublico['otr
 // Vista pública
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Referencia corta y no adivinable a partir de ella sola: 8 hex del id del cobro. */
+export function referenciaCortaDeCobro(paymentId: string): string {
+    return String(paymentId).replace(/-/g, '').slice(0, 8).toUpperCase();
+}
+
 export async function vistaDelCobro(r: Extract<ResultadoResolver, { ok: true }>): Promise<VistaCobroPublico | null> {
     const p = await leerCobro(r.paymentId, r.schoolId);
     if (!p) return null;
@@ -390,11 +395,17 @@ export async function vistaDelCobro(r: Extract<ResultadoResolver, { ok: true }>)
     const estado = estadoPublico(p.status, p.due_date, hoyBogota());
     const pagable = estado === 'pendiente' || estado === 'vencido' || estado === 'abono' || estado === 'rechazado';
 
+    // La referencia corta (8 primeros hex del id del cobro) es para el bot: el
+    // 06-oct dos familias mandaron este texto y nadie lo reconoció. Con la ref
+    // el bot responde «mándame la foto» y el worker aplica la imagen que llegue
+    // a ESTE cobro aunque la familia tenga varios pendientes del mismo monto
+    // (`anunciaComprobante` en whatsapp-reglas-turno, `pistaDeCobro` en el job).
     const textoWa = [
         'Hola, envío el comprobante de pago de',
         concepto + (periodo ? ` (${periodo})` : ''),
-        deportista ? `de ${deportista}` : '',
-    ].filter(Boolean).join(' ') + '.';
+        // «Samuel R.» ya trae su punto: sin quitarlo quedaba «Samuel R.. (ref…».
+        deportista ? `de ${deportista.replace(/\.+$/, '')}` : '',
+    ].filter(Boolean).join(' ') + `. (ref. ${referenciaCortaDeCobro(r.paymentId)})`;
 
     return {
         escuela: { nombre: (escuela as any)?.name ?? 'Tu escuela', logoUrl: (escuela as any)?.logo_url ?? null },

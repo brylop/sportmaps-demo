@@ -823,7 +823,7 @@ router.post('/:schoolId/borradores/:draftId/aprobar', requireAuth, async (req: A
     // eso, un admin podria aprobar el borrador de otra escuela conociendo su id.
     const { data: draft } = await supabase
         .from('whatsapp_message_drafts')
-        .select('id, status, proposed_text, conversation_id, '
+        .select('id, status, proposed_text, conversation_id, tool_context, '
               + 'conversacion:whatsapp_conversations!inner(id, school_id, contact_wa_id, last_inbound_at)')
         .eq('id', draftId)
         .eq('whatsapp_conversations.school_id', schoolId)
@@ -876,7 +876,14 @@ router.post('/:schoolId/borradores/:draftId/aprobar', requireAuth, async (req: A
         p_wa_message_id: enviado.waMessageId || `local-${crypto.randomUUID()}`,
         p_type: 'text',
         p_text_body: texto,
-        p_payload: { draft_id: draftId, aprobado_por: userId, editado: Boolean(parsed.data.texto) },
+        // El `step` del borrador viaja al saliente: el bot decide con él si la
+        // pregunta de consentimiento quedó abierta, si un aviso ya salió en la
+        // ventana, etc. Sin esto, en modo asistido todo borrador aprobado era
+        // un saliente «sin paso» y esas reglas no lo veían (2026-10-06).
+        p_payload: {
+            draft_id: draftId, aprobado_por: userId, editado: Boolean(parsed.data.texto),
+            ...((draft as any).tool_context?.step ? { step: (draft as any).tool_context.step } : {}),
+        },
         p_ai_generated: !parsed.data.texto,
         p_to_wa_id: conv.contact_wa_id,
     });

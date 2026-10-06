@@ -24,6 +24,7 @@ import { runPostTrainingReminders } from './post-training-reminders.job';
 import { runWhatsAppQueue } from './whatsapp-queue.job';
 import { runWhatsAppPaymentOutcome } from './whatsapp-payment-outcome.job';
 import { runWhatsAppMantenimiento } from './whatsapp-mantenimiento.job';
+import { vencerComprobantesColgados } from './whatsapp-cola-vencimiento.job';
 import { runWhatsAppPlantillasSync } from './whatsapp-plantillas-sync.job';
 import { runWhatsAppResumenDiario } from './whatsapp-resumen-diario.job';
 import { runBotResumenSemanal } from './bot-resumen-semanal.job';
@@ -491,6 +492,36 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Aviso de desenlace de comprobantes registrado (cada minuto).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Plazo de la promesa del acuse (P1, análisis 2026-10-06) — cada 2 min.
+    //
+    // El 06-oct, 15 adjuntos de familias quedaron `pending` una hora sin que
+    // nadie se enterara (primero sin worker, después con el OCR fallando).
+    // Este job avisa (log + Sentry) desde los 5 min y a los 10 min pasa el caso
+    // a la escuela (buzón + push + correo) y le escribe UNA vez a la familia.
+    //
+    // Kill-switch PROPIO, a propósito: si se apaga la cola con
+    // DISABLE_WHATSAPP_QUEUE_CRON, este es el que tiene que seguir avisando.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/2 * * * *', async () => {
+        if (process.env.DISABLE_WHATSAPP_COLA_VENCIMIENTO === 'true') return;
+        try {
+            const r = await vencerComprobantesColgados();
+            if (r.alerta > 0) {
+                const msg = `[wa-vencimiento] ${r.alerta} adjunto(s) de WhatsApp sin desenlace hace más de 5 min `
+                    + `(el más viejo: ${r.masVieja}); ${r.vencidas} pasado(s) a la escuela, ${r.avisadas} familia(s) avisada(s).`
+                    + (process.env.DISABLE_WHATSAPP_QUEUE_CRON === 'true' ? ' OJO: la cola está apagada (DISABLE_WHATSAPP_QUEUE_CRON).' : '');
+                console.warn(msg);
+                Sentry.captureMessage(msg, 'warning');
+            }
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en el vencimiento de comprobantes de WhatsApp:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Vencimiento de comprobantes de WhatsApp registrado (cada 2 min).');
 
     // ────────────────────────────────────────────────────────────────────────
     // Buzón de WhatsApp (Fase A) — cada 15 min.

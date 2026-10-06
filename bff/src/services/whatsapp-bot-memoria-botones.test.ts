@@ -338,26 +338,44 @@ describe('botones: consentimiento', () => {
         expect(borradores()[0].row.tool_context).toMatchObject({ step: 'consent_rechazado' });
     });
 
-    it('la pregunta de consentimiento sale con botones en modo auto', async () => {
+    // P2 (análisis 2026-10-06): la pregunta sale DESPUÉS de un turno resuelto,
+    // nunca como primera respuesta.
+    it('la pregunta de consentimiento sale con botones en modo auto, DESPUÉS del estado de pagos', async () => {
         baseDeFamilia({ consentimiento: 'nunca', settings: AUTO });
-        await runBotTurn(INTEGRATION, CONV, TEL, 'hola', 'wamid.1');
+        await runBotTurn(INTEGRATION, CONV, TEL, 'Ver mis pagos', 'wamid.1', false, BOTON.VER_PAGOS);
+        expect(h.sendTextMessage).toHaveBeenCalledTimes(1);
+        expect(h.sendTextMessage.mock.calls[0][2]).toContain('Mensualidad Octubre');
         expect(h.sendInteractiveButtons).toHaveBeenCalledTimes(1);
         const [, to, body, botones] = h.sendInteractiveButtons.mock.calls[0];
         expect(to).toBe(TEL);
         expect(body).toContain('Responde *SÍ*');
+        expect(body).not.toContain('STOP');
         expect(botones).toEqual(BOTONES_CONSENTIMIENTO);
-        expect(h.sendTextMessage).not.toHaveBeenCalled();
-        const registro = rpcs('wa_record_outbound_message')[0].args;
-        expect(registro).toMatchObject({ p_type: 'interactive', p_wa_message_id: 'wamid.btn' });
-        expect(registro.p_payload).toMatchObject({ step: 'ask_consent', botones: BOTONES_CONSENTIMIENTO });
+        const pasos = rpcs('wa_record_outbound_message').map((c) => c.args.p_payload.step);
+        expect(pasos).toEqual(['get_payment_status', 'ask_consent']);
+        expect(rpcs('wa_record_outbound_message')[1].args).toMatchObject({ p_type: 'interactive', p_wa_message_id: 'wamid.btn' });
+    });
+
+    it('un saludo NO recibe la pregunta de consentimiento como respuesta', async () => {
+        baseDeFamilia({ consentimiento: 'nunca' });
+        await runBotTurn(INTEGRATION, CONV, TEL, 'hola', 'wamid.1');
+        expect(borradores().map((b) => b.row.tool_context.step)).not.toContain('ask_consent');
     });
 
     it('modo asistido: el borrador es texto y guarda los botones en tool_context', async () => {
         baseDeFamilia({ consentimiento: 'nunca' });
-        await runBotTurn(INTEGRATION, CONV, TEL, 'hola', 'wamid.1');
+        await runBotTurn(INTEGRATION, CONV, TEL, 'Ver mis pagos', 'wamid.1', false, BOTON.VER_PAGOS);
         expect(h.sendInteractiveButtons).not.toHaveBeenCalled();
-        expect(borradores()[0].row.proposed_text).toContain('Responde *SÍ*');
-        expect(borradores()[0].row.tool_context).toMatchObject({ step: 'ask_consent', botones: BOTONES_CONSENTIMIENTO });
+        expect(borradores()).toHaveLength(2);
+        expect(borradores()[1].row.proposed_text).toContain('Responde *SÍ*');
+        expect(borradores()[1].row.tool_context).toMatchObject({ step: 'ask_consent', botones: BOTONES_CONSENTIMIENTO });
+    });
+
+    it('ya preguntado (una vez máximo): no se vuelve a preguntar', async () => {
+        baseDeFamilia({ consentimiento: 'preguntado' });
+        await runBotTurn(INTEGRATION, CONV, TEL, 'Ver mis pagos', 'wamid.1', false, BOTON.VER_PAGOS);
+        expect(borradores()).toHaveLength(1);
+        expect(borradores()[0].row.tool_context).toMatchObject({ step: 'get_payment_status' });
     });
 });
 
@@ -415,7 +433,9 @@ describe('correo al escalar', () => {
 
     it('transición a abierta: un solo correo con el motivo', async () => {
         escalarConElModelo();
-        await runBotTurn(INTEGRATION, CONV, TEL, 'quiero hablar con alguien', 'wamid.1');
+        // Un texto que NO dispara la regla de «pedir una persona» (P9): acá se
+        // prueba la escalación que decide el modelo.
+        await runBotTurn(INTEGRATION, CONV, TEL, 'tengo un problema con la inscripción de mi hijo', 'wamid.1');
         await Promise.resolve();
         expect(h.avisarEscalamientoPorCorreo).toHaveBeenCalledTimes(1);
         expect(h.avisarEscalamientoPorCorreo.mock.calls[0][0]).toMatchObject({ motivo: 'quiere hablar con alguien' });

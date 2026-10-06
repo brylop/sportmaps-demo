@@ -207,11 +207,38 @@ describe('webhook: filtro de atención antes de responder', () => {
         expect(borradores()).toHaveLength(0);
     });
 
-    it('los adjuntos se encolan sin pasar por el filtro (el worker hace el suyo)', async () => {
+    it('los adjuntos se encolan siempre; el ACUSE pasa por el filtro y por deliver (P6)', async () => {
         h.encolarAdjunto.mockResolvedValue('encolado');
+        h.debeAtender.mockResolvedValue({ atender: true, tipo: 'familia', botEncendido: true });
         await handleBotTurn(req, INTEGRATION, CONV, mensaje({ type: 'image', textBody: null }));
         expect(h.encolarAdjunto).toHaveBeenCalledTimes(1);
-        expect(h.debeAtender).not.toHaveBeenCalled();
+        expect(h.debeAtender).toHaveBeenCalledTimes(1);
+        // Modo asistido: el acuse queda como borrador (registrado), con texto veraz.
+        expect(borradores()).toHaveLength(1);
+        expect(borradores()[0].row.tool_context).toMatchObject({ step: 'acuse_adjunto' });
+        expect(borradores()[0].row.proposed_text).toContain('Recibí tu archivo');
+        expect(borradores()[0].row.proposed_text).not.toContain('te confirmo en un momento');
+    });
+
+    it('adjunto de un contacto que no se atiende (personal / bot apagado): se encola y NO se acusa', async () => {
+        h.encolarAdjunto.mockResolvedValue('encolado');
+        for (const d of [
+            { atender: false, tipo: 'personal', botEncendido: true },
+            { atender: false, tipo: 'familia', botEncendido: false },
+        ]) {
+            h.debeAtender.mockResolvedValue(d);
+            await handleBotTurn(req, INTEGRATION, CONV, mensaje({ type: 'image', textBody: null }));
+        }
+        expect(h.encolarAdjunto).toHaveBeenCalledTimes(2);
+        expect(borradores()).toHaveLength(0);
+        expect(h.sendTextMessage).not.toHaveBeenCalled();
+    });
+
+    it('reintento de Meta (duplicado): no se acusa dos veces', async () => {
+        h.encolarAdjunto.mockResolvedValue('duplicado');
+        h.debeAtender.mockResolvedValue({ atender: true, tipo: 'familia', botEncendido: true });
+        await handleBotTurn(req, INTEGRATION, CONV, mensaje({ type: 'image', textBody: null }));
+        expect(borradores()).toHaveLength(0);
     });
 });
 

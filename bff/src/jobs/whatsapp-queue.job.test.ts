@@ -115,7 +115,7 @@ vi.mock('../services/whatsapp-receipt-matching.service', () => ({
 
 // Import DESPUÉS de los vi.mock — vitest hoistea los vi.mock, pero el import
 // dinámico deja explícito el orden para quien lea el archivo.
-const { runWhatsAppQueue } = await import('./whatsapp-queue.job');
+const { runWhatsAppQueue, elegirPorPista, pistaDesdeTextos } = await import('./whatsapp-queue.job');
 const { supabase } = await import('../config/supabase');
 
 const FILA_BASE = {
@@ -213,5 +213,31 @@ describe('whatsapp-queue.job — rama de staff-admin', () => {
             wa_message_id: 'wamid.abc',
         }));
         expect(pagosPendientesDeMock).not.toHaveBeenCalled();
+    });
+});
+
+// P3 (análisis 2026-10-06): cuando el monto no desempata, manda lo que la
+// familia anunció con texto (el precargado de /p/:token trae la referencia).
+describe('pista del cobro anunciado', () => {
+    const P = (id: string, concept: string) => ({ id, concept, amount: 180000, due_date: null, child_id: null, atleta: null });
+    const pendientes = [
+        P('3fa2b91c-0000-4000-8000-000000000001', 'Mensualidad 09/2026 - LAURA P'),
+        P('77aa0000-0000-4000-8000-000000000002', 'Mensualidad 10/2026 - LAURA P'),
+    ];
+
+    it('por la ref del texto precargado', () => {
+        const pista = pistaDesdeTextos([null,
+            'Hola, envío el comprobante de pago de Mensualidad 09/2026 - LAURA P (septiembre 2026) de Laura. (ref. 3FA2B91C)']);
+        expect(elegirPorPista(pendientes, pista)?.id).toBe(pendientes[0].id);
+    });
+
+    it('por el concepto exacto (precargado viejo, sin ref)', () => {
+        const pista = pistaDesdeTextos(['Hola, envío el comprobante de pago de Mensualidad 10/2026 - LAURA P (octubre 2026) de Laura.']);
+        expect(elegirPorPista(pendientes, pista)?.id).toBe(pendientes[1].id);
+    });
+
+    it('sin pista útil → null (se le pregunta a la familia, como antes)', () => {
+        expect(elegirPorPista(pendientes, pistaDesdeTextos(['Pago Laura']))).toBeNull();
+        expect(elegirPorPista(pendientes, null)).toBeNull();
     });
 });

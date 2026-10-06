@@ -425,15 +425,20 @@ export async function extractReceipt(base64Image: string, mimeType: string = 'im
     }
 
     let lastErr: Error | null = null;
+    const fallas: string[] = [];
     for (const name of tryOrder) {
         try {
             return await providers[name]();
         } catch (err: any) {
             lastErr = err;
+            fallas.push(`${name}: ${err?.message ?? err}`);
             console.warn(`[OCR] ${name} fallo, intentando siguiente:`, err.message);
         }
     }
-    throw lastErr ?? new Error('Todos los providers de OCR fallaron');
+    // Todos los proveedores, no solo el último. El 2026-10-06 las 15 filas de la
+    // cola de WhatsApp quedaron con «OPENAI_API_KEY no configurada» —el último
+    // de la cadena— y no se veía por qué había fallado Gemini, que va primero.
+    throw new Error(fallas.length ? fallas.join(' | ') : (lastErr?.message ?? 'Todos los providers de OCR fallaron'));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

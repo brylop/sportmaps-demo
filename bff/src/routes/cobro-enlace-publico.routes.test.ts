@@ -110,6 +110,7 @@ vi.mock('qrcode', () => ({
 
 import router from './cobro-enlace-publico.routes';
 import { emitirTokenCobro, nombreCorto, estadoPublico, montosEnLinea } from '../services/cobro-enlace-publico.service';
+import { anunciaComprobante } from '../services/whatsapp-reglas-turno';
 
 const ESCUELA = '2d509571-0000-4000-8000-000000000001';
 const COBRO_A = 'aaaaaaaa-0000-4000-8000-00000000000a';
@@ -214,6 +215,11 @@ describe('vista del cobro', () => {
         // pago en línea propio, que va primero en la página.
         expect(v.transferencia.linkDePago).toBe('https://checkout.wompi.co/l/Hj5s7R');
         expect(v.transferencia.whatsappComprobante).toMatch(/^https:\/\/wa\.me\/573001112233\?text=/);
+        // P3 (análisis 2026-10-06): el texto precargado trae la referencia corta
+        // del cobro y el bot lo reconoce como anuncio de comprobante.
+        const textoWa = decodeURIComponent(String(v.transferencia.whatsappComprobante).split('?text=')[1]);
+        expect(textoWa).toContain('(ref. AAAAAAAA)');
+        expect(anunciaComprobante(textoWa)).toMatchObject({ tipo: 'precargado', ref: 'aaaaaaaa', periodo: 'octubre 2026' });
         const crudo = JSON.stringify(v);
         expect(crudo).not.toContain('caro@correo.co');
         expect(crudo).not.toContain('3009998877');

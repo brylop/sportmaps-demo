@@ -55,8 +55,21 @@ import {
     atenderTurnoCortesia, iniciarCortesia, pideClaseDeCortesia, franjasDeSupabase, filtrarVigentes,
     FLUJO_CORTESIA, type CtxCortesia,
 } from './whatsapp-clase-cortesia.service';
+import {
+    anunciaComprobante, nombreDelCobroAnunciado, yaPagoYReclama, textoYaPague, pideALaPersona,
+    vocativosDelEquipo, esCierreSuelto, esAutoRespuesta, rutaSinModelo, humanoReciente,
+    preguntaAbierta, pasoEnVentana, normalizarFrase,
+    type FilaReciente, type ComprobanteAnunciado,
+} from './whatsapp-reglas-turno';
 
 const OTP_TTL_MIN = 10;
+
+/**
+ * P4 (análisis 2026-10-06): minutos de silencio después de que una PERSONA de la
+ * escuela escribió en la conversación. 15 por defecto; configurable por env para
+ * no tener que redeployar si la escuela pide más o menos.
+ */
+export const SILENCIO_HUMANO_MIN = Number(process.env.WHATSAPP_SILENCIO_HUMANO_MIN) || 15;
 
 // ─── Entrada principal ────────────────────────────────────────────────────────
 
@@ -82,13 +95,37 @@ export async function runBotTurn(
         return;
     }
 
+    // Lo último de la conversación (24 h), leído UNA vez por turno: de acá salen
+    // el silencio por humano (P4), la pregunta de consentimiento abierta (P2),
+    // el STOP pegado al sí (P8) y la ráfaga de mensajes (P5). Nunca lanza.
+    const recientes = await mensajesRecientes(conversationId);
+
     // 0. Pidió la baja (la ingesta ya la registró) → confirmar y parar.
     //    A quien pide que no le escriban no se le sigue preguntando nada.
+    //    Va antes del silencio por humano: es una instrucción al sistema, no
+    //    una charla, y confirmarla es lo que pide la política de Meta.
     if (optedOut) {
-        await deliver(integration, conversationId, contactWaId,
-            'Listo, no volverás a recibir mensajes automáticos de la escuela por este medio. ' +
-            'Si cambias de opinión, escríbeme *ACTIVAR* y los reactivo. 👋',
-            { step: 'opt_out_confirmado' });
+        await atenderBaja(integration, conversationId, contactWaId, recientes);
+        return;
+    }
+
+    // 0b. P4 — La escuela está atendiendo: silencio.
+    //     Medido el 06-oct: en 6 de 10 conversaciones Milena escribía desde su
+    //     celular mientras el bot respondía; en `8f9e500b` mandó 5 estados de
+    //     pago encima de ella y contradijo lo que acordaron. Si una persona de
+    //     la escuela escribió en los últimos SILENCIO_HUMANO_MIN minutos, el bot
+    //     no habla: solo deja la conversación abierta en el buzón, sin push (ella
+    //     ya está ahí).
+    if (humanoReciente(recientes, SILENCIO_HUMANO_MIN)) {
+        console.info('[whatsapp-bot] la escuela está atendiendo; el bot se calla', { conversationId });
+        await marcarAbiertaSinAviso(conversationId);
+        return;
+    }
+
+    // 0c. P14 — Auto-respuesta de otro negocio («Gracias por escribir a Play
+    //     Kids… fuera de horario»). Contestarle arma un bucle de dos máquinas.
+    if (!botonId && esAutoRespuesta(text)) {
+        console.info('[whatsapp-bot] auto-respuesta de otro negocio; no se contesta', { conversationId });
         return;
     }
 
@@ -101,10 +138,21 @@ export async function runBotTurn(
 
     if (!conv) return;
 
-    // 1. No identificado → flujo OTP determinista.
+    // 1. No identificado → flujo OTP determinista. Si el TELÉFONO lo reconoce,
+    //    el turno sigue: antes se le contestaba con saludo + consentimiento y el
+    //    mensaje que había escrito (un comprobante, una pregunta) quedaba sin
+    //    respuesta (P2, análisis 2026-10-06).
     if (!conv.identified) {
-        await handleIdentification(integration, conversationId, contactWaId, text, botonId);
-        return;
+        const r = await handleIdentification(integration, conversationId, contactWaId, text, botonId);
+        if (r !== 'continuar') return;
+        const { data: vinculada } = await supabase
+            .from('whatsapp_conversations')
+            .select('id, parent_id, identified')
+            .eq('id', conversationId)
+            .maybeSingle();
+        if (!(vinculada as any)?.parent_id) return;
+        conv.parent_id = (vinculada as any).parent_id;
+        conv.identified = true;
     }
 
     // 1b. Ya identificada: verificar que el vinculo siga siendo el correcto.
@@ -130,15 +178,25 @@ export async function runBotTurn(
     // 1c. Clase de cortesía EN CURSO (flujo abierto, botón del flujo o
     //     «cancelar mi clase» con reserva). Va ANTES del consentimiento: con el
     //     resumen en pantalla, el «sí» del papá es «confirmo la reserva», y
-    //     `handleConsent` lo estaría leyendo como «acepto recordatorios».
+    //     `leerRespuestaDeConsentimiento` lo estaría leyendo como «acepto recordatorios».
     if (await atenderCortesiaEnBot(integration, conversationId, contactWaId, text, botonId,
         conv.parent_id, { iniciar: false })) {
         return;
     }
 
-    // 2. Consentimiento: se pide UNA vez, después de identificarse.
-    //    Si este turno lo resolvió (preguntó, o registró el sí/no), termina acá.
-    if (await handleConsent(integration, conversationId, contactWaId, conv.parent_id, text, waMessageId, botonId)) {
+    // 2. Consentimiento: aquí SOLO se lee la respuesta, y solo si la pregunta
+    //    está abierta (o tocó un botón del consentimiento, o pide ACTIVAR).
+    //
+    //    Antes este paso PREGUNTABA, y como iba primero, fue la primera
+    //    respuesta del bot en las 10 conversaciones de familia del 06-oct: en 5
+    //    lo que la familia había escrito era un comprobante (2 con el texto
+    //    precargado de /p/:token) y ninguna recibió después respuesta sobre su
+    //    comprobante. La pregunta ahora sale al final de un turno YA resuelto
+    //    (`ofrecerConsentimientoSiFalta`): después de un estado de pagos, de los
+    //    medios de pago o del resultado de un comprobante. Nunca encima de un
+    //    comprobante, de una pregunta concreta ni de un saludo a una persona.
+    if (await leerRespuestaDeConsentimiento(
+        integration, conversationId, contactWaId, conv.parent_id, text, waMessageId, botonId, recientes)) {
         return;
     }
 
@@ -184,8 +242,312 @@ export async function runBotTurn(
     );
     if (respondio) return;
 
+    // ─── Reglas deterministas antes del modelo (análisis 2026-10-06) ─────────
+    //
+    // Lo que sigue se lee sobre la RÁFAGA (los mensajes de la familia desde la
+    // última respuesta, hasta 3 min): el 64 % de los entrantes llega a menos de
+    // 60 s del anterior, y lo típico es «Hola Milena» → «envío el pago de…».
+    const rafaga = textoDeRafaga(recientes, text, waMessageId);
+
+    // 2.6. P13 — «Gracias», «Ok», «👍» sueltos: no se contestan. Generaban
+    //      «¡De nada! 😊 Si necesitas consultar algún pago…» a cada cierre.
+    if (!botonId && esCierreSuelto(text)) {
+        console.info('[whatsapp-bot] cierre suelto; no se contesta', { conversationId });
+        return;
+    }
+
+    // 2.7. P9 — Pide una persona, o le habla a una persona del equipo.
+    //      «¿Milena estás por acá?» → el modelo PREGUNTABA si escalar; «Mile,
+    //      puedes ir a…» → «Lo siento, solo puedo ayudar con…». Ahora ninguna
+    //      de las dos pasa por el modelo.
+    const pedido = pideALaPersona(rafaga, await vocativosDeEscuela(integration.school_id));
+    if (pedido?.tipo === 'escalar') {
+        await escalate(integration, conversationId, contactWaId, 'pidio_una_persona');
+        return;
+    }
+    if (pedido?.tipo === 'vocativo') {
+        await dejarMensajeALaPersona(integration, conversationId, contactWaId, pedido.nombre);
+        return;
+    }
+
+    // 2.8. P3 — «Te envío el comprobante…» (y el texto precargado de /p/:token).
+    const anuncio = anunciaComprobante(text) ?? anunciaComprobante(rafaga);
+    if (anuncio) {
+        await responderAnuncioDeComprobante(integration, conversationId, contactWaId, anuncio, recientes);
+        return;
+    }
+
+    // 2.9. P7 — «Ya pagué / no aparece mi pago»: primero qué comprobante
+    //      tenemos y en qué estado está; después, si queda, lo pendiente.
+    if (yaPagoYReclama(rafaga)) {
+        await responderYaPague(integration, conversationId, contactWaId, conv.parent_id);
+        return;
+    }
+
     // 3. Identificado → intents con LLM.
     await handleIntent(integration, conversationId, contactWaId, conv.parent_id, text, waMessageId);
+}
+
+// ─── Estado reciente y reglas del turno (análisis 2026-10-06) ────────────────
+
+/**
+ * Los mensajes de las últimas 24 h de la conversación, del más nuevo al más
+ * viejo. Sin `order` en la consulta a propósito: se ordena acá por la fecha
+ * del MENSAJE (`wa_timestamp`), que es la que vale para los echos y el
+ * historial importado. Nunca lanza: sin esto el turno sigue como antes.
+ */
+export async function mensajesRecientes(conversationId: string): Promise<FilaReciente[]> {
+    try {
+        const desde = new Date(Date.now() - 24 * 3600_000).toISOString();
+        const { data, error } = await supabase
+            .from('whatsapp_messages')
+            .select('wa_message_id, direction, type, text_body, payload, ai_generated, wa_timestamp, created_at')
+            .eq('conversation_id', conversationId)
+            .gte('created_at', desde)
+            .limit(120);
+        if (error || !Array.isArray(data)) return [];
+        const t = (f: FilaReciente) => new Date(f.wa_timestamp || f.created_at || 0).getTime();
+        return (data as FilaReciente[]).slice().sort((a, b) => t(b) - t(a));
+    } catch {
+        return [];
+    }
+}
+
+const VENTANA_RAFAGA_MS = 3 * 60_000;
+
+/**
+ * Los textos de la familia desde la última respuesta (del bot o de la escuela),
+ * dentro de VENTANA_RAFAGA_MS, más el actual. Es lo que se lee para las reglas:
+ * «Hola Milena» + «envío el pago de Sara» es UN trámite, no un saludo suelto.
+ */
+export function textoDeRafaga(recientes: FilaReciente[], actual: string, waMessageId: string | null, ahora = Date.now()): string {
+    const t = (f: FilaReciente) => new Date(f.wa_timestamp || f.created_at || 0).getTime();
+    const ultimoSaliente = Math.max(0, ...recientes.filter((f) => f.direction === 'outbound').map(t));
+    const desde = Math.max(ultimoSaliente, ahora - VENTANA_RAFAGA_MS);
+    const previos = recientes
+        .filter((f) => f.direction === 'inbound' && f.wa_message_id !== waMessageId
+            && (f.text_body || '').trim() && t(f) > desde)
+        .sort((a, b) => t(a) - t(b))
+        .map((f) => (f.text_body || '').trim());
+    return [...previos, actual].filter(Boolean).join('\n');
+}
+
+/** Deja la conversación abierta en el buzón SIN push: la escuela ya está ahí. */
+async function marcarAbiertaSinAviso(conversationId: string): Promise<void> {
+    try {
+        await supabase.from('whatsapp_conversations')
+            .update({ status: 'open', updated_at: new Date().toISOString() })
+            .eq('id', conversationId);
+    } catch { /* best-effort */ }
+}
+
+/**
+ * Nombres con los que las familias le hablan al equipo («Mile», «Milena»,
+ * «Sandrita»): dueño + miembros activos que atienden. Cache de 10 min por
+ * escuela: se consulta en cada turno y el equipo casi no cambia. Nunca lanza.
+ */
+const cacheVocativos = new Map<string, { hasta: number; mapa: Map<string, string> }>();
+async function vocativosDeEscuela(schoolId: string): Promise<Map<string, string>> {
+    const c = cacheVocativos.get(schoolId);
+    if (c && c.hasta > Date.now()) return c.mapa;
+    let mapa = new Map<string, string>();
+    try {
+        const [{ data: escuela }, { data: miembros }] = await Promise.all([
+            supabase.from('schools').select('owner_id').eq('id', schoolId).maybeSingle(),
+            supabase.from('school_members').select('profile_id')
+                .eq('school_id', schoolId).eq('status', 'active')
+                .in('role', ['owner', 'admin', 'school_admin', 'coach']),
+        ]);
+        const ids = new Set<string>();
+        if ((escuela as any)?.owner_id) ids.add((escuela as any).owner_id);
+        for (const m of (Array.isArray(miembros) ? miembros : []) as any[]) if (m?.profile_id) ids.add(m.profile_id);
+        if (ids.size) {
+            const { data: perfiles } = await supabase.from('profiles').select('full_name').in('id', [...ids]);
+            mapa = vocativosDelEquipo((Array.isArray(perfiles) ? perfiles : []).map((p: any) => p?.full_name));
+        }
+    } catch { /* sin nombres: quedan los vocativos genéricos («profe») */ }
+    cacheVocativos.set(schoolId, { hasta: Date.now() + 10 * 60_000, mapa });
+    return mapa;
+}
+
+/** Solo para pruebas: que una prueba no herede los nombres de otra. */
+export function _limpiarCacheVocativos(): void { cacheVocativos.clear(); }
+
+/**
+ * P9 — Mensaje para una persona del equipo sin trámite que el bot pueda
+ * atender. UNA respuesta por conversación cada 24 h; el resto solo va al buzón.
+ * Nunca «solo puedo ayudar con…»: a quien le escribe a Milena no se le dice
+ * que el tema está fuera de alcance.
+ */
+async function dejarMensajeALaPersona(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    nombre: string,
+): Promise<void> {
+    if (!(await pasoReciente(conversationId, 'mensaje_para_persona', 24))) {
+        await deliver(integration, conversationId, contactWaId,
+            `Hola 👋 Soy el *asistente automático* de la escuela 🤖. Le dejo tu mensaje a ${nombre} 🙌\n\n` +
+            'Si es algo de pagos o comprobantes, cuéntame y te ayudo de una vez.',
+            { step: 'mensaje_para_persona', para: nombre });
+    }
+    await abrirEnBuzon(integration, conversationId, contactWaId);
+}
+
+/**
+ * P3 — La familia ANUNCIA un comprobante. Se le pide el archivo sin modelo y se
+ * deja la pista del cobro en el payload (`cobro_anunciado`); el worker la lee de
+ * los textos de la conversación para aplicar la imagen que llegue después
+ * (`pistaDeCobro` en whatsapp-queue.job).
+ *
+ * Si la imagen YA llegó (≤ 2 min) no se pide otra vez: el acuse del adjunto ya
+ * dijo «lo reviso». Una sola respuesta cada 10 min: «envío pago» + «Pago Sara»
+ * + «👆» no son tres anuncios.
+ */
+async function responderAnuncioDeComprobante(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    anuncio: ComprobanteAnunciado,
+    recientes: FilaReciente[],
+): Promise<void> {
+    const cobro = nombreDelCobroAnunciado(anuncio);
+    const contexto = {
+        step: 'comprobante_anunciado',
+        cobro_anunciado: {
+            tipo: anuncio.tipo, concepto: anuncio.concepto ?? null, periodo: anuncio.periodo ?? null,
+            deportista: anuncio.deportista ?? null, ref: anuncio.ref ?? null,
+        },
+    };
+
+    if (anuncio.tipo === 'futuro') {
+        if (pasoEnVentana(recientes, 'comprobante_anunciado', 10 * 60_000)) return;
+        await deliver(integration, conversationId, contactWaId,
+            '¡Listo! Cuando lo tengas, mándame la *foto* o el *PDF* del comprobante por aquí. 📄', contexto);
+        return;
+    }
+
+    const t = (f: FilaReciente) => new Date(f.wa_timestamp || f.created_at || 0).getTime();
+    const archivoReciente = recientes.some((f) => f.direction === 'inbound'
+        && (f.type === 'image' || f.type === 'document') && t(f) >= Date.now() - 2 * 60_000);
+    if (archivoReciente) {
+        // La foto llegó primero (pasa la mitad de las veces). Si ya hubo acuse,
+        // no hace falta decir nada más; si no, se acusa acá.
+        if (pasoEnVentana(recientes, 'acuse_adjunto', 2 * 60_000)) return;
+        await deliver(integration, conversationId, contactWaId,
+            `¡Gracias! Ya recibí el archivo${cobro ? ` de *${cobro}*` : ''} 📄 Lo reviso y te cuento por aquí.`,
+            { ...contexto, step: 'acuse_adjunto', via: 'anuncio' });
+        return;
+    }
+
+    if (pasoEnVentana(recientes, 'comprobante_anunciado', 10 * 60_000)) return;
+    await deliver(integration, conversationId, contactWaId,
+        `¡Gracias! Mándame la *foto* o el *PDF* del comprobante${cobro ? ` de *${cobro}*` : ''} por aquí y lo reviso. 📄`,
+        contexto);
+}
+
+/**
+ * P7 — «Ya pagué», «no aparece mi pago», «me sigue llegando el cobro».
+ *
+ * Antes: la deuda listada como vencida (E7, `5af7d51f` y `e9ed4b64`). Ahora,
+ * primero lo que la escuela YA tiene de esa familia: archivos en la cola de este
+ * chat y pagos con comprobante en revisión, aprobados o rechazados. Si no hay
+ * NADA, la conversación va al buzón: la familia dice que pagó y el sistema no lo
+ * ve, y eso lo tiene que mirar una persona. Nunca «voy a revisar el
+ * comprobante»: el bot no revisa, describe estados que existen.
+ */
+async function responderYaPague(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    parentId: string | null,
+): Promise<void> {
+    const desde = new Date(Date.now() - 14 * 24 * 3600_000).toISOString();
+    const [{ data: pagos, error }, cola] = await Promise.all([
+        supabase.rpc('wa_get_payment_status', { p_parent_id: parentId, p_school_id: integration.school_id }),
+        supabase.from('whatsapp_inbound_queue')
+            .select('status, result_type, created_at')
+            .eq('integration_id', integration.id)
+            .eq('wa_phone_number', contactWaId)
+            .gte('created_at', desde)
+            .limit(20)
+            .then((r: any) => (Array.isArray(r?.data) ? r.data : []), () => []),
+    ]);
+    if (error) {
+        console.error('[whatsapp-bot] wa_get_payment_status error (ya pagué):', error);
+        await escalate(integration, conversationId, contactWaId, 'tool_error');
+        return;
+    }
+    const { texto, hayAlgo } = textoYaPague(pagos as any, cola as any);
+    await deliver(integration, conversationId, contactWaId, texto,
+        { step: 'estado_comprobantes', encontro_comprobante: hayAlgo, tool_result: pagos });
+    if (!hayAlgo) await abrirEnBuzon(integration, conversationId, contactWaId);
+}
+
+/**
+ * P10 — El modelo no respondió (los dos proveedores). NO es una escalación: el
+ * 06-oct las 2 escalaciones del día fueron `llm_error`, ninguna pedida, y el
+ * «Voy a pasar tu caso…» confundió a las familias («¿Cuál caso?»). Se responde
+ * por el camino determinista según palabras clave, o con el menú de lo que el
+ * bot sí sabe hacer.
+ */
+async function responderSinModelo(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    parentId: string | null,
+    text: string,
+): Promise<void> {
+    const ruta = rutaSinModelo(text);
+    if (ruta === 'medios') {
+        const medios = await mediosDePago(integration.school_id);
+        await deliver(integration, conversationId, contactWaId,
+            fallbackMediosDePago(medios), { step: 'medios_fallback', via: 'llm_error' });
+        return;
+    }
+    if (ruta === 'pagos') {
+        const { data: payments, error } = await supabase.rpc('wa_get_payment_status', {
+            p_parent_id: parentId, p_school_id: integration.school_id,
+        });
+        if (!error) {
+            await deliver(integration, conversationId, contactWaId,
+                fallbackPaymentText(payments), { step: 'payment_fallback', via: 'llm_error', tool_result: payments });
+            return;
+        }
+    }
+    await deliver(integration, conversationId, contactWaId,
+        'No logré entender bien tu mensaje 😅 ¿Me ayudas eligiendo una opción?',
+        { step: 'llm_error_menu' },
+        { botones: BOTONES_SIN_DATO, enTexto: SIN_DATO_EN_TEXTO });
+}
+
+/**
+ * P8 — Confirmación del STOP. Si llega a menos de 60 s de un «sí» (el 06-oct,
+ * 2 de 5 opt-in terminaron en «Stop» a los 12–20 s, porque la confirmación
+ * decía «Para darte de baja, escribe *STOP*» y la mamá lo escribió), se
+ * repregunta con botones. La baja YA quedó registrada por la ingesta: se
+ * respeta; lo que se ofrece es volver a activarlos con un toque explícito.
+ */
+async function atenderBaja(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    recientes: FilaReciente[],
+): Promise<void> {
+    const siReciente = pasoEnVentana(recientes, 'opt_in_registrado', 60_000)
+        || pasoEnVentana(recientes, 'opt_in_reactivado', 60_000)
+        || pasoEnVentana(recientes, 'baja_mantenida', 60_000);
+    if (siReciente) {
+        await deliver(integration, conversationId, contactWaId,
+            'Hace un momento activaste los avisos y ahora recibí *STOP*. ¿Quieres dejar de recibirlos?',
+            { step: 'confirmar_baja' },
+            { botones: BOTONES_CONFIRMAR_BAJA, enTexto: 'Responde *Sí, darme de baja* o *No, mantenerlos*.' });
+        return;
+    }
+    await deliver(integration, conversationId, contactWaId,
+        'Listo, no volverás a recibir mensajes automáticos de la escuela por este medio. ' +
+        'Si cambias de opinión, escríbeme *ACTIVAR* y los reactivo. 👋',
+        { step: 'opt_out_confirmado' });
 }
 
 // ─── Botones de respuesta rápida ─────────────────────────────────────────────
@@ -204,7 +566,15 @@ export const BOTON = {
     HABLAR_CON_ESCUELA: 'sm_hablar_escuela',
     CONSENTIR_SI: 'sm_consentir_si',
     CONSENTIR_NO: 'sm_consentir_no',
+    BAJA_SI: 'sm_baja_si',
+    BAJA_NO: 'sm_baja_no',
 } as const;
+
+/** P8: tras un STOP pegado a un «sí». Títulos ≤ 20 caracteres (límite de Meta). */
+export const BOTONES_CONFIRMAR_BAJA: BotonInteractivo[] = [
+    { id: BOTON.BAJA_SI, title: 'Sí, darme de baja' },
+    { id: BOTON.BAJA_NO, title: 'No, mantenerlos' },
+];
 
 /** Tras «eso no lo tengo a la mano»: las tres cosas que SÍ sabe hacer. */
 export const BOTONES_SIN_DATO: BotonInteractivo[] = [
@@ -265,6 +635,7 @@ async function ejecutarAccionDeBoton(
         const medios = await mediosDePago(integration.school_id);
         await deliver(integration, conversationId, contactWaId,
             fallbackMediosDePago(medios), { step: 'get_payment_methods', via: 'boton' });
+        await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
         return;
     }
 
@@ -281,6 +652,7 @@ async function ejecutarAccionDeBoton(
     }
     await deliver(integration, conversationId, contactWaId,
         fallbackPaymentText(payments), { step: 'get_payment_status', via: 'boton', tool_result: payments });
+    await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
 }
 
 /**
@@ -623,7 +995,7 @@ async function identificarPorTelefono(
     contactWaId: string,
     text = '',
     botonId: string | null = null,
-): Promise<boolean> {
+): Promise<boolean | 'continuar'> {
     const { data, error } = await supabase.rpc('wa_identify_by_phone', {
         p_integration_id: integration.id,
         p_contact_wa_id: contactWaId,
@@ -636,20 +1008,14 @@ async function identificarPorTelefono(
     const estado = (data as any)?.estado;
 
     if (estado === 'identificado') {
-        // La RPC ya dejo la conversacion vinculada. Se saluda y se pide el
-        // consentimiento en el MISMO mensaje, igual que al verificar por OTP:
-        // dos «responde SI» seguidos por motivos distintos es una experiencia
-        // mala y una fuente de respuestas ambiguas.
-        const escuela = await nombreDeEscuela(integration.school_id);
-        await deliver(integration, conversationId, contactWaId,
-            `¡Hola! Soy el *asistente automático* de ${escuela}. 🤖` + '\n\n' +
-            `Te reconocí por tu número, así que no necesitas hacer nada más.` + '\n\n' +
-            `¿Quieres que la escuela te envíe por aquí los recordatorios de pago ` +
-            'y los avisos de tu atleta? Responde *SÍ* para activarlos — puedes darte ' +
-            'de baja cuando quieras escribiendo *STOP*.',
-            { step: 'ask_consent', identificado_por: 'telefono' },
-            { botones: BOTONES_CONSENTIMIENTO });
-        return true;
+        // La RPC ya dejo la conversacion vinculada. El turno SIGUE: lo que la
+        // familia escribió (un comprobante, «cuánto debo») se atiende ahora.
+        //
+        // Antes acá salía «Te reconocí por tu número…» + la pregunta de
+        // consentimiento, y el turno terminaba: el mensaje de la familia
+        // quedaba sin respuesta (P2, análisis 2026-10-06). El consentimiento
+        // se ofrece al final de un turno resuelto (`ofrecerConsentimientoSiFalta`).
+        return 'continuar';
     }
 
     if (estado === 'debe_registrarse') {
@@ -761,15 +1127,17 @@ async function handleIdentification(
     contactWaId: string,
     text: string,
     botonId: string | null = null,
-): Promise<void> {
+): Promise<'resuelto' | 'continuar'> {
     // El numero manda. Solo si no resuelve nada se cae al correo, que sigue
     // sirviendo para el acudiente que escribe desde OTRO telefono.
-    if (await identificarPorTelefono(integration, conversationId, contactWaId, text, botonId)) return;
+    const porTelefono = await identificarPorTelefono(integration, conversationId, contactWaId, text, botonId);
+    if (porTelefono === 'continuar') return 'continuar';
+    if (porTelefono) return 'resuelto';
 
     // Desconocido con `responder_desconocidos=true` (los demás desconocidos
     // van por `atenderDesconocido`): si pregunta por la clase de cortesía o
     // está en medio de agendarla, se le atiende antes de pedirle el correo.
-    if (await atenderCortesiaEnBot(integration, conversationId, contactWaId, text, botonId, null)) return;
+    if (await atenderCortesiaEnBot(integration, conversationId, contactWaId, text, botonId, null)) return 'resuelto';
 
     const emailMatch = text.match(EMAIL_RE);
     const codeMatch = text.match(CODE_RE);
@@ -777,13 +1145,13 @@ async function handleIdentification(
     // (a) Mandó un código de 6 dígitos → verificar.
     if (codeMatch) {
         await verificarCodigo(integration, conversationId, contactWaId, codeMatch[1]);
-        return;
+        return 'resuelto';
     }
 
     // (b) Mandó un email → arrancar OTP.
     if (emailMatch) {
         await arrancarOtp(integration, conversationId, contactWaId, emailMatch[0]);
-        return;
+        return 'resuelto';
     }
 
     // (c) Ni email ni código.
@@ -813,7 +1181,7 @@ async function handleIdentification(
     // veces seguidas, una por cada mensaje que escribió. Repetir lo mismo es
     // spam para quien lo recibe y es lo que Meta penaliza en la calidad del
     // número. Lo que escriba después ya lo ve la escuela en el buzón.
-    if (await pasoReciente(conversationId, 'ask_email', 24)) return;
+    if (await pasoReciente(conversationId, 'ask_email', 24)) return 'resuelto';
 
     const nombreEscuela = await nombreDeEscuela(integration.school_id);
     await deliver(integration, conversationId, contactWaId,
@@ -827,6 +1195,7 @@ async function handleIdentification(
     // «en breve te contactan» y quedarian dos mensajes seguidos diciendo casi lo
     // mismo. Acá solo se marca para que aparezca en el buzón.
     await abrirEnBuzon(integration, conversationId, contactWaId);
+    return 'resuelto';
 }
 
 /**
@@ -868,18 +1237,14 @@ async function verificarCodigo(
     });
     const r = res as any;
     if (r?.ok) {
-        // La pregunta de consentimiento va PEGADA a la verificación, no en un
-        // turno aparte: dos "responde SÍ" seguidos por motivos distintos es
-        // una experiencia mala y una fuente de respuestas ambiguas (§5 del
-        // spec). El step 'ask_consent' es lo que hace que handleConsent sepa
-        // que ya se preguntó y se limite a leer la respuesta.
-        const escuela = await nombreDeEscuela(integration.school_id);
+        // Ya NO se pega la pregunta de consentimiento (P2, análisis
+        // 2026-10-06): quien acaba de verificarse vino a hacer algo, y lo que
+        // sigue es preguntarle qué. El consentimiento se ofrece al final del
+        // primer turno resuelto (`ofrecerConsentimientoSiFalta`).
         await deliver(integration, conversationId, contactWaId,
-            '✅ ¡Listo! Tu identidad quedó verificada. Te atiende el asistente automático de la escuela. 🤖\n\n' +
-            `¿Quieres que *${escuela}* te envíe por aquí los recordatorios de pago y los avisos de tu atleta? ` +
-            'Responde *SÍ* para activarlos — puedes darte de baja cuando quieras escribiendo *STOP*.',
-            { step: 'ask_consent', otp_verified: true },
-            { botones: BOTONES_CONSENTIMIENTO });
+            '✅ ¡Listo! Tu identidad quedó verificada. Te atiende el *asistente automático* de la escuela. 🤖\n\n' +
+            '¿En qué te ayudo? Puedes preguntarme por tus pagos o mandarme la foto de un comprobante.',
+            { step: 'otp_verificado', otp_verified: true });
     } else {
         const reason = r?.reason;
         const msg = reason === 'expired'
@@ -1214,12 +1579,18 @@ async function enlaceDeInscripcion(schoolId: string): Promise<string | null> {
 //
 // Spec: docs/specs/whatsapp-optin-y-rastreo-de-plantillas.md §5
 
+// «ok», «okey», «listo» y «está bien» ya NO cuentan como «sí»: desde el
+// 2026-10-06 la pregunta sale al final de un estado de pagos, y un «ok» ahí es
+// «entendido» (P13), no «acepto los recordatorios». El consentimiento tiene que
+// ser una afirmación que se pueda mostrar si Meta lo audita.
 const AFIRMATIVAS = new Set([
     'si', 'si acepto', 'acepto', 'si quiero', 'quiero', 'claro', 'claro que si',
-    'dale', 'ok', 'okey', 'de acuerdo', 'esta bien', 'listo', 'activar',
+    'dale', 'de acuerdo', 'activar', 'si por favor', 'si gracias', 'si claro',
 ]);
 const NEGATIVAS = new Set(['no', 'no gracias', 'no quiero', 'ahora no', 'prefiero que no']);
 const REACTIVAR = new Set(['activar', 'reactivar', 'si activar']);
+const BAJA_SI = new Set(['si darme de baja', 'darme de baja', 'si', 'si quiero']);
+const BAJA_NO = new Set(['no mantenerlos', 'mantenerlos', 'no', 'no gracias', 'no quiero']);
 
 /**
  * Misma normalización que la RPC wa_ingest_inbound_message usa para las palabras
@@ -1237,22 +1608,32 @@ function normalizar(t: string): string {
         .trim();
 }
 
-async function handleConsent(
+/**
+ * Lee la respuesta al consentimiento. NUNCA pregunta (eso es
+ * `ofrecerConsentimientoSiFalta`). Devuelve true si el turno quedó resuelto.
+ *
+ * Un «sí» solo se lee como consentimiento si la ÚLTIMA pregunta del bot fue la
+ * del consentimiento (`preguntaAbierta`), o si tocó el botón. Cualquier otro
+ * saliente del bot posterior la cierra: un «sí» que llegue después es respuesta
+ * a eso otro.
+ */
+async function leerRespuestaDeConsentimiento(
     integration: WhatsAppIntegration,
     conversationId: string,
     contactWaId: string,
     parentId: string | null,
     text: string,
     waMessageId: string,
-    botonId: string | null = null,
+    botonId: string | null,
+    recientes: FilaReciente[],
 ): Promise<boolean> {
-    // El botón «Sí, acepto» vale lo mismo que escribir «sí»: se traduce acá y
-    // el resto del flujo no se entera. El id manda sobre el título; el título
-    // («si acepto», «no gracias») igual ya está en AFIRMATIVAS/NEGATIVAS, por
-    // si el borrador salió como texto y lo escribió a mano.
-    const norm = botonId === BOTON.CONSENTIR_SI ? 'si'
-        : botonId === BOTON.CONSENTIR_NO ? 'no'
-        : normalizar(text);
+    const esBotonConsentimiento = botonId === BOTON.CONSENTIR_SI || botonId === BOTON.CONSENTIR_NO;
+    const esBotonBaja = botonId === BOTON.BAJA_SI || botonId === BOTON.BAJA_NO;
+    const norm = normalizar(text);
+    // Barato primero: si no hay nada que leer, no se consulta la base.
+    const candidato = esBotonConsentimiento || esBotonBaja || AFIRMATIVAS.has(norm) || NEGATIVAS.has(norm)
+        || REACTIVAR.has(norm) || BAJA_SI.has(norm) || BAJA_NO.has(norm);
+    if (!candidato) return false;
 
     const { data: optin } = await supabase
         .from('whatsapp_optins')
@@ -1260,16 +1641,32 @@ async function handleConsent(
         .eq('integration_id', integration.id)
         .eq('contact_wa_id', contactWaId)
         .maybeSingle();
-
     const yaConsintio = !!(optin as any)?.opted_in_at && !(optin as any)?.opted_out_at;
     const estaDeBaja = !!(optin as any)?.opted_out_at;
 
-    // Se dio de baja: NO se le vuelve a pedir. Solo escuchamos que la reactive.
     if (estaDeBaja) {
+        // P8: la repregunta tras un STOP pegado al «sí».
+        if (esBotonBaja || preguntaAbierta(recientes, 'confirmar_baja')) {
+            if (botonId === BOTON.BAJA_NO || (!esBotonBaja && BAJA_NO.has(norm))) {
+                await registrarOptIn(integration, contactWaId, parentId, waMessageId);
+                await deliver(integration, conversationId, contactWaId,
+                    '👍 Listo, sigues recibiendo los avisos por aquí.', { step: 'baja_mantenida' });
+                return true;
+            }
+            if (botonId === BOTON.BAJA_SI || (!esBotonBaja && BAJA_SI.has(norm))) {
+                await deliver(integration, conversationId, contactWaId,
+                    'Listo, no volverás a recibir mensajes automáticos de la escuela por este medio. ' +
+                    'Si cambias de opinión, escríbeme *ACTIVAR* y los reactivo. 👋',
+                    { step: 'opt_out_confirmado' });
+                return true;
+            }
+        }
+        // Se dio de baja: NO se le vuelve a pedir. Solo escuchamos que la reactive.
         if (REACTIVAR.has(norm)) {
             await registrarOptIn(integration, contactWaId, parentId, waMessageId);
             await deliver(integration, conversationId, contactWaId,
-                '✅ Listo, reactivé los recordatorios por WhatsApp. Puedes darte de baja cuando quieras con *STOP*.',
+                '✅ Listo, reactivé los recordatorios por WhatsApp. ' +
+                '(Si algún día no quieres recibirlos, me escribes *BAJA*.)',
                 { step: 'opt_in_reactivado' });
             return true;
         }
@@ -1277,42 +1674,25 @@ async function handleConsent(
     }
 
     if (yaConsintio) return false;
+    if (!esBotonConsentimiento && !preguntaAbierta(recientes, 'ask_consent')) return false;
 
-    // La pregunta se hace una sola vez por conversación.
-    //
-    // Este camino ahora es, para una familia NUEVA, el PRIMER mensaje que recibe
-    // del bot. El webhook clasifica con `debeAtender` antes de correr el bot, y
-    // esa clasificación usa `wa_identify_by_phone`, que deja la conversación
-    // vinculada (identified=true) cuando reconoce al acudiente. Para cuando
-    // `runBotTurn` mira, ya no entra a `identificarPorTelefono` —que era donde
-    // se saludaba y se decía «soy el asistente automático»— y cae acá.
-    //
-    // Por eso el texto se presenta en vez de arrancar con «Una cosa más»: el
-    // primer contacto de un número que hasta ayer contestaba una persona tiene
-    // que decir que es un asistente (ver QUIEN ERES en SYSTEM_PROMPT). Para el
-    // acudiente que ya venía hablando con el bot de antes de existir el
-    // consentimiento, presentarse otra vez es redundante pero no falso.
-    if (!(await yaSePreguntoConsentimiento(conversationId))) {
-        const escuela = await nombreDeEscuela(integration.school_id);
-        await deliver(integration, conversationId, contactWaId,
-            `¡Hola! Soy el *asistente automático* de *${escuela}*. 🤖` + '\n\n' +
-            `¿Quieres que la escuela te envíe por aquí los recordatorios de pago ` +
-            `y los avisos de tu atleta?\n\n` +
-            `Responde *SÍ* para activarlos. Puedes darte de baja cuando quieras escribiendo *STOP*.`,
-            { step: 'ask_consent' },
-            { botones: BOTONES_CONSENTIMIENTO });
-        return true;
-    }
+    const si = botonId === BOTON.CONSENTIR_SI || (!esBotonConsentimiento && AFIRMATIVAS.has(norm));
+    const no = botonId === BOTON.CONSENTIR_NO || (!esBotonConsentimiento && NEGATIVAS.has(norm));
 
-    if (AFIRMATIVAS.has(norm)) {
+    if (si) {
         await registrarOptIn(integration, contactWaId, parentId, waMessageId);
+        // P8: sin «Para darte de baja, escribe *STOP*». El 06-oct 2 de 5 mamás
+        // escribieron «Stop» 12–20 s después de aceptar: lo leyeron como la
+        // instrucción siguiente. La baja se nombra entre paréntesis y con otra
+        // palabra (BAJA también la reconoce la ingesta).
         await deliver(integration, conversationId, contactWaId,
-            '✅ Activado. Te avisaré por aquí de tus pagos y de tu atleta. Para darte de baja, escribe *STOP*.',
+            '✅ Listo, te avisaré por aquí de tus pagos y de tu atleta. ' +
+            '(Si algún día no quieres recibirlos, me escribes *BAJA*.)',
             { step: 'opt_in_registrado' });
         return true;
     }
 
-    if (NEGATIVAS.has(norm)) {
+    if (no) {
         // No se registra nada: no hay consentimiento que guardar. Y como la
         // pregunta ya quedó hecha, no se vuelve a insistir.
         await deliver(integration, conversationId, contactWaId,
@@ -1320,9 +1700,46 @@ async function handleConsent(
             { step: 'consent_rechazado' });
         return true;
     }
-
-    // Ni sí ni no: el padre vino a otra cosa. No se insiste, sigue su camino.
     return false;
+}
+
+/**
+ * P2 — La PREGUNTA del consentimiento. Se llama al final de un turno ya
+ * resuelto: estado de pagos, medios de pago, resultado de un comprobante
+ * (worker). Una sola vez por conversación (cuenta salientes y borradores), solo
+ * a familias con cuenta, y nunca a quien ya aceptó o se dio de baja.
+ *
+ * Exportada para el worker de comprobantes. Nunca lanza: un consentimiento que
+ * no se pudo preguntar no puede tumbar la respuesta que ya salió.
+ */
+export async function ofrecerConsentimientoSiFalta(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    parentId: string | null,
+): Promise<boolean> {
+    try {
+        if (!parentId) return false;
+        const { data: optin } = await supabase
+            .from('whatsapp_optins')
+            .select('opted_in_at, opted_out_at')
+            .eq('integration_id', integration.id)
+            .eq('contact_wa_id', contactWaId)
+            .maybeSingle();
+        if ((optin as any)?.opted_in_at || (optin as any)?.opted_out_at) return false;
+        if (await yaSePreguntoConsentimiento(conversationId)) return false;
+
+        const escuela = await nombreDeEscuela(integration.school_id);
+        await deliver(integration, conversationId, contactWaId,
+            `Una cosa más 🙂 ¿Quieres que *${escuela}* te envíe por aquí los recordatorios de pago ` +
+            'y los avisos de tu atleta?\n\nResponde *SÍ* para activarlos. Puedes darte de baja cuando quieras.',
+            { step: 'ask_consent' },
+            { botones: BOTONES_CONSENTIMIENTO });
+        return true;
+    } catch (e: any) {
+        console.warn('[whatsapp-bot] no se pudo ofrecer el consentimiento', { conversationId, err: e?.message });
+        return false;
+    }
 }
 
 async function registrarOptIn(
@@ -1433,6 +1850,16 @@ FUERA DE TEMA:
   asistente de la escuela y ofrece ayudar con pagos o comunicar con el equipo.
 - Ante algo fuera de tema, responde corto y amable, y vuelve a lo tuyo. No lo
   escales: escalar cada pregunta suelta le llena la bandeja a la escuela.
+- NUNCA respondas «solo puedo ayudar con…» ni «lo siento, no puedo…» a un mensaje
+  dirigido a una persona de la escuela (Milena, la profe): ofrece pasarle el
+  mensaje con escalate_to_human.
+
+ARCHIVOS Y COMPROBANTES:
+- Tu NO ves imagenes ni documentos. «[envió una imagen]» en la conversacion lo
+  procesa otro sistema, que le responde a la familia por su cuenta.
+- NUNCA digas «voy a revisar el comprobante», «lo estoy revisando» ni «te confirmo
+  en un momento»: no puedes cumplirlo. Si preguntan por un comprobante, usa
+  get_payment_status y di el estado que trae (en revision, aprobado, rechazado).
 
 SOBRE LA ESCUELA:
 - Para «donde queda», «que sedes tienen», «que deportes», «que categorias hay»,
@@ -1537,8 +1964,12 @@ async function handleIntent(
     try {
         first = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: TOOLS });
     } catch (err: any) {
-        console.error('[whatsapp-bot] LLM error:', err?.message);
-        await escalate(integration, conversationId, contactWaId, 'llm_error');
+        // `chatWithTools` ya recorrió la cadena de proveedores (Gemini → Groq).
+        // Si llega acá fallaron los dos: respuesta determinista, NO escalación
+        // (P10, análisis 2026-10-06: las 2 escalaciones del día fueron
+        // `llm_error` y la familia preguntó «¿cuál caso?»).
+        console.error('[whatsapp-bot] LLM error (todos los proveedores):', err?.message);
+        await responderSinModelo(integration, conversationId, contactWaId, parentId, text);
         return;
     }
 
@@ -1619,6 +2050,7 @@ async function handleIntent(
         } catch {
             await deliver(integration, conversationId, contactWaId,
                 fallbackMediosDePago(medios), { step: 'medios_fallback' });
+            await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
             return;
         }
         // Un degradado al texto plano NO puede ser silencioso. El 2026-09-14
@@ -1632,6 +2064,7 @@ async function handleIntent(
         await deliver(integration, conversationId, contactWaId,
             final.text || fallbackMediosDePago(medios),
             { step: 'get_payment_methods', provider: final.provider });
+        await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
         return;
     }
 
@@ -1662,6 +2095,7 @@ async function handleIntent(
             // Si la 2a llamada falla, redactar un fallback determinista con los datos.
             await deliver(integration, conversationId, contactWaId,
                 fallbackPaymentText(payments), { step: 'payment_fallback' });
+            await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
             return;
         }
 
@@ -1676,6 +2110,7 @@ async function handleIntent(
         await deliver(integration, conversationId, contactWaId,
             final.text || fallbackPaymentText(payments),
             { step: 'get_payment_status', provider: final.provider, tool_result: payments });
+        await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
         return;
     }
 
@@ -1782,6 +2217,7 @@ export async function deliver(
     // apagadas»).
     const PASOS_DE_CONSENTIMIENTO = [
         'opt_out_confirmado', 'opt_in_confirmado', 'opt_in_reactivado', 'ask_consent',
+        'confirmar_baja', 'baja_mantenida',
     ];
     // WhatsApp usa UN asterisco para negrita; el modelo escribe Markdown estandar.
     let texto = aFormatoWhatsApp(proposedText);
@@ -1994,6 +2430,120 @@ async function escalate(
     await deliver(integration, conversationId, contactWaId,
         mensajeDeEscalamiento(horario),
         { step: 'escalated', reason, fuera_de_horario: horario.fueraDeHorario });
+}
+
+// ─── P6. Acuse de adjuntos ───────────────────────────────────────────────────
+//
+// Antes: `encolarAdjunto` mandaba «Recibí tu comprobante 📄 Lo estoy revisando
+// y te confirmo en un momento» con `sendTextMessage` pelado, apenas se insertaba
+// la fila: ANTES de `debeAtender` (le llegaba a contactos personales y salía
+// con el bot apagado), sin pasar por `deliver` (no quedaba en whatsapp_messages,
+// ni en el buzón, ni en el historial del modelo — que después improvisaba otro
+// «recibí la imagen, voy a revisar…») y diciendo «comprobante» a una captura de
+// pantalla, a una hoja de matrícula o a un correo de cobro reenviado.
+
+export const VENTANA_ACUSE_MS = 2 * 60_000;
+const PISTA_DE_PAGO = /\b(pagos?|comprobantes?|soportes?|transferencias?|consignacion|mensualidad|recibo|abono|cuota|nequi|daviplata)\b/;
+
+export type ResultadoAcuse = 'acusado' | 'no_atendido' | 'humano' | 'rafaga' | 'ya_acusado';
+
+/**
+ * Acusa recibo de un adjunto ya encolado. UNO por ráfaga: si llegan 4 fotos
+ * seguidas, acusa la última (las anteriores ven que hay una más nueva), y nunca
+ * dos en VENTANA_ACUSE_MS. Texto veraz: dice «archivo» salvo que el pie o la
+ * ráfaga hablen de pago, y nunca promete «te confirmo en un momento».
+ */
+export async function acusarAdjunto(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    waMessageId: string,
+    caption: string | null,
+): Promise<ResultadoAcuse> {
+    const decision = await debeAtender(integration, conversationId, contactWaId);
+    if (!decision.atender) return 'no_atendido';
+
+    const recientes = await mensajesRecientes(conversationId);
+    if (humanoReciente(recientes, SILENCIO_HUMANO_MIN)) return 'humano';
+
+    const t = (f: FilaReciente) => new Date(f.created_at || f.wa_timestamp || 0).getTime();
+    const mio = recientes.find((f) => f.wa_message_id === waMessageId);
+    if (mio) {
+        const masNuevo = recientes.some((f) => f.direction === 'inbound'
+            && (f.type === 'image' || f.type === 'document')
+            && f.wa_message_id !== waMessageId && t(f) > t(mio));
+        if (masNuevo) return 'rafaga';
+    }
+    if (pasoEnVentana(recientes, 'acuse_adjunto', VENTANA_ACUSE_MS)
+        || await pasoReciente(conversationId, 'acuse_adjunto', VENTANA_ACUSE_MS / 3600_000)) {
+        return 'ya_acusado';
+    }
+
+    // ¿Anunció el comprobante con texto (P3)? Entonces se nombra el cobro.
+    const desde = Date.now() - 10 * 60_000;
+    let anunciado: ComprobanteAnunciado | null = null;
+    for (const f of recientes) {
+        if (f.direction !== 'inbound' || !f.text_body || t(f) < desde) continue;
+        anunciado = anunciaComprobante(f.text_body);
+        if (anunciado) break;
+    }
+    const cobro = nombreDelCobroAnunciado(anunciado);
+    const rafaga = textoDeRafaga(recientes, caption || '', waMessageId);
+    const esPago = !!anunciado || PISTA_DE_PAGO.test(normalizarFrase(rafaga));
+
+    const texto = cobro
+        ? `Recibí el comprobante de *${cobro}* 📄 Lo reviso y te cuento por aquí.`
+        : esPago
+            ? 'Recibí tu comprobante 📄 Lo reviso y te cuento por aquí.'
+            : 'Recibí tu archivo 📄 Lo reviso y te cuento por aquí.';
+    await deliver(integration, conversationId, contactWaId, texto,
+        { step: 'acuse_adjunto', wa_message_id: waMessageId, como_comprobante: esPago });
+    return 'acusado';
+}
+
+/** Lo que se le dice a quien manda un archivo que no se puede leer (audio como documento, .heic…). */
+export const TEXTO_MIME_RECHAZADO =
+    'Recibí tu archivo, pero no puedo leer ese formato. Mándame una *foto* del ' +
+    'comprobante o el *PDF* que te da el banco.';
+
+// ─── P1. Comprobante sin procesar a tiempo ──────────────────────────────────
+//
+// El 06-oct, 15 filas de la cola quedaron `pending` desde las 08:00 y nadie se
+// enteró: el acuse había prometido «te confirmo en un momento». Pasados 10 min
+// sin desenlace (job `whatsapp-cola-vencimiento`), el caso va a la escuela —
+// buzón + push + correo— y a la familia se le dice UNA vez, sin prometer
+// tiempos, que lo revisa una persona.
+
+export type ResultadoVencimiento = 'no_atendido' | 'avisado' | 'ya_avisado';
+
+export async function escalarComprobanteSinProcesar(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+): Promise<ResultadoVencimiento> {
+    const decision = await debeAtender(integration, conversationId, contactWaId);
+    if (!decision.atender) return 'no_atendido';
+    // Ya se avisó en las últimas 24 h: ni mensaje ni buzón otra vez. Sin esto,
+    // con la migración de `vencida_at` sin aplicar, el job reabriría cada 2 min
+    // la conversación que la escuela acaba de cerrar.
+    if (await pasoReciente(conversationId, 'comprobante_a_revision_manual', 24)) return 'ya_avisado';
+
+    const { data: previa } = await supabase.from('whatsapp_conversations')
+        .select('status, contact_name').eq('id', conversationId).maybeSingle();
+    if ((previa as any)?.status !== 'open') {
+        await supabase.from('whatsapp_conversations')
+            .update({ status: 'open', updated_at: new Date().toISOString() })
+            .eq('id', conversationId);
+        await avisarQueEsperan(integration, conversationId, contactWaId,
+            (previa as any)?.contact_name ?? null, undefined, 'comprobante_sin_procesar');
+    }
+
+    // Con la escuela escribiendo en el chat, el mensaje sobra: ella ya está ahí.
+    if (humanoReciente(await mensajesRecientes(conversationId), SILENCIO_HUMANO_MIN)) return 'ya_avisado';
+    await deliver(integration, conversationId, contactWaId,
+        'Tu comprobante quedó en manos de la escuela: lo revisan y te confirman por aquí. 🙏',
+        { step: 'comprobante_a_revision_manual' });
+    return 'avisado';
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

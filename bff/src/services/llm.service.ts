@@ -48,6 +48,24 @@ export interface LlmResult {
 // en vez de fijar una versión, para no repetir este apagón.
 const GEMINI_MODEL = process.env.WHATSAPP_GEMINI_MODEL || 'gemini-flash-latest';
 
+/**
+ * Tope por llamada a un proveedor (P15, análisis 2026-10-06). Sin tope, un
+ * proveedor colgado se comía la latencia entera antes de pasar al siguiente:
+ * el estado de pagos llegó a tardar 269 s.
+ */
+const TIMEOUT_LLM_MS = Number(process.env.WHATSAPP_LLM_TIMEOUT_MS) || 20_000;
+
+function sinRequiredVacio(p: Record<string, unknown>): Record<string, unknown> {
+    const { required, ...resto } = p as any;
+    return Array.isArray(required) && required.length ? { ...resto, required } : resto;
+}
+
+/** ¿El esquema de parámetros declara alguna propiedad? */
+function tieneParametros(p: Record<string, unknown> | undefined): boolean {
+    const props = (p as any)?.properties;
+    return !!props && typeof props === 'object' && Object.keys(props).length > 0;
+}
+
 // Proveedores OpenAI-compatibles (mismo shape de request/response).
 const OPENAI_COMPAT: Record<string, { baseUrl: string; model: string; keyEnv: string }> = {
     deepseek: {
@@ -77,7 +95,16 @@ async function chatGemini(
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
 
-    // Mapear mensajes al formato de Gemini (contents con role user/model + functionResponse).
+    // Mapear mensajes al formato de Gemini (contents con role user/model).
+    //
+    // El resultado de una tool va como TEXTO del usuario, no como
+    // `functionResponse` (2026-10-06). El bot no reenvía el `functionCall`
+    // original —arma «Llamando get_payment_status» como texto del modelo—, y
+    // Gemini rechaza con 400 un `functionResponse` que no viene justo después
+    // de un `functionCall` (y los modelos con «thinking» exigen además la firma
+    // del pensamiento de ese call). Era uno de los motivos por los que el 06-oct
+    // 23 de 25 respuestas salieron por Groq: la segunda llamada (redactar con
+    // el resultado) fallaba siempre en Gemini.
     const contents: any[] = [];
     for (const m of messages) {
         if (m.role === 'user') {
@@ -87,12 +114,8 @@ async function chatGemini(
         } else if (m.role === 'tool') {
             contents.push({
                 role: 'user',
-                parts: [{
-                    functionResponse: {
-                        name: m.toolName,
-                        response: { result: safeParse(m.content) },
-                    },
-                }],
+                parts: [{ text: `Resultado de ${m.toolName} (datos del sistema, no del acudiente):
+${m.content}` }],
             });
         }
     }
@@ -104,11 +127,14 @@ async function chatGemini(
     };
     if (tools.length) {
         body.tools = [{
-            function_declarations: tools.map(t => ({
-                name: t.name,
-                description: t.description,
-                parameters: t.parameters,
-            })),
+            // Sin `parameters` cuando no hay propiedades: Gemini rechaza un
+            // OBJECT con `properties: {}` («should be non-empty for OBJECT
+            // type»), y 4 de las 5 tools del bot no llevan parámetros. Con eso
+            // la PRIMERA llamada también se caía a Groq.
+            // Tampoco `required: []`: mismo validador, mismo riesgo.
+            function_declarations: tools.map(t => (tieneParametros(t.parameters)
+                ? { name: t.name, description: t.description, parameters: sinRequiredVacio(t.parameters) }
+                : { name: t.name, description: t.description })),
         }];
     }
 
@@ -116,8 +142,9 @@ async function chatGemini(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(TIMEOUT_LLM_MS),
     });
-    const json: any = await res.json();
+    const json: any = await res.json().catch(() => ({}));
     if (!res.ok) {
         throw new Error(`gemini_${res.status}: ${json?.error?.message || 'error'}`);
     }
@@ -172,8 +199,9 @@ async function chatOpenAICompatible(
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(TIMEOUT_LLM_MS),
     });
-    const json: any = await res.json();
+    const json: any = await res.json().catch(() => ({}));
     if (!res.ok) {
         throw new Error(`${provider}_${res.status}: ${json?.error?.message || 'error'}`);
     }
@@ -220,6 +248,7 @@ export async function chatWithTools(params: {
         .filter((p, i, a) => a.indexOf(p) === i);
 
     let lastErr: any;
+    const fallas: string[] = [];
     for (const p of order) {
         // Un 429 NO es que el proveedor este caido: es que llegamos muy rapido.
         // Antes se pasaba al siguiente sin esperar ni un segundo, y si el
@@ -243,6 +272,7 @@ export async function chatWithTools(params: {
 
                 if (!saturado || intento === 2) {
                     console.warn(`[llm.service] ${p} falló (${msg}); intento siguiente proveedor`);
+                    fallas.push(`${p}: ${msg}`);
                     break;
                 }
                 // 400 ms, 1200 ms. Con jitter para que treinta webhooks
@@ -254,7 +284,10 @@ export async function chatWithTools(params: {
             }
         }
     }
-    throw lastErr || new Error('todos los proveedores LLM fallaron');
+    // El error final nombra a TODOS: antes solo quedaba el del último y la causa
+    // de que el primero (Gemini) fallara no se veía en ningún lado.
+    throw new Error(fallas.length ? `todos los proveedores LLM fallaron — ${fallas.join(' | ')}`
+        : (lastErr?.message || 'todos los proveedores LLM fallaron'));
 }
 
 function safeParse(s: unknown): any {
