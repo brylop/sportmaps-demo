@@ -119,7 +119,7 @@ Confirmado por verificación de código (no solo memoria/spec): **SportMaps no t
 
 ### 3.1 Ciclo
 
-- `billing_cycle_type = 'fixed_calendar'` + `payment_cutoff_day = 5`. Mes calendario, ventana de pago días 1–5, 5% adicional después (D16).
+- `billing_cycle_type = 'fixed_calendar'` + `payment_cutoff_day = 5`. Mes calendario, ventana de pago días 1–5, 5% adicional después (D16). **Aplicado en vivo el 2026-10-05 (corte 5 + gracia 0); bloqueo por mora, vigencia a fin de mes y cambio de plan en [dreamers-ciclo-cobro-1-al-5-y-bloqueo.md](dreamers-ciclo-cobro-1-al-5-y-bloqueo.md).**
 - **Bonus:** `fixed_calendar` alinea perfecto con `hour_bank_periods` (ambos mes calendario) — la incompatibilidad latente de `rolling_30` desaparece para Dreamers.
 
 ### 3.2 Alta a mitad de mes — `first_payment_mode` (por alta, elegido por el owner)

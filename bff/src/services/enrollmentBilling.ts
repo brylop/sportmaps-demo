@@ -122,6 +122,13 @@ export async function createPendingPayment(opts: {
     amount: number;
     concept: string;
     startDate: string;
+    /**
+     * true = cobro ADICIONAL dentro de un período que ya tiene cobro (parcial o
+     * completo de un cambio de plan con pago previo — ver planChange.service.ts).
+     * Sin esto el índice uniq_payment_active_period_per_* lo rechaza (23505) y
+     * abajo se absorbe en silencio, o sea, el cobro no se emitía.
+     */
+    periodUniquenessExempt?: boolean;
 }): Promise<void> {
     // El constraint payments_amount_positive exige amount > 0: si no hay cuota
     // configurada no se genera cobro (evita INSERT fallido silencioso).
@@ -148,6 +155,7 @@ export async function createPendingPayment(opts: {
         // aparte (students-create-one.route.ts), no este helper.
         payment_category: 'mensualidad',
     };
+    if (opts.periodUniquenessExempt) row.period_uniqueness_exempt = true;
     if (opts.teamId) row.team_id = opts.teamId;
     if (opts.planId) row.offering_plan_id = opts.planId;
     row[opts.athleteCol] = opts.athleteId;

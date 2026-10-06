@@ -298,6 +298,25 @@ async function enrollmentHasPendingProof(enrollmentId: string): Promise<boolean>
   return data === true;
 }
 
+// Modo de vigencia de la escuela (school_settings.enrollment_validity_mode).
+// 'calendar_month_end' (Dreamers): la inscripción vence a fin de mes y el 1–5 es
+// ventana de pago, así que `expires_at` ya no decide el acceso — lo decide el
+// pago vencido (y el bloqueo físico lo hace access-auto-block.job).
+const validityModeCache = new Map<string, { value: string; at: number }>();
+
+async function getEnrollmentValidityMode(schoolId: string): Promise<string> {
+  const cached = validityModeCache.get(schoolId);
+  if (cached && Date.now() - cached.at < DEVICE_CACHE_TTL_MS) return cached.value;
+  const { data } = await supabase
+    .from('school_settings')
+    .select('enrollment_validity_mode')
+    .eq('school_id', schoolId)
+    .maybeSingle();
+  const value = (data as any)?.enrollment_validity_mode === 'calendar_month_end' ? 'calendar_month_end' : 'rolling';
+  validityModeCache.set(schoolId, { value, at: Date.now() });
+  return value;
+}
+
 export async function validateAccess(schoolId: string, zkPin: string, direction: 'entry' | 'exit', occurredAt?: string): Promise<{
   granted: boolean;
   reason?: string;
@@ -418,7 +437,8 @@ export async function validateAccess(schoolId: string, zkPin: string, direction:
     note = 'pending_proof';
   }
 
-  if (enrollment.expires_at && enrollment.expires_at < today && !note) {
+  if (enrollment.expires_at && enrollment.expires_at < today && !note
+      && (await getEnrollmentValidityMode(schoolId)) !== 'calendar_month_end') {
     return {
       granted: false,
       reason: 'enrollment_expired',

@@ -45,6 +45,23 @@ export function invalidateAccessBlockMechanismCache(schoolId?: string): void {
   else mechanismCache.clear();
 }
 
+/**
+ * Clave de identidad de un atleta para cruzar `zk_user_mappings` con `payments`.
+ * Un menor se identifica por `child_id`; sin esta rama todos los menores caían en
+ * la misma clave (`a:null`) y el bloqueo por mora podía deshabilitar el PIN de
+ * otro niño. Devuelve null si la fila no identifica a nadie (se ignora).
+ */
+export function athleteKey(row: {
+  child_id?: string | null;
+  user_id?: string | null;
+  unregistered_athlete_id?: string | null;
+}): string | null {
+  if (row.child_id) return `c:${row.child_id}`;
+  if (row.user_id) return `u:${row.user_id}`;
+  if (row.unregistered_athlete_id) return `a:${row.unregistered_athlete_id}`;
+  return null;
+}
+
 /** Tipos de comando que este módulo considera al calcular "¿está bloqueado?". */
 export const BLOCK_COMMAND_TYPES = ['set_group', 'disable_user', 'enable_user'] as const;
 

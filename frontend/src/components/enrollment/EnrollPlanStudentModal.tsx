@@ -17,6 +17,7 @@ import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { studentsAPI, Student } from '@/lib/api/students';
 import { supabase } from '@/integrations/supabase/client';
 import { Search, Loader2, UserPlus, Check, Users, Trash2 } from 'lucide-react';
+import { PlanChangeDialog, fetchPlanChangePreview, type PlanChangePreview, type PlanChangeChargeMode } from '@/components/students/PlanChangeDialog';
 
 interface Plan {
     id: string;
@@ -140,6 +141,10 @@ export function EnrollPlanStudentModal({
         }
     };
 
+    // Atleta que ya tenía otro plan y ya pagó el período (escuelas con banco de
+    // horas): el admin elige pago parcial o completo antes de cambiarlo.
+    const [planChangePrompt, setPlanChangePrompt] = useState<{ student: any; preview: PlanChangePreview } | null>(null);
+
     const handleEnroll = async (student: any) => {
         if (!plan) {
             toast({
@@ -149,6 +154,22 @@ export function EnrollPlanStudentModal({
             });
             return;
         }
+
+        const identity = student.athlete_type === 'adult'
+            ? { user_id: student.id as string }
+            : student.athlete_type === 'unregistered'
+                ? { unregistered_athlete_id: student.id as string }
+                : { child_id: student.id as string };
+        const preview = await fetchPlanChangePreview(identity, plan.id);
+        if (preview) {
+            setPlanChangePrompt({ student, preview });
+            return;
+        }
+        await enrollStudent(student);
+    };
+
+    const enrollStudent = async (student: any, planChangeCharge?: PlanChangeChargeMode) => {
+        if (!plan) return;
 
         try {
             setEnrolling(student.id);
@@ -164,6 +185,7 @@ export function EnrollPlanStudentModal({
                 offering_plan_id: plan.id,
                 school_id: schoolId,
                 status: 'active',
+                ...(planChangeCharge ? { plan_change_charge: planChangeCharge } : {}),
             });
 
             const enrollmentData = response?.data;
@@ -270,6 +292,7 @@ export function EnrollPlanStudentModal({
     );
 
     return (
+        <>
         <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
             <DialogHeader>
@@ -458,5 +481,19 @@ export function EnrollPlanStudentModal({
         </DialogContent>
 
         </Dialog>
+
+        <PlanChangeDialog
+            preview={planChangePrompt?.preview ?? null}
+            open={!!planChangePrompt}
+            submitting={!!enrolling}
+            onCancel={() => setPlanChangePrompt(null)}
+            onConfirm={async (mode) => {
+                if (!planChangePrompt) return;
+                const { student } = planChangePrompt;
+                await enrollStudent(student, mode);
+                setPlanChangePrompt(null);
+            }}
+        />
+        </>
     );
 }
