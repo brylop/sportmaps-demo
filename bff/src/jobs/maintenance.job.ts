@@ -11,6 +11,7 @@ import { runGlosaNotifications } from './glosa-notifications.job';
 import { isStoreEnabled } from '../services/store-flag.service';
 import { sendChargeCreatedEmails, sendOverdueNoticeEmails } from './payment-lifecycle-emails.job';
 import { runEstadoDeCuentaMensualJob } from './estado-de-cuenta-mensual.job';
+import { runRecordatoriosCobro } from '../services/recordatorios-cobro.service';
 import { runNotificationDispatch } from './notifications-dispatch.job';
 import { runAthleteReportsCycle } from './athlete-reports.job';
 import { runTeamReportsCycle } from './team-reports.job';
@@ -370,6 +371,29 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Estado de cuenta mensual registrado (L-V 8:00-12:00 COT).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Cadencia de recordatorios de cobro por WhatsApp (plantillas aprobadas,
+    // solo opt-in): días -3/-1/0/+3/+10/+20 respecto al vencimiento. L-V 8:00
+    // COT; el servicio salta festivos, espera al estado de cuenta del mes y
+    // garantiza en la base 1 contacto por familia y día entre los tres BFF.
+    // Se registra DESPUÉS del estado de cuenta: en el mismo minuto, node-cron
+    // dispara en orden de registro.
+    // Activación por escuela: charge_notifications_enabled AND
+    // whatsapp_collection_reminders_enabled. Kill-switch de este proceso:
+    // DISABLE_RECORDATORIOS_COBRO_WHATSAPP=true.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('0 8 * * 1-5', async () => {
+        if (process.env.DISABLE_RECORDATORIOS_COBRO_WHATSAPP === 'true') return;
+        try {
+            await runRecordatoriosCobro();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en recordatorios de cobro por WhatsApp:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Recordatorios de cobro por WhatsApp registrados (L-V 8:00 COT).');
 
     // ────────────────────────────────────────────────────────────────────────
     // Ciclo diario del Informe Mensual (F5): genera borradores, publica lo que
