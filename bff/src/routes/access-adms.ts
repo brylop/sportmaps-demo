@@ -259,7 +259,45 @@ async function isStaff(schoolId: string, userId: string): Promise<boolean> {
   return value;
 }
 
-async function validateAccess(schoolId: string, zkPin: string, direction: 'entry' | 'exit'): Promise<{
+// ─── Comprobante pendiente cuenta como pagado (F-D, migración 20261005214253) ─
+// school_settings.pending_proof_counts_as_paid (default false). Con el flag, un
+// atleta con expires_at vencido pero con un comprobante enviado y sin resolver
+// (awaiting_approval / glosado) entra mientras la escuela lo revisa. Caché como
+// getHourBankSettings: corta antes de tocar la base para toda escuela sin flag.
+// Si la columna aún no existe (BFF desplegado antes de la migración), el select
+// falla → false → comportamiento de hoy.
+const pendingProofSettingCache = new Map<string, { value: boolean; at: number }>();
+
+export async function getPendingProofCountsAsPaid(schoolId: string): Promise<boolean> {
+  const cached = pendingProofSettingCache.get(schoolId);
+  if (cached && Date.now() - cached.at < DEVICE_CACHE_TTL_MS) return cached.value;
+
+  const { data, error } = await supabase
+    .from('school_settings')
+    .select('pending_proof_counts_as_paid')
+    .eq('school_id', schoolId)
+    .maybeSingle();
+
+  const value = !error && data?.pending_proof_counts_as_paid === true;
+  pendingProofSettingCache.set(schoolId, { value, at: Date.now() });
+  return value;
+}
+
+export function invalidatePendingProofSettingCache(schoolId?: string): void {
+  if (schoolId) pendingProofSettingCache.delete(schoolId);
+  else pendingProofSettingCache.clear();
+}
+
+async function enrollmentHasPendingProof(enrollmentId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('enrollment_has_pending_proof', { p_enrollment_id: enrollmentId });
+  if (error) {
+    console.warn('[ADMS] enrollment_has_pending_proof falló, se deniega como antes:', error.message);
+    return false;
+  }
+  return data === true;
+}
+
+export async function validateAccess(schoolId: string, zkPin: string, direction: 'entry' | 'exit'): Promise<{
   granted: boolean;
   reason?: string;
   userId?: string;
@@ -267,6 +305,8 @@ async function validateAccess(schoolId: string, zkPin: string, direction: 'entry
   childId?: string;
   userName?: string;
   enrollmentId?: string;
+  /** 'pending_proof': entró con expires_at vencido por comprobante en revisión (F-D). */
+  note?: 'pending_proof';
 }> {
   const pin = parseInt(zkPin) || 0;
 
@@ -361,7 +401,20 @@ async function validateAccess(schoolId: string, zkPin: string, direction: 'entry
     };
   }
 
-  if (enrollment.expires_at && enrollment.expires_at < today) {
+  // F-D: con pending_proof_counts_as_paid, un comprobante en revisión cuenta
+  // como pagado → no se deniega por vencida. El chequeo de pago de abajo sigue
+  // corriendo (un 'overdue' más reciente igual deniega). Escuelas sin el flag:
+  // ni una consulta extra fuera de la caché, mismo resultado que antes.
+  let note: 'pending_proof' | undefined;
+  if (
+    enrollment.expires_at && enrollment.expires_at < today
+    && await getPendingProofCountsAsPaid(schoolId)
+    && await enrollmentHasPendingProof(enrollment.id)
+  ) {
+    note = 'pending_proof';
+  }
+
+  if (enrollment.expires_at && enrollment.expires_at < today && !note) {
     return {
       granted: false,
       reason: 'enrollment_expired',
@@ -400,6 +453,7 @@ async function validateAccess(schoolId: string, zkPin: string, direction: 'entry
     childId: mapping.childId ?? undefined,
     userName,
     enrollmentId: enrollment.id,
+    ...(note ? { note } : {}),
   };
 }
 
@@ -783,7 +837,7 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
           denial_reason:           validation.granted ? null : validation.reason,
           check_in_method:         checkInMethod,
           zk_user_id:              parseInt(zkPin) || null,
-          raw_event:               { sn, line, table },
+          raw_event:               { sn, line, table, ...(validation.note ? { note: validation.note } : {}) },
           occurred_at:             occurredAt,
         }, { onConflict: 'device_id,zk_user_id,occurred_at', ignoreDuplicates: true })
         .select('id');
