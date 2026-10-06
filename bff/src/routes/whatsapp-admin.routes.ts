@@ -34,6 +34,9 @@ import { calcularPendientes, contarPorVista, esColumnaInexistente, estaPendiente
 import { tomarConversacion, soltarConversacion, tomasDe, HORAS_TOMADA_DEFAULT, HORAS_TOMADA_MAX,
          HORAS_TOMADA_AL_RESPONDER } from '../services/whatsapp-tomada.service';
 import { PASO_PROSPECTO } from '../services/whatsapp-metricas';
+import { esCierreSuelto } from '../services/whatsapp-reglas-turno';
+import { vocativosDeEscuela } from '../services/whatsapp-bot.service';
+import { contarBorradoresHuerfanos, ponerseAlDia } from '../services/whatsapp-ponerse-al-dia.service';
 import { prospectosDeConversaciones } from '../services/whatsapp-prospecto-lead.service';
 
 const router = Router();
@@ -183,6 +186,11 @@ router.get('/:schoolId', requireAuth, async (req: AuthenticatedRequest, res: Res
 
     const facturables = Number((consumo as any)?.facturables ?? 0);
     const incluidos = INCLUIDOS_POR_DEFECTO;
+    // En modo auto el bot no deja borradores: si hay `pending` con la ventana
+    // abierta, quedaron de un rato en asistido y nadie los va a aprobar.
+    const borradoresHuerfanos = (ajustes as any)?.mode === 'auto'
+        ? await contarBorradoresHuerfanos(integracion as any)
+        : { conversaciones: 0, borradores: 0 };
 
     return res.json({
         conectado: true,
@@ -195,6 +203,7 @@ router.get('/:schoolId', requireAuth, async (req: AuthenticatedRequest, res: Res
         // whatsapp-atencion.service. La pantalla tiene que decir lo mismo que hace.
         ajustes: ajustes ?? { mode: 'assisted', ai_enabled: false, business_hours: null, welcome_message: null,
                               responder_desconocidos: false, responder_prospectos: true },
+        borradores_huerfanos: borradoresHuerfanos,
         consumo: {
             ...(consumo as object ?? {}),
             incluidos,
@@ -304,7 +313,46 @@ router.patch('/:schoolId/settings', requireAuth, async (req: AuthenticatedReques
     if (error) return res.status(500).json({ error: error.message });
 
     req.log?.info({ schoolId, cambios: Object.keys(parsed.data) }, '[wa-admin] ajustes actualizados');
-    return res.json(data);
+
+    // Pasar de asistido a auto NO reprocesa nada solo: los borradores que
+    // quedaron `pending` (Dynasty, 2026-10-06: 38 en 19 conversaciones) se
+    // devuelven contados y la pantalla ofrece «Responder ahora» (POST
+    // /ponerse-al-dia) o «Revisar». Se eligió así y no el reproceso automático
+    // porque el cambio de modo puede ser un error de dedo, o un apagón del
+    // modelo que sigue: mandar 20 respuestas en un clic sin que nadie lo pida
+    // es peor que mostrar el número.
+    const borradoresHuerfanos = (data as any)?.mode === 'auto'
+        ? await contarBorradoresHuerfanos(integracion as any)
+        : { conversaciones: 0, borradores: 0 };
+    return res.json({ ...data, borradores_huerfanos: borradoresHuerfanos });
+});
+
+/**
+ * POST /api/v1/whatsapp/:schoolId/ponerse-al-dia  { solo_borradores?: boolean }
+ *
+ * «Responder ahora»: contesta lo que quedó sin respuesta con la ventana abierta
+ * (whatsapp-ponerse-al-dia.service): cierres → atendidas, comprobantes → cola o
+ * estado, preguntas → turno real del bot. Lo personal y lo dudoso no se toca.
+ * Solo en modo auto (en asistido dejaría más borradores). Corre en segundo
+ * plano (un turno con modelo tarda 5–40 s) y responde 202 con cuántas hay.
+ * Idempotente entre BFF: ver el servicio.
+ */
+router.post('/:schoolId/ponerse-al-dia', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId } = req.params as { schoolId: string };
+    if (!(await administraEstaEscuela(req.user.id, schoolId))) {
+        return res.status(403).json({ error: 'forbidden' });
+    }
+    const integracion = await integracionParaEnviar(schoolId);
+    if (!integracion) return res.status(404).json({ error: 'sin_integracion' });
+    const { data: ajustes } = await ajustesDe(integracion.id);
+    if ((ajustes as any)?.mode !== 'auto' || (ajustes as any)?.ai_enabled !== true) {
+        return res.status(409).json({ error: 'no_auto', detalle: 'El asistente tiene que estar encendido y en automático.' });
+    }
+    const soloBorradores = req.body?.solo_borradores === true;
+    const pendientes = await contarBorradoresHuerfanos(integracion);
+    void ponerseAlDia(integracion, { soloConBorradores: soloBorradores, log: req.log as any })
+        .catch((err) => req.log?.error({ schoolId, err: err?.message || err }, '[wa-admin] ponerse al día falló'));
+    return res.status(202).json({ ok: true, en_curso: true, borradores_huerfanos: pendientes });
 });
 
 // ── GET /bandeja — lo que quedó sin resolver ────────────────────────────────
@@ -680,6 +728,9 @@ router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRe
         }
     }
 
+    // Nombres del equipo: «Gracias Mile» también es un cierre (requiere_respuesta).
+    const equipo = await vocativosDeEscuela(schoolId).catch(() => new Map<string, string>());
+
     // Mejora 9: quién tiene tomada cada conversación (solo tomas vigentes).
     // Consulta aparte para que la migración sin aplicar no tumbe la lista.
     const { disponible: tomaDisponible, tomas } = await tomasDe(ids);
@@ -696,6 +747,10 @@ router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRe
             ...c,
             ...estadoDeVentana(c.last_inbound_at),
             pendiente: estaPendiente(c.status, tiempos.get(c.id)),
+            // «Por responder» sin los cierres: si lo último que entró es un
+            // «gracias / ok / 👍», no hay nada que contestar.
+            requiere_respuesta: estaPendiente(c.status, tiempos.get(c.id))
+                && !(ultimos.get(c.id)?.direction === 'inbound' && esCierreSuelto(ultimos.get(c.id)?.text_body, equipo)),
             ultimo_mensaje: ultimos.get(c.id) ?? null,
             borradores_pendientes: borradores.get(c.id) ?? 0,
             toma: tomas.get(c.id) ?? null,

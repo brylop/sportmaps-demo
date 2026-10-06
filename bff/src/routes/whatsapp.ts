@@ -33,12 +33,13 @@ import {
 } from '../services/whatsapp.service';
 import {
     runBotTurn, deliver, atenderDesconocido, acusarAdjunto, mensajesRecientes, SILENCIO_HUMANO_MIN,
-    TEXTO_MIME_RECHAZADO,
+    TEXTO_MIME_RECHAZADO, vocativosDeEscuela,
 } from '../services/whatsapp-bot.service';
 import { debeAtender } from '../services/whatsapp-atencion.service';
 import { encolarAdjunto } from '../services/whatsapp-queue.service';
 import { correrTurnoAgrupado, ESPERA_RAFAGA_MS } from '../services/whatsapp-turno-agrupado.service';
-import { humanoReciente } from '../services/whatsapp-reglas-turno';
+import { humanoReciente, esCierreSuelto } from '../services/whatsapp-reglas-turno';
+import { cerrarSiEsCierre } from '../services/whatsapp-ponerse-al-dia.service';
 import { atenderNotaDeVoz } from '../services/whatsapp-notas-de-voz.service';
 
 /**
@@ -456,6 +457,16 @@ async function handleBotTurn(
         req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: debeAtender falló; el bot se calla');
         return null;
     });
+    // «Gracias», «Ok», 👍 de una familia DESPUÉS de una respuesta: la
+    // conversación queda atendida (como «Dar por atendida» del buzón) y no
+    // ensucia «Por responder». El bot tampoco lo contesta (P13). Si vuelve a
+    // escribir, la ingesta la reabre.
+    if (msg.type === 'text' && decision && ['familia', 'familia_sin_cuenta', 'ambiguo'].includes(decision.tipo)
+        && esCierreSuelto(msg.textBody, await vocativosDeEscuela(integration.school_id).catch(() => new Map()))) {
+        const cerrada = await cerrarSiEsCierre(conversationId, msg.waMessageId, msg.textBody,
+            await vocativosDeEscuela(integration.school_id).catch(() => new Map()));
+        if (cerrada) req.log?.info({ conversationId }, 'WhatsApp: cierre suelto; conversación atendida');
+    }
     if (!decision?.atender) {
         // El desconocido tiene una puerta angosta (opción «1C»): correo, código
         // con OTP vigente, o tema escolar una vez cada 30 días. Sin modelo.

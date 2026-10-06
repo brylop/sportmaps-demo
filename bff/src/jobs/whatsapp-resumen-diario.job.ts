@@ -14,6 +14,10 @@
  *      leads nuevos SIN agendar (school_signup_leads sin franja, 7 días). Lo
  *      pidió Dynasty el 2026-10-06: «la dueña tiene que saber dónde quedó
  *      agendado». Si la tabla de leads falla, la sección se omite.
+ *   5. Borradores huérfanos: en modo AUTO, borradores `pending` de más de 30
+ *      min en conversaciones sin respuesta y con la ventana abierta. En auto el
+ *      bot no deja borradores; si los hay quedaron de un rato en asistido y
+ *      nadie los va a aprobar (Dynasty, 2026-10-06).
  *
  * Si no hay NADA, no se manda: un correo diario que dice "todo en orden" se
  * aprende a ignorar en una semana, y entonces tampoco se lee el día que sí
@@ -37,6 +41,7 @@ import {
 import {
     enmascararTelefonoLead, hoyBogota, hora12, listarCortesias, sumarDias,
 } from '../services/cortesia-reservas.service';
+import { contarBorradoresHuerfanos, HUERFANO_MIN_MS } from '../services/whatsapp-ponerse-al-dia.service';
 
 /** El paso con que el bot contesta a un desconocido con tema escolar.
  *  Copia de PASO_DESCONOCIDO_ESCOLAR (whatsapp-bot.service): importarlo de ahí
@@ -61,11 +66,13 @@ export interface ResumenEscuela {
     /** Opcionales: un resumen armado por código viejo (o pruebas) no los trae. */
     cortesias?: CortesiaDelDia[];
     leadsSinAgendar?: LeadSinAgendarResumen[];
+    /** Sección 5: borradores huérfanos en modo auto. */
+    borradoresHuerfanos?: { conversaciones: number; borradores: number };
 }
 
 export function resumenVacio(r: ResumenEscuela): boolean {
     return !r.familias.length && !r.comprobantes.length && !r.prospectos.length
-        && !(r.cortesias?.length) && !(r.leadsSinAgendar?.length);
+        && !(r.cortesias?.length) && !(r.leadsSinAgendar?.length) && !(r.borradoresHuerfanos?.borradores);
 }
 
 /**
@@ -215,7 +222,14 @@ export async function armarResumenEscuela(
 
     const { cortesias, leadsSinAgendar } = await cortesiasDelResumen(schoolId, ahora);
 
-    return { familias: familiasPendientes, comprobantes, prospectos, cortesias, leadsSinAgendar };
+    // ── 5. Borradores huérfanos (solo en modo auto) ──
+    const { data: ajustes } = await supabase.from('whatsapp_settings')
+        .select('mode').eq('integration_id', integrationId).maybeSingle();
+    const borradoresHuerfanos = (ajustes as any)?.mode === 'auto'
+        ? await contarBorradoresHuerfanos({ id: integrationId, school_id: schoolId }, { ahora, minEdadMs: HUERFANO_MIN_MS })
+        : { conversaciones: 0, borradores: 0 };
+
+    return { familias: familiasPendientes, comprobantes, prospectos, cortesias, leadsSinAgendar, borradoresHuerfanos };
 }
 
 export async function runWhatsAppResumenDiario(ahora = Date.now()): Promise<{ escuelas: number; enviados: number }> {
@@ -248,6 +262,8 @@ export async function runWhatsAppResumenDiario(ahora = Date.now()): Promise<{ es
                 r.prospectos.length ? `${r.prospectos.length} prospecto(s)` : '',
                 r.cortesias?.length ? `${r.cortesias.length} clase(s) de cortesía hoy y mañana` : '',
                 r.leadsSinAgendar?.length ? `${r.leadsSinAgendar.length} lead(s) sin agendar` : '',
+                r.borradoresHuerfanos?.borradores
+                    ? `${r.borradoresHuerfanos.borradores} borrador(es) sin enviar en ${r.borradoresHuerfanos.conversaciones} conversación(es)` : '',
             ].filter(Boolean);
             const cortesias = r.cortesias ?? [];
             const leads = r.leadsSinAgendar ?? [];
@@ -275,6 +291,7 @@ export async function runWhatsAppResumenDiario(ahora = Date.now()): Promise<{ es
                     cortesiasTotal: String(cortesias.length),
                     leadsJson: JSON.stringify(leads.slice(0, MAX_FILAS)),
                     leadsTotal: String(leads.length),
+                    borradoresHuerfanos: String(r.borradoresHuerfanos?.borradores ?? 0),
                     cortesiasUrl: `${base}/whatsapp?tab=cortesias`,
                     inboxUrl: url,
                 },
@@ -282,6 +299,9 @@ export async function runWhatsAppResumenDiario(ahora = Date.now()): Promise<{ es
                     subject: `WhatsApp de ${escuela}: ${partes.join(', ')}`,
                     titulo: 'Lo que quedó esperando en WhatsApp',
                     lineas: [
+                        ...(r.borradoresHuerfanos?.borradores
+                            ? [`Borradores sin enviar: ${r.borradoresHuerfanos.borradores} en ${r.borradoresHuerfanos.conversaciones} conversación(es) — el bot está en automático y nadie los va a aprobar. Ábrelos en Configuración → «Responder ahora».`]
+                            : []),
                         ...cortesias.slice(0, MAX_FILAS * 2).map((c) => `Clase de cortesía ${c.dia.toUpperCase()} ${c.hora}: ${c.nombre} (${c.paraQuien}) — ${c.grupo}${c.sede ? ` · ${c.sede}` : ''} · ${c.telefono}`),
                         ...leads.slice(0, MAX_FILAS).map((l) => `Lead sin agendar: ${l.nombre} (${l.paraQuien}) · ${l.telefono} · por ${l.origen} (${l.hora})`),
                         ...r.familias.slice(0, MAX_FILAS).map((f) => `Familia sin respuesta: ${f.contacto} — escribió ${f.esperaDesde}`),
