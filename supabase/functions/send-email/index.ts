@@ -21,6 +21,8 @@ type EmailType =
     // y los jobs whatsapp-resumen-diario / bot-resumen-semanal.
     | "wa_escalamiento"
     | "wa_resumen_diario"
+    // v2: + clases de cortesía de hoy/mañana y leads sin agendar (2026-10-06).
+    | "wa_resumen_diario_v2"
     | "soporte_ticket_nuevo"
     | "bot_resumen_semanal";
 
@@ -321,7 +323,12 @@ function getSubjectAndHtml(type: EmailType, d: Record<string, string>): { subjec
             };
 
         // Resumen de las 7 a. m. por escuela. El BFF solo lo manda si hay algo.
-        case "wa_resumen_diario": {
+        case "wa_resumen_diario":
+        case "wa_resumen_diario_v2": {
+            const cortesias = parseLista<{ dia: string; nombre: string; paraQuien: string; grupo: string; hora: string; sede: string; telefono: string }>(d.cortesiasJson)
+                .map((c) => `<li><strong>${esc(c.dia.toUpperCase())} ${esc(c.hora)}</strong> — ${esc(c.nombre)} (${esc(c.paraQuien)}) · ${esc(c.grupo)}${c.sede ? ` · ${esc(c.sede)}` : ""} · ${esc(c.telefono)}</li>`);
+            const leads = parseLista<{ nombre: string; paraQuien: string; telefono: string; origen: string; hora: string }>(d.leadsJson)
+                .map((l) => `<li><strong>${esc(l.nombre)}</strong> (${esc(l.paraQuien)}) · ${esc(l.telefono)} — por ${esc(l.origen)} (${esc(l.hora)})</li>`);
             const familias = parseLista<{ contacto: string; esperaDesde: string; horas: number }>(d.familiasJson)
                 .map((f) => `<li><strong>${esc(f.contacto)}</strong> — escribió ${esc(f.esperaDesde)} (hace ${esc(f.horas)} h)</li>`);
             const comprobantes = parseLista<{ contacto: string; estado: string; hora: string }>(d.comprobantesJson)
@@ -335,6 +342,9 @@ function getSubjectAndHtml(type: EmailType, d: Record<string, string>): { subjec
           <p style="color: #4a4a4a; line-height: 1.6;">
             Buenos días. Este es el resumen de <strong>${esc(d.schoolName)}</strong>: ${esc(d.resumen)}.
           </p>
+          ${seccion("Clases de cortesía de HOY y MAÑANA", d.cortesiasTotal, cortesias)}
+          ${seccion("Leads nuevos sin agendar (últimos 7 días)", d.leadsTotal, leads)}
+          ${cortesias.length || leads.length ? orangeButton(esc(d.cortesiasUrl || "https://app.sportmaps.co/whatsapp?tab=cortesias"), "Ver clases de cortesía") : ""}
           ${seccion("Familias sin respuesta", d.familiasTotal, familias)}
           ${seccion("Comprobantes para revisar (últimas 24 h)", d.comprobantesTotal, comprobantes)}
           ${seccion("Prospectos (últimas 24 h)", d.prospectosTotal, prospectos)}
