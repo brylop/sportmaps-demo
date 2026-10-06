@@ -10,6 +10,10 @@
  *      lista la pestaña "Bandeja" del canal.
  *   3. Prospectos de las últimas 24 h: desconocidos que preguntaron por
  *      inscripción (paso 'desconocido_tema_escolar', intención 'inscripcion').
+ *   4. Clases de cortesía de HOY y MAÑANA (quién viene, grupo, hora, sede) y
+ *      leads nuevos SIN agendar (school_signup_leads sin franja, 7 días). Lo
+ *      pidió Dynasty el 2026-10-06: «la dueña tiene que saber dónde quedó
+ *      agendado». Si la tabla de leads falla, la sección se omite.
  *
  * Si no hay NADA, no se manda: un correo diario que dice "todo en orden" se
  * aprende a ignorar en una semana, y entonces tampoco se lee el día que sí
@@ -30,6 +34,9 @@ import {
 import {
     destinatariosDeEscuela, enviarConReserva, etiquetaDeContacto, fechaColombia, horaColombia,
 } from '../services/avisos-correo.service';
+import {
+    enmascararTelefonoLead, hoyBogota, hora12, listarCortesias, sumarDias,
+} from '../services/cortesia-reservas.service';
 
 /** El paso con que el bot contesta a un desconocido con tema escolar.
  *  Copia de PASO_DESCONOCIDO_ESCOLAR (whatsapp-bot.service): importarlo de ahí
@@ -44,14 +51,56 @@ export interface FamiliaPendiente { contacto: string; esperaDesde: string; horas
 export interface ComprobanteParaEscuela { contacto: string; estado: string; hora: string }
 export interface Prospecto { contacto: string; conEnlace: boolean; respondido: boolean; hora: string }
 
+export interface CortesiaDelDia { dia: 'hoy' | 'mañana'; nombre: string; paraQuien: string; grupo: string; hora: string; sede: string; telefono: string }
+export interface LeadSinAgendarResumen { nombre: string; paraQuien: string; telefono: string; origen: string; hora: string }
+
 export interface ResumenEscuela {
     familias: FamiliaPendiente[];
     comprobantes: ComprobanteParaEscuela[];
     prospectos: Prospecto[];
+    /** Opcionales: un resumen armado por código viejo (o pruebas) no los trae. */
+    cortesias?: CortesiaDelDia[];
+    leadsSinAgendar?: LeadSinAgendarResumen[];
 }
 
 export function resumenVacio(r: ResumenEscuela): boolean {
-    return !r.familias.length && !r.comprobantes.length && !r.prospectos.length;
+    return !r.familias.length && !r.comprobantes.length && !r.prospectos.length
+        && !(r.cortesias?.length) && !(r.leadsSinAgendar?.length);
+}
+
+/**
+ * Sección 4. Nunca lanza: si la tabla de leads no responde, el resumen sale
+ * igual con las otras tres secciones.
+ */
+export async function cortesiasDelResumen(schoolId: string, ahora = Date.now()): Promise<{
+    cortesias: CortesiaDelDia[]; leadsSinAgendar: LeadSinAgendarResumen[];
+}> {
+    try {
+        const hoy = hoyBogota(ahora);
+        const manana = sumarDias(hoy, 1);
+        const { reservas, sinAgendar } = await listarCortesias(schoolId, { desde: hoy, hasta: manana, diasLeads: 7 }, ahora);
+        return {
+            cortesias: reservas.map((r) => ({
+                dia: r.fecha === hoy ? 'hoy' as const : 'mañana' as const,
+                nombre: r.nombre,
+                paraQuien: r.paraQuien,
+                grupo: r.grupo,
+                hora: hora12(r.horaInicio),
+                sede: r.sede ?? '',
+                telefono: enmascararTelefonoLead(r.telefono),
+            })),
+            leadsSinAgendar: sinAgendar.filter((l) => l.estado === 'new').map((l) => ({
+                nombre: l.nombre,
+                paraQuien: l.paraQuien,
+                telefono: enmascararTelefonoLead(l.telefono),
+                origen: l.origen === 'whatsapp' ? 'WhatsApp' : 'formulario web',
+                hora: horaColombia(l.creadoEn),
+            })),
+        };
+    } catch (err: any) {
+        console.warn('[resumen-wa] sin sección de cortesías', { schoolId, error: err?.message || String(err) });
+        return { cortesias: [], leadsSinAgendar: [] };
+    }
 }
 
 const ESTADO_COMPROBANTE: Record<string, string> = {
@@ -164,7 +213,9 @@ export async function armarResumenEscuela(
         };
     });
 
-    return { familias: familiasPendientes, comprobantes, prospectos };
+    const { cortesias, leadsSinAgendar } = await cortesiasDelResumen(schoolId, ahora);
+
+    return { familias: familiasPendientes, comprobantes, prospectos, cortesias, leadsSinAgendar };
 }
 
 export async function runWhatsAppResumenDiario(ahora = Date.now()): Promise<{ escuelas: number; enviados: number }> {
@@ -195,11 +246,18 @@ export async function runWhatsAppResumenDiario(ahora = Date.now()): Promise<{ es
                 r.familias.length ? `${r.familias.length} familia(s) sin respuesta` : '',
                 r.comprobantes.length ? `${r.comprobantes.length} comprobante(s) para revisar` : '',
                 r.prospectos.length ? `${r.prospectos.length} prospecto(s)` : '',
+                r.cortesias?.length ? `${r.cortesias.length} clase(s) de cortesía hoy y mañana` : '',
+                r.leadsSinAgendar?.length ? `${r.leadsSinAgendar.length} lead(s) sin agendar` : '',
             ].filter(Boolean);
+            const cortesias = r.cortesias ?? [];
+            const leads = r.leadsSinAgendar ?? [];
 
             const resultado = await enviarConReserva({
                 clave: `wa_resumen_diario:${integ.school_id}:${fecha}`,
                 tipo: 'wa_resumen_diario',
+                // v2 = con la sección de cortesías. Mientras send-email no
+                // tenga desplegada la v2, cae al respaldo (que sí la trae).
+                plantilla: 'wa_resumen_diario_v2',
                 schoolId: integ.school_id,
                 refId: null,
                 destinos: correos,
@@ -213,12 +271,19 @@ export async function runWhatsAppResumenDiario(ahora = Date.now()): Promise<{ es
                     comprobantesTotal: String(r.comprobantes.length),
                     prospectosJson: JSON.stringify(r.prospectos.slice(0, MAX_FILAS)),
                     prospectosTotal: String(r.prospectos.length),
+                    cortesiasJson: JSON.stringify(cortesias.slice(0, MAX_FILAS * 2)),
+                    cortesiasTotal: String(cortesias.length),
+                    leadsJson: JSON.stringify(leads.slice(0, MAX_FILAS)),
+                    leadsTotal: String(leads.length),
+                    cortesiasUrl: `${base}/whatsapp?tab=cortesias`,
                     inboxUrl: url,
                 },
                 respaldo: {
                     subject: `WhatsApp de ${escuela}: ${partes.join(', ')}`,
                     titulo: 'Lo que quedó esperando en WhatsApp',
                     lineas: [
+                        ...cortesias.slice(0, MAX_FILAS * 2).map((c) => `Clase de cortesía ${c.dia.toUpperCase()} ${c.hora}: ${c.nombre} (${c.paraQuien}) — ${c.grupo}${c.sede ? ` · ${c.sede}` : ''} · ${c.telefono}`),
+                        ...leads.slice(0, MAX_FILAS).map((l) => `Lead sin agendar: ${l.nombre} (${l.paraQuien}) · ${l.telefono} · por ${l.origen} (${l.hora})`),
                         ...r.familias.slice(0, MAX_FILAS).map((f) => `Familia sin respuesta: ${f.contacto} — escribió ${f.esperaDesde}`),
                         ...r.comprobantes.slice(0, MAX_FILAS).map((c) => `Comprobante: ${c.contacto} — ${c.estado} (${c.hora})`),
                         ...r.prospectos.slice(0, MAX_FILAS).map((p) => `Prospecto: ${p.contacto} — ${p.respondido ? 'ya le respondieron' : 'sin respuesta de la escuela'} (${p.hora})`),

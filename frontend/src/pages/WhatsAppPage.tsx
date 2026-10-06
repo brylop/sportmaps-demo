@@ -20,6 +20,7 @@ import { AltaDelCanal } from '@/components/whatsapp/AltaDelCanal';
 import { Conversaciones } from '@/components/whatsapp/Conversaciones';
 import { HorariosDeEntrenamiento } from '@/components/whatsapp/HorariosDeEntrenamiento';
 import { Metricas } from '@/components/whatsapp/Metricas';
+import { ClasesCortesia } from '@/components/whatsapp/ClasesCortesia';
 import { ImportarChatExportado } from '@/components/whatsapp/ImportarChatExportado';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -31,7 +32,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import {
-    MessageSquare, RefreshCw, AlertTriangle, Clock, FileText, Inbox, Settings, Plus, Loader2, Power, BarChart3,
+    MessageSquare, RefreshCw, AlertTriangle, Clock, FileText, Inbox, Settings, Plus, Loader2, Power, BarChart3, CalendarCheck,
 } from 'lucide-react';
 
 // ─── Tipos que devuelve el BFF ──────────────────────────────────────────────
@@ -313,7 +314,7 @@ export default function WhatsAppPage() {
             )}
 
             <Tabs defaultValue={pestanaInicial}>
-                {/* Con siete pestañas la fila no cabe en un celular: se desliza de lado. */}
+                {/* Con ocho pestañas la fila no cabe en un celular: se desliza de lado. */}
                 <TabsList className="w-full justify-start overflow-x-auto">
                     <TabsTrigger value="resumen">Resumen</TabsTrigger>
                     <TabsTrigger value="metricas">
@@ -321,6 +322,9 @@ export default function WhatsAppPage() {
                     </TabsTrigger>
                     <TabsTrigger value="conversaciones">
                         <MessageSquare className="h-4 w-4 mr-1.5" /> Conversaciones
+                    </TabsTrigger>
+                    <TabsTrigger value="cortesias">
+                        <CalendarCheck className="h-4 w-4 mr-1" /> Clases de cortesía
                     </TabsTrigger>
                     <TabsTrigger value="plantillas">
                         <FileText className="h-4 w-4 mr-1" /> Plantillas
@@ -408,6 +412,11 @@ export default function WhatsAppPage() {
                 {/* ── Plantillas ── */}
                 <TabsContent value="conversaciones">
                     <Conversaciones schoolId={schoolId!} conversacionInicial={conversacionInicial} />
+                </TabsContent>
+
+                {/* ── Clases de cortesía: dónde quedó agendado cada prospecto ── */}
+                <TabsContent value="cortesias">
+                    {schoolId && <ClasesCortesia schoolId={schoolId} />}
                 </TabsContent>
 
                 <TabsContent value="plantillas">
