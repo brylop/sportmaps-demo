@@ -39,6 +39,9 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
+import {
+  FirstPaymentModeSection, FirstPaymentChoice, DEFAULT_FIRST_PAYMENT_CHOICE,
+} from '@/components/students/FirstPaymentModeSection';
 import { calcFirstPayment, applyDiscount, formatCOP } from '@/lib/prorationUtils';
 import { PhoneInput } from '@/components/ui/phone-input';
 
@@ -89,11 +92,13 @@ interface ProrationCardProps {
   onDiscountChange: (pct: number) => void;
   registrationFee?: number;
   insuranceFee?: number;
+  /** Clases restantes (F7) elegido: el detalle del ciclo lo muestra FirstPaymentModeSection. */
+  hideCycleDetail?: boolean;
 }
 
 // ─── Proration Card ───────────────────────────────────────────────────────────
 
-function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscountChange, registrationFee = 0, insuranceFee = 0 }: ProrationCardProps) {
+function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscountChange, registrationFee = 0, insuranceFee = 0, hideCycleDetail = false }: ProrationCardProps) {
   const [discountEnabled, setDiscountEnabled] = useState(false);
 
   if (!startDate || !monthlyFee) return null;
@@ -147,7 +152,7 @@ function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscount
       )}
 
       {/* ── Prorated ── */}
-      {billing.billing_cycle_type === 'prorated' && (
+      {!hideCycleDetail && billing.billing_cycle_type === 'prorated' && (
         <div className="space-y-1 text-muted-foreground">
           {calc.isFullMonth ? (
             <p>Inscripción el 1° del mes — mes completo.</p>
@@ -170,7 +175,7 @@ function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscount
       )}
 
       {/* ── Fixed calendar ── */}
-      {billing.billing_cycle_type === 'fixed_calendar' && (
+      {!hideCycleDetail && billing.billing_cycle_type === 'fixed_calendar' && (
         <div className="space-y-1 text-muted-foreground">
           <div className="flex justify-between">
             <span>Monto:</span>
@@ -184,7 +189,7 @@ function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscount
       )}
 
       {/* ── Rolling 30 ── */}
-      {billing.billing_cycle_type === 'rolling_30' && (
+      {!hideCycleDetail && billing.billing_cycle_type === 'rolling_30' && (
         <div className="space-y-1 text-muted-foreground">
           <div className="flex justify-between">
             <span>Monto:</span>
@@ -296,6 +301,10 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
   const [selectedPlanPrice, setSelectedPlanPrice] = useState(0);
   const [selectedPlanRegistrationFee, setSelectedPlanRegistrationFee] = useState(0);
   const [selectedPlanInsuranceFee, setSelectedPlanInsuranceFee] = useState(0);
+  // Alta a mitad de mes por clases restantes (F7). Flag por escuela, leído aparte
+  // para que una base sin la columna no tumbe la lectura de billing.
+  const [remainingClassesEnabled, setRemainingClassesEnabled] = useState(false);
+  const [firstPayment, setFirstPayment] = useState<FirstPaymentChoice>(DEFAULT_FIRST_PAYMENT_CHOICE);
   const [startDate, setStartDate]             = useState(() => todayColombia());
   const [monthlyFee, setMonthlyFee]           = useState('');
   const [discountPct, setDiscountPct]         = useState(0);
@@ -347,6 +356,10 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
         setBilling(settingsRes.data as BillingSettings);
       }
     });
+    supabase.from('school_settings').select('remaining_classes_billing_enabled').eq('school_id', schoolId).maybeSingle()
+      .then(({ data, error }) => {
+        setRemainingClassesEnabled(!error && !!(data as any)?.remaining_classes_billing_enabled);
+    });
   }, [open, schoolId]);
 
   // Auto-fill mensualidad
@@ -389,6 +402,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
     setBranchId('none'); setTeamId('none');
     setSelectedPlanId('none'); setSelectedOfferingId('');
     setSelectedPlanPrice(0); setSelectedPlanRegistrationFee(0); setSelectedPlanInsuranceFee(0);
+    setFirstPayment(DEFAULT_FIRST_PAYMENT_CHOICE);
     setStartDate(todayColombia());
     setMonthlyFee('');
     setDiscountPct(0);
@@ -456,6 +470,18 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
   };
 
   // ── Inscribir / Registrar ──────────────────────────────────────────────────
+  // F7: la opción solo existe con ciclo fijo + flag + plan mensual. Sin eso el
+  // payload no lleva first_payment_mode y el BFF cobra exactamente como siempre.
+  const selectedPlanOption = plans.find(p => p.plan_id === selectedPlanId);
+  const showFirstPaymentMode = remainingClassesEnabled
+    && billing.billing_cycle_type === 'fixed_calendar'
+    && !!selectedPlanOption && (selectedPlanOption.duration_days ?? 30) >= 28;
+  const firstPaymentPayload = showFirstPaymentMode
+    ? (firstPayment.mode === 'remaining_classes'
+        ? { first_payment_mode: 'remaining_classes', classes_remaining: firstPayment.classesRemaining, partial_due: firstPayment.partialDue }
+        : { first_payment_mode: 'full_month' })
+    : {};
+
   const handleEnroll = async () => {
     if (!uFullName.trim() && !foundProfile) {
       toast({ title: 'Nombre requerido', variant: 'destructive' }); return;
@@ -486,6 +512,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
           start_date:       startDate,
           monthly_fee:      monthlyFee ? fee : null,
           discount_pct:     discountPct > 0 ? discountPct : undefined,
+          ...firstPaymentPayload,
           dorsal:           uDorsal.trim() || null,
         }, { 'x-school-id': schoolId });
 
@@ -511,6 +538,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
           start_date:       startDate,
           monthly_fee:      monthlyFee ? fee : null,
           discount_pct:     discountPct > 0 ? discountPct : undefined,
+          ...firstPaymentPayload,
           send_invite:      sendInviteEmail && !!uEmail.trim(),
         }, { 'x-school-id': schoolId });
 
@@ -851,7 +879,19 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
               onDiscountChange={setDiscountPct}
               registrationFee={selectedPlanRegistrationFee}
               insuranceFee={selectedPlanInsuranceFee}
+              hideCycleDetail={showFirstPaymentMode && firstPayment.mode === 'remaining_classes'}
             />
+            {showFirstPaymentMode && (
+              <FirstPaymentModeSection
+                schoolId={schoolId}
+                planId={selectedPlanId}
+                startDate={startDate}
+                monthlyFee={Number(monthlyFee) || 0}
+                discountPct={discountPct}
+                value={firstPayment}
+                onChange={setFirstPayment}
+              />
+            )}
           </Section>
         </div>
 

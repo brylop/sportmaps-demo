@@ -33,6 +33,9 @@ import { useToast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
+import {
+  FirstPaymentModeSection, FirstPaymentChoice, DEFAULT_FIRST_PAYMENT_CHOICE,
+} from '@/components/students/FirstPaymentModeSection';
 import { calcFirstPayment, applyDiscount, formatCOP } from '@/lib/prorationUtils';
 import { Search, CheckCircle2, Calendar as CalendarIcon } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -85,11 +88,13 @@ interface ProrationCardProps {
   onDiscountChange: (pct: number) => void;
   registrationFee?: number;
   insuranceFee?: number;
+  /** Clases restantes (F7) elegido: el detalle del ciclo lo muestra FirstPaymentModeSection. */
+  hideCycleDetail?: boolean;
 }
 
 // ─── Proration Card ───────────────────────────────────────────────────────────
 
-function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscountChange, registrationFee = 0, insuranceFee = 0 }: ProrationCardProps) {
+function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscountChange, registrationFee = 0, insuranceFee = 0, hideCycleDetail = false }: ProrationCardProps) {
   const [discountEnabled, setDiscountEnabled] = useState(false);
 
   if (!startDate || !monthlyFee) return null;
@@ -143,7 +148,7 @@ function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscount
       )}
 
       {/* ── Prorated ── */}
-      {billing.billing_cycle_type === 'prorated' && (
+      {!hideCycleDetail && billing.billing_cycle_type === 'prorated' && (
         <div className="space-y-1 text-muted-foreground">
           {calc.isFullMonth ? (
             <p>Inscripción el 1° del mes — mes completo.</p>
@@ -166,7 +171,7 @@ function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscount
       )}
 
       {/* ── Fixed calendar ── */}
-      {billing.billing_cycle_type === 'fixed_calendar' && (
+      {!hideCycleDetail && billing.billing_cycle_type === 'fixed_calendar' && (
         <div className="space-y-1 text-muted-foreground">
           <div className="flex justify-between">
             <span>Monto:</span>
@@ -180,7 +185,7 @@ function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscount
       )}
 
       {/* ── Rolling 30 ── */}
-      {billing.billing_cycle_type === 'rolling_30' && (
+      {!hideCycleDetail && billing.billing_cycle_type === 'rolling_30' && (
         <div className="space-y-1 text-muted-foreground">
           <div className="flex justify-between">
             <span>Monto:</span>
@@ -300,6 +305,10 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
   const [selectedPlanPrice, setSelectedPlanPrice] = useState(0);
   const [selectedPlanRegistrationFee, setSelectedPlanRegistrationFee] = useState(0);
   const [selectedPlanInsuranceFee, setSelectedPlanInsuranceFee] = useState(0);
+  // Alta a mitad de mes por clases restantes (F7). Flag por escuela, leído aparte
+  // para que una base sin la columna no tumbe la lectura de billing.
+  const [remainingClassesEnabled, setRemainingClassesEnabled] = useState(false);
+  const [firstPayment, setFirstPayment] = useState<FirstPaymentChoice>(DEFAULT_FIRST_PAYMENT_CHOICE);
   const [startDate, setStartDate]   = useState(() => todayColombia());
   // `hasBilling` y no el tipo de escuela: la pregunta es si esta escuela
   // factura por SportMaps, no si ademas alquila espacios. Falla ABIERTO
@@ -335,6 +344,10 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
       if (settingsRes.data) {
         setBilling(settingsRes.data as BillingSettings);
       }
+    });
+    supabase.from('school_settings').select('remaining_classes_billing_enabled').eq('school_id', schoolId).maybeSingle()
+      .then(({ data, error }) => {
+        setRemainingClassesEnabled(!error && !!(data as any)?.remaining_classes_billing_enabled);
     });
   }, [open, schoolId]);
 
@@ -374,6 +387,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
     setParentName(''); setParentEmail(''); setParentPhone('+57');
     setBranchId('none'); setTeamId('none');
     setSelectedPlanId('none'); setSelectedOfferingId(''); setSelectedPlanPrice(0); setSelectedPlanRegistrationFee(0); setSelectedPlanInsuranceFee(0);
+    setFirstPayment(DEFAULT_FIRST_PAYMENT_CHOICE);
     setStartDate(todayColombia()); setMonthlyFee('');
     setDiscountPct(0);
     setCheckingParentEmail(false);
@@ -438,6 +452,18 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
     return null;
   };
 
+  // F7: la opción solo existe con ciclo fijo + flag + plan mensual. Sin eso el
+  // payload no lleva first_payment_mode y el BFF cobra exactamente como siempre.
+  const selectedPlanOption = plans.find(p => p.plan_id === selectedPlanId);
+  const showFirstPaymentMode = remainingClassesEnabled
+    && billing.billing_cycle_type === 'fixed_calendar'
+    && !!selectedPlanOption && (selectedPlanOption.duration_days ?? 30) >= 28;
+  const firstPaymentPayload = showFirstPaymentMode
+    ? (firstPayment.mode === 'remaining_classes'
+        ? { first_payment_mode: 'remaining_classes', classes_remaining: firstPayment.classesRemaining, partial_due: firstPayment.partialDue }
+        : { first_payment_mode: 'full_month' })
+    : {};
+
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     const err = validate();
@@ -479,6 +505,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
         start_date:       startDate,
         monthly_fee:      monthlyFee ? Number(monthlyFee) : null,
         discount_pct:     discountPct > 0 ? discountPct : undefined,
+        ...firstPaymentPayload,
       };
 
       const result = await bffClient.post('/api/v1/students/create-one', {
@@ -874,7 +901,19 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
               onDiscountChange={setDiscountPct}
               registrationFee={selectedPlanRegistrationFee}
               insuranceFee={selectedPlanInsuranceFee}
+              hideCycleDetail={showFirstPaymentMode && firstPayment.mode === 'remaining_classes'}
             />}
+            {hasBilling && showFirstPaymentMode && (
+              <FirstPaymentModeSection
+                schoolId={schoolId}
+                planId={selectedPlanId}
+                startDate={startDate}
+                monthlyFee={Number(monthlyFee) || 0}
+                discountPct={discountPct}
+                value={firstPayment}
+                onChange={setFirstPayment}
+              />
+            )}
           </Section>
         </div>
 
