@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 679,
-  "head": "20261005221734",
+  "count": 680,
+  "head": "20261005221944",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -682,6 +682,7 @@
     {"v":"20261005214258","file":"20261005214258_niv_f2_progresion_competitiva.sql","sha256":"75d80a394537bfb69479eaa1bdd16a7f8529616d6babbbf7c79c6eb1f65a96ef","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261005214300","file":"20261005214300_niv_d9_dias_permitidos.sql","sha256":"81c02126de5a22b2a684dff285456a738f1b21a178059b454eeff04281a015d9","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261005214302","file":"20261005214302_hour_bank_overage_charges.sql","sha256":"41acbd80b8271c779daa2c9829081dfe72188c4ca750faace6e475b030d7be3c","added":"2026-10-06","by":"Brayan Steven Lopez"},
-    {"v":"20261005221734","file":"20261005221734_open_month_h01_mas_cobros_unicos.sql","sha256":"382f6c276950232bfc17b15af6d73c15be37077269662ebce9ad2970f9926767","added":"2026-10-06","by":"Brayan Steven Lopez"}
+    {"v":"20261005221734","file":"20261005221734_open_month_h01_mas_cobros_unicos.sql","sha256":"382f6c276950232bfc17b15af6d73c15be37077269662ebce9ad2970f9926767","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261005221944","file":"20261005221944_fn_extend_vigencia_viva_mas_cobros_unicos.sql","sha256":"75dccf998de063200dec3b1e442bf90589451c1a021e905d6ac701fb9e8137eb","added":"2026-10-06","by":"Brayan Steven Lopez"}
   ]
 }
