@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { AlertTriangle, Check } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { HourBankOverageCharges } from './HourBankOverageCharges';
 
 /**
  * F6 — docs/specs/dreamers-banco-de-horas-torniquete.md
@@ -23,7 +24,8 @@ import { useToast } from '@/hooks/use-toast';
  * por resolver, no un reporte — encaja con el propósito operativo de la
  * pantalla.
  *
- * No renderiza NADA si no hay visitas pendientes de revisión.
+ * No renderiza la bandeja si no hay visitas pendientes de revisión. Debajo va
+ * la sección de cargos por horas de más (F-E), que se oculta sola si no aplica.
  */
 
 interface PendingVisit {
@@ -103,9 +105,10 @@ export function HourBankSchoolSection() {
   });
 
   const pending = pendingData?.visits ?? [];
-  if (pending.length === 0) return null;
 
   return (
+    <>
+    {pending.length > 0 && (
     <Card className="border-amber-500/30">
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-sm font-bold">
@@ -121,10 +124,15 @@ export function HourBankSchoolSection() {
             onDone={() => {
               queryClient.invalidateQueries({ queryKey: ['hour-bank-visits', 'pending_review'] });
               queryClient.invalidateQueries({ queryKey: ['hour-bank-balances'] });
+              // Corregir una visita puede recalcular un cargo sugerido (F-E).
+              queryClient.invalidateQueries({ queryKey: ['hour-bank-overage-charges'] });
             }}
           />
         ))}
       </CardContent>
     </Card>
+    )}
+    <HourBankOverageCharges />
+    </>
   );
 }

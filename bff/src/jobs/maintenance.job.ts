@@ -15,6 +15,7 @@ import { runNotificationDispatch } from './notifications-dispatch.job';
 import { runAthleteReportsCycle } from './athlete-reports.job';
 import { runTeamReportsCycle } from './team-reports.job';
 import { runHourBankAutoclose } from './hour-bank-autoclose.job';
+import { runHourBankOverageSuggestions } from './hour-bank-overage.job';
 import { runAccessAutoBlockCycle } from './access-auto-block.job';
 import { runSaasBillingCycle } from './saas-billing-cycle.job';
 import { runBridgeHeartbeatCheck } from './bridge-heartbeat-check.job';
@@ -598,6 +599,24 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Auto-cierre de banco de horas registrado (cada 1 min).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Cargo por horas de más del banco de horas (F-E, migración 20261005214235).
+    // Genera sugerencias 'suggested' para periodos cerrados con excedente; el
+    // owner confirma o descarta. Nunca crea cobros. No-op para toda escuela con
+    // school_settings.hour_bank_overage_charges_enabled = false (default).
+    // 03:00 COT: después del auto-cierre nocturno de visitas y lejos de open_month.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('0 3 * * *', async () => {
+        try {
+            await runHourBankOverageSuggestions();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error generando cargos por horas de más:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Cargos por horas de más del banco de horas registrado para las 03:00 COT.');
 
     // ────────────────────────────────────────────────────────────────────────
     // Bloqueo automático por mora (school_settings.access_auto_block_overdue_enabled,
