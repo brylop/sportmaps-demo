@@ -24,6 +24,9 @@ const state = {
     staff: false,
     porTelefono: { estado: 'identificado', parent_id: 'parent-1' } as any,
     previa: null as any,
+    fichas: [{ id: 'child-1', parent_id: 'parent-1', parent_phone_temp: null }] as any[],
+    sinRegistrar: [] as any[],
+    mensajes: [] as any[],
 };
 
 function resultado(o: Op): { data: any; error: any } {
@@ -38,9 +41,12 @@ function resultado(o: Op): { data: any; error: any } {
         return { data: state.tomaOk ? [{ id: 'fila-1' }] : [], error: null };
     }
     if (o.table === 'children' && o.cols?.includes('parent_phone_temp')) {
-        return { data: [{ parent_id: 'parent-1', parent_phone_temp: null }], error: null };
+        return { data: state.fichas, error: null };
     }
     if (o.table === 'children') return { data: [{ id: 'child-1' }], error: null };
+    if (o.table === 'unregistered_athletes') return { data: state.sinRegistrar, error: null };
+    if (o.table === 'whatsapp_conversations') return { data: { id: 'conv-1' }, error: null };
+    if (o.table === 'whatsapp_messages') return { data: state.mensajes, error: null };
     if (o.table === 'profiles') return { data: [{ id: 'parent-1', phone: '+57 300 123 4567' }], error: null };
     return { data: null, error: null };
 }
@@ -51,7 +57,7 @@ function chain(table: string) {
         select: (cols?: string) => { if (o.op === 'select') o.cols = cols; return c; },
         update: (v: any) => { o.op = 'update'; o.values = v; ops.push(o); return c; },
         insert: (v: any) => { o.op = 'insert'; o.values = v; ops.push(o); return c; },
-        eq: () => c, in: () => c, or: () => c, is: () => c, not: () => c, gte: () => c, neq: () => c,
+        eq: () => c, in: () => c, or: () => c, is: () => c, not: () => c, gte: () => c, lte: () => c, neq: () => c,
         limit: () => c, order: () => c,
         maybeSingle: () => Promise.resolve(resultado(o)),
         single: () => Promise.resolve(resultado(o)),
@@ -102,6 +108,7 @@ vi.mock('./ocr.service', () => ({ extractReceipt: (...a: any[]) => extraer(...a)
 
 import {
     decidirRecuperacion, pagosQueYaCubren, fechaDeReferencia, cierreDeFila, recuperarFilaDeCola,
+    decidirPorMonto, desempatarCobro, mesesMencionados, esRecuperable, filtroDeFamilia,
     type PagoRegistrado,
 } from './whatsapp-recuperacion.service';
 import { importarAdjunto } from './whatsapp-importar-chat.service';
@@ -139,6 +146,9 @@ beforeEach(() => {
     state.staff = false;
     state.porTelefono = { estado: 'identificado', parent_id: 'parent-1' };
     state.previa = null;
+    state.fichas = [{ id: 'child-1', parent_id: 'parent-1', parent_phone_temp: null }];
+    state.sinRegistrar = [];
+    state.mensajes = [];
     extraer.mockReset();
     extraer.mockImplementation(() => Promise.resolve({ ...OCR }));
 });
@@ -157,10 +167,11 @@ describe('decidirRecuperacion', () => {
         expect(d.pago?.id).toBe('a');
     });
 
-    it('único cobro pero el comprobante es por otro valor (abono) → al buzón, no se estampa', () => {
+    it('único cobro y el comprobante es MENOR pero razonable → en revisión como abono (nunca aprobado)', () => {
         const d = decidirRecuperacion({ ...base, ocr: { ...OCR, amount: 75000 }, pendientes: [PEND('a', 210000)] });
-        expect(d.decision).toBe('monto_distinto');
-        expect(d.pago).toBeUndefined();
+        expect(d.decision).toBe('abono_en_revision');
+        expect(d.pago?.id).toBe('a');
+        expect(d.motivo).toContain('saldo 135000');
     });
 
     it('único cobro y el OCR no leyó el monto → en revisión (lo marca el veredicto)', () => {
@@ -224,7 +235,7 @@ describe('cierreDeFila', () => {
     const STATUS = ['pending', 'processing', 'waiting_user', 'done', 'failed', 'ignored'];
     const RESULT = ['payment_receipt', 'glosa', 'escalated', 'none'];
     const decisiones = ['en_revision', 'ya_registrado', 'no_es_comprobante', 'es_listado', 'destino_ajeno', 'sin_pendientes',
-        'varios_cobros', 'monto_distinto', 'familia_sin_cuenta', 'numero_ambiguo', 'sin_familia', 'enviado_por_equipo', 'archivo_no_disponible'] as const;
+        'varios_cobros', 'monto_distinto', 'familia_sin_cuenta', 'abono_en_revision', 'numero_ambiguo', 'sin_familia', 'enviado_por_equipo', 'archivo_no_disponible'] as const;
 
     it.each(decisiones)('%s cierra dentro de los CHECK, marcado como recuperado y sin aviso de desenlace', (decision) => {
         const c = cierreDeFila({ decision, motivo: 'm', ocr: null }, '2026-10-05T00:00:00Z')!;
@@ -349,5 +360,182 @@ describe('importarAdjunto', () => {
         const r = await importarAdjunto(ADJ);
         expect(r.decision).toBe('ya_registrado');
         expect(updatesDe('payments')).toEqual([]);
+    });
+});
+
+// ─── Reglas del 2026-10-06 ───────────────────────────────────────────────────
+
+const PEND_DE = (id: string, amount: number, concept: string, atleta: string | null, due = '2026-10-05') => ({
+    id, amount, concept, due_date: due, child_id: 'child-1', atleta,
+});
+
+describe('monto: abono, menor de la cuenta y mayor', () => {
+    const p = PEND('oct', 180000);
+    it('menor y ≥ 20 % → abono en revisión en ESE cobro', () => {
+        expect(decidirPorMonto(p, 36000, [p], 'x')).toMatchObject({ decision: 'abono_en_revision', pago: { id: 'oct' } });
+    });
+    it('menor al 20 % → al buzón, sin cobro', () => {
+        const d = decidirPorMonto(p, 25000, [p], 'x');
+        expect(d.decision).toBe('monto_distinto');
+        expect(d.pago).toBeUndefined();
+    });
+    it('MAYOR → al buzón con la sugerencia (varios meses o hermanos)', () => {
+        const d = decidirPorMonto(p, 360000, [p], 'x');
+        expect(d.decision).toBe('monto_distinto');
+        expect(d.pago).toBeUndefined();
+        expect(d.motivo).toContain('2 cobros de 180000');
+        const otro = PEND('nov', 90000);
+        expect(decidirPorMonto(p, 270000, [p, otro], 'x').motivo).toContain('suma de los 2 cobros');
+    });
+    it('igual o ilegible → en revisión normal', () => {
+        expect(decidirPorMonto(p, 180000, [p], 'x').decision).toBe('en_revision');
+        expect(decidirPorMonto(p, null, [p], 'x').decision).toBe('en_revision');
+    });
+});
+
+describe('varios cobros: desempate por lo que dijo la familia', () => {
+    const sofiaOct = PEND_DE('aaaabbbb-1111-2222-3333-444455556666', 180000, 'Mensualidad 10/2026 - SOFIA PEREZ GOMEZ', 'SOFIA PEREZ GOMEZ');
+    const juanOct = PEND_DE('ccccdddd-1111-2222-3333-444455556666', 180000, 'Mensualidad 10/2026 - JUAN PEREZ GOMEZ', 'JUAN PEREZ GOMEZ');
+    const sofiaSep = PEND_DE('eeeeffff-1111-2222-3333-444455556666', 180000, 'Mensualidad 09/2026 - SOFIA PEREZ GOMEZ', 'SOFIA PEREZ GOMEZ', '2026-09-05');
+    const base = {
+        familia: { tipo: 'identificado', parentId: 'parent-1' } as const,
+        ocr: OCR, destinoDeLaEscuela: true, yaUsadoEn: null, pagadosQueCubren: [] as PagoRegistrado[],
+        pendientes: [sofiaOct, juanOct, sofiaSep],
+    };
+
+    it('la ref. del texto precargado de /p/:token manda', () => {
+        const d = decidirRecuperacion({ ...base, textos: ['Hola, envío el comprobante de pago de Mensualidad 10/2026 - JUAN PEREZ GOMEZ (octubre 2026) de Juan. (ref. ccccdddd)'] });
+        expect(d).toMatchObject({ decision: 'en_revision', pago: { id: juanOct.id } });
+    });
+
+    it('nombre del deportista + mes en el pie de foto', () => {
+        const d = decidirRecuperacion({ ...base, textos: ['pago de sofi... Sofia octubre'] });
+        expect(d).toMatchObject({ decision: 'en_revision', pago: { id: sofiaOct.id } });
+        expect(d.motivo).toContain('nombre');
+    });
+
+    it('lo que lee el OCR en la descripción del comprobante también cuenta', () => {
+        // `procesarComprobanteRecuperado` agrega `ocr.description` a los textos.
+        const d = decidirRecuperacion({ ...base, textos: [undefined, 'MENSUALIDAD SEPTIEMBRE SOFIA'] });
+        expect(d).toMatchObject({ decision: 'en_revision', pago: { id: sofiaSep.id } });
+    });
+
+    it('el apellido compartido no desempata; sin nada distintivo queda en el buzón', () => {
+        expect(decidirRecuperacion({ ...base, textos: ['pago perez gomez'] }).decision).toBe('varios_cobros');
+        expect(decidirRecuperacion({ ...base, textos: ['octubre'] }).decision).toBe('varios_cobros'); // 2 de octubre
+        expect(decidirRecuperacion({ ...base, textos: [] }).decision).toBe('varios_cobros');
+    });
+
+    it('elegido por pista pero por MENOS → abono en revisión de ese cobro', () => {
+        const d = decidirRecuperacion({ ...base, ocr: { ...OCR, amount: 90000 }, textos: ['juan'] });
+        expect(d).toMatchObject({ decision: 'abono_en_revision', pago: { id: juanOct.id } });
+    });
+
+    it('desempatarCobro y mesesMencionados', () => {
+        expect(desempatarCobro([sofiaOct, juanOct], ['Juan'])?.pago.id).toBe(juanOct.id);
+        expect(desempatarCobro([sofiaOct, juanOct], ['hola'])).toBeNull();
+        expect(Array.from(mesesMencionados('pago 09/2026 y octubre'))).toEqual(expect.arrayContaining([9, 10]));
+    });
+});
+
+describe('familia sin cuenta: cobros por la ficha', () => {
+    const base = {
+        ocr: OCR, destinoDeLaEscuela: true, yaUsadoEn: null, pagadosQueCubren: [] as PagoRegistrado[],
+    };
+    it('con fichas del teléfono → mismas reglas (en revisión / varios / ya registrado)', () => {
+        const familia = { tipo: 'sin_cuenta', childIds: ['child-9'] } as const;
+        expect(decidirRecuperacion({ ...base, familia, pendientes: [PEND('a', 180000)] }).decision).toBe('en_revision');
+        expect(decidirRecuperacion({ ...base, familia, pendientes: [PEND('a', 180000), PEND('b', 180000)] }).decision).toBe('varios_cobros');
+        expect(decidirRecuperacion({ ...base, familia, pagadosQueCubren: [REG({})], pendientes: [] }).decision).toBe('ya_registrado');
+    });
+    it('sin fichas → al buzón como antes', () => {
+        expect(decidirRecuperacion({ ...base, familia: { tipo: 'sin_cuenta' }, pendientes: [PEND('a', 180000)] }).decision).toBe('familia_sin_cuenta');
+    });
+    it('el filtro de payments usa child_id y unregistered_athlete_id, no parent_id', () => {
+        expect(filtroDeFamilia({ childIds: ['c1', 'c2'], unregisteredIds: ['u1'] }))
+            .toBe('child_id.in.(c1,c2),unregistered_athlete_id.in.(u1)');
+        expect(filtroDeFamilia({})).toBeNull();
+    });
+});
+
+describe('sin pendientes: pista de otro mes ya pagado', () => {
+    it('lo dice en el motivo, sin tocar ningún cobro', () => {
+        const d = decidirRecuperacion({
+            familia: { tipo: 'identificado', parentId: 'parent-1' }, ocr: OCR, destinoDeLaEscuela: true, yaUsadoEn: null,
+            pagadosQueCubren: [], pendientes: [], registrados: [REG({ payment_date: '2026-09-02', concept: 'Mensualidad 09/2026' })],
+        });
+        expect(d.decision).toBe('sin_pendientes');
+        expect(d.motivo).toContain('Mensualidad 09/2026');
+        expect(d.pago).toBeUndefined();
+    });
+});
+
+describe('esRecuperable (--reprocesar)', () => {
+    const f = (status: string, error_message: string | null) => ({ status, error_message, media_id: 'm' });
+    it('sin --reprocesar: solo lo nunca leído', () => {
+        expect(esRecuperable(f('ignored', 'bot_apagado'), false)).toBe(true);
+        expect(esRecuperable(f('pending', null), false)).toBe(true);
+        expect(esRecuperable(f('ignored', 'recuperado: varios_cobros — x'), false)).toBe(false);
+        expect(esRecuperable(f('ignored', 'sin pagos pendientes'), false)).toBe(false);
+    });
+    it('con --reprocesar: el buzón resoluble, nunca lo que ya está en un cobro', () => {
+        for (const d of ['familia_sin_cuenta', 'varios_cobros', 'monto_distinto', 'sin_pendientes', 'sin_familia']) {
+            expect(esRecuperable(f('ignored', `recuperado: ${d} — x`), true)).toBe(true);
+        }
+        expect(esRecuperable(f('ignored', 'sin pagos pendientes'), true)).toBe(true);
+        expect(esRecuperable(f('done', 'recuperado: en_revision — x'), true)).toBe(false);
+        expect(esRecuperable(f('ignored', 'recuperado: ya_registrado — x'), true)).toBe(false);
+        expect(esRecuperable(f('ignored', 'recuperado: no_es_comprobante — x'), true)).toBe(false);
+        expect(esRecuperable({ status: 'ignored', error_message: 'bot_apagado', media_id: null }, true)).toBe(false);
+    });
+});
+
+describe('recuperarFilaDeCola con las reglas nuevas (efectos)', () => {
+    it('familia sin cuenta con ficha: estampa en revisión el cobro del hijo; no responde ni aprueba', async () => {
+        state.porTelefono = { estado: 'debe_registrarse' };
+        state.fichas = [{ id: 'child-9', parent_id: null, parent_phone_temp: '300 123 4567' }];
+        state.pendientes = [{ ...PEND('p-hijo', 180000), child_id: 'child-9' }];
+        const r = await recuperarFilaDeCola({ ...FILA }, WA, { aplicar: true, ocrFn, cache: {} });
+        expect(r.decision).toBe('en_revision');
+        expect(r.pago?.id).toBe('p-hijo');
+        const pago = updatesDe('payments');
+        expect(pago).toHaveLength(1);
+        expect(pago[0].values.status).toBe('awaiting_approval');
+        expect(evaluar).not.toHaveBeenCalled();
+        expect(enviar).not.toHaveBeenCalled();
+        expect(correo).not.toHaveBeenCalled();
+        expect(updatesDe('whatsapp_inbound_queue').at(-1)!.values).toMatchObject({ status: 'done', result_ref_id: 'p-hijo', matched_child_id: 'child-9' });
+    });
+
+    it('abono: queda awaiting_approval con lo leído; NUNCA partial ni amount_paid (eso es aprobar)', async () => {
+        ocrFn.mockImplementationOnce(() => Promise.resolve({ ...OCR, amount: 90000 }));
+        const r = await recuperarFilaDeCola({ ...FILA }, WA, { aplicar: true, ocrFn, cache: {} });
+        expect(r.decision).toBe('abono_en_revision');
+        const v = updatesDe('payments')[0].values;
+        expect(v.status).toBe('awaiting_approval');
+        expect(v.ocr_amount).toBe(90000);
+        expect(v).not.toHaveProperty('amount_paid');
+        expect(evaluar).not.toHaveBeenCalled();
+        expect(enviar).not.toHaveBeenCalled();
+    });
+
+    it('varios cobros resueltos por un mensaje de la familia cerca de la foto (simulación: no escribe)', async () => {
+        state.pendientes = [
+            PEND_DE('aaaabbbb-0000-0000-0000-000000000000', 180000, 'Mensualidad 10/2026 - SOFIA PEREZ', 'SOFIA PEREZ'),
+            PEND_DE('ccccdddd-0000-0000-0000-000000000000', 180000, 'Mensualidad 10/2026 - JUAN PEREZ', 'JUAN PEREZ'),
+        ];
+        state.mensajes = [{ text_body: 'este es el de Juan', created_at: FILA.created_at }];
+        const r = await recuperarFilaDeCola({ ...FILA }, WA, { aplicar: false, ocrFn, cache: {} });
+        expect(r.decision).toBe('en_revision');
+        expect(r.pago?.id).toBe('ccccdddd-0000-0000-0000-000000000000');
+        expect(ops.filter((o) => o.op !== 'select')).toEqual([]);
+        expect(enviar).not.toHaveBeenCalled();
+
+        // Sin mensajes, la descripción que lee el OCR también desempata.
+        state.mensajes = [];
+        ocrFn.mockImplementationOnce(() => Promise.resolve({ ...OCR, description: 'MENSUALIDAD SOFIA' }));
+        const r2 = await recuperarFilaDeCola({ ...FILA }, WA, { aplicar: false, ocrFn, cache: {} });
+        expect(r2.pago?.id).toBe('aaaabbbb-0000-0000-0000-000000000000');
+        expect(ops.filter((o) => o.op !== 'select')).toEqual([]);
     });
 });

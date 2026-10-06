@@ -11,6 +11,7 @@ import { Trophy, Plus, TrendingUp, Minus, Equal, Trash2, Pencil } from 'lucide-r
 import { MatchResultFormDialog } from '@/components/coach/MatchResultFormDialog';
 import { CompetitionResultFormDialog } from '@/components/coach/CompetitionResultFormDialog';
 import { CompetitionResultsList } from '@/components/coach/CompetitionResultsList';
+import { LevelProgressionPanel } from '@/components/coach/LevelProgressionPanel';
 import { useToast } from '@/hooks/use-toast';
 import {
   AlertDialog,
@@ -267,6 +268,9 @@ export default function ResultsPage() {
           Registrar Resultado
         </Button>
       </div>
+
+      {/* Ascensos por puntaje (F-F): no depende del equipo seleccionado. */}
+      <LevelProgressionPanel />
 
       <Card>
         <CardHeader>

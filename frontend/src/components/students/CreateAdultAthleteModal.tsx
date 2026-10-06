@@ -39,6 +39,9 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
+import {
+  FirstPaymentModeSection, FirstPaymentChoice, DEFAULT_FIRST_PAYMENT_CHOICE,
+} from '@/components/students/FirstPaymentModeSection';
 import { calcFirstPayment, applyDiscount, formatCOP } from '@/lib/prorationUtils';
 import { PhoneInput } from '@/components/ui/phone-input';
 
@@ -59,6 +62,7 @@ interface PlanOption {
   price: number;
   duration_days: number;
   registration_fee: number | null; // offering_plans.registration_fee (D17) — null = sin inscripción
+  insurance_fee: number | null;    // offering_plans.insurance_fee (F-B) — null = sin seguro
 }
 
 interface Branch { id: string; name: string; }
@@ -87,11 +91,14 @@ interface ProrationCardProps {
   discountPct: number;
   onDiscountChange: (pct: number) => void;
   registrationFee?: number;
+  insuranceFee?: number;
+  /** Clases restantes (F7) elegido: el detalle del ciclo lo muestra FirstPaymentModeSection. */
+  hideCycleDetail?: boolean;
 }
 
 // ─── Proration Card ───────────────────────────────────────────────────────────
 
-function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscountChange, registrationFee = 0 }: ProrationCardProps) {
+function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscountChange, registrationFee = 0, insuranceFee = 0, hideCycleDetail = false }: ProrationCardProps) {
   const [discountEnabled, setDiscountEnabled] = useState(false);
 
   if (!startDate || !monthlyFee) return null;
@@ -134,8 +141,18 @@ function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscount
         </div>
       )}
 
+      {/* ── Seguro de accidentes (F-B) — cobro único aparte, categoría 'seguro'.
+          El BFF no lo repite si el atleta ya tiene un seguro de los últimos 12
+          meses en la escuela: por eso el texto dice "si no tiene uno vigente". ── */}
+      {insuranceFee > 0 && (
+        <div className="flex justify-between rounded-md bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900 px-2.5 py-1.5 text-sm">
+          <span className="text-sky-700 dark:text-sky-400">Seguro de accidentes (si no tiene uno vigente)</span>
+          <span className="font-bold text-sky-700 dark:text-sky-400">{formatCOP(insuranceFee)}</span>
+        </div>
+      )}
+
       {/* ── Prorated ── */}
-      {billing.billing_cycle_type === 'prorated' && (
+      {!hideCycleDetail && billing.billing_cycle_type === 'prorated' && (
         <div className="space-y-1 text-muted-foreground">
           {calc.isFullMonth ? (
             <p>Inscripción el 1° del mes — mes completo.</p>
@@ -158,7 +175,7 @@ function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscount
       )}
 
       {/* ── Fixed calendar ── */}
-      {billing.billing_cycle_type === 'fixed_calendar' && (
+      {!hideCycleDetail && billing.billing_cycle_type === 'fixed_calendar' && (
         <div className="space-y-1 text-muted-foreground">
           <div className="flex justify-between">
             <span>Monto:</span>
@@ -172,7 +189,7 @@ function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscount
       )}
 
       {/* ── Rolling 30 ── */}
-      {billing.billing_cycle_type === 'rolling_30' && (
+      {!hideCycleDetail && billing.billing_cycle_type === 'rolling_30' && (
         <div className="space-y-1 text-muted-foreground">
           <div className="flex justify-between">
             <span>Monto:</span>
@@ -283,6 +300,11 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
   const [selectedOfferingId, setSelectedOfferingId] = useState('');
   const [selectedPlanPrice, setSelectedPlanPrice] = useState(0);
   const [selectedPlanRegistrationFee, setSelectedPlanRegistrationFee] = useState(0);
+  const [selectedPlanInsuranceFee, setSelectedPlanInsuranceFee] = useState(0);
+  // Alta a mitad de mes por clases restantes (F7). Flag por escuela, leído aparte
+  // para que una base sin la columna no tumbe la lectura de billing.
+  const [remainingClassesEnabled, setRemainingClassesEnabled] = useState(false);
+  const [firstPayment, setFirstPayment] = useState<FirstPaymentChoice>(DEFAULT_FIRST_PAYMENT_CHOICE);
   const [startDate, setStartDate]             = useState(() => todayColombia());
   const [monthlyFee, setMonthlyFee]           = useState('');
   const [discountPct, setDiscountPct]         = useState(0);
@@ -313,7 +335,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
 
     Promise.all([
       supabase.from('teams').select('id, name, sport, price_monthly').eq('school_id', schoolId).eq('status', 'active').order('name'),
-      supabase.from('offering_plans').select('id, name, price, duration_days, registration_fee, offering_id, offerings(id, name)').eq('school_id', schoolId).eq('is_active', true).order('sort_order'),
+      supabase.from('offering_plans').select('id, name, price, duration_days, registration_fee, insurance_fee, offering_id, offerings(id, name)').eq('school_id', schoolId).eq('is_active', true).order('sort_order'),
       supabase.from('school_branches').select('id, name').eq('school_id', schoolId).order('name'),
       supabase.from('school_settings').select('payment_cutoff_day, billing_cycle_type').eq('school_id', schoolId).maybeSingle(),
     ]).then(([teamsRes, plansRes, branchesRes, settingsRes]) => {
@@ -326,12 +348,17 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
         price:         Number(row.price),
         duration_days: row.duration_days,
         registration_fee: row.registration_fee != null ? Number(row.registration_fee) : null,
+        insurance_fee: row.insurance_fee != null ? Number(row.insurance_fee) : null,
       }));
       setPlans(flatPlans);
       setBranches((branchesRes.data as Branch[]) ?? []);
       if (settingsRes.data) {
         setBilling(settingsRes.data as BillingSettings);
       }
+    });
+    supabase.from('school_settings').select('remaining_classes_billing_enabled').eq('school_id', schoolId).maybeSingle()
+      .then(({ data, error }) => {
+        setRemainingClassesEnabled(!error && !!(data as any)?.remaining_classes_billing_enabled);
     });
   }, [open, schoolId]);
 
@@ -354,6 +381,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
       setSelectedOfferingId('');
       setSelectedPlanPrice(0);
       setSelectedPlanRegistrationFee(0);
+      setSelectedPlanInsuranceFee(0);
       return;
     }
     const p = plans.find(p => p.plan_id === planId);
@@ -361,6 +389,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
       setSelectedOfferingId(p.offering_id);
       setSelectedPlanPrice(p.price);
       setSelectedPlanRegistrationFee(p.registration_fee ?? 0);
+      setSelectedPlanInsuranceFee(p.insurance_fee ?? 0);
     }
   };
 
@@ -372,7 +401,8 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
     setFoundProfile(null);
     setBranchId('none'); setTeamId('none');
     setSelectedPlanId('none'); setSelectedOfferingId('');
-    setSelectedPlanPrice(0); setSelectedPlanRegistrationFee(0);
+    setSelectedPlanPrice(0); setSelectedPlanRegistrationFee(0); setSelectedPlanInsuranceFee(0);
+    setFirstPayment(DEFAULT_FIRST_PAYMENT_CHOICE);
     setStartDate(todayColombia());
     setMonthlyFee('');
     setDiscountPct(0);
@@ -440,6 +470,18 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
   };
 
   // ── Inscribir / Registrar ──────────────────────────────────────────────────
+  // F7: la opción solo existe con ciclo fijo + flag + plan mensual. Sin eso el
+  // payload no lleva first_payment_mode y el BFF cobra exactamente como siempre.
+  const selectedPlanOption = plans.find(p => p.plan_id === selectedPlanId);
+  const showFirstPaymentMode = remainingClassesEnabled
+    && billing.billing_cycle_type === 'fixed_calendar'
+    && !!selectedPlanOption && (selectedPlanOption.duration_days ?? 30) >= 28;
+  const firstPaymentPayload = showFirstPaymentMode
+    ? (firstPayment.mode === 'remaining_classes'
+        ? { first_payment_mode: 'remaining_classes', classes_remaining: firstPayment.classesRemaining, partial_due: firstPayment.partialDue }
+        : { first_payment_mode: 'full_month' })
+    : {};
+
   const handleEnroll = async () => {
     if (!uFullName.trim() && !foundProfile) {
       toast({ title: 'Nombre requerido', variant: 'destructive' }); return;
@@ -470,6 +512,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
           start_date:       startDate,
           monthly_fee:      monthlyFee ? fee : null,
           discount_pct:     discountPct > 0 ? discountPct : undefined,
+          ...firstPaymentPayload,
           dorsal:           uDorsal.trim() || null,
         }, { 'x-school-id': schoolId });
 
@@ -495,6 +538,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
           start_date:       startDate,
           monthly_fee:      monthlyFee ? fee : null,
           discount_pct:     discountPct > 0 ? discountPct : undefined,
+          ...firstPaymentPayload,
           send_invite:      sendInviteEmail && !!uEmail.trim(),
         }, { 'x-school-id': schoolId });
 
@@ -834,7 +878,20 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
               discountPct={discountPct}
               onDiscountChange={setDiscountPct}
               registrationFee={selectedPlanRegistrationFee}
+              insuranceFee={selectedPlanInsuranceFee}
+              hideCycleDetail={showFirstPaymentMode && firstPayment.mode === 'remaining_classes'}
             />
+            {showFirstPaymentMode && (
+              <FirstPaymentModeSection
+                schoolId={schoolId}
+                planId={selectedPlanId}
+                startDate={startDate}
+                monthlyFee={Number(monthlyFee) || 0}
+                discountPct={discountPct}
+                value={firstPayment}
+                onChange={setFirstPayment}
+              />
+            )}
           </Section>
         </div>
 

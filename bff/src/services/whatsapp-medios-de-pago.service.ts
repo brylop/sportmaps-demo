@@ -10,14 +10,17 @@
  * Devuelve hasta tres caminos, y siempre al menos uno:
  *
  *  1. Transferencia a las cuentas de la escuela (si las tiene cargadas).
- *  2. Pagar en línea desde la app.
+ *  2. Pagar en línea: el link de pago de la escuela (tipo 'payment_link' en
+ *     payment_accounts, p.ej. Wompi de Dynasty) o, si no tiene, desde la app.
  *  3. Mandar el comprobante **por acá mismo** — que es el que la gente no
  *     descubre sola y el que menos fricción tiene: ya está en el chat.
  */
 
 import { supabase } from '../config/supabase';
 import { normalizeDestination } from './receipt-verdict';
-import { cuentaAplicaA, parseCuentasDePago, type CategoriaCobro } from './payment-accounts';
+import {
+    AVISO_LINK_DE_PAGO, TEXTO_BOTON_LINK_DE_PAGO, cuentaAplicaA, linkDePago, parseCuentasDePago, type CategoriaCobro,
+} from './payment-accounts';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
 
@@ -30,7 +33,16 @@ const TIPO_LEGIBLE: Record<string, string> = {
 
 export interface MediosDePago {
     cuentas: { tipo: string; titular: string | null; numero: string }[];
+    /** El link de pago de la escuela si tiene uno; si no, la sección de pagos de la app. */
     enlace_para_pagar: string;
+    /**
+     * Link de pago genérico de la escuela (payment_accounts type 'payment_link'),
+     * o null. Se separa de `enlace_para_pagar` para que la página pública y el
+     * correo lo muestren como botón propio sin confundirlo con /my-payments.
+     */
+    link_de_pago: string | null;
+    /** Solo si hay link: qué hacer con él (va al modelo del bot tal cual). */
+    instrucciones_del_enlace: string | null;
     puede_enviar_comprobante_por_whatsapp: boolean;
 }
 
@@ -53,6 +65,7 @@ export async function mediosDePago(
     opts: { categoria?: CategoriaCobro | null } = {},
 ): Promise<MediosDePago> {
     const cuentas: MediosDePago['cuentas'] = [];
+    let link: string | null = null;
 
     // `account_holder` NO existe (la columna es `bank_account_holder`). Con ella
     // en el select la consulta fallaba entera, `cfg` llegaba null y el bot nunca
@@ -81,6 +94,9 @@ export async function mediosDePago(
             cuentas.push({ tipo, titular: (titular as string) ?? c.account_holder ?? null, numero: n });
         };
 
+        // parseCuentasDePago ya deja afuera los links de pago: una URL no es una
+        // cuenta para transferir. El link se lee aparte.
+        link = linkDePago(c.payment_accounts, opts.categoria ?? null);
         const lista = parseCuentasDePago(c.payment_accounts);
         // Las restringidas que no aplican se marcan como vistas ANTES de leer las
         // columnas sueltas: si alguna espejara esa llave, no se cuela por ahí.
@@ -103,9 +119,13 @@ export async function mediosDePago(
         agregar('Bre-B', c.breb_key);
     }
 
+    // Con link de pago, ese es el enlace para pagar en línea (Dynasty: el bot
+    // mandaba a /my-payments, que pide login, teniendo un link de Wompi que no).
     return {
         cuentas,
-        enlace_para_pagar: `${FRONTEND_URL}/my-payments`,
+        enlace_para_pagar: link ?? `${FRONTEND_URL}/my-payments`,
+        link_de_pago: link,
+        instrucciones_del_enlace: link ? `${TEXTO_BOTON_LINK_DE_PAGO}. ${AVISO_LINK_DE_PAGO}.` : null,
         puede_enviar_comprobante_por_whatsapp: true,
     };
 }

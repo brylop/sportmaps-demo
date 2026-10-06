@@ -417,7 +417,7 @@ describe('el pago vuelve a ser facturable, con una referencia DISTINTA', () => {
         }];
         tablas.profiles = [{
             id: ACTOR, full_name: 'Ana Gómez', document_type: 'CC', document_number: '4736509',
-            billing_address: 'Calle 1', billing_city_dane: '11001',
+            billing_address: 'Calle 1', billing_city_dane: '11001', email: 'ana@ejemplo.co',
         }];
 
         const r2 = await emitInvoiceForPayment(PAGO);

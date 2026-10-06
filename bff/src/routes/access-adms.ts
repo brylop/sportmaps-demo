@@ -4,6 +4,7 @@ import { supabase } from '../config/supabase';
 import fs from 'fs';
 import path from 'path';
 import { checkInPresenceFromEvent } from './attendance';
+import { accessEventDecisionFields, notifyOwnerDayNotAllowedOnce, resolveEntryDayWarning } from '../utils/planDayRules';
 
 const router = Router();
 
@@ -259,7 +260,64 @@ async function isStaff(schoolId: string, userId: string): Promise<boolean> {
   return value;
 }
 
-async function validateAccess(schoolId: string, zkPin: string, direction: 'entry' | 'exit'): Promise<{
+// ─── Comprobante pendiente cuenta como pagado (F-D, migración 20261005214253) ─
+// school_settings.pending_proof_counts_as_paid (default false). Con el flag, un
+// atleta con expires_at vencido pero con un comprobante enviado y sin resolver
+// (awaiting_approval / glosado) entra mientras la escuela lo revisa. Caché como
+// getHourBankSettings: corta antes de tocar la base para toda escuela sin flag.
+// Si la columna aún no existe (BFF desplegado antes de la migración), el select
+// falla → false → comportamiento de hoy.
+const pendingProofSettingCache = new Map<string, { value: boolean; at: number }>();
+
+export async function getPendingProofCountsAsPaid(schoolId: string): Promise<boolean> {
+  const cached = pendingProofSettingCache.get(schoolId);
+  if (cached && Date.now() - cached.at < DEVICE_CACHE_TTL_MS) return cached.value;
+
+  const { data, error } = await supabase
+    .from('school_settings')
+    .select('pending_proof_counts_as_paid')
+    .eq('school_id', schoolId)
+    .maybeSingle();
+
+  const value = !error && data?.pending_proof_counts_as_paid === true;
+  pendingProofSettingCache.set(schoolId, { value, at: Date.now() });
+  return value;
+}
+
+export function invalidatePendingProofSettingCache(schoolId?: string): void {
+  if (schoolId) pendingProofSettingCache.delete(schoolId);
+  else pendingProofSettingCache.clear();
+}
+
+async function enrollmentHasPendingProof(enrollmentId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('enrollment_has_pending_proof', { p_enrollment_id: enrollmentId });
+  if (error) {
+    console.warn('[ADMS] enrollment_has_pending_proof falló, se deniega como antes:', error.message);
+    return false;
+  }
+  return data === true;
+}
+
+// Modo de vigencia de la escuela (school_settings.enrollment_validity_mode).
+// 'calendar_month_end' (Dreamers): la inscripción vence a fin de mes y el 1–5 es
+// ventana de pago, así que `expires_at` ya no decide el acceso — lo decide el
+// pago vencido (y el bloqueo físico lo hace access-auto-block.job).
+const validityModeCache = new Map<string, { value: string; at: number }>();
+
+async function getEnrollmentValidityMode(schoolId: string): Promise<string> {
+  const cached = validityModeCache.get(schoolId);
+  if (cached && Date.now() - cached.at < DEVICE_CACHE_TTL_MS) return cached.value;
+  const { data } = await supabase
+    .from('school_settings')
+    .select('enrollment_validity_mode')
+    .eq('school_id', schoolId)
+    .maybeSingle();
+  const value = (data as any)?.enrollment_validity_mode === 'calendar_month_end' ? 'calendar_month_end' : 'rolling';
+  validityModeCache.set(schoolId, { value, at: Date.now() });
+  return value;
+}
+
+export async function validateAccess(schoolId: string, zkPin: string, direction: 'entry' | 'exit', occurredAt?: string): Promise<{
   granted: boolean;
   reason?: string;
   userId?: string;
@@ -267,6 +325,11 @@ async function validateAccess(schoolId: string, zkPin: string, direction: 'entry
   childId?: string;
   userName?: string;
   enrollmentId?: string;
+  /** 'pending_proof': entró con expires_at vencido por comprobante en revisión (F-D). */
+  note?: 'pending_proof';
+  // D11b (F-F): advertencia sin negar el paso — p. ej. entró un día que su plan
+  // no permite. Nunca convierte granted en false (el F22 ya decidió local).
+  policyWarning?: 'day_not_allowed';
 }> {
   const pin = parseInt(zkPin) || 0;
 
@@ -361,7 +424,21 @@ async function validateAccess(schoolId: string, zkPin: string, direction: 'entry
     };
   }
 
-  if (enrollment.expires_at && enrollment.expires_at < today) {
+  // F-D: con pending_proof_counts_as_paid, un comprobante en revisión cuenta
+  // como pagado → no se deniega por vencida. El chequeo de pago de abajo sigue
+  // corriendo (un 'overdue' más reciente igual deniega). Escuelas sin el flag:
+  // ni una consulta extra fuera de la caché, mismo resultado que antes.
+  let note: 'pending_proof' | undefined;
+  if (
+    enrollment.expires_at && enrollment.expires_at < today
+    && await getPendingProofCountsAsPaid(schoolId)
+    && await enrollmentHasPendingProof(enrollment.id)
+  ) {
+    note = 'pending_proof';
+  }
+
+  if (enrollment.expires_at && enrollment.expires_at < today && !note
+      && (await getEnrollmentValidityMode(schoolId)) !== 'calendar_month_end') {
     return {
       granted: false,
       reason: 'enrollment_expired',
@@ -393,6 +470,12 @@ async function validateAccess(schoolId: string, zkPin: string, direction: 'entry
     };
   }
 
+  // Días permitidos del plan (D9/D11b, utils/planDayRules.ts): la entrada
+  // queda CONCEDIDA igual — el F22 ya dejó pasar con su base local y el BFF no
+  // controla la puerta. Solo se registra policy_warning y se avisa al owner.
+  // Caché de 60 s por inscripción; NULL en el plan = sin advertencia.
+  const policyWarning = await resolveEntryDayWarning(enrollment.id, occurredAt);
+
   return {
     granted: true,
     userId: mapping.userId ?? undefined,
@@ -400,6 +483,8 @@ async function validateAccess(schoolId: string, zkPin: string, direction: 'entry
     childId: mapping.childId ?? undefined,
     userName,
     enrollmentId: enrollment.id,
+    ...(note ? { note } : {}),
+    ...(policyWarning ? { policyWarning } : {}),
   };
 }
 
@@ -423,6 +508,7 @@ type HourBankSettings = {
   entryGraceMinutes: number;
   exitGraceMinutes: number;
   reentryMergeMinutes: number;
+  billingRounding: 'none' | 'hour_up';
 };
 const hourBankSettingsCache = new Map<string, { value: HourBankSettings; at: number }>();
 
@@ -432,7 +518,7 @@ export async function getHourBankSettings(schoolId: string): Promise<HourBankSet
 
   const { data } = await supabase
     .from('school_settings')
-    .select('hours_plan_enabled, hours_entry_grace_minutes, hours_exit_grace_minutes, hours_reentry_merge_minutes')
+    .select('hours_plan_enabled, hours_entry_grace_minutes, hours_exit_grace_minutes, hours_reentry_merge_minutes, hours_billing_rounding')
     .eq('school_id', schoolId)
     .maybeSingle();
 
@@ -441,6 +527,7 @@ export async function getHourBankSettings(schoolId: string): Promise<HourBankSet
     entryGraceMinutes:    data?.hours_entry_grace_minutes ?? 15,
     exitGraceMinutes:     data?.hours_exit_grace_minutes ?? 15,
     reentryMergeMinutes:  data?.hours_reentry_merge_minutes ?? 15,
+    billingRounding:      data?.hours_billing_rounding === 'hour_up' ? 'hour_up' : 'none',
   };
 
   hourBankSettingsCache.set(schoolId, { value, at: Date.now() });
@@ -452,6 +539,38 @@ export function invalidateHourBankSettingsCache(schoolId?: string): void {
   else hourBankSettingsCache.clear();
 }
 
+// Única fórmula del cobro vive en SQL (hour_bank_billed_minutes) — el cron de
+// auto-cierre la usa directo; acá se llama por RPC para que los tres sitios que
+// facturan (cron, cierre por reingreso, corrección manual) no puedan divergir.
+// null = la RPC falló: el caller NO debe facturar con un valor inventado.
+export async function computeHourBankBilledMinutes(
+  rawMinutes: number,
+  settings: Pick<HourBankSettings, 'entryGraceMinutes' | 'exitGraceMinutes' | 'billingRounding'>
+): Promise<number | null> {
+  const { data, error } = await supabase.rpc('hour_bank_billed_minutes', {
+    p_raw_minutes: rawMinutes,
+    p_entry_grace: settings.entryGraceMinutes,
+    p_exit_grace:  settings.exitGraceMinutes,
+    p_rounding:    settings.billingRounding,
+  });
+  if (error || typeof data !== 'number') {
+    console.error('[ADMS] banco de horas: hour_bank_billed_minutes falló:', error?.message ?? `respuesta inesperada ${data}`);
+    return null;
+  }
+  return data;
+}
+
+// Mismo formato que formatMinutes del frontend y format_hour_bank_minutes() de SQL.
+export function formatHourBankMinutes(mins: number): string {
+  const abs = Math.abs(Math.round(mins));
+  const h = Math.floor(abs / 60);
+  const m = abs % 60;
+  const sign = mins < 0 ? '-' : '';
+  if (h === 0) return `${sign}${m} min`;
+  if (m === 0) return `${sign}${h}h`;
+  return `${sign}${h}h ${m}min`;
+}
+
 // Cierra una visita 'open': suma sus segmentos, aplica gracia de entrada/salida
 // (D-9: los minutos de gracia NO se facturan, "sin que coma del banco"), y hace
 // el único UPDATE real vía move_hour_bank (F2, FOR UPDATE). No toca
@@ -460,8 +579,7 @@ export function invalidateHourBankSettingsCache(schoolId?: string): void {
 async function closeHourBankVisit(
   visitId: string,
   schoolId: string,
-  entryGraceMinutes: number,
-  exitGraceMinutes: number,
+  settings: Pick<HourBankSettings, 'entryGraceMinutes' | 'exitGraceMinutes' | 'billingRounding'>,
   athleteName: string
 ): Promise<void> {
   const { data: visit } = await supabase
@@ -485,9 +603,11 @@ async function closeHourBankVisit(
     return sum + Math.round((new Date(s.exited_at).getTime() - new Date(s.entered_at).getTime()) / 60000);
   }, 0);
 
-  const billedMinutes = Math.max(0, rawMinutes - entryGraceMinutes - exitGraceMinutes);
   const lastExit = segments[segments.length - 1].exited_at;
   if (!lastExit) return; // el último segmento sigue abierto — no hay nada que cerrar todavía
+
+  const billedMinutes = await computeHourBankBilledMinutes(rawMinutes, settings);
+  if (billedMinutes === null) return; // no facturar con un valor inventado — el cron lo reintenta
 
   // F4: si había una reserva confirmada para el día de esta visita, se libera
   // junto con el consumo real en la misma llamada a move_hour_bank — evita que
@@ -533,7 +653,7 @@ async function closeHourBankVisit(
         school_id: schoolId,
         type:     'hour_bank_overage',
         title:    '⏱️ Banco de horas — saldo excedido',
-        message:  `${athleteName} consumió ${billedMinutes} min y dejó el banco del período en ${available} min (excedido).`,
+        message:  `${athleteName} consumió ${formatHourBankMinutes(billedMinutes)} y dejó el banco del período en ${formatHourBankMinutes(available)} (excedido).`,
         link:     '/school/access-control',
       });
     }
@@ -572,40 +692,12 @@ async function trackHourBankVisit(
         .maybeSingle();
 
       if (lastSeg && !lastSeg.exited_at) {
-        const gapMinutes = (new Date(occurredAt).getTime() - new Date(lastSeg.entered_at).getTime()) / 60000;
-        if (gapMinutes <= settings.reentryMergeMinutes) {
-          return; // ya está adentro (entrada duplicada/glitch de lector) — no crear nada
-        }
-        // La huella de salida nunca sonó y ya pasó la ventana de gracia — no
-        // sabemos la hora real de salida (pudo irse por otra puerta, el lector
-        // de salida pudo fallar). Antes de este fix, cualquier reentrada acá se
-        // ignoraba sin mirar el hueco, así que una ausencia real de horas
-        // quedaba fusionada en silencio y se facturaba completa al cerrar. Se
-        // manda a pending_review (mismo criterio que auto_close_stale_hour_bank_visits
-        // para "nunca marcó salida", migración 20260827174032) — sin facturar a
-        // ciegas — y esta entrada abre una visita nueva más abajo.
-        await supabase
-          .from('hour_bank_visits')
-          .update({
-            status: 'pending_review',
-            auto_closed: true,
-            ended_at: lastSeg.entered_at,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', openVisit.id);
-
-        const { data: school } = await supabase.from('schools').select('owner_id').eq('id', schoolId).maybeSingle();
-        if (school?.owner_id) {
-          await supabase.from('notifications').insert({
-            user_id:  school.owner_id,
-            school_id: schoolId,
-            type:     'hour_bank_pending_review',
-            title:    '⏱️ Banco de horas — visita a revisar',
-            message:  `${athleteName} volvió a marcar entrada sin haber marcado salida la vez anterior. Revisa y ajusta la hora real de salida.`,
-            link:     '/school/access-control',
-          });
-        }
-        // No return: sigue abajo y abre una visita nueva con esta entrada.
+        // Ya está adentro y no marcó salida: se conserva la PRIMERA entrada y
+        // esta se ignora, sin importar cuánto haya pasado (el lector la dejó
+        // pasar porque no hace antipassback). La visita la cierra una salida +
+        // ventana de reingreso, o el cron de auto-cierre (tope de duración u
+        // hora de cierre → pending_review).
+        return;
       } else if (lastSeg && lastSeg.exited_at) {
         const gapMinutes = (new Date(occurredAt).getTime() - new Date(lastSeg.exited_at).getTime()) / 60000;
         if (gapMinutes <= settings.reentryMergeMinutes) {
@@ -618,7 +710,7 @@ async function trackHourBankVisit(
         }
         // Fuera de la ventana: esa visita ya terminó de verdad — cerrarla (con
         // billing) antes de abrir la nueva.
-        await closeHourBankVisit(openVisit.id, schoolId, settings.entryGraceMinutes, settings.exitGraceMinutes, athleteName);
+        await closeHourBankVisit(openVisit.id, schoolId, settings, athleteName);
       }
     }
 
@@ -764,7 +856,7 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
         continue;
       }
 
-      const validation = await validateAccess(schoolId, zkPin, eventDirection);
+      const validation = await validateAccess(schoolId, zkPin, eventDirection, occurredAt);
 
       // Dedup: índice único (device_id, zk_user_id, occurred_at). Si el lector
       // reenvía el backlog, ON CONFLICT DO NOTHING evita inflar access_events.
@@ -779,11 +871,12 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
           unregistered_athlete_id: validation.unregisteredAthleteId || null,
           child_id:                validation.childId || null,
           direction:               eventDirection,
-          access_granted:          validation.granted,
-          denial_reason:           validation.granted ? null : validation.reason,
+          // access_granted / denial_reason / policy_warning (D11b: este último
+          // solo cuando hay advertencia — un evento normal no lo escribe).
+          ...accessEventDecisionFields(validation),
           check_in_method:         checkInMethod,
           zk_user_id:              parseInt(zkPin) || null,
-          raw_event:               { sn, line, table },
+          raw_event:               { sn, line, table, ...(validation.note ? { note: validation.note } : {}) },
           occurred_at:             occurredAt,
         }, { onConflict: 'device_id,zk_user_id,occurred_at', ignoreDuplicates: true })
         .select('id');
@@ -805,6 +898,22 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
             message:  `${validation.userName ?? 'Un miembro'} intentó ingresar pero tiene el pago vencido.`,
             link:     '/school/access-control',
           });
+        }
+      }
+
+      // D11b (F-F): entró un día que su plan no permite — acceso concedido,
+      // queda policy_warning en el evento y un aviso al owner, uno por atleta
+      // por día. Nunca debe romper el ATTLOG en vivo.
+      if (eventRecord && validation.granted && validation.policyWarning === 'day_not_allowed' && validation.enrollmentId) {
+        try {
+          await notifyOwnerDayNotAllowedOnce({
+            schoolId,
+            enrollmentId: validation.enrollmentId,
+            athleteName: validation.userName ?? 'Un atleta',
+            occurredAt,
+          });
+        } catch (err) {
+          console.error('[ADMS] día no permitido: error avisando al owner', err);
         }
       }
 

@@ -10,6 +10,7 @@ import { resolveSchoolBranding } from '../utils/schoolBrandingResolver';
 import { buildBrandedEmail } from '../utils/emailLayout';
 import { generateSaasInvoicePdf, SaasInvoiceForPdf, loadActivePaymentAccounts } from './saasInvoicePdf.service';
 import { ACADEMY_PLAN_NAMES, invoiceLines } from './saasInvoicing.constants';
+import { loadSchoolAdmins } from './schoolAdmins';
 
 const INVOICE_BUCKET = 'saas-invoices';
 
@@ -42,25 +43,7 @@ async function ensurePdf(invoice: SaasInvoiceForPdf & { id: string; school_id: s
     return objectPath;
 }
 
-/** Admins activos de la escuela (owner/admin) con email/teléfono, para email+push+wa.me. */
-async function loadSchoolAdmins(schoolId: string) {
-    const { data: members } = await supabase
-        .from('school_members')
-        .select('profile_id')
-        .eq('school_id', schoolId)
-        .eq('status', 'active')
-        .in('role', ['owner', 'admin']);
-
-    const profileIds = [...new Set((members || []).map((m: any) => m.profile_id).filter(Boolean))];
-    if (profileIds.length === 0) return [];
-
-    const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, phone')
-        .in('id', profileIds);
-
-    return profiles || [];
-}
+// loadSchoolAdmins vive en ./schoolAdmins (compartido con otros avisos al owner/admin).
 
 /** Correos adicionales configurados en "Precio negociado" (school_subscriptions.billing_emails) — se SUMAN a los admins, no los reemplazan. */
 async function loadBillingEmails(schoolId: string): Promise<string[]> {

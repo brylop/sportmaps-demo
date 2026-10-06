@@ -32,6 +32,7 @@
  *     corta el script con error antes de mandar nada.
  */
 
+import { supabase } from '../src/config/supabase';
 import 'dotenv/config';
 import { enviarEstadoDeCuenta } from '../src/services/estado-de-cuenta.service';
 import { APP_PUBLICA_PROD, BFF_PUBLICO_PROD } from '../src/utils/url-publica-familias';
@@ -58,11 +59,27 @@ async function main() {
     }
     const canal = arg('--canal') === 'auto' ? 'auto' : 'correo';
 
+    // --nota-solo-para-envio-del YYYY-MM-DD: la nota va solo a quien recibió el
+    // estado de cuenta ese día (email_sends), no a los destinatarios nuevos.
+    let notaSoloPara: Set<string> | null = null;
+    const diaNota = arg('--nota-solo-para-envio-del');
+    if (diaNota) {
+        const desde = new Date(`${diaNota}T00:00:00-05:00`).toISOString();
+        const hasta = new Date(new Date(desde).getTime() + 86_400_000).toISOString();
+        const { data, error } = await supabase.from('email_sends').select('to_email')
+            .eq('school_id', schoolId).like('email_type', 'estado_de_cuenta%').eq('status', 'sent')
+            .gte('created_at', desde).lt('created_at', hasta).limit(5000);
+        if (error) throw new Error(`No se pudo leer el envío del ${diaNota}: ${error.message}`);
+        notaSoloPara = new Set(((data ?? []) as any[]).flatMap((r) => String(r.to_email).split(',')).map((e) => e.trim().toLowerCase()).filter(Boolean));
+        console.log(`Nota solo para ${notaSoloPara.size} correos que recibieron el envío del ${diaNota}.`);
+    }
+
     const resumen = await enviarEstadoDeCuenta(schoolId, {
         modo: reenvio ? 'reenvio' : 'manual',
         aplicar,
         canal,
         nota: arg('--nota') ?? null,
+        notaSoloPara,
         appUrl: frontend,
         bffUrl: bff,
     });

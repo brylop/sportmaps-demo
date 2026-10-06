@@ -82,6 +82,13 @@ commitea el archivo correspondiente. `npm run migrations:check` no lo detecta
 `schema_migrations` son dos historias que hay que cruzar a mano cuando algo no
 cuadra, nunca asumir que una implica la otra.
 
+### `execute_sql` (MCP) devuelve solo el resultado de la ÚLTIMA sentencia
+
+Si mandas varias sentencias en una sola llamada (`select …; select …;`), la respuesta trae
+únicamente las filas de la última. Las anteriores corren pero no se ven: una verificación con
+tres `select` en un solo `execute_sql` parece "vacía" o "bien" sin serlo. Una consulta por
+llamada, o unir los resultados con `union all` / un solo `select` con subconsultas.
+
 ### `school_athletes.enrollment_id` era `NULL` para atletas de plan sin equipo
 
 La vista trae `enrollment_id` del lateral `te` (inscripción **con equipo**, `team_id IS NOT NULL`)
@@ -264,6 +271,31 @@ En Safari, el nombre del ícono sale de `apple-mobile-web-app-title` (o del
 
 Y una vez agregado, el ícono queda **congelado** — no se actualiza nunca.
 
+### Pizarra táctica: cuatro trampas de gestos y de pantalla (2026-10-05)
+
+Salieron de la auditoría del editor (`docs/specs/pizarra-tactica-material-y-3d.md` §9).
+
+- **Un `<rect>`/`<path>` con relleno captura los toques de todo lo que tenga debajo.** La capa SVG
+  de dibujo (z-40) va encima de los jugadores (HTML, z-10): una zona grande tapaba a los pines
+  cubiertos (tocarla la borraba y no se podían arrastrar). Para una figura rellena, el relleno va
+  con `pointer-events-none` y el borde interactivo es un trazo ancho transparente con
+  `pointerEvents="stroke"`.
+- **Un gesto táctil puede terminar en `pointercancel`/`lostpointercapture`, no en `pointerup`.**
+  Una llamada, un gesto del sistema de iOS o un segundo dedo lo interrumpen; si el estado del gesto
+  (vista previa, trazo, handle arrastrado) solo se limpia en `pointerup`, queda colgado hasta el
+  próximo toque. Ambos eventos burbujean: alcanza con escucharlos en el `<svg>` contenedor.
+- **iOS Safari hace zoom de página al enfocar un campo con fuente < 16 px.** Los campos
+  compactos de la pizarra (etiqueta del jugador) tienen que subir a 16 px **solo en táctil**:
+  `[@media(pointer:coarse)]:text-[16px]` (por tipo de puntero, no por ancho de pantalla: una
+  tableta de 1024 px también es táctil).
+- **`<Select>` de Radix: elegir el valor ya seleccionado no dispara `onValueChange`**, y un
+  `<Select>` sin `value` (no controlado) puede mostrar un nombre que ya no existe. Controlarlo
+  (`value={id ?? ''}`) y ofrecer una acción explícita para "volver a cargar".
+- **Las preferencias de vista de la pizarra viven en `localStorage`** (`tactical_board_pin_style`,
+  `tactical_board_pin_photos`) y se borran al cerrar sesión (`AuthContext.tsx`). La de las fotos
+  **tiene que** borrarse: la foto de un menor no puede quedar prendida para el siguiente que use
+  el dispositivo. Una clave nueva de la pizarra se agrega a esa misma lista.
+
 ---
 
 ## Correo
@@ -420,3 +452,65 @@ Dos consecuencias que no se deducen leyendo el código:
 - **La puerta le sigue abriendo al pausado**: `access-auto-block.job.ts` bloquea
   por `payments.status = 'overdue'`, y un pausado nunca llega a overdue. Sale de
   la lista de asistencia pero el torno lo deja entrar. Deliberado, no un olvido.
+
+## Control de acceso y torniquetes (ZKTeco)
+
+### Render pone a Cloudflare delante: `clientIp()` con `req.ip` rechaza todo
+
+Todo el tráfico a Render pasa primero por Cloudflare — **también el `*.onrender.com` crudo**, sin ningún
+dominio nuestro (`curl -I` devuelve `Server: cloudflare` + `CF-RAY` junto a `x-render-origin-server: Render`).
+No es un toggle de nuestro DNS ni algo que se pueda apagar. La cadena real son **dos saltos**
+(cliente → Cloudflare → Render → app) y `app.set('trust proxy', 1)` descuenta solo uno: `req.ip` es la IP de
+borde de Cloudflare, que **rota por request** (rangos 172.64.0.0/13, 104.16.0.0/13).
+
+Costó ~24 h con los 4 torniquetes (GYM RM + Dreamers) en 403: el commit `42fef4d` cambió `clientIp()` de
+`X-Forwarded-For[0]` (spoofeable) a `req.ip` — fix de seguridad bien intencionado, mal calibrado. El log lo
+delata: el mismo serial aparece con 5–6 IPs distintas en minutos, todas de Cloudflare.
+
+**Regla:** detrás de Render, la IP del cliente sale de `cf-connecting-ip` (Cloudflare lo sobrescribe, el
+cliente no lo puede falsificar), con `req.ip` solo de respaldo para local/dev. Aplica a `clientIp()`
+(`access-adms.ts`) y a `requestIp()` del WS (`bridgeWsServer.ts`, que además no pasa por `trust proxy`).
+Nunca contar saltos de `X-Forwarded-For` a mano.
+
+### Tres señales de vida distintas, solo una dice si la asistencia fluye
+
+Un lector de Dreamers puede verse «en línea» y llevar días sin capturar nada:
+
+| Señal | Qué prueba | Qué NO prueba |
+|---|---|---|
+| `bridge_heartbeats` (`door-bridge`) | el canal de **comandos** del bridge llega al backend | que la captura de asistencia funcione — es otro hilo |
+| `turnstile_devices.last_seen_at` | lo que el script decida mandar (hoy: latido cada 60 s por el WebSocket —con respaldo HTTP si el BFF es viejo— **solo mientras `live_capture` está conectado**) | nada, si el script no manda heartbeat: se mueve solo al marcar |
+| `access_events` recientes | hubo marcaciones | que hubiera gente marcando |
+
+Pasó de verdad: LECTOR ENTRADA ~3 días sin capturar con `bridge_heartbeats` verde. La alerta vigente es
+`alert_offline_access_devices()` (pg_cron, 5 min, 15+ min sin `last_seen_at`) — depende de que el script
+mande el heartbeat. **No quitar `send_heartbeat()` del loop de captura** (la primera versión con
+`live_capture` lo dejó definido pero sin llamar).
+
+### `get_attendance()` trae TODA la tabla (y deshabilitar el lector para leerla deja el torniquete sin aceptar huellas)
+
+`pyzk` no filtra por fecha: con ~48.000 registros acumulados un solo `get_attendance()` tarda ~47 s. La
+primera versión del script lo envolvía en `disable_device()` — **el lector no acepta huellas todo ese
+tiempo** — y el sondeo viejo (cada 5 s) lo dejaba deshabilitado cerca de la mitad del día. `get_attendance()`
+no deshabilita nada por sí mismo; el barrido de respaldo ya no lo hace (`SPORTMAPS_BRIDGE_SWEEP_DISABLE_DEVICE=1`
+lo restaura; leer con el equipo habilitado no se había probado en el MB360). La captura normal debe ser
+`live_capture`, que **tampoco** debe llamar `disable_device()`. Y el barrido no se puede espaciar a «una vez
+al día»: el backend descarta ATTLOG de más de 3 h (`ADMS_BACKLOG_SKIP_HOURS`), así que solo recupera algo si
+corre al menos cada ~2 h (hoy cada 30 min).
+
+### Un cursor que no avanza se traba para siempre
+
+El guard «más de N eventos nuevos de golpe, no envío nada» tiene que **avanzar el cursor** igual: si no,
+vuelve a ver los mismos eventos en cada ciclo y nunca sale solo (LECTOR ENTRADA, 102 eventos > 20). Y el
+cursor compara contra el **reloj del lector**: una marcación con `timestamp ≤ cursor` se descarta — por eso
+el barrido reenvía también una ventana anterior (los duplicados los absorbe el índice único
+`device_id+zk_user_id+occurred_at`, y los efectos —banco de horas, notificaciones, asistencia— solo corren
+en fila nueva).
+
+### `apply_migration` rechaza `DROP FUNCTION` sobre una función viva
+
+Reemplazar una RPC viva con `DROP FUNCTION` + `CREATE FUNCTION` fue rechazado cuatro veces en el aviso de
+permiso del tool, aunque se aprobara en el chat. `CREATE OR REPLACE FUNCTION` (misma firma) pasó a la
+primera **y además conserva el ACL** (`service_role` solo) y no deja ventana sin función. Usar
+`CREATE OR REPLACE` siempre que la firma y el tipo de retorno no cambien; el `DROP` solo si de verdad
+cambian. Para una migración grande, partirla (aditiva primero, reemplazos después) la hace revisable.

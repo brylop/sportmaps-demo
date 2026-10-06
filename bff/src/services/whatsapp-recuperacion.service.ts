@@ -44,23 +44,33 @@ import {
 } from './whatsapp-receipt-matching.service';
 import crypto from 'node:crypto';
 import {
-    destinoEsDeLaEscuela, estamparComprobante, obtenerArchivoDeFila, type FilaCola,
+    destinoEsDeLaEscuela, estamparComprobante, obtenerArchivoDeFila, elegirPorPista, pistaDesdeTextos,
+    type FilaCola,
 } from '../jobs/whatsapp-queue.job';
+import { normalizarFrase } from './whatsapp-reglas-turno';
 import type { WhatsAppIntegration } from './whatsapp.service';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
-/** Quién mandó el comprobante, ya resuelto. */
+/**
+ * Quién mandó el comprobante, ya resuelto.
+ *
+ * `sin_cuenta` lleva las fichas cuyo acudiente tiene ese número (2026-10-06):
+ * el cobro de esas familias no tiene `parent_id` —está en `child_id` o en
+ * `unregistered_athlete_id`, ver los cuatro caminos del pagador—, así que se
+ * busca por la ficha. Sin fichas, queda como antes (al buzón).
+ */
 export type Familia =
     | { tipo: 'identificado'; parentId: string }
-    | { tipo: 'sin_cuenta' }
+    | { tipo: 'sin_cuenta'; childIds?: string[]; unregisteredIds?: string[] }
     | { tipo: 'ambiguo' }
     | { tipo: 'staff' }
     | { tipo: 'desconocido' };
 
 export type DecisionRecuperacion =
     | 'en_revision'          // estampado en el cobro, awaiting_approval
-    | 'ya_registrado'        // ese pago ya está en la base: no se toca nada
+    | 'abono_en_revision'    // igual, pero el comprobante es MENOR al cobro: la escuela lo aprueba como abono
+    | 'ya_registrado'       // ese pago ya está en la base: no se toca nada
     | 'no_es_comprobante'
     | 'es_listado'
     | 'destino_ajeno'
@@ -159,6 +169,10 @@ export function decidirRecuperacion(e: {
     yaUsadoEn: { paymentId: string | null; por: 'referencia' | 'imagen' } | null;
     pagadosQueCubren: PagoRegistrado[];
     pendientes: PagoPendiente[];
+    /** Todos los pagos ya registrados de la familia (para el motivo de «sin pendientes»). */
+    registrados?: PagoRegistrado[];
+    /** Pie de foto, mensajes de la familia cerca de la foto y descripción del comprobante. */
+    textos?: (string | null | undefined)[];
 }): { decision: DecisionRecuperacion; motivo: string; pago?: PagoPendiente; pagoRegistradoId?: string | null } {
     const { ocr } = e;
     if (ocr.isReceipt === false) return { decision: 'no_es_comprobante', motivo: 'el archivo no es un comprobante de pago' };
@@ -177,7 +191,9 @@ export function decidirRecuperacion(e: {
     }
 
     const f = e.familia;
-    if (f.tipo === 'sin_cuenta') return { decision: 'familia_sin_cuenta', motivo: 'familia de la escuela sin cuenta: aplicarlo a mano' };
+    if (f.tipo === 'sin_cuenta' && !(f.childIds?.length || f.unregisteredIds?.length)) {
+        return { decision: 'familia_sin_cuenta', motivo: 'familia de la escuela sin cuenta y sin ficha con ese número: aplicarlo a mano' };
+    }
     if (f.tipo === 'ambiguo') return { decision: 'numero_ambiguo', motivo: 'el número está en más de una cuenta' };
     if (f.tipo === 'staff') return { decision: 'enviado_por_equipo', motivo: 'lo mandó alguien que administra la escuela (puede ser de otra familia): aplicarlo a mano' };
     if (f.tipo === 'desconocido') return { decision: 'sin_familia', motivo: 'el número no está en ninguna ficha de la escuela' };
@@ -203,29 +219,168 @@ export function decidirRecuperacion(e: {
     }
 
     const match = resolverPago(e.pendientes, monto);
-    if (match.tipo === 'sin_pendientes') return { decision: 'sin_pendientes', motivo: 'la familia no tiene cobros pendientes' };
-    if (match.tipo === 'unico' && monto !== null && match.pago.amount !== monto) {
-        // El worker lo aplicaría igual (y le contaría al acudiente a qué cobro
-        // fue, para que corrija). Acá no hay conversación: un abono de $75.000
-        // estampado en una mensualidad de $210.000 se aprueba con un clic como
-        // pagada completa. Medido en la simulación de Dynasty del 2026-10-05:
-        // 4 de 9 «único pendiente» tenían otro monto ($25.000 y $170.000 contra
-        // un mismo cobro de $180.000). Lo decide una persona.
+    if (match.tipo === 'sin_pendientes') {
+        // ¿Otro mes ya pagado por el mismo valor? No se marca ya_registrado
+        // (está fuera de la ventana de fechas), pero se le dice a la escuela.
+        const parecido = monto !== null
+            ? (e.registrados ?? []).find((p) => Number(p.amount) === monto || Number(p.amount_paid) === monto)
+            : undefined;
         return {
-            decision: 'monto_distinto',
-            motivo: `leído ${monto}; el único cobro pendiente es ${describirPago(match.pago)}`,
+            decision: 'sin_pendientes',
+            motivo: 'la familia no tiene cobros pendientes'
+                + (parecido ? `; ya hay un pago ${parecido.status} de ${monto} (${parecido.concept ?? parecido.id}, ${parecido.payment_date ?? parecido.updated_at?.slice(0, 10) ?? 's/f'}): ¿otro mes?` : ''),
+            pagoRegistradoId: parecido?.id ?? null,
         };
     }
-    if (match.tipo === 'unico' || match.tipo === 'por_monto') {
+    if (match.tipo === 'unico') return decidirPorMonto(match.pago, monto, e.pendientes, 'el único cobro pendiente');
+    if (match.tipo === 'por_monto') {
         return { decision: 'en_revision', motivo: `a ${describirPago(match.pago)}`, pago: match.pago };
     }
-    const opciones = match.tipo === 'combinacion' ? match.pagos : match.opciones;
+    if (match.tipo === 'combinacion') {
+        return { decision: 'varios_cobros', motivo: `parece cubrir ${match.pagos.length} cobros a la vez: aplicarlo a mano` };
+    }
+
+    // El monto no desempata: ¿la familia dijo a cuál iba? (2026-10-06)
+    // Candidatos: los del mismo monto si hay varios; si ninguno coincide, todos.
+    const exactos = monto !== null ? e.pendientes.filter((p) => p.amount === monto) : [];
+    const candidatos = exactos.length > 1 ? exactos : e.pendientes;
+    const elegido = desempatarCobro(candidatos, e.textos ?? []);
+    if (elegido) return decidirPorMonto(elegido.pago, monto, e.pendientes, `el cobro señalado ${elegido.via}`);
     return {
         decision: 'varios_cobros',
-        motivo: match.tipo === 'combinacion'
-            ? `parece cubrir ${opciones.length} cobros a la vez: aplicarlo a mano`
-            : `${e.pendientes.length} cobros pendientes y el monto no desempata`,
+        motivo: `${e.pendientes.length} cobros pendientes y ni el monto ni el chat desempatan: `
+            + candidatos.slice(0, 3).map(describirPago).join(' | '),
     };
+}
+
+/** Un comprobante por debajo de esto no se toma como abono: es otra cosa (o mal leído). */
+export const ABONO_MINIMO = 0.2;
+
+/**
+ * Ya hay UN cobro; falta ver si el monto le sirve.
+ *
+ *  - igual (o ilegible: lo marca el veredicto) → en revisión.
+ *  - MENOR y razonable (≥ 20 %) → en revisión como ABONO. Se estampa igual
+ *    que cualquier comprobante (`awaiting_approval`, `ocr_amount` = lo leído,
+ *    veredicto con MONTO_DIFIERE); al abrirlo, la pantalla de aprobación de la
+ *    escuela (ApprovePaymentMethodSheet) ve `ocr_amount < saldo` y propone sola
+ *    «Registrar abono» por ese valor → `partial` + `amount_paid`. Nunca se
+ *    escribe `partial` ni `amount_paid` desde acá: eso ES aprobar.
+ *  - menor al 20 % → buzón (lo típico: un comprobante de otra cosa, o mal leído).
+ *  - MAYOR → buzón, con la sugerencia: varios meses o hermanos en una sola
+ *    transferencia. Repartirlo es decisión de la escuela.
+ *
+ * Origen: simulación de Dynasty del 2026-10-05, 4 de 9 «único pendiente» por
+ * otro valor ($25.000 y $170.000 contra un cobro de $180.000).
+ */
+export function decidirPorMonto(
+    pago: PagoPendiente,
+    monto: number | null,
+    pendientes: PagoPendiente[],
+    cual: string,
+): { decision: DecisionRecuperacion; motivo: string; pago?: PagoPendiente } {
+    if (monto === null || monto === pago.amount) {
+        return { decision: 'en_revision', motivo: `a ${describirPago(pago)}${cual.startsWith('el único') ? '' : ` (${cual})`}`, pago };
+    }
+    if (monto < pago.amount) {
+        if (monto >= pago.amount * ABONO_MINIMO) {
+            return {
+                decision: 'abono_en_revision',
+                motivo: `abono de ${monto} (saldo ${pago.amount - monto}) a ${describirPago(pago)}${cual.startsWith('el único') ? '' : ` (${cual})`}`,
+                pago,
+            };
+        }
+        return { decision: 'monto_distinto', motivo: `leído ${monto}: menos del ${ABONO_MINIMO * 100} % de ${describirPago(pago)} (${cual})` };
+    }
+    return { decision: 'monto_distinto', motivo: `leído ${monto}: MAYOR que ${describirPago(pago)} (${cual}); ${sugerenciaMontoMayor(monto, pago, pendientes)}` };
+}
+
+/** Qué puede ser un comprobante mayor que el cobro, para el motivo del buzón. */
+export function sugerenciaMontoMayor(monto: number, pago: PagoPendiente, pendientes: PagoPendiente[]): string {
+    const suma = pendientes.reduce((s, p) => s + p.amount, 0);
+    if (pendientes.length > 1 && suma === monto) return `coincide con la suma de los ${pendientes.length} cobros pendientes`;
+    if (pago.amount > 0 && monto % pago.amount === 0) return `equivale a ${monto / pago.amount} cobros de ${pago.amount} (varios meses o hermanos)`;
+    return 'posible pago de varios meses o de hermanos';
+}
+
+// ─── Desempate por lo que dijo la familia ────────────────────────────────────
+
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
+    'septiembre', 'octubre', 'noviembre', 'diciembre'];
+/** Palabras de los conceptos que no nombran a nadie. */
+const NO_SON_NOMBRE = new Set(['mensualidad', 'inscripcion', 'matricula', 'pago', 'cobro', 'cuota', 'uniforme',
+    'del', 'los', 'las', 'mes', 'sub', 'categoria', 'plan', 'clase', 'clases', 'torneo', ...MESES]);
+
+/** Meses (1-12) que nombra un texto: «octubre», «10/2026», «oct». */
+export function mesesMencionados(texto: string): Set<number> {
+    const t = normalizarFrase(texto);
+    const meses = new Set<number>();
+    MESES.forEach((m, i) => { if (new RegExp(`\\b(${m}|${m.slice(0, 3)})\\b`).test(t)) meses.add(i + 1); });
+    for (const m of (texto || '').matchAll(/\b(0?[1-9]|1[0-2])\s*[/-]\s*(20\d{2})\b/g)) meses.add(Number(m[1]));
+    return meses;
+}
+
+/** El mes al que corresponde un cobro: el del concepto («10/2026», «octubre») o el del vencimiento. */
+export function mesDelCobro(p: PagoPendiente): number | null {
+    const delConcepto = mesesMencionados(p.concept ?? '');
+    if (delConcepto.size === 1) return Array.from(delConcepto)[0];
+    if (p.due_date && /^\d{4}-\d{2}/.test(p.due_date)) return Number(p.due_date.slice(5, 7));
+    return null;
+}
+
+/** Palabras del nombre del deportista: el de la ficha, o lo que sigue al « - » del concepto. */
+function nombreDe(p: PagoPendiente): string[] {
+    const crudo = p.atleta ?? (p.concept?.includes(' - ') ? p.concept.split(' - ').slice(1).join(' ') : '');
+    return normalizarFrase(crudo).split(' ').filter((w) => w.length >= 3 && !NO_SON_NOMBRE.has(w) && !/^\d+$/.test(w));
+}
+
+/**
+ * El cobro que señala el chat (pie de foto, mensajes de la familia cerca de la
+ * foto, descripción del comprobante), o null. En orden:
+ *
+ *  1. La referencia o el concepto anunciados (texto precargado de /p/:token) —
+ *     la misma regla que el worker (`elegirPorPista`).
+ *  2. El deportista: un nombre que distingue a un candidato de los demás (los
+ *     hermanos comparten apellido, así que cuenta lo que NO comparten).
+ *  3. El mes: «octubre», «10/2026».
+ *
+ * Solo elige si queda UNO. Lo que elige igual queda en revisión de la escuela.
+ */
+export function desempatarCobro(
+    candidatos: PagoPendiente[],
+    textos: (string | null | undefined)[],
+): { pago: PagoPendiente; via: string } | null {
+    if (candidatos.length === 0) return null;
+    const porPista = elegirPorPista(candidatos, pistaDesdeTextos(textos));
+    if (porPista) return { pago: porPista, via: 'por la referencia/concepto que anunció la familia' };
+
+    const todo = textos.filter(Boolean).join(' \n ');
+    if (!todo.trim()) return null;
+    const palabras = new Set(normalizarFrase(todo).split(' '));
+
+    let quedan = candidatos;
+    const via: string[] = [];
+    const nombres = candidatos.map(nombreDe);
+    // Cuenta la palabra que NO tienen todos (el apellido de los hermanos no
+    // separa a nadie; el nombre de pila sí). Dos cobros del mismo niño (meses
+    // distintos) quedan juntos y los separa el mes.
+    const deTodos = new Set(nombres[0].filter((w) => nombres.every((n) => n.includes(w))));
+    const nombrados = candidatos.filter((_, i) => nombres[i].some((w) => !deTodos.has(w) && palabras.has(w)));
+    if (nombrados.length > 0 && nombrados.length < candidatos.length) {
+        quedan = nombrados;
+        via.push('por el nombre del deportista');
+    }
+    if (quedan.length > 1) {
+        const meses = mesesMencionados(todo);
+        if (meses.size > 0) {
+            const delMes = quedan.filter((p) => { const m = mesDelCobro(p); return m !== null && meses.has(m); });
+            if (delMes.length > 0 && delMes.length < quedan.length) {
+                quedan = delMes;
+                via.push('por el mes');
+            }
+        }
+    }
+    return quedan.length === 1 && via.length > 0 ? { pago: quedan[0], via: via.join(' y ') } : null;
 }
 
 // ─── Cómo queda la fila de la cola ───────────────────────────────────────────
@@ -254,6 +409,7 @@ export function cierreDeFila(r: ResultadoRecuperacion, ahoraIso: string): Record
     };
     switch (r.decision) {
         case 'en_revision':
+        case 'abono_en_revision':
             return {
                 ...base, status: 'done', result_type: 'payment_receipt',
                 result_ref_id: r.pago?.id ?? null, matched_child_id: r.pago?.child_id ?? null,
@@ -317,12 +473,65 @@ export async function buscarComprobanteYaUsado(
  * produciría justo el doble pago que esto evita.
  */
 export async function pagosRegistradosDeLaFamilia(parentId: string, schoolId: string): Promise<PagoRegistrado[]> {
+    return pagosRegistradosDe(schoolId, { parentId, childIds: await hijosDelAcudiente(parentId, schoolId) });
+}
+
+/** Ids de los hijos del acudiente en la escuela. */
+async function hijosDelAcudiente(parentId: string, schoolId: string): Promise<string[]> {
     const { data: hijos } = await supabase.from('children').select('id')
         .eq('parent_id', parentId).eq('school_id', schoolId);
-    const ids = (hijos ?? []).map((h: any) => h.id as string);
-    const filtro = ids.length
-        ? `parent_id.eq.${parentId},child_id.in.(${ids.join(',')})`
-        : `parent_id.eq.${parentId}`;
+    return (hijos ?? []).map((h: any) => h.id as string);
+}
+
+/** Quién es la familia en la tabla `payments`: cualquiera de los cuatro caminos que tenga. */
+export interface LlavesDeFamilia { parentId?: string | null; childIds?: string[]; unregisteredIds?: string[] }
+
+/** Filtro `.or()` de PostgREST para las llaves; null si no hay ninguna. */
+export function filtroDeFamilia(k: LlavesDeFamilia): string | null {
+    const partes: string[] = [];
+    if (k.parentId) partes.push(`parent_id.eq.${k.parentId}`);
+    if (k.childIds?.length) partes.push(`child_id.in.(${k.childIds.join(',')})`);
+    if (k.unregisteredIds?.length) partes.push(`unregistered_athlete_id.in.(${k.unregisteredIds.join(',')})`);
+    return partes.length ? partes.join(',') : null;
+}
+
+/**
+ * Cobros pendientes de la familia por TODAS sus llaves (2026-10-06).
+ *
+ * `pagosPendientesDe` (la del worker) mira solo `parent_id`: el cobro de un
+ * hijo cargado por la escuela con `child_id` y sin `parent_id` no aparece, y
+ * el worker le contestó «no tienes cobros pendientes» a 7 familias el 06-oct.
+ * Acá se suman los de los hijos y, para familias sin cuenta, los de la ficha.
+ */
+export async function pendientesDeLaFamilia(
+    schoolId: string,
+    k: LlavesDeFamilia,
+    nombresSinRegistrar?: Map<string, string>,
+): Promise<PagoPendiente[]> {
+    const filtro = filtroDeFamilia(k);
+    if (!filtro) return [];
+    const { data, error } = await supabase.from('payments')
+        .select('id, amount, concept, due_date, child_id, unregistered_athlete_id, child:children(full_name)')
+        .eq('school_id', schoolId)
+        .in('status', ['pending', 'overdue'])
+        .or(filtro)
+        .order('due_date', { ascending: true })
+        .limit(50);
+    if (error || !data) return [];
+    return (data as any[]).map((p) => ({
+        id: p.id,
+        amount: Number(p.amount),
+        concept: p.concept ?? null,
+        due_date: p.due_date ?? null,
+        child_id: p.child_id ?? null,
+        atleta: p.child?.full_name ?? (p.unregistered_athlete_id ? nombresSinRegistrar?.get(p.unregistered_athlete_id) ?? null : null),
+    }));
+}
+
+/** Pagos ya registrados (cobrados, abonados o en revisión) por las llaves de la familia. */
+export async function pagosRegistradosDe(schoolId: string, k: LlavesDeFamilia): Promise<PagoRegistrado[]> {
+    const filtro = filtroDeFamilia(k);
+    if (!filtro) return [];
     const desde = new Date(Date.now() - 150 * DIA_MS).toISOString();
     const { data } = await supabase.from('payments')
         .select('id, amount, amount_paid, status, payment_date, updated_at, concept')
@@ -352,6 +561,10 @@ export interface EntradaComprobante {
     aplicar: boolean;
     queueId: string;
     log?: Logger;
+    /** Pie de foto y mensajes de la familia cerca de la foto: pista del cobro. */
+    textos?: (string | null | undefined)[];
+    /** Nombre de los deportistas sin registrar (id → nombre), para describir sus cobros. */
+    nombresSinRegistrar?: Map<string, string>;
     /** Inyectable para pruebas. */
     ocrFn?: (base64: string, mime: string) => Promise<OcrResult>;
 }
@@ -378,19 +591,33 @@ export async function procesarComprobanteRecuperado(e: EntradaComprobante): Prom
 
     let pendientes: PagoPendiente[] = [];
     let pagadosQueCubren: PagoRegistrado[] = [];
+    let registrados: PagoRegistrado[] = [];
+    let llaves: LlavesDeFamilia | null = null;
     if (parentId) {
-        const [pend, registrados] = await Promise.all([
-            pagosPendientesDe(parentId, e.schoolId),
-            pagosRegistradosDeLaFamilia(parentId, e.schoolId),
+        llaves = { parentId, childIds: await hijosDelAcudiente(parentId, e.schoolId) };
+    } else if (e.familia.tipo === 'sin_cuenta' && (e.familia.childIds?.length || e.familia.unregisteredIds?.length)) {
+        llaves = { childIds: e.familia.childIds, unregisteredIds: e.familia.unregisteredIds };
+    }
+    if (llaves) {
+        const [porLlaves, delWorker, regs] = await Promise.all([
+            pendientesDeLaFamilia(e.schoolId, llaves, e.nombresSinRegistrar),
+            // El del worker, por si algún día mira algo más que parent_id.
+            parentId ? pagosPendientesDe(parentId, e.schoolId) : Promise.resolve([] as PagoPendiente[]),
+            pagosRegistradosDe(e.schoolId, llaves),
         ]);
-        pendientes = pend;
+        const vistos = new Set<string>();
+        pendientes = [...porLlaves, ...delWorker].filter((p) => (vistos.has(p.id) ? false : (vistos.add(p.id), true)));
+        registrados = regs;
         pagadosQueCubren = pagosQueYaCubren(registrados, ocr.amount ?? null, fechaDeReferencia(ocr.date, e.fechaMensaje));
     }
 
-    const d = decidirRecuperacion({ familia: e.familia, ocr, destinoDeLaEscuela, yaUsadoEn, pagadosQueCubren, pendientes });
+    const d = decidirRecuperacion({
+        familia: e.familia, ocr, destinoDeLaEscuela, yaUsadoEn, pagadosQueCubren, pendientes, registrados,
+        textos: [...(e.textos ?? []), ocr.description],
+    });
     const resultado: ResultadoRecuperacion = { ...d, ocr, parentId };
 
-    if (d.decision !== 'en_revision' || !e.aplicar) return resultado;
+    if ((d.decision !== 'en_revision' && d.decision !== 'abono_en_revision') || !e.aplicar) return resultado;
 
     if (!e.storagePath) {
         // No debería pasar: aplicar siempre guarda el archivo antes.
@@ -462,6 +689,11 @@ export async function identificarFamilia(
         else if (r?.estado === 'ambiguo') familia = { tipo: 'ambiguo' };
         else familia = { tipo: 'desconocido' };
     }
+    if (familia.tipo === 'sin_cuenta') {
+        // La RPC solo dice «es familia»; las fichas dicen DE QUIÉN, para buscar
+        // sus cobros por child_id / unregistered_athlete_id.
+        return { tipo: 'sin_cuenta', ...(await fichasDelTelefono(schoolId, contactWaId, opciones.cache)) };
+    }
     if (familia.tipo !== 'desconocido') return familia;
 
     // Verificado por OTP desde este número (camino viejo del bot).
@@ -477,7 +709,11 @@ export async function identificarFamilia(
 /** Teléfonos de la escuela, leídos una vez por corrida. */
 export interface CacheEscuela {
     acudientesPorTel?: Map<string, Set<string>>;
-    fichasSinCuenta?: Set<string>;
+    /** Teléfono del acudiente en la ficha (`children.parent_phone_temp`) → hijos activos. */
+    hijosPorTelFicha?: Map<string, string[]>;
+    /** Teléfono de `unregistered_athletes` (acudiente o propio) → deportistas sin registrar activos. */
+    sinRegistrarPorTel?: Map<string, string[]>;
+    nombresSinRegistrar?: Map<string, string>;
     /** La carga en curso: con varias filas en paralelo se lee una sola vez. */
     cargando?: Promise<void>;
 }
@@ -487,9 +723,15 @@ function cargarCache(schoolId: string, cache: CacheEscuela): Promise<void> {
     return cache.cargando;
 }
 
+function agregar(m: Map<string, string[]>, tel: string, id: string) {
+    if (!/^3\d{9}$/.test(tel)) return; // un fijo no se cruza
+    if (!m.has(tel)) m.set(tel, []);
+    if (!m.get(tel)!.includes(id)) m.get(tel)!.push(id);
+}
+
 async function leerTelefonosDeLaEscuela(schoolId: string, cache: CacheEscuela): Promise<void> {
     const { data: hijos } = await supabase.from('children')
-        .select('parent_id, parent_phone_temp')
+        .select('id, parent_id, parent_phone_temp')
         .eq('school_id', schoolId).eq('is_active', true).limit(5000);
     const parentIds = Array.from(new Set((hijos ?? []).map((h: any) => h.parent_id).filter(Boolean))) as string[];
     const porTel = new Map<string, Set<string>>();
@@ -504,7 +746,43 @@ async function leerTelefonosDeLaEscuela(schoolId: string, cache: CacheEscuela): 
         }
     }
     cache.acudientesPorTel = porTel;
-    cache.fichasSinCuenta = new Set((hijos ?? []).map((h: any) => tel10(h.parent_phone_temp)).filter(Boolean));
+    const hijosPorTel = new Map<string, string[]>();
+    for (const h of (hijos ?? []) as any[]) if (h.id) agregar(hijosPorTel, tel10(h.parent_phone_temp), h.id);
+    cache.hijosPorTelFicha = hijosPorTel;
+
+    // Mismo filtro que `wa_es_familia_sin_registrar`: activos y sin perfil vinculado.
+    const { data: sinReg } = await supabase.from('unregistered_athletes')
+        .select('id, full_name, guardian_phone, phone')
+        .eq('school_id', schoolId).eq('is_active', true).is('linked_profile_id', null).limit(5000);
+    const sinRegPorTel = new Map<string, string[]>();
+    const nombres = new Map<string, string>();
+    for (const u of (sinReg ?? []) as any[]) {
+        if (!u.id) continue;
+        agregar(sinRegPorTel, tel10(u.guardian_phone), u.id);
+        agregar(sinRegPorTel, tel10(u.phone), u.id);
+        if (u.full_name) nombres.set(u.id, u.full_name);
+    }
+    cache.sinRegistrarPorTel = sinRegPorTel;
+    cache.nombresSinRegistrar = nombres;
+}
+
+/**
+ * Las fichas de la escuela cuyo acudiente tiene este número: hijos activos por
+ * `parent_phone_temp` y deportistas sin registrar por `guardian_phone`/`phone`.
+ * Últimos 10 dígitos y solo celulares, como `wa_identify_by_phone`.
+ */
+export async function fichasDelTelefono(
+    schoolId: string,
+    contactWaId: string,
+    cache: CacheEscuela = {},
+): Promise<{ childIds: string[]; unregisteredIds: string[] }> {
+    const t = tel10(contactWaId);
+    if (!/^3\d{9}$/.test(t)) return { childIds: [], unregisteredIds: [] };
+    await cargarCache(schoolId, cache);
+    return {
+        childIds: [...(cache.hijosPorTelFicha!.get(t) ?? [])],
+        unregisteredIds: [...(cache.sinRegistrarPorTel!.get(t) ?? [])],
+    };
 }
 
 /** Espejo de `wa_identify_by_phone` sin escrituras (ver `identificarFamilia`). */
@@ -515,7 +793,7 @@ async function identificarSoloLectura(schoolId: string, contactWaId: string, cac
     const ids = cache.acudientesPorTel!.get(t);
     if (ids && ids.size > 1) return { tipo: 'ambiguo' };
     if (ids && ids.size === 1) return { tipo: 'identificado', parentId: Array.from(ids)[0] };
-    if (cache.fichasSinCuenta!.has(t)) return { tipo: 'sin_cuenta' };
+    if (cache.hijosPorTelFicha!.has(t)) return { tipo: 'sin_cuenta' };
     // STABLE en la base: solo lee `unregistered_athletes`.
     const { data } = await supabase.rpc('wa_es_familia_sin_registrar', { p_school_id: schoolId, p_contact_wa_id: contactWaId });
     return data === true ? { tipo: 'sin_cuenta' } : { tipo: 'desconocido' };
@@ -526,11 +804,72 @@ async function identificarSoloLectura(schoolId: string, contactWaId: string, cac
 /** Filas que la recuperación toma: lo que nunca llegó a leerse. */
 export const MOTIVOS_RECUPERABLES = ['bot_apagado', 'contacto sin identificar'] as const;
 
+/**
+ * Con `--reprocesar` (2026-10-06): lo que una corrida anterior —o el worker—
+ * dejó en el buzón por algo que las reglas nuevas ya resuelven: familias sin
+ * cuenta (cobro por ficha), varios cobros (pista del chat), monto distinto
+ * (abono), sin pendientes (cobros por child_id) y sin familia (fichas sin
+ * registrar). Más las que el worker cerró con «sin pagos pendientes» mirando
+ * solo `parent_id`. Nada que haya quedado en un cobro (`en_revision`,
+ * `ya_registrado`, `done`) se vuelve a tomar.
+ */
+export const DECISIONES_REPROCESABLES = [
+    'familia_sin_cuenta', 'varios_cobros', 'monto_distinto', 'sin_pendientes', 'sin_familia',
+] as const;
+export const MOTIVOS_DEL_WORKER_REPROCESABLES = ['sin pagos pendientes'] as const;
+
+/** ¿Esta fila de la cola le toca a la recuperación? */
+export function esRecuperable(
+    fila: { status: string; error_message: string | null; media_id?: string | null },
+    reprocesar: boolean,
+): boolean {
+    if (!fila.media_id) return false;
+    if (fila.status === 'pending') return true;
+    if (fila.status !== 'ignored') return false;
+    const em = fila.error_message ?? '';
+    if ((MOTIVOS_RECUPERABLES as readonly string[]).includes(em)) return true;
+    if (!reprocesar) return false;
+    if ((MOTIVOS_DEL_WORKER_REPROCESABLES as readonly string[]).includes(em)) return true;
+    return DECISIONES_REPROCESABLES.some((d) => em.startsWith(`${PREFIJO_RECUPERADO} ${d} `));
+}
+
 export interface FilaParaRecuperar extends FilaCola {
     status: string;
     error_message: string | null;
     created_at: string;
     wa_timestamp: string | null;
+}
+
+/** Minutos alrededor de la foto en los que un mensaje de la familia cuenta como pista. */
+export const VENTANA_TEXTOS_MIN = 10;
+
+/**
+ * Lo que escribió la familia alrededor de la foto: el pie y sus mensajes
+ * ENTRANTES ±10 min (nombre del deportista, mes, el texto precargado de
+ * /p/:token con la ref. del cobro). Solo lectura. Si falla, sin pista.
+ */
+export async function textosCercanos(fila: FilaParaRecuperar): Promise<string[]> {
+    const textos: string[] = [];
+    if (fila.media_caption) textos.push(fila.media_caption);
+    try {
+        const { data: conv } = await supabase.from('whatsapp_conversations')
+            .select('id').eq('integration_id', fila.integration_id).eq('contact_wa_id', fila.wa_phone_number)
+            .maybeSingle();
+        const convId = (conv as any)?.id;
+        if (!convId) return textos;
+        // Las dos marcas son de llegada (`created_at`), como en el worker.
+        const base = new Date(fila.created_at).getTime();
+        if (Number.isNaN(base)) return textos;
+        const { data } = await supabase.from('whatsapp_messages')
+            .select('text_body, created_at')
+            .eq('conversation_id', convId)
+            .eq('direction', 'inbound')
+            .gte('created_at', new Date(base - VENTANA_TEXTOS_MIN * 60_000).toISOString())
+            .lte('created_at', new Date(base + VENTANA_TEXTOS_MIN * 60_000).toISOString())
+            .limit(30);
+        for (const m of (Array.isArray(data) ? data : []) as any[]) if (m?.text_body) textos.push(String(m.text_body));
+    } catch { /* sin pista */ }
+    return textos;
 }
 
 /** Minutos que la fila queda tomada mientras se procesa. */
@@ -603,6 +942,8 @@ export async function recuperarFilaDeCola(
             storagePath: archivo.storagePath,
             fechaMensaje: fila.wa_timestamp ?? fila.created_at,
             aplicar, queueId: fila.id, log: opciones.log, ocrFn: opciones.ocrFn,
+            textos: await textosCercanos(fila),
+            nombresSinRegistrar: opciones.cache?.nombresSinRegistrar,
         });
         await cerrarCon(r);
         return r;

@@ -143,7 +143,11 @@ export default function AccountingBudgetPage() {
                     <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
                         <PieChart className="h-7 w-7 text-primary" /> Presupuesto anual
                     </h1>
-                    <p className="text-muted-foreground">Define el presupuesto por categoría y compáralo con lo ejecutado.</p>
+                    <p className="text-muted-foreground">
+                        {canManage
+                            ? 'Define el presupuesto por categoría y compáralo con lo ejecutado.'
+                            : 'Presupuesto por categoría frente a lo ejecutado (solo lectura).'}
+                    </p>
                 </div>
                 <div className="flex items-end gap-2">
                     <div className="grid gap-1.5">
@@ -190,12 +194,20 @@ export default function AccountingBudgetPage() {
                                         <TableRow key={c.id}>
                                             <TableCell className="font-medium">{c.name}</TableCell>
                                             <TableCell>
-                                                <Input
-                                                    type="number" min="0" step="1000" inputMode="numeric" className="h-8"
-                                                    value={amounts[c.id] ?? ''}
-                                                    onChange={(e) => setAmounts((p) => ({ ...p, [c.id]: e.target.value }))}
-                                                    placeholder="0"
-                                                />
+                                                {/* El contador (solo lectura) ve el monto, no un campo
+                                                    editable que la base le iba a rechazar al guardar. */}
+                                                {canManage ? (
+                                                    <Input
+                                                        type="number" min="0" step="1000" inputMode="numeric" className="h-8"
+                                                        value={amounts[c.id] ?? ''}
+                                                        onChange={(e) => setAmounts((p) => ({ ...p, [c.id]: e.target.value }))}
+                                                        placeholder="0"
+                                                    />
+                                                ) : (
+                                                    <span className="text-sm" data-testid="budget-readonly">
+                                                        {amounts[c.id] ? formatCurrency(Number(amounts[c.id])) : '—'}
+                                                    </span>
+                                                )}
                                             </TableCell>
                                             <TableCell className="text-right">{formatCurrency(exec)}</TableCell>
                                             <TableCell>

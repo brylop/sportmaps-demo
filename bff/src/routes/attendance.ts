@@ -1978,9 +1978,23 @@ router.post('/facturar-fuera-de-plan', requireAuth, requireRole('owner', 'super_
           // cobro al mes siguiente, y este cargo es del mes que se está mirando.
           period_year:      year,
           period_month:     mon,
+          // F-E (B3/B7): categoría propia para que pagarlo NO extienda la
+          // vigencia del plan ni lo cuente open_month (requiere la migración
+          // de F-A), y exento de la unicidad por periodo para convivir con la
+          // mensualidad del mismo mes (antes chocaba 23505 en menores).
+          payment_category: 'excedente',
+          period_uniqueness_exempt: true,
         }).select('id').single();
 
         if (error) {
+          // B7: el SELECT de arriba no cierra la carrera (doble clic, dos
+          // pestañas). La cierra el índice único uniq_payment_out_of_plan_classes
+          // (migración 20261005214302): el segundo INSERT choca y se informa
+          // como ya facturado, no como error.
+          if ((error as any).code === '23505') {
+            omitidos.push({ athleteId: it.athleteId, motivo: it.motivo, razon: 'ya_facturado' });
+            continue;
+          }
           omitidos.push({ athleteId: it.athleteId, motivo: it.motivo, razon: 'error', detalle: error.message });
           continue;
         }

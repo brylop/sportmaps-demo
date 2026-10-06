@@ -55,6 +55,7 @@ import { TrialClassSelfModal } from '@/components/school/TrialClassSelfModal';
 import { HourBankBalanceCard } from '@/components/access/HourBankBalanceCard';
 import { CompactSessionSlot } from '@/components/booking/CompactSessionSlot';
 import { HourGridPicker } from '@/components/booking/HourGridPicker';
+import { WEEKDAY_LONG, dayNotAllowedMessage, describeAllowedDays, isDayAllowed, weekdayOfDateString } from '@/lib/school/levelProgression';
 
 // ─── Tipos de instalación ─────────────────────────────────────────────────────
 
@@ -864,6 +865,8 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [classTypeFilter, setClassTypeFilter] = useState<'all' | 'personal' | 'group'>('all');
+  // F-F (D9): días que permite el plan de ESTA inscripción; undefined = todos.
+  const planAllowedDays = data?.allowed_days_by_enrollment?.[enrollment.id];
 
   const allSessions = useMemo(() => {
     const sessions = data?.sessions ?? [];
@@ -1067,17 +1070,22 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
             {Array.from({ length: startPad }).map((_, i) => <div key={`p${i}`} />)}
             {days.map(day => {
               const dateStr = format(day, 'yyyy-MM-dd');
-              const hasSess = availableDates.has(dateStr);
+              // Días permitidos del plan (F-F, D9): fuera de ellos el día queda
+              // gris, tachado y con la explicación en el tooltip.
+              const dayBlocked = !isDayAllowed(planAllowedDays, dateStr);
+              const hasSess = availableDates.has(dateStr) && !dayBlocked;
               const isPast = isBefore(day, todayDate);
               const isToday_ = isToday(day);
               const isSelected = selectedDate === dateStr;
               return (
                 <button key={dateStr} disabled={!hasSess || isPast}
                   onClick={() => setSelectedDate(isSelected ? null : dateStr)}
+                  title={dayBlocked && !isPast ? `Tu plan no incluye los ${WEEKDAY_LONG[weekdayOfDateString(dateStr)]} (solo: ${describeAllowedDays(planAllowedDays!)})` : undefined}
                   className={`relative flex flex-col items-center justify-center py-2 mx-0.5 my-0.5 text-xs font-semibold rounded-lg transition-all
                     ${isSelected ? 'bg-primary text-primary-foreground shadow-md'
                       : hasSess && !isPast ? 'bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer'
                         : 'text-muted-foreground/30 cursor-default'}
+                    ${dayBlocked && !isPast ? 'line-through bg-muted/30' : ''}
                     ${isToday_ && !isSelected ? 'ring-1 ring-primary/50' : ''}`}
                 >
                   {format(day, 'd')}
@@ -1126,7 +1134,7 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
             </p>
             
             {bookingModeChoice === 'custom' ? (
-              <HourGridPicker groups={flexibleHourGridForDay} noCredits={noCredits} isBooking={isPending} onBook={setConfirming} />
+              <HourGridPicker groups={flexibleHourGridForDay} noCredits={noCredits} isBooking={isPending} onBook={setConfirming} allowedDays={planAllowedDays} />
             ) : (() => {
               const morning = groupedSessions.filter(g => parseInt(g[0].start_time.split(':')[0]) < 12);
               const afternoon = groupedSessions.filter(g => {
@@ -1145,7 +1153,7 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
                       </div>
                       <div className="space-y-2">
                         {morning.map(group => (
-                          <CompactSessionSlot key={group[0].id} sessions={group} noCredits={noCredits} isBooking={isPending} onBook={setConfirming} />
+                          <CompactSessionSlot key={group[0].id} sessions={group} noCredits={noCredits} isBooking={isPending} onBook={setConfirming} allowedDays={planAllowedDays} />
                         ))}
                       </div>
                     </div>
@@ -1159,7 +1167,7 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
                       </div>
                       <div className="space-y-2">
                         {afternoon.map(group => (
-                          <CompactSessionSlot key={group[0].id} sessions={group} noCredits={noCredits} isBooking={isPending} onBook={setConfirming} />
+                          <CompactSessionSlot key={group[0].id} sessions={group} noCredits={noCredits} isBooking={isPending} onBook={setConfirming} allowedDays={planAllowedDays} />
                         ))}
                       </div>
                     </div>
@@ -1173,7 +1181,7 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
                       </div>
                       <div className="space-y-2">
                         {evening.map(group => (
-                          <CompactSessionSlot key={group[0].id} sessions={group} noCredits={noCredits} isBooking={isPending} onBook={setConfirming} />
+                          <CompactSessionSlot key={group[0].id} sessions={group} noCredits={noCredits} isBooking={isPending} onBook={setConfirming} allowedDays={planAllowedDays} />
                         ))}
                       </div>
                     </div>
@@ -1288,7 +1296,10 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
                 },
                 onError: (err: any) => {
                   const body = err?.cause ?? err?.response?.data ?? {};
-                  if (body?.reason === 'already_booked') {
+                  const dayMsg = dayNotAllowedMessage(err);
+                  if (dayMsg) {
+                    toast({ title: 'Ese día no está en tu plan', description: dayMsg, variant: 'destructive' });
+                  } else if (body?.reason === 'already_booked') {
                     toast({ title: 'Ya tienes esta clase agendada', description: 'Cancela la reserva existente antes de volver a agendar.', variant: 'destructive' });
                   } else if (body?.error === 'session_full') {
                     toast({ title: 'Clase llena', description: 'Ya no quedan cupos disponibles para esta clase.', variant: 'destructive' });

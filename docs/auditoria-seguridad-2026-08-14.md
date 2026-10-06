@@ -422,7 +422,14 @@ cada venta que se procese mientras esto siga abierto.
   carpeta. El formato nuevo (con `child_id` en el path) ya no tiene ese
   problema. `npm run seguridad:invariantes` reconfirmado sin CRÍTICAS después
   del cambio.
-- **D. Canal ADMS de torniquetes** ✅ **corregido en código** (`bff/src/routes/access-adms.ts`),
+- **D. Canal ADMS de torniquetes** ⚠️ **corrección del 2026-10-05: el fix de `req.ip` de abajo fue el que
+  tumbó a los 4 torniquetes (GYM RM + Dreamers) ~24 h** (22-sep 23:02 → 23-sep 19:49). Render pone a
+  Cloudflare delante de todo, así que con `trust proxy: 1` `req.ip` es la IP de borde de Cloudflare
+  (rota por request) y el allowlist devolvía 403 a todos. Ahora `clientIp()` y `requestIp()` (WS) leen
+  `cf-connecting-ip` — Cloudflare lo sobrescribe, el cliente no puede falsificarlo — con `req.ip` de
+  respaldo; verificado en vivo. Cierra la brecha de spoofing sin depender de contar saltos. El texto
+  siguiente se conserva como historia; ver `docs/gotchas-tecnicos.md` (Control de acceso) y `SEG-28`.
+  *(Texto original:)* ✅ **corregido en código** (`bff/src/routes/access-adms.ts`),
   **pendiente de desplegar a Render.**
   - `clientIp()` ahora usa `req.ip` (Express ya resuelve la IP real vía
     `trust proxy=1`, configurado en `index.ts` desde antes) en vez de tomar

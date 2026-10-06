@@ -3,7 +3,9 @@ import { supabase } from '../../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../../middlewares/authMiddleware';
 // Validación de figuras de la pizarra: vive aparte para probarla en unidad
 // sin cargar este router (ver footballShapes.ts).
-import { validateArrows } from './footballShapes';
+import {
+  validateArrows, sanitizeArrows, validatePresetSlots, sanitizeSlots, MAX_PRESET_NAME,
+} from './footballShapes';
 
 const router = Router();
 
@@ -314,12 +316,18 @@ router.post(
       // alineación desde la vista clásica borraría en silencio las flechas
       // que el coach ya había dibujado en el tablero táctico nuevo.
       const arrowsProvided = arrows !== undefined;
-      const arrowList = Array.isArray(arrows) ? arrows : [];
+      // Un `arrows` que no es lista (string, objeto) NO se trata como []:
+      // con arrowsProvided eso borraría en silencio las figuras guardadas.
+      if (arrowsProvided && !Array.isArray(arrows)) {
+        return res.status(400).json({ error: 'arrows debe ser una lista de figuras.' });
+      }
+      let arrowList: Record<string, unknown>[] = [];
       if (arrowsProvided) {
-        const arrowErrors = validateArrows(arrowList);
+        const arrowErrors = validateArrows(arrows);
         if (arrowErrors.length > 0) {
           return res.status(422).json({ error: 'Flechas inválidas.', details: arrowErrors });
         }
+        arrowList = sanitizeArrows(arrows);
       }
 
       if (!(await assertTeamBelongsToSchool(team_id, schoolId!))) {
@@ -670,21 +678,10 @@ router.get(
 // ==========================================
 const VALID_SITUATIONS = ['ataque', 'defensa', 'presion', 'transicion', 'corner', 'tiro_libre', 'penalti', 'arqueros'] as const;
 
-function validatePresetSlots(slots: any[]): string[] {
-  const errors: string[] = [];
-  for (const s of slots) {
-    if (typeof s.slot_label !== 'string' || !s.slot_label.trim()) {
-      errors.push('Cada slot necesita slot_label.');
-    }
-    if (typeof s.x !== 'number' || s.x < 0 || s.x > 100) {
-      errors.push(`x inválido en slot "${s.slot_label}": debe estar entre 0 y 100.`);
-    }
-    if (typeof s.y !== 'number' || s.y < 0 || s.y > 100) {
-      errors.push(`y inválido en slot "${s.slot_label}": debe estar entre 0 y 100.`);
-    }
-  }
-  return errors;
-}
+/** 23505 = unique_violation: ya hay una plantilla con ese nombre para el
+ *  equipo y la situación (índice único que agrega la migración de la
+ *  auditoría de la pizarra). */
+const isUniqueViolation = (err: any) => err?.code === '23505';
 
 // GET /api/v1/school/football/tactical-presets?team_id=&situation=
 router.get(
@@ -732,15 +729,19 @@ router.post(
           error: `team_id, name y situation (${VALID_SITUATIONS.join('|')}) son requeridos.`,
         });
       }
+      if (name.trim().length > MAX_PRESET_NAME) {
+        return res.status(400).json({ error: `El nombre no puede pasar de ${MAX_PRESET_NAME} caracteres.` });
+      }
       const slotList = Array.isArray(slots) ? slots : [];
-      if (slotList.length === 0) {
-        return res.status(400).json({ error: 'El preset necesita al menos un slot.' });
+      const arrowList = Array.isArray(arrows) ? arrows : [];
+      // Una plantilla guarda formación, dibujos o ambos -- pero no nada.
+      if (slotList.length === 0 && arrowList.length === 0) {
+        return res.status(400).json({ error: 'La plantilla necesita al menos un slot o un dibujo.' });
       }
       const slotErrors = validatePresetSlots(slotList);
       if (slotErrors.length > 0) {
         return res.status(422).json({ error: 'Preset inválido.', details: slotErrors });
       }
-      const arrowList = Array.isArray(arrows) ? arrows : [];
       const arrowErrors = validateArrows(arrowList);
       if (arrowErrors.length > 0) {
         return res.status(422).json({ error: 'Flechas inválidas.', details: arrowErrors });
@@ -757,13 +758,18 @@ router.post(
           team_id,
           name: name.trim(),
           situation,
-          slots: slotList,
-          arrows: arrowList,
+          slots: sanitizeSlots(slotList),
+          arrows: sanitizeArrows(arrowList),
           created_by: user.id,
         })
         .select()
         .single();
-      if (error) throw error;
+      if (error) {
+        if (isUniqueViolation(error)) {
+          return res.status(409).json({ error: 'Ya existe una plantilla con ese nombre para este equipo y situación.' });
+        }
+        throw error;
+      }
 
       res.status(201).json(data);
     } catch (err: any) {
@@ -781,12 +787,33 @@ router.put(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { schoolId } = req;
-      const { name, situation, slots, arrows } = req.body;
+      // `expected_updated_at` (opcional): la versión que el cliente tenía al
+      // cargar la plantilla. Si otro miembro del cuerpo técnico la modificó
+      // en el medio, se responde 409 en vez de pisarle el cambio en silencio.
+      const { name, situation, slots, arrows, expected_updated_at } = req.body;
+
+      const { data: current, error: currentErr } = await supabase
+        .from('team_tactical_presets')
+        .select('id, slots, arrows, updated_at')
+        .eq('id', req.params.id)
+        .eq('school_id', schoolId)
+        .maybeSingle();
+      if (currentErr) throw currentErr;
+      if (!current) return res.status(404).json({ error: 'Preset no encontrado.' });
+      if (expected_updated_at !== undefined && new Date(expected_updated_at).getTime() !== new Date(current.updated_at).getTime()) {
+        return res.status(409).json({
+          error: 'La plantilla cambió mientras la editabas. Recárgala o guárdala como una nueva.',
+          current_updated_at: current.updated_at,
+        });
+      }
 
       const update: Record<string, any> = {};
       if (name !== undefined) {
         if (typeof name !== 'string' || !name.trim()) {
           return res.status(400).json({ error: 'name inválido.' });
+        }
+        if (name.trim().length > MAX_PRESET_NAME) {
+          return res.status(400).json({ error: `El nombre no puede pasar de ${MAX_PRESET_NAME} caracteres.` });
         }
         update.name = name.trim();
       }
@@ -802,7 +829,7 @@ router.put(
         if (slotErrors.length > 0) {
           return res.status(422).json({ error: 'Preset inválido.', details: slotErrors });
         }
-        update.slots = slotList;
+        update.slots = sanitizeSlots(slotList);
       }
       if (arrows !== undefined) {
         const arrowList = Array.isArray(arrows) ? arrows : [];
@@ -810,21 +837,37 @@ router.put(
         if (arrowErrors.length > 0) {
           return res.status(422).json({ error: 'Flechas inválidas.', details: arrowErrors });
         }
-        update.arrows = arrowList;
+        update.arrows = sanitizeArrows(arrowList);
       }
       if (Object.keys(update).length === 0) {
         return res.status(400).json({ error: 'Nada para actualizar.' });
       }
+      // Igual que en POST: la plantilla que queda no puede estar vacía del todo
+      // (POST lo rechazaba; PUT aceptaba `slots: []` y dejaba una plantilla vacía).
+      const finalSlots: unknown[] = update.slots ?? (current.slots as unknown[] | null) ?? [];
+      const finalArrows: unknown[] = update.arrows ?? (current.arrows as unknown[] | null) ?? [];
+      if (finalSlots.length === 0 && finalArrows.length === 0) {
+        return res.status(400).json({ error: 'La plantilla necesita al menos un slot o un dibujo.' });
+      }
 
+      // Se actualiza solo si nadie la tocó desde que se leyó arriba.
       const { data, error } = await supabase
         .from('team_tactical_presets')
         .update(update)
         .eq('id', req.params.id)
         .eq('school_id', schoolId)
+        .eq('updated_at', current.updated_at)
         .select()
         .maybeSingle();
-      if (error) throw error;
-      if (!data) return res.status(404).json({ error: 'Preset no encontrado.' });
+      if (error) {
+        if (isUniqueViolation(error)) {
+          return res.status(409).json({ error: 'Ya existe una plantilla con ese nombre para este equipo y situación.' });
+        }
+        throw error;
+      }
+      if (!data) {
+        return res.status(409).json({ error: 'La plantilla cambió mientras la editabas. Recárgala e inténtalo de nuevo.' });
+      }
 
       res.json(data);
     } catch (err: any) {
@@ -841,12 +884,16 @@ router.delete(
   requireRole(...TACTICAL_EDIT_ROLES),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('team_tactical_presets')
         .delete()
         .eq('id', req.params.id)
-        .eq('school_id', req.schoolId);
+        .eq('school_id', req.schoolId)
+        .select('id');
       if (error) throw error;
+      // Antes respondía 204 aunque el id no existiera o fuera de otra escuela:
+      // el cliente creía haber borrado algo que nunca existió.
+      if (!data || data.length === 0) return res.status(404).json({ error: 'Preset no encontrado.' });
       res.status(204).send();
     } catch (err: any) {
       req.log?.error({ err }, 'school/football unhandled error');

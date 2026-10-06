@@ -3,132 +3,174 @@
 ## Por qué existe esto
 
 Los 2 lectores de Dreamers son **ZKTeco MB360/ID** (plataforma `ZMM220_TFT`).
-Ese modelo no soporta HTTPS en su push ADMS nativo. `bffdev.sportmaps.co`
-fuerza HTTPS a nivel de Render/Cloudflare (no configurable desde nuestro
-lado). Sin este bridge, los lectores nunca completan el push y no llega
-nada al backend — confirmado el 2026-08-21: cero handshakes/`options`
-reales de estos seriales en `adms_device_log`.
+Ese modelo no soporta HTTPS en su push ADMS nativo, y el backend
+(`bffdev.sportmaps.co`) solo habla HTTPS — Render va detrás de Cloudflare y
+eso no se puede apagar desde nuestro lado. Sin este bridge, los lectores nunca
+completan el push y no llega nada al backend — confirmado el 2026-08-21: cero
+handshakes/`options` reales de estos seriales en `adms_device_log`.
 
 RMGYM usa un modelo distinto (**F22ID**, plataforma `ZLM60_TFT`) que sí
-soporta HTTPS nativo (toggle "HTTPS: ON" visible en su menú "Conf. Srvr.
-de Nube") y no necesita este bridge.
+soporta HTTPS nativo y no necesita este bridge para la asistencia (su bridge,
+`scripts/gymrm-door-bridge/`, solo ejecuta la apertura remota).
 
 Investigado y descartado: el MB360 no tiene ninguna actualización de
-firmware conocida que agregue HTTPS — es un modelo de gama distinta al
-F22ID, no una versión vieja del mismo equipo. Ver
+firmware conocida que agregue HTTPS. Ver
 [MB360 | ZKTeco](https://zkteco.systems/en/product/english-mb360/).
 
-Detalle completo del incidente y del diagnóstico en
-[`docs/specs/adms-ip-allowlist-per-device.md`](../../docs/specs/adms-ip-allowlist-per-device.md)
-y en la memoria de la sesión (`project_zkteco_adms_access`).
+Detalle del incidente de 2026-08 en
+[`docs/specs/adms-ip-allowlist-per-device.md`](../../docs/specs/adms-ip-allowlist-per-device.md);
+arquitectura vigente y límites conocidos en la **§8** de
+[`docs/specs/dreamers-banco-de-horas-torniquete.md`](../../docs/specs/dreamers-banco-de-horas-torniquete.md).
 
-## Qué hace `dreamers_bridge.py`
+## Qué hace `dreamers_bridge.py` (arquitectura vigente, 2026-10-05)
 
-Corre en una PC de la red local de Dreamers. Cada 5 segundos:
-1. Se conecta por SDK local (`pyzk`, puerto 4370) a cada lector.
-2. Lee los registros de asistencia nuevos desde la última vez que corrió.
-3. Los reenvía a `POST https://bffdev.sportmaps.co/iclock/cdata` imitando
-   exactamente el formato ATTLOG que el equipo mandaría si pudiera hablar
-   HTTPS — el backend los procesa igual que si vinieran del equipo directo.
-4. Manda un heartbeat (`GET /iclock/getrequest`) para que `last_seen_at`
-   se actualice en el panel de Access Control.
-5. **Apertura manual (2026-08-27):** sondea `GET /bridge/door-commands` (el
-   mismo endpoint dedicado que usa `scripts/gymrm-door-bridge/`, ya
-   genérico por escuela) y ejecuta cualquier `open_door` pendiente por SDK
-   local — sin esto, el botón de abrir puerta del dashboard nunca le
-   llegaría a estos lectores (no hablan ADMS, así que tampoco podrían
-   recibir el comando por ese canal aunque funcionara).
-6. **Bloqueo por mora / Grupo (2026-09-05):** el mismo sondeo también pide
-   `set_group` (pasando `command_types=open_door,set_group` al endpoint) y
-   mueve el PIN al grupo indicado por `pyzk.set_user()` — mismo problema de
-   fondo que la apertura manual: "Bloquear ahora" y el bloqueo automático
-   por mora tampoco le llegaban nunca a estos lectores, quedaban `pending`
-   para siempre.
+Corre en una PC de la red local de Dreamers, con **cuatro piezas** que no deben confundirse:
 
-Estado local en `bridge_state.json` (se crea solo) — evita reenviar
-eventos ya mandados. **No borrar ese archivo** salvo que quieras que
-vuelva a mandar todo el historial del equipo.
+1. **Captura en vivo (un hilo por lector).** `live_capture()` de `pyzk`: el equipo empuja cada
+   marcación al momento, el script la reenvía a `POST /iclock/cdata` imitando el formato ATTLOG del
+   equipo (el backend la procesa igual que si viniera directo). No trae el historial y no se pone más
+   lenta con el tiempo. **No deshabilita el lector** — necesita que siga aceptando huellas.
+2. **Latido por lector, por el mismo WebSocket** (sin peticiones HTTP periódicas): cada 60 s el heartbeat del
+   socket lleva la lista de lectores que siguen capturando y el backend actualiza su
+   `turnstile_devices.last_seen_at`. Si el backend aún no lo soporta (no anuncia `device_heartbeat` en el
+   `auth_ok`), el script cae al `GET /iclock/getrequest` por lector cada 60 s, así que el orden de
+   despliegue no importa. **Solo mientras la captura en vivo está conectada**. `last_seen_at` significa «capturando», no «el
+   proceso existe». La alerta `alert_offline_access_devices()` (pg_cron, 5 min) avisa al owner si pasan
+   15+ min sin él — cubre también «la captura murió».
+3. **Barrido de respaldo** cada 30 min (el primero a los 60 s de arrancar): `get_attendance()` completo
+   por si la captura perdió algo (caída del hilo, reinicio del equipo, un comando que la pausó).
+   Reenvía lo posterior al cursor **y los últimos 10 min anteriores** (duplicados: los absorbe el
+   backend). Es la red de seguridad, no el camino normal: con ~48.000 registros en el equipo tarda ~47 s
+   por lector ocupando la única conexión SDK (la captura en vivo se pausa ese rato). **No deshabilita el
+   lector**: el torniquete sigue aceptando huellas. No espaciarlo más de ~2 h — el backend descarta
+   ATTLOG de más de 3 h, así que un barrido menos frecuente no recuperaría nada.
+4. **Comandos por WebSocket** (`wss://bffdev.sportmaps.co/bridge/ws`): una conexión persistente, sin
+   sondeo HTTP. El `auth` pide `open_door`, `set_group`, `disable_user` y `enable_user`. Ejecuta por SDK
+   local: apertura manual (`CMD_UNLOCK` en décimas de segundo, nunca `conn.unlock()`) y bloqueo por mora
+   (`set_user()` prendiendo/apagando el bit 0 de `privilege`; `set_group` solo por comandos viejos). La
+   conexión se renueva sola cada día a las **3 am hora Colombia**. El ack del comando sigue siendo HTTP.
+
+**Coordinación:** el firmware atiende una sola conexión SDK a la vez. Cada lector tiene un `Lock` y un
+par de `Event`s para que la captura ceda el equipo (en su siguiente tick de 2 s) a un comando o al barrido.
+Todo acceso SDK que no sea la captura pasa por `device_access()`.
+
+**Cursor:** `bridge_state.json` (se crea solo, `last_sent_<serial>`) evita reenviar eventos. Solo avanza
+hacia adelante. **No borrar ese archivo** salvo que quieras que vuelva a considerar todo el historial. Si
+aparecen más de 20 eventos nuevos de golpe (reloj del equipo corrido o una caída larga) el script los
+**salta y avanza el cursor** — avisa fuerte en el log (`ALERTA`); si eran asistencia real que se quería
+recuperar, usar `diagnostico_backlog_asistencia.py` **antes** del siguiente reinicio, y recordar que el
+backend descarta de todas formas ATTLOG de más de 3 h (`ADMS_BACKLOG_SKIP_HOURS`).
+
+### Variables de entorno (todas opcionales salvo la llave)
+
+| Variable | Default | Para qué |
+|---|---|---|
+| `SPORTMAPS_BRIDGE_API_KEY` | — (**obligatoria**) | la misma llave global que `BRIDGE_API_KEY` en Render |
+| `SPORTMAPS_BRIDGE_PULSE_DECISECONDS` | 2 | pulso de apertura (ver «calibrar» abajo) |
+| `SPORTMAPS_BRIDGE_LIVE_CAPTURE_TICK_SECONDS` | 2 | cada cuánto la captura revisa si debe ceder el equipo |
+| `SPORTMAPS_BRIDGE_DEVICE_HEARTBEAT_INTERVAL_SECONDS` | 60 | heartbeat HTTP por lector — **solo de respaldo** si el backend no soporta el latido por WebSocket |
+| `SPORTMAPS_BRIDGE_WATCHDOG_STALL_SECONDS` | 300 | si un hilo crítico pasa este tiempo sin avanzar, el proceso se cierra y la tarea lo relanza (0 = desactivado) |
+| `SPORTMAPS_BRIDGE_CATCHUP_INTERVAL_SECONDS` | 1800 | barrido de respaldo |
+| `SPORTMAPS_BRIDGE_CATCHUP_FIRST_DELAY_SECONDS` | 60 | primer barrido tras arrancar |
+| `SPORTMAPS_BRIDGE_CATCHUP_LOOKBACK_MINUTES` | 10 | ventana anterior al cursor que el barrido reenvía |
+| `SPORTMAPS_BRIDGE_SWEEP_DISABLE_DEVICE` | 0 | `1` = el barrido deshabilita el lector mientras lee (comportamiento viejo; solo si leer habilitado da problemas) |
+| `SPORTMAPS_BRIDGE_MAX_EVENTS_PER_CYCLE` | 20 | tope de eventos «nuevos de golpe» antes de saltar |
+| `SPORTMAPS_BRIDGE_HEARTBEAT_INTERVAL_SECONDS` | 60 | heartbeat del WebSocket (canal de comandos) |
+| `SPORTMAPS_BRIDGE_WS_RECONNECT_HOUR` | 3 | hora Colombia de la reconexión diaria |
+| `SPORTMAPS_BRIDGE_WS_RECONNECT_BACKOFF_SECONDS` | 5 | espera tras una caída del WS |
+| `SPORTMAPS_BRIDGE_LIVE_CAPTURE_BACKOFF_SECONDS` | 5 | espera tras una caída de la captura de un lector |
 
 ## Instalación (una sola vez, en la PC de Dreamers)
 
 1. Instalar Python 3 (python.org) si no está — **"Install for all users"**,
    no "solo para mí" (la tarea programada corre como `SYSTEM`, que no ve
    el PATH de un usuario individual — mismo gotcha que ya salió con GYM RM).
-2. Copiar toda esta carpeta a la PC del club (ej. `C:\SportMaps\dreamers-bridge`).
+2. Copiar toda esta carpeta a la PC del club (hoy `C:\SportMaps\dreamers_bridge`).
 3. Abrir PowerShell **como Administrador** en esa carpeta:
    ```powershell
-   pip install -r requirements.txt
+   python -m pip install -r requirements.txt
    [Environment]::SetEnvironmentVariable("SPORTMAPS_BRIDGE_API_KEY", "LA_MISMA_LLAVE_QUE_GYM_RM", "Machine")
    .\install_scheduled_task.ps1
    ```
+   `requirements.txt` incluye `websockets` y `tzdata` (Windows no trae la base de zonas horarias; sin
+   `tzdata` el script no arranca). Si `pip` no se reconoce, usar `python -m pip` o `py -m pip`.
    La API key **es la misma** que ya está configurada en Render
-   (`BRIDGE_API_KEY` es una sola variable global, no por escuela) — no hay
-   que pedir ni generar una nueva, solo copiarla acá.
+   (`BRIDGE_API_KEY` es una sola variable global, no por escuela).
 4. Listo. La tarea `SportMaps-DreamersBridge` queda:
    - Arrancando sola cuando prende la PC (no depende de ninguna sesión de usuario).
    - Reiniciándose sola si el proceso se cae (hasta 999 veces, cada 1 minuto).
-   - **Ya no hace falta correr ningún `.bat` a mano.**
 
-## ⚠️ Antes de usar la apertura manual: calibrar el pulso
-
-A diferencia de la asistencia (que ya funciona probada), **la apertura
-manual todavía no se probó en el torniquete real de Dreamers.** El valor
-de partida (`DOOR_PULSE_DECISECONDS = 2`, 0.2s) es el que funcionó en
-GYM RM — pero es un modelo de torniquete distinto, no asumir que sirve
-igual acá.
-
-Con la tarea programada **detenida** (`Stop-ScheduledTask -TaskName
-"SportMaps-DreamersBridge"`, para no competir por la conexión al lector):
-
-```powershell
-cd C:\SportMaps\dreamers-bridge
-py test_pulse.py 192.168.1.203 2   # lector entrada
-py test_pulse.py 192.168.1.202 2   # lector salida
-```
-
-Probá de menor a mayor (2, 3, 5, 7 décimas...) hasta encontrar el mínimo
-que abre y deja pasar **una sola vez**, sin que el torniquete se re-arme.
-Si el valor que sirve no es 2, actualizá `DOOR_PULSE_DECISECONDS` en
-`dreamers_bridge.py` (o seteá `SPORTMAPS_BRIDGE_PULSE_DECISECONDS` como
-variable de entorno, sin tocar el archivo) y reiniciá la tarea.
-
-## ⚠️ Antes de confiar en el bloqueo por mora: probar el Grupo 2
-
-Que el comando **llegue** al equipo (esto ya lo resuelve el bridge) no es lo
-mismo que el equipo **niegue el paso** a quien está en Grupo 2 — eso depende
-de cómo esté configurado el Grupo 2 en el propio lector (su horario/franjas
-asociadas), algo que vive en el equipo, no en este script ni en la base.
-
-Con la tarea programada corriendo normal:
-1. Bloqueá un PIN real de prueba desde Control de Acceso ("Bloquear ahora").
-2. Confirmá en la base que el comando pasó a `executed` (antes del fix de
-   hoy se quedaba en `pending` para siempre):
-   ```sql
-   select status, executed_at, error_message from device_commands
-   where command_type = 'set_group' order by issued_at desc limit 5;
-   ```
-3. Intentá pasar con esa huella en el torniquete físico. Si te deja pasar
-   igual, el problema ya no es de conectividad (el comando sí llegó) sino
-   de configuración del Grupo 2 en el equipo — revisar en el menú local del
-   MB360 o consultar con el distribuidor (`tvc.mx` u otro soporte ZKTeco).
-4. Restaurá el PIN a Grupo 1 al terminar la prueba.
+**Actualizar el script** (reemplazar `dreamers_bridge.py` por una versión nueva): copiar el archivo y
+reiniciar la tarea — `Stop-ScheduledTask -TaskName "SportMaps-DreamersBridge"` +
+`Start-ScheduledTask -TaskName "SportMaps-DreamersBridge"`. Después de reemplazar, revisar el log.
 
 ## Verificar que está funcionando
 
-- Revisar `bridge_supervisor.log` en esta carpeta (se va llenando con la
-  actividad y con cualquier reinicio).
-- En el panel de Access Control de SportMaps, los dos lectores de Dreamers
-  deben mostrar "En línea".
-- Contra la base: `turnstile_devices.last_seen_at` de ambos seriales no
-  debería tener más de ~5 minutos de antigüedad en horario de operación del gym.
+En `bridge_supervisor.log` (en esta carpeta; `Get-Content bridge_supervisor.log -Tail 30 -Wait`) deben verse,
+poco después de arrancar:
+
+- `Conectado y autenticado por WebSocket` y `Proxima reconexion programada: ... 02:59` (3 am Colombia).
+- Por cada lector: `escuchando asistencia en vivo...`, y un `heartbeat -> 200` por minuto.
+- Al marcar alguien: `evento en vivo enviado: PIN ... @ ...` casi al instante.
+- A los ~60 s y luego cada 30 min: `barrido de respaldo: nada nuevo (...)`. Si dice `NUEVOS que live_capture
+  no habia mandado`, la captura perdió algo — hay que averiguar por qué.
+
+Contra la base: `turnstile_devices.last_seen_at` de ambos seriales no debería tener más de ~2 minutos de
+antigüedad (heartbeat de 60 s), aunque nadie marque. **Ojo:** `bridge_heartbeats` fresco solo prueba el
+canal de comandos; no dice nada de la asistencia (ver `docs/gotchas-tecnicos.md`).
+
+## Cargar personas y vincular PINs
+
+- **Enrolar huellas:** `enroll_users.py` (interactivo; crea el PIN con su nombre y pone el lector en
+  modo de enrolamiento — la huella real la tiene que dar la persona, 3 veces, en **cada** lector: entrada y
+  salida tienen su propia base). Correrlo con la tarea **detenida** (una sola conexión SDK por lector).
+- **Vincular el PIN a la persona en SportMaps** (`zk_user_mappings`): hoy se hace desde Control de Acceso →
+  «Asignar» sobre un evento «desconocido». Un PIN sin vincular marca `unknown_user` y **no abre visita ni
+  descuenta del banco de horas**. A 2026-10-05 Dreamers tiene 6 PINs vinculados — la carga masiva está en
+  el roadmap (`MOD-34`).
+- **Diagnóstico de solo lectura:** `diagnostico_backlog_asistencia.py` (cuántos eventos tiene el equipo
+  sin enviar según el cursor, por día y por PIN), `diagnostico_solo_lectura.py`. Correr con la tarea detenida.
+
+## ⚠️ Antes de usar la apertura manual: calibrar el pulso
+
+La apertura manual funcionó por el flujo real en Dreamers (comando `open_door` ejecutado), pero el valor de
+partida (`SPORTMAPS_BRIDGE_PULSE_DECISECONDS = 2`, 0.2 s) viene de GYM RM — es otro modelo de torniquete.
+
+Con la tarea programada **detenida**, para no competir por la conexión al lector:
+
+```powershell
+cd C:\SportMaps\dreamers_bridge
+py test_pulse.py 192.168.1.201 2   # lector entrada
+py test_pulse.py 192.168.1.202 2   # lector salida
+```
+
+Probá de menor a mayor (2, 3, 5, 7 décimas...) hasta encontrar el mínimo que abre y deja pasar **una sola
+vez**, sin que el torniquete se re-arme. Si no es 2, setear `SPORTMAPS_BRIDGE_PULSE_DECISECONDS` y reiniciar.
+
+## ⚠️ Antes de confiar en el bloqueo por mora
+
+El bloqueo en Dreamers es `disable_user`/`enable_user` (`school_settings.access_block_mechanism='disable'`):
+este MB360 no tiene Zonas Horarias/Grupos efectivos. Que el comando **llegue** y quede `executed` lo
+resuelve el bridge; que el equipo **niegue el paso** al PIN deshabilitado hay que confirmarlo con una huella
+real:
+
+1. Bloquear un PIN de prueba desde Control de Acceso («Bloquear ahora»).
+2. Confirmar en la base que el comando pasó a `executed`:
+   ```sql
+   select command_type, status, executed_at, error_message from device_commands
+   where command_type in ('disable_user','enable_user','set_group') order by issued_at desc limit 5;
+   ```
+3. Intentar pasar con esa huella. Si deja pasar, el problema es de configuración del equipo, no de
+   conectividad. Restaurar el PIN al terminar.
+
+El PIN debe estar **enrolado en cada lector**; si no, el comando falla con un mensaje claro (no en silencio).
 
 ## Si algo cambia en la red de Dreamers
 
-Si cambia la IP local de algún lector (ej. por conflicto de IP en la red),
-actualizar el campo `"ip"` correspondiente en `DEVICES` dentro de
-`dreamers_bridge.py` — la tarea programada recoge el cambio solo en el
-próximo reinicio del proceso (o forzarlo: `Stop-ScheduledTask` +
-`Start-ScheduledTask` con el nombre `SportMaps-DreamersBridge`).
+Si cambia la IP local de algún lector, actualizar `"ip"` en `DEVICES` dentro de `dreamers_bridge.py` y
+reiniciar la tarea. (Ya pasó con el de entrada: `.203` → `.201`; hoy `.201` entrada / `.202` salida.)
+Si el **reloj del lector** se desajusta, las marcaciones nuevas pueden quedar con una hora anterior al
+cursor y no verse como nuevas: revisar Menú → Sistema → Fecha y Hora del propio equipo.
 
 ## Desinstalar
 
@@ -138,16 +180,9 @@ Unregister-ScheduledTask -TaskName "SportMaps-DreamersBridge" -Confirm:$false
 
 ## Pendiente / mejora futura
 
-- ✅ **La alerta si Dreamers deja de reportar ya existe — no hacía falta
-  construir nada.** `alert_offline_access_devices()` (pg_cron cada 5 min,
-  vive solo en la base, sin migración) revisa `turnstile_devices.last_seen_at`
-  de todas las escuelas y avisa al owner si pasan 15+ minutos sin
-  actualizarse. Para Dreamers eso es exactamente "la PC del bridge se
-  apagó" (es la única vía que toca ese campo, vía `send_heartbeat()`).
-  Confirmado 2026-08-27 al portar el heartbeat de GYM RM — ver
-  `scripts/gymrm-door-bridge/VALIDACION-2026-08-25.md`.
-- La apertura manual está sin calibrar en campo — ver sección de arriba.
-- El bloqueo por mora (Grupo 2) está sin probar en campo si de verdad
-  bloquea el paso físico en el MB360 de Dreamers — ver sección "Probar el
-  bloqueo por Grupo" de arriba. El comando ya llega al equipo (fix
-  2026-09-05); lo que falta confirmar es la configuración del Grupo 2 en sí.
+- Carga y vinculación masiva de PINs (`MOD-34`) — a propósito después de validar el flujo con el usuario
+  laboratorio.
+- Ingesta autenticada para el bridge (`INF-16`): hoy la asistencia entra por `/iclock` protegida solo por
+  allowlist de IP.
+- Detección de reloj del lector desajustado (comparar `get_time()` del equipo con el de la PC y avisar).
+- El bloqueo por mora está sin probar con una huella real en el MB360 — ver sección de arriba.

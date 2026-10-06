@@ -27,13 +27,36 @@ export const VALID_BALL_PATH_KINDS = ['pase', 'remate', 'penal'] as const;
  *  redondeo y sí rechazar basura (0, negativos, 1000). */
 export const SHAPE_SIZE_MIN = 0.25;
 export const SHAPE_SIZE_MAX = 4;
+/** Topes de cantidad: sin ellos un cliente (o un bug) podía guardar un jsonb de
+ *  megas -- el único freno era el límite global de 5 MB del body. Un tablero real
+ *  tiene decenas de figuras; 300 deja margen de sobra a un coach que dibuja mucho. */
+export const MAX_SHAPES = 300;
+export const MAX_PRESET_SLOTS = 40;
+export const MAX_PRESET_NAME = 80;
+export const MAX_SLOT_LABEL = 40;
+/** Giro: el frontend guarda 0-359, pero un -45 histórico es válido; fuera de
+ *  ±360 es basura, no un giro. */
+export const SHAPE_ROT_ABS_MAX = 360;
+
+const isPlainObject = (v: unknown): v is Record<string, any> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** Figuras del modo pizarra (P2d) -- coordenadas en el mismo espacio 0-100
  *  que slots/x/y, para que el frontend no tenga que manejar dos sistemas.
  *  "type" es opcional (compat con flechas guardadas antes de curva/zona). */
 export function validateArrows(arrows: any[]): string[] {
   const errors: string[] = [];
+  if (arrows.length > MAX_SHAPES) {
+    errors.push(`demasiadas figuras: máximo ${MAX_SHAPES}.`);
+    return errors;
+  }
   for (const a of arrows) {
+    // Un null/número/arreglo en la lista reventaba con TypeError (500) en vez
+    // de un 422 claro.
+    if (!isPlainObject(a)) {
+      errors.push('figura inválida: debe ser un objeto.');
+      continue;
+    }
     for (const key of ['x1', 'y1', 'x2', 'y2'] as const) {
       if (typeof a[key] !== 'number' || a[key] < 0 || a[key] > 100) {
         errors.push(`${key} inválido en una flecha: debe estar entre 0 y 100.`);
@@ -50,8 +73,8 @@ export function validateArrows(arrows: any[]): string[] {
     if (a.size !== undefined && (typeof a.size !== 'number' || !Number.isFinite(a.size) || a.size < SHAPE_SIZE_MIN || a.size > SHAPE_SIZE_MAX)) {
       errors.push(`size inválido en una figura: debe estar entre ${SHAPE_SIZE_MIN} y ${SHAPE_SIZE_MAX}.`);
     }
-    if (a.rot !== undefined && (typeof a.rot !== 'number' || !Number.isFinite(a.rot))) {
-      errors.push('rot inválido en una figura: debe ser un número (grados).');
+    if (a.rot !== undefined && (typeof a.rot !== 'number' || !Number.isFinite(a.rot) || Math.abs(a.rot) > SHAPE_ROT_ABS_MAX)) {
+      errors.push(`rot inválido en una figura: debe ser un número de grados entre -${SHAPE_ROT_ABS_MAX} y ${SHAPE_ROT_ABS_MAX}.`);
     }
     if (a.kind !== undefined && !VALID_BALL_PATH_KINDS.includes(a.kind)) {
       errors.push(`kind de recorrido inválido: ${a.kind}`);
@@ -81,4 +104,52 @@ export function validateArrows(arrows: any[]): string[] {
     }
   }
   return errors;
+}
+
+/** Deja SOLO los campos conocidos de cada figura. Antes el objeto del cliente
+ *  se guardaba tal cual y cualquier campo extra (o un texto enorme en un campo
+ *  inventado) terminaba en el jsonb. Se llama DESPUÉS de validateArrows. */
+export function sanitizeArrows(arrows: any[]): Record<string, unknown>[] {
+  return arrows.map((a) => {
+    const out: Record<string, unknown> = { x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2 };
+    if (a.type !== undefined) out.type = a.type;
+    if (a.color !== undefined) out.color = a.color;
+    if (a.size !== undefined) out.size = a.size;
+    if (a.rot !== undefined) out.rot = a.rot;
+    if (a.kind !== undefined) out.kind = a.kind;
+    if (a.type === 'freehand') out.points = a.points;
+    if (a.type === 'text') out.text = a.text.trim();
+    return out;
+  });
+}
+
+/** Slots de una plantilla: solo layout (D8) -- slot_label + x/y. */
+export function validatePresetSlots(slots: any[]): string[] {
+  const errors: string[] = [];
+  if (slots.length > MAX_PRESET_SLOTS) {
+    errors.push(`demasiados slots: máximo ${MAX_PRESET_SLOTS}.`);
+    return errors;
+  }
+  for (const s of slots) {
+    if (!isPlainObject(s)) {
+      errors.push('slot inválido: debe ser un objeto.');
+      continue;
+    }
+    if (typeof s.slot_label !== 'string' || !s.slot_label.trim()) {
+      errors.push('Cada slot necesita slot_label.');
+    } else if (s.slot_label.trim().length > MAX_SLOT_LABEL) {
+      errors.push(`slot_label demasiado largo (máximo ${MAX_SLOT_LABEL} caracteres): "${s.slot_label.slice(0, 20)}…"`);
+    }
+    if (typeof s.x !== 'number' || !Number.isFinite(s.x) || s.x < 0 || s.x > 100) {
+      errors.push(`x inválido en slot "${s.slot_label}": debe estar entre 0 y 100.`);
+    }
+    if (typeof s.y !== 'number' || !Number.isFinite(s.y) || s.y < 0 || s.y > 100) {
+      errors.push(`y inválido en slot "${s.slot_label}": debe estar entre 0 y 100.`);
+    }
+  }
+  return errors;
+}
+
+export function sanitizeSlots(slots: any[]): { slot_label: string; x: number; y: number }[] {
+  return slots.map((s) => ({ slot_label: s.slot_label.trim(), x: s.x, y: s.y }));
 }

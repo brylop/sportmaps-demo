@@ -27,6 +27,10 @@
  *     único bloqueo duro del lado del perfil.
  *   · dirección = el adaptador manda `address: ''` cuando falta, y el PAC la
  *     rechaza o la emite vacía. Bloquea en la práctica.
+ *   · correo = el motor exige un correo VÁLIDO del pagador (política
+ *     `customer_email_policy`, default 'require' mientras el PAC no declare
+ *     que acepta sin correo) y si falta devuelve `customer_missing_email`.
+ *     Bloquea. No se arregla con el formulario: el correo es el de la cuenta.
  *   · municipio = `billing_city_dane` sirve solo si es CÓDIGO DANE (4-5
  *     dígitos); con texto libre el adaptador cae al municipio de la ESCUELA y
  *     la factura sale con la ciudad equivocada. No bloquea la emisión, así que
@@ -59,14 +63,15 @@ import {
     Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
+import { EmitPaymentInvoiceButton } from '@/components/accounting/EmitPaymentInvoiceButton';
 import {
     AlertCircle, CheckCircle2, Clock, Loader2, Mail, Phone, RefreshCw, Send, UserX, Pencil, MapPin,
 } from 'lucide-react';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
-/** Qué le falta al perfil. `document`/`address` bloquean; `municipality` deforma la factura. */
-type MissingField = 'document' | 'address' | 'municipality';
+/** Qué le falta al perfil. `document`/`address`/`email` bloquean; `municipality` deforma la factura. */
+type MissingField = 'document' | 'address' | 'email' | 'municipality';
 
 interface PayerRow {
     kind: 'payer';
@@ -78,7 +83,7 @@ interface PayerRow {
     /** Cómo llega ese perfil al pago: acudiente (parent_id) o atleta adulto (user_id). */
     relation: 'parent' | 'athlete' | 'mixed';
     missing: MissingField[];
-    /** true si falta documento y/o dirección → la factura no sale. */
+    /** true si falta documento, dirección y/o correo válido → la factura no sale. */
     blocking: boolean;
     payments: number;
     amount: number;
@@ -122,6 +127,9 @@ export interface PendingPaymentInfo {
     state: PendingState;
     /** true si el pagador no tiene código DANE: la factura sale con el municipio de la ESCUELA. */
     municipalityFallback: boolean;
+    /** Nombre del pagador (o del atleta si no hay pagador), para la lista de emisión pago por pago. */
+    payerName?: string | null;
+    concept?: string | null;
 }
 
 export interface MissingBillingData {
@@ -138,6 +146,12 @@ export interface MissingBillingData {
 
 const PAGE = 1000;
 const DANE_CODE = /^\d{4,5}$/;
+/** Mismo criterio que normalizeCustomerEmail del BFF (invoicing/types.ts). */
+const EMAIL_OK = /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i;
+function correoValido(v: unknown): boolean {
+    const c = String(v ?? '').trim();
+    return c.length > 0 && c.length <= 254 && EMAIL_OK.test(c);
+}
 
 /** Trae TODOS los pagos cobrados de la escuela paginando: el tope de PostgREST
  *  (1000 filas) truncaría en silencio a una escuela grande, y una lista corta
@@ -147,6 +161,7 @@ async function fetchPaidPayments(schoolId: string) {
         id: string;
         amount: number;
         payment_date: string | null;
+        concept: string | null;
         parent_id: string | null;
         user_id: string | null;
         child_id: string | null;
@@ -155,7 +170,7 @@ async function fetchPaidPayments(schoolId: string) {
     for (let from = 0; ; from += PAGE) {
         const { data, error } = await supabase
             .from('payments')
-            .select('id, amount, payment_date, parent_id, user_id, child_id, unregistered_athlete_id')
+            .select('id, amount, payment_date, concept, parent_id, user_id, child_id, unregistered_athlete_id')
             .eq('school_id', schoolId)
             .eq('status', 'paid')
             .range(from, from + PAGE - 1);
@@ -241,9 +256,11 @@ async function loadMissingBillingData(schoolId: string): Promise<MissingBillingD
         const payerId = p.parent_id || p.user_id;
 
         if (!payerId) {
+            const refIdNombre = p.child_id || p.unregistered_athlete_id || p.id;
             detallePorPago.push({
                 id: p.id, date: p.payment_date, amount: monto,
                 state: 'no_payer', municipalityFallback: false,
+                payerName: nombres.get(refIdNombre) ?? null, concept: p.concept,
             });
             const refId = p.child_id || p.unregistered_athlete_id || p.id;
             const prev = porAtleta.get(refId);
@@ -265,9 +282,10 @@ async function loadMissingBillingData(schoolId: string): Promise<MissingBillingD
         // fila ofrece la acción que sí puede arreglarlo.
         if (!perfil || !String(perfil.document_number ?? '').trim()) missing.push('document');
         if (!perfil || !String(perfil.billing_address ?? '').trim()) missing.push('address');
+        if (!perfil || !correoValido(perfil.email)) missing.push('email');
         if (!perfil || !DANE_CODE.test(String(perfil.billing_city_dane ?? '').trim())) missing.push('municipality');
 
-        const blocking = missing.includes('document') || missing.includes('address');
+        const blocking = missing.includes('document') || missing.includes('address') || missing.includes('email');
         // "Facturable" = el motor emitiría. El municipio sin código DANE no lo
         // impide (cae al de la escuela), así que ese pago cuenta como facturable
         // aunque su pagador aparezca en la lista con el aviso del municipio.
@@ -276,6 +294,8 @@ async function loadMissingBillingData(schoolId: string): Promise<MissingBillingD
             id: p.id, date: p.payment_date, amount: monto,
             state: blocking ? 'missing_fiscal' : 'ready',
             municipalityFallback: missing.includes('municipality'),
+            payerName: (perfil?.full_name as string) || null,
+            concept: p.concept,
         });
         if (missing.length === 0) continue;
 
@@ -433,6 +453,7 @@ export function countBlocking(data: MissingBillingData | undefined) {
 const MISSING_LABEL: Record<MissingField, string> = {
     document: 'Documento',
     address: 'Dirección',
+    email: 'Correo (falta o no es válido)',
     municipality: 'Municipio (sin código DANE)',
 };
 
@@ -445,11 +466,18 @@ const RELATION_LABEL: Record<PayerRow['relation'], string> = {
 // ─── Panel ──────────────────────────────────────────────────────────────────
 
 export function MissingBillingDataPanel({
-    schoolId, onIrABackfill,
+    schoolId, onIrABackfill, canEmit = false, onEmitted,
 }: {
     schoolId: string;
     /** Lleva al admin a la acción de emisión por rango. Sin esto el panel diagnostica y no ofrece salida. */
     onIrABackfill?: () => void;
+    /**
+     * Quien mira puede emitir (admin de finanzas, facturador activo). Habilita
+     * la lista «Listos para emitir» con el botón por pago. El BFF lo vuelve a
+     * validar: esto solo decide si se muestra.
+     */
+    canEmit?: boolean;
+    onEmitted?: () => void;
 }) {
     const queryClient = useQueryClient();
     const query = useMissingBillingData(schoolId);
@@ -458,6 +486,14 @@ export function MissingBillingDataPanel({
 
     // Emitibles que el cron ya no alcanza: son los que necesitan el backfill.
     const rezagados = countStaleInvoiceable(query.data);
+    // Los mismos, pago por pago, para emitir uno sin arrastrar todo el rango.
+    const listosFueraDeVentana = useMemo(() => {
+        const desde = cronWindowStart();
+        return (query.data?.pending ?? [])
+            .filter((p) => p.state === 'ready' && (!p.date || p.date < desde))
+            .sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')));
+    }, [query.data]);
+    const LISTOS_VISIBLES = 50;
 
     const { visibles, soloMunicipio } = useMemo(() => {
         const todas = query.data?.rows ?? [];
@@ -582,6 +618,64 @@ export function MissingBillingDataPanel({
                             </Alert>
                         )}
 
+                        {/* Emisión PAGO POR PAGO de lo que ya está listo y el cron no
+                            va a tomar. Antes el endpoint existía sin botón y la única
+                            vía era el rango, que arrastra todo el periodo. */}
+                        {canEmit && listosFueraDeVentana.length > 0 && (
+                            <div className="rounded-lg border">
+                                <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
+                                    <div className="text-sm font-medium">
+                                        Listos para emitir ({listosFueraDeVentana.length})
+                                    </div>
+                                    <span className="text-xs text-muted-foreground">
+                                        Tienen todos los datos pero se cobraron hace más de {CRON_WINDOW_DAYS} días.
+                                        Emite uno a uno o todos por rango.
+                                    </span>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Fecha de pago</TableHead>
+                                                <TableHead>Pagador</TableHead>
+                                                <TableHead>Concepto</TableHead>
+                                                <TableHead className="text-right">Monto</TableHead>
+                                                <TableHead className="text-right">Acción</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {listosFueraDeVentana.slice(0, LISTOS_VISIBLES).map((p) => (
+                                                <TableRow key={p.id}>
+                                                    <TableCell className="text-sm whitespace-nowrap">
+                                                        {p.date ? new Date(`${p.date}T00:00:00`).toLocaleDateString('es-CO') : '—'}
+                                                    </TableCell>
+                                                    <TableCell className="text-sm">{p.payerName ?? '—'}</TableCell>
+                                                    <TableCell className="text-xs text-muted-foreground">{p.concept ?? '—'}</TableCell>
+                                                    <TableCell className="text-right font-semibold whitespace-nowrap">{formatCurrency(p.amount)}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <EmitPaymentInvoiceButton
+                                                            paymentId={p.id}
+                                                            amount={p.amount}
+                                                            detail={[p.concept, p.payerName].filter(Boolean).join(' · ') || null}
+                                                            onEmitted={() => {
+                                                                queryClient.invalidateQueries({ queryKey: ['einv-missing-billing', schoolId] });
+                                                                onEmitted?.();
+                                                            }}
+                                                        />
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                                {listosFueraDeVentana.length > LISTOS_VISIBLES && (
+                                    <p className="px-4 py-2 text-xs text-muted-foreground">
+                                        Se muestran los {LISTOS_VISIBLES} más recientes. Para el resto usa la emisión por rango.
+                                    </p>
+                                )}
+                            </div>
+                        )}
+
                         {visibles.length === 0 ? (
                             <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
                                 <CheckCircle2 className="h-10 w-10 text-emerald-500" />
@@ -698,9 +792,17 @@ export function MissingBillingDataPanel({
                                                     </div>
                                                 </TableCell>
                                                 <TableCell className="text-right">
-                                                    <Button size="sm" variant="outline" onClick={() => setEditing(row)}>
-                                                        <Pencil className="mr-2 h-3 w-3" /> Completar datos
-                                                    </Button>
+                                                    {row.missing.some((m) => m === 'document' || m === 'address' || m === 'municipality') ? (
+                                                        <Button size="sm" variant="outline" onClick={() => setEditing(row)}>
+                                                            <Pencil className="mr-2 h-3 w-3" /> Completar datos
+                                                        </Button>
+                                                    ) : null}
+                                                    {row.missing.includes('email') && (
+                                                        <p className="mt-1 max-w-[15rem] text-xs text-muted-foreground">
+                                                            El correo es el de la cuenta del pagador: pídele que lo corrija en
+                                                            su perfil (o que escriba a soporte).
+                                                        </p>
+                                                    )}
                                                 </TableCell>
                                             </TableRow>
                                         ))}

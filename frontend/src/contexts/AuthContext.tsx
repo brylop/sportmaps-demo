@@ -424,6 +424,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem('sportmaps_favoritos');
       localStorage.removeItem('sportmaps_welcome_dismissed');
       localStorage.removeItem('pending_invite_id');
+      // Preferencias de la pizarra táctica: la foto de jugadores menores no
+      // debe quedar prendida para el siguiente que use este dispositivo.
+      localStorage.removeItem('tactical_board_pin_photos');
+      localStorage.removeItem('tactical_board_pin_style');
 
       // Marca de la escuela (PWA). Critico: localStorage es del NAVEGADOR, no
       // del usuario. Sin esto el logo, el nombre y el manifest de una escuela

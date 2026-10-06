@@ -102,6 +102,12 @@ Cada evento dispara varias queries (user_id, profile, enrollment, payment). Con 
 El dispositivo se identifica solo por `SN` en la URL → cualquiera con el SN puede inyectar eventos (`Encrypt=None`).
 **Fix:** IP allowlist (firewall a la IP del gym `181.63.24.103`) y/o clave de comunicación por dispositivo. *(Antes de producción.)*
 
+> **Actualización 2026-10-05:** el allowlist existe (global por env var + por dispositivo con `ip_check_mode`,
+> ver [`specs/adms-ip-allowlist-per-device.md`](specs/adms-ip-allowlist-per-device.md)) pero la IP pública de GYM RM
+> **cambió** (`.103` → `.149`) y ya tumbó el canal una vez; y detrás de Render la IP del cliente sale de
+> `cf-connecting-ip`, no de `req.ip` (ver `docs/gotchas-tecnicos.md`). Sigue pendiente una ingesta autenticada
+> para los bridges (`INF-16` en el roadmap).
+
 ---
 
 ## Orden recomendado

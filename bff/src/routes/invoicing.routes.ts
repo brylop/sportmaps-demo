@@ -4,11 +4,13 @@
  * Endpoints:
  *  - GET    /api/v1/invoicing/providers/:ownerType/:ownerId  → lista (sin secretos)
  *  - POST   /api/v1/invoicing/providers/:ownerType/:ownerId  → upsert facturador
+ *  - PATCH  /api/v1/invoicing/providers/:id/enabled          → prende / apaga el facturador
  *  - DELETE /api/v1/invoicing/providers/:id
+ *  - GET    /api/v1/invoicing/active/school/:schoolId        → ¿la escuela factura? (checkout)
  *  - POST   /api/v1/invoicing/emit/:paymentId                → emite factura del pago
  *  - POST   /api/v1/invoicing/backfill/:ownerType/:ownerId   → barrido de un rango cerrado
  *  - POST   /api/v1/invoicing/credit-note/:invoiceId         → anula con nota crédito
- *  - GET    /api/v1/invoicing/invoices/:ownerType/:ownerId   → lista facturas del dueño
+ *  - GET    /api/v1/invoicing/invoices/:ownerType/:ownerId   → lista paginada + filtros
  *  - GET    /api/v1/invoicing/by-payment/:paymentId          → factura de un pago
  *
  * Seguridad:
@@ -34,6 +36,7 @@ import {
     isCorrectionConceptCode,
     CREDIT_NOTE_OBSERVATION_MAX,
 } from '../services/invoicing/types';
+import { parseInvoiceListQuery, pageRange, totalPages } from '../services/invoicing/list-query';
 
 const router = Router();
 
@@ -198,6 +201,24 @@ router.post('/providers/:ownerType/:ownerId', requireAuth, async (req: Authentic
     }
 
     const p = parsed.data;
+
+    // `enabled` ausente NO prende el facturador. Antes valía `p.enabled ?? true`
+    // y el formulario mandaba siempre true: editar cualquier dato (p. ej. el
+    // rango de notas crédito) reactivaba en silencio la emisión de una escuela
+    // que alguien había apagado a propósito. Ahora: si no viene, se conserva el
+    // valor de la fila; solo una fila NUEVA nace encendida.
+    let enabled = p.enabled;
+    if (enabled === undefined) {
+        const { data: actual } = await supabase
+            .from('electronic_invoice_providers')
+            .select('enabled')
+            .eq('owner_type', ownerType)
+            .eq('owner_id', ownerId)
+            .eq('provider', p.provider)
+            .maybeSingle();
+        enabled = actual ? actual.enabled === true : true;
+    }
+
     const { data, error } = await supabase
         .from('electronic_invoice_providers')
         .upsert(
@@ -209,7 +230,7 @@ router.post('/providers/:ownerType/:ownerId', requireAuth, async (req: Authentic
                 config: p.config,
                 sandbox: p.sandbox ?? true,
                 is_default: p.isDefault ?? false,
-                enabled: p.enabled ?? true,
+                enabled,
                 updated_at: new Date().toISOString(),
             },
             { onConflict: 'owner_type,owner_id,provider' },
@@ -219,6 +240,77 @@ router.post('/providers/:ownerType/:ownerId', requireAuth, async (req: Authentic
     if (error) return res.status(500).json({ error: error.message });
 
     return res.status(200).json({ provider: data });
+});
+
+/**
+ * PATCH /providers/:id/enabled — interruptor Activo / Inactivo.
+ *
+ * Va aparte del upsert a propósito: las credenciales del PAC son write-only y
+ * el formulario obliga a reescribirlas para guardar. Apagar el facturador es
+ * la palanca de emergencia (la única que frena el cron de una escuela) y no
+ * puede depender de que alguien tenga a mano las cuatro credenciales.
+ *
+ * El dueño se lee de la FILA, no de la URL (igual que DELETE y credit-note).
+ */
+const ToggleEnabledSchema = z.object({ enabled: z.boolean() });
+
+router.patch('/providers/:id/enabled', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { id } = req.params as { id: string };
+    if (!z.string().uuid().safeParse(id).success) return res.status(400).json({ error: 'invalid_provider_id' });
+    const parsed = ToggleEnabledSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.issues });
+
+    const { data: target } = await supabase
+        .from('electronic_invoice_providers')
+        .select('owner_type, owner_id')
+        .eq('id', id)
+        .maybeSingle();
+    if (!target) return res.status(404).json({ error: 'not_found' });
+    const ownerType = parseOwnerType(target.owner_type as string);
+    if (!ownerType) return res.status(500).json({ error: 'invalid_owner_type_in_row' });
+    if (!(await canManageFinances(req.user.id, ownerType, target.owner_id))) {
+        return res.status(403).json({ error: 'forbidden' });
+    }
+
+    const { data, error } = await supabase
+        .from('electronic_invoice_providers')
+        .update({ enabled: parsed.data.enabled, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select('id, provider, config, sandbox, is_default, enabled')
+        .single();
+    if (error) return res.status(500).json({ error: error.message });
+
+    console.info(`[invoicing] facturador ${id} (${ownerType}:${target.owner_id}) enabled=${parsed.data.enabled} por ${req.user.id}`);
+    return res.status(200).json({ provider: data });
+});
+
+/**
+ * GET /active/school/:schoolId — ¿esta escuela emite factura electrónica?
+ *
+ * Lo pregunta el CHECKOUT del acudiente para decidir si le pide datos
+ * fiscales: antes los exigía siempre, aunque la escuela no facturara. Regla:
+ * addon 'invoicing' vigente (has_entitlement) Y un facturador con
+ * enabled = true. Solo devuelve un booleano —nada de la configuración ni del
+ * PAC—, así que basta con estar autenticado: el acudiente no administra la
+ * escuela y tiene que poder preguntarlo.
+ *
+ * Si la consulta falla responde 500 y el checkout cae a PEDIR los datos (el
+ * comportamiento anterior): ante la duda se prefiere un formulario de más a
+ * una factura que no se puede emitir.
+ */
+router.get('/active/school/:schoolId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId } = req.params as { schoolId: string };
+    if (!z.string().uuid().safeParse(schoolId).success) return res.status(400).json({ error: 'invalid_school_id' });
+
+    const { data: ent, error: entErr } = await supabase.rpc('has_entitlement', {
+        p_school_id: schoolId,
+        p_key: 'invoicing',
+    });
+    if (entErr) return res.status(500).json({ error: 'entitlement_check_failed' });
+    if (ent !== true) return res.status(200).json({ active: false, reason: 'no_addon' });
+
+    const conFacturador = await hasEnabledProvider('school', schoolId);
+    return res.status(200).json({ active: conFacturador, reason: conFacturador ? null : 'no_enabled_provider' });
 });
 
 router.delete('/providers/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
@@ -452,6 +544,31 @@ router.post('/credit-note/:invoiceId', requireAuth, async (req: AuthenticatedReq
 
 // ─── Consulta ────────────────────────────────────────────────────────────────
 
+const INVOICE_LIST_COLS = 'id, payment_id, provider, document_type, number, cufe, reference_code, status, error_message, public_url, total, taxable_amount, tax_amount, validated_at, created_at';
+const INVOICE_VOID_COLS = 'voided_at, void_reason, voided_by_invoice_id';
+
+/**
+ * GET /invoices/:ownerType/:ownerId — facturas del dueño, PAGINADAS.
+ *
+ * Query (todo opcional, ver services/invoicing/list-query.ts):
+ *   page (1-based), pageSize (≤ 200), status=rejected,queued,
+ *   documentType=invoice|credit_note, from=YYYY-MM-DD, to=YYYY-MM-DD
+ *   (sobre created_at, día de Colombia, inclusivo).
+ *
+ * Antes era `.limit(200)` sin más: lo que pasaba de 200 desaparecía de la
+ * pantalla sin aviso (Dynasty ya tiene 243). Sin page/pageSize devuelve 200
+ * en la página 1, igual que antes, para no romper un frontend viejo.
+ *
+ * Respuesta, además de `invoices`:
+ *   total / page / pageSize / totalPages — del FILTRO aplicado.
+ *   summary — conteos de TODO el dueño, sin filtros: lo que está roto
+ *     (rechazadas, en cola, anuladas) se tiene que ver aunque la página
+ *     actual no lo muestre. Es lo que pinta los avisos de arriba de la tabla.
+ *   linked — notas crédito que anularon facturas de ESTA página pero viven en
+ *     otra: sin ellas el cruce factura ↔ nota crédito se perdía al paginar.
+ *   permissions.canEmit — si quien mira puede emitir (admin de finanzas); el
+ *     contador lee pero no emite, y el botón no se le muestra.
+ */
 router.get('/invoices/:ownerType/:ownerId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     const { ownerType: ownerTypeRaw, ownerId } = req.params as { ownerType: string; ownerId: string };
     const ownerType = parseOwnerType(ownerTypeRaw);
@@ -460,50 +577,117 @@ router.get('/invoices/:ownerType/:ownerId', requireAuth, async (req: Authenticat
         return res.status(403).json({ error: 'forbidden' });
     }
 
-    // error_message, cufe y reference_code van en el select a propósito: la
-    // tabla los guarda desde siempre, pero al no devolverlos la pantalla del
-    // dueño mostraba un rechazo idéntico a una factura en trámite. Así se
-    // acumularon rechazos sin que nadie se enterara. reference_code además es
-    // la única forma de casar la fila con el documento en el PAC cuando la
-    // emisión falló antes de que hubiera número.
-    // Las tres últimas columnas son el rastro de la anulación:
-    // `voided_by_invoice_id` apunta a OTRA fila de esta misma lista (la nota
-    // crédito), y es lo que permite mostrar con qué documento se anuló una
-    // factura.
-    const conAnulacion = await supabase
-        .from('electronic_invoices')
-        .select('id, payment_id, provider, document_type, number, cufe, reference_code, status, error_message, public_url, total, taxable_amount, tax_amount, validated_at, created_at, voided_at, void_reason, voided_by_invoice_id')
-        .eq('owner_type', ownerType)
-        .eq('owner_id', ownerId)
-        .order('created_at', { ascending: false })
-        .limit(200);
+    const parsedQuery = parseInvoiceListQuery(req.query as Record<string, unknown>);
+    if (!parsedQuery.ok) return res.status(400).json({ error: parsedQuery.error });
+    const lq = parsedQuery.value;
+    const { desde, hasta } = pageRange(lq.page, lq.pageSize);
 
-    let filas: any[] | null = conAnulacion.data as any[] | null;
-    let error = conAnulacion.error;
-
-    // Esas tres columnas llegan con la migración 20260910092915, y en este repo
-    // las migraciones se aplican A MANO (el registro no dice qué está
-    // aplicado). Si todavía no están, esta pantalla —la ÚNICA vista que la
-    // escuela tiene de sus facturas reales— no puede quedarse en blanco por
-    // pedir tres columnas de más: se repite la consulta sin ellas y el cliente,
-    // que ya las trata como opcionales, pinta la tabla igual. Este bloque se
-    // puede borrar en cuanto la migración esté aplicada en los tres ambientes.
-    if (error && (error as any).code === '42703') {
-        console.warn('[invoicing] listado sin columnas de anulación: falta la migración 20260910092915');
-        const sinAnulacion = await supabase
+    // error_message, cufe y reference_code van en el select a propósito: sin
+    // ellos un rechazo se veía idéntico a una factura en trámite.
+    // Las columnas de anulación (`voided_by_invoice_id` apunta a OTRA fila: la
+    // nota crédito) llegan con la migración 20260910092915, que se aplica a
+    // mano: si falta (42703) se repite la consulta sin ellas para que esta
+    // pantalla —la única vista de las facturas reales— no quede en blanco.
+    const consultar = (cols: string) => {
+        let q = supabase
             .from('electronic_invoices')
-            .select('id, payment_id, provider, document_type, number, cufe, reference_code, status, error_message, public_url, total, taxable_amount, tax_amount, validated_at, created_at')
+            .select(cols, { count: 'exact' })
             .eq('owner_type', ownerType)
-            .eq('owner_id', ownerId)
-            .order('created_at', { ascending: false })
-            .limit(200);
-        filas = sinAnulacion.data as any[] | null;
-        error = sinAnulacion.error;
+            .eq('owner_id', ownerId);
+        if (lq.statuses.length) q = q.in('status', lq.statuses);
+        if (lq.documentType) q = q.eq('document_type', lq.documentType);
+        if (lq.createdFrom) q = q.gte('created_at', lq.createdFrom);
+        if (lq.createdTo) q = q.lte('created_at', lq.createdTo);
+        // id como desempate: con created_at repetido (backfill en lote) el
+        // orden tiene que ser estable o una fila sale en dos páginas.
+        return q.order('created_at', { ascending: false }).order('id', { ascending: false }).range(desde, hasta);
+    };
+
+    let conAnulacion = true;
+    let resp = await consultar(`${INVOICE_LIST_COLS}, ${INVOICE_VOID_COLS}`);
+    if (resp.error && (resp.error as any).code === '42703') {
+        console.warn('[invoicing] listado sin columnas de anulación: falta la migración 20260910092915');
+        conAnulacion = false;
+        resp = await consultar(INVOICE_LIST_COLS);
+    }
+    if (resp.error) return res.status(500).json({ error: resp.error.message });
+    const filas = (resp.data ?? []) as any[];
+    const total = resp.count ?? filas.length;
+
+    // Cruce factura ↔ nota crédito que quedó partido por la página: notas
+    // crédito de facturas de esta página, y facturas anuladas por notas crédito
+    // de esta página.
+    let linked: any[] = [];
+    if (conAnulacion && filas.length) {
+        const enPagina = new Set(filas.map((f) => f.id));
+        const ncFaltantes = [...new Set(filas.map((f) => f.voided_by_invoice_id).filter((v) => v && !enPagina.has(v)))];
+        const ncEnPagina = filas.filter((f) => f.document_type === 'credit_note').map((f) => f.id);
+        const base = () => supabase
+            .from('electronic_invoices')
+            .select(`${INVOICE_LIST_COLS}, ${INVOICE_VOID_COLS}`)
+            .eq('owner_type', ownerType)
+            .eq('owner_id', ownerId);
+        const [a, b] = await Promise.all([
+            ncFaltantes.length ? base().in('id', ncFaltantes) : Promise.resolve({ data: [] as any[] }),
+            ncEnPagina.length ? base().in('voided_by_invoice_id', ncEnPagina) : Promise.resolve({ data: [] as any[] }),
+        ]);
+        const vistos = new Set<string>();
+        for (const f of [...((a as any).data ?? []), ...((b as any).data ?? [])]) {
+            if (enPagina.has(f.id) || vistos.has(f.id)) continue;
+            vistos.add(f.id);
+            linked.push(f);
+        }
     }
 
-    if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json({ invoices: filas ?? [] });
+    const summary = await resumenDelDueno(ownerType, ownerId);
+    const canEmit = await canManageFinances(req.user.id, ownerType, ownerId);
+
+    return res.status(200).json({
+        invoices: filas,
+        total,
+        page: lq.page,
+        pageSize: lq.pageSize,
+        totalPages: totalPages(total, lq.pageSize),
+        filters: { status: lq.statuses, documentType: lq.documentType, from: lq.from, to: lq.to },
+        summary,
+        linked,
+        permissions: { canEmit },
+    });
 });
+
+/**
+ * Conteos del dueño completo (sin filtros ni paginación) de lo que hay que
+ * mirar. Los montos se suman en el BFF: rechazadas/anuladas/en cola son pocas.
+ * Si algo falla devuelve null y la pantalla simplemente no pinta el aviso.
+ */
+async function resumenDelDueno(ownerType: OwnerType, ownerId: string) {
+    try {
+        const { data, error } = await supabase
+            .from('electronic_invoices')
+            .select('status, document_type, total')
+            .eq('owner_type', ownerType)
+            .eq('owner_id', ownerId)
+            .in('status', ['rejected', 'queued', 'void'])
+            .limit(5000);
+        if (error) return null;
+        const out = {
+            rejected: { count: 0, total: 0 },
+            queued: { count: 0, total: 0 },
+            // Facturas anuladas (no cuenta las notas crédito, que no se "anulan").
+            void: { count: 0, total: 0 },
+        };
+        for (const r of (data ?? []) as Array<{ status: string; document_type: string; total: number | null }>) {
+            if (r.status === 'void' && r.document_type === 'credit_note') continue;
+            const k = r.status as keyof typeof out;
+            if (!out[k]) continue;
+            out[k].count += 1;
+            out[k].total += Number(r.total) || 0;
+        }
+        return out;
+    } catch {
+        return null;
+    }
+}
 
 router.get('/by-payment/:paymentId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     const { paymentId } = req.params as { paymentId: string };

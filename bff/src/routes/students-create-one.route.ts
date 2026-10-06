@@ -26,8 +26,17 @@ import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { calcFirstPayment, BillingCycleType } from '../utils/prorationUtils';
+import {
+  calcRemainingClassesPayment,
+  remainingClassesEligibility,
+  validateClassesRemaining,
+  RemainingClassesError,
+  classesPerPeriod as classesPerPeriodOf,
+  PartialDue,
+} from '../utils/remainingClasses';
 import { normalizeSchoolName } from '../utils/brandingUtils';
 import { todayInZone } from '../utils/businessDate';
+import { enrollmentFeeDueDate } from '../services/enrollmentBilling';
 
 
 const router = Router();
@@ -74,6 +83,10 @@ const EnrollmentBase = z.object({
   start_date:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   monthly_fee:      z.number().min(10000).nullable().optional(),
   discount_pct:     z.number().min(0).max(100).optional(),
+  // Alta a mitad de mes (F7 — D12/D14b). Ausente = exactamente el cobro de hoy.
+  first_payment_mode: z.enum(['full_month', 'remaining_classes']).optional(),
+  classes_remaining:  z.number().int().optional(),
+  partial_due:        z.enum(['today', 'next_month_first']).optional(),
 });
 
 const ChildSchema = EnrollmentBase.extend({
@@ -276,124 +289,258 @@ function duplicateResponse(dup: AthleteDuplicate) {
   };
 }
 
-/**
- * Crea UN enrollment y devuelve el id creado (o null si ya existía o falló).
- * athlete puede ser { child_id } o { user_id } — nunca ambos.
- */
-async function createEnrollment(params: {
-  childId?: string;
-  userId?: string;
-  unregisteredAthleteId?: string;
-  schoolId: string;
-  startDate: string;
-  status?: string;
-  teamId?: string | null;
-  offeringPlanId?: string | null;
-  offeringId?: string | null;
-  monthlyFee?: number | null;
-  log?: any;
-}): Promise<string | null> {
-  const { childId, userId, unregisteredAthleteId, schoolId, startDate, status, teamId, offeringPlanId, offeringId, monthlyFee, log } = params;
+type AthleteCol = 'child_id' | 'user_id' | 'unregistered_athlete_id';
 
-  // Verificar si ya existe un enrollment activo igual
-  let existingQuery = supabase
-    .from('enrollments')
-    .select('id')
-    .eq('school_id', schoolId)
-    .in('status', ['active', 'pending']);
-
-  if (childId) existingQuery = existingQuery.eq('child_id', childId);
-  if (userId)  existingQuery = existingQuery.eq('user_id', userId);
-  if (unregisteredAthleteId) existingQuery = existingQuery.eq('unregistered_athlete_id', unregisteredAthleteId);
-  if (teamId)  existingQuery = existingQuery.eq('team_id', teamId);
-  if (offeringPlanId) existingQuery = existingQuery.eq('offering_plan_id', offeringPlanId);
-
-  const { data: existing } = await existingQuery.maybeSingle();
-  if (existing) return null; // Ya inscrito — no duplicar
-
-  const record: Record<string, any> = {
-    school_id:  schoolId,
-    status:     status || 'active',
-    start_date: startDate,
-  };
-
-
-  if (childId) record.child_id = childId;
-  if (userId)  record.user_id  = userId;
-  if (unregisteredAthleteId) record.unregistered_athlete_id = unregisteredAthleteId;
-
-  // Equipo — solo team_id
-  if (teamId) {
-    record.team_id = teamId;
-  }
-
-  // Plan — offering_plan_id + offering_id (siempre juntos)
-  if (offeringPlanId && offeringId) {
-    record.offering_plan_id = offeringPlanId;
-    record.offering_id      = offeringId;
-  }
-
-  // Cuota individual editable (fuente de verdad del monto — ver fee-source).
-  if (monthlyFee != null && monthlyFee > 0) {
-    record.monthly_fee = monthlyFee;
-  }
-
-  const { data, error } = await supabase
-    .from('enrollments')
-    .insert(record)
-    .select('id')
-    .single();
-
-  if (error) {
-    log?.error({ err: error }, 'Error creando enrollment');
-    return null;
-  }
-  return data?.id ?? null;
+/** Contexto de «clases restantes» ya validado (ver resolveRemainingClasses). */
+export interface RemainingCtx {
+  classesRemaining: number;
+  classesPerPeriod: number;
+  partialDue: PartialDue;
 }
 
-// Cobro de inscripción/matrícula, aparte de la mensualidad (D17-D19,
-// docs/specs/dreamers-niveles-por-horas-y-progresion.md §9.2). Fila `one_time`
-// SIN período — no compite con uniq_payment_active_period_* (esa solo aplica a
-// filas con period_year/period_month no nulos) y no toca calcFirstPayment.
-// NULL/0 en offering_plans.registration_fee = sin cobro, comportamiento actual.
-async function chargeRegistrationFeeIfApplicable(params: {
-  schoolId: string;
-  branchId?: string | null;
-  offeringPlanId: string | null;
-  planName: string | null;
-  registrationFee: number | null;
-  dueDate: string;
-  personName: string;
-  childId?: string | null;
-  userId?: string | null;
-  unregisteredAthleteId?: string | null;
-  log?: any;
-}): Promise<boolean> {
-  const { offeringPlanId, registrationFee } = params;
-  if (!offeringPlanId || !registrationFee || registrationFee <= 0) return false;
+/** Error del alta con su status HTTP (409 período ocupado, 400 plan ajeno…). */
+export class AltaError extends Error {
+  constructor(public status: number, message: string, public code: string, public extra: Record<string, unknown> = {}) {
+    super(message);
+  }
+}
 
-  const { error } = await supabase.from('payments').insert({
-    school_id:               params.schoolId,
-    branch_id:               params.branchId || null,
-    child_id:                params.childId || null,
-    user_id:                 params.userId || null,
-    unregistered_athlete_id: params.unregisteredAthleteId || null,
-    offering_plan_id:        offeringPlanId,
-    amount:                  registrationFee,
-    concept:                 `Inscripción — ${params.planName || 'Plan'} — ${params.personName}`,
-    due_date:                params.dueDate,
-    status:                  'pending',
-    payment_type:            'one_time',
-    period_year:             null,
-    period_month:            null,
-    payment_category:        'inscripcion',
+/**
+ * ¿Ya hay una inscripción activa/pendiente igual? Mismo criterio que el viejo
+ * createEnrollment: si existe, el alta NO crea otra ni cobra inscripción/seguro
+ * (no es un alta nueva — D18), pero los cobros del período se intentan igual,
+ * como antes.
+ */
+async function hasActiveEnrollment(params: {
+  schoolId: string;
+  athleteCol: AthleteCol;
+  athleteId: string;
+  teamId?: string | null;
+  offeringPlanId?: string | null;
+}): Promise<boolean> {
+  let q = supabase
+    .from('enrollments')
+    .select('id')
+    .eq('school_id', params.schoolId)
+    .in('status', ['active', 'pending'])
+    .eq(params.athleteCol, params.athleteId);
+  if (params.teamId) q = q.eq('team_id', params.teamId);
+  if (params.offeringPlanId) q = q.eq('offering_plan_id', params.offeringPlanId);
+  const { data } = await q.maybeSingle();
+  return !!data;
+}
+
+/**
+ * Filas de cobro del período para el alta. Fuente única para los 4 ramales.
+ *
+ * Sin `remaining` (first_payment_mode ausente o 'full_month'): EXACTAMENTE la
+ * fila de siempre — calcFirstPayment según el ciclo de la escuela, descuento
+ * del primer mes, período explícito. Con `remaining`: las dos filas de D14
+ * (parcial del mes del alta + mes siguiente completo), fórmula en
+ * utils/remainingClasses.ts.
+ */
+export function buildAltaPayments(p: {
+  schoolId: string;
+  athleteCol: AthleteCol;
+  athleteId: string;
+  branchId: string | null;
+  teamId: string | null;
+  offeringPlanId: string | null;
+  baseFee: number | null;
+  discountPct?: number;
+  startDate: string;
+  cycleType: BillingCycleType;
+  cutoffDay: number;
+  conceptName: string;
+  personName: string;
+  remaining: RemainingCtx | null;
+  today: string;
+}): Record<string, any>[] {
+  if (!p.baseFee || p.baseFee < 10000) return [];
+  const common = {
+    [p.athleteCol]:   p.athleteId,
+    school_id:        p.schoolId,
+    branch_id:        p.branchId,
+    team_id:          p.teamId,
+    offering_plan_id: p.offeringPlanId,
+    status:           'pending',
+    payment_type:     'subscription',
+  };
+
+  if (p.remaining) {
+    const rows = calcRemainingClassesPayment({
+      startDate: p.startDate,
+      monthlyFee: p.baseFee,
+      classesRemaining: p.remaining.classesRemaining,
+      classesPerPeriod: p.remaining.classesPerPeriod,
+      cutoffDay: p.cutoffDay,
+      partialDue: p.remaining.partialDue,
+      discountPct: p.discountPct,
+      today: p.today,
+    });
+    return rows.map(r => ({
+      ...common,
+      amount:           r.amount,
+      concept:          `${p.conceptName} — ${r.description} — ${p.personName}`,
+      due_date:         r.dueDate,
+      period_year:      r.periodYear,
+      period_month:     r.periodMonth,
+      payment_category: 'mensualidad',
+    }));
+  }
+
+  const effectiveFee = p.discountPct
+    ? Math.round(p.baseFee * (1 - p.discountPct / 100))
+    : p.baseFee;
+  const payCalc = calcFirstPayment(p.startDate, effectiveFee, p.cycleType, p.cutoffDay);
+  return [{
+    ...common,
+    amount:       payCalc.amount,
+    concept:      `${p.conceptName} — ${payCalc.description} — ${p.personName}${p.discountPct ? ` (Desc. ${p.discountPct}%)` : ''}`,
+    due_date:     payCalc.dueDate,
+    // Explícito, NO derivado del due_date por trg_payments_fill_period:
+    // ese camino mandaba el cobro al mes siguiente y dejaba el mes de
+    // entrada sin facturar. Además, sin periodo el cobro se escapa de
+    // uniq_payment_active_period_* y se puede duplicar el mes.
+    period_year:  payCalc.periodYear,
+    period_month: payCalc.periodMonth,
+  }];
+}
+
+/**
+ * Alta atómica (B6): inscripción + cobros del período + inscripción/seguro en
+ * UNA transacción (RPC create_enrollment_with_payments). Antes eran inserts
+ * sueltos: si el cobro fallaba, la inscripción quedaba sin cobro, y el error
+ * del cobro se tragaba en silencio.
+ */
+async function altaConCobros(req: AuthenticatedRequest, p: {
+  schoolId: string;
+  athleteCol: AthleteCol;
+  athleteId: string;
+  branchId: string | null;
+  teamId: string | null;
+  offeringPlanId: string | null;
+  offeringId: string | null;
+  startDate: string;
+  enrollmentMonthlyFee: number | null;
+  firstPaymentMode: 'full_month' | 'remaining_classes' | null;
+  payments: Record<string, any>[];
+  personName: string;
+}): Promise<{ enrollmentsCreated: number; paymentCreated: boolean; paymentIds: string[] }> {
+  const hasPlan = !!(p.offeringPlanId && p.offeringId);
+  const shouldEnroll = !!(p.teamId || hasPlan);
+  const exists = shouldEnroll
+    ? await hasActiveEnrollment({
+        schoolId: p.schoolId, athleteCol: p.athleteCol, athleteId: p.athleteId,
+        teamId: p.teamId, offeringPlanId: hasPlan ? p.offeringPlanId : null,
+      })
+    : false;
+
+  let enrollment: Record<string, any> | null = null;
+  if (shouldEnroll && !exists) {
+    enrollment = { status: 'active', start_date: p.startDate, [p.athleteCol]: p.athleteId };
+    if (p.teamId) enrollment.team_id = p.teamId;
+    if (hasPlan) { enrollment.offering_plan_id = p.offeringPlanId; enrollment.offering_id = p.offeringId; }
+    if (p.enrollmentMonthlyFee != null && p.enrollmentMonthlyFee > 0) enrollment.monthly_fee = p.enrollmentMonthlyFee;
+    if (p.firstPaymentMode) enrollment.first_payment_mode = p.firstPaymentMode;
+  }
+
+  // Inscripción + seguro (F-B): solo en un alta NUEVA con plan (D18).
+  const fees = enrollment && hasPlan
+    ? [{
+        kind: 'enrollment_fees',
+        plan_id: p.offeringPlanId,
+        [p.athleteCol]: p.athleteId,
+        branch_id: p.branchId,
+        due_date: enrollmentFeeDueDate(p.startDate),
+        person_name: p.personName,
+      }]
+    : [];
+
+  if (!enrollment && p.payments.length === 0) {
+    return { enrollmentsCreated: 0, paymentCreated: false, paymentIds: [] };
+  }
+
+  const { data, error } = await supabase.rpc('create_enrollment_with_payments', {
+    p_school_id: p.schoolId,
+    p_enrollment: enrollment,
+    p_payments: [...p.payments, ...fees],
   });
 
   if (error) {
-    params.log?.error({ err: error }, 'Error creando cobro de inscripción');
-    return false;
+    const msg = String((error as any).message || '');
+    const ocupado = /periodo_ocupado:(\d{4}-\d{2})/.exec(msg);
+    if (ocupado) {
+      throw new AltaError(409,
+        `El atleta ya tiene un cobro activo del período ${ocupado[1]}. No se creó la inscripción ni sus cobros: revisa su ficha antes de inscribirlo de nuevo.`,
+        'PERIODO_OCUPADO', { period: ocupado[1] });
+    }
+    if (/plan_no_encontrado/.test(msg)) {
+      throw new AltaError(400, 'El plan elegido no pertenece a esta escuela.', 'PLAN_NO_ENCONTRADO');
+    }
+    req.log?.error({ err: error }, 'Error en create_enrollment_with_payments');
+    throw new AltaError(500, 'No se pudo crear la inscripción y sus cobros. No se guardó nada de la inscripción.', 'ALTA_FALLIDA');
   }
-  return true;
+
+  const result = (data ?? {}) as { enrollment_id?: string | null; payment_ids?: string[] };
+  return {
+    enrollmentsCreated: result.enrollment_id ? 1 : 0,
+    paymentCreated: p.payments.length > 0,
+    paymentIds: result.payment_ids ?? [],
+  };
+}
+
+/**
+ * Valida y resuelve «clases restantes» ANTES de crear nada (el ramal de menor
+ * inserta `children` antes de la inscripción). Solo lee settings/plan cuando
+ * el alta pide remaining_classes: sin el campo, las consultas son las de hoy.
+ */
+async function resolveRemainingClasses(
+  schoolId: string,
+  data: { first_payment_mode?: string | null; classes_remaining?: number | null; partial_due?: PartialDue | null;
+          offering_plan_id?: string | null; offering_id?: string | null },
+  cycleType: BillingCycleType,
+): Promise<RemainingCtx | null> {
+  if (data.first_payment_mode !== 'remaining_classes') return null;
+
+  const hasPlan = !!(data.offering_plan_id && data.offering_id);
+  const [{ data: flags }, planRes] = await Promise.all([
+    supabase.from('school_settings')
+      .select('remaining_classes_billing_enabled, hours_session_block_minutes')
+      .eq('school_id', schoolId)
+      .maybeSingle(),
+    hasPlan
+      ? supabase.from('offering_plans')
+          .select('duration_days, max_sessions, included_minutes_per_period, session_block_minutes')
+          .eq('id', data.offering_plan_id as string)
+          .eq('school_id', schoolId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+
+  const elig = remainingClassesEligibility({
+    flagEnabled: !!(flags as any)?.remaining_classes_billing_enabled,
+    cycleType,
+    plan: (planRes as any).data ?? null,
+    schoolBlockMinutes: (flags as any)?.hours_session_block_minutes ?? null,
+  });
+  if (!elig.eligible) {
+    throw new AltaError(400, elig.reason, 'REMAINING_CLASSES_NOT_AVAILABLE');
+  }
+  if (data.classes_remaining == null) {
+    throw new AltaError(400, 'Indica cuántas clases le quedan del mes.', 'REMAINING_CLASSES_REQUIRED');
+  }
+  try {
+    validateClassesRemaining(data.classes_remaining, elig.classes);
+  } catch (e: any) {
+    if (e instanceof RemainingClassesError) throw new AltaError(400, e.message, 'REMAINING_CLASSES_INVALID');
+    throw e;
+  }
+  return {
+    classesRemaining: data.classes_remaining,
+    classesPerPeriod: elig.classes,
+    partialDue: data.partial_due ?? 'today',
+  };
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
@@ -444,6 +591,13 @@ router.post(
       if (data.type === 'child' && !data.parent_email && !settings?.parent_email_optional) {
         return res.status(400).json({ error: 'El email del acudiente es obligatorio.' });
       }
+
+      // Alta por clases restantes (F7): se valida ANTES de crear al atleta.
+      const remaining = data.type === 'adult_invite'
+        ? null
+        : await resolveRemainingClasses(schoolId!, data, cycleType);
+      const firstPaymentMode = data.type === 'adult_invite' ? null : (data.first_payment_mode ?? null);
+      const today = todayInZone();
 
       // Fuente del link de invitacion, en orden de preferencia:
       //   1. Origin del request (dominio desde donde se invita: stg / dev / app).
@@ -525,8 +679,6 @@ router.post(
         }
 
         const childId = child.id;
-        let enrollmentsCreated = 0;
-
         // ── UN atleta = UNA inscripción = UN cobro ─────────────────────────────
         // El equipo es roster; el plan es lo que se cobra. Cuota efectiva:
         // monthly_fee editado > precio del plan > precio del equipo.
@@ -537,10 +689,10 @@ router.post(
           const { data: team } = await supabase.from('teams').select('name, price_monthly').eq('id', data.team_id).single();
           if (team) { teamName = team.name; teamPrice = team.price_monthly != null ? Number(team.price_monthly) : null; }
         }
-        let planName: string | null = null; let planPrice: number | null = null; let planRegistrationFee: number | null = null;
+        let planName: string | null = null; let planPrice: number | null = null;
         if (hasPlan) {
-          const { data: plan } = await supabase.from('offering_plans').select('price, name, registration_fee').eq('id', data.offering_plan_id).single();
-          if (plan) { planName = plan.name; planPrice = plan.price != null ? Number(plan.price) : null; planRegistrationFee = plan.registration_fee != null ? Number(plan.registration_fee) : null; }
+          const { data: plan } = await supabase.from('offering_plans').select('price, name').eq('id', data.offering_plan_id).single();
+          if (plan) { planName = plan.name; planPrice = plan.price != null ? Number(plan.price) : null; }
         }
 
         // plan manda si hay plan; si no, equipo. monthly_fee editado tiene prioridad.
@@ -549,58 +701,26 @@ router.post(
           : hasPlan ? planPrice
           : teamPrice;
 
-        // UNA sola inscripción con equipo (roster) y/o plan (cobro) referenciados.
-        if (data.team_id || hasPlan) {
-          const eid = await createEnrollment({
-            childId, schoolId,
-            status: 'active',
-            startDate: data.start_date,
-            teamId: data.team_id || null,
+        // UNA sola inscripción con equipo (roster) y/o plan (cobro) + UN cobro
+        // (dos con clases restantes) + inscripción/seguro, en una transacción.
+        const alta = await altaConCobros(req, {
+          schoolId: schoolId!, athleteCol: 'child_id', athleteId: childId,
+          branchId: data.branch_id || null, teamId: data.team_id || null,
+          offeringPlanId: hasPlan ? data.offering_plan_id : null,
+          offeringId: hasPlan ? data.offering_id : null,
+          startDate: data.start_date, enrollmentMonthlyFee: baseFee,
+          firstPaymentMode, personName: data.full_name,
+          payments: buildAltaPayments({
+            schoolId: schoolId!, athleteCol: 'child_id', athleteId: childId,
+            branchId: data.branch_id || null, teamId: data.team_id || null,
             offeringPlanId: hasPlan ? data.offering_plan_id : null,
-            offeringId: hasPlan ? data.offering_id : null,
-            monthlyFee: baseFee,
-            log: req.log,
-          });
-          if (eid) enrollmentsCreated++;
-        }
-
-        // UN solo cobro proporcional = cuota efectiva.
-        let paymentCreated = false;
-        if (baseFee && baseFee >= 10000) {
-          const effectiveFee = data.discount_pct
-            ? Math.round(baseFee * (1 - data.discount_pct / 100))
-            : baseFee;
-          const payCalc = calcFirstPayment(data.start_date, effectiveFee, cycleType, cutoffDay);
-          const conceptName = planName ? `Plan ${planName}` : `Equipo ${teamName}`;
-          const { error: payErr } = await supabase.from('payments').insert({
-            child_id:         childId,
-            school_id:        schoolId,
-            branch_id:        data.branch_id || null,
-            team_id:          data.team_id || null,
-            offering_plan_id: hasPlan ? data.offering_plan_id : null,
-            amount:           payCalc.amount,
-            concept:          `${conceptName} — ${payCalc.description} — ${data.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
-            due_date:         payCalc.dueDate,
-            status:           'pending',
-            payment_type:     'subscription',
-            // Explícito, NO derivado del due_date por trg_payments_fill_period:
-            // ese camino mandaba el cobro al mes siguiente y dejaba el mes de
-            // entrada sin facturar. Además, sin periodo el cobro se escapa de
-            // uniq_payment_active_period_* y se puede duplicar el mes.
-            period_year:      payCalc.periodYear,
-            period_month:     payCalc.periodMonth,
-          });
-          if (!payErr) paymentCreated = true;
-          else req.log?.error({ err: payErr }, 'Error creando pago menor');
-
-          await chargeRegistrationFeeIfApplicable({
-            schoolId, branchId: data.branch_id,
-            offeringPlanId: hasPlan ? data.offering_plan_id : null,
-            planName, registrationFee: planRegistrationFee,
-            dueDate: payCalc.dueDate, personName: data.full_name,
-            childId, log: req.log,
-          });
-        }
+            baseFee, discountPct: data.discount_pct, startDate: data.start_date,
+            cycleType, cutoffDay, conceptName: planName ? `Plan ${planName}` : `Equipo ${teamName}`,
+            personName: data.full_name, remaining, today,
+          }),
+        });
+        const enrollmentsCreated = alta.enrollmentsCreated;
+        const paymentCreated = alta.paymentCreated;
 
 
         // 5. Invitación al acudiente
@@ -732,7 +852,6 @@ router.post(
         }
 
         // ── UN atleta = UNA inscripción = UN cobro (plan manda; equipo = roster) ─
-        let enrollmentsCreated = 0;
         const hasPlan = !!(data.offering_plan_id && data.offering_id);
 
         let teamName = 'Equipo'; let teamPrice: number | null = null;
@@ -740,10 +859,10 @@ router.post(
           const { data: team } = await supabase.from('teams').select('name, price_monthly').eq('id', data.team_id).single();
           if (team) { teamName = team.name; teamPrice = team.price_monthly != null ? Number(team.price_monthly) : null; }
         }
-        let planName: string | null = null; let planPrice: number | null = null; let planRegistrationFee: number | null = null;
+        let planName: string | null = null; let planPrice: number | null = null;
         if (hasPlan) {
-          const { data: plan } = await supabase.from('offering_plans').select('price, name, registration_fee').eq('id', data.offering_plan_id).single();
-          if (plan) { planName = plan.name; planPrice = plan.price != null ? Number(plan.price) : null; planRegistrationFee = plan.registration_fee != null ? Number(plan.registration_fee) : null; }
+          const { data: plan } = await supabase.from('offering_plans').select('price, name').eq('id', data.offering_plan_id).single();
+          if (plan) { planName = plan.name; planPrice = plan.price != null ? Number(plan.price) : null; }
         }
 
         const baseFee: number | null =
@@ -751,53 +870,24 @@ router.post(
           : hasPlan ? planPrice
           : teamPrice;
 
-        if (data.team_id || hasPlan) {
-          const eid = await createEnrollment({
-            userId, schoolId,
-            status: 'active',
-            startDate: data.start_date,
-            teamId: data.team_id || null,
+        const alta = await altaConCobros(req, {
+          schoolId: schoolId!, athleteCol: 'user_id', athleteId: userId,
+          branchId: data.branch_id || null, teamId: data.team_id || null,
+          offeringPlanId: hasPlan ? data.offering_plan_id : null,
+          offeringId: hasPlan ? data.offering_id : null,
+          startDate: data.start_date, enrollmentMonthlyFee: baseFee,
+          firstPaymentMode, personName: profile.full_name,
+          payments: buildAltaPayments({
+            schoolId: schoolId!, athleteCol: 'user_id', athleteId: userId,
+            branchId: data.branch_id || null, teamId: data.team_id || null,
             offeringPlanId: hasPlan ? data.offering_plan_id : null,
-            offeringId: hasPlan ? data.offering_id : null,
-            monthlyFee: baseFee,
-            log: req.log,
-          });
-          if (eid) enrollmentsCreated++;
-        }
-
-        // UN solo cobro proporcional = cuota efectiva.
-        let paymentCreated = false;
-        if (baseFee && baseFee >= 10000) {
-          const effectiveFee = data.discount_pct
-            ? Math.round(baseFee * (1 - data.discount_pct / 100))
-            : baseFee;
-          const payCalc = calcFirstPayment(data.start_date, effectiveFee, cycleType, cutoffDay);
-          const conceptName = planName ? `Plan ${planName}` : `Equipo ${teamName}`;
-          const { error: payErr } = await supabase.from('payments').insert({
-            user_id:          userId,
-            school_id:        schoolId,
-            branch_id:        data.branch_id || null,
-            team_id:          data.team_id || null,
-            offering_plan_id: hasPlan ? data.offering_plan_id : null,
-            amount:           payCalc.amount,
-            concept:          `${conceptName} — ${payCalc.description} — ${profile.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
-            due_date:         payCalc.dueDate,
-            status:           'pending',
-            payment_type:     'subscription',
-            period_year:      payCalc.periodYear,
-            period_month:     payCalc.periodMonth,
-          });
-          if (!payErr) paymentCreated = true;
-          else req.log?.error({ err: payErr }, 'Error creando pago adulto');
-
-          await chargeRegistrationFeeIfApplicable({
-            schoolId, branchId: data.branch_id,
-            offeringPlanId: hasPlan ? data.offering_plan_id : null,
-            planName, registrationFee: planRegistrationFee,
-            dueDate: payCalc.dueDate, personName: profile.full_name,
-            userId, log: req.log,
-          });
-        }
+            baseFee, discountPct: data.discount_pct, startDate: data.start_date,
+            cycleType, cutoffDay, conceptName: planName ? `Plan ${planName}` : `Equipo ${teamName}`,
+            personName: profile.full_name, remaining, today,
+          }),
+        });
+        const enrollmentsCreated = alta.enrollmentsCreated;
+        const paymentCreated = alta.paymentCreated;
 
 
         await auditCoachAthleteAction(req, 'profiles', userId, 'COACH_CREATE_ATHLETE', {
@@ -831,59 +921,40 @@ router.post(
         }
 
         // UNA sola inscripción con equipo (roster) y/o plan (cobro).
-        let enrollmentsCreated = 0;
         const hasPlan = !!(data.offering_plan_id && data.offering_id);
-        let planName: string | null = null; let planRegistrationFee: number | null = null;
+        let planPrice: number | null = null;
         if (hasPlan) {
-          const { data: plan } = await supabase.from('offering_plans').select('name, registration_fee').eq('id', data.offering_plan_id).single();
-          if (plan) { planName = plan.name; planRegistrationFee = plan.registration_fee != null ? Number(plan.registration_fee) : null; }
-        }
-        if (data.team_id || hasPlan) {
-          const eid = await createEnrollment({
-            childId: child_id, schoolId,
-            status: 'active',
-            startDate: data.start_date,
-            teamId: data.team_id || null,
-            offeringPlanId: hasPlan ? data.offering_plan_id : null,
-            offeringId: hasPlan ? data.offering_id : null,
-            monthlyFee: (data.monthly_fee && data.monthly_fee > 0) ? data.monthly_fee : null,
-            log: req.log,
-          });
-          if (eid) enrollmentsCreated++;
+          const { data: plan } = await supabase.from('offering_plans').select('price').eq('id', data.offering_plan_id).single();
+          if (plan) { planPrice = plan.price != null ? Number(plan.price) : null; }
         }
 
-        // 4. UN solo cobro proporcional (ya era único aquí).
-        let paymentCreated = false;
-        if (data.monthly_fee && data.monthly_fee >= 10000) {
-          const effectiveFee = data.discount_pct
-            ? Math.round(data.monthly_fee * (1 - data.discount_pct / 100))
-            : data.monthly_fee;
+        // UN solo cobro proporcional (ya era único aquí): solo con monthly_fee
+        // explícito, como siempre. Con clases restantes, sin monto explícito se
+        // usa el precio del plan (la fórmula necesita una cuota).
+        const feeForPayments: number | null =
+          (data.monthly_fee && data.monthly_fee > 0) ? data.monthly_fee
+          : remaining ? planPrice
+          : null;
 
-          const payCalc = calcFirstPayment(data.start_date, effectiveFee, cycleType, cutoffDay);
-          const { error: payErr } = await supabase.from('payments').insert({
-            child_id:     child_id,
-            school_id:    schoolId,
-            branch_id:    data.branch_id || null,
-            team_id:      data.team_id || null,
-            offering_plan_id: data.offering_plan_id || null,
-            amount:       payCalc.amount,
-            concept:      `Suscripción — ${payCalc.description} — ${child.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
-            due_date:     payCalc.dueDate,
-            status:       'pending',
-            payment_type: 'subscription',
-            period_year:  payCalc.periodYear,
-            period_month: payCalc.periodMonth,
-          });
-          if (!payErr) paymentCreated = true;
-
-          await chargeRegistrationFeeIfApplicable({
-            schoolId, branchId: data.branch_id,
-            offeringPlanId: hasPlan ? data.offering_plan_id : null,
-            planName, registrationFee: planRegistrationFee,
-            dueDate: payCalc.dueDate, personName: child.full_name,
-            childId: child_id, log: req.log,
-          });
-        }
+        const alta = await altaConCobros(req, {
+          schoolId: schoolId!, athleteCol: 'child_id', athleteId: child_id,
+          branchId: data.branch_id || null, teamId: data.team_id || null,
+          offeringPlanId: hasPlan ? data.offering_plan_id : null,
+          offeringId: hasPlan ? data.offering_id : null,
+          startDate: data.start_date,
+          enrollmentMonthlyFee: (data.monthly_fee && data.monthly_fee > 0) ? data.monthly_fee : null,
+          firstPaymentMode, personName: child.full_name,
+          payments: buildAltaPayments({
+            schoolId: schoolId!, athleteCol: 'child_id', athleteId: child_id,
+            branchId: data.branch_id || null, teamId: data.team_id || null,
+            offeringPlanId: data.offering_plan_id || null,
+            baseFee: feeForPayments, discountPct: data.discount_pct, startDate: data.start_date,
+            cycleType, cutoffDay, conceptName: 'Suscripción',
+            personName: child.full_name, remaining, today,
+          }),
+        });
+        const enrollmentsCreated = alta.enrollmentsCreated;
+        const paymentCreated = alta.paymentCreated;
 
         await auditCoachAthleteAction(req, 'children', child_id, 'COACH_CREATE_ATHLETE', {
           full_name: child.full_name, type: 'child_existing',
@@ -1001,7 +1072,6 @@ router.post(
         }
 
         const uaId = ua.id;
-        let enrollmentsCreated = 0;
 
         // ── UN atleta = UNA inscripción = UN cobro (plan manda; equipo = roster) ─
         const hasPlan = !!(data.offering_plan_id && data.offering_id);
@@ -1011,10 +1081,10 @@ router.post(
           const { data: team } = await supabase.from('teams').select('name, price_monthly').eq('id', data.team_id).single();
           if (team) { teamName = team.name; teamPrice = team.price_monthly != null ? Number(team.price_monthly) : null; }
         }
-        let planName: string | null = null; let planPrice: number | null = null; let planRegistrationFee: number | null = null;
+        let planName: string | null = null; let planPrice: number | null = null;
         if (hasPlan) {
-          const { data: plan } = await supabase.from('offering_plans').select('price, name, registration_fee').eq('id', data.offering_plan_id).single();
-          if (plan) { planName = plan.name; planPrice = plan.price != null ? Number(plan.price) : null; planRegistrationFee = plan.registration_fee != null ? Number(plan.registration_fee) : null; }
+          const { data: plan } = await supabase.from('offering_plans').select('price, name').eq('id', data.offering_plan_id).single();
+          if (plan) { planName = plan.name; planPrice = plan.price != null ? Number(plan.price) : null; }
         }
 
         const baseFee: number | null =
@@ -1022,46 +1092,23 @@ router.post(
           : hasPlan ? planPrice
           : teamPrice;
 
-        if (data.team_id || hasPlan) {
-          const eid = await createEnrollment({
-            unregisteredAthleteId: uaId, schoolId,
-            status: 'active',
-            startDate: data.start_date,
-            teamId: data.team_id || null,
+        const alta = await altaConCobros(req, {
+          schoolId: schoolId!, athleteCol: 'unregistered_athlete_id', athleteId: uaId,
+          branchId: data.branch_id || null, teamId: data.team_id || null,
+          offeringPlanId: hasPlan ? data.offering_plan_id : null,
+          offeringId: hasPlan ? data.offering_id : null,
+          startDate: data.start_date, enrollmentMonthlyFee: baseFee,
+          firstPaymentMode, personName: data.full_name,
+          payments: buildAltaPayments({
+            schoolId: schoolId!, athleteCol: 'unregistered_athlete_id', athleteId: uaId,
+            branchId: data.branch_id || null, teamId: data.team_id || null,
             offeringPlanId: hasPlan ? data.offering_plan_id : null,
-            offeringId: hasPlan ? data.offering_id : null,
-            monthlyFee: baseFee,
-            log: req.log,
-          });
-          if (eid) enrollmentsCreated++;
-        }
-
-        // UN solo cobro proporcional = cuota efectiva.
-        if (baseFee && baseFee >= 10000) {
-          const effectiveFee = data.discount_pct
-            ? Math.round(baseFee * (1 - data.discount_pct / 100))
-            : baseFee;
-          const payCalc = calcFirstPayment(data.start_date, effectiveFee, cycleType, cutoffDay);
-          const conceptName = planName ? `Plan ${planName}` : `Equipo ${teamName}`;
-          await supabase.from('payments').insert({
-            school_id: schoolId, branch_id: data.branch_id || null,
-            unregistered_athlete_id: uaId,
-            team_id: data.team_id || null,
-            offering_plan_id: hasPlan ? data.offering_plan_id : null,
-            amount: payCalc.amount,
-            concept: `${conceptName} — ${payCalc.description} — ${data.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
-            due_date: payCalc.dueDate, status: 'pending', payment_type: 'subscription',
-            period_year: payCalc.periodYear, period_month: payCalc.periodMonth,
-          });
-
-          await chargeRegistrationFeeIfApplicable({
-            schoolId, branchId: data.branch_id,
-            offeringPlanId: hasPlan ? data.offering_plan_id : null,
-            planName, registrationFee: planRegistrationFee,
-            dueDate: payCalc.dueDate, personName: data.full_name,
-            unregisteredAthleteId: uaId, log: req.log,
-          });
-        }
+            baseFee, discountPct: data.discount_pct, startDate: data.start_date,
+            cycleType, cutoffDay, conceptName: planName ? `Plan ${planName}` : `Equipo ${teamName}`,
+            personName: data.full_name, remaining, today,
+          }),
+        });
+        const enrollmentsCreated = alta.enrollmentsCreated;
 
 
         let invitationSent = false;
@@ -1146,7 +1193,123 @@ router.post(
       }
 
     } catch (err: any) {
+      if (err instanceof AltaError) {
+        return res.status(err.status).json({ error: err.message, code: err.code, ...err.extra });
+      }
       req.log?.error({ err: err.message || err }, 'Error inesperado en create-one');
+      return res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  }
+);
+
+// ─── Preview del primer cobro (F7) ───────────────────────────────────────────
+//
+// POST /api/v1/students/first-payment-preview
+//
+// El modal de alta NO calcula «clases restantes»: pregunta acá, que usa las
+// mismas funciones que el alta real (utils/remainingClasses.ts). Así la pantalla
+// no puede mostrar un monto distinto del que se va a cobrar.
+
+const PreviewSchema = z.object({
+  offering_plan_id:  z.string().uuid(),
+  start_date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  classes_remaining: z.number().int().optional(),
+  partial_due:       z.enum(['today', 'next_month_first']).optional(),
+  monthly_fee:       z.number().positive().nullable().optional(),
+  discount_pct:      z.number().min(0).max(100).optional(),
+});
+
+router.post(
+  '/first-payment-preview',
+  requireAuth,
+  requireRole('owner', 'admin', 'super_admin', 'school_admin', 'school'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const parsed = PreviewSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Datos inválidos.', details: parsed.error.issues });
+    }
+    const body = parsed.data;
+    const { schoolId } = req;
+
+    try {
+      const [{ data: settings }, { data: plan }] = await Promise.all([
+        supabase.from('school_settings')
+          .select('billing_cycle_type, payment_cutoff_day, remaining_classes_billing_enabled, hours_session_block_minutes')
+          .eq('school_id', schoolId)
+          .maybeSingle(),
+        supabase.from('offering_plans')
+          .select('price, duration_days, max_sessions, included_minutes_per_period, session_block_minutes, registration_fee, insurance_fee')
+          .eq('id', body.offering_plan_id)
+          .eq('school_id', schoolId)
+          .maybeSingle(),
+      ]);
+      if (!plan) return res.status(404).json({ error: 'Plan no encontrado en esta escuela.' });
+
+      const cycleType = ((settings as any)?.billing_cycle_type || 'prorated') as BillingCycleType;
+      const cutoffDay = (settings as any)?.payment_cutoff_day || 10;
+      const schoolBlock = (settings as any)?.hours_session_block_minutes ?? null;
+      const elig = remainingClassesEligibility({
+        flagEnabled: !!(settings as any)?.remaining_classes_billing_enabled,
+        cycleType,
+        plan: plan as any,
+        schoolBlockMinutes: schoolBlock,
+      });
+      const cpp = classesPerPeriodOf(plan as any, schoolBlock);
+      const fees = {
+        registration_fee: Number((plan as any).registration_fee) > 0 ? Number((plan as any).registration_fee) : 0,
+        insurance_fee: Number((plan as any).insurance_fee) > 0 ? Number((plan as any).insurance_fee) : 0,
+      };
+
+      const base = {
+        eligible: elig.eligible,
+        reason: elig.eligible ? null : elig.reason,
+        classes_per_period: cpp?.classes ?? null,
+        source: cpp?.source ?? null,
+        fees,
+      };
+
+      if (!elig.eligible || body.classes_remaining == null) {
+        return res.json({ ...base, rows: [], total_today: null });
+      }
+      try {
+        validateClassesRemaining(body.classes_remaining, elig.classes);
+      } catch (e: any) {
+        if (e instanceof RemainingClassesError) return res.status(400).json({ ...base, error: e.message });
+        throw e;
+      }
+
+      const monthlyFee = body.monthly_fee && body.monthly_fee > 0 ? body.monthly_fee : Number((plan as any).price);
+      const today = todayInZone();
+      const rows = calcRemainingClassesPayment({
+        startDate: body.start_date,
+        monthlyFee,
+        classesRemaining: body.classes_remaining,
+        classesPerPeriod: elig.classes,
+        cutoffDay,
+        partialDue: body.partial_due ?? 'today',
+        discountPct: body.discount_pct,
+        today,
+      });
+      // Lo que se paga en el alta: las filas que vencen ese día + inscripción y
+      // seguro (el seguro podría no cobrarse si ya tiene uno vigente).
+      const altaDue = enrollmentFeeDueDate(body.start_date, today);
+      const totalToday = rows.filter(r => r.dueDate <= altaDue).reduce((acc, r) => acc + r.amount, 0)
+        + fees.registration_fee + fees.insurance_fee;
+
+      return res.json({
+        ...base,
+        rows: rows.map(r => ({
+          kind: r.kind,
+          amount: r.amount,
+          due_date: r.dueDate,
+          period_year: r.periodYear,
+          period_month: r.periodMonth,
+          description: r.description,
+        })),
+        total_today: totalToday,
+      });
+    } catch (err: any) {
+      req.log?.error({ err: err.message || err }, 'Error en first-payment-preview');
       return res.status(500).json({ error: 'Error interno del servidor.' });
     }
   }

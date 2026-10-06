@@ -30,6 +30,11 @@ import {
     isRetryablePacError,
     pacJsonFetch,
     PacTransportError,
+    cardTypeFromGatewayPayload,
+    normalizeCustomerEmail,
+    customerEmailPolicy,
+    resolveCustomerEmail,
+    CONSUMIDOR_FINAL_ID,
 } from './types';
 import type { InvoiceCustomer, ProviderConfig } from './types';
 
@@ -194,9 +199,34 @@ describe('resolvePaymentMethodCode — el medio de pago se declara, no se clava'
         expect(resolvePaymentMethodCode('pse', cfg())).not.toBe('10');
     });
 
-    it("'card' no distingue crédito (48) de débito (49): tampoco se afirma efectivo", () => {
-        expect(resolvePaymentMethodCode('card', cfg())).toBe('1');
+    it("tarjeta con tipo conocido: crédito → 48, débito → 49", () => {
+        expect(resolvePaymentMethodCode('card_credit', cfg())).toBe('48');
+        expect(resolvePaymentMethodCode('credit_card', cfg())).toBe('48');
+        expect(resolvePaymentMethodCode('card_debit', cfg())).toBe('49');
+        expect(resolvePaymentMethodCode('debit_card', cfg())).toBe('49');
+    });
+
+    it("'card' sin tipo: tarjeta crédito (48), nunca 'no definido' ni efectivo", () => {
+        expect(resolvePaymentMethodCode('card', cfg())).toBe('48');
+        expect(resolvePaymentMethodCode('card', cfg())).not.toBe('1');
         expect(resolvePaymentMethodCode('card', cfg())).not.toBe('10');
+    });
+
+    it("el override de 'card' cambia el default pero NO pisa un tipo ya precisado", () => {
+        const c = cfg({ payment_method_codes: { card: '49' } });
+        expect(resolvePaymentMethodCode('card', c)).toBe('49');
+        expect(resolvePaymentMethodCode('card_credit', c)).toBe('48');
+    });
+
+    it('cardTypeFromGatewayPayload lee Wompi y MercadoPago', () => {
+        const wompi = (t: string) => ({ data: { transaction: { payment_method_type: 'CARD', payment_method: { extra: { card_type: t } } } } });
+        expect(cardTypeFromGatewayPayload(wompi('CREDIT'))).toBe('credit');
+        expect(cardTypeFromGatewayPayload(wompi('DEBIT'))).toBe('debit');
+        expect(cardTypeFromGatewayPayload({ payment_type_id: 'debit_card' })).toBe('debit');
+        expect(cardTypeFromGatewayPayload({ data: { payment_type_id: 'credit_card' } })).toBe('credit');
+        expect(cardTypeFromGatewayPayload({ data: { transaction: { payment_method_type: 'PSE' } } })).toBeNull();
+        expect(cardTypeFromGatewayPayload(null)).toBeNull();
+        expect(cardTypeFromGatewayPayload('CREDIT')).toBeNull();
     });
 
     it('sin medio de pago no se afirma nada: 1, no 10', () => {
@@ -409,5 +439,59 @@ describe('pacJsonFetch — mira res.ok ANTES de parsear el cuerpo', () => {
         const r = await pacJsonFetch('Factus V2', URL_FALSA, {}, 1000);
         expect(r.ok).toBe(true);
         expect(r.json.data.number).toBe('SETP990018445');
+    });
+});
+
+// ─── Correo del adquiriente ──────────────────────────────────────────────────
+
+describe('correo del adquiriente (resolveCustomerEmail)', () => {
+    it('normaliza: trim + minúsculas; lo que no es correo es null', () => {
+        expect(normalizeCustomerEmail('  Juan.Perez@Gmail.COM ')).toBe('juan.perez@gmail.com');
+        expect(normalizeCustomerEmail('juan@')).toBeNull();
+        expect(normalizeCustomerEmail('sin correo')).toBeNull();
+        expect(normalizeCustomerEmail('a@b')).toBeNull();
+        expect(normalizeCustomerEmail('a b@c.co')).toBeNull();
+        expect(normalizeCustomerEmail('')).toBeNull();
+        expect(normalizeCustomerEmail(null)).toBeNull();
+        expect(normalizeCustomerEmail(`${'a'.repeat(250)}@x.co`)).toBeNull();
+    });
+
+    it('correo válido viaja normalizado, sin aviso', () => {
+        const r = resolveCustomerEmail(cliente({ email: ' Ana@Mail.co ' }), cfg());
+        expect(r).toEqual({ email: 'ana@mail.co', reject: null, warning: null });
+    });
+
+    it("default con un PAC que no declara aceptar sin correo: 'require' → no se emite", () => {
+        expect(customerEmailPolicy(cfg())).toBe('require');
+        expect(customerEmailPolicy(cfg(), {})).toBe('require');
+        const r = resolveCustomerEmail(cliente({ email: null }), cfg());
+        expect(r.reject).toBe('customer_missing_email');
+        expect(r.email).toBeNull();
+    });
+
+    it('un correo INVÁLIDO cuenta como faltante: nunca viaja al PAC', () => {
+        const r = resolveCustomerEmail(cliente({ email: 'n/a' }), cfg());
+        expect(r.reject).toBe('customer_missing_email');
+        const opt = resolveCustomerEmail(cliente({ email: 'n/a' }), cfg({ customer_email_policy: 'optional' }));
+        expect(opt).toEqual({ email: null, reject: null, warning: 'cliente_sin_correo' });
+    });
+
+    it('el PAC que SÍ acepta sin correo no bloquea: emite con aviso', () => {
+        const adapter = { allowsCustomerWithoutEmail: true };
+        expect(customerEmailPolicy(cfg(), adapter)).toBe('optional');
+        const r = resolveCustomerEmail(cliente({ email: '' }), cfg(), adapter);
+        expect(r).toEqual({ email: null, reject: null, warning: 'cliente_sin_correo' });
+    });
+
+    it("la config del dueño manda sobre el default del adaptador, en las dos direcciones", () => {
+        expect(customerEmailPolicy(cfg({ customer_email_policy: 'require' }), { allowsCustomerWithoutEmail: true })).toBe('require');
+        expect(customerEmailPolicy(cfg({ customer_email_policy: ' OPTIONAL ' }))).toBe('optional');
+        // Valor basura → default (no se interpreta como 'optional').
+        expect(customerEmailPolicy(cfg({ customer_email_policy: 'si' }))).toBe('require');
+    });
+
+    it('consumidor final no necesita correo', () => {
+        const r = resolveCustomerEmail(cliente({ identification: CONSUMIDOR_FINAL_ID, email: null }), cfg());
+        expect(r).toEqual({ email: null, reject: null, warning: null });
     });
 });

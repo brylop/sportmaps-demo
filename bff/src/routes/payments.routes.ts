@@ -459,7 +459,7 @@ const ExtractSchema = z.object({
     // Categoría del cobro que se está pagando: decide qué llaves restringidas
     // (`payment_accounts[].only_for`) valen como destino. Con paymentId se lee
     // del pago; sin ninguno de los dos, las llaves restringidas dan amarillo.
-    paymentCategory: z.enum(['mensualidad', 'inscripcion', 'articulos', 'torneo', 'otro']).optional(),
+    paymentCategory: z.enum(['mensualidad', 'inscripcion', 'articulos', 'torneo', 'otro', 'seguro', 'excedente']).optional(),
     concept: z.string().max(300).optional(),
 });
 
