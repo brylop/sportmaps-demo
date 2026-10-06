@@ -20,6 +20,7 @@ import { AltaDelCanal } from '@/components/whatsapp/AltaDelCanal';
 import { Conversaciones } from '@/components/whatsapp/Conversaciones';
 import { HorariosDeEntrenamiento } from '@/components/whatsapp/HorariosDeEntrenamiento';
 import { Metricas } from '@/components/whatsapp/Metricas';
+import { ClasesCortesia } from '@/components/whatsapp/ClasesCortesia';
 import { ImportarChatExportado } from '@/components/whatsapp/ImportarChatExportado';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -31,7 +32,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import {
-    MessageSquare, RefreshCw, AlertTriangle, Clock, FileText, Inbox, Settings, Plus, Loader2, Power, BarChart3,
+    MessageSquare, RefreshCw, AlertTriangle, Clock, FileText, Inbox, Settings, Plus, Loader2, Power, BarChart3, CalendarCheck,
 } from 'lucide-react';
 
 // ─── Tipos que devuelve el BFF ──────────────────────────────────────────────
@@ -46,6 +47,8 @@ interface Ajustes {
     ai_enabled: boolean;
     /** Contestar también a números que no son familias. Ausente si el backend es viejo. */
     responder_desconocidos?: boolean;
+    /** Contestar a desconocidos que piden información para inscribirse. Ausente = prendido. */
+    responder_prospectos?: boolean;
     business_hours: { tz: string; dias: Record<string, [string, string]> } | null;
     welcome_message: string | null;
 }
@@ -311,7 +314,7 @@ export default function WhatsAppPage() {
             )}
 
             <Tabs defaultValue={pestanaInicial}>
-                {/* Con siete pestañas la fila no cabe en un celular: se desliza de lado. */}
+                {/* Con ocho pestañas la fila no cabe en un celular: se desliza de lado. */}
                 <TabsList className="w-full justify-start overflow-x-auto">
                     <TabsTrigger value="resumen">Resumen</TabsTrigger>
                     <TabsTrigger value="metricas">
@@ -319,6 +322,9 @@ export default function WhatsAppPage() {
                     </TabsTrigger>
                     <TabsTrigger value="conversaciones">
                         <MessageSquare className="h-4 w-4 mr-1.5" /> Conversaciones
+                    </TabsTrigger>
+                    <TabsTrigger value="cortesias">
+                        <CalendarCheck className="h-4 w-4 mr-1" /> Clases de cortesía
                     </TabsTrigger>
                     <TabsTrigger value="plantillas">
                         <FileText className="h-4 w-4 mr-1" /> Plantillas
@@ -406,6 +412,11 @@ export default function WhatsAppPage() {
                 {/* ── Plantillas ── */}
                 <TabsContent value="conversaciones">
                     <Conversaciones schoolId={schoolId!} conversacionInicial={conversacionInicial} />
+                </TabsContent>
+
+                {/* ── Clases de cortesía: dónde quedó agendado cada prospecto ── */}
+                <TabsContent value="cortesias">
+                    {schoolId && <ClasesCortesia schoolId={schoolId} />}
                 </TabsContent>
 
                 <TabsContent value="plantillas">
@@ -663,6 +674,26 @@ function PanelConfig({ ajustes, guardando, onGuardar }: {
                             checked={ajustes?.responder_desconocidos === true}
                             disabled={guardando || ajustes?.ai_enabled === false}
                             onCheckedChange={(v) => onGuardar({ responder_desconocidos: v })}
+                        />
+                    </div>
+                    <div className="flex items-start justify-between gap-4">
+                        <div>
+                            <Label htmlFor="wa-responder-prospectos">
+                                Responder a quienes piden información para inscribirse
+                            </Label>
+                            <p className="text-sm text-muted-foreground">
+                                Aunque lo de arriba esté apagado, el asistente contesta a números nuevos que
+                                escriben claramente por inscripciones, horarios, precios o la clase de cortesía, y
+                                los deja registrados como prospectos. A los saludos sueltos y a tus contactos
+                                personales no les escribe.
+                            </p>
+                        </div>
+                        <Switch
+                            id="wa-responder-prospectos"
+                            className="shrink-0"
+                            checked={ajustes?.responder_prospectos !== false}
+                            disabled={guardando || ajustes?.ai_enabled === false || ajustes?.responder_desconocidos === true}
+                            onCheckedChange={(v) => onGuardar({ responder_prospectos: v })}
                         />
                     </div>
                 </CardContent>

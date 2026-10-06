@@ -172,6 +172,21 @@ describe('GET /:schoolId/conversaciones', () => {
         expect(r.json.conversaciones.find((c: any) => c.id === 'c1').pendiente).toBe(false);
     });
 
+    it('es_prospecto: desconocido al que el asistente contestó en el paso de tema escolar', async () => {
+        // El mock filtra eq() por nombre de campo: la fila trae la clave tal cual la pide la ruta.
+        estado.tablas.whatsapp_messages.push(
+            { conversation_id: 'c3', direction: 'outbound', 'payload->>step': 'desconocido_tema_escolar', created_at: hace(4) },
+            // A staff nunca se le marca prospecto aunque hubiera el paso.
+            { conversation_id: 'c5', direction: 'outbound', 'payload->>step': 'desconocido_tema_escolar', created_at: hace(4) },
+        );
+        estado.tablas.whatsapp_message_drafts.push(
+            { conversation_id: 'c4', status: 'pending', 'tool_context->>step': 'desconocido_tema_escolar' },
+        );
+        const r = await llamar('GET', `/${A}/conversaciones?vista=todas`);
+        const p = Object.fromEntries(r.json.conversaciones.map((c: any) => [c.id, c.es_prospecto]));
+        expect(p).toEqual({ c1: false, c2: false, c3: true, c4: true, c5: false, c6: false });
+    });
+
     it('vista inválida → 400', async () => {
         const r = await llamar('GET', `/${A}/conversaciones?vista=amigos`);
         expect(r.status).toBe(400);

@@ -49,6 +49,7 @@ import type { BotonInteractivo } from './whatsapp.service';
 import { sendToUser } from './push.service';
 import { destinatariosDeEscuela, enviarConReserva } from './avisos-correo.service';
 import { esSinLimite } from './franjas-cortesia.service';
+import { liberarLeadParaReserva } from './whatsapp-prospecto-lead.service';
 
 export const FLUJO_CORTESIA = 'clase_cortesia';
 /** Misma ventana de atención de Meta: pasada, el papá ya no recuerda la pregunta. */
@@ -1005,6 +1006,9 @@ export async function reservarEnSupabase(p: ParamsReserva): Promise<ResultadoRes
     try {
         const slug = await slugDeEscuela(p.schoolId);
         if (!slug) return { ok: false, motivo: 'error' };
+        // El lead SIN cupo que dejó la puerta de prospecto (whatsapp-prospecto-lead)
+        // haría que `submit_school_lead` responda «duplicado» y NO reserve.
+        await liberarLeadParaReserva(p.schoolId, p.contactWaId);
         const { data, error } = await supabase.rpc('submit_school_lead', {
             p_slug: slug,
             p_full_name: p.nombre,
