@@ -479,7 +479,7 @@ Un lector de Dreamers puede verse «en línea» y llevar días sin capturar nada
 | Señal | Qué prueba | Qué NO prueba |
 |---|---|---|
 | `bridge_heartbeats` (`door-bridge`) | el canal de **comandos** del bridge llega al backend | que la captura de asistencia funcione — es otro hilo |
-| `turnstile_devices.last_seen_at` | lo que el script decida mandar (hoy: heartbeat cada 60 s **solo mientras `live_capture` está conectado**) | nada, si el script no manda heartbeat: se mueve solo al marcar |
+| `turnstile_devices.last_seen_at` | lo que el script decida mandar (hoy: latido cada 60 s por el WebSocket —con respaldo HTTP si el BFF es viejo— **solo mientras `live_capture` está conectado**) | nada, si el script no manda heartbeat: se mueve solo al marcar |
 | `access_events` recientes | hubo marcaciones | que hubiera gente marcando |
 
 Pasó de verdad: LECTOR ENTRADA ~3 días sin capturar con `bridge_heartbeats` verde. La alerta vigente es
@@ -487,13 +487,16 @@ Pasó de verdad: LECTOR ENTRADA ~3 días sin capturar con `bridge_heartbeats` ve
 mande el heartbeat. **No quitar `send_heartbeat()` del loop de captura** (la primera versión con
 `live_capture` lo dejó definido pero sin llamar).
 
-### `get_attendance()` trae TODA la tabla y deshabilita el lector
+### `get_attendance()` trae TODA la tabla (y deshabilitar el lector para leerla deja el torniquete sin aceptar huellas)
 
-`pyzk` no filtra por fecha: con ~48.000 registros acumulados un solo `get_attendance()` tarda ~47 s, y el
-script lo envuelve en `disable_device()` — **el lector no acepta huellas todo ese tiempo**. El sondeo viejo
-(cada 5 s) lo dejaba deshabilitado cerca de la mitad del día. La captura normal debe ser `live_capture`;
-`get_attendance()` solo como barrido de respaldo y poco frecuente (30 min). `live_capture` **no** debe
-llamar `disable_device()`.
+`pyzk` no filtra por fecha: con ~48.000 registros acumulados un solo `get_attendance()` tarda ~47 s. La
+primera versión del script lo envolvía en `disable_device()` — **el lector no acepta huellas todo ese
+tiempo** — y el sondeo viejo (cada 5 s) lo dejaba deshabilitado cerca de la mitad del día. `get_attendance()`
+no deshabilita nada por sí mismo; el barrido de respaldo ya no lo hace (`SPORTMAPS_BRIDGE_SWEEP_DISABLE_DEVICE=1`
+lo restaura; leer con el equipo habilitado no se había probado en el MB360). La captura normal debe ser
+`live_capture`, que **tampoco** debe llamar `disable_device()`. Y el barrido no se puede espaciar a «una vez
+al día»: el backend descarta ATTLOG de más de 3 h (`ADMS_BACKLOG_SKIP_HOURS`), así que solo recupera algo si
+corre al menos cada ~2 h (hoy cada 30 min).
 
 ### Un cursor que no avanza se traba para siempre
 

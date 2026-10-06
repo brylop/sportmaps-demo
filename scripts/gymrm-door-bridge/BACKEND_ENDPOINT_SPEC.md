@@ -212,7 +212,7 @@ Protocolo, todo JSON sobre la misma conexión (el original está en el encabezad
 | servidor → cliente | `{type:"wake"}` | `wakeSchool()` al crear un `open_door` en `access-api.ts` |
 | cliente → servidor | `{type:"poll"}` | «dame lo pendiente»; el servidor responde `commands` |
 | servidor → cliente | `{type:"commands", commands:[...]}` | también al autenticar, si ya había algo |
-| cliente → servidor | `{type:"heartbeat"}` | cada ~60 s; mantiene `bridge_heartbeats`. Sin heartbeat en 90 s el servidor corta el socket |
+| cliente → servidor | `{type:"heartbeat", devices?:[serial]}` | cada ~60 s; mantiene `bridge_heartbeats`. `devices` (opcional) = lectores que siguen capturando → `turnstile_devices.last_seen_at`, solo seriales de la escuela del socket (lo usa el bridge de Dreamers; `auth_ok` anuncia `features:["device_heartbeat"]`). Sin heartbeat en 90 s el servidor corta el socket |
 
 Notas de diseño: frames de máx. 8 KB; rate-limit de auths fallidos por IP (20 / 5 min) usando `cf-connecting-ip`
 (el upgrade de un WS no pasa por `trust proxy`); la conexión se renueva a las 3 am Colombia desde el cliente.

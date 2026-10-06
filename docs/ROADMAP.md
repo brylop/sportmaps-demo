@@ -27,10 +27,12 @@ WS (`bridgeWsServer.ts`). **Verificado:** los 4 `last_seen_at` volvieron a los s
 - **`dreamers_bridge.py` rediseñado** (se entrega como archivo a la PC de Dreamers; la copia del repo se
   actualizó): captura en vivo con `live_capture` por lector + barrido de respaldo cada 30 min con
   ventana de seguridad de 10 min (reenviar duplicados es seguro: índice único + efectos solo en fila
-  nueva), Lock/Event por lector para no pisar comandos con la captura, heartbeat por lector mientras
+  nueva), Lock/Event por lector para no pisar comandos con la captura, vigilante que reinicia el
+  proceso si un hilo se cuelga, latido por lector por el WebSocket (sin peticiones HTTP periódicas) mientras
   la captura está conectada. Dos bugs reales de producción: el cursor se trababa con >20 eventos de
   golpe (LECTOR ENTRADA estuvo ~3 días sin capturar sin que nada avisara) y `get_attendance()` trae los
-  ~48.000 registros del equipo en cada ciclo (~47 s, con el lector deshabilitado). Ver
+  ~48.000 registros del equipo en cada ciclo (~47 s por lector, y el script lo hacía con el lector deshabilitado:
+  sin aceptar huellas casi la mitad del día — ahora el barrido no lo deshabilita). Ver
   [README](../scripts/dreamers-bridge/README.md).
 - **Banco de horas — parámetros y regla de cobro con Dreamers** (`MOD-21`): gracia 10 min antes / 20 después
   y reingreso 5 min (Dreamers; Academia Superior: igual gracia, reingreso 15) — son settings por escuela,

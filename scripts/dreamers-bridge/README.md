@@ -30,15 +30,20 @@ Corre en una PC de la red local de Dreamers, con **cuatro piezas** que no deben 
    marcación al momento, el script la reenvía a `POST /iclock/cdata` imitando el formato ATTLOG del
    equipo (el backend la procesa igual que si viniera directo). No trae el historial y no se pone más
    lenta con el tiempo. **No deshabilita el lector** — necesita que siga aceptando huellas.
-2. **Heartbeat por lector** cada 60 s (`GET /iclock/getrequest` → `turnstile_devices.last_seen_at`),
-   **solo mientras la captura en vivo está conectada**. `last_seen_at` significa «capturando», no «el
+2. **Latido por lector, por el mismo WebSocket** (sin peticiones HTTP periódicas): cada 60 s el heartbeat del
+   socket lleva la lista de lectores que siguen capturando y el backend actualiza su
+   `turnstile_devices.last_seen_at`. Si el backend aún no lo soporta (no anuncia `device_heartbeat` en el
+   `auth_ok`), el script cae al `GET /iclock/getrequest` por lector cada 60 s, así que el orden de
+   despliegue no importa. **Solo mientras la captura en vivo está conectada**. `last_seen_at` significa «capturando», no «el
    proceso existe». La alerta `alert_offline_access_devices()` (pg_cron, 5 min) avisa al owner si pasan
    15+ min sin él — cubre también «la captura murió».
 3. **Barrido de respaldo** cada 30 min (el primero a los 60 s de arrancar): `get_attendance()` completo
    por si la captura perdió algo (caída del hilo, reinicio del equipo, un comando que la pausó).
    Reenvía lo posterior al cursor **y los últimos 10 min anteriores** (duplicados: los absorbe el
    backend). Es la red de seguridad, no el camino normal: con ~48.000 registros en el equipo tarda ~47 s
-   por lector **con el lector deshabilitado** (no acepta huellas), por eso es poco frecuente.
+   por lector ocupando la única conexión SDK (la captura en vivo se pausa ese rato). **No deshabilita el
+   lector**: el torniquete sigue aceptando huellas. No espaciarlo más de ~2 h — el backend descarta
+   ATTLOG de más de 3 h, así que un barrido menos frecuente no recuperaría nada.
 4. **Comandos por WebSocket** (`wss://bffdev.sportmaps.co/bridge/ws`): una conexión persistente, sin
    sondeo HTTP. El `auth` pide `open_door`, `set_group`, `disable_user` y `enable_user`. Ejecuta por SDK
    local: apertura manual (`CMD_UNLOCK` en décimas de segundo, nunca `conn.unlock()`) y bloqueo por mora
@@ -63,10 +68,12 @@ backend descarta de todas formas ATTLOG de más de 3 h (`ADMS_BACKLOG_SKIP_HOURS
 | `SPORTMAPS_BRIDGE_API_KEY` | — (**obligatoria**) | la misma llave global que `BRIDGE_API_KEY` en Render |
 | `SPORTMAPS_BRIDGE_PULSE_DECISECONDS` | 2 | pulso de apertura (ver «calibrar» abajo) |
 | `SPORTMAPS_BRIDGE_LIVE_CAPTURE_TICK_SECONDS` | 2 | cada cuánto la captura revisa si debe ceder el equipo |
-| `SPORTMAPS_BRIDGE_DEVICE_HEARTBEAT_INTERVAL_SECONDS` | 60 | heartbeat por lector |
+| `SPORTMAPS_BRIDGE_DEVICE_HEARTBEAT_INTERVAL_SECONDS` | 60 | heartbeat HTTP por lector — **solo de respaldo** si el backend no soporta el latido por WebSocket |
+| `SPORTMAPS_BRIDGE_WATCHDOG_STALL_SECONDS` | 300 | si un hilo crítico pasa este tiempo sin avanzar, el proceso se cierra y la tarea lo relanza (0 = desactivado) |
 | `SPORTMAPS_BRIDGE_CATCHUP_INTERVAL_SECONDS` | 1800 | barrido de respaldo |
 | `SPORTMAPS_BRIDGE_CATCHUP_FIRST_DELAY_SECONDS` | 60 | primer barrido tras arrancar |
 | `SPORTMAPS_BRIDGE_CATCHUP_LOOKBACK_MINUTES` | 10 | ventana anterior al cursor que el barrido reenvía |
+| `SPORTMAPS_BRIDGE_SWEEP_DISABLE_DEVICE` | 0 | `1` = el barrido deshabilita el lector mientras lee (comportamiento viejo; solo si leer habilitado da problemas) |
 | `SPORTMAPS_BRIDGE_MAX_EVENTS_PER_CYCLE` | 20 | tope de eventos «nuevos de golpe» antes de saltar |
 | `SPORTMAPS_BRIDGE_HEARTBEAT_INTERVAL_SECONDS` | 60 | heartbeat del WebSocket (canal de comandos) |
 | `SPORTMAPS_BRIDGE_WS_RECONNECT_HOUR` | 3 | hora Colombia de la reconexión diaria |

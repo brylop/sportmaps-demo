@@ -294,8 +294,11 @@ Comandos:    dashboard ──► device_commands ──► wakeSchool() ──�
   completo, reenvía lo posterior al cursor **y los últimos 10 min anteriores** (si una marcación cae en el
   hueco mientras la captura está pausada y llega otra más nueva, el cursor saltaría la perdida; reenviar
   duplicados es seguro porque el backend los ignora y no repite el banco de horas ni las notificaciones).
-  Es la red de seguridad, no el camino normal. Cuesta ~47 s con el lector deshabilitado por lector (de ahí
-  los 30 min: a 5 min el torniquete estaba ~16 % del día sin aceptar huellas).
+  Es la red de seguridad, no el camino normal. Lee ~48.000 registros: ~47 s por lector ocupando la única
+  conexión SDK (la captura en vivo queda pausada ese rato). **No deshabilita el lector** por defecto
+  (`SPORTMAPS_BRIDGE_SWEEP_DISABLE_DEVICE=1` lo restaura): la primera versión sí lo hacía cada 5 min y el
+  torniquete quedaba ~16 % del día sin aceptar huellas. No conviene espaciarlo más de ~2 h porque el backend
+  descarta ATTLOG de más de 3 h. Leer con el equipo habilitado aún no se probó en el MB360.
 - **Coordinación:** un `Lock` por lector (el firmware atiende una conexión SDK a la vez) más
   `PAUSE_REQUESTED`/`LIVE_CAPTURE_PAUSED` (`threading.Event`) para que `live_capture` ceda el equipo en su
   siguiente tick (2 s) a un comando o al barrido. Todo acceso SDK que no sea la captura pasa por
@@ -304,9 +307,18 @@ Comandos:    dashboard ──► device_commands ──► wakeSchool() ──�
   eventos nuevos (reloj del equipo corrido, o una caída larga) se **saltan y el cursor avanza** — la versión
   anterior no avanzaba el cursor y repetía el mismo aviso para siempre (LECTOR ENTRADA ~3 días sin
   capturar, sin que nada lo reportara).
-- **Heartbeat por lector** cada 60 s (`GET /iclock/getrequest` → `turnstile_devices.last_seen_at`), **solo
-  mientras la captura en vivo está conectada**: `last_seen_at` significa «capturando», no «el proceso
-  existe». La alerta que ya existía (`alert_offline_access_devices()`, pg_cron cada 5 min, 15+ min sin
+- **Latido por lector por el WebSocket** (cero peticiones HTTP periódicas): el heartbeat del socket (60 s)
+  lleva `devices:[serial]` de los lectores que siguen capturando y el BFF actualiza
+  `turnstile_devices.last_seen_at` — solo de seriales de la escuela autenticada en ese socket. El `auth_ok`
+  anuncia `features:['device_heartbeat']`; sin ese anuncio (BFF viejo) el bridge cae al
+  `GET /iclock/getrequest` por lector cada 60 s. **Solo mientras la captura en vivo está conectada**:
+  `last_seen_at` significa «capturando», no «el proceso existe».
+- **Vigilante** (`WATCHDOG_STALL_SECONDS`, 300): cada hilo crítico (captura por lector, WebSocket) marca su
+  avance; si uno pasa ese tiempo sin avanzar, el proceso sale con código 3 y `run_supervised.ps1` lo
+  relanza a los 5 s — la tarea programada solo reinicia si el proceso se cierra, no si se cuelga. Un lector
+  apagado no lo dispara (el hilo sigue reintentando y marcando avance).
+- **Alertas:** el aviso `device_offline` pasa por `notifications` → `notification_deliveries` (push); si el owner
+  no tiene un dispositivo suscrito, se ve solo dentro de la app. La alerta que ya existía (`alert_offline_access_devices()`, pg_cron cada 5 min, 15+ min sin
   `last_seen_at`) cubre entonces también «la captura murió». `bridge_heartbeats` (canal de comandos) es una
   señal aparte y por sí sola **no** prueba que la asistencia esté fluyendo.
 - **Comandos por WebSocket:** `auth` con `school_id` + `api_key` + `command_types`
