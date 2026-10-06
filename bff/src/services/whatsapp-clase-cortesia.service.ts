@@ -46,8 +46,6 @@
 
 import { supabase } from '../config/supabase';
 import type { BotonInteractivo } from './whatsapp.service';
-import { sendToUser } from './push.service';
-import { destinatariosDeEscuela, enviarConReserva } from './avisos-correo.service';
 import { esSinLimite } from './franjas-cortesia.service';
 import { liberarLeadParaReserva } from './whatsapp-prospecto-lead.service';
 
@@ -1065,72 +1063,17 @@ export async function cancelarEnSupabase(schoolId: string, contactWaId: string):
     }
 }
 
-const TITULO_AVISO: Record<TipoAvisoCortesia, string> = {
-    reservada: 'Nueva clase de cortesía agendada',
-    datos: 'Un prospecto dejó sus datos para una clase de cortesía',
-    cancelada: 'Clase de cortesía cancelada',
-    cancelacion_pedida: 'Piden cancelar una clase de cortesía',
-    no_reservada: 'Clase de cortesía por confirmar',
-};
-
 /**
- * Push + correo a owner/admins. `submit_school_lead` y la RPC de cancelar ya
- * dejan la notificación in-app; esto es para que se entere aunque no abra la
- * app — un prospecto que llega a la clase y nadie lo esperaba es una
- * inscripción perdida. Nunca lanza.
+ * Aviso a owner/admins por reserva, datos dejados o cancelación: in-app +
+ * push + correo, idempotente en la base entre los tres BFF. Vive en
+ * cortesia-reservas.service (que además lista las reservas para la pestaña
+ * «Clases de cortesía» y el resumen de las 7). Import dinámico: ese módulo
+ * importa los tipos de este y así no hay ciclo al cargar. Nunca lanza.
  */
 export async function avisarEscuelaCortesia(a: AvisoCortesia): Promise<void> {
     try {
-        const titulo = TITULO_AVISO[a.tipo];
-        const quien = a.nombre ? `${a.nombre}${typeof a.edad === 'number' ? ` (${a.edad} años)` : ''}` : 'Un prospecto';
-        const cuando = a.franja
-            ? `${a.franja.grupo}, ${fechaLegible(a.franja.fecha)} ${horaLegible(a.franja.horaInicio)}`
-            : 'sin horario: contáctalo para agendar';
-        const accion = a.tipo === 'cancelacion_pedida'
-            ? 'Cancélala y libera el cupo; el asistente le dijo que le confirmarían.'
-            : a.tipo === 'no_reservada'
-                ? 'El asistente no pudo tomar el cupo: confírmale el horario por WhatsApp.'
-                : 'Abre WhatsApp en SportMaps para ver la conversación.';
-
-        const [{ data: escuela }, { data: miembros }] = await Promise.all([
-            supabase.from('schools').select('owner_id').eq('id', a.schoolId).maybeSingle(),
-            supabase.from('school_members').select('profile_id')
-                .eq('school_id', a.schoolId).eq('status', 'active')
-                .in('role', ['owner', 'admin', 'school_admin']),
-        ]);
-        const destinos = new Set<string>();
-        for (const m of (miembros ?? []) as any[]) if (m.profile_id) destinos.add(m.profile_id);
-        if ((escuela as any)?.owner_id) destinos.add((escuela as any).owner_id);
-        await Promise.allSettled([...destinos].map((uid) => sendToUser(uid, {
-            title: titulo,
-            body: `${quien} — ${cuando}. ${accion}`,
-            data: { tipo: 'whatsapp_clase_cortesia', conversation_id: a.conversationId, school_id: a.schoolId },
-        })));
-
-        const { escuela: nombreEscuela, correos } = await destinatariosDeEscuela(a.schoolId);
-        if (!correos.length) return;
-        const url = `${(process.env.FRONTEND_URL || 'https://app.sportmaps.co').replace(/\/$/, '')}` +
-            `/whatsapp?tab=conversaciones&conversacion=${encodeURIComponent(a.conversationId)}`;
-        const lineas = [
-            `Deportista: ${quien}`,
-            ...(a.acudiente ? [`Acudiente: ${a.acudiente}`] : []),
-            `WhatsApp: +${String(a.contactWaId).replace(/\D/g, '')}`,
-            `Clase: ${cuando}${a.franja?.sede ? ` · ${a.franja.sede}` : ''}`,
-            accion,
-        ];
-        // Sin plantilla propia en send-email: va el HTML de respaldo. La
-        // edge function no conoce 'wa_clase_cortesia' y `enviarPlantilla`
-        // reintenta con el respaldo; la clave por evento evita duplicados
-        // entre los tres BFF que comparten la base.
-        await enviarConReserva({
-            clave: `wa_clase_cortesia:${a.tipo}:${a.leadId ?? a.conversationId}:${a.franja?.id ?? 'sin'}`,
-            tipo: 'wa_clase_cortesia',
-            schoolId: a.schoolId,
-            refId: a.conversationId,
-            destinos: correos,
-            data: { schoolName: nombreEscuela, titulo, lineasJson: JSON.stringify(lineas), url },
-            respaldo: { subject: `${titulo} — ${nombreEscuela}`, titulo, lineas, enlace: { url, texto: 'Ver en SportMaps' } },
-        });
+        const { avisarCortesia } = await import('./cortesia-reservas.service');
+        await avisarCortesia(a);
     } catch (e: any) {
         console.warn('[wa-cortesia] no se pudo avisar a la escuela', { err: e?.message });
     }
