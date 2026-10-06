@@ -157,8 +157,22 @@ Cada fase es rama aparte con revisión, como ya se hizo con Informes.
 
 ## 7. Estado
 
-D1–D7 resueltas (sección 2). Siguiente paso: escribir el plan detallado de
-**P0** (como se hizo con `plan-f1-informes-backend.md`) — DDL de
-`tactical_sessions`/`tactical_slots`/`tactical_slot_assignments`, RLS línea
-por línea, y el reemplazo de `LineupModal.tsx` por el tablero con
-`@dnd-kit` — para aprobación antes de tocar código.
+**Actualizado 2026-10-05.** D1–D7 resueltas (sección 2). Las cinco piezas están construidas, con una
+diferencia de diseño respecto a la sección 3: **no se crearon `tactical_sessions`/`tactical_slots`/
+`tactical_slot_assignments`**; se extendieron `match_lineups`/`match_lineup_players` (slot_label + x/y)
+y se agregó `team_tactical_presets` (decisión justificada en `docs/plan-p0-tablero-tactico.md`, la RLS de
+`match_lineups` ya estaba probada).
+
+| Fase | Estado |
+|---|---|
+| P0 tablero base (`@dnd-kit`, formación libre) | ✅ `f1f720d7` |
+| P1 tarjetas de jugador | ✅ `PlayerCard.tsx` en el tablero y, desde 2026-09-30, en el roster de `TrainingPlansPage` |
+| P2 plantillas (estrategias guardadas) | ✅ `docs/plan-p2-estrategias-guardadas.md`; ajustes de la auditoría en §5.2 de ese plan |
+| P3 entrenamientos (contexto `training`) | ✅ absorbido por `PER-6` |
+| P4 sugerencias (Sugerir XI por minutos + alerta de rotación) | ✅ |
+
+El material de entrenamiento, el tamaño/giro, el balón en juego, las siluetas, el lápiz/texto/borrador y
+el zoom de arqueros viven en `docs/specs/pizarra-tactica-material-y-3d.md`, cuyo **§9** registra la
+auditoría de diseño/edición/plantilla del 2026-10-05 (fallas, estado y fases siguientes). El **R1** de
+este spec (drag-and-drop táctil en un WebView real) sigue sin confirmarse en Android; un iPhone real ya
+reportó y se corrigieron fallas de layout (`e485a9b1`, `5acf1eeb`).

@@ -40,7 +40,7 @@ CAMBIO 2026-09-25 -- de polling completo a live_capture (tiempo real):
 
     live_capture() NO reemplaza del todo a get_attendance(): sigue habiendo
     un barrido de respaldo (catchup_sweep) cada CATCHUP_INTERVAL_SECONDS
-    (5 minutos por defecto) que hace lo que antes hacia el polling, pero
+    (30 minutos por defecto) que hace lo que antes hacia el polling, pero
     mucho menos seguido -- por si el hilo de live_capture se cae, se
     reconecta, o el equipo se reinicia y pierde la sesion en el medio; ese
     barrido es la red de seguridad que garantiza que nada se pierda de
@@ -201,7 +201,59 @@ PAUSE_WAIT_TIMEOUT_SECONDS = 5
 # reinicio del equipo a mitad de una sesion, etc). No hace falta que sea
 # frecuente: si live_capture funciona bien, este barrido normalmente no
 # encuentra nada nuevo que reportar.
-CATCHUP_INTERVAL_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_CATCHUP_INTERVAL_SECONDS", "300"))
+#
+# 30 min: leer ~48.000 registros ocupa la unica conexion SDK ~47 s en el
+# lector de entrada (live_capture queda pausada ese rato; el equipo sigue
+# atendiendo y lo que marquen lo recoge el siguiente barrido por la ventana
+# de seguridad). NO conviene espaciarlo mas de ~2 h: el backend descarta
+# ATTLOG de mas de 3 h (ADMS_BACKLOG_SKIP_HOURS), asi que un barrido menos
+# frecuente no recuperaria nada.
+CATCHUP_INTERVAL_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_CATCHUP_INTERVAL_SECONDS", "1800"))
+
+# Por defecto el barrido NO deshabilita el lector (pyzk get_attendance() no lo
+# necesita): asi el torniquete sigue aceptando huellas todo el horario. Antes
+# se deshabilitaba ~47 s por barrido, tiempo en el que no atendia. Poner 1
+# para volver al comportamiento viejo si se ve algun problema leyendo con el
+# equipo habilitado (no probado todavia en el MB360 de Dreamers).
+SWEEP_DISABLE_DEVICE = os.environ.get("SPORTMAPS_BRIDGE_SWEEP_DISABLE_DEVICE", "0") == "1"
+
+# Vigilante: la tarea programada solo reinicia el proceso si SE CIERRA; un hilo
+# colgado (socket que no responde, bloqueo) deja el proceso vivo pero sin
+# capturar nada. Cada hilo critico (captura por lector + WebSocket) marca que
+# esta avanzando; si alguno pasa este tiempo sin avanzar, el proceso se cierra
+# solo y run_supervised.ps1 lo relanza a los 5 s. Un lector apagado o
+# inalcanzable NO dispara esto: el hilo sigue reintentando y marcando avance.
+# 0 = desactivado.
+WATCHDOG_STALL_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_WATCHDOG_STALL_SECONDS", "300"))
+WATCHDOG_CHECK_SECONDS = 30
+PROGRESS = {}  # nombre del hilo -> time.monotonic() de su ultimo avance
+
+# Latido de los lectores POR EL WEBSOCKET (cero peticiones HTTP periodicas): el
+# heartbeat del WS lleva la lista de lectores que siguen capturando en vivo y el
+# backend actualiza su last_seen_at. Solo se usa si el backend lo anuncia en el
+# auth_ok (features: device_heartbeat); con un backend viejo se mantiene el GET
+# /iclock/getrequest por lector (DEVICE_HEARTBEAT_INTERVAL_SECONDS), asi el orden
+# de despliegue (script vs BFF) no importa.
+LIVE_ALIVE = {}  # serial -> time.monotonic() del ultimo tick de captura en vivo
+LIVE_ALIVE_MAX_AGE_SECONDS = 120  # cubre una pausa por barrido o comando (~50 s)
+SERVER_DEVICE_HEARTBEAT = threading.Event()
+
+# Primer barrido tras arrancar el proceso: recupera lo que pasó mientras estuvo
+# apagado (reinicio, tarea caida) sin esperar la primera vuelta completa.
+CATCHUP_FIRST_DELAY_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_CATCHUP_FIRST_DELAY_SECONDS", "60"))
+
+# El barrido reenvia tambien los eventos de esta ventana ANTERIOR al cursor.
+# Motivo: mientras el barrido (o un comando) tiene pausado live_capture, una
+# marcacion puede caer en el hueco; si despues llega una marcacion en vivo mas
+# nueva, el cursor salta por encima de la perdida y `timestamp > cursor` la
+# descartaria para siempre. Reenviar duplicados es seguro: el backend los
+# ignora (indice unico device_id+zk_user_id+occurred_at) y NO repite sus
+# efectos (banco de horas, notificaciones, asistencia).
+CATCHUP_LOOKBACK_MINUTES = int(os.environ.get("SPORTMAPS_BRIDGE_CATCHUP_LOOKBACK_MINUTES", "10"))
+
+# Cada cuanto cada lector reporta "sigo capturando en vivo" al backend
+# (GET /iclock/getrequest -> turnstile_devices.last_seen_at).
+DEVICE_HEARTBEAT_INTERVAL_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_DEVICE_HEARTBEAT_INTERVAL_SECONDS", "60"))
 
 # Cada cuanto se manda un heartbeat por la conexion WS.
 HEARTBEAT_INTERVAL_SECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_HEARTBEAT_INTERVAL_SECONDS", "60"))
@@ -236,6 +288,24 @@ def seconds_until_next_reconnect():
     if target <= now:
         target += timedelta(days=1)
     return (target - now).total_seconds()
+
+
+def mark_progress(thread_name):
+    PROGRESS[thread_name] = time.monotonic()
+
+
+def watchdog_loop():
+    while True:
+        time.sleep(WATCHDOG_CHECK_SECONDS)
+        now = time.monotonic()
+        for thread_name, last in list(PROGRESS.items()):
+            stalled = now - last
+            if stalled > WATCHDOG_STALL_SECONDS:
+                log(f"WATCHDOG: el hilo '{thread_name}' lleva {int(stalled)} s sin avanzar "
+                    f"(limite {WATCHDOG_STALL_SECONDS} s) -- se cierra el proceso para que la tarea "
+                    f"programada lo reinicie.")
+                sys.stdout.flush()
+                os._exit(3)  # salida dura: un hilo colgado en un socket no deja cerrar con sys.exit
 
 
 @contextlib.contextmanager
@@ -498,6 +568,14 @@ def process_command(cmd):
 # Conexion WebSocket (comandos: puerta/bloqueo)
 # ------------------------------------------------------------------
 
+def ws_heartbeat_message():
+    msg = {"type": "heartbeat"}
+    if SERVER_DEVICE_HEARTBEAT.is_set():
+        now = time.monotonic()
+        msg["devices"] = [s for s, t in list(LIVE_ALIVE.items()) if now - t <= LIVE_ALIVE_MAX_AGE_SECONDS]
+    return json.dumps(msg)
+
+
 async def handle_connection():
     async with websockets.connect(WS_URL, ping_interval=20, ping_timeout=20, close_timeout=5) as ws:
         await ws.send(json.dumps({
@@ -514,11 +592,20 @@ async def handle_connection():
             return
 
         log(f"Conectado y autenticado por WebSocket ({WS_URL}).")
+        if "device_heartbeat" in (auth_resp.get("features") or []):
+            SERVER_DEVICE_HEARTBEAT.set()
+            log("Latido de lectores por WebSocket activo (sin peticiones HTTP periodicas).")
+        else:
+            log("El backend aun no soporta el latido de lectores por WebSocket -- se mantiene el "
+                f"GET /iclock/getrequest cada {DEVICE_HEARTBEAT_INTERVAL_SECONDS}s por lector.")
         last_heartbeat = time.monotonic()
+        if SERVER_DEVICE_HEARTBEAT.is_set():
+            await ws.send(ws_heartbeat_message())
         reconnect_at = datetime.now(COLOMBIA_TZ) + timedelta(seconds=seconds_until_next_reconnect())
         log(f"Proxima reconexion programada: {reconnect_at.strftime('%Y-%m-%d %H:%M')} hora Colombia.")
 
         while True:
+            mark_progress("ws-commands")
             if datetime.now(COLOMBIA_TZ) >= reconnect_at:
                 log(f"Hora de reconexion diaria ({RECONNECT_HOUR_COLOMBIA}:00 Colombia) -- reconectando...")
                 return
@@ -529,7 +616,7 @@ async def handle_connection():
             try:
                 raw = await asyncio.wait_for(ws.recv(), timeout=wait_for)
             except asyncio.TimeoutError:
-                await ws.send(json.dumps({"type": "heartbeat"}))
+                await ws.send(ws_heartbeat_message())
                 last_heartbeat = time.monotonic()
                 continue
 
@@ -565,6 +652,7 @@ async def main_ws():
             "La apertura manual y el bloqueo por mora van a fallar con 401.")
 
     while True:
+        mark_progress("ws-commands")
         try:
             await handle_connection()
         except (websockets.exceptions.ConnectionClosed, OSError, asyncio.TimeoutError) as e:
@@ -573,6 +661,9 @@ async def main_ws():
             log(f"ERROR inesperado en la conexion WS: {type(e).__name__}: {e}")
             log(traceback.format_exc())
 
+        # Sin conexion no hay latido por WS: los hilos de captura vuelven al HTTP
+        # hasta que reconecte y el backend vuelva a anunciar la capacidad.
+        SERVER_DEVICE_HEARTBEAT.clear()
         log(f"Reconectando en {RECONNECT_BACKOFF_SECONDS}s...")
         await asyncio.sleep(RECONNECT_BACKOFF_SECONDS)
 
@@ -606,8 +697,10 @@ def handle_live_event(device, state, att):
 def live_capture_loop(device, state):
     serial = device["serial_number"]
     name = device["name"]
+    thread_name = f"live-capture-{serial}"
 
     while True:
+        mark_progress(thread_name)
         if PAUSE_REQUESTED[serial].is_set():
             LIVE_CAPTURE_PAUSED[serial].set()
             time.sleep(0.2)
@@ -623,7 +716,22 @@ def live_capture_loop(device, state):
                 # equipo siga aceptando huellas normalmente, es lo que
                 # estamos escuchando.
                 log(f"[{name}] escuchando asistencia en vivo...")
+                last_heartbeat = float("-inf")
                 for att in conn.live_capture(new_timeout=LIVE_CAPTURE_TICK_SECONDS):
+                    # El latido sale SOLO mientras esta conexion de captura esta
+                    # viva -- asi turnstile_devices.last_seen_at significa
+                    # "capturando en vivo", no "el proceso existe". Sin esto,
+                    # last_seen_at solo se movia cuando alguien marcaba y el
+                    # lector figuraba sin conexion en horas tranquilas. Por el
+                    # WS (LIVE_ALIVE -> heartbeat del socket) si el backend lo
+                    # soporta; si no, GET /iclock/getrequest como antes.
+                    mark_progress(thread_name)
+                    now = time.monotonic()
+                    LIVE_ALIVE[serial] = now
+                    if (not SERVER_DEVICE_HEARTBEAT.is_set()
+                            and now - last_heartbeat >= DEVICE_HEARTBEAT_INTERVAL_SECONDS):
+                        send_heartbeat(serial)
+                        last_heartbeat = now
                     if PAUSE_REQUESTED[serial].is_set():
                         log(f"[{name}] cediendo el equipo (comando o barrido pendiente)...")
                         break
@@ -661,15 +769,20 @@ def catchup_sweep(device, state):
         conn = None
         try:
             conn = zk.connect()
-            conn.disable_device()
+            if SWEEP_DISABLE_DEVICE:
+                conn.disable_device()
 
             attendances = conn.get_attendance()
             if not attendances:
                 return
 
-            new_records = [a for a in attendances if a.timestamp > last_sent_dt]
-            if not new_records:
+            window_start = last_sent_dt - timedelta(minutes=CATCHUP_LOOKBACK_MINUTES)
+            candidates = [a for a in attendances if a.timestamp > window_start]
+            if not candidates:
                 return
+            # Solo los POSTERIORES al cursor cuentan como "nuevos" de verdad (y
+            # para el limite de seguridad); los de la ventana son reenvios.
+            new_records = [a for a in candidates if a.timestamp > last_sent_dt]
 
             if len(new_records) > MAX_EVENTS_PER_CYCLE:
                 newest = max(new_records, key=lambda a: a.timestamp).timestamp
@@ -682,15 +795,19 @@ def catchup_sweep(device, state):
                 advance_cursor(state, serial_number, newest)
                 return
 
-            new_records.sort(key=lambda a: a.timestamp)
-            lines = [build_attlog_line(a.user_id, a.timestamp, a.status, a.punch) for a in new_records]
+            candidates.sort(key=lambda a: a.timestamp)
+            lines = [build_attlog_line(a.user_id, a.timestamp, a.status, a.punch) for a in candidates]
 
             ok = push_attlog(serial_number, lines)
             if ok:
-                newest = new_records[-1].timestamp
-                advance_cursor(state, serial_number, newest)
-                log(f"[{name}] barrido de respaldo: {len(new_records)} evento(s) que live_capture no "
-                    f"habia mandado (revisar por que). Ultimo: {newest}")
+                if new_records:
+                    newest = candidates[-1].timestamp
+                    advance_cursor(state, serial_number, newest)
+                    log(f"[{name}] barrido de respaldo: {len(new_records)} evento(s) NUEVOS que live_capture no "
+                        f"habia mandado (revisar por que). Ultimo: {newest}")
+                else:
+                    log(f"[{name}] barrido de respaldo: nada nuevo (se re-verificaron {len(candidates)} "
+                        f"evento(s) de los ultimos {CATCHUP_LOOKBACK_MINUTES} min; el backend ignora duplicados).")
             else:
                 log(f"[{name}] barrido de respaldo: fallo el envio, se reintenta en el proximo barrido.")
 
@@ -699,17 +816,19 @@ def catchup_sweep(device, state):
         finally:
             if conn:
                 try:
-                    conn.enable_device()
+                    if SWEEP_DISABLE_DEVICE:
+                        conn.enable_device()
                     conn.disconnect()
                 except Exception:
                     pass
 
 
 def catchup_sweep_loop(state):
+    time.sleep(CATCHUP_FIRST_DELAY_SECONDS)
     while True:
-        time.sleep(CATCHUP_INTERVAL_SECONDS)
         for device in DEVICES:
             catchup_sweep(device, state)
+        time.sleep(CATCHUP_INTERVAL_SECONDS)
 
 
 def main():
@@ -727,6 +846,16 @@ def main():
 
     state = load_state()
     ensure_initial_state(state)
+
+    # Los hilos vigilados se registran ANTES de arrancar: uno que ni llegue a
+    # arrancar tambien se detecta.
+    mark_progress("ws-commands")
+    for device in DEVICES:
+        mark_progress(f"live-capture-{device['serial_number']}")
+    if WATCHDOG_STALL_SECONDS > 0:
+        threading.Thread(target=watchdog_loop, daemon=True, name="watchdog").start()
+        log(f"Vigilante activo: el proceso se reinicia solo si un hilo critico pasa "
+            f"{WATCHDOG_STALL_SECONDS}s sin avanzar.")
 
     ws_thread = threading.Thread(target=run_ws_client, daemon=True, name="ws-commands")
     ws_thread.start()

@@ -366,6 +366,15 @@ RLS habilitada en ~50 tablas. Las policies **delegan toda decisión a funciones 
   3. `sportmaps-bff-stg` — Node, rama `staging` → `stg.sportmaps.co` (Supabase dev).
   4. `sportmaps-bff-prod` — Node, rama `main` → `app.sportmaps.co` (Supabase prod).
   > ⚠️ **dev y staging comparten el mismo proyecto Supabase**; solo prod está aislado.
+  > **Corrección 2026-10-05 (hosts):** `dev.sportmaps.co`, `stg.sportmaps.co` y `app.sportmaps.co` los sirve
+  > **Vercel** (frontend; solo reescriben unas rutas, p. ej. el manifest/íconos del PWA, hacia el BFF). El
+  > BFF dev se llama por `bffdev.sportmaps.co` / `sportmaps-bff-dev.onrender.com`, y **todo el tráfico a
+  > Render pasa por Cloudflare** (también el `.onrender.com` crudo): la IP del cliente sale de
+  > `cf-connecting-ip`, no de `req.ip` (ver `docs/gotchas-tecnicos.md`, Control de acceso).
+  > **Estado en memoria:** el BFF además expone un WebSocket (`/bridge/ws`, bridges locales de GYM RM y
+  > Dreamers) cuyo registro de conexiones vive en memoria de **una sola instancia** — con más de una
+  > instancia de Render el aviso `wake` solo llegaría a los bridges conectados a la que atiende el request.
+  > Es un requisito a resolver antes de escalar horizontalmente (hoy es una instancia por ambiente).
 - **Supabase Cloud = DB + Edge Functions.** 8 funciones Deno (analyze-receipt, payment-reminders-cron, run-recurring-charges, send-email, send-push-notification, wompi-sign, wompi-webhook, platform-admin-hook). Migraciones aplicadas **manualmente** (no hay job de deploy de DB en CI; único guard: `scripts/migrations.mjs check` sobre el ledger versionado `supabase/migrations_ledger.json` — ver [docs/migrations-workflow.md](migrations-workflow.md)).
 
 ### 5.2 Build frontend

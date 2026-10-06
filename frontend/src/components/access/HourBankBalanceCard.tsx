@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { formatHourBankMinutes as formatMinutes } from '@/lib/hourBank';
 
 /**
  * F6 — docs/specs/dreamers-banco-de-horas-torniquete.md
@@ -41,16 +42,6 @@ interface HourBankPeriod {
   reserved_minutes: number;
   consumed_minutes: number;
   available_minutes: number;
-}
-
-function formatMinutes(mins: number): string {
-  const abs = Math.abs(Math.round(mins));
-  const h = Math.floor(abs / 60);
-  const m = abs % 60;
-  const sign = mins < 0 ? '-' : '';
-  if (h === 0) return `${sign}${m} min`;
-  if (m === 0) return `${sign}${h}h`;
-  return `${sign}${h}h ${m}min`;
 }
 
 function fmtDate(d?: string): string {

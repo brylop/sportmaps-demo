@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, auditLog, AuthenticatedRequest } from '../middlewares/authMiddleware';
-import { invalidateDeviceCache, invalidateMappingCache, getHourBankSettings } from './access-adms';
+import { invalidateDeviceCache, invalidateMappingCache, getHourBankSettings, computeHourBankBilledMinutes, formatHourBankMinutes } from './access-adms';
 import { getAccessBlockMechanism, buildBlockCommand, computeIsBlocked, BLOCK_COMMAND_TYPES } from '../utils/accessBlockMechanism';
 import { wakeSchool } from '../services/bridgeWsHub';
 import fs from 'fs';
@@ -1025,7 +1025,11 @@ router.patch('/hour-bank-visits/:id/correct', requireAuth, async (req: Authentic
       if (!s.exited_at) return sum;
       return sum + Math.round((new Date(s.exited_at).getTime() - new Date(s.entered_at).getTime()) / 60000);
     }, 0);
-    const billedMinutes = Math.max(0, rawMinutes - settings.entryGraceMinutes - settings.exitGraceMinutes);
+    const billedMinutes = await computeHourBankBilledMinutes(rawMinutes, settings);
+    if (billedMinutes === null) {
+      // La visita sigue pending_review (el segmento ya quedó ajustado, reintentar es idempotente).
+      return res.status(500).json({ error: 'No se pudo calcular el cobro de la visita, intenta de nuevo' });
+    }
 
     const { data: moveResult } = await supabase.rpc('move_hour_bank', {
       p_period_id: visit.period_id,
@@ -1062,7 +1066,7 @@ router.patch('/hour-bank-visits/:id/correct', requireAuth, async (req: Authentic
           school_id: schoolId,
           type:     'hour_bank_overage',
           title:    '⏱️ Banco de horas — saldo excedido',
-          message:  `Corrección manual: ${billedMinutes} min facturados, banco del período en ${available} min (excedido).`,
+          message:  `Corrección manual: ${formatHourBankMinutes(billedMinutes)} facturados, banco del período en ${formatHourBankMinutes(available)} (excedido).`,
           link:     '/school/access-control',
         });
       }

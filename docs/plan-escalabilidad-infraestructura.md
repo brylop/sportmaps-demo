@@ -156,6 +156,14 @@ Supabase, o proyecto aparte para dev) es una decisión de arquitectura, no
 un ajuste de plan — y vale la pena antes de que el problema A o B se sientan,
 porque agregar un ambiente nuevo bajo presión es peor que hacerlo con calma.
 
+**Restricción para escalar el BFF (2026-10-05):** el WebSocket de los bridges locales (`/bridge/ws`,
+`bridgeWsHub.ts`) guarda el registro de conexiones **en memoria de una sola instancia**, igual que el
+rate-limit de auths fallidos. Con dos instancias de Render, `wakeSchool()` solo avisaría a los bridges
+conectados a la instancia que atendió el «abrir puerta», y los demás no se enterarían hasta su siguiente
+`poll`. Antes de subir a más de una instancia hay que mover ese registro a algo compartido (p. ej. un
+canal de Postgres `LISTEN/NOTIFY` o Redis) o fijar los bridges a una instancia. Las cargas de dev, stg y
+prod usan hoy una instancia cada una, así que no es un bug actual.
+
 **Veredicto:** de las tres plataformas, Supabase es la que necesita atención
 real de escalabilidad. El Problema A (500 MB) sí se resuelve con la tarjeta
 de crédito — y vale la pena resolverlo ya, es la acción más barata de este

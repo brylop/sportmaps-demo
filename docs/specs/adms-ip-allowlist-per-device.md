@@ -135,3 +135,20 @@ El allowlist por IP es frágil para gyms sin IP pública fija. El protocolo ADMS
 3. Crear/editar un device de prueba con `ip_check_mode='warn'` e `ip_address` puesta a una IP que SÍ sepas que no vas a usar (para forzar el mismatch) y confirmar que loguea sin bloquear.
 4. Cambiar a `enforce` con la misma IP falsa y confirmar el 403.
 5. Volver a `off` antes de dar la tarea por cerrada — no dejar ningún device de prueba en `enforce`.
+
+---
+
+## 10. Nota 2026-10-05: de dónde sale «la IP del cliente» detrás de Render
+
+Esta spec asume que `clientIp()` ve la IP real del lector. Detrás de Render **no es así por defecto**: Cloudflare
+va delante de todo (incluido el `*.onrender.com` crudo) y con `app.set('trust proxy', 1)` `req.ip` es la IP de
+borde de Cloudflare, que rota por request. El 22-sep eso devolvió 403 a los 4 torniquetes durante ~24 h
+(el log mostraba el mismo serial con 5–6 IPs distintas, todas de rangos de Cloudflare). Hoy `clientIp()` lee
+`cf-connecting-ip` (que Cloudflare sobrescribe y el cliente no falsifica) y cae a `req.ip` solo sin Cloudflare
+(local/dev). Las dos ramas del middleware —`ip_check_mode` por dispositivo y el fallback global—
+comparan contra ese valor. Detalle: `docs/gotchas-tecnicos.md` (Control de acceso) y `SEG-28`.
+
+Pendiente de fondo (`INF-16`): el allowlist por IP sigue siendo la única barrera de la asistencia que entra
+por `/iclock`, y las sedes tienen IP pública dinámica (GYM RM cambió dos veces). Los bridges ya tienen
+`BRIDGE_API_KEY` y WS autenticado — un endpoint de ingesta con esa llave dejaría el allowlist solo para
+los equipos que hablan ADMS nativo.

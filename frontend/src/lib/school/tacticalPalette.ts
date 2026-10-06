@@ -54,4 +54,12 @@ export const PIN_STYLE_KEY = 'tactical_board_pin_style';
 export function readPinStyle(): PinStyle {
   try { return localStorage.getItem(PIN_STYLE_KEY) === 'silhouette' ? 'silhouette' : 'disc'; } catch { return 'disc'; }
 }
+/** Mostrar la FOTO del jugador en el modo disco: opt-in y apagado por defecto.
+ *  La foto de un menor exige autorización de los padres (la decisión 3 del spec
+ *  de la pizarra: genéricas por posición, nunca foto) -- por eso nunca sale
+ *  sola: el coach la prende a conciencia, en este dispositivo. */
+export const PIN_PHOTOS_KEY = 'tactical_board_pin_photos';
+export function readPinPhotos(): boolean {
+  try { return localStorage.getItem(PIN_PHOTOS_KEY) === '1'; } catch { return false; }
+}
 export const isGoalkeeperLabel = (label: string) => /arquer|portero|golero|guardameta/i.test(label);

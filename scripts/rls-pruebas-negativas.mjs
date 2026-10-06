@@ -125,7 +125,7 @@ async function caso(nombre, esperado, fn) {
             paso = !seAplico;
             detalle = huboError
                 ? error.message
-                : (seAplico ? 'no rebotó — el INSERT/UPDATE/DELETE pasó cuando debía rechazarse' : '0 filas afectadas (bloqueado por RLS en silencio, sin error — igual de válido que un 42501)');
+                : (seAplico ? 'no rebotó — la operación pasó (o la lectura devolvió filas) cuando debía rechazarse' : '0 filas afectadas (bloqueado por RLS en silencio, sin error — igual de válido que un 42501)');
         } else {
             paso = seAplico;
             detalle = huboError ? error.message : (seAplico ? 'ok' : '0 filas afectadas cuando debía aceptarse');
@@ -250,6 +250,36 @@ try {
             () => uCoachA.cliente.from('training_sessions').delete().eq('id', sesionId).select('id'),
         );
     }
+
+    // ─── LECTURA de la táctica (auditoría de la pizarra 2026-10-05, migración
+    // 20261005173002): plantillas y alineaciones son del cuerpo técnico, no de
+    // cualquier miembro. Un padre con su JWT NO debe poder listarlas por REST.
+    // Estos casos FALLAN mientras esa migración no esté aplicada en la base viva:
+    // es justo lo que tienen que detectar.
+    const { data: presetFila, error: presetErr } = await admin.from('team_tactical_presets').insert({
+        school_id: escuelaA, team_id: equipoA, name: `__RLS_TEST_${marca}__`, situation: 'ataque',
+        slots: [{ slot_label: 'Medio', x: 50, y: 50 }], created_by: uCoachA.id,
+    }).select('id').single();
+    if (presetErr) throw new Error(`No se pudo crear plantilla desechable: ${presetErr.message}`);
+    inventario.filas.push({ tabla: 'team_tactical_presets', id: presetFila.id });
+
+    const { data: lineupFila, error: lineupErr } = await admin.from('match_lineups').insert({
+        school_id: escuelaA, team_id: equipoA, source_type: 'training_session', source_id: randomUUID(),
+        formation: '4-4-2', created_by: uCoachA.id,
+    }).select('id').single();
+    if (lineupErr) throw new Error(`No se pudo crear alineación desechable: ${lineupErr.message}`);
+    inventario.filas.push({ tabla: 'match_lineups', id: lineupFila.id });
+
+    const leer = (cliente, tabla, id) => () => cliente.cliente.from(tabla).select('id').eq('id', id);
+
+    await caso('padre de la escuela lista las plantillas tácticas por REST', 'RECHAZAR', leer(uParentA, 'team_tactical_presets', presetFila.id));
+    await caso('coach de otra escuela lista las plantillas tácticas de la escuela A', 'RECHAZAR', leer(uCoachB, 'team_tactical_presets', presetFila.id));
+    await caso('staff (reporter) lee las plantillas de su escuela', 'ACEPTAR', leer(uReporterA, 'team_tactical_presets', presetFila.id));
+    await caso('coach lee las plantillas de su escuela', 'ACEPTAR', leer(uCoachA, 'team_tactical_presets', presetFila.id));
+
+    await caso('padre de la escuela lee una alineación en la que su hijo no juega', 'RECHAZAR', leer(uParentA, 'match_lineups', lineupFila.id));
+    await caso('coach de otra escuela lee una alineación ajena', 'RECHAZAR', leer(uCoachB, 'match_lineups', lineupFila.id));
+    await caso('coach lee las alineaciones de su escuela', 'ACEPTAR', leer(uCoachA, 'match_lineups', lineupFila.id));
 } finally {
     // ── Limpieza: en orden inverso de dependencias, ignorando errores individuales ──
     for (const { tabla, id } of inventario.filas) {

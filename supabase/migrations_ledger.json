@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 676,
+  "count": 678,
   "head": "20261005214302",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
@@ -673,6 +673,8 @@
     {"v":"20261005135518","file":"20261005135518_invitacion_ficha_menor_va_al_acudiente.sql","sha256":"324fe24fe2774380f7777198dd690326b6bbe038002d563059b2d2f948cdc077","added":"2026-10-05","by":"Brayan Steven Lopez"},
     {"v":"20261005135525","file":"20261005135525_cobro_no_nace_vencido_y_mora_con_gracia.sql","sha256":"644b9a51b1a505a10acb2fc2ff955883f3c76ceb3d5c8fd57b235ed992e055a1","added":"2026-10-05","by":"Brayan Steven Lopez"},
     {"v":"20261005135530","file":"20261005135530_cancelar_inscripcion_ficha_anula_cobros.sql","sha256":"d68cde107ce498fe279e5d98c63a75292f059925911c61abef2a2562b8412792","added":"2026-10-05","by":"Brayan Steven Lopez"},
+    {"v":"20261005173001","file":"20261005173001_hour_bank_billing_rounding.sql","sha256":"4a35ef93dc0d7a8fc8d8a62f2d615aa31a1c90cc60818003ee610c94c31b6437","added":"2026-10-05","by":"judegor99"},
+    {"v":"20261005173002","file":"20261005173002_pizarra_blindaje_datos_y_lectura.sql","sha256":"5f300f1cbf497eab4cbf8376bdc83d189074f5a8491ca2ee628f8d3c08351b9f","added":"2026-10-05","by":"judegor99"},
     {"v":"20261005214245","file":"20261005214245_cobros_base_categorias_y_unicidad.sql","sha256":"62549893d874b3ac19b2532f41902ee453e63e1e9fa13fbfc0b7776c413e74af","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261005214248","file":"20261005214248_inscripcion_seguro_emit_enrollment_fees.sql","sha256":"55a1fd3b774dcef4c9d3b7121490e31ddbaf23fc3981248512ea25175f576635","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261005214250","file":"20261005214250_alta_clases_restantes_create_enrollment_with_payments.sql","sha256":"4d3e5f62731bbd9e97f6d39e82bf9c461b3fa89af5803594576817b87135e150","added":"2026-10-06","by":"Brayan Steven Lopez"},
