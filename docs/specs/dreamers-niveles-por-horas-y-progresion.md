@@ -7,6 +7,12 @@
 **Verificación de impacto contra el código real:** 2026-08-27 (§8)
 **Patrón transversal del repo:** *sugerido, nunca automático* para toda acción financiera.
 
+> **Actualización 2026-10-05 — fase F-F del plan `dreamers-reglas-completas-plan.md` (rama `feature/dreamers-ff-niveles`).**
+> - **F2/F3 construidas** (migración `20261005214258_niv_f2_progresion_competitiva`): B5 resuelto (CHECK de `result_type` = unión de ambos catálogos), `points`/`competition_level`, umbral en el plan destino, flag `level_progression_enabled`, RPC `get_level_promotion_eligibility` (solo lectura, solo `service_role`, **solo cuenta resultados cargados por staff** — la policy de insert deja que el atleta cargue los suyos), aviso `level_promotion_eligible` (categoría `enrollment`) con dedupe por inscripción + destino + temporada. Como los 29 planes de Dreamers son paquetes frecuencia×bloque y no niveles USAG explícitos, el "siguiente nivel" no es un puntero fijo: es el plan activo de **menor umbral** que ya cumple, entre los de umbral mayor al del plan actual.
+> - **D9 construida** (migración `20261005214300_niv_d9_dias_permitidos`): `allowed_days_of_week` (0=domingo…6=sábado), 422 `day_not_allowed` en las tres entradas de reserva del atleta/acudiente; las reservas que hace el staff no se validan (excepción a propósito).
+> - **D11b CERRADA = solo registrar + avisar.** El torniquete deja el evento `access_granted = true` con `access_events.policy_warning = 'day_not_allowed'` y avisa al owner una vez por atleta por día. No se usa `disable_user` ni `device_commands` por día.
+> - **F6 DIFERIDA** a spec aparte (`school_availability` tiene 0 filas y no tiene `program_id`). **D10 y R5 quedan DESACTUALIZADAS** como diagnóstico (ver §8.4); no se construye nada de F6 en esta fase.
+
 ---
 
 ## §0 — Contexto y alcance
@@ -90,7 +96,7 @@ Estas columnas **no** llevan flag: cualquier escuela puede llenarlas o ignorarla
 ### Grupo C — Cerradas en cascada
 
 - **D9 — `allowed_days_of_week integer[]`: SÍ.** Validado en torniquete Y en SlotPicker (por D11). Falta el dato de días exactos por nivel. **Ver corrección de alcance en §8.2 antes de escribir F6.**
-- **D10 — Reusar `school_availability` migrando `program_id → offering_id`: SÍ.** Es la dependencia más cara (deuda MOD-14). Consecuencia: **F6 va al final o a spec aparte.** **Ver §8.4 — la premisa de esta decisión (que la tabla hoy cuelga de `program_id`) ya no es cierta en la base real; hay que reabrir el diagnóstico antes de escribir la migración.**
+- **[DESACTUALIZADA 2026-10-05 — F6 diferida a spec aparte; `school_availability` tiene 0 filas y no tiene `program_id`]** **D10 — Reusar `school_availability` migrando `program_id → offering_id`: SÍ.** Es la dependencia más cara (deuda MOD-14). Consecuencia: **F6 va al final o a spec aparte.** **Ver §8.4 — la premisa de esta decisión (que la tabla hoy cuelga de `program_id`) ya no es cierta en la base real; hay que reabrir el diagnóstico antes de escribir la migración.**
 - **D12 — RESUELTA EXACTA con input manual.** Dreamers piensa en **clases, no días**: alta el 24 con plan 723k/8 clases → 2 clases = `723.000 ÷ 8 × 2 = 180.750` (vs. `prorated` por días: `723.000 × 7/31 = 163.258`). Solución: el **owner ingresa cuántas clases quedan** y el sistema calcula `clases_restantes × (price ÷ clases_del_periodo)`, con `clases_del_periodo = included_minutes_per_period ÷ session_block_minutes` (ambas columnas ya existen — la primera del banco de horas, la segunda la crea F1/D1). **Corregido 2026-08-27: la redacción original decía `included_sessions_per_month`, columna que no existe — F1 solo crea `included_sessions_per_week` (semanal, display-only). Usar minutos÷bloque da el conteo exacto del período (8 clases en el ejemplo de Dreamers, sin aproximar por semanas × 4.33 como haría derivarlo de D2).** Cero motor de calendario, cero dependencia de F6. El cálculo automático por horario real queda como mejora futura ligada a F6.
 - **D16 — El 5% después del día 5: elegir (a) o (b) con los dos números exactos de Dreamers.**
   - **(a) Reusar `earlyPaymentDiscount` (cero código):** `monthly_fee` se configura como el precio *con recargo* y días 1–5 aplica descuento pronto pago. Comercialmente suena mejor ("descuento por pagar a tiempo").
@@ -175,7 +181,7 @@ Tabla de aislamiento por regla:
 - **F3 — Aviso de ascenso:** notificación al owner cuando se carga un resultado que cumple umbral. Detrás de `level_progression_enabled`. La `monthly_fee` sugerida del nuevo plan sigue D4 (sugerida, nunca automática). Patrón de notificación ya verificado y listo para clonar — §8.5.
 - **F4+ — Upgrade con efecto inmediato en período abierto:** fuera de alcance (D7).
 - **F5 — Cobro de excedentes:** cargo sugerido pre-calculado (`valor_hora × horas_extra`, D8) pendiente de confirmación del owner. Extiende D-10 del banco de horas sin romperlo.
-- **F6 — Reserva por entrenador + horario:** depende de migrar `program_id → offering_id` en `school_availability` (D10/R5/MOD-14). **Va al final o a spec aparte. §8.4: el diagnóstico de esta migración hay que rehacerlo — la tabla real ya no tiene `program_id`.**
+- **F6 — Reserva por entrenador + horario — DIFERIDA (2026-10-05) a spec aparte, no se construye en F-F:** depende de migrar `program_id → offering_id` en `school_availability` (D10/R5/MOD-14). **Va al final o a spec aparte. §8.4: el diagnóstico de esta migración hay que rehacerlo — la tabla real ya no tiene `program_id`.**
 - **F7 — Alta a mitad de mes:** `first_payment_mode` (D12/D14b), dos filas de payments (D14), ciclo `fixed_calendar` + corte 5 + D16.
 
 **Orden de implementación sugerido:** F1 → F7 (es lo que Dreamers necesita operar ya) → F2 → F3 → F5 → F6.
@@ -186,7 +192,7 @@ Tabla de aislamiento por regla:
 
 - **R2 — Banco de horas espera el bloque por escuela:** el fallback de D1 (NULL hereda `school_settings.hours_session_block_minutes`) lo protege.
 - **R4 — CERRADO** (ver D15/R4): umbral por nivel, anual, editable.
-- **R5 — Deuda `program_id → offering_id`:** bloquea F6; no bloquea F1–F3 ni F7. **Ver §8.4 — el alcance real de esta deuda es distinto al descrito aquí.**
+- **[DESACTUALIZADA 2026-10-05 — ver §8.4 y F6 diferida]** **R5 — Deuda `program_id → offering_id`:** bloquea F6; no bloquea F1–F3 ni F7. **Ver §8.4 — el alcance real de esta deuda es distinto al descrito aquí.**
 - **R6 — `school_availability`:** reusar, no duplicar (D10).
 - **Motor de prorrateo duplicado** (`bff/src/utils/prorationUtils.ts` y `frontend/src/lib/prorationUtils.ts`): cualquier cambio de F7 debe tocar ambas copias. Estrategia v1: **(b) test espejo** que corre los mismos casos contra las dos implementaciones y falla si divergen. Consolidar al BFF como fuente única = deuda anotada ligada a `project_math_audit_census`. La fórmula nueva `remaining_classes` NO se duplica: nace solo en el BFF. **§8.5 — los espejos ya divergieron hoy (`rolling_30`, `applyDiscount`), antes de F7 el test espejo debe empezar detectando la divergencia existente, no solo prevenir una nueva.**
 - **`rolling_30` × banco de horas — incompatibilidad latente declarada:** `hour_bank_periods` copia `included_minutes` al abrir período mensual calendario; una escuela `rolling_30` tendría ciclos de cobro desalineados de los resets de horas. No explota hoy (banco en `false` en todas, Dreamers pasa a `fixed_calendar`). Guardia: validación en el toggle de `hours_plan_enabled` que rechace la combinación con `rolling_30` hasta decidir alineación. **Nota espejo en el spec de banco de horas.**
@@ -229,6 +235,8 @@ D11 dice "el torniquete (check-in ZKTeco) sí valida `allowed_days_of_week`". Ve
 Es decir: agregar la condición `allowed_days_of_week` a `validateAccess()` es barato (el join `enrollments.offering_plan_id → offering_plans` ya existe), pero el efecto sería **cosmético** — quedaría en el log y dispararía un aviso, sin impedir que la atleta entre físicamente un día no permitido. El torniquete real (F22) sí soporta grupos de acceso con restricción de horario nativamente, pero SportMaps solo usa ese mecanismo hoy como un toggle binario manual para mora (`access-api.ts:601-625`), no automatizado por día de semana — y automatizarlo es un proyecto aparte (nuevo `command_type`, job de sincronización, y ya hay un bug documentado de "loop infinito de comando" en esa capa, `docs/ACCESS_CONTROL_ZKTECO_HANDOFF.md`).
 
 Hallazgo adicional: `SlotPicker.tsx`/`BookingConfirmation.tsx`, el componente que D11 cita como ya filtrando por día, **no está enrutado hoy en el frontend** (no aparece en `App.tsx` ni en ninguna ruta) — es código existente pero no en producción.
+
+**D11b — CERRADA 2026-10-05: solo registrar + avisar.** Implementada en F-F: `access_events.policy_warning = 'day_not_allowed'` con el acceso concedido (no es `denial_reason`), aviso al owner una vez por atleta por día, sin `disable_user`/`device_commands`. El bloqueo físico por día queda fuera de alcance. Texto original de la decisión pendiente:
 
 **Decisión pendiente nueva, D11b (no bloquea F1/F7):** ¿F6 se conforma con la versión barata (registrar la violación + avisar, sin bloquear físicamente) o requiere el proyecto aparte de automatizar grupos de acceso nativos del F22? El spec actual redactó D11 asumiendo la segunda sin decirlo. Esto no cambia nada de F1–F3/F5/F7, pero hay que resolverlo antes de dimensionar F6 — cambia su esfuerzo de "1 semana" a algo mayor si se quiere bloqueo real.
 

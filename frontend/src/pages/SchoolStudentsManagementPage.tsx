@@ -268,7 +268,8 @@ export default function SchoolStudentsManagementPage() {
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [showCreateChildModal, setShowCreateChildModal] = useState(false);
   const [showCreateAdultModal, setShowCreateAdultModal] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  // ?q= precarga la búsqueda (p. ej. "Cambiar plan" desde Ascensos, F-F).
+  const [searchQuery, setSearchQuery] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '');
   const [activeTab, setActiveTab] = useState('active');
   // Filtros del listado. 'all' = sin filtrar.
   //   teamFilter:    'all' | 'none' (sin equipo) | <team_id>

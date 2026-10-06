@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Clock } from 'lucide-react';
 import type { BookableSession, FlexibleHourGridGroup } from '@/hooks/useAthleteSessionBookings';
+import { describeAllowedDays, isDayAllowed } from '@/lib/school/levelProgression';
 
 // Piloto "agendamiento flexible de banco de horas" — modo "Personalizada":
 // en vez de elegir entre bloques ya armados, el usuario ve las horas SUELTAS
@@ -145,11 +146,20 @@ function HourGridGroup({ group, noCredits, isBooking, onBook }: {
   );
 }
 
-export function HourGridPicker({ groups, noCredits, isBooking, onBook }: {
+export function HourGridPicker({ groups, noCredits, isBooking, onBook, allowedDays }: {
   groups: FlexibleHourGridGroup[]; noCredits: boolean; isBooking: boolean; onBook: (s: BookableSession) => void;
+  /** F-F (D9): días que permite el plan (0=dom … 6=sáb). Un día fuera de ellos se muestra gris. */
+  allowedDays?: number[] | null;
 }) {
   if (groups.length === 0) {
     return <p className="text-xs text-center text-muted-foreground py-6">No hay horarios disponibles para agendar en este día.</p>;
+  }
+  if (!isDayAllowed(allowedDays, groups[0].session_date) && allowedDays) {
+    return (
+      <p className="text-xs text-center text-muted-foreground py-6 bg-muted/30 rounded-lg" title={`Solo: ${describeAllowedDays(allowedDays)}`}>
+        Tu plan no incluye este día. Puedes reservar: {describeAllowedDays(allowedDays)}.
+      </p>
+    );
   }
   return (
     <div className="space-y-2.5">

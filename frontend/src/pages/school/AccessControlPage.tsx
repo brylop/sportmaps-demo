@@ -50,6 +50,7 @@ interface AccessEvent {
   direction: 'entry' | 'exit';
   access_granted: boolean;
   denial_reason?: string;
+  policy_warning?: 'day_not_allowed' | null;
   check_in_method: 'fingerprint' | 'card' | 'manual' | 'pin';
   zk_user_id?: number;
   child_id?: string;
@@ -781,6 +782,16 @@ export default function AccessControlPage() {
                       {!event.access_granted && event.denial_reason && (
                         <Badge variant="outline" className="text-[9px] h-4 px-1 py-0 border-destructive/30 text-destructive">
                           {DENIAL_LABEL[event.denial_reason] ?? event.denial_reason}
+                        </Badge>
+                      )}
+                      {/* F-F (D11b): entró, pero su plan no incluye este día. Solo registro. */}
+                      {event.access_granted && event.policy_warning === 'day_not_allowed' && (
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] h-4 px-1 py-0 border-amber-500/40 text-amber-600"
+                          title="Ingresó un día que su plan no incluye. El torniquete no lo bloquea: queda registrado."
+                        >
+                          Día no permitido
                         </Badge>
                       )}
                     </div>

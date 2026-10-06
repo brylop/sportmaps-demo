@@ -17,16 +17,25 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { IndividualResultForm } from '@/components/coach/IndividualResultForm';
+import { useLevelProgressionEnabled } from '@/hooks/useLevelProgression';
 
 interface CompetitionResultFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  teamId: string;
+  /** Sin equipo, el diálogo abre directo en modo Individual (requiere la progresión activa). */
+  teamId?: string;
+  initialMode?: 'team' | 'individual';
 }
 
-export function CompetitionResultFormDialog({ open, onOpenChange, teamId }: CompetitionResultFormDialogProps) {
+export function CompetitionResultFormDialog({ open, onOpenChange, teamId, initialMode }: CompetitionResultFormDialogProps) {
   const { toast } = useToast();
   const createResult = useCreateCompetitionResult();
+  // Modo Individual (F-F): puntaje de un atleta. Solo con la progresión por
+  // puntaje activa (school_settings.level_progression_enabled).
+  const { enabled: progressionEnabled } = useLevelProgressionEnabled();
+  const [mode, setMode] = useState<'team' | 'individual'>(initialMode ?? (teamId ? 'team' : 'individual'));
+  const individual = progressionEnabled && (mode === 'individual' || !teamId);
 
   const [opponent, setOpponent] = useState('');
   const [competitionDate, setCompetitionDate] = useState(todayColombia());
@@ -59,7 +68,7 @@ export function CompetitionResultFormDialog({ open, onOpenChange, teamId }: Comp
   const submit = async (force = false) => {
     try {
       await createResult.mutateAsync({
-        team_id: teamId,
+        team_id: teamId!,
         opponent,
         competition_date: competitionDate,
         result_type: resultType,
@@ -96,12 +105,34 @@ export function CompetitionResultFormDialog({ open, onOpenChange, teamId }: Comp
               <Trophy className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <DialogTitle>Registrar Partido</DialogTitle>
-              <DialogDescription>Preparatorio o competencia oficial</DialogDescription>
+              <DialogTitle>{individual ? 'Registrar puntaje individual' : 'Registrar Partido'}</DialogTitle>
+              <DialogDescription>
+                {individual ? 'Puntaje de un atleta en una competencia' : 'Preparatorio o competencia oficial'}
+              </DialogDescription>
             </div>
           </div>
         </DialogHeader>
 
+        {progressionEnabled && teamId && (
+          <div className="flex gap-1 p-0.5 bg-muted/60 rounded-lg border border-border/30 w-fit">
+            {(['team', 'individual'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${
+                  mode === m ? 'bg-background text-foreground shadow-sm border border-border/40' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {m === 'team' ? 'Equipo' : 'Individual'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {individual ? (
+          <IndividualResultForm onDone={() => onOpenChange(false)} onCancel={() => onOpenChange(false)} />
+        ) : (<>
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -252,6 +283,7 @@ export function CompetitionResultFormDialog({ open, onOpenChange, teamId }: Comp
             </Button>
           )}
         </DialogFooter>
+        </>)}
       </DialogContent>
     </Dialog>
   );
