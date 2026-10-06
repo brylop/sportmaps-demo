@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 686,
+  "count": 687,
   "head": "20261006101656",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
@@ -689,6 +689,7 @@
     {"v":"20261006084303","file":"20261006084303_franjas_cortesia_desde_entrenamientos.sql","sha256":"976d346b3cde1dd08979d192adc6ed4531c0fe7a41a70089b68443982198fb8d","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006090725","file":"20261006090725_whatsapp_bot_turno_y_vencimiento_cola.sql","sha256":"aad2ade689c95f7e0a6e719e6618b1d0d8087855240846491339b1fb1d094c75","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006092320","file":"20261006092320_whatsapp_transcribir_audios.sql","sha256":"4bad520e4660497a9ee0411476f7a47e47fc89e3eb1d8ee6994af47ab39f55f2","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261006101628","file":"20261006101628_aviso_ausencia_familia.sql","sha256":"9912641bec088d88b4ca3b152b63433e12d1a01eb364e52dd7a868a8c373d282","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006101656","file":"20261006101656_recordatorios_cobro_whatsapp.sql","sha256":"2e522bfd1ea5621ff8fce27fc4b437c9f6a4f5ea817175ee01b78d1a597b1cb1","added":"2026-10-06","by":"Brayan Steven Lopez"}
   ]
 }

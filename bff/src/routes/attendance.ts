@@ -1270,6 +1270,26 @@ router.get(
         }
       }
 
+      // ── 4c. Avisos de ausencia de la familia (WhatsApp, mig 20261006101628) ─
+      // «Mi hija no puede ir hoy»: la pantalla precarga «excusado» y muestra el
+      // motivo. No es un registro de asistencia (eso lo sigue escribiendo el
+      // coach al guardar) y 'excused' no descuenta créditos.
+      const avisoByAthlete: Record<string, { motivo: string | null; nota: string | null; fuente: string }> = {};
+      {
+        const { data: avisos, error: avisosErr } = await supabase
+          .from('athlete_absence_notices')
+          .select('child_id, user_id, reason, note, source')
+          .eq('school_id', schoolId)
+          .eq('absence_date', rosterDate)
+          .eq('status', 'active');
+        // Sin la migración aplicada la tabla no existe: el roster sigue igual.
+        if (avisosErr) req.log?.warn({ err: avisosErr.message }, 'avisos de ausencia no disponibles');
+        for (const a of avisos || []) {
+          const key = (a as any).child_id ?? (a as any).user_id;
+          if (key) avisoByAthlete[key] = { motivo: (a as any).reason, nota: (a as any).note, fuente: (a as any).source };
+        }
+      }
+
       // ── 5. Construir athletes enriquecidos ────────────────────────────────
       const athletes = enrollments.map((e: any) => {
         const athleteId   = e.child_id ?? e.user_id ?? e.unregistered_athlete_id;
@@ -1299,6 +1319,8 @@ router.get(
           // Para PLANES:  plan con toda la info
           // Reserva de hoy: el descuento la consume en vez de cobrar otra clase.
           booking_today: bookingByAthlete[athleteId] ?? null,
+          // La familia avisó que no viene ese día (WhatsApp).
+          aviso_ausencia: avisoByAthlete[athleteId] ?? null,
           // El plan se expone en AMBOS contextos. El equipo no tiene plan propio,
           // pero el atleta sí, y es de su plan de donde sale el descuento: con
           // `plan: null` forzado por equipo el entrenador descontaba a ciegas y
