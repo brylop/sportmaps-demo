@@ -441,6 +441,11 @@ async function dejarMensajeALaPersona(
     contactWaId: string,
     nombre: string,
 ): Promise<void> {
+    // Los nombres del perfil a veces vienen en MAYÚSCULAS («MILENA»): en un
+    // mensaje a una familia se leen como un grito.
+    if (nombre && nombre === nombre.toUpperCase()) {
+        nombre = nombre.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase());
+    }
     if (!(await pasoReciente(conversationId, 'mensaje_para_persona', 24))) {
         await deliver(integration, conversationId, contactWaId,
             `Hola 👋 Soy el *asistente automático* de la escuela 🤖. Le dejo tu mensaje a ${nombre} 🙌\n\n` +
