@@ -335,7 +335,7 @@ async function cuerpoDelTurno(
 
     // 2.6. P13 — «Gracias», «Ok», «👍» sueltos: no se contestan. Generaban
     //      «¡De nada! 😊 Si necesitas consultar algún pago…» a cada cierre.
-    if (!botonId && esCierreSuelto(text)) {
+    if (!botonId && esCierreSuelto(text, await vocativosDeEscuela(integration.school_id))) {
         console.info('[whatsapp-bot] cierre suelto; no se contesta', { conversationId });
         return;
     }
@@ -588,6 +588,22 @@ async function responderYaPague(
     await deliver(integration, conversationId, contactWaId, texto,
         { step: 'estado_comprobantes', encontro_comprobante: hayAlgo, tool_result: pagosConEnlace });
     if (!hayAlgo) await abrirEnBuzon(integration, conversationId, contactWaId);
+}
+
+/**
+ * El estado de los comprobantes y cobros de la familia, sin modelo (el mismo
+ * texto de «ya pagué»). Lo usa scripts/wa-ponerse-al-dia.ts para contestarle a
+ * quien mandó un comprobante que se procesó sin que nadie le respondiera (la
+ * recuperación del 5-oct deja el pago en revisión en silencio). `deliver`
+ * respeta bot apagado, tomada y modo.
+ */
+export async function responderEstadoDeComprobantes(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    parentId: string | null,
+): Promise<void> {
+    await responderYaPague(integration, conversationId, contactWaId, parentId);
 }
 
 /**
@@ -2588,11 +2604,21 @@ export async function deliver(
         // El visto va recién cuando hay respuesta. Marcar el último entrante
         // marca también los anteriores de ese chat.
         if (sent.ok) void marcarLeidoElUltimoEntrante(integration, conversationId);
+        // Ya salió una respuesta más nueva: los borradores que dejó un rato de
+        // modo asistido en esta conversación quedan viejos ('expired'). Si no,
+        // un «aprobar» después mandaría una respuesta vieja encima (2026-10-06).
+        if (sent.ok) void descartarBorradoresViejos(conversationId);
         return;
     }
 
     // Modo asistido → draft para aprobación (NO se envía).
     // Tampoco se marca como leído: hasta que alguien apruebe, nadie respondió.
+    //
+    // ÚNICO lugar del código que crea borradores (verificado 2026-10-06). Llega
+    // acá solo si `mode='assisted'`, o `mode='auto'` con `assisted_until` en el
+    // futuro (el período de prueba del alta). Con `mode='auto'` y sin
+    // `assisted_until` vigente el bot SIEMPRE envía: nunca deja borrador. Si
+    // Meta rechaza el envío, queda el saliente con error, no un borrador.
     //
     // El buzón aprueba el borrador como TEXTO (`sendTextMessage` en
     // whatsapp-admin.routes): no hay forma de mandar botones desde ahí. Por eso
@@ -2600,6 +2626,20 @@ export async function deliver(
     // botones quedan en `tool_context.botones` para que el buzón los muestre o,
     // el día que sepa, los mande. Lo que la familia escriba con esas palabras
     // se lee igual que el botón (`accionDeBoton` compara el título).
+    // Un borrador idéntico a otro `pending` de la misma conversación no se
+    // repite. Dynasty, 2026-10-06: la ráfaga «Hola buenos días» → «Tengo una
+    // consulta» (11 s, más que la espera de 10 s del agrupamiento) dejó dos
+    // «debe_registrarse» iguales, y otra conversación seis.
+    const { data: igual } = await supabase.from('whatsapp_message_drafts')
+        .select('id')
+        .eq('conversation_id', conversationId)
+        .eq('status', 'pending')
+        .eq('proposed_text', textoSinBotones)
+        .limit(1);
+    if (Array.isArray(igual) && igual.length) {
+        console.info('[whatsapp-bot] borrador idéntico ya pendiente; no se repite', { conversationId });
+        return;
+    }
     await supabase.from('whatsapp_message_drafts').insert({
         conversation_id: conversationId,
         integration_id: integration.id,
@@ -2608,6 +2648,15 @@ export async function deliver(
         llm_provider: (context as any)?.provider ?? null,
         status: 'pending',
     });
+}
+
+async function descartarBorradoresViejos(conversationId: string): Promise<void> {
+    try {
+        await supabase.from('whatsapp_message_drafts')
+            .update({ status: 'expired', updated_at: new Date().toISOString() })
+            .eq('conversation_id', conversationId)
+            .eq('status', 'pending');
+    } catch { /* best-effort: los vence el mantenimiento a las 48 h */ }
 }
 
 // ─── Presentación: el bot dice que es un bot ────────────────────────────────
