@@ -977,7 +977,16 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
      * `conversationId` llega null solo si el contacto no tiene conversación, que
      * no puede pasar: la ingesta la crea antes de encolar.
      */
+    // Mejora 9: si una persona tomó la conversación en el buzón, el comprobante
+    // se procesa y se APLICA igual, pero no se le escribe a la familia: lo que
+    // se le habría dicho queda en el log y el resultado se ve en el panel de
+    // comprobantes. Se fija después de `debeAtender` (abajo).
+    let tomada = false;
     const responder = async (texto: string, paso: string) => {
+        if (tomada) {
+            log?.info?.({ queueId: fila.id, paso }, '[wa-queue] conversación tomada: no se le escribe a la familia');
+            return { ok: true, silenciado: true };
+        }
         pasosEnviados.add(paso);
         const final = aFormatoWhatsApp(dadoDeBaja ? texto + AVISO_DADO_DE_BAJA : texto);
 
@@ -1040,6 +1049,7 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
     // filtra por eso aunque el bot esté apagado) y, si reconoce al acudiente
     // por teléfono, vincula la conversación (`wa_identify_by_phone`).
     const atencion = await debeAtender(wa, conversationId, fila.wa_phone_number);
+    tomada = atencion.tomada === true;
 
     // Solo se pregunta si administra la escuela cuando la respuesta puede
     // cambiar algo: familias que también son dueñas (ver `decidirAdjunto`).

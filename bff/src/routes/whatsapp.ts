@@ -467,7 +467,9 @@ async function handleBotTurn(
         // Staff y personal NO pasan por acá, digan lo que digan («mensualidad»
         // incluida): es el equipo o la vida privada de la dueña. Tampoco el que
         // pidió la baja, ni un audio o video (no hay texto que leer).
+        // Tomada desde el buzón (mejora 9): tampoco la puerta del desconocido.
         const puertaDelDesconocido = decision?.botEncendido === true
+            && decision.tomada !== true
             && decision.tipo === 'desconocido'
             && !optedOut
             && msg.type !== 'audio' && msg.type !== 'video';

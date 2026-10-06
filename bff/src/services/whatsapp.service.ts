@@ -308,6 +308,47 @@ export async function sendInteractiveButtons(
     return postearMensaje(integration, payload);
 }
 
+// ─── Botón con enlace (interactive / cta_url) ───────────────────────────────
+
+/**
+ * Payload de Graph para un mensaje con UN botón que abre una URL
+ * (`interactive.type='cta_url'`). Pura. null si no cabe (cuerpo > 1024, URL
+ * que no es https, texto vacío): quien llama manda el texto plano.
+ */
+export function payloadDeCtaUrl(
+    toWaId: string,
+    body: string,
+    textoBoton: string,
+    url: string,
+): Record<string, unknown> | null {
+    const display = Array.from(String(textoBoton || '').trim()).slice(0, MAX_TITULO_BOTON).join('');
+    if (!body || body.length > MAX_CUERPO_INTERACTIVO || !display || !/^https:\/\/\S+$/i.test(url || '')) return null;
+    return {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: toWaId,
+        type: 'interactive',
+        interactive: {
+            type: 'cta_url',
+            body: { text: body },
+            action: { name: 'cta_url', parameters: { display_text: display, url } },
+        },
+    };
+}
+
+/** Envía un mensaje con un botón URL. Solo dentro de la ventana de 24 h. No lanza. */
+export async function sendCtaUrl(
+    integration: WhatsAppIntegration,
+    toWaId: string,
+    body: string,
+    textoBoton: string,
+    url: string,
+): Promise<SendTextResult> {
+    const payload = payloadDeCtaUrl(toWaId, body, textoBoton, url);
+    if (!payload) return { ok: false, error: 'no_cabe_como_cta_url' };
+    return postearMensaje(integration, payload);
+}
+
 /**
  * Traduce Markdown estandar al formato de WhatsApp.
  *

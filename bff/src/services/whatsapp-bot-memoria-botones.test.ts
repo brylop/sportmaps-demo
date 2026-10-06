@@ -50,6 +50,7 @@ const h = vi.hoisted(() => {
         chatWithTools: vi.fn(),
         sendTextMessage: vi.fn(),
         sendInteractiveButtons: vi.fn(),
+        sendCtaUrl: vi.fn(),
         sendToUser: vi.fn(),
         mediosDePago: vi.fn(),
         avisarEscalamientoPorCorreo: vi.fn(),
@@ -70,6 +71,7 @@ vi.mock('./llm.service', () => ({ chatWithTools: h.chatWithTools }));
 vi.mock('./whatsapp.service', () => ({
     sendTextMessage: h.sendTextMessage,
     sendInteractiveButtons: h.sendInteractiveButtons,
+    sendCtaUrl: h.sendCtaUrl,
     aFormatoWhatsApp: (t: string) => t,
 }));
 vi.mock('./whatsapp-optin.service', () => ({
@@ -156,6 +158,7 @@ beforeEach(() => {
     h.chatWithTools.mockResolvedValue({ text: 'Estás al día ✅', toolCalls: [], provider: 'test' });
     h.sendTextMessage.mockResolvedValue({ ok: true, waMessageId: 'wamid.out' });
     h.sendInteractiveButtons.mockResolvedValue({ ok: true, waMessageId: 'wamid.btn' });
+    h.sendCtaUrl.mockResolvedValue({ ok: true, waMessageId: 'wamid.cta' });
     h.botEncendido.mockResolvedValue(true);
     h.debeAtender.mockResolvedValue({ atender: true, tipo: 'familia', botEncendido: true });
     h.mediosDePago.mockResolvedValue({ cuentas: [{ tipo: 'Nequi', numero: '3001234567', titular: 'Dynasty' }],
@@ -285,6 +288,32 @@ describe('botones: respuesta a un botón = acción determinista, sin modelo', ()
         expect(borradores()).toHaveLength(1);
         expect(borradores()[0].row.proposed_text).toContain('Mensualidad Octubre');
         expect(borradores()[0].row.tool_context).toMatchObject({ step: 'get_payment_status', via: 'boton' });
+    });
+
+    it('«Ver mis pagos» con UN cobro: «Pagar: /p/<token>» en el texto y botón URL (auto)', async () => {
+        baseDeFamilia({ settings: AUTO });
+        const TOKEN = 'abcdefghijklmnopqrstuvwx';
+        const resolvePrevio = h.state.resolve;
+        h.state.resolve = (table, ops) => table === 'payments'
+            ? { data: [{ id: 'pay-1', concept: 'Mensualidad Octubre', amount: 170000, due_date: '2026-10-10', status: 'pending' }], error: null }
+            : resolvePrevio(table, ops);
+        const rpcPrevio = h.state.rpc;
+        h.state.rpc = (fn, args) => {
+            if (fn === 'wa_get_payment_status') {
+                return { data: [{ concept: 'Mensualidad Octubre', saldo: 170000, amount: 170000, status: 'pending',
+                    due_date: '2026-10-10', debe_pagarse: true }], error: null };
+            }
+            if (fn === 'cobro_enlace_publico_emitir') return { data: [{ enlace_token: TOKEN }], error: null };
+            return rpcPrevio(fn, args);
+        };
+        await runBotTurn(INTEGRATION, CONV, TEL, 'Ver mis pagos', 'wamid.b', false, BOTON.VER_PAGOS);
+        const url = `https://app.sportmaps.co/p/${TOKEN}`;
+        expect(rpcs('cobro_enlace_publico_emitir')[0].args).toMatchObject({ p_payment_id: 'pay-1' });
+        expect(h.sendCtaUrl).toHaveBeenCalledTimes(1);
+        const [, , cuerpo, texto, enlace] = h.sendCtaUrl.mock.calls[0];
+        expect(cuerpo).toContain(`Pagar: ${url}`);
+        expect([texto, enlace]).toEqual(['Pagar', url]);
+        expect(h.sendTextMessage).not.toHaveBeenCalled();
     });
 
     it('«Cómo pagar» → medios de pago sin modelo', async () => {

@@ -35,6 +35,11 @@
  * pendiente en el mes, sus avisos de aquí se posponen sin reclamar (el estado
  * de cuenta los incluye y estampa *_notice_sent_at); y a quien ya recibió el
  * estado de cuenta HOY no se le manda nada más hoy (Ley 2300: 1 contacto/día).
+ *
+ * Cadencia de recordatorios (2026-10-06, services/recordatorios-cobro.service):
+ * quien recibió hoy un recordatorio de la cadencia tampoco recibe aviso aquí, y
+ * la cadencia estampa charge/overdue_notice_sent_at de lo que manda, así este
+ * job no repite ese momento por correo.
  */
 
 import { supabase } from '../config/supabase';
@@ -47,6 +52,7 @@ import {
 } from '../services/whatsapp-plantillas.service';
 import { emitirTokenCobro } from '../services/cobro-enlace-publico.service';
 import { contactosConEstadoDeCuentaHoy, escuelasConEstadoPendiente } from '../services/estado-de-cuenta.service';
+import { contactosConRecordatorioHoy } from '../services/recordatorios-cobro.service';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
 
@@ -160,7 +166,13 @@ export function creaFiltroEstadoDeCuenta(ahora: Date) {
             if (pospuestas?.has(p.school_id)) return 'estado_pendiente';
             if (!c) return null;
             if (!hoyPorEscuela.has(p.school_id)) {
-                hoyPorEscuela.set(p.school_id, await contactosConEstadoDeCuentaHoy(p.school_id, ahora).catch(() => new Set<string>()));
+                // Estado de cuenta de hoy + recordatorio de la cadencia de hoy
+                // (recordatorios-cobro.service): ambos cuentan como EL contacto del día.
+                const [estado, recordatorio] = await Promise.all([
+                    contactosConEstadoDeCuentaHoy(p.school_id, ahora).catch(() => new Set<string>()),
+                    contactosConRecordatorioHoy(p.school_id, ahora).catch(() => new Set<string>()),
+                ]);
+                hoyPorEscuela.set(p.school_id, new Set([...estado, ...recordatorio]));
             }
             const hoy = hoyPorEscuela.get(p.school_id)!;
             if (hoy.size === 0) return null;
