@@ -46,6 +46,8 @@ interface Ajustes {
     ai_enabled: boolean;
     /** Contestar también a números que no son familias. Ausente si el backend es viejo. */
     responder_desconocidos?: boolean;
+    /** Contestar a desconocidos que piden información para inscribirse. Ausente = prendido. */
+    responder_prospectos?: boolean;
     business_hours: { tz: string; dias: Record<string, [string, string]> } | null;
     welcome_message: string | null;
 }
@@ -663,6 +665,26 @@ function PanelConfig({ ajustes, guardando, onGuardar }: {
                             checked={ajustes?.responder_desconocidos === true}
                             disabled={guardando || ajustes?.ai_enabled === false}
                             onCheckedChange={(v) => onGuardar({ responder_desconocidos: v })}
+                        />
+                    </div>
+                    <div className="flex items-start justify-between gap-4">
+                        <div>
+                            <Label htmlFor="wa-responder-prospectos">
+                                Responder a quienes piden información para inscribirse
+                            </Label>
+                            <p className="text-sm text-muted-foreground">
+                                Aunque lo de arriba esté apagado, el asistente contesta a números nuevos que
+                                escriben claramente por inscripciones, horarios, precios o la clase de cortesía, y
+                                los deja registrados como prospectos. A los saludos sueltos y a tus contactos
+                                personales no les escribe.
+                            </p>
+                        </div>
+                        <Switch
+                            id="wa-responder-prospectos"
+                            className="shrink-0"
+                            checked={ajustes?.responder_prospectos !== false}
+                            disabled={guardando || ajustes?.ai_enabled === false || ajustes?.responder_desconocidos === true}
+                            onCheckedChange={(v) => onGuardar({ responder_prospectos: v })}
                         />
                     </div>
                 </CardContent>

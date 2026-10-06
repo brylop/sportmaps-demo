@@ -34,6 +34,7 @@ import { calcularPendientes, contarPorVista, esColumnaInexistente, estaPendiente
 import { tomarConversacion, soltarConversacion, tomasDe, HORAS_TOMADA_DEFAULT, HORAS_TOMADA_MAX,
          HORAS_TOMADA_AL_RESPONDER } from '../services/whatsapp-tomada.service';
 import { PASO_PROSPECTO } from '../services/whatsapp-metricas';
+import { prospectosDeConversaciones } from '../services/whatsapp-prospecto-lead.service';
 
 const router = Router();
 
@@ -86,6 +87,17 @@ export async function administraEstaEscuela(userId: string, schoolId: string): P
  */
 const COLUMNAS_AJUSTES = 'mode, ai_enabled, assisted_until, business_hours, welcome_message';
 async function ajustesDe(integrationId: string) {
+    // `responder_prospectos` (migración 20261006110920): sin la columna, true.
+    const conProspectos = await supabase.from('whatsapp_settings')
+        .select(`${COLUMNAS_AJUSTES}, responder_desconocidos, responder_prospectos`)
+        .eq('integration_id', integrationId).maybeSingle();
+    if (!conProspectos.error) return conProspectos;
+    const con0 = await supabase.from('whatsapp_settings')
+        .select(`${COLUMNAS_AJUSTES}, responder_desconocidos`)
+        .eq('integration_id', integrationId).maybeSingle();
+    if (!con0.error) {
+        return { ...con0, data: con0.data ? { ...(con0.data as any), responder_prospectos: true } : con0.data };
+    }
     const con = await supabase.from('whatsapp_settings')
         .select(`${COLUMNAS_AJUSTES}, responder_desconocidos`)
         .eq('integration_id', integrationId).maybeSingle();
@@ -182,7 +194,7 @@ router.get('/:schoolId', requireAuth, async (req: AuthenticatedRequest, res: Res
         // Sin fila de ajustes el asistente está APAGADO: así lo trata
         // whatsapp-atencion.service. La pantalla tiene que decir lo mismo que hace.
         ajustes: ajustes ?? { mode: 'assisted', ai_enabled: false, business_hours: null, welcome_message: null,
-                              responder_desconocidos: false },
+                              responder_desconocidos: false, responder_prospectos: true },
         consumo: {
             ...(consumo as object ?? {}),
             incluidos,
@@ -207,6 +219,9 @@ const AjustesSchema = z.object({
     // Fase A: el asistente atiende solo familias. Esto lo extiende a números
     // desconocidos (prospectos). Staff y personal no se atienden nunca.
     responder_desconocidos: z.boolean().optional(),
+    // Con `responder_desconocidos=false`, igual contestar al desconocido con
+    // intención CLARA de prospecto (regla sin LLM, whatsapp-atencion.service).
+    responder_prospectos: z.boolean().optional(),
     welcome_message: z.string().max(1000).nullable().optional(),
     business_hours: z.object({
         tz: z.string().min(1).default('America/Bogota'),
@@ -243,13 +258,29 @@ router.patch('/:schoolId/settings', requireAuth, async (req: AuthenticatedReques
     const integracion = await integracionDe(schoolId);
     if (!integracion) return res.status(404).json({ error: 'sin_integracion' });
 
-    const conColumna = await supabase
+    // Sin la migración 20261006110920 no hay `responder_prospectos`: si la
+    // escuela pidió cambiarlo se le dice claro; si no, se sigue como antes.
+    const conProspectos = await supabase
         .from('whatsapp_settings')
         .upsert({ integration_id: integracion.id, ...parsed.data, updated_at: new Date().toISOString() },
             { onConflict: 'integration_id' })
+        .select('mode, ai_enabled, business_hours, welcome_message, responder_desconocidos, responder_prospectos')
+        .single();
+    if (conProspectos.error && esColumnaInexistente(conProspectos.error)
+        && parsed.data.responder_prospectos !== undefined) {
+        return res.status(409).json({ error: 'responder_prospectos_no_disponible',
+            detalle: 'Falta aplicar la migración 20261006110920 (responder_prospectos).' });
+    }
+    const { responder_prospectos: _rp, ...sinProspectos } = parsed.data;
+    const conColumna = !conProspectos.error ? conProspectos : await supabase
+        .from('whatsapp_settings')
+        .upsert({ integration_id: integracion.id, ...sinProspectos, updated_at: new Date().toISOString() },
+            { onConflict: 'integration_id' })
         .select('mode, ai_enabled, business_hours, welcome_message, responder_desconocidos')
         .single();
-    let data: any = conColumna.data;
+    let data: any = conColumna.data
+        ? { responder_prospectos: true, ...(conColumna.data as any) }
+        : conColumna.data;
     let error = conColumna.error;
 
     // Sin la migración de Fase A, la columna no existe y la consulta falla
@@ -262,7 +293,7 @@ router.patch('/:schoolId/settings', requireAuth, async (req: AuthenticatedReques
         }
         const sin = await supabase
             .from('whatsapp_settings')
-            .upsert({ integration_id: integracion.id, ...parsed.data, updated_at: new Date().toISOString() },
+            .upsert({ integration_id: integracion.id, ...sinProspectos, updated_at: new Date().toISOString() },
                 { onConflict: 'integration_id' })
             .select('mode, ai_enabled, business_hours, welcome_message')
             .single();
@@ -595,6 +626,11 @@ router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRe
             for (const x of (r.data ?? []) as any[]) prospectos.add(x.conversation_id);
         }
     }
+    // El lead que registró la puerta de prospecto (school_signup_leads, por
+    // teléfono): `prospecto: {estado, interes, ...}` aunque el bot no haya
+    // alcanzado a contestar (ventana cerrada, escuela atendiendo).
+    const leads = await prospectosDeConversaciones(schoolId,
+        data.filter((c: any) => noFamilia.includes(c.id)));
 
     // Cuantos borradores esperan aprobacion en cada hilo.
     const borradores = new Map<string, number>();
@@ -663,7 +699,10 @@ router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRe
             ultimo_mensaje: ultimos.get(c.id) ?? null,
             borradores_pendientes: borradores.get(c.id) ?? 0,
             toma: tomas.get(c.id) ?? null,
-            es_prospecto: prospectos.has(c.id) || c.contact_kind === 'prospecto',
+            es_prospecto: prospectos.has(c.id) || leads.has(c.id) || c.contact_kind === 'prospecto',
+            prospecto: leads.has(c.id)
+                ? { ...leads.get(c.id)!, interes: leads.get(c.id)!.intereses.join(', ') || null }
+                : null,
         })),
     });
 });

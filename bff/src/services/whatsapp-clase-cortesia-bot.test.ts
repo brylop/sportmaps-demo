@@ -44,6 +44,9 @@ vi.mock('../config/supabase', () => ({ supabase: h.supabase }));
 vi.mock('./whatsapp-atencion.service', async () => {
     const real = await vi.importActual<typeof import('./whatsapp-atencion.service')>('./whatsapp-atencion.service');
     return {
+        // Lo puro (puerta de prospecto, intereses…) va REAL; `ajustesDeAtencion`
+        // también: con la fila mockeada vacía, `responder_prospectos` queda prendido.
+        ...real,
         debeAtender: h.debeAtender,
         botEncendido: h.botEncendido,
         temaEscolar: real.temaEscolar,

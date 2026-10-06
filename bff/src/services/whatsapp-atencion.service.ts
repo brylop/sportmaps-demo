@@ -44,6 +44,12 @@ export const TIPOS_QUE_SE_ATIENDEN: ReadonlySet<TipoDeContacto> =
 interface AjustesDeAtencion {
     botEncendido: boolean;
     responderDesconocidos: boolean;
+    /**
+     * ¿Se le contesta al desconocido con intención CLARA de prospecto aunque
+     * `responder_desconocidos=false`? Default true; sin la columna (migración
+     * `whatsapp_responder_prospectos` aún no aplicada) también true.
+     */
+    responderProspectos: boolean;
 }
 
 /**
@@ -57,25 +63,27 @@ interface AjustesDeAtencion {
  * la columna la consulta falla y se reintenta sin ella (default false).
  */
 export async function ajustesDeAtencion(integrationId: string): Promise<AjustesDeAtencion> {
-    const conColumna = await supabase
-        .from('whatsapp_settings')
-        .select('ai_enabled, responder_desconocidos')
-        .eq('integration_id', integrationId)
-        .maybeSingle();
-
-    let fila: any = conColumna.data;
-    if (conColumna.error) {
-        const sinColumna = await supabase
+    // De la consulta más completa a la más pobre: cada columna llegó con una
+    // migración distinta, y una que falte no puede apagar al asistente entero.
+    const intentos = [
+        'ai_enabled, responder_desconocidos, responder_prospectos',
+        'ai_enabled, responder_desconocidos',
+        'ai_enabled',
+    ];
+    let fila: any = null;
+    for (const columnas of intentos) {
+        const r = await supabase
             .from('whatsapp_settings')
-            .select('ai_enabled')
+            .select(columnas)
             .eq('integration_id', integrationId)
             .maybeSingle();
-        fila = sinColumna.data;
+        if (!r.error) { fila = r.data; break; }
     }
 
     return {
         botEncendido: fila?.ai_enabled === true,
         responderDesconocidos: fila?.responder_desconocidos === true,
+        responderProspectos: fila?.responder_prospectos !== false,
     };
 }
 
@@ -388,4 +396,170 @@ export function preguntaPrecioComoProspecto(texto: string | null | undefined): b
     return INSCRIPCION_FUERTES.some((re) => re.test(t))
         || CONCEPTOS_GENERICOS.precio.test(t)
         || /\bcuanto (es|son|sale)\b/.test(t);
+}
+
+// ─── El prospecto: «respóndeles a los que piden info, a los otros no» ────────
+//
+// Medido en Dynasty el 2026-10-05/06: con `responder_desconocidos=false` se
+// quedaron sin respuesta «Estoy interesado en iniciar», «esoty interesada»,
+// «deseo saber horarios… para pasar y mirar las instalaciones», «resiven
+// menores en formación?», y el seguimiento «Mi hija tiene 14 años» de alguien
+// que un mensaje antes había pedido información. `temaEscolar` exige vocabulario
+// de escuela que el prospecto no siempre usa.
+//
+// `intencionDeProspecto` es la regla para ese caso: más ancha que `temaEscolar`
+// en lo que es claramente de alguien que quiere ENTRAR a la escuela, y igual de
+// estricta con todo lo demás. Un saludo, un «gracias», un audio o una imagen de
+// un desconocido NUNCA abren la puerta. Ante la duda, silencio: dejar pasar un
+// prospecto dudoso le cuesta una respuesta tardía (la dueña igual lo ve en su
+// celular); hablarle a un contacto personal ya pasó dos veces y fue grave.
+
+/** Contexto de escuela/deporte que acompaña a una palabra suelta. */
+const CONTEXTO_PROSPECTO =
+    /\b(club|academia|escuela|clases?|curso|cursos|grupos?|categorias?|entren\w*|practicar|jugar|voley|volley|voleibol|volleyball|deportes?|iniciar|iniciacion|empezar|comenzar|entrar|ingresar|inscrib\w*|conocer|instalaciones|formacion|ninos?|ninas?|adultos?|menores|hij[oa]s?)\b/;
+
+const PROSPECTO_FUERTE: RegExp[] = [
+    /\binscrib\w*/,
+    /\binscripcion(es)?\b/,
+    /\bmatricul\w*/,
+    /\bclases? (de |una )?(prueba|cortesia|gratis|gratuitas?)\b/,
+    /\b(clase|dia) de cortesia\b/,
+    // «a partir de qué edad», «desde qué edad», «qué edades reciben»
+    /\b(a partir de|desde) (que|cual) edad\b/,
+    /\b(que|cuales) edades\b/,
+    /\brango de edad(es)?\b/,
+    // «resiven menores en formación?», «aceptan adultos principiantes?»
+    /\b(reciben|resiben|reciven|resiven|recibe|aceptan|admiten)\b(\s+\w+){0,4}\s+(ninos?|ninas?|menores|adultos?|principiantes|jovenes|chicos?|chicas?|mayores)\b/,
+    // «entrenamiento para niñas de 8 años», «curso para adultos»
+    /\b(entrenamientos?|entrenan|clases?|cursos?|grupos?|categorias?|escuela|voley|volley|voleibol|volleyball)\b(\s+\w+){0,3}\s+para\s+(ninos?|ninas?|menores|adultos?|principiantes|jovenes|mayores)\b/,
+    /\betapa de iniciacion\b/,
+    // «quiero empezar a entrenar», «me gustaría aprender a jugar voleibol»
+    /\b(quiero|quisiera|queremos|deseo|deseamos|me gustaria|nos gustaria)\s+(empezar|iniciar|comenzar|entrar|ingresar|aprender|practicar)\b(\s+\w+){0,3}\s+(entrenar|jugar|voley|volley|voleibol|volleyball|club|academia|escuela|clases?)\b/,
+    /\b(quiero|quisiera|queremos|deseo|me gustaria)\s+(entrenar|practicar (voley|volley|voleibol)\w*|jugar (voley|volley|voleibol)\w*)\b/,
+    // «horarios… para poder pasar y mirar las instalaciones»
+    /\b(mirar|conocer|visitar|ver) (las )?instalaciones\b/,
+];
+
+/** «interesado/a» (y «esoty interesada») — se exige contexto o mensaje corto. */
+const INTERES = /\binteresad[oa]s?\b/;
+const INTERES_NEGADO = /\bno (estoy |estamos |me |nos )?(muy )?interesad/;
+
+/** Palabras que, solas, hacen de un mensaje un saludo/cortesía sin contenido. */
+const RELLENO = new Set([
+    'hola', 'holi', 'ola', 'buenas', 'buenos', 'buen', 'dia', 'dias', 'tardes', 'noches', 'noche', 'tarde',
+    'como', 'esta', 'estas', 'estss', 'estan', 'va', 'vas', 'que', 'tal', 'saludos', 'muy', 'feliz',
+    'gracias', 'muchas', 'mil', 'ok', 'okay', 'oki', 'listo', 'vale', 'dale', 'bueno', 'perfecto',
+    'si', 'no', 'claro', 'stop', 'pare', 'baja', 'senor', 'senora', 'sra', 'sr', 'disculpa', 'disculpe',
+    'por', 'favor', 'te', 'le', 'lo', 'la', 'mismo', 'igual', 'bien', 'super', 'jaja', 'jajaja',
+    // para contar palabras útiles de «Estoy interesado en iniciar»
+    'estoy', 'esoty', 'estamos', 'soy', 'en', 'a', 'de', 'el', 'y', 'yo', 'muy', 'me',
+]);
+
+/**
+ * ¿El mensaje de un desconocido muestra intención CLARA de entrar a la
+ * escuela? Pura y determinista; ver los casos en whatsapp-prospecto.test.ts.
+ */
+export function intencionDeProspecto(texto: string | null | undefined): boolean {
+    if (!texto) return false;
+    const t = normalizarTexto(texto);
+    if (!t) return false;
+    // Un cobro que ya existe es de familia, no de prospecto.
+    if (YA_LE_PAGA.some((re) => re.test(t))) return false;
+
+    if (PROSPECTO_FUERTE.some((re) => re.test(t))) return true;
+
+    if (INTERES.test(t) && !INTERES_NEGADO.test(t)) {
+        // «esoty interesada», «Estoy interesado en iniciar»: corto o con contexto.
+        const utiles = t.split(' ').filter((w) => !RELLENO.has(w));
+        if (utiles.length <= 2 || CONTEXTO_PROSPECTO.test(t)) return true;
+    }
+
+    // Precio/valor/costos de entrenar o del club (no de un cobro: YA_LE_PAGA arriba).
+    if (CONCEPTOS_GENERICOS.precio.test(t) && CONTEXTO_PROSPECTO.test(t)) return true;
+    // «horarios … para pasar», «horarios para niñas»
+    if (CONCEPTOS_GENERICOS.horario.test(t)
+        && /\b(conocer|mirar|visitar|pasar|instalaciones|iniciar|empezar|inscrib\w*|edad(es)?|ninos?|ninas?|adultos?|principiantes)\b/.test(t)) {
+        return true;
+    }
+
+    // Lo que ya abría la puerta de siempre por inscripción («información de la academia»).
+    return temaEscolar(texto) === 'inscripcion';
+}
+
+/** ¿El mensaje es solo saludo, agradecimiento o cortesía? («Hola buenas tardes», «Ok gracias»). */
+export function soloSaludoOCortesia(texto: string | null | undefined): boolean {
+    const crudo = (texto || '').trim();
+    if (!crudo) return true;
+    if (!/[\p{L}\p{N}]/u.test(crudo)) return true; // solo emojis o signos
+    const t = normalizarTexto(crudo);
+    if (!t) return true;
+    return t.split(' ').every((w) => RELLENO.has(w));
+}
+
+export type PuertaDeProspecto = 'prospecto' | 'seguimiento';
+
+/**
+ * ¿Se le abre la puerta de prospecto a este mensaje?
+ *
+ * - `prospecto`: el mensaje mismo tiene intención clara.
+ * - `seguimiento`: el mensaje no la tiene («Mi hija tiene 14 años», «Miércoles
+ *   está bien»), pero un entrante ANTERIOR de la misma conversación en los
+ *   últimos días sí (`entrantesPrevios`, solo textos). Un saludo o un
+ *   agradecimiento sueltos no son seguimiento.
+ * - null: silencio.
+ */
+export function puertaDeProspecto(
+    texto: string | null | undefined,
+    entrantesPrevios: (string | null | undefined)[] = [],
+): PuertaDeProspecto | null {
+    if (intencionDeProspecto(texto)) return 'prospecto';
+    if (soloSaludoOCortesia(texto)) return null;
+    if (entrantesPrevios.some((p) => intencionDeProspecto(p))) return 'seguimiento';
+    return null;
+}
+
+/** Días hacia atrás que cuenta un entrante para marcar la conversación como de prospecto. */
+export const DIAS_MARCA_PROSPECTO = 7;
+
+export type InteresDeProspecto = 'visita' | 'cortesia' | 'precio' | 'horarios' | 'edades' | 'inscripcion' | 'informacion';
+
+/**
+ * Lo que pide el prospecto, para el lead y para elegir la respuesta. Puede
+ * ser más de uno («precio, horarios y edad»).
+ */
+export function interesesDeProspecto(texto: string | null | undefined): InteresDeProspecto[] {
+    const t = normalizarTexto(texto || '');
+    if (!t) return [];
+    const r: InteresDeProspecto[] = [];
+    if (/\b(mirar|conocer|visitar|ver) (las )?instalaciones\b|\bpasar (a )?(mirar|conocer|ver)\b|\bvisita(r)?\b/.test(t)) r.push('visita');
+    if (/\bcortesia\b|\bclases? (de )?(prueba|gratis)\b/.test(t)) r.push('cortesia');
+    if (CONCEPTOS_GENERICOS.precio.test(t) || /\bmensualidad\b/.test(t)) r.push('precio');
+    if (CONCEPTOS_GENERICOS.horario.test(t) || /\bdisponibilidad de dias\b|\bque dias\b/.test(t)) r.push('horarios');
+    if (/\bedad(es)?\b|\b\d{1,2} anos\b/.test(t)) r.push('edades');
+    if (/\binscrib\w*|\binscripcion(es)?\b|\bmatricul\w*/.test(t)) r.push('inscripcion');
+    if (!r.length) r.push('informacion');
+    return r;
+}
+
+/**
+ * ¿Busca para un ADULTO (para sí mismo)? «curso para adultos», «quiero empezar
+ * a entrenar… yo tengo algo de experiencia». Sirve para avisarle que la
+ * escuela le confirma el grupo: los equipos no tienen edades cargadas y
+ * deducir el grupo del nombre está prohibido (ver whatsapp-clase-cortesia).
+ */
+export function buscaParaAdulto(texto: string | null | undefined): boolean {
+    if (!texto) return false;
+    const t = normalizarTexto(texto);
+    if (/\b(mi|mis|nuestr[oa]s?) (hij[oa]s?|nin[oa]s?|nen[ea]s?|sobrin[oa]s?|niet[oa]s?)\b/.test(t)) return false;
+    return /\badultos?\b/.test(t)
+        || /\b(para mi|conmigo|yo tengo|yo juego|yo jugaba|quiero (empezar a )?entrenar|quiero aprender)\b/.test(t);
+}
+
+/** Edad que dice el mensaje («mi hija tiene 14 años», «niñas de 8 años»), o null. */
+export function edadMencionada(texto: string | null | undefined): number | null {
+    const t = normalizarTexto(texto || '');
+    const m = t.match(/\b(\d{1,2}) anos\b/);
+    if (!m) return null;
+    const n = Number(m[1]);
+    return n >= 3 && n <= 80 ? n : null;
 }
