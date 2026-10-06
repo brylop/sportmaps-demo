@@ -16,8 +16,8 @@
 export type PaymentAccountType = 'breb' | 'nequi' | 'daviplata' | 'transfer_key';
 
 /** Categorías de cobro (CHECK de payments.payment_category). */
-export type PaymentChargeCategory = 'mensualidad' | 'inscripcion' | 'articulos' | 'torneo' | 'otro';
-const CHARGE_CATEGORIES: PaymentChargeCategory[] = ['mensualidad', 'inscripcion', 'articulos', 'torneo', 'otro'];
+export type PaymentChargeCategory = 'mensualidad' | 'inscripcion' | 'articulos' | 'torneo' | 'otro' | 'seguro' | 'excedente';
+const CHARGE_CATEGORIES: PaymentChargeCategory[] = ['mensualidad', 'inscripcion', 'articulos', 'torneo', 'otro', 'seguro', 'excedente'];
 
 export interface PaymentAccount {
     id: string;

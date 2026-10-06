@@ -17,7 +17,7 @@
  * matrícula de mensualidad (ver memoria project_payment_type_not_reliable).
  */
 
-export const CATEGORIAS_COBRO = ['mensualidad', 'inscripcion', 'articulos', 'torneo', 'otro'] as const;
+export const CATEGORIAS_COBRO = ['mensualidad', 'inscripcion', 'articulos', 'torneo', 'otro', 'seguro', 'excedente'] as const;
 export type CategoriaCobro = (typeof CATEGORIAS_COBRO)[number];
 
 export interface CuentaDePago {
@@ -90,6 +90,8 @@ const NOMBRE_CATEGORIA: Record<CategoriaCobro, string> = {
     articulos: 'artículos',
     torneo: 'torneos',
     otro: 'otros cobros',
+    seguro: 'seguros',
+    excedente: 'horas adicionales',
 };
 
 /** "inscripciones", "inscripciones y torneos" — para mensajes. */

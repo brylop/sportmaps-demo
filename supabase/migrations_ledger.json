@@ -674,7 +674,7 @@
     {"v":"20261005135525","file":"20261005135525_cobro_no_nace_vencido_y_mora_con_gracia.sql","sha256":"644b9a51b1a505a10acb2fc2ff955883f3c76ceb3d5c8fd57b235ed992e055a1","added":"2026-10-05","by":"Brayan Steven Lopez"},
     {"v":"20261005135530","file":"20261005135530_cancelar_inscripcion_ficha_anula_cobros.sql","sha256":"d68cde107ce498fe279e5d98c63a75292f059925911c61abef2a2562b8412792","added":"2026-10-05","by":"Brayan Steven Lopez"},
     {"v":"20261005214245","file":"20261005214245_cobros_base_categorias_y_unicidad.sql","sha256":"62549893d874b3ac19b2532f41902ee453e63e1e9fa13fbfc0b7776c413e74af","added":"2026-10-06","by":"Brayan Steven Lopez"},
-    {"v":"20261005214248","file":"20261005214248_inscripcion_seguro_emit_enrollment_fees.sql","sha256":"e51a75bcaf9317e73353a617cd343057a141bfcde4d91ff6b0d29f50011392ec","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261005214248","file":"20261005214248_inscripcion_seguro_emit_enrollment_fees.sql","sha256":"55a1fd3b774dcef4c9d3b7121490e31ddbaf23fc3981248512ea25175f576635","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261005214250","file":"20261005214250_alta_clases_restantes_create_enrollment_with_payments.sql","sha256":"225ef2229e26bd537f522c9f7c83911ac517421410999f0e019d1cb0921ea8a2","added":"2026-10-06","by":"Brayan Steven Lopez"}
   ]
 }

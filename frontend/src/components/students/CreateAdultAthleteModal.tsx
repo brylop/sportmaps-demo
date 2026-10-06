@@ -59,6 +59,7 @@ interface PlanOption {
   price: number;
   duration_days: number;
   registration_fee: number | null; // offering_plans.registration_fee (D17) — null = sin inscripción
+  insurance_fee: number | null;    // offering_plans.insurance_fee (F-B) — null = sin seguro
 }
 
 interface Branch { id: string; name: string; }
@@ -87,11 +88,12 @@ interface ProrationCardProps {
   discountPct: number;
   onDiscountChange: (pct: number) => void;
   registrationFee?: number;
+  insuranceFee?: number;
 }
 
 // ─── Proration Card ───────────────────────────────────────────────────────────
 
-function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscountChange, registrationFee = 0 }: ProrationCardProps) {
+function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscountChange, registrationFee = 0, insuranceFee = 0 }: ProrationCardProps) {
   const [discountEnabled, setDiscountEnabled] = useState(false);
 
   if (!startDate || !monthlyFee) return null;
@@ -131,6 +133,16 @@ function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscount
         <div className="flex justify-between rounded-md bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900 px-2.5 py-1.5 text-sm">
           <span className="text-orange-700 dark:text-orange-400">Inscripción (pago único)</span>
           <span className="font-bold text-orange-700 dark:text-orange-400">{formatCOP(registrationFee)}</span>
+        </div>
+      )}
+
+      {/* ── Seguro de accidentes (F-B) — cobro único aparte, categoría 'seguro'.
+          El BFF no lo repite si el atleta ya tiene un seguro de los últimos 12
+          meses en la escuela: por eso el texto dice "si no tiene uno vigente". ── */}
+      {insuranceFee > 0 && (
+        <div className="flex justify-between rounded-md bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900 px-2.5 py-1.5 text-sm">
+          <span className="text-sky-700 dark:text-sky-400">Seguro de accidentes (si no tiene uno vigente)</span>
+          <span className="font-bold text-sky-700 dark:text-sky-400">{formatCOP(insuranceFee)}</span>
         </div>
       )}
 
@@ -283,6 +295,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
   const [selectedOfferingId, setSelectedOfferingId] = useState('');
   const [selectedPlanPrice, setSelectedPlanPrice] = useState(0);
   const [selectedPlanRegistrationFee, setSelectedPlanRegistrationFee] = useState(0);
+  const [selectedPlanInsuranceFee, setSelectedPlanInsuranceFee] = useState(0);
   const [startDate, setStartDate]             = useState(() => todayColombia());
   const [monthlyFee, setMonthlyFee]           = useState('');
   const [discountPct, setDiscountPct]         = useState(0);
@@ -313,7 +326,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
 
     Promise.all([
       supabase.from('teams').select('id, name, sport, price_monthly').eq('school_id', schoolId).eq('status', 'active').order('name'),
-      supabase.from('offering_plans').select('id, name, price, duration_days, registration_fee, offering_id, offerings(id, name)').eq('school_id', schoolId).eq('is_active', true).order('sort_order'),
+      supabase.from('offering_plans').select('id, name, price, duration_days, registration_fee, insurance_fee, offering_id, offerings(id, name)').eq('school_id', schoolId).eq('is_active', true).order('sort_order'),
       supabase.from('school_branches').select('id, name').eq('school_id', schoolId).order('name'),
       supabase.from('school_settings').select('payment_cutoff_day, billing_cycle_type').eq('school_id', schoolId).maybeSingle(),
     ]).then(([teamsRes, plansRes, branchesRes, settingsRes]) => {
@@ -326,6 +339,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
         price:         Number(row.price),
         duration_days: row.duration_days,
         registration_fee: row.registration_fee != null ? Number(row.registration_fee) : null,
+        insurance_fee: row.insurance_fee != null ? Number(row.insurance_fee) : null,
       }));
       setPlans(flatPlans);
       setBranches((branchesRes.data as Branch[]) ?? []);
@@ -354,6 +368,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
       setSelectedOfferingId('');
       setSelectedPlanPrice(0);
       setSelectedPlanRegistrationFee(0);
+      setSelectedPlanInsuranceFee(0);
       return;
     }
     const p = plans.find(p => p.plan_id === planId);
@@ -361,6 +376,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
       setSelectedOfferingId(p.offering_id);
       setSelectedPlanPrice(p.price);
       setSelectedPlanRegistrationFee(p.registration_fee ?? 0);
+      setSelectedPlanInsuranceFee(p.insurance_fee ?? 0);
     }
   };
 
@@ -372,7 +388,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
     setFoundProfile(null);
     setBranchId('none'); setTeamId('none');
     setSelectedPlanId('none'); setSelectedOfferingId('');
-    setSelectedPlanPrice(0); setSelectedPlanRegistrationFee(0);
+    setSelectedPlanPrice(0); setSelectedPlanRegistrationFee(0); setSelectedPlanInsuranceFee(0);
     setStartDate(todayColombia());
     setMonthlyFee('');
     setDiscountPct(0);
@@ -834,6 +850,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
               discountPct={discountPct}
               onDiscountChange={setDiscountPct}
               registrationFee={selectedPlanRegistrationFee}
+              insuranceFee={selectedPlanInsuranceFee}
             />
           </Section>
         </div>

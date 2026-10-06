@@ -12718,6 +12718,7 @@ export type Database = {
           name: string
           offering_id: string
           price: number
+          insurance_fee: number | null
           registration_fee: number | null
           school_id: string
           session_block_minutes: number | null
@@ -12743,6 +12744,7 @@ export type Database = {
           name: string
           offering_id: string
           price: number
+          insurance_fee?: number | null
           registration_fee?: number | null
           school_id: string
           session_block_minutes?: number | null
@@ -12768,6 +12770,7 @@ export type Database = {
           name?: string
           offering_id?: string
           price?: number
+          insurance_fee?: number | null
           registration_fee?: number | null
           school_id?: string
           session_block_minutes?: number | null

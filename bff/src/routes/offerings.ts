@@ -68,6 +68,8 @@ const CreatePlanSchema = z.object({
     session_block_minutes: z.number().int().positive().nullable().optional(),
     included_sessions_per_week: z.number().int().positive().nullable().optional(),
     registration_fee: z.number().min(0).nullable().optional(),
+    // Seguro de accidentes cobrado en el alta (F-B, dedupe 365 días). NULL = sin cobro.
+    insurance_fee: z.number().min(0).nullable().optional(),
 });
 
 const UpdatePlanSchema = z.object({
@@ -87,6 +89,8 @@ const UpdatePlanSchema = z.object({
     session_block_minutes: z.number().int().positive().nullable().optional(),
     included_sessions_per_week: z.number().int().positive().nullable().optional(),
     registration_fee: z.number().min(0).nullable().optional(),
+    // Seguro de accidentes cobrado en el alta (F-B, dedupe 365 días). NULL = sin cobro.
+    insurance_fee: z.number().min(0).nullable().optional(),
 });
 
 // Piloto (docs — booking_mode toggle): antes de aceptar un booking_mode distinto

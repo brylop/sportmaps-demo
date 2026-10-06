@@ -55,6 +55,7 @@ export interface OfferingPlan {
     session_block_minutes?: number | null;
     included_sessions_per_week?: number | null;
     registration_fee?: number | null;
+    insurance_fee?: number | null;
     is_active: boolean;
     sort_order: number;
     metadata: Record<string, unknown>;
