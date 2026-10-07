@@ -62,3 +62,22 @@ describe('Gemini', () => {
         expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 });
+
+describe('Groq (OpenAI-compatible)', () => {
+    it('el resultado de una tool va como texto del usuario, no como `role: tool` huérfano', async () => {
+        fetchMock.mockResolvedValue(ok({ choices: [{ message: { content: 'listo' } }] }));
+        await chatWithTools({
+            system: 's',
+            provider: 'groq',
+            messages: [
+                { role: 'user', content: '¿cómo edito mi equipo?' },
+                { role: 'assistant', content: 'Llamando search_help_articles' },
+                { role: 'tool', toolName: 'search_help_articles', content: '[{"slug":"x"}]' },
+            ],
+        });
+        const { messages } = JSON.parse(fetchMock.mock.calls[0][1].body);
+        expect(messages.some((m: any) => m.role === 'tool' || m.tool_call_id)).toBe(false);
+        expect(messages[3]).toMatchObject({ role: 'user' });
+        expect(messages[3].content).toContain('Resultado de search_help_articles');
+    });
+});
