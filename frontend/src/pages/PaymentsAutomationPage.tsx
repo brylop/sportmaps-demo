@@ -2454,9 +2454,10 @@ export default function PaymentsAutomationPage() {
                   schoolId={schoolId}
                   table="school_tournament_items"
                   enabled={billing.tournament_charges_enabled}
-                  title="Catálogo de cobros de torneo"
-                  description='Ej. "Torneo Interclubes — $50.000" — un cobro simple más, separado de mensualidad/inscripción/artículos.'
+                  title="Cobros sueltos"
+                  description='Torneos, clases extra o de perfeccionamiento, vacacionales y viajes. Ej. "Torneo Interclubes — $50.000": un cobro simple, separado de mensualidad/inscripción/artículos.'
                   itemLabel="cobro"
+                  withServiceFields
                 />
               )}
 

@@ -3,9 +3,21 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Plus, Pencil, ShieldOff, X, ShoppingBag } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Loader2, Plus, Pencil, ShieldOff, X, ShoppingBag, MessageCircle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+
+/** school_tournament_items.kind (mig. 20261007095911, ventas por WhatsApp F0). */
+type ServiceKind = 'torneo' | 'viaje' | 'clase_extra' | 'vacacional' | 'otro';
+const SERVICE_KINDS: { value: ServiceKind; label: string }[] = [
+  { value: 'torneo', label: 'Torneo' },
+  { value: 'clase_extra', label: 'Clase extra / perfeccionamiento' },
+  { value: 'vacacional', label: 'Vacacional' },
+  { value: 'viaje', label: 'Viaje' },
+  { value: 'otro', label: 'Otro' },
+];
+const KIND_LABEL: Record<string, string> = Object.fromEntries(SERVICE_KINDS.map((k) => [k.value, k.label]));
 
 interface CatalogItem {
   id: string;
@@ -14,6 +26,13 @@ interface CatalogItem {
   size_options?: string | null;
   image_url?: string | null;
   active: boolean;
+  // Campos de servicio (solo school_tournament_items, con la migración F0 aplicada)
+  description?: string | null;
+  kind?: ServiceKind | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  capacity?: number | null;
+  per_athlete?: boolean | null;
 }
 
 interface SellableCatalogCardProps {
@@ -29,7 +48,36 @@ interface SellableCatalogCardProps {
   itemLabel: string;
   /** Artículos usa tallas + imagen; torneos no (no aplica a una cuota). */
   withSizesAndImage?: boolean;
+  /**
+   * Cobros de servicio vendibles por WhatsApp (docs/specs/ventas-por-whatsapp.md §4.4):
+   * tipo, descripción, fecha, cupos, foto y si se cobra por atleta, más el
+   * interruptor `school_settings.wa_ventas_habilitadas`. Si la migración F0 no
+   * está aplicada, la tarjeta se ve como antes.
+   */
+  withServiceFields?: boolean;
 }
+
+/** ISO → valor de <input type="datetime-local"> en la hora del navegador. */
+function toLocalInput(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function fromLocalInput(v: string): string | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+function formatWhen(item: CatalogItem): string | null {
+  if (!item.starts_at) return null;
+  const f = (iso: string) => new Date(iso).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  return item.ends_at ? `${f(item.starts_at)} – ${f(item.ends_at)}` : f(item.starts_at);
+}
+
+const BASE_COLS = 'id, name, price, active';
+const SERVICE_COLS = 'id, name, price, active, description, kind, image_url, starts_at, ends_at, capacity, per_athlete';
 
 /**
  * CRUD de un catálogo vendible (artículos deportivos, cobros de torneo) que la
@@ -38,7 +86,7 @@ interface SellableCatalogCardProps {
  * (self-service de la escuela) — ver migración 20260908152538.
  */
 export function SellableCatalogCard({
-  schoolId, table, enabled, title, description, itemLabel, withSizesAndImage = false,
+  schoolId, table, enabled, title, description, itemLabel, withSizesAndImage = false, withServiceFields = false,
 }: SellableCatalogCardProps) {
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -48,6 +96,18 @@ export function SellableCatalogCard({
   const [price, setPrice] = useState('');
   const [sizes, setSizes] = useState('');
   const [imageUrl, setImageUrl] = useState('');
+  // Servicio (ventas por WhatsApp)
+  const [serviceReady, setServiceReady] = useState(false);
+  const [kind, setKind] = useState<ServiceKind>('torneo');
+  const [desc, setDesc] = useState('');
+  const [startsAt, setStartsAt] = useState('');
+  const [endsAt, setEndsAt] = useState('');
+  const [capacity, setCapacity] = useState('');
+  const [perAthlete, setPerAthlete] = useState(true);
+  /** null = la columna no existe todavía (migración sin aplicar): no se muestra el interruptor. */
+  const [waSales, setWaSales] = useState<boolean | null>(null);
+
+  const showService = withServiceFields && serviceReady;
 
   const resetForm = () => {
     setEditingId(null);
@@ -55,19 +115,42 @@ export function SellableCatalogCard({
     setPrice('');
     setSizes('');
     setImageUrl('');
+    setKind('torneo');
+    setDesc('');
+    setStartsAt('');
+    setEndsAt('');
+    setCapacity('');
+    setPerAthlete(true);
   };
 
   const load = async () => {
     setLoading(true);
-    const cols = withSizesAndImage ? 'id, name, price, size_options, image_url, active' : 'id, name, price, active';
-    const { data, error } = await supabase
-      .from(table as any)
-      .select(cols)
-      .eq('school_id', schoolId)
-      .order('sort_order', { ascending: true });
+    let data: unknown = null;
+    let error: { message: string } | null = null;
+    if (withServiceFields) {
+      // Con la migración F0 aplicada trae los campos de servicio; si no, la consulta de siempre.
+      const r = await supabase.from(table as any).select(SERVICE_COLS).eq('school_id', schoolId).order('sort_order', { ascending: true });
+      if (!r.error) {
+        data = r.data;
+        setServiceReady(true);
+      } else {
+        setServiceReady(false);
+      }
+    }
+    if (data === null) {
+      const cols = withSizesAndImage ? 'id, name, price, size_options, image_url, active' : BASE_COLS;
+      const r = await supabase.from(table as any).select(cols).eq('school_id', schoolId).order('sort_order', { ascending: true });
+      data = r.data;
+      error = r.error;
+    }
     if (error) toast({ title: 'Error cargando el catálogo', description: error.message, variant: 'destructive' });
     setItems(((data as any) || []) as CatalogItem[]);
     setLoading(false);
+
+    if (withServiceFields) {
+      const s = await supabase.from('school_settings' as any).select('wa_ventas_habilitadas').eq('school_id', schoolId).maybeSingle();
+      setWaSales(s.error ? null : Boolean((s.data as any)?.wa_ventas_habilitadas));
+    }
   };
 
   useEffect(() => {
@@ -81,6 +164,12 @@ export function SellableCatalogCard({
     setPrice(String(item.price));
     setSizes(item.size_options || '');
     setImageUrl(item.image_url || '');
+    setKind((item.kind as ServiceKind) || 'torneo');
+    setDesc(item.description || '');
+    setStartsAt(toLocalInput(item.starts_at));
+    setEndsAt(toLocalInput(item.ends_at));
+    setCapacity(item.capacity ? String(item.capacity) : '');
+    setPerAthlete(item.per_athlete !== false);
   };
 
   const save = async () => {
@@ -88,16 +177,30 @@ export function SellableCatalogCard({
     const parsedPrice = Number(price.replace(/\./g, '').replace(/,/g, ''));
     if (!trimmedName) { toast({ title: 'Falta el nombre', variant: 'destructive' }); return; }
     if (!Number.isFinite(parsedPrice) || parsedPrice < 0) { toast({ title: 'Precio inválido', variant: 'destructive' }); return; }
-    if (withSizesAndImage && imageUrl.trim() && !/^https:\/\//.test(imageUrl.trim())) {
+    if ((withSizesAndImage || showService) && imageUrl.trim() && !/^https:\/\//.test(imageUrl.trim())) {
       toast({ title: 'La imagen debe ser una URL https://', variant: 'destructive' });
       return;
     }
-    setSaving(true);
     const row: Record<string, unknown> = { school_id: schoolId, name: trimmedName, price: parsedPrice };
     if (withSizesAndImage) {
       row.size_options = sizes.trim() || null;
       row.image_url = imageUrl.trim() || null;
     }
+    if (showService) {
+      const starts = fromLocalInput(startsAt);
+      const ends = fromLocalInput(endsAt);
+      if (ends && starts && ends < starts) { toast({ title: 'La fecha de fin es anterior al inicio', variant: 'destructive' }); return; }
+      const cap = capacity.trim() ? Number(capacity.trim()) : null;
+      if (cap !== null && (!Number.isInteger(cap) || cap <= 0)) { toast({ title: 'Los cupos deben ser un número mayor que 0', variant: 'destructive' }); return; }
+      row.kind = kind;
+      row.description = desc.trim() || null;
+      row.image_url = imageUrl.trim() || null;
+      row.starts_at = starts;
+      row.ends_at = ends;
+      row.capacity = cap;
+      row.per_athlete = perAthlete;
+    }
+    setSaving(true);
     const { error } = editingId
       ? await supabase.from(table as any).update(row).eq('id', editingId)
       : await supabase.from(table as any).insert(row);
@@ -114,6 +217,15 @@ export function SellableCatalogCard({
     setSaving(false);
     if (error) { toast({ title: 'No se pudo aplicar', description: error.message, variant: 'destructive' }); return; }
     await load();
+  };
+
+  const toggleWaSales = async (value: boolean) => {
+    setSaving(true);
+    const { error } = await supabase.from('school_settings' as any).update({ wa_ventas_habilitadas: value }).eq('school_id', schoolId);
+    setSaving(false);
+    if (error) { toast({ title: 'No se pudo cambiar', description: error.message, variant: 'destructive' }); return; }
+    setWaSales(value);
+    toast({ title: value ? 'El asistente de WhatsApp ya vende estos servicios' : 'Ventas por WhatsApp apagadas' });
   };
 
   return (
@@ -134,6 +246,21 @@ export function SellableCatalogCard({
           <div className="py-4 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
         ) : (
           <div className="space-y-3">
+            {showService && waSales !== null && (
+              <div className="flex items-start justify-between gap-3 rounded-lg border p-3">
+                <div className="flex gap-2">
+                  <MessageCircle className="h-4 w-4 mt-0.5 text-emerald-600 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium">Vender por WhatsApp</p>
+                    <p className="text-xs text-muted-foreground">
+                      El asistente responde precio, fecha y cupos de estos servicios y, a las familias identificadas, les manda el link de pago con 1 hora para pagar.
+                    </p>
+                  </div>
+                </div>
+                <Switch checked={waSales} disabled={saving} onCheckedChange={toggleWaSales} />
+              </div>
+            )}
+
             {items.length > 0 && (
               <div className="space-y-1.5">
                 {items.map((item) => (
@@ -142,8 +269,13 @@ export function SellableCatalogCard({
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium truncate">{item.name}</span>
                         {item.size_options && <span className="text-[11px] text-muted-foreground">{item.size_options}</span>}
+                        {showService && item.kind && <Badge variant="outline" className="text-[10px]">{KIND_LABEL[item.kind] ?? item.kind}</Badge>}
                       </div>
-                      <div className="text-xs text-primary font-semibold">${item.price.toLocaleString('es-CO')}</div>
+                      <div className="text-xs text-primary font-semibold">
+                        ${item.price.toLocaleString('es-CO')}
+                        {showService && formatWhen(item) && <span className="ml-2 font-normal text-muted-foreground">{formatWhen(item)}</span>}
+                        {showService && item.capacity ? <span className="ml-2 font-normal text-muted-foreground">{item.capacity} cupos</span> : null}
+                      </div>
                     </div>
                     <Badge variant={item.active ? 'secondary' : 'outline'} className="text-[10px] shrink-0">
                       {item.active ? 'Activo' : 'Inactivo'}
@@ -175,6 +307,33 @@ export function SellableCatalogCard({
                   <>
                     <Input placeholder="Tallas, ej. S, M, L (opcional)" value={sizes} onChange={(e) => setSizes(e.target.value)} className="h-8 text-sm" />
                     <Input placeholder="Imagen https:// (opcional)" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} className="h-8 text-sm" />
+                  </>
+                )}
+                {showService && (
+                  <>
+                    <select
+                      aria-label="Tipo de servicio"
+                      value={kind}
+                      onChange={(e) => setKind(e.target.value as ServiceKind)}
+                      className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                    >
+                      {SERVICE_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
+                    </select>
+                    <Input placeholder="Cupos (opcional)" inputMode="numeric" value={capacity} onChange={(e) => setCapacity(e.target.value)} className="h-8 text-sm" />
+                    <Input placeholder="Descripción corta (opcional)" value={desc} onChange={(e) => setDesc(e.target.value)} className="h-8 text-sm sm:col-span-2" />
+                    <label className="text-[11px] text-muted-foreground space-y-1">
+                      <span>Empieza (opcional)</span>
+                      <Input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} className="h-8 text-sm" />
+                    </label>
+                    <label className="text-[11px] text-muted-foreground space-y-1">
+                      <span>Termina (opcional)</span>
+                      <Input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className="h-8 text-sm" />
+                    </label>
+                    <Input placeholder="Foto https:// (opcional)" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} className="h-8 text-sm" />
+                    <label className="flex items-center gap-2 text-xs">
+                      <Switch checked={perAthlete} onCheckedChange={setPerAthlete} />
+                      Se cobra por deportista
+                    </label>
                   </>
                 )}
               </div>

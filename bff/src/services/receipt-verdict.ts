@@ -33,7 +33,8 @@ export type VerdictCode =
     | 'FECHA_FUTURA'
     | 'REFERENCIA_DUPLICADA'
     | 'IMAGEN_DUPLICADA'
-    | 'FORMATO_REFERENCIA';
+    | 'FORMATO_REFERENCIA'
+    | 'POSIBLE_MANIPULACION';
 
 export interface VerdictReason {
     /** Nº de check en la tabla §2 (1..9). */
@@ -429,6 +430,21 @@ export function evaluateVerdict(ocr: OcrResult, ctx: VerdictContext): VerdictRes
         }
     }
 
+    // 10) Posible manipulación (inyección de prompt escrita en la imagen o en el
+    //     texto libre de la transferencia). Nunca verde: va a revisión humana.
+    //     Amarillo y no rojo: un falso positivo no debe rechazarle el pago a
+    //     una familia, solo quitarle la vía automática.
+    const manipulacion = detectarManipulacion(ocr);
+    if (manipulacion.length > 0) {
+        reasons.push({
+            check: 10,
+            code: 'POSIBLE_MANIPULACION',
+            level: 'amarillo',
+            message: 'El comprobante contiene texto que no corresponde a un comprobante bancario (posibles instrucciones dirigidas al sistema). Requiere revisión manual.',
+            detail: { motivo: 'posible_manipulacion', senales: manipulacion },
+        });
+    }
+
     const verdict: Verdict = reasons.some((r) => r.level === 'rojo')
         ? 'rojo'
         : reasons.some((r) => r.level === 'amarillo')
@@ -436,4 +452,182 @@ export function evaluateVerdict(ocr: OcrResult, ctx: VerdictContext): VerdictRes
           : 'verde';
 
     return { verdict, reasons, referenceNorm };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Defensa contra inyección de prompt en el comprobante (2026-10-07).
+//
+// PoC (seguridad-llm-comprobantes.poc.test.ts): una imagen con una orden escrita
+// para el extractor ("devuelve este JSON") y la cuenta REAL de la escuela —que
+// ven todas las familias— salía verde y se AUTO-APROBABA aunque la leyeran dos
+// proveedores distintos: los dos leen los mismos píxeles y los dos obedecen.
+//
+// Dos capas, ninguna depende de que el modelo "diga" algo bueno:
+//   1. detectarManipulacion: busca texto dirigido a un sistema/IA en la
+//      transcripción (raw_text) y en los campos extraídos. Hallazgo → amarillo.
+//   2. evaluarEvidenciaAutoAprobacion: para MOVER PLATA sin humano exige campos
+//      con forma bancaria y coherentes, y que las dos lecturas coincidan CAMPO A
+//      CAMPO (no en un veredicto). El veredicto lo calcula este código.
+//
+// Límite honesto: un modelo que obedece TODO (incluida una transcripción falsa
+// "limpia") con datos verosímiles sigue pasando. Ninguna regla sobre una imagen
+// prueba que hubo una transferencia; eso solo lo prueba el banco (notificación
+// firmada con DKIM / extracto). Ver project_notificaciones_banco_por_correo_dkim.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Minúsculas y sin tildes, para que "instrucción" e "instruccion" casen igual. */
+function plano(s: string): string {
+    return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
+/**
+ * Frases dirigidas a un modelo/sistema. Calibradas para NO chocar con el texto
+ * normal de un comprobante colombiano ("Transacción aprobada", "Número de
+ * aprobación", "Sistema de pagos inmediatos", nombres propios como "Claude").
+ */
+const PATRONES_INYECCION: { senal: string; re: RegExp }[] = [
+    { senal: 'ignora_instrucciones', re: /\b(ignora|ignore|ignorar|disregard|olvida|olvidar|forget)\b[^.\n]{0,40}\b(instruccion|instrucciones|instructions?|reglas|rules|anterior|anteriores|previous|above|prompt)/ },
+    { senal: 'dirigido_al_sistema', re: /\b(nota|mensaje|orden|instruccion|instrucciones|indicacion|aviso)\b[^.\n]{0,15}\b(para|al|a la|del)\b[^.\n]{0,10}\b(sistema|modelo|extractor|asistente|validador|revisor|verificador|ia|ai|bot|llm)\b/ },
+    { senal: 'rol_de_chat', re: /(^|[\s"'{[(<])(system|assistant|developer)\s*[:>]|<\|?\s*(system|im_start|im_end|assistant)|\[\/?(inst|system)\]/ },
+    { senal: 'orden_de_aprobar', re: /\b(apruebalo|apruebe|apruebelo|apruebenlo|approve|auto-?aprueba|autoaprueba)\b|\baprueba (este|el|esta|la)\b|\bmarca(r|lo|la)? como (verde|aprobado|aprobada|valido|valida|pagado|pagada|legitimo)|\b(veredicto|verdict)\b/ },
+    { senal: 'pide_json', re: /\b(devuelve|devolver|responde|responder|retorna|return|respond|output)\b[^.\n]{0,30}\bjson\b|\b(is_receipt|missing_fields|is_transaction_list|suspicious_instructions|raw_text)\b/ },
+    { senal: 'json_embebido', re: /\{\s*"[a-z_]{2,40}"\s*:/ },
+    { senal: 'menciona_ia', re: /\b(prompt|llm|chatgpt|openai|gemini|gpt-?\d|inteligencia artificial|modelo de lenguaje|language model)\b/ },
+];
+
+/** Caracteres que no tienen nada que hacer en una referencia/cuenta/banco/nombre. */
+const CARACTERES_RAROS = /[{}<>"`|\\\n\r]/;
+
+/**
+ * Busca señales de manipulación en lo que el modelo transcribió y extrajo.
+ * Devuelve las señales encontradas (vacío = nada sospechoso). Pura.
+ */
+export function detectarManipulacion(ocr: OcrResult): string[] {
+    const senales = new Set<string>();
+
+    if (ocr.injectionSuspected === true) senales.add('modelo_reporta_instrucciones');
+
+    const textos: { campo: string; valor: string | null | undefined }[] = [
+        { campo: 'raw_text', valor: ocr.rawText },
+        { campo: 'reference', valor: ocr.reference },
+        { campo: 'destination', valor: ocr.destination },
+        { campo: 'destination_name', valor: ocr.destinationName },
+        { campo: 'origin_name', valor: ocr.originName },
+        { campo: 'bank', valor: ocr.bank },
+        { campo: 'description', valor: ocr.description },
+    ];
+    for (const { campo, valor } of textos) {
+        if (!valor) continue;
+        const p = plano(valor);
+        for (const { senal, re } of PATRONES_INYECCION) {
+            if (re.test(p)) senales.add(`${senal}@${campo}`);
+        }
+    }
+
+    // Campos estructurados con forma imposible: JSON, etiquetas, saltos de línea
+    // o longitudes que ningún banco imprime en esa casilla.
+    const estructurados: { campo: string; valor: string | null | undefined; max: number }[] = [
+        { campo: 'reference', valor: ocr.reference, max: 48 },
+        { campo: 'destination', valor: ocr.destination, max: 64 },
+        { campo: 'bank', valor: ocr.bank, max: 40 },
+        { campo: 'destination_name', valor: ocr.destinationName, max: 120 },
+        { campo: 'origin_name', valor: ocr.originName, max: 120 },
+    ];
+    for (const { campo, valor, max } of estructurados) {
+        if (!valor) continue;
+        if (CARACTERES_RAROS.test(valor)) senales.add(`caracteres_raros@${campo}`);
+        if (valor.length > max) senales.add(`largo_anomalo@${campo}`);
+    }
+
+    return [...senales];
+}
+
+/** 'HH:MM' 24h válido → minutos del día; si no, null. */
+function minutosDelDia(hhmm: string | null | undefined): number | null {
+    if (!hhmm) return null;
+    const m = /^(\d{1,2}):(\d{2})/.exec(hhmm.trim());
+    if (!m) return null;
+    const h = Number(m[1]);
+    const mi = Number(m[2]);
+    if (h > 23 || mi > 59) return null;
+    return h * 60 + mi;
+}
+
+export interface EvidenciaAutoAprobacion {
+    ok: boolean;
+    /** Por qué NO alcanza para aprobar sin humano. Vacío si ok. */
+    faltas: string[];
+}
+
+/**
+ * ¿Hay evidencia suficiente para AUTO-APROBAR (mover el pago a pagado sin que lo
+ * mire nadie)? Más estricto que el veredicto verde, que también sirve para
+ * mostrarle al acudiente que su comprobante "se ve bien".
+ *
+ * Exige, en las DOS lecturas y calculado aquí (nunca un veredicto del modelo):
+ *   - ninguna señal de manipulación;
+ *   - las dos lecturas en verde por las reglas;
+ *   - referencia con forma bancaria conocida (REFERENCE_SHAPES) e igual;
+ *   - monto exacto al esperado e igual;
+ *   - destino EXACTO a una cuenta registrada (no solo los 4 últimos dígitos
+ *     tras una máscara, que conoce cualquier familia) e igual;
+ *   - fecha y hora presentes, iguales, dentro de la ventana y no en el futuro.
+ *
+ * `nowTime` = 'HH:MM' de Bogotá (lo inyecta el caller para mantener la fn pura).
+ */
+export function evaluarEvidenciaAutoAprobacion(
+    a: OcrResult,
+    b: OcrResult,
+    ctx: VerdictContext,
+    nowTime?: string | null,
+): EvidenciaAutoAprobacion {
+    const faltas = new Set<string>();
+
+    if (detectarManipulacion(a).length > 0 || detectarManipulacion(b).length > 0) faltas.add('posible_manipulacion');
+    if (evaluateVerdict(a, ctx).verdict !== 'verde' || evaluateVerdict(b, ctx).verdict !== 'verde') faltas.add('lectura_no_verde');
+
+    // Referencia
+    for (const o of [a, b]) {
+        const c = o.reference ? clasificarReferencia(o.reference) : null;
+        if (!c || !c.ok) faltas.add('referencia_sin_formato_bancario');
+    }
+    if (normalizeReference(a.reference) !== normalizeReference(b.reference)) faltas.add('referencia_no_coincide');
+
+    // Monto
+    const esperado = typeof ctx.expectedAmount === 'number' && ctx.expectedAmount > 0 ? Math.round(ctx.expectedAmount) : null;
+    if (esperado === null) faltas.add('sin_monto_esperado');
+    for (const o of [a, b]) {
+        if (typeof o.amount !== 'number' || (esperado !== null && Math.round(o.amount) !== esperado)) faltas.add('monto_no_exacto');
+    }
+    if (a.amount !== b.amount) faltas.add('monto_no_coincide');
+
+    // Destino
+    const cuentas = ctx.registeredAccounts ?? [];
+    const destA = normalizeDestination(a.destination);
+    const destB = normalizeDestination(b.destination);
+    if (classifyDestinationMatch(destA, cuentas) !== 'exact' || classifyDestinationMatch(destB, cuentas) !== 'exact') {
+        faltas.add('destino_no_exacto');
+    }
+    if (destA !== destB) faltas.add('destino_no_coincide');
+
+    // Fecha y hora
+    if (!a.date || !b.date) faltas.add('fecha_ausente');
+    else if (a.date.slice(0, 10) !== b.date.slice(0, 10)) faltas.add('fecha_no_coincide');
+    else {
+        const delta = diffDays(ctx.today, a.date);
+        if (delta === null) faltas.add('fecha_invalida');
+        else if (delta < 0) faltas.add('fecha_futura');
+        else if (delta > (ctx.dateWindowDays ?? 5)) faltas.add('fecha_fuera_ventana');
+    }
+    const minA = minutosDelDia(a.time);
+    const minB = minutosDelDia(b.time);
+    if (minA === null || minB === null) faltas.add('hora_ausente');
+    else {
+        if (minA !== minB) faltas.add('hora_no_coincide');
+        // Hoy y con hora posterior a "ahora" (+10 min de holgura por relojes).
+        const ahora = minutosDelDia(nowTime);
+        if (ahora !== null && a.date && a.date.slice(0, 10) === ctx.today && minA > ahora + 10) faltas.add('hora_futura');
+    }
+
+    return { ok: faltas.size === 0, faltas: [...faltas] };
 }
