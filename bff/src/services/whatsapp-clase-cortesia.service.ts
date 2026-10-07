@@ -54,6 +54,10 @@ import { supabase } from '../config/supabase';
 import type { BotonInteractivo } from './whatsapp.service';
 import { esSinLimite } from './franjas-cortesia.service';
 import { liberarLeadParaReserva } from './whatsapp-prospecto-lead.service';
+import {
+    rangosDeEscuela, elegirGrupo, textoGrupoParaEdad, textoDesdeQueEdad, preguntaGrupoPorEdad,
+    type RangoGrupo, type FuenteEdad, type Genero,
+} from './grupos-por-edad.service';
 
 export const FLUJO_CORTESIA = 'clase_cortesia';
 /** Misma ventana de atención de Meta: pasada, el papá ya no recuerda la pregunta. */
@@ -91,9 +95,17 @@ export interface FranjaCortesia {
     /** Dirección de la sede, si coincide con una sede (school_branches) que la tenga. */
     direccion?: string | null;
     teamId?: string | null;
-    /** Rango de edad del equipo (teams.age_min/age_max). null = no cargado. */
+    /**
+     * Rango de edad del grupo (grupos-por-edad.service: teams.age_min/age_max →
+     * categoría → edades reales de sus atletas activos → año en el nombre).
+     * null = no se sabe.
+     */
     edadMin?: number | null;
     edadMax?: number | null;
+    /** De dónde salió el rango (para decir «la escuela te confirma»). */
+    edadFuente?: FuenteEdad | null;
+    /** Género del grupo cuando el nombre no lo dice (categoría o atletas, ≥ 95 %). */
+    generoGrupo?: Genero | null;
 }
 
 /** Para quién es la clase, según lo que escribió la familia. Nada se adivina. */
@@ -200,6 +212,15 @@ export interface CtxCortesia {
     cancelar?: (schoolId: string, contactWaId: string) => Promise<ResultadoCancelacion>;
     avisarEscuela?: (aviso: AvisoCortesia) => Promise<void>;
     ahora?: () => Date;
+    /**
+     * Lo que dijo del deportista en los últimos 7 días (edad, género): no se le
+     * vuelve a preguntar. El bot lo arma con sus mensajes entrantes.
+     */
+    perfilPrevio?: () => Promise<PerfilAtleta | null>;
+    /** ¿Ya se le mandó la lista de horarios en las últimas 24 h? No se repite. */
+    listadoReciente?: () => Promise<boolean>;
+    /** Rangos de edad de los grupos (por defecto, grupos-por-edad.service). */
+    rangos?: (schoolId: string) => Promise<RangoGrupo[]>;
 }
 
 // ─── Botones (ids = contrato con el webhook; títulos ≤ 20) ─────────────────
@@ -393,6 +414,7 @@ export function leerPerfil(texto: string | null | undefined, opciones: { soloNum
     const p: PerfilAtleta = {};
     const edadM = n.match(/\b(\d{1,2}) ?(anos|ano|anitos|anito)\b/)
         ?? n.match(/\b(?:tiene|tengo|edad) (\d{1,2})\b/)
+        ?? n.match(/\b(?:hija|hijo|nina|nino|nena|nene|hijita|hijito|sobrina|sobrino|nieta|nieto|chico|chica) de (\d{1,2})\b/)
         ?? (opciones.soloNumero ? n.match(/^(\d{1,2})$/) : null);
     if (edadM) {
         const e = Number(edadM[1]);
@@ -409,6 +431,38 @@ export function leerPerfil(texto: string | null | undefined, opciones: { soloNum
     if (ES_ADULTO.test(n) || (typeof p.edad === 'number' && p.edad >= 18)) p.adulto = true;
     else if (ES_MENOR.test(n) || (typeof p.edad === 'number' && p.edad < 18)) p.menor = true;
     return (p.edad != null || p.genero || p.adulto || p.menor) ? p : null;
+}
+
+/**
+ * Perfil de VARIOS mensajes (uno por línea, del más viejo al más nuevo): gana
+ * lo más reciente. «para mi hija de 12 años» … «mi hija tiene 14» → 14.
+ * `leerPerfil` sobre el texto pegado tomaba la PRIMERA edad (la vieja).
+ */
+export function perfilReciente(texto: string | null | undefined): PerfilAtleta | null {
+    const lineas = String(texto ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
+    let r: PerfilAtleta | null = null;
+    for (const l of lineas) r = combinarPerfiles(leerPerfil(l), r);
+    return r;
+}
+
+/** `nuevo` manda; lo que no dice se toma de `previo`. */
+export function combinarPerfiles(
+    nuevo: PerfilAtleta | null | undefined, previo: PerfilAtleta | null | undefined,
+): PerfilAtleta | null {
+    if (!nuevo) return previo ?? null;
+    if (!previo || nuevo.todos) return nuevo;
+    const edad = nuevo.edad ?? previo.edad ?? null;
+    const r: PerfilAtleta = {};
+    if (edad != null) r.edad = edad;
+    const genero = nuevo.genero ?? previo.genero ?? null;
+    if (genero) r.genero = genero;
+    if (edad != null) {
+        if (edad >= 18) r.adulto = true; else r.menor = true;
+    } else if (nuevo.adulto || nuevo.menor) {
+        if (nuevo.adulto) r.adulto = true; else r.menor = true;
+    } else if (previo.adulto) r.adulto = true;
+    else if (previo.menor) r.menor = true;
+    return r;
 }
 
 const baseGrupo = (g: string) => g.split('·')[0].trim();
@@ -428,6 +482,9 @@ export function esGrupoDeAdultos(grupo: string): boolean {
 }
 
 const tieneRango = (f: FranjaCortesia) => f.edadMin != null || f.edadMax != null;
+/** Género del grupo: el nombre manda; si no lo dice, el inferido (categoría o atletas). */
+const generoDeFranja = (f: FranjaCortesia): 'f' | 'm' | null => generoDeGrupo(f.grupo)
+    ?? (f.generoGrupo === 'f' || f.generoGrupo === 'm' ? f.generoGrupo : null);
 
 /** ¿Hay con qué filtrar? (rango de edad cargado, o género/adultos en el nombre) */
 export function gruposFiltrables(franjas: FranjaCortesia[]): boolean {
@@ -460,7 +517,7 @@ export function filtrarPorPerfil(franjas: FranjaCortesia[], perfil: PerfilAtleta
         && (f.edadMin == null || edad >= f.edadMin) && (f.edadMax == null || edad <= f.edadMax);
 
     let r = franjas;
-    if (perfil.genero) r = r.filter((f) => { const g = generoDeGrupo(f.grupo); return !g || g === perfil.genero; });
+    if (perfil.genero) r = r.filter((f) => { const g = generoDeFranja(f); return !g || g === perfil.genero; });
     if (edad != null) r = r.filter((f) => !tieneRango(f) || enRango(f));
     if (menor) r = r.filter((f) => !esGrupoDeAdultos(f.grupo));
     let sinGrupoAdultos = false;
@@ -873,15 +930,22 @@ export async function iniciarCortesia(
     // PREGUNTA si no dijo nada, no nombró un grupo y los grupos traen con qué
     // filtrar: una pregunta de más también pierde prospectos.
     const grupo = grupoMencionado(opciones.texto, franjas);
-    const perfil = leerPerfil(opciones.texto);
+    // Lo que dijo ahora y, si no, lo que dijo en los últimos 7 días: la edad
+    // no se vuelve a preguntar. Gana lo más reciente («mi hija tiene 14»).
+    const perfil = combinarPerfiles(perfilReciente(opciones.texto), await perfilPrevioSeguro(ctx));
     const dia = leerDia(opciones.texto);
+    // La lista completa ya salió en las últimas 24 h: no se repite.
+    const yaListado = !grupo && await listadoRecienteSeguro(ctx);
     const base = '¡Claro! 🙌 La *clase de cortesía* es *gratis* y sirve para conocer la escuela.';
-    if (!grupo && !perfil && gruposFiltrables(franjas)) {
+    if (!grupo && !perfil && (gruposFiltrables(franjas) || yaListado)) {
         // El intro de quien llama dice «estos son los horarios:»; aquí todavía no
         // se muestran, así que va el texto base.
         await ctx.enviar(
-            cabeza + `${base}\n\nPara mostrarte los horarios del grupo indicado: *¿para quién es la clase y qué edad tiene?* ` +
-            '(por ejemplo: «para mi hija de 8 años» o «soy adulto»)',
+            cabeza + (yaListado
+                ? 'Los horarios te los compartí arriba 👆. Si me dices *para quién es* y *qué edad tiene*, ' +
+                  'te digo su grupo y te reservo el cupo.'
+                : `${base}\n\nPara mostrarte los horarios del grupo indicado: *¿para quién es la clase y qué edad tiene?* ` +
+                  '(por ejemplo: «para mi hija de 8 años» o «soy adulto»)'),
             opciones.step ?? 'cortesia_perfil',
             { paso: 'perfil', datos: { dia, intentos: 0 } });
         return;
@@ -896,7 +960,93 @@ export async function iniciarCortesia(
     }
     await ofrecerFranjas(ctx, franjas, 0, { perfil, dia, ...edadDelPerfil(perfil) },
         cabeza + (opciones.intro ?? `${base} Estos son los próximos horarios:`),
-        opciones.step ?? 'cortesia_ofrecer');
+        opciones.step ?? 'cortesia_ofrecer', { maximo: yaListado ? MAX_BOTONES : undefined });
+}
+
+async function perfilPrevioSeguro(ctx: CtxCortesia): Promise<PerfilAtleta | null> {
+    try { return (await ctx.perfilPrevio?.()) ?? null; } catch { return null; }
+}
+
+async function listadoRecienteSeguro(ctx: CtxCortesia): Promise<boolean> {
+    try { return (await ctx.listadoReciente?.()) ?? false; } catch { return false; }
+}
+
+async function rangosSeguros(ctx: CtxCortesia): Promise<RangoGrupo[]> {
+    try { return await (ctx.rangos ?? rangosDeEscuela)(ctx.schoolId); } catch { return []; }
+}
+
+/**
+ * Rangos de los grupos que TIENEN franjas: los del servicio de grupos si
+ * están, y si no, armados con lo que traen las propias franjas.
+ */
+function rangosDeFranjas(franjas: FranjaCortesia[], rangos: RangoGrupo[]): RangoGrupo[] {
+    const porTeam = new Map(rangos.map((r) => [r.teamId, r]));
+    const salida = new Map<string, RangoGrupo>();
+    for (const f of franjas) {
+        const clave = f.teamId ?? baseGrupo(f.grupo);
+        if (salida.has(clave)) continue;
+        const r = f.teamId ? porTeam.get(f.teamId) : undefined;
+        if (r) { salida.set(clave, r); continue; }
+        const generoNombre = generoDeGrupo(f.grupo);
+        salida.set(clave, {
+            teamId: clave, nombre: baseGrupo(f.grupo), edadMin: f.edadMin ?? null, edadMax: f.edadMax ?? null,
+            mediana: null, fuenteEdad: f.edadFuente ?? (tieneRango(f) ? 'equipo' : null),
+            genero: generoNombre ?? f.generoGrupo ?? null, generoExplicito: generoNombre !== null,
+            adultos: esGrupoDeAdultos(f.grupo), nivel: null, horario: null, admiteNuevos: true,
+            muestra: 0, confianza: 'baja',
+        });
+    }
+    return [...salida.values()];
+}
+
+/** Franjas del grupo elegido (por equipo, o por nombre si la franja no trae equipo). */
+function franjasDelGrupo(franjas: FranjaCortesia[], r: RangoGrupo): FranjaCortesia[] {
+    return franjas.filter((f) => (f.teamId ? f.teamId === r.teamId : baseGrupo(f.grupo) === r.nombre));
+}
+
+/**
+ * «¿Qué grupo le corresponde a mi hija de 12?» / «¿Desde qué edad reciben?»:
+ * respuesta corta y UNA vez, sin modelo. Con la edad (la de ahora o la que
+ * dijo en los últimos 7 días) → «Para 12 años le corresponde *Infantil
+ * Femenino* (…)» y, si ese grupo tiene clase de cortesía, «¿Te reservo?» con
+ * hasta 3 horarios en botones (no la lista completa). Sin edad → la pregunta.
+ * false = no era esta pregunta o no hay con qué contestarla (sigue el bot).
+ */
+export async function responderGrupoPorEdad(
+    ctx: CtxCortesia, texto: string, opciones: { step: string; encabezado?: string },
+): Promise<boolean> {
+    const tipo = preguntaGrupoPorEdad(texto);
+    if (!tipo) return false;
+    const d = deps(ctx);
+    const rangos = await rangosSeguros(ctx);
+    const cabeza = opciones.encabezado ? `${opciones.encabezado}\n\n` : '';
+    if (tipo === 'desde') {
+        const t = textoDesdeQueEdad(rangos);
+        if (!t) return false;
+        await ctx.enviar(cabeza + t, opciones.step, null);
+        return true;
+    }
+    const perfil = combinarPerfiles(perfilReciente(texto), await perfilPrevioSeguro(ctx));
+    let franjas: FranjaCortesia[] = [];
+    try { franjas = filtrarVigentes(await d.franjas(ctx.schoolId), d.ahora); } catch { franjas = []; }
+    if (!perfil || (perfil.edad == null && !perfil.adulto)) {
+        if (!rangos.length) return false;
+        await ctx.enviar(cabeza + '¿Qué *edad* tiene? Con eso te digo qué grupo le corresponde.', opciones.step,
+            franjas.length ? { paso: 'perfil', datos: { intentos: 0 } } : null);
+        return true;
+    }
+    const eleccion = elegirGrupo(rangos, perfil);
+    const linea = textoGrupoParaEdad(eleccion, perfil);
+    if (!linea || !eleccion.principal) return false;
+    const delGrupo = eleccion.porGenero ? [] : franjasDelGrupo(franjas, eleccion.principal);
+    if (delGrupo.length) {
+        await ofrecerFranjas(ctx, delGrupo, 0, { perfil, ...edadDelPerfil(perfil) },
+            cabeza + `${linea}\n\n¿Te reservo una *clase de cortesía* gratis? Estos son los próximos horarios:`,
+            opciones.step, { yaFiltradas: true, maximo: MAX_BOTONES });
+        return true;
+    }
+    await ctx.enviar(cabeza + linea, opciones.step, null);
+    return true;
 }
 
 /**
@@ -922,7 +1072,9 @@ export async function ofrecerHorariosDeCortesia(
             { yaFiltradas: true });
         return true;
     }
-    const perfil = leerPerfil(opciones.texto);
+    // `texto` trae varios mensajes (uno por línea): gana lo más reciente, y si
+    // no dice nada, lo que dijo en los últimos 7 días.
+    const perfil = combinarPerfiles(perfilReciente(opciones.texto), await perfilPrevioSeguro(ctx));
     await ofrecerFranjas(ctx, franjas, 0, { perfil, dia, ...edadDelPerfil(perfil) }, opciones.intro, opciones.step);
     return true;
 }
@@ -942,10 +1094,26 @@ async function ofrecerFranjas(
     datosPrevios: DatosCortesia,
     intro: string,
     step: string,
-    op: { yaFiltradas?: boolean } = {},
+    op: { yaFiltradas?: boolean; maximo?: number } = {},
 ): Promise<void> {
-    const { franjas, nota } = op.yaFiltradas ? { franjas: vigentes, nota: '' } : candidatas(vigentes, datosPrevios);
-    const lista = paginar(intercalarPorGrupo(franjas).slice(0, MAX_FRANJAS_OFRECIDAS));
+    let { franjas, nota } = op.yaFiltradas ? { franjas: vigentes, nota: '' } : candidatas(vigentes, datosPrevios);
+    // Con la edad (o «soy adulto») se dice UNA vez qué grupo le corresponde y
+    // se ofrecen solo sus horarios: «Para 12 años le corresponde *Infantil
+    // Femenino* (…)». El rango sale de grupos-por-edad.service.
+    let lineaGrupo = '';
+    const perfil = datosPrevios.perfil;
+    if (!op.yaFiltradas && perfil && !perfil.todos && (perfil.edad != null || perfil.adulto)) {
+        const eleccion = elegirGrupo(rangosDeFranjas(franjas, await rangosSeguros(ctx)), perfil);
+        const grupos = eleccion.porGenero ? [eleccion.porGenero.f, eleccion.porGenero.m]
+            : eleccion.principal ? [eleccion.principal] : [];
+        const delGrupo = franjas.filter((f) => grupos.some((g) => franjasDelGrupo([f], g).length));
+        if (delGrupo.length) {
+            franjas = delGrupo;
+            lineaGrupo = textoGrupoParaEdad(eleccion, perfil) ?? '';
+            nota = '';
+        }
+    }
+    const lista = paginar(intercalarPorGrupo(franjas).slice(0, op.maximo ?? MAX_FRANJAS_OFRECIDAS));
     const porPagina = lista.length > MAX_FILAS ? MAX_FILAS - 1 : MAX_FILAS;
     const inicio = desde >= lista.length ? 0 : desde;
     const visibles = lista.slice(inicio, inicio + porPagina);
@@ -957,7 +1125,7 @@ async function ofrecerFranjas(
     const delDia = soloDelDia ? ` del *${DIAS[datosPrevios.dia!]}*` : '';
     const encabezado = [
         intro,
-        criterio || delDia ? `Te muestro los horarios${criterio ? ` ${criterio}` : ''}${delDia}.` : '',
+        lineaGrupo || (criterio || delDia ? `Te muestro los horarios${criterio ? ` ${criterio}` : ''}${delDia}.` : ''),
         datosPrevios.dia != null && !soloDelDia ? `No tengo horarios el *${DIAS[datosPrevios.dia]}*; estos son los que hay.` : '',
         nota,
     ].filter(Boolean).join(' ');
@@ -1455,6 +1623,25 @@ export async function leerEstadoDeSupabase(conversationId: string): Promise<Esta
     }
 }
 
+/**
+ * ¿Ya salió una lista de horarios de cortesía (paso `elegir_franja`) en las
+ * últimas 24 h? Entonces no se repite: se ofrece reservar. Nunca lanza.
+ */
+export async function listadoDeHorariosReciente(conversationId: string, horas = 24): Promise<boolean> {
+    try {
+        const desde = new Date(Date.now() - horas * 60 * 60 * 1000).toISOString();
+        const { count } = await supabase.from('whatsapp_messages')
+            .select('id', { count: 'exact', head: true })
+            .eq('conversation_id', conversationId)
+            .eq('direction', 'outbound')
+            .eq('payload->>paso_cortesia', 'elegir_franja')
+            .gte('created_at', desde);
+        return (count ?? 0) > 0;
+    } catch {
+        return false;
+    }
+}
+
 async function slugDeEscuela(schoolId: string): Promise<string | null> {
     const { data } = await supabase.from('schools').select('slug').eq('id', schoolId).maybeSingle();
     return (data as any)?.slug ?? null;
@@ -1508,14 +1695,13 @@ export async function franjasDeSupabase(schoolId: string): Promise<FranjaCortesi
             .limit(300);
         if (!error && Array.isArray(data) && data.length) {
             const filas = (data as any[]).filter((r) => Number(r.reserved_count ?? 0) < Number(r.max_capacity ?? 0));
-            const teamIds = [...new Set(filas.map((r) => r.team_id).filter(Boolean))];
-            const [equipos, sedes] = await Promise.all([
-                teamIds.length
-                    ? supabase.from('teams').select('id, age_min, age_max').in('id', teamIds)
-                    : Promise.resolve({ data: [] as any[] }),
+            // Rango de edad y género de cada grupo: equipo → categoría → edades
+            // reales de sus atletas activos → año en el nombre (cacheado 1 h).
+            const [rangos, sedes] = await Promise.all([
+                rangosDeEscuela(schoolId).catch(() => [] as RangoGrupo[]),
                 supabase.from('school_branches').select('name, address').eq('school_id', schoolId).limit(50),
             ]);
-            const edades = new Map<string, any>(((equipos as any)?.data ?? []).map((t: any) => [t.id, t]));
+            const edades = new Map<string, RangoGrupo>(rangos.map((t) => [t.teamId, t]));
             const listaSedes = (((sedes as any)?.data ?? []) as any[]);
             return filas.map((r) => {
                 const t = r.team_id ? edades.get(r.team_id) : null;
@@ -1523,8 +1709,10 @@ export async function franjasDeSupabase(schoolId: string): Promise<FranjaCortesi
                 return {
                     ...f,
                     teamId: r.team_id ?? null,
-                    edadMin: t?.age_min ?? null,
-                    edadMax: t?.age_max ?? null,
+                    edadMin: t?.edadMin ?? null,
+                    edadMax: t?.edadMax ?? null,
+                    edadFuente: t?.fuenteEdad ?? null,
+                    generoGrupo: t?.genero ?? null,
                     direccion: direccionDeSede(f.sede, listaSedes),
                 };
             });
