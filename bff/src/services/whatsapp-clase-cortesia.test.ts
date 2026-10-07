@@ -532,3 +532,62 @@ describe('Dynasty: perfil → lista por día → reserva', () => {
         expect(t.estado()?.datos.franja?.id).toBe('s11');
     });
 });
+
+describe('auditoría Dynasty 2026-10-07: respuestas repetidas y reservas tardías', () => {
+    const FRANJAS = [F('f1', '2026-10-10', '17:00', 2), F('f2', '2026-10-11', '09:00', 5, 'Sub-17')];
+
+    it('«11años» sin espacio se entiende como edad', () => {
+        expect(leerEdad('11años', AHORA)?.edad).toBe(11);
+        expect(leerEdad('11 años', AHORA)?.edad).toBe(11);
+    });
+
+    it('«Hola» en el paso del nombre no es un nombre: vuelve a pedir el nombre', async () => {
+        const t = armar({ franjas: FRANJAS });
+        await t.turno('clase de prueba');
+        await t.turno('x', `${BOTON_CC.FRANJA}f1`);
+        await t.turno('Hola');
+        expect(t.estado()?.paso).toBe('nombre');
+        expect(t.ultimo().texto).not.toContain('edad');
+    });
+
+    it('«Cambiar» conserva la edad dicha en el perfil: no la vuelve a preguntar', async () => {
+        const t = armar({ franjas: FRANJAS });
+        await t.turno('clase de prueba para mi hija de 11 años');
+        await t.turno('x', `${BOTON_CC.FRANJA}f1`);
+        await t.turno('Ana Pérez');
+        await t.turno('Luz Pérez');
+        expect(t.estado()?.paso).toBe('confirmar');
+        await t.turno('Cambiar', BOTON_CC.CAMBIAR);
+        await t.turno('x', `${BOTON_CC.FRANJA}f2`);
+        await t.turno('Ana Pérez');
+        expect(t.ultimo().step).not.toBe('cortesia_edad');
+    });
+
+    it('«Persona» suelto sale del flujo; «Voy a consultar y te confirmaré» lo cierra sin repetir la lista', async () => {
+        expect(quiereSalirDelFlujo('Persona')).toBe(true);
+        const t = armar({ franjas: FRANJAS });
+        await t.turno('clase de prueba');
+        await t.turno('Voy a consultar y te confirmaré');
+        expect(t.ultimo().step).toBe('cortesia_abandonada');
+    });
+
+    it('«Yo 16 y ella 12» en el perfil muestra todos los grupos', () => {
+        expect(leerPerfil('Yo 16 y ella 12', { soloNumero: true })).toEqual({ todos: true });
+    });
+
+    it('la franja que ya empezó al confirmar NO se reserva: se ofrecen las vigentes', async () => {
+        const t = armar({ franjas: [F('hoy', '2026-10-06', '16:00', 3), ...FRANJAS] });
+        await t.turno('clase de prueba');
+        await t.turno('x', `${BOTON_CC.FRANJA}hoy`);
+        await t.turno('Valentina Ruiz');
+        await t.turno('11');
+        await t.turno('Juan Ruiz');
+        expect(t.estado()?.paso).toBe('confirmar');
+        // Confirma horas después: la de las 4:00 p. m. ya no está vigente.
+        t.ctx.ahora = () => new Date('2026-10-06T21:53:00Z');
+        await t.turno('Confirmar', BOTON_CC.CONFIRMAR);
+        expect(t.reservar).not.toHaveBeenCalled();
+        expect(t.ultimo().step).toBe('cortesia_franja_vencida');
+        expect(t.estado()?.paso).toBe('elegir_franja');
+    });
+});

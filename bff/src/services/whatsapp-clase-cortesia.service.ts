@@ -301,7 +301,7 @@ export function cancelaTrasRecordatorio(texto: string | null | undefined): boole
  * que EMPIECE por una de estas frases.
  */
 function abandona(texto: string): boolean {
-    return /^(cancelar|cancela|cancelo|salir|ya no|no gracias|dejalo|olvidalo|no quiero|no me interesa|mejor no|despues|luego)\b/
+    return /^(cancelar|cancela|cancelo|salir|ya no|no gracias|dejalo|olvidalo|no quiero|no me interesa|mejor no|despues|luego|voy a (consultar|pensar|mirar|revisar|averiguar|preguntar|confirmar)|lo (pienso|consulto|reviso)|(ya )?te (confirmo|aviso|cuento))\b/
         .test(normalizar(texto));
 }
 
@@ -323,6 +323,7 @@ const SALIR_DEL_FLUJO: RegExp[] = [
     /\bhablar con\b/,
     /\b(comunicarme|contactarme|atiende|atienda|atiendan)\b/,
     /\b(una persona|alguien|persona real)\b/,
+    /^(persona|personas|con persona|humano)$/,
     /\b(llamen|llamenme|me llaman|me pueden llamar|me puede llamar|llamada|llamar)\b/,
     /\bmilena\b/,
     /\b(administrador|administradora|coordinador|coordinadora|encargado|encargada|la duena|el dueno)\b/,
@@ -396,6 +397,12 @@ export function leerPerfil(texto: string | null | undefined, opciones: { soloNum
     if (edadM) {
         const e = Number(edadM[1]);
         if (e >= 3 && e <= 90) p.edad = e;
+    } else if (opciones.soloNumero && n.split(' ').length <= 8) {
+        // Respuesta a «¿qué edad tiene?» con DOS personas: «Yo 16 y ella 12»
+        // (Dynasty 2026-10-07): se muestran todos los grupos en vez de volver
+        // a preguntar lo que ya dijo.
+        const edades = [...n.matchAll(/\b(\d{1,2})\b/g)].map((m) => Number(m[1])).filter((e) => e >= 3 && e <= 90);
+        if (edades.length > 1) return { todos: true };
     }
     if (GENERO_F.test(n)) p.genero = 'f';
     else if (GENERO_M.test(n)) p.genero = 'm';
@@ -660,12 +667,17 @@ function textoResumen(d: DatosCortesia): string {
 
 // ─── Lectura de respuestas ─────────────────────────────────────────────────
 
+const NO_ES_NOMBRE = /^(hola+|holi|buenas|buenos dias|buen dia|buenas tardes|buenas noches|gracias|muchas gracias|ok|okey|listo|dale|vale|si|no|bueno|perfecto|claro|hello|alo)( (gracias|mile|milena|profe))?$/;
+
 /** Nombre de persona: 3–80 caracteres, con letras, sin números ni @. */
 export function nombreValido(texto: string): string | null {
     const t = (texto || '').replace(/\s+/g, ' ').trim();
     if (t.length < 3 || t.length > 80) return null;
     if (/[0-9@?¿]/.test(t)) return null;
     if ((t.match(/\p{L}/gu) ?? []).length < 3) return null;
+    // «Hola» 15 min después de «¿nombre completo?» no es un nombre: el bot
+    // preguntó «¿Qué edad tiene Hola?» (Dynasty 2026-10-07).
+    if (NO_ES_NOMBRE.test(normalizar(t))) return null;
     // «Juan pérez» → «Juan Pérez»: así llega a la escuela y al resumen.
     return t.split(' ').map((p) => p ? p[0].toLocaleUpperCase('es-CO') + p.slice(1) : p).join(' ');
 }
@@ -700,7 +712,8 @@ export function leerEdad(texto: string, ahora: Date): { edad: number; fechaNacim
         if (edad < 3 || edad > 90) return null;
         return { edad, fechaNacimiento: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}` };
     }
-    const solo = n.match(/^(?:tiene |tengo |de )?(\d{1,2})(?: anos| ano| anitos)?$/);
+    // «11años» (sin espacio, Dynasty 2026-10-07) también.
+    const solo = n.match(/^(?:tiene |tengo |de )?(\d{1,2}) ?(?:anos|ano|anitos)?$/);
     if (solo) {
         const edad = Number(solo[1]);
         if (edad >= 3 && edad <= 90) return { edad, fechaNacimiento: null };
@@ -881,7 +894,7 @@ export async function iniciarCortesia(
             opciones.step ?? 'cortesia_ofrecer', { yaFiltradas: true });
         return;
     }
-    await ofrecerFranjas(ctx, franjas, 0, { perfil, dia },
+    await ofrecerFranjas(ctx, franjas, 0, { perfil, dia, ...edadDelPerfil(perfil) },
         cabeza + (opciones.intro ?? `${base} Estos son los próximos horarios:`),
         opciones.step ?? 'cortesia_ofrecer');
 }
@@ -1099,7 +1112,9 @@ async function continuar(
                         'cortesia_sin_franjas', { paso: 'dejar_datos', datos: { sinFranja: true } }, BOTONES_DATOS);
                     return true;
                 }
-                await ofrecerFranjas(ctx, franjas, 0, { perfil: datos.perfil ?? null },
+                // La edad que dijo en el perfil se conserva: sin ella, tras elegir
+                // de nuevo se le volvía a preguntar (Dynasty 2026-10-07, …5566).
+                await ofrecerFranjas(ctx, franjas, 0, { perfil: datos.perfil ?? null, ...edadDelPerfil(datos.perfil) },
                     'Listo, empecemos de nuevo. Elige la franja:', 'cortesia_ofrecer');
                 return true;
             }
@@ -1299,6 +1314,17 @@ async function reservar(ctx: CtxCortesia, d: Deps, datos: DatosCortesia): Promis
         return pedirNombre(ctx, { franja: datos.franja, sinFranja: datos.sinFranja });
     }
     const franja = datos.sinFranja ? null : datos.franja ?? null;
+    // La franja se eligió hace rato: si ya empezó (o empieza en menos de 2 h)
+    // no se reserva. Dynasty 2026-10-07 (…4680): eligió la de las 4:00 p. m. a
+    // las 9:23 a. m., confirmó a las 4:53 p. m. y quedó «reservada».
+    // Solo la HORA: el cupo lo resuelve `submit_school_lead` con FOR UPDATE.
+    if (franja && !filtrarVigentes([{ ...franja, cupos: 1 }], d.ahora).length) {
+        const vigentes = filtrarVigentes(await d.franjas(ctx.schoolId), d.ahora);
+        if (!vigentes.length) return sinFranjasDisponibles(ctx);
+        await ofrecerFranjas(ctx, vigentes, 0, { ...datos, franja: null },
+            'Uy, ese horario ya pasó o empieza muy pronto. 😕 Estas franjas siguen abiertas:', 'cortesia_franja_vencida');
+        return true;
+    }
     const r = await d.reservar({
         schoolId: ctx.schoolId,
         conversationId: ctx.conversationId,
