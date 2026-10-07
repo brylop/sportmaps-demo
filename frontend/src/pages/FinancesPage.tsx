@@ -10,6 +10,7 @@ import { AlertCircle, History, RefreshCw } from 'lucide-react';
 import { ReminderHistoryModal } from '@/components/finances/ReminderHistoryModal';
 import { FinancialSummaryCards } from '@/components/finances/FinancialSummaryCards';
 import { OverdueAccountsCard } from '@/components/finances/OverdueAccountsCard';
+import { CarteraInformeBar } from '@/components/finances/CarteraInformeBar';
 import { PaymentAgingCard } from '@/components/finances/PaymentAgingCard';
 import { NextMonthCloseCard } from '@/components/finances/NextMonthCloseCard';
 import { PaymentHistoryGridCard } from '@/components/finances/PaymentHistoryGridCard';
@@ -176,6 +177,7 @@ export default function FinancesPage() {
         <TabsContent value="cartera">
           <Card>
             <CardContent className="pt-6">
+              <CarteraInformeBar schoolId={schoolId} />
               <OverdueAccountsCard
                 payments={payments}
                 schoolId={schoolId}
