@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 699,
+  "count": 700,
   "head": "20261006233034",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
@@ -698,6 +698,7 @@
     {"v":"20261006094145","file":"20261006094145_profesionales_f0_seguridad_agenda.sql","sha256":"c61f85874fe4995080e34f4d5cc993ea653e0218ada4b7704c55ea28ccb9533c","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006094147","file":"20261006094147_profesionales_f1_f2_pacientes_historia_clinica.sql","sha256":"04b8e5d216eb8a4228d641cc353c63da8063a7ebaf97e07a3532015267a28df5","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006094149","file":"20261006094149_profesionales_f3_lesiones_ejercicios.sql","sha256":"5d3a295f46cc4ec0c8d2f369dd297348f96560fd860bb976cef72d5153a8b764","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261006101735","file":"20261006101735_desactivar_atleta_cancela_invitacion.sql","sha256":"a473ef9f83bc0b4968a434616a869a7d9b235a2dbadc7454c043787d14195ef8","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006111003","file":"20261006111003_profesionales_gates_i7.sql","sha256":"4a569620255440843d2e5652d4227b626a912940e2a41f33917db77bd8178083","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006120601","file":"20261006120601_whatsapp_ajustes_por_escuela.sql","sha256":"f4dafa710356f3bf0aaa9dd01d3bec8100f393ff30c953fd253b18aa8b4ad2b6","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006224322","file":"20261006224322_whatsapp_responder_precios.sql","sha256":"e68c74c652df2ef36a115862bd9e40639d7213d996fc2fad8471cb649c037a46","added":"2026-10-07","by":"Brayan Steven Lopez"},

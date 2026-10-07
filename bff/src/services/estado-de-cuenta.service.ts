@@ -284,6 +284,46 @@ export function agruparPorFamilia(
     return { familias, sinContacto };
 }
 
+/**
+ * Cobros cuyo atleta la escuela dio de baja: no van en el estado de cuenta
+ * (caso Dynasty 2026-10-06 — a la familia de un atleta inactivo le seguían
+ * llegando correos). Defensa en profundidad: la baja (set_school_athlete_status)
+ * ya anula los cobros pendientes, pero lo que quedó vivo por otra vía no debe
+ * salir.
+ *   · child_id → children.is_active = false
+ *   · unregistered_athlete_id → unregistered_athletes.is_active = false
+ *   · adulto (user_id sin child ni ficha) → membresía athlete 'inactive' en la
+ *     escuela y ninguna 'active'.
+ * El enrollment no se cruza: payments no tiene enrollment_id (verificado en
+ * information_schema el 2026-10-06) y un atleta puede tener varias
+ * inscripciones; inferirlo sería adivinar.
+ * is_active NULL o ausente se lee como activo.
+ */
+export function cobrosDeAtletaInactivo(
+    pagos: PagoEstado[],
+    datos: {
+        hijos: Map<string, { is_active?: boolean | null }>;
+        noRegistrados: Map<string, { is_active?: boolean | null }>;
+        /** profile_id → estados de su membresía athlete en la escuela. */
+        membresiasAtleta: Map<string, string[]>;
+    },
+): Set<string> {
+    const out = new Set<string>();
+    for (const p of pagos) {
+        if (p.child_id) {
+            if (datos.hijos.get(p.child_id)?.is_active === false) out.add(p.id);
+            continue;
+        }
+        if (p.unregistered_athlete_id) {
+            if (datos.noRegistrados.get(p.unregistered_athlete_id)?.is_active === false) out.add(p.id);
+            continue;
+        }
+        const estados = p.user_id ? datos.membresiasAtleta.get(p.user_id) : undefined;
+        if (estados?.includes('inactive') && !estados.includes('active')) out.add(p.id);
+    }
+    return out;
+}
+
 /** Variables de pago_recordatorio_previo_v3 para una familia (solo cobros del mes). */
 export function datosWhatsAppDeFamilia(f: Familia, escuela: string, mes: string) {
     const delMes = f.filas.filter((r) => r.delMes);
@@ -414,17 +454,33 @@ export async function familiasConDeuda(schoolId: string, ahora: Date, mes = mesC
     const vivos = pagos.filter((p) => !duplicados.has(p.id));
 
     const ids = (f: (p: PagoEstado) => string | null) => [...new Set(vivos.map(f).filter(Boolean))] as string[];
-    const [perfiles, hijos, noReg] = await Promise.all([
+    const adultos = ids((p) => (!p.child_id && !p.unregistered_athlete_id ? p.user_id : null));
+    const [perfiles, hijos, noReg, membresias] = await Promise.all([
         leerPorIds('profiles', 'id, full_name, email, phone', ids((p) => p.parent_id || p.user_id)),
-        leerPorIds('children', `id, ${COLUMNAS_CONTACTO_HIJO}`, ids((p) => p.child_id)),
-        leerPorIds('unregistered_athletes', `id, ${COLUMNAS_CONTACTO_FICHA}`, ids((p) => p.unregistered_athlete_id)),
+        leerPorIds('children', `id, is_active, ${COLUMNAS_CONTACTO_HIJO}`, ids((p) => p.child_id)),
+        leerPorIds('unregistered_athletes', `id, is_active, ${COLUMNAS_CONTACTO_FICHA}`, ids((p) => p.unregistered_athlete_id)),
+        Promise.all(trozos(adultos).map(async (t) => {
+            const { data, error } = await supabase.from('school_members')
+                .select('profile_id, status').eq('school_id', schoolId).eq('role', 'athlete').in('profile_id', t);
+            if (error) throw new Error(error.message);
+            return (data ?? []) as { profile_id: string; status: string }[];
+        })).then((r) => r.flat()),
     ]);
-    const { familias, sinContacto } = agruparPorFamilia(vivos, {
+    const membresiasAtleta = new Map<string, string[]>();
+    for (const m of membresias) membresiasAtleta.set(m.profile_id, [...(membresiasAtleta.get(m.profile_id) ?? []), m.status]);
+    const inactivos = cobrosDeAtletaInactivo(vivos, {
+        hijos: new Map(hijos.map((x) => [x.id, x])),
+        noRegistrados: new Map(noReg.map((x) => [x.id, x])),
+        membresiasAtleta,
+    });
+    const cobrables = vivos.filter((p) => !inactivos.has(p.id));
+
+    const { familias, sinContacto } = agruparPorFamilia(cobrables, {
         perfiles: new Map(perfiles.map((x) => [x.id, x])),
         hijos: new Map(hijos.map((x) => [x.id, x])),
         noRegistrados: new Map(noReg.map((x) => [x.id, x])),
     }, ahora, mes);
-    return { familias, cobros: vivos.length, duplicados: duplicados.size, sinContacto };
+    return { familias, cobros: cobrables.length, duplicados: duplicados.size, sinContacto, atletaInactivo: inactivos.size };
 }
 
 /** ¿La escuela puede mandar el estado de cuenta por WhatsApp? (integración única + plantilla aprobada) */
@@ -546,6 +602,8 @@ export interface ResumenEnvio {
     escuela: string;
     cobros: number;
     duplicados_excluidos: number;
+    /** Cobros vivos de atletas dados de baja: no salen (ver cobrosDeAtletaInactivo). */
+    cobros_atleta_inactivo: number;
     cobros_sin_contacto: number;
     familias: number;
     familias_con_correo: number;
@@ -590,7 +648,7 @@ export async function enviarEstadoDeCuenta(schoolId: string, o: OpcionesEnvio): 
     const mes = mesColombia(ahora);
     const canalPedido: CanalPedido = o.canal ?? 'auto';
 
-    const [{ familias, cobros, duplicados, sinContacto }, branding, medios, qrEscuela, waEscuela, waDisponible] = await Promise.all([
+    const [{ familias, cobros, duplicados, sinContacto, atletaInactivo }, branding, medios, qrEscuela, waEscuela, waDisponible] = await Promise.all([
         familiasConDeuda(schoolId, ahora, mes),
         resolveSchoolBranding(schoolId),
         // Las restringidas (only_for) que no valen para mensualidades no salen
@@ -607,7 +665,7 @@ export async function enviarEstadoDeCuenta(schoolId: string, o: OpcionesEnvio): 
 
     const r: ResumenEnvio = {
         modo: o.aplicar ? `APLICADO (${o.modo})` : `SIMULACION (${o.modo})`,
-        escuela, cobros, duplicados_excluidos: duplicados, cobros_sin_contacto: sinContacto,
+        escuela, cobros, duplicados_excluidos: duplicados, cobros_atleta_inactivo: atletaInactivo, cobros_sin_contacto: sinContacto,
         familias: familias.length,
         familias_con_correo: familias.filter((f) => f.email).length,
         familias_solo_whatsapp: familias.filter((f) => !f.email).length,

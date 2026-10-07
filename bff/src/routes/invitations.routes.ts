@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { conMarca, sufijoMarcaEscuela } from '../utils/tenantLink';
+import { idsInvitacionesDeAtletaInactivo } from '../services/invitaciones-atleta-inactivo.service';
 
 const router = Router();
 
@@ -145,6 +146,13 @@ router.post(
 
             let targets = (invitations || []).filter((inv: any) => (inv.email || '').trim() !== '');
 
+            // 1b. Atleta dado de baja → no se le escribe a la familia, ni
+            //     aunque el admin elija la invitación a mano (caso Dynasty,
+            //     2026-10-06). Ver services/invitaciones-atleta-inactivo.
+            const inactivas = await idsInvitacionesDeAtletaInactivo(schoolId, targets);
+            const skippedInactiveAthlete = targets.filter((inv: any) => inactivas.has(inv.id)).length;
+            targets = targets.filter((inv: any) => !inactivas.has(inv.id));
+
             // 2. Excluir las que YA salieron (a menos que se pida reenviar a todas
             //    o que el llamador haya elegido destinatarios explícitamente)
             if (filter === 'unsent' && !invitation_ids?.length) {
@@ -169,6 +177,7 @@ router.post(
                         ? 'No hay invitaciones pendientes sin enviar'
                         : 'No hay invitaciones pendientes',
                     total: 0, sent: 0, failed: 0, batches: 0,
+                    skipped_inactive_athlete: skippedInactiveAthlete,
                 });
             }
 
@@ -263,6 +272,7 @@ router.post(
                 batches,
                 batch_id: batchId,
                 aborted: Boolean(abortedReason),
+                skipped_inactive_athlete: skippedInactiveAthlete,
             });
         } catch (err: any) {
             console.error('Error en bulk-send de invitaciones:', err);
@@ -286,10 +296,14 @@ router.get(
 
             const { data: invitations } = await supabase
                 .from('invitations')
-                .select('id')
+                .select('id, role_to_assign, child_name')
                 .eq('school_id', schoolId)
                 .eq('status', 'pending')
                 .not('email', 'is', null);
+
+            // Mismo criterio que bulk-send: las de atleta dado de baja no
+            // cuentan como "por enviar" (bulk-send las salta).
+            const inactivas = await idsInvitacionesDeAtletaInactivo(schoolId, (invitations || []) as any[]);
 
             const { data: sends } = await supabase
                 .from('email_sends')
@@ -297,7 +311,7 @@ router.get(
                 .eq('school_id', schoolId)
                 .not('invitation_id', 'is', null);
 
-            const pendingIds = new Set((invitations || []).map((i: any) => i.id));
+            const pendingIds = new Set((invitations || []).map((i: any) => i.id).filter((id: string) => !inactivas.has(id)));
             const sentIds = new Set(
                 (sends || []).filter((s: any) => s.status === 'sent').map((s: any) => s.invitation_id)
             );
@@ -321,6 +335,7 @@ router.get(
                 enviadas,
                 fallidas,
                 sin_intentar: sinIntentar,
+                excluidas_atleta_inactivo: inactivas.size,
             });
         } catch (err: any) {
             console.error('Error en send-status:', err);

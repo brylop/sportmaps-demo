@@ -1,7 +1,7 @@
 # Spec: ventas por WhatsApp (piloto Dynasty)
 
 **Versión:** v0.1, borrador para revisión · **Fecha:** 2026-10-06 · **Rama:** `develop`
-**Estado:** 🟡 plan. **Sin código de producción.** No se escribe ninguna migración hasta que se apruebe el plan de cada fase (§13), según CLAUDE.md, sección «Cómo se entregan las features».
+**Estado:** 🟡 plan. F0 del **carril B** aprobada el 2026-10-07: plan de migraciones en §16 y contrato del servicio en §17 (migración escrita, **sin aplicar**). El resto sigue en plan: no se escribe ninguna migración hasta que se apruebe el plan de cada fase (§13), según CLAUDE.md, sección «Cómo se entregan las features».
 
 **Pedido del usuario:** el flujo de una tienda de camisetas en WhatsApp con IA, igual. La persona pide un producto (por texto o audio) → el bot responde con **foto, descripción, tallas disponibles y precio** → la persona pide personalización (por ejemplo, estampar «Rodri» #6, +$30.000) → el bot arma el **resumen** (producto, talla, estampado, total) y pregunta «¿Procedemos?» → al confirmar envía el **link de pago con el monto exacto**, «tienes 1 hora para pagar», «cuando se apruebe te aviso por aquí» → al aprobarse avisa y el pedido queda registrado para la escuela.
 
@@ -466,3 +466,172 @@ Tamaños: **S** ≤ 3 días · **M** 1–2 semanas. Una rama por fase, revisión
 - Base viva `luebjarufsiadojhvxgi`, consultada el 2026-10-06 solo con SELECT: existencia y columnas de `products`, `product_variants`, `product_images`, `stock_holds`, `orders`, `order_items`, `order_status_history`, `school_merchandise_items`, `school_tournament_items`, `whatsapp_conversation_flows`, `payment_links`, `store_payment_settings`; CHECK de `orders`, `payments` y `stock_holds`; firmas de `create_cart_order`, `quote_cart`, `confirm_order_payment`, `order_transition`, `release_expired_holds`, `store_seller_allowed` (con allowlist); `platform_config.store_enabled`; Dynasty (`2d509571-…`): sin addon `store`, `merchandise_enabled` y `tournament_charges_enabled` en false, 0 ítems, 0 filas en `school_payment_providers`, `online_fee_pct` 5, 1 `vendor_profile`, 0 productos, `payment_links` 39 pagados y 49 pendientes; `cash_ledger` no lee `orders` (la venta de la tienda entra por `accounting_outbox`).
 - Código: `bff/src/routes/wompi.ts` (prefijos `CART-` y `SCH-`), `bff/src/services/cobro-enlace-publico.service.ts`, `whatsapp-enlaces-de-pago.service.ts`, `whatsapp-precios.service.ts`, `whatsapp-ajustes-escuela.service.ts`, `whatsapp-clase-cortesia.service.ts` (nota sobre `whatsapp_conversation_flows`), `whatsapp.service.ts`, `whatsapp-bot.service.ts` (herramientas actuales).
 - Commits: `cc2f42ea`, `0c3e0af3`, `1a9e0896`, `85bbfb62`, `35c8ab6c`.
+
+---
+
+## 16. F0 — plan de migraciones (carril B)
+
+**Aprobado por el usuario el 2026-10-07:** arrancar F0–F2 **solo del carril B** (clase de perfeccionamiento, refuerzo, clase extra, vacacionales, torneos y viajes). Productos y uniformes (carril A) siguen esperando a P1.
+
+**Decisiones del usuario que fija esta fase:** reserva y pago con **1 hora** (D-V6); la cuenta Wompi con la que cobra Dynasty **es de Dynasty** (llaves del ENV, comercio 1298966), así que el carril B cobra con `crearLinkWompiConMonto` sin esperar P3; vender **solo a familias identificadas** (los desconocidos reciben el precio y quedan como prospecto, D-V5); rifas fuera (D-V11); **D-V4 aprobada**: `clase_extra`, `vacacional` y `viaje` entran a `payment_category`.
+
+**Decisión técnica D-V9 (resuelta en F0):** la clave anti-duplicados **no** va en `payments` sino en una **tabla puente** `wa_cobros_sueltos`. Motivos: (1) un acudiente puede insertar filas propias en `payments` (policy + `fn_guard_payments_client`), así que una columna `payments.idempotency_key` se podría falsificar desde el navegador y el job de anulación terminaría tocando cobros que no creó el bot; la tabla puente es solo de service role; (2) el conteo de cupos necesita saber **de qué ítem** es cada cobro, y `payments` no tiene dónde guardarlo sin otra columna; (3) no se agrega nada a la tabla más caliente del sistema.
+
+Una sola migración: **`20261007095911_ventas_wa_f0_carril_b.sql`** (copia en `docs/migraciones-para-aplicar-2026-10-07/6_ventas_wa_f0_carril_b.sql`). Todo en una transacción. **No está aplicada.**
+
+### 16.1 Qué cambia
+
+| # | Objeto | Cambio | Por qué |
+|---|---|---|---|
+| 1 | `payments_payment_category_check` | += `clase_extra`, `vacacional`, `viaje` (solo amplía) | D-V4: que Finanzas separe cada concepto y nada caiga en `otro` |
+| 2 | `open_month(uuid,int,int,uuid)` | `CREATE OR REPLACE` copiado **de la base viva** (no del repo: la viva ya trae `v_grace`), con un solo cambio: el `NOT EXISTS` de «el período ya está cobrado» ignora también `articulos`, `torneo`, `clase_extra`, `vacacional` y `viaje`. ACL intacta | **Bug real encontrado al planear:** un cobro de torneo o de clase extra del atleta en el mes hacía que `open_month` creyera que la mensualidad ya estaba cobrada y no la generaba. Radio medido 2026-10-07: 3 filas `articulos/torneo` en toda la base, 1 abierta. `otro` y `NULL` siguen contando como antes (hay mensualidades viejas sin categoría) |
+| 3 | `school_tournament_items` | columnas `kind text NOT NULL DEFAULT 'torneo' CHECK (torneo, viaje, clase_extra, vacacional, otro)`, `image_url text` (CHECK `https://`), `starts_at`, `ends_at timestamptz` (CHECK `ends_at >= starts_at`), `capacity int CHECK > 0`, `per_athlete bool NOT NULL DEFAULT true`, `allow_installments bool NOT NULL DEFAULT false` | §4.4. Las filas existentes quedan `torneo`, sin fecha ni cupo: no cambia nada para quien ya las usa |
+| 4 | `school_settings.wa_ventas_habilitadas` | `boolean NOT NULL DEFAULT false` | Interruptor por escuela, mismo mecanismo que los demás `wa_*` (mig. `20261006120601`). Lo edita la escuela (las policies de `school_settings` ya lo permiten a owner/admin). El carril B exige **además** `tournament_charges_enabled`, que sigue siendo solo de super admin |
+| 5 | `whatsapp_conversation_flows` | CHECK de `flow` += `venta`; CHECK de `step` += `venta_elegir_item`, `venta_elegir_variante`, `venta_personalizar`, `venta_elegir_atleta`, `venta_confirmar`, `venta_esperando_pago` | §6.1. Los pasos de la factura no cambian |
+| 6 | **tabla nueva `wa_cobros_sueltos`** | `id`, `payment_id` (UNIQUE, FK `payments` ON DELETE CASCADE), `school_id` (FK `schools`), `item_id` (FK `school_tournament_items` ON DELETE SET NULL), `parent_id` (FK `profiles`), `child_id` (FK `children`), `conversation_id` (FK `whatsapp_conversations` ON DELETE SET NULL), `idempotency_key text` (UNIQUE con `school_id`, 8–200 caracteres), `canal text CHECK ('whatsapp')`, `vence_at`, `anulado_at`, `anulado_motivo text CHECK ('venta_whatsapp_vencida')`, `created_at` | Clave anti-duplicados + vínculo cobro↔ítem para cupos + marca de «lo creó el bot» para el job (D-V9) |
+| 7 | RPC `wa_catalogo_servicios(p_school_id uuid, p_buscar text DEFAULT NULL, p_limite int DEFAULT 10)` | `SECURITY DEFINER STABLE`, solo lectura | Lo que el bot puede ofrecer: activos, de la escuela, no vencidos, con su cupo restante. Devuelve `{habilitado:false, items:[]}` si falta cualquiera de los dos interruptores (no lanza) |
+| 8 | RPC `wa_crear_cobro_suelto(p_school_id, p_item_id, p_parent_id, p_child_id, p_idempotency_key, p_conversation_id DEFAULT NULL, p_minutos_vigencia DEFAULT 60)` | `SECURITY DEFINER`, transaccional | §6.3. Ver 16.2 |
+| 9 | RPC `wa_anular_cobros_sueltos_vencidos(p_limite int DEFAULT 200, p_margen_minutos int DEFAULT 15)` | `SECURITY DEFINER` | §6.3: el cobro que no se pagó en la hora pasa a `cancelled` para que la cobranza no lo persiga |
+
+Las tres RPC: `SET search_path = pg_catalog, public, pg_temp`; `REVOKE ALL … FROM PUBLIC, anon, authenticated` (trampa 3: los default privileges le dan `EXECUTE` a `authenticated`) y `GRANT EXECUTE … TO service_role` **solamente**. El bot llama con service role; ninguna pantalla las usa.
+
+### 16.2 `wa_crear_cobro_suelto`, paso a paso
+
+1. Valida la clave (8–200 caracteres) y acota la vigencia a 15–120 min (el bot pide 60).
+2. Interruptores: `school_settings.tournament_charges_enabled` **y** `wa_ventas_habilitadas` → si no, `ventas_deshabilitadas`. `school_is_operational(p_school_id)` → si no, `escuela_no_operativa`.
+3. **`SELECT … FOR UPDATE` del ítem** (de esa escuela). Serializa a todos los que compran el mismo ítem, que es lo que hace exacto el conteo de cupos y la idempotencia.
+4. **Idempotencia después del candado:** si ya hay una fila en `wa_cobros_sueltos` con esa `(school_id, idempotency_key)`, devuelve **ese** cobro con `idempotente: true` (doble toque, reintento de Meta, los 3 BFF a la vez). Si la clave existe pero para otro ítem, familia o atleta, `clave_reutilizada`. Respaldo: el UNIQUE de la tabla.
+5. Ítem: activo → si no, `item_no_disponible`; `COALESCE(ends_at, starts_at)` en el pasado → `item_vencido`; precio > 0 → si no, `item_sin_precio` (un ítem de $0 no es una venta y `payments` exige monto > 0).
+6. Familia: `p_parent_id` tiene al menos un hijo **activo** en la escuela (el mismo criterio de `wa_identify_by_phone`) → si no, `familia_no_valida`. Si el ítem es `per_athlete`, `p_child_id` es obligatorio (`atleta_requerido`); si viene, debe ser hijo activo de ese acudiente en esa escuela (`atleta_no_valido`).
+7. Ya comprado: el mismo atleta (o la misma familia, si no es por atleta) con un cobro **vivo** del mismo ítem (`pending`, `overdue`, `awaiting_approval`, `partial`, `paid`) → `ya_inscrito` con el `payment_id` existente, para que el bot reenvíe ese link en vez de crear otro.
+8. Cupos: si `capacity` no es nulo, cuenta los cobros vivos del ítem en `wa_cobros_sueltos` → `sin_cupos` si no queda.
+9. Inserta **una** fila en `payments`: `status 'pending'`, `amount = price` del catálogo, `payment_category` = `kind`, `payment_type 'one_time'`, `due_date` = hoy en Bogotá, `period_uniqueness_exempt = true` (si no, chocaría con el índice único de la mensualidad del mes), `parent_id`, `child_id`, `school_id` y concepto determinista: `<nombre del ítem>[ · dd/mm][ · <nombre del atleta>]`.
+10. Inserta la fila puente con `vence_at = now() + vigencia`. Todo en la misma transacción.
+
+Devuelve `jsonb`: `{ok:true, payment_id, idempotente, monto, concepto, categoria, vence_at, cupos_restantes}` o `{ok:false, codigo, payment_id?}`. Los errores de negocio **no** lanzan: devuelven `codigo` y la transacción no escribe nada.
+
+### 16.3 `wa_anular_cobros_sueltos_vencidos`
+
+Toma en lotes (`FOR UPDATE SKIP LOCKED`, seguro con los 3 BFF a la vez) las filas de `wa_cobros_sueltos` con `vence_at + margen < now()`, sin `anulado_at`, cuyo cobro siga en `pending` u `overdue` (si cruzó la medianoche). **No toca** `awaiting_approval` (la familia mandó comprobante: lo decide la escuela), `paid` ni `partial`. Pasa el cobro a `cancelled` con `rejection_reason = 'venta_whatsapp_vencida'` y sella `anulado_at` y `anulado_motivo`. Idempotente. El margen de 15 min existe porque un pago de Wompi iniciado en el minuto 59 puede aprobarse un poco después.
+
+### 16.4 RLS, línea por línea
+
+- `wa_cobros_sueltos`: RLS **activa sin policies** + `REVOKE ALL FROM PUBLIC, anon, authenticated` + `GRANT` a `service_role`. Nadie la lee desde el navegador. (I1–I4 no aplican: no hay policies.)
+- `school_tournament_items`: **no se tocan sus policies.** Las columnas nuevas quedan bajo las dos existentes: SELECT `(active AND school_id = ANY(user_school_ids())) OR is_school_admin OR is_super_admin` (lectura de miembros, correcto: fecha, cupo e imagen son públicos para la familia) y ALL `is_school_admin OR is_super_admin` con `WITH CHECK` igual (no usa `user_school_ids()`, no es I2; tiene `WITH CHECK`, no es I3).
+- `school_settings`: no se tocan sus policies. `wa_ventas_habilitadas` la puede cambiar owner/admin como los demás `wa_*`.
+- `whatsapp_conversation_flows`: sigue con RLS activa sin policies (solo service role).
+- `payments`: ninguna policy nueva. La RPC inserta como `postgres` (SECURITY DEFINER), y `fn_guard_payments_client` la deja pasar porque `current_user` no es `authenticated` ni `anon`.
+
+### 16.5 Riesgos y efectos colaterales
+
+| Riesgo | Mitigación |
+|---|---|
+| `trg_notify_on_payment_created` manda la notificación in-app «Nuevo cobro pendiente» al acudiente al crear el cobro | Aceptado: la familia acaba de pedirlo y la notificación le deja el cobro a mano en la app |
+| El webhook de Wompi aprueba un cobro que el job ya anuló (pago que llega tarde) | El webhook (`routes/wompi.ts`, rama `SCH-`) pasa el cobro a `paid` igual: no hay guard para `cancelled → paid`, y es lo correcto porque el dinero entró. El cupo ya se había liberado, así que puede pasarse en 1. Se acepta; F2 decide si avisa a la escuela |
+| Cupos vendidos por fuera del bot (app, escuela a mano) | v1 cuenta solo los cobros creados por `wa_crear_cobro_suelto`. Si la escuela vende el mismo ítem por la app, el cupo no lo ve. Queda para F2/F3 |
+| `open_month` copiado de la base viva | La viva difiere de la última del repo (`v_grace`). Se copió con `pg_get_functiondef` el 2026-10-07; si alguien la cambia antes de aplicar esta, hay que recopiar |
+| Recordatorios y mora sobre el cobro suelto | Nace con `due_date` = hoy y se anula a la hora y cuarto; la mora no cobra el mismo día (mig. `20261005135525`). Con el job apagado, el cobro queda `pending` como cualquier otro y la escuela lo ve |
+| Agregaciones de ingreso con categorías nuevas | `school_payment_kpis` suma `revenue_total` por estado (no filtra categoría): las nuevas entran al total. Los desgloses por categoría nuevos son trabajo de Finanzas, no de F0. El BFF suma las tres a `CATEGORIAS_COBRO` (`payment-accounts.ts`) y al enum de `payments.routes.ts` |
+
+**Pruebas:** `supabase/migrations/_smoke/ventas_wa_f0_smoke.sql` (patrón de `_smoke/`, todo con `ROLLBACK`): grants (anon y authenticated sin `EXECUTE`, service_role con), `wa_cobros_sueltos` cerrada para authenticated, defaults, CHECK nuevos, cobro creado, idempotencia, `clave_reutilizada`, `ya_inscrito`, `sin_cupos`, `atleta_no_valido`, interruptor apagado, anulación de vencidos y que `open_month` ya no se salte la mensualidad por un cobro de torneo.
+
+**Para aplicar:** SQL editor o CLI; después correr el smoke contra una escuela de prueba (Club Campestre Demo) y `npm run seguridad:invariantes`.
+
+---
+
+## 17. Contrato F0 → F1/F2
+
+Servicio: **`bff/src/services/ventas-servicios.service.ts`**. Ninguna función lanza. Si la migración no está aplicada (`PGRST202`/`42883`/`42P01`/`42703`), devuelven `code: 'migracion_pendiente'` (o `migracionPendiente: true`) y el bot sigue como hoy. **Estas firmas no cambian sin avisar a la sesión de F1/F2.**
+
+```ts
+export type TipoServicio = 'torneo' | 'viaje' | 'clase_extra' | 'vacacional' | 'otro';
+/** Igual a payments.payment_category del cobro que se crea. */
+export type CategoriaServicio = TipoServicio;
+
+export interface ServicioEnVenta {
+    id: string;
+    nombre: string;
+    descripcion: string | null;
+    tipo: TipoServicio;
+    /** Precio de lista de la base (COP). El total a pagar sale del link (incluye el recargo en línea). */
+    precio: number;
+    imagenUrl: string | null;
+    /** ISO UTC o null. */
+    iniciaEn: string | null;
+    terminaEn: string | null;
+    /** null = sin límite. */
+    cupos: number | null;
+    cuposRestantes: number | null;
+    /** true = se cobra por atleta (preguntar a cuál hijo). */
+    porAtleta: boolean;
+}
+
+export type CatalogoServicios =
+    | { ok: true; habilitado: boolean; items: ServicioEnVenta[] }
+    | { ok: false; code: 'migracion_pendiente' | 'error'; error: string };
+
+/** Catálogo del carril B de una escuela: solo activos y no vencidos; `limite` 1–20 (por defecto 10). */
+export function catalogoServicios(
+    schoolId: string,
+    opts?: { buscar?: string | null; limite?: number },
+): Promise<CatalogoServicios>;
+
+export type CodigoCobroSuelto =
+    | 'migracion_pendiente' | 'ventas_deshabilitadas' | 'escuela_no_operativa'
+    | 'item_no_disponible' | 'item_vencido' | 'item_sin_precio'
+    | 'familia_no_valida' | 'atleta_requerido' | 'atleta_no_valido'
+    | 'ya_inscrito' | 'sin_cupos' | 'clave_invalida' | 'clave_reutilizada' | 'error';
+
+export interface CrearCobroSueltoInput {
+    schoolId: string;
+    itemId: string;
+    /** parent_id que devolvió wa_identify_by_phone EN ESTE TURNO. */
+    parentId: string;
+    /** Obligatorio si el ítem es porAtleta. */
+    childId: string | null;
+    /** La de data.idempotency_key del flujo (8–200 caracteres). */
+    idempotencyKey: string;
+    conversationId?: string | null;
+    /** Vigencia del cobro en minutos (15–120, por defecto 60). */
+    minutosVigencia?: number;
+}
+
+export interface CobroSueltoCreado {
+    ok: true;
+    paymentId: string;
+    /** true = la clave ya existía y se devolvió el mismo cobro. */
+    idempotente: boolean;
+    /** Monto del cobro (precio del catálogo, sin recargo en línea). */
+    monto: number;
+    concepto: string;
+    categoria: CategoriaServicio;
+    /** ISO UTC: desde cuándo (más el margen) lo anula el job si no se paga. */
+    venceEn: string;
+    cuposRestantes: number | null;
+}
+
+export interface CobroSueltoFallido {
+    ok: false;
+    code: CodigoCobroSuelto;
+    error: string;
+    /** Solo con 'ya_inscrito': el cobro vivo que ya existe (reenviar su link). */
+    paymentId?: string;
+}
+
+export function crearCobroSuelto(input: CrearCobroSueltoInput): Promise<CobroSueltoCreado | CobroSueltoFallido>;
+
+export interface ResultadoAnulacion {
+    ok: boolean;
+    migracionPendiente: boolean;
+    revisados: number;
+    anulados: number;
+    paymentIds: string[];
+}
+
+/** Lo corre maintenance.job.ts cada 5 min (kill-switch DISABLE_VENTAS_ANULAR_VENCIDOS=true). */
+export function anularCobrosSueltosVencidos(
+    opts?: { limite?: number; margenMinutos?: number },
+): Promise<ResultadoAnulacion>;
+```
+
+**Cómo lo usa F2 (orden):** `catalogoServicios` → resumen con `precio` → «¿La agendo?» → `crearCobroSuelto` con la clave del flujo → `crearLinkWompiConMonto(paymentId, { minutos: 60 })` → el bot dice el `total` **del link**, no el `precio`. Con `ya_inscrito`, se llama `crearLinkWompiConMonto(paymentId)` sobre el cobro existente. El `payment_id` se guarda en `whatsapp_conversation_flows.data.payment_id` para que la cola aplique el comprobante a ese cobro.
