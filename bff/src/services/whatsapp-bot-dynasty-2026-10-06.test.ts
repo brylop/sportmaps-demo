@@ -185,7 +185,8 @@ describe('`355bebed` / `e9e185ce`: texto precargado de /p/:token + foto', () => 
         ];
         expect(await acusarAdjunto(INTEGRATION, CONV, TEL, 'f1', null)).toBe('rafaga');
         h.state.mensajes.push({ direction: 'outbound', ai_generated: true, payload: { step: 'acuse_adjunto' }, created_at: hace(1) });
-        expect(await acusarAdjunto(INTEGRATION, CONV, TEL, 'f2', null)).toBe('ya_acusado');
+        // El bot ya dijo algo DESPUÉS de la foto: el acuse (diferido) sobra.
+        expect(await acusarAdjunto(INTEGRATION, CONV, TEL, 'f2', null)).toBe('ya_respondido');
         expect(borradores()).toHaveLength(0);
     });
 
@@ -193,6 +194,26 @@ describe('`355bebed` / `e9e185ce`: texto precargado de /p/:token + foto', () => 
         h.state.mensajes = [{ wa_message_id: 'f1', direction: 'inbound', type: 'image', created_at: hace(1) }];
         await acusarAdjunto(INTEGRATION, CONV, TEL, 'f1', 'Ahí, con eso el bot ya no les responde');
         expect(borradores()[0].row.proposed_text).toBe('Recibí tu archivo 📄 Lo reviso y te cuento por aquí.');
+    });
+});
+
+describe('una respuesta por comprobante (2026-10-07)', () => {
+    it('…9ed973: el texto precargado DESPUÉS de la foto no manda un segundo acuse (responde la cola)', async () => {
+        h.state.mensajes = [
+            { wa_message_id: 'wamid.foto', direction: 'inbound', type: 'image', text_body: null, created_at: hace(7) },
+        ];
+        await runBotTurn(INTEGRATION, CONV, TEL, PRECARGADO, 'wamid.texto');
+        expect(h.chatWithTools).not.toHaveBeenCalled();
+        expect(borradores()).toHaveLength(0);
+        expect(h.sendTextMessage).not.toHaveBeenCalled();
+    });
+
+    it('…b62e3f 21:08: «ya pagué» con un comprobante EN la cola (< 3 min): calla, el resultado lo dice', async () => {
+        h.state.pagos = [{ concept: 'Mensualidad 09/2026', status: 'pending', debe_pagarse: true, saldo: 90000 }];
+        h.state.cola = [{ status: 'processing', result_type: null, created_at: hace(6) }];
+        await runBotTurn(INTEGRATION, CONV, TEL, 'La de septiembre aparece q debo pero ya pagué', 'w1');
+        expect(borradores()).toHaveLength(0);
+        expect(h.sendTextMessage).not.toHaveBeenCalled();
     });
 });
 
