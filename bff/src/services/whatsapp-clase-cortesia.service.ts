@@ -718,7 +718,7 @@ function textoResumen(d: DatosCortesia): string {
     lineas.push(`• Deportista: *${d.nombre ?? ''}* (${d.edad ?? '?'} años)`);
     if (d.acudiente) lineas.push(`• Acudiente: *${d.acudiente}*`);
     lineas.push('• Teléfono: este WhatsApp');
-    lineas.push('', d.franja ? '¿Confirmo la reserva?' : '¿Le paso estos datos a la escuela?');
+    lineas.push('', d.franja ? '¿Confirmo la reserva?' : '¿Paso estos datos a la escuela?');
     return lineas.join('\n');
 }
 
@@ -1156,15 +1156,36 @@ async function ofrecerFranjas(
         }
     }
 
+    const comoResponder = `Responde con el número (${visibles.map((_, i) => inicio + i + 1).join(', ')})` +
+        (hayMas ? ', *ver más*' : '') + ', un día (*el sábado*) o *asesor* para hablar con una persona.';
+    // Lista (> 3 franjas): el cuerpo NO repite las franjas —van en las filas de
+    // la lista, con día, hora y sede—. Auditoría 2026-10-07: cuerpos de
+    // 860–1026 caracteres con un 📍 por línea, y los de más de 1024 Meta los
+    // rechaza como interactivo y salían como texto de 1394–1647. El listado
+    // numerado completo queda en `enTexto`: es lo que sale si la lista no sale
+    // (modo asistido o Meta la rechaza), y «la 2» se sigue entendiendo.
+    const cuerpoMensaje = comoBotones
+        ? `${encabezado}\n\n${cuerpo}\n\n¿Cuál te reservo?`
+        : `${encabezado}\n\n${resumenDeLista(visibles)} Toca *Ver opciones* y elige el tuyo.`;
     await ctx.enviar(
-        `${encabezado}\n\n${cuerpo}\n\n¿Cuál te reservo?` +
-            (comoBotones ? '' : ' Toca *Ver opciones* o escríbeme el número.'),
+        cuerpoMensaje,
         step,
         { paso: 'elegir_franja', datos: { ...datosPrevios, franja: null, sinFranja: false,
             lista: lista.map((f) => f.id), desde: inicio, intentos: 0 } },
         opcionesUI,
-        `Responde con el número (${visibles.map((_, i) => inicio + i + 1).join(', ')})` +
-            (hayMas ? ', *ver más*' : '') + ', un día (*el sábado*) o *asesor* para hablar con una persona.');
+        comoBotones ? comoResponder : `${cuerpo}\n\n¿Cuál te reservo? ${comoResponder}`);
+}
+
+/** «Tengo 9 horarios entre el miércoles 7 y el viernes 9 de octubre.» Pura. */
+export function resumenDeLista(franjas: FranjaCortesia[]): string {
+    if (!franjas.length) return '';
+    const fechas = franjas.map((f) => f.fecha).sort();
+    const primero = fechaLegible(fechas[0]);
+    const ultimo = fechaLegible(fechas[fechas.length - 1]);
+    const cuantos = `Tengo ${franjas.length} horario${franjas.length === 1 ? '' : 's'}`;
+    return fechas[0] === fechas[fechas.length - 1]
+        ? `${cuantos} el ${primero}.`
+        : `${cuantos} entre el ${primero} y el ${ultimo}.`;
 }
 
 /**
@@ -1540,7 +1561,7 @@ async function reservar(ctx: CtxCortesia, d: Deps, datos: DatosCortesia): Promis
 
     if (!franja) {
         await ctx.enviar(
-            `¡Listo! ✅ Le pasé los datos de *${datos.nombre}* a la escuela. Te van a contactar por aquí para ` +
+            `¡Listo! ✅ Pasé los datos de *${datos.nombre}* a la escuela. Te van a contactar por aquí para ` +
             'agendar la clase de cortesía.', 'cortesia_datos_dejados', null);
         void d.avisar({ ...base, leadId: r.leadId, tipo: 'datos' }).catch(() => {});
         return true;

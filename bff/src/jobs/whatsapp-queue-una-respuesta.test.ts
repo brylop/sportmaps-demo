@@ -41,7 +41,7 @@ const updatesCola: any[] = [];
 function makeChain(result: any, table?: string) {
     const chain: any = {
         select: () => chain, eq: () => chain, in: () => chain, or: () => chain, gte: () => chain,
-        lte: () => chain, ilike: () => chain, limit: () => chain, order: () => chain,
+        lte: () => chain, ilike: () => chain, limit: () => chain, order: () => chain, neq: () => chain,
         insert: () => chain, upsert: () => chain,
         update: (v: any) => { if (table === 'whatsapp_inbound_queue') updatesCola.push(v); return chain; },
         maybeSingle: () => Promise.resolve(result),
@@ -410,5 +410,47 @@ describe('Bandeja: número desconocido', () => {
         await runWhatsAppQueue();
         expect(downloadMediaMock).not.toHaveBeenCalled();
         expect(mensajesDelBot()).toBe(0);
+    });
+});
+
+describe('auditoría 2026-10-07 (…0340): la MISMA foto dos veces', () => {
+    /** payments responde «esta imagen ya está en p-oct»; la cola, si ya se avisó hace < 10 min. */
+    async function conImagenYaRecibida(avisadoHacePoco: boolean, correr: () => Promise<unknown>) {
+        const { supabase } = await import('../config/supabase');
+        const fromOriginal = (supabase.from as any).getMockImplementation();
+        (supabase.from as any).mockImplementation((table: string) => {
+            if (table === 'payments') {
+                return makeChain({ data: [{ id: 'p-oct', concept: 'Mensualidad 10/2026', status: 'paid' }], error: null }, table);
+            }
+            if (table === 'whatsapp_inbound_queue') {
+                return makeChain({ data: avisadoHacePoco ? [{ id: 'f-antes' }] : [], error: null }, table);
+            }
+            return fromOriginal(table);
+        });
+        try {
+            await correr();
+        } finally {
+            (supabase.from as any).mockImplementation(fromOriginal);
+        }
+    }
+
+    it('segunda foto igual → «Este comprobante ya lo había recibido 👍», nunca «no tienes cobros pendientes»', async () => {
+        state.primera = false;
+        state.faltaConsentimiento = false;
+        await conImagenYaRecibida(false, () => runWhatsAppQueue());
+        expect(mensajesDelBot()).toBe(1);
+        expect(enviados()[0]).toBe('Este comprobante ya lo había recibido 👍');
+        expect(enviados()[0]).not.toContain('no tienes cobros pendientes');
+        expect(resolverPagoMock).not.toHaveBeenCalled();
+        expect(updatesCola.find((u) => u.status === 'ignored')).toMatchObject({
+            result_type: 'none', result_ref_id: 'p-oct', error_message: 'comprobante ya recibido (misma imagen)' });
+    });
+
+    it('si ya se le dijo hace < 10 min → silencio (la fila igual se cierra)', async () => {
+        state.primera = false;
+        state.faltaConsentimiento = false;
+        await conImagenYaRecibida(true, () => runWhatsAppQueue());
+        expect(enviados()).toHaveLength(0);
+        expect(updatesCola.find((u) => u.status === 'ignored')).toMatchObject({ result_ref_id: 'p-oct' });
     });
 });
