@@ -12,7 +12,8 @@ import crypto from 'crypto';
 import type { Logger } from 'pino';
 import { supabase } from '../config/supabase';
 import { extractReceiptWithFallback, listConfiguredProviders } from './ocr.service';
-import { evaluateVerdict, normalizeReference } from './receipt-verdict';
+import { evaluateVerdict, evaluarEvidenciaAutoAprobacion, normalizeReference } from './receipt-verdict';
+import type { VerdictReason } from './receipt-verdict';
 import { buildVerdictContext } from './receipt-context.service';
 import { autoCreateGlosaFromReasons, maybeAutoCreateGlosa } from './glosa.service';
 import { emailClient } from '../utils/emailClient';
@@ -133,6 +134,37 @@ async function autoRejectRed(p: PaymentRow, reasons: ReasonLike[], log?: Logger)
     return { action: 'rejected', reason: message };
 }
 
+/** 'HH:MM' actual en Bogotá (para descartar comprobantes con hora futura). */
+function horaBogota(): string {
+    return new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).format(new Date());
+}
+
+const esManipulacion = (reasons: ReasonLike[]) => reasons.some((r) => r?.code === 'POSIBLE_MANIPULACION');
+
+/**
+ * Posible manipulación (inyección de prompt en el comprobante): NO se aprueba,
+ * NO se rechaza y NO se abre glosa (la glosa le pediría al acudiente "aclarar",
+ * que es darle pistas a quien está probando el sistema). Queda en la cola de
+ * revisión manual con el veredicto recomputado por el servidor, para que el
+ * admin vea el motivo aunque el cliente hubiera persistido "verde".
+ */
+async function marcarRevisionManualPorManipulacion(
+    p: PaymentRow, reasons: VerdictReason[] | ReasonLike[], log?: Logger,
+): Promise<EvaluateResult> {
+    const { error } = await supabase
+        .from('payments')
+        .update({ receipt_verdict: 'amarillo', receipt_verdict_reasons: reasons, receipt_verdict_at: new Date().toISOString() })
+        .eq('id', p.id)
+        .eq('status', 'awaiting_approval');
+    (log ?? console).warn?.(
+        { paymentId: p.id, schoolId: p.school_id, persistError: (error as { code?: string } | null)?.code ?? null },
+        '[auto-approve] POSIBLE_MANIPULACION en el comprobante → revisión manual',
+    );
+    return { action: 'none' };
+}
+
 export async function evaluatePaymentReceipt(paymentId: string, log?: Logger): Promise<EvaluateResult> {
     try {
         const { data: pay } = await supabase
@@ -200,6 +232,10 @@ export async function evaluatePaymentReceipt(paymentId: string, log?: Logger): P
                         if (rejected) return rejected;
                     }
 
+                    if (esManipulacion(verdictA.reasons)) {
+                        return await marcarRevisionManualPorManipulacion(p, verdictA.reasons, log);
+                    }
+
                     if (verdictA.verdict === 'verde') {
                         // Sigue exigiendo un provider DISTINTO al que leyó A; lo
                         // único que cambia es que prueba los demás en vez de
@@ -211,7 +247,22 @@ export async function evaluatePaymentReceipt(paymentId: string, log?: Logger): P
                             const { provider: providerB, result: ocrB } = attemptB;
                             const sameAmount = ocrA.amount != null && ocrA.amount === ocrB.amount;
                             const sameRef = normalizeReference(ocrA.reference) === normalizeReference(ocrB.reference);
-                            if (sameAmount && sameRef) {
+                            // El veredicto lo calcula ESTE código desde los campos
+                            // de las dos lecturas; ningún texto del modelo decide.
+                            const evidencia = evaluarEvidenciaAutoAprobacion(ocrA, ocrB, ctx, horaBogota());
+                            if (evidencia.faltas.includes('posible_manipulacion')) {
+                                const verdictB = evaluateVerdict(ocrB, ctx);
+                                return await marcarRevisionManualPorManipulacion(p, verdictB.reasons, log);
+                            }
+                            if (sameAmount && sameRef && !evidencia.ok) {
+                                // Las lecturas coinciden pero falta evidencia que el
+                                // modelo no pueda "decir" (hora, destino exacto,
+                                // referencia con forma bancaria…): sin glosa, a la
+                                // cola manual de siempre.
+                                (log ?? console).info?.({ paymentId, faltas: evidencia.faltas }, '[auto-approve] evidencia insuficiente → manual');
+                                return { action: 'none' };
+                            }
+                            if (evidencia.ok) {
                                 const { data: approved } = await supabase.rpc('auto_approve_payment', { p_payment_id: paymentId });
                                 if (approved === true) {
                                     await sendApprovalEmail(p, log);
@@ -252,11 +303,13 @@ async function glosaFallback(p: PaymentRow, log?: Logger): Promise<EvaluateResul
     // maybeAutoCreateGlosa, que solo mapea motivos AMARILLOS y además exige
     // auto_glosa_enabled, así que devolvía null y el comprobante se quedaba mudo
     // en la cola esperando a que alguien lo viera.
+    const persisted = Array.isArray(p.receipt_verdict_reasons) ? (p.receipt_verdict_reasons as ReasonLike[]) : [];
     if (p.receipt_verdict === 'rojo') {
-        const reasons = Array.isArray(p.receipt_verdict_reasons) ? (p.receipt_verdict_reasons as ReasonLike[]) : [];
-        const rejected = await autoRejectRed(p, reasons, log);
+        const rejected = await autoRejectRed(p, persisted, log);
         if (rejected) return rejected;
     }
+    // Posible manipulación: revisión manual, sin glosa al acudiente.
+    if (esManipulacion(persisted)) return { action: 'none' };
     const gid = await maybeAutoCreateGlosa(p.id, log);
     return { action: gid ? 'glosa' : 'none', glosaId: gid };
 }

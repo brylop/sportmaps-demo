@@ -51,8 +51,14 @@ describe('ajustesDesdeFila', () => {
             wa_ayuda_app: true, wa_reclamos_de_valor: true, wa_responder_precios: true,
         })).toEqual({
             modoCortesia: 'semana_app', cortesiaQrId: 'qr-1', cortesiaDias: 7,
-            ayudaApp: true, reclamosDeValor: true, responderPrecios: true,
+            ayudaApp: true, reclamosDeValor: true, responderPrecios: true, ventasHabilitadas: false,
         });
+    });
+
+    it('ventas por WhatsApp: solo con wa_ventas_habilitadas = true', () => {
+        expect(ajustesDesdeFila({ wa_ventas_habilitadas: true }).ventasHabilitadas).toBe(true);
+        expect(ajustesDesdeFila({ wa_ventas_habilitadas: 'true' }).ventasHabilitadas).toBe(false);
+        expect(AJUSTES_POR_DEFECTO.ventasHabilitadas).toBe(false);
     });
 
     it('valores raros caen al default', () => {

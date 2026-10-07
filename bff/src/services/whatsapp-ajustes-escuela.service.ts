@@ -23,6 +23,13 @@ export interface AjustesWhatsAppEscuela {
     reclamosDeValor: boolean;
     /** Al desconocido que pregunta el precio, los valores de los planes (sin enlace de pago). */
     responderPrecios: boolean;
+    /**
+     * Ventas por WhatsApp, carril B (docs/specs/ventas-por-whatsapp.md): el bot
+     * responde por los servicios del catálogo (clase extra, vacacionales,
+     * torneos, viajes) y, a la familia identificada, le arma el cobro y el link.
+     * Apagado por defecto (`school_settings.wa_ventas_habilitadas`, F0).
+     */
+    ventasHabilitadas: boolean;
 }
 
 export const AJUSTES_POR_DEFECTO: Readonly<AjustesWhatsAppEscuela> = Object.freeze({
@@ -32,6 +39,7 @@ export const AJUSTES_POR_DEFECTO: Readonly<AjustesWhatsAppEscuela> = Object.free
     ayudaApp: false,
     reclamosDeValor: false,
     responderPrecios: false,
+    ventasHabilitadas: false,
 });
 
 /** Fila cruda → ajustes. Cualquier valor raro cae al default. */
@@ -45,12 +53,14 @@ export function ajustesDesdeFila(fila: Record<string, unknown> | null | undefine
         ayudaApp: fila.wa_ayuda_app === true,
         reclamosDeValor: fila.wa_reclamos_de_valor === true,
         responderPrecios: fila.wa_responder_precios === true,
+        ventasHabilitadas: fila.wa_ventas_habilitadas === true,
     };
 }
 
 // De la consulta más completa a la más pobre: cada columna llegó con una
 // migración distinta, y una que falte no puede apagar las demás.
 const COLUMNAS = [
+    'wa_modo_cortesia, wa_cortesia_qr_id, wa_cortesia_dias, wa_ayuda_app, wa_reclamos_de_valor, wa_responder_precios, wa_ventas_habilitadas',
     'wa_modo_cortesia, wa_cortesia_qr_id, wa_cortesia_dias, wa_ayuda_app, wa_reclamos_de_valor, wa_responder_precios',
     'wa_modo_cortesia, wa_cortesia_qr_id, wa_cortesia_dias, wa_ayuda_app, wa_reclamos_de_valor',
 ];

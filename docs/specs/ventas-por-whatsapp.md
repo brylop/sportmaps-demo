@@ -642,3 +642,31 @@ export function anularCobrosSueltosVencidos(
 **Cómo lo usa F2 (orden):** `catalogoServicios` → resumen con `precio` → «¿La agendo?» → `crearCobroSuelto` con la clave del flujo → `crearLinkWompiConMonto(paymentId, { minutos: 60 })` → el bot dice el `total` **del link**, no el `precio`. Con `ya_inscrito`, se llama `crearLinkWompiConMonto(paymentId)` sobre el cobro existente. El `payment_id` se guarda en `whatsapp_conversation_flows.data.payment_id` para que la cola aplique el comprobante a ese cobro.
 
 **Verificado el 2026-10-07** en el gemelo Docker (`sportmaps-qa-twin`), dentro de una transacción con `ROLLBACK`: la migración compila y el smoke pasa completo (permisos 0–0c, defaults y CHECK, interruptor, catálogo y búsqueda, validaciones, cobro + idempotencia + `ya_inscrito` + `clave_reutilizada`, cupos, anulación, cupo liberado y `open_month`). Falta: aplicarla en la base viva y la prueba de concurrencia con dos sesiones (F2).
+
+---
+
+## 18. F1 + F2 del carril B — implementado (2026-10-07)
+
+**Sin migraciones propias:** usa las de F0 (`20261007095911`, sin aplicar). Mientras no esté aplicada, o con `wa_ventas_habilitadas`/`tournament_charges_enabled` apagados, el catálogo devuelve `null` y el bot sigue exactamente como hoy.
+
+| Pieza | Archivo |
+|---|---|
+| Flujo determinista (sin modelo) de consulta, resumen, cobro y link | `bff/src/services/whatsapp-venta-servicios.service.ts` (`atenderTurnoVenta`) |
+| Ganchos en el bot: 2.33 continúa una venta abierta (después de la factura), 2.97 la inicia (antes del modelo), 1e al desconocido (ficha con precio + prospecto) | `bff/src/services/whatsapp-bot.service.ts` |
+| `sendImage` + foto como encabezado de los botones; `deliver` acepta `imagen` y si Meta rechaza la foto manda lo mismo sin ella | `bff/src/services/whatsapp.service.ts`, `whatsapp-bot.service.ts` |
+| Ajuste `ventasHabilitadas` (`wa_ventas_habilitadas`) | `bff/src/services/whatsapp-ajustes-escuela.service.ts` |
+| Comprobante con venta abierta → se aplica a ESE cobro; si ya no está pendiente, a la escuela (nunca a la mensualidad) | `bff/src/jobs/whatsapp-queue.job.ts` (`ventaAbiertaDeContacto`, `decidirComprobanteDeVenta`) |
+| Pantalla de la escuela: «Cobros sueltos» con tipo, descripción, fechas, cupos, foto y por atleta, más el interruptor «Vender por WhatsApp» | `frontend/src/components/settings/SellableCatalogCard.tsx` (en Pagos → Automatización) |
+| Pruebas: conversaciones del spec, un mensaje por turno, montos solo de la base o del link, sin voseo | `whatsapp-venta-servicios.test.ts`, `whatsapp-imagen.test.ts` |
+
+**Comportamiento:**
+- Un hijo (o el nombrado en el texto): ficha + «Así quedaría … Total $X ¿Procedemos?» con [Sí, procedemos] [No] en UN mensaje. Varios hijos: «¿Para quién es?» con botones. Varios ítems: lista numerada.
+- «Sí, procedemos» → `crearCobroSuelto` (clave del flujo) → `crearLinkWompiConMonto(paymentId, {minutos: 60})` → `registrarAvisoDePagoPorLink` → «Aquí está tu link de pago por *$total del link*… Tienes 1 hora para pagar; cuando se apruebe te aviso por aquí» (la última frase solo si el aviso quedó registrado). Sin pago en línea: la página `/p/:token`. La notificación in-app «Nuevo cobro pendiente» la manda el trigger de F0; el bot no la repite.
+- `ya_inscrito` → reenvía el link del cobro existente. Cobro idempotente `cancelled` o «retomar» con el cobro vencido → vuelve a cotizar con clave nueva. `paid` → «ya está aprobado».
+- «Ya no» antes de confirmar: no se crea nada. Esperando el pago: F0 no expone anular un cobro puntual, así que se le dice «no lo pagues; se anula solo al vencer la hora» y el job de F0 lo anula.
+
+**Pendiente:**
+- RPC para anular YA un cobro suelto por pedido de la familia (el puerto ya tiene `anularCobroSuelto?`; basta conectarlo).
+- La familia identificada por teléfono **sin cuenta** (`debe_registrarse`) no compra todavía: `wa_crear_cobro_suelto` exige `parent_id`.
+- Si la familia inicia una segunda venta mientras la primera espera pago, el flujo se reemplaza (el primer cobro sigue vivo y lo anula el job; su comprobante ya no se reconoce por el flujo).
+- Prueba en el gemelo / Club Campestre Demo con la migración aplicada y Wompi sandbox.

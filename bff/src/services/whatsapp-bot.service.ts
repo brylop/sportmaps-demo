@@ -42,7 +42,7 @@ import {
     type Urgencia, type CategoriaUrgente,
 } from './whatsapp-escalaciones.service';
 import {
-    sendTextMessage, sendInteractiveButtons, sendCtaUrl, aFormatoWhatsApp, markAsRead,
+    sendTextMessage, sendInteractiveButtons, sendCtaUrl, sendImage, aFormatoWhatsApp, markAsRead,
     type WhatsAppIntegration, type BotonInteractivo,
 } from './whatsapp.service';
 import { conEnlacesDePago, lineaPagar, botonPagarUnico } from './whatsapp-enlaces-de-pago.service';
@@ -78,6 +78,7 @@ import {
 import { atenderAusenciaEnBot } from './whatsapp-ausencias.service';
 import { ajustesWhatsAppDeEscuela, type AjustesWhatsAppEscuela } from './whatsapp-ajustes-escuela.service';
 import { mensajeSemanaDeCortesia } from './whatsapp-cortesia-semana.service';
+import { atenderTurnoVenta } from './whatsapp-venta-servicios.service';
 import { textoDePreciosDeEscuela } from './whatsapp-precios.service';
 import { pideAyudaDeApp, textoAyudaApp } from './whatsapp-ayuda-app.service';
 import {
@@ -122,7 +123,7 @@ const turnoEnCurso = new AsyncLocalStorage<ContextoDeTurno>();
 // Dentro de `simularEnvios`, `deliver` NO envía ni deja borrador: anota lo que
 // habría salido. `abrirEnBuzon` y el registro del lead tampoco escriben. Sirve
 // para mostrar la respuesta REAL del camino del bot sin hablarle a nadie.
-export interface SalidaSimulada { texto: string; step: string | null; botones: string[] }
+export interface SalidaSimulada { texto: string; step: string | null; botones: string[]; imagen?: string }
 const simulacion = new AsyncLocalStorage<SalidaSimulada[]>();
 export async function simularEnvios<T>(fn: () => Promise<T>): Promise<{ resultado: T; salidas: SalidaSimulada[] }> {
     const salidas: SalidaSimulada[] = [];
@@ -305,6 +306,14 @@ async function cuerpoDelTurno(
         return;
     }
 
+    // 2.33. Venta de un servicio EN CURSO (docs/specs/ventas-por-whatsapp.md):
+    //       con el resumen en pantalla, «sí» es «procedemos» y «2» es la
+    //       opción de la lista. Solo continúa; empezar va en 2.97.
+    if (conv.parent_id && await atenderVentaEnBot(integration, conversationId, contactWaId,
+        conv.parent_id, text, botonId, false)) {
+        return;
+    }
+
     // 2.35. «Clase de cortesía tienen», «¿puedo ir a probar?»: flujo
     //       determinista sin pasar por el modelo. El 2026-10-06 el modelo le
     //       contestó a una familia de Dynasty «no tengo esa información». La
@@ -435,6 +444,14 @@ async function cuerpoDelTurno(
     // 2.95. «No puedo entrar», «olvidé la clave», «cómo pago en la app»
     //       (ajuste `wa_ayuda_app`): paso a paso con los botones reales, sin modelo.
     if (await responderAyudaDeApp(integration, conversationId, contactWaId, rafaga, ajustesEscuela, true)) {
+        return;
+    }
+
+    // 2.97. «¿Cuánto vale la clase de perfeccionamiento?», «hay vacacionales?»:
+    //       ficha del catálogo y, si quiere, cobro + link. Sin modelo: precio,
+    //       cupos y total salen de la base. Detrás de `wa_ventas_habilitadas`.
+    if (ajustesEscuela.ventasHabilitadas && await atenderVentaEnBot(integration, conversationId, contactWaId,
+        conv.parent_id, text, botonId, true, ajustesEscuela)) {
         return;
     }
 
@@ -1122,6 +1139,58 @@ async function atenderFacturaEnBot(
 }
 
 /**
+ * Turno de venta de servicios (whatsapp-venta-servicios.service, carril B).
+ * `parentId` null = desconocido: solo ficha con precio y queda como prospecto.
+ * Apagado si la escuela no tiene `wa_ventas_habilitadas`.
+ */
+async function atenderVentaEnBot(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    parentId: string | null,
+    text: string,
+    botonId: string | null,
+    iniciar: boolean,
+    ajustes?: AjustesWhatsAppEscuela,
+): Promise<boolean> {
+    try {
+        const a = ajustes ?? await ajustesWhatsAppDeEscuela(integration.school_id);
+        if (!a.ventasHabilitadas) return false;
+        return await atenderTurnoVenta({
+            conversationId,
+            schoolId: integration.school_id,
+            integrationId: integration.id,
+            contactWaId,
+            parentId,
+            enviar: (texto, paso, extra) => deliver(integration, conversationId, contactWaId, texto,
+                { step: paso, flujo: 'venta' },
+                extra?.botones?.length
+                    ? {
+                        botones: extra.botones, imagen: extra.imagen ?? null,
+                        enTexto: extra.botones.length <= 3
+                            ? `Responde ${extra.botones.map((b) => `*${b.title}*`).join(' o ')}.`
+                            : undefined,
+                    }
+                    : extra?.cta ? { botones: [], cta: extra.cta, imagen: extra.imagen ?? null }
+                        : extra?.imagen ? { botones: [], imagen: extra.imagen } : undefined),
+            escalar: (motivo, antes) => escalate(integration, conversationId, contactWaId, motivo, { antes, texto: text }),
+            registrarProspecto: async () => {
+                if (enSimulacion()) return;
+                await registrarLeadDeProspecto({
+                    schoolId: integration.school_id, conversationId, contactWaId,
+                    nombre: await nombreDelContacto(conversationId),
+                    textos: await entrantesDeTexto(conversationId, DIAS_MARCA_PROSPECTO), estado: 'respondido',
+                });
+            },
+        }, text, botonId, { iniciar });
+    } catch (e: any) {
+        // Una falla de la venta no deja a la familia sin respuesta: sigue el bot.
+        console.warn('[whatsapp-bot] flujo de venta falló', { conversationId, err: e?.message });
+        return false;
+    }
+}
+
+/**
  * Contexto del flujo de clase de cortesía (whatsapp-clase-cortesia.service).
  *
  * El estado del paso a paso viaja en el payload de cada saliente
@@ -1654,6 +1723,7 @@ export type ResultadoDesconocido =
     | 'clase_cortesia' | 'clase_cortesia_en_curso' | 'cortesia_semana' | 'ayuda_app' | 'precios'
     | 'prospecto_seguimiento' | 'escuela_atendiendo'
     | 'prospecto_horarios' | 'prospecto_precios' | 'prospecto_info' | 'prospecto_persona'
+    | 'venta_consulta'
     | 'frenado' | 'silencio';
 
 export async function atenderDesconocido(
@@ -1728,6 +1798,15 @@ export async function atenderDesconocido(
                 { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'precios', con_enlace: Boolean(semana) });
             return 'precios';
         }
+    }
+
+    // 1e. Ventas (`wa_ventas_habilitadas`): «¿cuánto vale el vacacional?» →
+    //     ficha con el precio del catálogo, sin cobro (D-V5), y queda como
+    //     prospecto. Si la escuela está escribiendo, la conversación es suya.
+    if (ajustesEscuela.ventasHabilitadas
+        && !humanoReciente(await mensajesRecientes(conversationId), SILENCIO_HUMANO_MIN)
+        && await atenderVentaEnBot(integration, conversationId, contactWaId, null, text, botonId, true, ajustesEscuela)) {
+        return 'venta_consulta';
     }
 
     // 2. ¿Es de la escuela? Si no, silencio.
@@ -3057,7 +3136,8 @@ export async function deliver(
     const sim = simulacion.getStore();
     if (sim) {
         sim.push({ texto: proposedText, step: ((context as any)?.step ?? null) as string | null,
-            botones: (conBotones?.botones ?? []).map((b: any) => b.title) });
+            botones: (conBotones?.botones ?? []).map((b: any) => b.title),
+            ...(conBotones?.imagen ? { imagen: conBotones.imagen } : {}) });
         return;
     }
     // ¿Modo auto vigente? (auto solo si mode='auto' y ya pasó assisted_until)
@@ -3152,13 +3232,22 @@ export async function deliver(
     if (autoAllowed) {
         let tipo = 'text';
         let cuerpo = textoSinBotones;
+        const imagen = conBotones?.imagen || null;
         let sent = botones
-            ? await sendInteractiveButtons(integration, contactWaId, texto, botones)
+            ? (imagen
+                ? await sendInteractiveButtons(integration, contactWaId, texto, botones, { imagenUrl: imagen })
+                : await sendInteractiveButtons(integration, contactWaId, texto, botones))
             : cta
                 ? await sendCtaUrl(integration, contactWaId, texto, cta.texto, cta.url)
-                : null;
+                : imagen
+                    ? await sendImage(integration, contactWaId, imagen, texto)
+                    : null;
+        // Con la foto rechazada (URL caída, formato), los botones salen sin ella.
+        if (sent && !sent.ok && botones && imagen) {
+            sent = await sendInteractiveButtons(integration, contactWaId, texto, botones);
+        }
         if (sent?.ok) {
-            tipo = 'interactive';
+            tipo = !botones && !cta && imagen ? 'image' : 'interactive';
             cuerpo = texto;
         } else {
             // Sin botones, o Meta los rechazó (cuerpo largo, error de red): el
@@ -3176,7 +3265,8 @@ export async function deliver(
             p_wa_message_id: sent.waMessageId || `local-${crypto.randomUUID()}`,
             p_type: tipo,
             p_text_body: cuerpo,
-            p_payload: tipo === 'interactive' ? (cta ? { ...context, cta } : { ...context, botones }) : context,
+            p_payload: tipo === 'interactive' ? (cta ? { ...context, cta } : { ...context, botones, ...(imagen ? { imagen } : {}) })
+                : tipo === 'image' ? { ...context, imagen } : context,
             p_ai_generated: true,
             p_to_wa_id: contactWaId,
         });
@@ -3392,6 +3482,12 @@ export interface ConBotones {
     enTexto?: string;
     /** Botón URL (cta_url). Solo se usa si no hay `botones`. */
     cta?: { texto: string; url: string };
+    /**
+     * Foto (URL https) de la ficha de un servicio en venta: encabezado de los
+     * botones o, sin botones ni cta, imagen con el texto como pie. Si Meta la
+     * rechaza, sale lo mismo sin foto.
+     */
+    imagen?: string | null;
 }
 
 /** «Pagar» como botón URL cuando hay UN solo cobro pendiente con enlace. */
