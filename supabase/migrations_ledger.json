@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 695,
-  "head": "20261006111003",
+  "count": 696,
+  "head": "20261006120601",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -698,6 +698,7 @@
     {"v":"20261006094145","file":"20261006094145_profesionales_f0_seguridad_agenda.sql","sha256":"c61f85874fe4995080e34f4d5cc993ea653e0218ada4b7704c55ea28ccb9533c","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006094147","file":"20261006094147_profesionales_f1_f2_pacientes_historia_clinica.sql","sha256":"04b8e5d216eb8a4228d641cc353c63da8063a7ebaf97e07a3532015267a28df5","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006094149","file":"20261006094149_profesionales_f3_lesiones_ejercicios.sql","sha256":"5d3a295f46cc4ec0c8d2f369dd297348f96560fd860bb976cef72d5153a8b764","added":"2026-10-06","by":"Brayan Steven Lopez"},
-    {"v":"20261006111003","file":"20261006111003_profesionales_gates_i7.sql","sha256":"4a569620255440843d2e5652d4227b626a912940e2a41f33917db77bd8178083","added":"2026-10-06","by":"Brayan Steven Lopez"}
+    {"v":"20261006111003","file":"20261006111003_profesionales_gates_i7.sql","sha256":"4a569620255440843d2e5652d4227b626a912940e2a41f33917db77bd8178083","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261006120601","file":"20261006120601_whatsapp_ajustes_por_escuela.sql","sha256":"c7ba4147bba2a522f78254a587d6c07d2a8baf18c6e4ece0a634bcc494a88804","added":"2026-10-06","by":"Brayan Steven Lopez"}
   ]
 }

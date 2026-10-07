@@ -483,7 +483,9 @@ export default function JoinSchoolPublicPage() {
                   <div>
                     <p className="font-bold text-sm">Inscribir a un menor de edad</p>
                     <p className="text-xs text-muted-foreground">
-                      Soy el padre, madre o acudiente. Registro al menor a mi cargo y pago el primer mes.
+                      {data.require_first_payment === false
+                        ? 'Soy el padre, madre o acudiente. Registro al menor a mi cargo.'
+                        : 'Soy el padre, madre o acudiente. Registro al menor a mi cargo y pago el primer mes.'}
                     </p>
                   </div>
                 </button>
