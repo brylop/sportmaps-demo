@@ -295,17 +295,31 @@ ${m.content}`
         max_tokens: 2048,
         // Respuestas cortas de WhatsApp: esfuerzo bajo = menos latencia y costo.
         ...conEsfuerzoBajo(modeloClaude(process.env.WHATSAPP_CLAUDE_MODEL)),
-        system,
+        // Caché de prompt: herramientas + sistema son casi siempre iguales y el
+        // bot llama al modelo 2+ veces por turno (herramienta → respuesta). Lo
+        // cacheado se cobra ~10 % en las lecturas siguientes (2026-10-07).
+        system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
         messages: msgs,
     };
     if (tools.length) {
-        body.tools = tools.map((t) => ({
+        body.tools = tools.map((t, i) => ({
             name: t.name,
             description: t.description,
             input_schema: { type: 'object', ...(t.parameters || {}) },
+            ...(i === tools.length - 1 ? { cache_control: { type: 'ephemeral' } } : {}),
         }));
     }
     const res: any = await client.messages.create(body);
+    const u = res.usage;
+    if (u) {
+        console.info('[llm] claude uso', {
+            modelo: body.model,
+            entrada: u.input_tokens,
+            cache_lectura: u.cache_read_input_tokens ?? 0,
+            cache_escritura: u.cache_creation_input_tokens ?? 0,
+            salida: u.output_tokens,
+        });
+    }
     if (res.stop_reason === 'refusal') throw new Error('claude_refusal');
     const blocks: any[] = res.content ?? [];
     const toolCalls: LlmToolCall[] = blocks
