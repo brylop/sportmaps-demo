@@ -38,6 +38,8 @@ import { esCierreSuelto } from '../services/whatsapp-reglas-turno';
 import { vocativosDeEscuela } from '../services/whatsapp-bot.service';
 import { contarBorradoresHuerfanos, ponerseAlDia } from '../services/whatsapp-ponerse-al-dia.service';
 import { prospectosDeConversaciones } from '../services/whatsapp-prospecto-lead.service';
+import { ESTADOS_BANDEJA, clasificarFila, estaCerrada, filasParaAutocierre, marcaDeCierre, motivoDeFila,
+         referenciaUsada, resumenDeGrupos, type GrupoBandeja, type PagoMinimo } from '../services/whatsapp-bandeja.service';
 
 const router = Router();
 
@@ -152,18 +154,17 @@ router.get('/:schoolId', requireAuth, async (req: AuthenticatedRequest, res: Res
             .eq('integration_id', integracion.id)
             .eq('direction', 'outbound')
             .gte('created_at', inicioDelMesBogota()),
-        supabase.from('whatsapp_inbound_queue')
-            .select('id, status, wa_phone_number, message_type, media_mime_type, storage_path, '
-                + 'error_message, result_type, result_ref_id, retries, created_at, processed_at')
-            .eq('school_id', schoolId)
-            .in('status', ['failed', 'ignored', 'waiting_user'])
-            .order('created_at', { ascending: false }).limit(100),
+        filasAbiertasDeBandeja(schoolId),
         supabase.from('whatsapp_account_events')
             .select('id, field, template_name, estado_previo, nuevo_estado, motivo, visto_at, created_at')
             .eq('school_id', schoolId)
             .order('created_at', { ascending: false }).limit(50),
     ]);
     const ajustes = ajustesR.data;
+    // La bandeja va clasificada: el contador de la pestaña es lo que requiere
+    // acción, no todo lo que el bot no aplicó (ver whatsapp-bandeja.service).
+    const bandeja = armarBandeja(bandejaR.filas,
+        await conversacionesPorNumero(integracion.id, bandejaR.filas.map((f) => f.wa_phone_number)));
 
     // El desglose se arma aca con la misma forma que devolvia el RPC, para que
     // la pantalla no note la diferencia.
@@ -214,7 +215,8 @@ router.get('/:schoolId', requireAuth, async (req: AuthenticatedRequest, res: Res
             // ahorra; el excedente se factura como paquete.
             avisar: facturables >= incluidos * UMBRAL_AVISO,
         },
-        bandeja: bandejaR.data ?? [],
+        bandeja: bandeja.filas,
+        bandeja_resumen: bandeja.resumen,
         eventos: eventosR.data ?? [],
     });
 });
@@ -355,25 +357,206 @@ router.post('/:schoolId/ponerse-al-dia', requireAuth, async (req: AuthenticatedR
     return res.status(202).json({ ok: true, en_curso: true, borradores_huerfanos: pendientes });
 });
 
-// ── GET /bandeja — lo que quedó sin resolver ────────────────────────────────
+// ── Bandeja de comprobantes ─────────────────────────────────────────────────
+// Ver whatsapp-bandeja.service: grupos accion/revisar/informativo, cierre por
+// la escuela (prefijo en error_message, sin migración) y barrido de lo que ya
+// estaba registrado.
+
+const COLUMNAS_BANDEJA = 'id, status, wa_phone_number, message_type, media_mime_type, storage_path, '
+    + 'media_caption, error_message, result_type, result_ref_id, matched_child_id, retries, created_at, processed_at';
+/** Techo de filas abiertas. Antes era 100 y el contador se quedaba ahí (Dynasty tenía 113). */
+const TECHO_BANDEJA = 500;
+const BUCKET_COMPROBANTES = 'payment-receipts';
+const TTL_MINIATURA_SEG = 15 * 60;
+
+/** Filas abiertas (no cerradas por la escuela), más nuevas primero. */
+async function filasAbiertasDeBandeja(schoolId: string): Promise<{ filas: any[]; error: string | null }> {
+    const { data, error } = await supabase.from('whatsapp_inbound_queue')
+        .select(COLUMNAS_BANDEJA)
+        .eq('school_id', schoolId)
+        .in('status', [...ESTADOS_BANDEJA])
+        .order('created_at', { ascending: false })
+        .limit(TECHO_BANDEJA);
+    if (error) return { filas: [], error: error.message };
+    return { filas: ((data ?? []) as any[]).filter((f) => !estaCerrada(f.error_message)), error: null };
+}
+
+/** Conversación de cada número: id (para «Ver chat»), nombre y tipo de contacto. */
+async function conversacionesPorNumero(integrationId: string, numeros: string[]) {
+    const mapa = new Map<string, { id: string; contact_name: string | null; contact_kind: string | null }>();
+    const unicos = [...new Set(numeros.filter(Boolean))];
+    for (let i = 0; i < unicos.length; i += 100) {
+        const lote = unicos.slice(i, i + 100);
+        let r: { data: any; error: any } = await supabase.from('whatsapp_conversations')
+            .select('id, contact_wa_id, contact_name, contact_kind')
+            .eq('integration_id', integrationId)
+            .in('contact_wa_id', lote);
+        // Sin la migración de Fase A no hay contact_kind: sin tipo, igual que el buzón.
+        if (r.error && esColumnaInexistente(r.error)) {
+            r = await supabase.from('whatsapp_conversations')
+                .select('id, contact_wa_id, contact_name')
+                .eq('integration_id', integrationId)
+                .in('contact_wa_id', lote);
+        }
+        for (const c of (r.data ?? []) as any[]) {
+            mapa.set(c.contact_wa_id, { id: c.id, contact_name: c.contact_name ?? null, contact_kind: c.contact_kind ?? null });
+        }
+    }
+    return mapa;
+}
+
+/**
+ * Barrido idempotente: cierra como `resuelto_auto` las `ya_registrado` cuyo pago
+ * sigue registrado. No toca `payments`. El UPDATE exige el `error_message`
+ * previo, así dos BFF (o un cierre manual simultáneo) no se pisan.
+ */
+async function autocerrarYaRegistradas(schoolId: string, filas: any[], log?: any): Promise<Set<string>> {
+    const candidatas = filas.filter((f) => f.status === 'ignored' && motivoDeFila(f).motivo === 'ya_registrado');
+    const cerradas = new Set<string>();
+    if (!candidatas.length) return cerradas;
+
+    const ids = [...new Set(candidatas.map((f) => f.result_ref_id).filter(Boolean))] as string[];
+    const refs = [...new Set(candidatas.map((f) => referenciaUsada(f.error_message)).filter(Boolean))] as string[];
+    const [porIdR, porRefR] = await Promise.all([
+        ids.length
+            ? supabase.from('payments').select('id, school_id, status, concept, ocr_reference').in('id', ids)
+            : Promise.resolve({ data: [], error: null } as any),
+        refs.length
+            ? supabase.from('payments').select('id, school_id, status, concept, ocr_reference')
+                .eq('school_id', schoolId).in('ocr_reference', refs)
+            : Promise.resolve({ data: [], error: null } as any),
+    ]);
+    const pagosPorId = new Map<string, PagoMinimo>(((porIdR.data ?? []) as PagoMinimo[]).map((p) => [p.id, p]));
+    const pagosPorRef = new Map<string, PagoMinimo>(((porRefR.data ?? []) as PagoMinimo[])
+        .filter((p) => p.ocr_reference).map((p) => [p.ocr_reference as string, p]));
+
+    for (const { fila, pago } of filasParaAutocierre(schoolId, candidatas, pagosPorId, pagosPorRef)) {
+        const motivo = `el pago ya está registrado (${pago.status}: ${(pago.concept ?? '').slice(0, 80)})`;
+        const { data, error } = await supabase.from('whatsapp_inbound_queue')
+            .update({ error_message: marcaDeCierre('resuelto_auto', motivo, null, fila.error_message),
+                      updated_at: new Date().toISOString() })
+            .eq('id', fila.id)
+            .eq('school_id', schoolId)
+            .eq('status', 'ignored')
+            .eq('error_message', fila.error_message as string)
+            .select('id');
+        if (error) { log?.warn?.({ schoolId, fila: fila.id, err: error.message }, '[wa-bandeja] autocierre falló'); continue; }
+        if ((data ?? []).length) cerradas.add(fila.id);
+    }
+    if (cerradas.size) log?.info?.({ schoolId, cerradas: cerradas.size }, '[wa-bandeja] cerradas solas (ya registradas)');
+    return cerradas;
+}
+
+/** Clasifica y ordena: acción primero, después revisar, después informativo. */
+function armarBandeja(filas: any[], convs: Map<string, { id: string; contact_name: string | null; contact_kind: string | null }>) {
+    const orden: Record<GrupoBandeja, number> = { accion: 0, revisar: 1, informativo: 2 };
+    const enriquecidas = filas.map((f) => {
+        const c = convs.get(f.wa_phone_number) ?? null;
+        return {
+            ...f,
+            ...clasificarFila(f, c?.contact_kind ?? null),
+            conversacion_id: c?.id ?? null,
+            contacto: c?.contact_name ?? null,
+            tipo_contacto: c?.contact_kind ?? null,
+        };
+    });
+    enriquecidas.sort((a, b) => (orden[a.grupo as GrupoBandeja] - orden[b.grupo as GrupoBandeja])
+        || String(b.created_at).localeCompare(String(a.created_at)));
+    return { filas: enriquecidas, resumen: resumenDeGrupos(enriquecidas) };
+}
+
+// ── GET /bandeja — lo que quedó sin resolver, agrupado ──────────────────────
 router.get('/:schoolId/bandeja', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     const { schoolId } = req.params as { schoolId: string };
     if (!(await administraEstaEscuela(req.user.id, schoolId))) {
         return res.status(403).json({ error: 'forbidden' });
     }
 
-    // Solo lo que necesita a un humano. Lo 'done' no se lista: es ruido.
-    const { data, error } = await supabase
-        .from('whatsapp_inbound_queue')
-        .select('id, status, wa_phone_number, message_type, media_mime_type, storage_path, '
-            + 'error_message, result_type, result_ref_id, retries, created_at, processed_at')
-        .eq('school_id', schoolId)
-        .in('status', ['failed', 'ignored', 'waiting_user'])
-        .order('created_at', { ascending: false })
-        .limit(100);
+    const leidas = await filasAbiertasDeBandeja(schoolId);
+    if (leidas.error) return res.status(500).json({ error: leidas.error });
 
+    const cerradasSolas = await autocerrarYaRegistradas(schoolId, leidas.filas, req.log);
+    const abiertas = leidas.filas.filter((f) => !cerradasSolas.has(f.id));
+
+    const integracion = await integracionDe(schoolId);
+    const convs = integracion
+        ? await conversacionesPorNumero(integracion.id, abiertas.map((f) => f.wa_phone_number))
+        : new Map();
+    const { filas, resumen } = armarBandeja(abiertas, convs);
+
+    // Miniatura firmada del comprobante (15 min). Las rutas son de ESTA escuela
+    // (salen de filas filtradas por school_id); el bucket es privado.
+    const rutas = [...new Set(filas.map((f) => f.storage_path).filter(Boolean))] as string[];
+    const urlPorRuta = new Map<string, string>();
+    if (rutas.length) {
+        try {
+            const { data } = await supabase.storage.from(BUCKET_COMPROBANTES).createSignedUrls(rutas, TTL_MINIATURA_SEG);
+            for (const d of (data ?? []) as any[]) if (d?.path && d?.signedUrl) urlPorRuta.set(d.path, d.signedUrl);
+        } catch (err: any) {
+            req.log?.warn({ schoolId, err: err?.message || err }, '[wa-bandeja] no se pudieron firmar las miniaturas');
+        }
+    }
+
+    return res.json({
+        filas: filas.map((f) => ({ ...f, archivo_url: f.storage_path ? urlPorRuta.get(f.storage_path) ?? null : null })),
+        resumen,
+        cerradas_solas: cerradasSolas.size,
+    });
+});
+
+/**
+ * POST /api/v1/whatsapp/:schoolId/bandeja/:filaId/cerrar  { accion, motivo }
+ *
+ * «Marcar resuelto» / «Descartar». Solo administración de ESA escuela
+ * (`administraEstaEscuela`), y la fila tiene que ser de esa escuela: el UPDATE
+ * va con school_id. No toca pagos: si el comprobante había que aplicarlo, se
+ * aplica en Pagos y aquí se marca resuelto. Idempotente: una fila ya cerrada
+ * responde 409.
+ */
+const CierreBandejaSchema = z.object({
+    accion: z.enum(['resuelto', 'descartado']),
+    motivo: z.string().trim().min(3, 'escribe el motivo').max(200),
+});
+
+router.post('/:schoolId/bandeja/:filaId/cerrar', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId, filaId } = req.params as { schoolId: string; filaId: string };
+    if (!(await administraEstaEscuela(req.user.id, schoolId))) {
+        return res.status(403).json({ error: 'forbidden' });
+    }
+    const parsed = CierreBandejaSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'datos_invalidos', details: parsed.error.issues });
+
+    const { data: fila, error: errLee } = await supabase.from('whatsapp_inbound_queue')
+        .select('id, school_id, status, error_message')
+        .eq('id', filaId)
+        .eq('school_id', schoolId)
+        .maybeSingle();
+    if (errLee) return res.status(500).json({ error: errLee.message });
+    if (!fila || !(ESTADOS_BANDEJA as readonly string[]).includes((fila as any).status)) {
+        return res.status(404).json({ error: 'no_encontrada' });
+    }
+    if (estaCerrada((fila as any).error_message)) return res.status(409).json({ error: 'ya_cerrada' });
+
+    const previo = ((fila as any).error_message ?? null) as string | null;
+    let upd = supabase.from('whatsapp_inbound_queue')
+        .update({
+            // waiting_user/failed pasan a ignored: dejan de esperar a la familia
+            // y de contar como fallo. El result_type se conserva (métricas).
+            status: 'ignored',
+            error_message: marcaDeCierre(parsed.data.accion, parsed.data.motivo, req.user.id, previo),
+            locked_until: null,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', filaId)
+        .eq('school_id', schoolId)
+        .eq('status', (fila as any).status);
+    upd = previo === null ? upd.is('error_message', null) : upd.eq('error_message', previo);
+    const { data, error } = await upd.select('id, status, error_message');
     if (error) return res.status(500).json({ error: error.message });
-    return res.json({ filas: data ?? [] });
+    if (!(data ?? []).length) return res.status(409).json({ error: 'cambio_en_curso' });
+
+    req.log?.info({ schoolId, filaId, accion: parsed.data.accion, por: req.user.id }, '[wa-bandeja] fila cerrada');
+    return res.json({ ok: true, fila: (data as any[])[0] });
 });
 
 // ── GET /eventos — lo que avisa Meta ────────────────────────────────────────

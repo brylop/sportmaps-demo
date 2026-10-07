@@ -433,13 +433,13 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
         }
     }, [schoolId, toast]);
 
-    // Llegada desde el correo de escalamiento: abrir esa conversación una sola
-    // vez. Si no está en la bandeja actual, se abre igual por id: el detalle lo
-    // trae el servidor.
-    const [inicialAbierta, setInicialAbierta] = useState(false);
+    // Llegada desde el correo de escalamiento (o «Ver chat» de la Bandeja):
+    // abrir esa conversación una vez por id pedido. Si no está en la bandeja
+    // actual, se abre igual por id: el detalle lo trae el servidor.
+    const [inicialAbierta, setInicialAbierta] = useState<string | null>(null);
     useEffect(() => {
-        if (!conversacionInicial || inicialAbierta || cargandoLista) return;
-        setInicialAbierta(true);
+        if (!conversacionInicial || inicialAbierta === conversacionInicial || cargandoLista) return;
+        setInicialAbierta(conversacionInicial);
         const c = lista.find((x) => x.id === conversacionInicial) ?? ({ id: conversacionInicial } as Conversacion);
         void abrir(c);
     }, [conversacionInicial, inicialAbierta, cargandoLista, lista, abrir]);

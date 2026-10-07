@@ -42,6 +42,7 @@ import {
     enmascararTelefonoLead, hoyBogota, hora12, listarCortesias, sumarDias,
 } from '../services/cortesia-reservas.service';
 import { contarBorradoresHuerfanos, HUERFANO_MIN_MS } from '../services/whatsapp-ponerse-al-dia.service';
+import { estaCerrada } from '../services/whatsapp-bandeja.service';
 
 /** El paso con que el bot contesta a un desconocido con tema escolar.
  *  Copia de PASO_DESCONOCIDO_ESCOLAR (whatsapp-bot.service): importarlo de ahí
@@ -162,7 +163,7 @@ export async function armarResumenEscuela(
 
     // ── 2. Comprobantes que quedaron para la escuela (últimas 24 h) ──
     const { data: cola } = await supabase.from('whatsapp_inbound_queue')
-        .select('wa_phone_number, status, result_type, created_at')
+        .select('wa_phone_number, status, result_type, error_message, created_at')
         .eq('school_id', schoolId)
         .in('status', ['failed', 'ignored', 'waiting_user'])
         .gte('created_at', desde24)
@@ -173,6 +174,8 @@ export async function armarResumenEscuela(
     const comprobantes: ComprobanteParaEscuela[] = ((cola ?? []) as any[])
         // 'ignored' sin 'escalated' es ruido (no era comprobante, bot apagado, contacto personal…).
         .filter((f) => f.status !== 'ignored' || f.result_type === 'escalated')
+        // Lo que la escuela ya resolvió o descartó en la Bandeja no se le vuelve a contar.
+        .filter((f) => !estaCerrada(f.error_message))
         .map((f) => ({
             contacto: etiquetaDeContacto(nombrePorNumero.get(f.wa_phone_number) ?? null, f.wa_phone_number),
             estado: ESTADO_COMPROBANTE[f.status === 'ignored' ? 'escalated' : f.status] ?? f.status,
